@@ -1,0 +1,164 @@
+[workspace]
+resolver = "3"
+# `crates/*` joins this list with the first crate (milestone 1, step 1). Cargo 1.99
+# rejects a member glob that matches nothing ("failed to read crates/*/Cargo.toml"),
+# so until then the workspace holds only the xtask.
+members = ["xtask"]
+# The intended default members once milestone 1 lands: every crate except
+# efr-screen-ghostty, so a bare `cargo build` or `cargo test` never invokes Zig.
+# default-members = [
+#   "crates/efr-stdx", "crates/efr-protocol", "crates/efr-store", "crates/efr-credentials",
+#   "crates/efr-permissions", "crates/efr-scope", "crates/efr-holder", "crates/efr-http",
+#   "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-screen-vt100",
+#   "crates/efr-pty", "crates/efr-shell", "crates/efr-tools", "crates/efr-provider-openai",
+#   "crates/efr-oauth-openai", "crates/efr-conversation", "crates/efr-transport", "crates/efr-client",
+#   "crates/efr-daemon", "crates/efr-cli", "crates/efr-test-daemon", "xtask",
+# ]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+authors = ["eggfriedrice"]
+# repository is unset until the forge is chosen (structure document, open question 11).
+
+# Every third-party crate is named once here, with default-features = false where the
+# crate allows it; members opt into features explicitly. Versions are the crates.io
+# versions of 2026-10-03 from the structure document, section 8.
+[workspace.dependencies]
+# Runtime and async
+tokio = { version = "1.53.2", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "signal", "fs"] }
+tokio-util = { version = "0.7.19", default-features = false, features = ["codec"] }
+tokio-stream = { version = "0.1.19", default-features = false }
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+async-trait = "0.1.92"
+
+# Serialisation
+serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
+schemars = { version = "1.2.2", default-features = false, features = ["std", "derive"] }
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "display"] }
+
+# Errors
+thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+
+# Logging (no tracing-log: the `log` crate is banned in deny.toml)
+tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "ansi", "env-filter", "registry"] }
+tracing-journald = "0.3.2"
+tracing-appender = "0.2.5"
+
+# CLI
+clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+
+# Ids, time, paths
+uuid = { version = "1.27.0", default-features = false, features = ["std", "v7", "serde"] }
+jiff = { version = "0.2.37", default-features = false, features = ["std", "serde", "tz-system", "tzdb-zoneinfo"] }
+etcetera = "0.11.0"
+
+# Operating system
+rustix = { version = "1.1.5", default-features = false, features = ["std", "pty", "termios", "process", "fs"] }
+nix = { version = "0.31.3", default-features = false, features = ["process", "signal", "socket", "term", "fs", "user"] }
+libc = { version = "0.2.190", default-features = false, features = ["std"] }
+
+# Storage
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+rusqlite_migration = { version = "2.6.0", default-features = false }
+
+# HTTP and TLS
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "json", "stream"] }
+rustls = { version = "0.23.45", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+hyper = { version = "1.11.1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["client-legacy", "http1", "tokio"] }
+http-body-util = { version = "0.1.5", default-features = false }
+http = { version = "1.5.0", default-features = false, features = ["std"] }
+url = { version = "2.5.8", default-features = false, features = ["std"] }
+
+# Credentials and crypto
+sha2 = { version = "0.11.0", default-features = false, features = ["alloc"] }
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "sys_rng"] }
+secrecy = { version = "0.10.3", default-features = false }
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+keyring = "4.2.0"
+
+# Utilities
+memchr = { version = "2.8.3", default-features = false, features = ["std"] }
+indexmap = { version = "2.14.2", default-features = false, features = ["std"] }
+strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
+which = "8.0.6"
+
+# Screen backends
+vt100 = "0.16.2"
+# The pin triple (this rev, ghostty 22d13172, Zig 0.16.0) is recorded in docs/ghostty-pin.md.
+# Only efr-screen-ghostty may depend on it; `cargo xtask deps` enforces that.
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "8953a740bc378cec3e07e1f6ca949f0595eab19b", default-features = false }
+
+# Tests
+tempfile = "3.27.0"
+insta = "1.49.0"
+rstest = { version = "0.27.0", default-features = false }
+proptest = "1.11.0"
+assert_cmd = "2.2.2"
+wiremock = "0.6.5"
+pretty_assertions = "1.4.1"
+
+# Tooling (xtask)
+cargo_metadata = "0.23.1"
+walkdir = "2.5.0"
+
+# Internal crates are added here as they land, so a member writes
+# `efr-stdx.workspace = true`, for example:
+# efr-stdx = { path = "crates/efr-stdx" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+elided_lifetimes_in_paths = "warn"
+missing_debug_implementations = "warn"
+unexpected_cfgs = { level = "deny", check-cfg = [] }
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+undocumented_unsafe_blocks = "deny"
+await_holding_lock = "deny"
+await_holding_invalid_type = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+todo = "warn"
+large_futures = "warn"
+str_to_string = "warn"
+uninlined_format_args = "warn"
+
+# vt100 and serde_json are hot in tests.
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.test]
+inherits = "dev"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = "symbols"
+
+# cargo-dist builds this one at the first tagged release.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
