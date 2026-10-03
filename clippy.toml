@@ -1,0 +1,16 @@
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+too-many-lines-threshold = 200
+await-holding-invalid-types = ["tokio::sync::MutexGuard", "tokio::sync::RwLockReadGuard", "tokio::sync::RwLockWriteGuard"]
+# The replacement paths name crates that land in milestone 1; clippy only matches an
+# entry once its path resolves, so the list can be complete before the crates exist.
+disallowed-methods = [
+  { path = "std::process::Command::new", replacement = "efr_stdx::process::command", reason = "forces an explicit cwd and env scrub" },
+  { path = "tokio::process::Command::new", replacement = "efr_stdx::process::command", reason = "same" },
+  { path = "rusqlite::Connection::open", replacement = "efr_store::db::open", reason = "efr-store is the only SQLite owner" },
+  { path = "rusqlite::Connection::open_in_memory", replacement = "efr_store::db::open_in_memory", reason = "same" },
+  { path = "std::env::var", replacement = "efr_stdx::env::var", reason = "typed EFR_* access, one place to document variables" },
+  { path = "std::time::SystemTime::now", replacement = "efr_stdx::time::Clock::now", reason = "time is injected" },
+  { path = "tokio::time::sleep", replacement = "efr_stdx::time::Clock::sleep", reason = "time is injected" },
+]

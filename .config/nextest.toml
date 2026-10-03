@@ -1,0 +1,20 @@
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 2 }
+fail-fast = false
+
+[profile.ci]
+retries = 0
+failure-output = "immediate-final"
+status-level = "fail"
+final-status-level = "slow"
+
+[test-groups]
+shell = { max-threads = 1 }
+
+# Tests that drive a real zsh share terminal state and run one at a time. nextest
+# 0.9.146 rejects a filter whose package() matches no workspace member, so this
+# override is enabled in the commit that adds efr-shell and efr-test-daemon:
+#
+# [[profile.default.overrides]]
+# filter = 'package(efr-shell) & test(/^e2e_/) | package(efr-test-daemon) & test(/^shell_/)'
+# test-group = "shell"

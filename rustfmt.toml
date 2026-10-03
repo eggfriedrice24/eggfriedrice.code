@@ -1,0 +1,6 @@
+# Stable options only, so `cargo fmt` behaves the same on the pinned stable toolchain
+# and on a nightly.
+edition = "2024"
+style_edition = "2024"
+use_small_heuristics = "Max"
+newline_style = "Unix"

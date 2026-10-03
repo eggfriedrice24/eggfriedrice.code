@@ -1,0 +1,49 @@
+# cargo-deny 0.20 configuration. The models are goose's `yanked = "deny"` and atuin's
+# explicit licence allow list.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Compatible with the project's MIT licence. MPL-2.0 joins only if a dependency forces it.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.8
+exceptions = []
+# The allow list is set for the whole planned dependency tree, so entries that no
+# current crate uses are expected until milestone 1 lands.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Workspace members are never published; their licence is the workspace one.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = [
+  { crate = "log", reason = "tracing is the only logging facade" },
+  { crate = "openssl-sys", reason = "TLS is rustls only" },
+  { crate = "native-tls", reason = "TLS is rustls only" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The libghostty-vt pin (docs/ghostty-pin.md). It is unused until efr-screen-ghostty
+# exists, hence the unused-allowed-source setting.
+allow-git = ["https://github.com/uzaaft/libghostty-rs"]
+unused-allowed-source = "allow"
