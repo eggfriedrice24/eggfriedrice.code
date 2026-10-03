@@ -1,0 +1,20 @@
+# User unit for the eggfriedrice.code daemon. Installed by `just install` to
+# ~/.config/systemd/user/efrd.service. Run `loginctl enable-linger` once so the
+# daemon keeps running without an open login session.
+[Unit]
+Description=eggfriedrice.code daemon (efrd)
+# Allow up to 10 restarts in the default interval before systemd gives up.
+StartLimitBurst=10
+
+[Service]
+# efrd sends READY=1 only after migrations finish and the socket is open.
+Type=notify
+ExecStart=%h/.local/bin/efrd
+Restart=always
+RestartSec=5
+# An OOM kill of one hidden shell must not take the daemon down with it.
+OOMPolicy=continue
+Environment=EFR_LOG=info
+
+[Install]
+WantedBy=default.target
