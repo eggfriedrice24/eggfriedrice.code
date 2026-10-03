@@ -30,7 +30,6 @@ Pre-alpha. The repository holds the design and the workspace skeleton. Nothing r
 | `ARCHITECTURE.md` | The crate map, the dependency rule and the threading model |
 | `CONVENTIONS.md` | How code in this repository is written |
 | `docs/` | Protocol, storage, the ghostty pin and the decision records |
-| `research/` | The investigations that produced this design |
 | `crates/` | The Rust workspace, one crate for each bounded context |
 | `shell/zsh/` | The zsh plugin |
 | `systemd/` | The user unit for the daemon |
