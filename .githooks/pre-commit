@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Cheap checks only; the full gate runs in CI and the pre-push hook.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+just fmt-check
+typos
+cargo xtask tidy --fast

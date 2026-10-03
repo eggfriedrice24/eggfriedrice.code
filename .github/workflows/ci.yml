@@ -1,0 +1,217 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A stale snapshot fails instead of being rewritten.
+  INSTA_UPDATE: "no"
+
+# Every job except `ghostty` is Zig-free. Jobs for crates that land in milestone 1
+# guard on the crate directory, so the workflow is green on the empty workspace.
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typos-cli@1.50.3
+      - run: cargo fmt --all --check
+      - run: typos
+
+  tidy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask tidy
+      - run: cargo xtask deps
+      - name: negative cargo tree checks
+        shell: bash
+        # The same rules as xtask/src/deps.rs, through a second implementation, so the
+        # two check each other.
+        run: |
+          set -euo pipefail
+          members="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name')"
+          is_member() { grep -qx "$1" <<<"$members"; }
+          fail=0
+          forbid() {
+            local from="$1" to="$2"
+            if ! is_member "$from"; then
+              echo "skip: $from does not exist yet"
+              return
+            fi
+            if cargo tree -p "$from" -e normal --all-features --prefix none --format '{p}' \
+                | awk '{print $1}' | grep -qx "$to"; then
+              echo "::error::forbidden edge $from -> $to"
+              fail=1
+            else
+              echo "ok: $from does not reach $to"
+            fi
+          }
+          forbid efr-tools efr-permissions
+          forbid efr-provider-openai efr-oauth-openai
+          forbid efr-conversation efr-shell
+          forbid efr-conversation efr-transport
+          forbid efr-transport efr-store
+          forbid efr-protocol tokio
+          forbid efr-test-support efr-daemon
+          only_parent() {
+            local dep="$1" owner="$2" parents
+            parents="$(cargo tree --workspace --all-features -e normal -i "$dep" --depth 1 \
+                --prefix none --format '{p}' 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -u || true)"
+            for parent in $parents; do
+              if [[ "$parent" != "$owner" ]] && is_member "$parent"; then
+                echo "::error::only $owner may depend on $dep, found $parent"
+                fail=1
+              fi
+            done
+            echo "ok: direct workspace parents of $dep: ${parents:-none}"
+          }
+          only_parent libghostty-vt efr-screen-ghostty
+          only_parent rusqlite efr-store
+          exit "$fail"
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --exclude efr-screen-ghostty --all-targets -- -D warnings
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny check
+
+  test-leaf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - name: leaf crates
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          for crate in efr-stdx efr-protocol efr-store efr-credentials efr-permissions \
+              efr-scope efr-holder efr-http efr-screen efr-provider efr-screen-vt100; do
+            if [[ -d "crates/$crate" ]]; then args+=(-p "$crate"); fi
+          done
+          if [[ ${#args[@]} -eq 0 ]]; then
+            echo "no leaf crates yet; nothing to run"
+            exit 0
+          fi
+          cargo nextest run "${args[@]}" --lib --tests --profile ci
+
+  test-full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - run: cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci
+
+  ghostty:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check for the ghostty screen crate
+        id: present
+        shell: bash
+        run: |
+          if [[ -d crates/efr-screen-ghostty ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "efr-screen-ghostty does not exist yet; skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.run == 'true'
+        run: rustup toolchain install
+      # Zig 0.16.0 exactly: the pin triple in docs/ghostty-pin.md.
+      - if: steps.present.outputs.run == 'true'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      # Caches the ghostty clone and the zig build output under target/.
+      - if: steps.present.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.present.outputs.run == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - if: steps.present.outputs.run == 'true'
+        run: cargo nextest run -p efr-screen-ghostty -p efr-daemon --features efr-daemon/screen-ghostty --profile ci
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check for the shell crates
+        id: present
+        shell: bash
+        run: |
+          if [[ -d crates/efr-shell && -d crates/efr-test-daemon ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "efr-shell does not exist yet; skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.present.outputs.run == 'true'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - if: steps.present.outputs.run == 'true'
+        run: rustup toolchain install
+      - if: steps.present.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.present.outputs.run == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - if: steps.present.outputs.run == 'true'
+        run: cargo nextest run -p efr-shell -p efr-test-daemon --profile ci
+        env:
+          EFR_TEST_ZSH: "1"
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  hack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack@0.6.45
+      - run: cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty
