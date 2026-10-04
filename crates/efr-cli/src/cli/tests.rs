@@ -2,7 +2,7 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory as _, Parser as _};
 use pretty_assertions::assert_eq;
 
-use super::{Cli, Command, LastCommand, LoginCommand};
+use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand};
 use crate::testing::{CONVERSATION, command, conversation};
 
 fn parse_error(args: &[&str]) -> ErrorKind {
@@ -118,6 +118,12 @@ fn history_takes_a_conversation_a_limit_and_a_cursor() {
 fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
     assert_eq!(parse_error(&["login", "anthropic"]), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn status_and_config_show_parse() {
+    assert!(matches!(command(&["status"]), Command::Status));
+    assert!(matches!(command(&["config", "show"]), Command::Config(ConfigCommand::Show)));
 }
 
 #[test]

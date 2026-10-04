@@ -1,0 +1,27 @@
+---
+source: crates/efr-cli/src/commands/config/tests.rs
+expression: "effective(&ctx, &discovered)"
+---
+# The settings efr uses and where each one comes from.
+# The daemon's own settings are not shown; efrd reads them itself.
+
+[render]
+theme = "ansi"  # default
+colour = "none"  # NO_COLOR is set
+formatted = false  # stdout is not a terminal; raw markdown
+
+[paths]
+config = "/c/efr"  # XDG base directory
+data = "/d/efr"  # XDG base directory
+state = "/s/efr"  # XDG base directory
+runtime = "/run/user/1000/efr"  # XDG base directory
+
+[daemon]
+# socket: unknown, because the daemon speaks protocol 9 and this client speaks 1
+
+[login]
+open_browser = false  # EFR_OPEN_BROWSER is not a flag, so it is off
+
+[log]
+filter = "warn"  # default
+# warning: /c/efr/config.toml names the theme "neon", which does not exist

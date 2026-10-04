@@ -8,8 +8,11 @@
 
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::path::Path;
 
-use efr_protocol::{ApprovalDecision, ConversationStatus, ConversationsListResult, Origin};
+use efr_protocol::{
+    AdminStatusResult, ApprovalDecision, ConversationStatus, ConversationsListResult, Origin,
+};
 use efr_render::{ColourMode, RenderOptions};
 use jiff::Timestamp;
 use serde_json::Value;
@@ -195,6 +198,12 @@ pub(crate) fn ago(then: Timestamp, now: Timestamp) -> String {
     format!("{} ago", span(seconds.unsigned_abs()))
 }
 
+/// How long until `then` from `now`, such as `in 52m`, or how long ago it passed.
+pub(crate) fn until(then: Timestamp, now: Timestamp) -> String {
+    let seconds = then.duration_since(now).as_secs();
+    if seconds < 0 { ago(then, now) } else { format!("in {}", span(seconds.unsigned_abs())) }
+}
+
 /// A duration in its two largest units: `45s`, `5m 3s`, `2h 5m`, `3d 4h`.
 fn span(seconds: u64) -> String {
     let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
@@ -205,6 +214,43 @@ fn span(seconds: u64) -> String {
         (0, _, _) => format!("{hours}h {minutes}m"),
         _ => format!("{days}d {hours}h"),
     }
+}
+
+/// `efr status`: the daemon's identity and health, one fact per line.
+pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) -> String {
+    let mut out = String::new();
+    let mut row = |key: &str, value: &str| {
+        let _ = writeln!(out, "{key:<14} {value}");
+    };
+    row(
+        "daemon",
+        &format!(
+            "efrd {}, protocol {}, pid {}",
+            one_line(&status.version),
+            status.protocol,
+            status.pid
+        ),
+    );
+    row("daemon id", &status.daemon_id.to_string());
+    row("started", &format!("{} ({})", status.started_at, ago(status.started_at, now)));
+    row("socket", &one_line(&socket.display().to_string()));
+    row("screen", &one_line(&status.screen_backend));
+    row("conversations", &status.conversations.to_string());
+    row("shells", &status.shells.to_string());
+    if status.providers.is_empty() {
+        row("providers", "none configured");
+    }
+    for provider in &status.providers {
+        let state = match (provider.logged_in, provider.expires_at) {
+            (false, _) => "not logged in".to_owned(),
+            (true, None) => "logged in".to_owned(),
+            (true, Some(expires)) => {
+                format!("logged in, token expires {expires} ({})", until(expires, now))
+            }
+        };
+        row("provider", &format!("{}: {state}", one_line(&provider.provider)));
+    }
+    out
 }
 
 /// `efr history` without a conversation: one line per conversation, newest first.

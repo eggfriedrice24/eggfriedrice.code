@@ -25,8 +25,20 @@ pub(crate) const CONFIG_FILE: &str = "config.toml";
 pub(crate) struct Settings {
     /// The theme for code blocks and diffs.
     pub(crate) theme: Theme,
+    /// Where `theme` came from.
+    pub(crate) theme_source: Source,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
+}
+
+/// Where a setting came from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum Source {
+    /// The built-in default.
+    #[default]
+    Default,
+    /// `config.toml` at this path.
+    File(PathBuf),
 }
 
 /// A problem with `config.toml` that the defaults covered.
@@ -100,6 +112,7 @@ impl Settings {
             match Theme::from_name(&name) {
                 Ok(theme) => {
                     settings.theme = theme;
+                    settings.theme_source = Source::File(path.to_path_buf());
                 }
                 Err(_) => {
                     settings.warnings.push(Warning::UnknownTheme { path: path.to_path_buf(), name })

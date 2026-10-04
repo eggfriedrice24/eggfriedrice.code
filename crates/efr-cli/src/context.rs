@@ -130,6 +130,11 @@ impl Context {
         Ok(Client::connect(&socket, options).await?)
     }
 
+    /// The socket that [`connect`](Self::connect) would use.
+    pub(crate) async fn socket(&self) -> Result<PathBuf, CliError> {
+        Ok(efr_client::discover(&self.dirs).await?.socket)
+    }
+
     /// A new command id, which makes a write idempotent.
     pub(crate) fn command_id(&self) -> CommandId {
         CommandId::from_uuid(efr_stdx::id::uuid_v7(&*self.clock, &*self.rng))

@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use efr_protocol::{
-    ConversationStatus, ConversationSummary, ConversationsListResult, PageCursor, Seq,
+    AdminStatusResult, ConversationStatus, ConversationSummary, ConversationsListResult,
+    PageCursor, ProviderStatus, Seq,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::{SignedDuration, Timestamp};
@@ -7,13 +10,17 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, code_block, conversations, lines, one_line, paint, tool_call,
-    tool_result,
+    Block, Spacing, Tone, ago, code_block, conversations, lines, one_line, paint, status,
+    tool_call, tool_result, until,
 };
 use crate::testing::{conversation, now};
 
 fn before(seconds: i64) -> Timestamp {
     now() - SignedDuration::from_secs(seconds)
+}
+
+fn after(seconds: i64) -> Timestamp {
+    now() + SignedDuration::from_secs(seconds)
 }
 
 #[test]
@@ -90,6 +97,53 @@ fn ages_use_their_two_largest_units() {
     assert_eq!(ago(before(3 * 86_400 + 4 * 3_600), now()), "3d 4h ago");
     // A clock that runs behind the daemon's must not print a negative age.
     assert_eq!(ago(now() + SignedDuration::from_secs(10), now()), "just now");
+}
+
+#[test]
+fn a_future_time_counts_down_and_a_past_one_up() {
+    assert_eq!(until(after(52 * 60), now()), "in 52m 0s");
+    assert_eq!(until(before(90), now()), "1m 30s ago");
+}
+
+fn status_result() -> AdminStatusResult {
+    AdminStatusResult {
+        daemon_id: "019a9b1c-3d00-7a10-8b20-000000000007".parse().unwrap(),
+        version: "0.1.0".to_owned(),
+        protocol: 1,
+        pid: 4242,
+        started_at: before(2 * 3_600 + 60),
+        screen_backend: "vt100".to_owned(),
+        conversations: 2,
+        shells: 1,
+        providers: vec![
+            ProviderStatus {
+                provider: "openai".to_owned(),
+                logged_in: true,
+                expires_at: Some(after(52 * 60)),
+            },
+            ProviderStatus { provider: "anthropic".to_owned(), logged_in: false, expires_at: None },
+        ],
+    }
+}
+
+#[test]
+fn status_lists_one_fact_per_line() {
+    let socket = Path::new("/run/user/1000/efr/daemon.sock");
+    insta::assert_snapshot!(status(&status_result(), socket, now()));
+}
+
+#[test]
+fn status_without_providers_says_so() {
+    let result = AdminStatusResult { providers: Vec::new(), ..status_result() };
+    let text = status(&result, Path::new("/s"), now());
+    assert!(text.contains("providers      none configured\n"), "{text}");
+}
+
+#[test]
+fn status_text_from_the_daemon_cannot_drive_the_terminal() {
+    let result = AdminStatusResult { screen_backend: "vt\u{1b}[2J".to_owned(), ..status_result() };
+    let text = status(&result, Path::new("/s"), now());
+    assert!(!text.contains('\u{1b}'));
 }
 
 #[test]

@@ -1,0 +1,12 @@
+---
+source: crates/efr-cli/src/commands/status/tests.rs
+expression: text
+---
+daemon         efrd 0.1.0, protocol 1, pid 777
+daemon id      019a9b1c-3d00-7a10-8b20-000000000007
+started        2026-10-04T11:58:30Z (1m 30s ago)
+socket         <socket>
+screen         ghostty
+conversations  0
+shells         0
+provider       openai: not logged in

@@ -1,0 +1,13 @@
+---
+source: crates/efr-cli/src/format/tests.rs
+expression: "status(&status_result(), socket, now())"
+---
+daemon         efrd 0.1.0, protocol 1, pid 4242
+daemon id      019a9b1c-3d00-7a10-8b20-000000000007
+started        2026-10-04T09:59:00Z (2h 1m ago)
+socket         /run/user/1000/efr/daemon.sock
+screen         vt100
+conversations  2
+shells         1
+provider       openai: logged in, token expires 2026-10-04T12:52:00Z (in 52m 0s)
+provider       anthropic: not logged in

@@ -7,7 +7,7 @@
 //! bytes on the wire.
 
 use std::collections::VecDeque;
-use std::future::pending;
+use std::future::{pending, ready};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,6 +95,20 @@ impl Clock for StoppedClock {
 
     fn sleep(&self, _duration: Duration) -> Sleep {
         Box::pin(pending())
+    }
+}
+
+/// A clock whose sleeps finish at once, so a timeout fires at its first chance.
+#[derive(Debug)]
+pub(crate) struct InstantClock;
+
+impl Clock for InstantClock {
+    fn now(&self) -> Timestamp {
+        now()
+    }
+
+    fn sleep(&self, _duration: Duration) -> Sleep {
+        Box::pin(ready(()))
     }
 }
 
