@@ -829,6 +829,8 @@ dependencies = [
  "futures",
  "jiff",
  "pretty_assertions",
+ "tempfile",
+ "thiserror",
  "tokio",
 ]
 

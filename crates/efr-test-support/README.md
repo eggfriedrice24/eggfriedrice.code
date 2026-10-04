@@ -15,6 +15,13 @@ directories, a store and provider traffic from one place and never from the mach
   gives the same ids, PKCE verifiers and scratch names on every run and every machine.
   The algorithm is written out here, not taken from `rand`, because `rand` does not
   promise to keep a seeded sequence across versions; a test pins the first values.
+- `dirs`: `TestDirs`, a throwaway tree with the four efr roots (`config/`, `data/`,
+  `state/`, `runtime/`, the layout `just run` uses) and a stand-in `home/`, all mode
+  0700, removed on drop. `dirs()` gives the `efr_stdx::paths::Dirs`, `env()` an
+  `efr_stdx::env::Env` that names them through `EFR_*_DIR`, and `create_dir` makes a
+  working directory for a test. The root is the real path of the temporary directory,
+  so code that canonicalizes a path gets back the path the test holds.
+- `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
 
@@ -26,7 +33,7 @@ binary links it.
 `efr-protocol`, `efr-store`, `efr-provider` and `efr-stdx`. `xtask/src/deps.rs` holds
 the allowlist.
 
-Third-party crates: `jiff` and `tokio`.
+Third-party crates: `jiff`, `tempfile`, `thiserror` and `tokio`.
 
 ## Invariant
 

@@ -2,6 +2,7 @@
 //!
 //! - [`TestClock`]: an `efr_stdx` clock that moves only when a test moves it.
 //! - [`TestRng`]: a seeded `efr_stdx` generator whose sequence never changes.
+//! - [`TestDirs`]: the four efr roots and a home directory in a throwaway tree.
 //!
 //! This is a dev crate: a crate names it under `[dev-dependencies]` only, and no
 //! shipped binary links it.
@@ -16,7 +17,11 @@
 #![warn(missing_docs)]
 
 mod clock;
+mod dirs;
+mod error;
 mod rng;
 
 pub use clock::TestClock;
+pub use dirs::TestDirs;
+pub use error::TestSupportError;
 pub use rng::TestRng;
