@@ -1,17 +1,14 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
-# The intended default members once milestone 1 lands: every crate except
-# efr-screen-ghostty, so a bare `cargo build` or `cargo test` never invokes Zig.
-# default-members = [
-#   "crates/efr-stdx", "crates/efr-protocol", "crates/efr-store", "crates/efr-credentials",
-#   "crates/efr-permissions", "crates/efr-scope", "crates/efr-holder", "crates/efr-http",
-#   "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-render",
-#   "crates/efr-screen-vt100",
-#   "crates/efr-pty", "crates/efr-shell", "crates/efr-tools", "crates/efr-provider-openai",
-#   "crates/efr-oauth-openai", "crates/efr-conversation", "crates/efr-transport", "crates/efr-client",
-#   "crates/efr-daemon", "crates/efr-cli", "crates/efr-test-daemon", "xtask",
-# ]
+# New crates are appended to default-members; efr-screen-ghostty never is, so a bare build never invokes Zig.
+default-members = [
+  "crates/efr-stdx", "crates/efr-protocol", "crates/efr-store", "crates/efr-credentials",
+  "crates/efr-permissions", "crates/efr-scope", "crates/efr-holder", "crates/efr-http",
+  "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-render",
+  "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
+  "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "xtask",
+]
 
 [workspace.package]
 version = "0.1.0"
