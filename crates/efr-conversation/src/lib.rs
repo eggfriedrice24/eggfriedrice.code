@@ -10,6 +10,7 @@
 //! wire codes, and rendering.
 
 mod approvals;
+mod config;
 mod error;
 mod history;
 mod interrupt;
@@ -18,7 +19,9 @@ mod resolver;
 mod scratch;
 mod steer;
 mod toolbox;
+mod turn;
 
+pub use config::{ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
 pub use error::ConversationError;
 pub use history::HistoryLimits;
 pub use resolver::{GitScopeResolver, ScopeResolver};
