@@ -167,6 +167,41 @@ fn run(script: &str) -> Vec<Call> {
     home.calls()
 }
 
+/// Drives an interactive `zsh -f -i` on a pseudo-terminal from zsh's own zpty
+/// module, so ZLE reads every key as it does for a person and the plugin's widgets
+/// run for real. `$EFR_KEYS` is typed in one go, with `<C-Space>` standing for the
+/// NUL byte that Ctrl+Space sends; the driver prints what the terminal showed.
+const DRIVER: &str = r#"
+zmodload zsh/zpty || exit 90
+zpty user 'TERM=xterm zsh -f -i'
+# ZLE turns bracketed paste on once it reads keys in raw mode; keys typed earlier
+# would meet a terminal that still edits lines itself.
+zpty -r user screen $'*\e\\[\\?2004h*' || exit 91
+print -rn -- "$screen"
+nul=$'\0'
+zpty -w -n user "${EFR_KEYS//'<C-Space>'/$nul}"
+while zpty -r user chunk; do print -rn -- "$chunk"; done
+"#;
+
+/// Types `lines` into an interactive zsh after a line that sources the plugin, each
+/// line ended by Enter and the last followed by `exit`, and returns what the terminal
+/// showed.
+fn type_lines(home: &Home, lines: &[&str]) -> String {
+    let mut keys = format!("source {}\r", plugin().display());
+    for line in lines {
+        keys.push_str(line);
+        keys.push('\r');
+    }
+    // `!exit` is never read unless sticky mode wrongly stayed on and sent `exit` to the
+    // agent; then it ends the shell instead of leaving the test waiting.
+    keys.push_str("exit\r!exit\r");
+    let output = home.zsh().env("EFR_KEYS", keys).args(["-f", "-c", DRIVER]).output().unwrap();
+    let screen = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "the driver failed: {stderr}\n{screen}");
+    screen
+}
+
 /// `text` as one single-quoted zsh word.
 fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
@@ -346,21 +381,42 @@ fn e2e_the_hooks_are_registered_once_even_when_sourced_twice() {
     assert_eq!(call.args, ["hooks", "1", "1", "uptime"]);
 }
 
+/// Prompts that zsh would read as shell syntax if the plugin did not quote them.
+const SHELL_SYNTAX: [&str; 10] = [
+    "what is using port 8080?",
+    "list the *.log files",
+    "files > 1MB",
+    "explain this; rm -rf build",
+    "what's this",
+    "run !make again",
+    "why does it fail!?",
+    "what does !! do",
+    "count lines | sort",
+    "a  b",
+];
+
+#[test]
+fn e2e_a_prompt_typed_at_a_terminal_reaches_efr_as_typed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // At a terminal zsh also expands history, so a `!` must survive that too.
+    let home = Home::new();
+    let lines: Vec<String> = SHELL_SYNTAX.iter().map(|prompt| format!(", {prompt}")).collect();
+    let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+    type_lines(&home, &lines);
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    let expected: Vec<Option<String>> =
+        SHELL_SYNTAX.iter().map(|prompt| Some((*prompt).to_owned())).collect();
+    assert_eq!(prompts, expected);
+}
+
 #[test]
 fn e2e_a_prompt_with_shell_syntax_reaches_efr_as_typed() {
     if !zsh_tests_enabled() {
         return;
     }
-    let prompts = [
-        "what is using port 8080?",
-        "list the *.log files",
-        "files > 1MB",
-        "explain this; rm -rf build",
-        "what's this",
-        "run !make again",
-        "count lines | sort",
-        "a  b",
-    ];
+    let prompts = SHELL_SYNTAX;
     // The accept-line widget runs `_efr_rewrite_line` on the typed line; zsh then parses
     // what it returns, as eval does here.
     let script: String = prompts
@@ -432,4 +488,64 @@ fn e2e_a_bare_new_waits_until_a_conversation_could_start() {
     "#);
     let commands: Vec<&str> = calls.iter().map(|call| call.args[0].as_str()).collect();
     assert_eq!(commands, ["new", "new", "send"]);
+}
+
+#[test]
+fn e2e_a_line_of_just_a_comma_toggles_sticky_mode_as_ctrl_space_does() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[
+            ",",
+            "what is !! for?",
+            // zsh -f has no extended_glob, which the plugin must not need from the user.
+            ",new fresh start",
+            "!efr probe $_efr_sticky",
+            " , ",
+            "efr probe $_efr_sticky",
+            ", one prompt",
+            "efr probe $_efr_sticky",
+            "<C-Space>a line after ctrl space",
+            ",",
+            r#"efr history "${(@f)$(fc -ln 1)}""#,
+        ],
+    );
+    let calls = home.calls();
+    let args: Vec<Vec<&str>> =
+        calls.iter().map(|call| call.args.iter().map(String::as_str).collect()).collect();
+    assert_eq!(
+        args[..7],
+        [
+            vec!["send"],
+            vec!["new"],
+            vec!["probe", "1"],
+            vec!["probe", "0"],
+            vec!["send"],
+            vec!["probe", "0"],
+            vec!["send"],
+        ]
+    );
+    // In sticky mode the line is the prompt as typed, without history expansion.
+    assert_eq!(calls[0].prompt.as_deref(), Some("what is !! for?"));
+    assert_eq!(calls[1].prompt.as_deref(), Some("fresh start"));
+    assert_eq!(calls[4].prompt.as_deref(), Some("one prompt"));
+    assert_eq!(calls[6].prompt.as_deref(), Some("a line after ctrl space"));
+    // A toggle runs nothing, so it never lands in history.
+    let history = &calls[7].args[1..];
+    assert!(!history.is_empty() && history.iter().all(|line| line.trim() != ","), "{history:?}");
+}
+
+#[test]
+fn e2e_without_efr_a_lone_comma_says_what_is_missing() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::remove_file(home.path().join("bin/efr")).unwrap();
+    let screen = type_lines(&home, &[",", "print -r -- sticky=$_efr_sticky"]);
+    assert!(screen.contains("efr: the efr binary is not on PATH"), "{screen}");
+    assert!(screen.contains("sticky=0"), "{screen}");
 }

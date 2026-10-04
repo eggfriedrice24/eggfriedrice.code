@@ -1,12 +1,13 @@
 # efr.plugin.zsh - talk to the eggfriedrice.code daemon from an interactive zsh.
 #
 #   , <prompt>     send a prompt with this shell's context (queues behind a running turn)
+#   ,              a line of just `,` toggles sticky agent mode, as Ctrl+Space does
 #   ,new [prompt]  start a new conversation for this terminal; without a prompt,
 #                  the next `,` line starts it
 #   ,! <text>      steer the running turn instead of queueing
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
-#                  lines that start with `!` (run as shell commands) or `,`; a line
-#                  of just `,` leaves sticky mode
+#                  lines that start with `!` (run as shell commands) or `,` (the
+#                  commands above); the prompt starts with `efr> ` while it is on
 #
 # The plugin only observes and relays. The daemon derives git root, scope and
 # permissions, so nothing here runs git or forks per prompt.
@@ -144,7 +145,7 @@ function , {
   emulate -L zsh
   _efr_available || { _efr_missing; return 127 }
   if (( $# == 0 )); then
-    print -u2 -- "usage: , <prompt>   (Ctrl+Space toggles sticky agent mode)"
+    print -u2 -- "usage: , <prompt>   (a line of just , or Ctrl+Space toggles sticky agent mode)"
     return 2
   fi
   # After an earlier `,` line, $? is efr's own status; report the status of the shell
@@ -212,43 +213,59 @@ _efr_apply_indicator() {
   fi
 }
 
-_efr_toggle_sticky() {
-  if (( ! _efr_sticky )) && ! _efr_available; then
-    zle -M "efr: not on PATH; sticky agent mode is unavailable"
-    return 0
-  fi
-  (( _efr_sticky = ! _efr_sticky ))
+# Turns sticky agent mode on (1) or off (0); turning it on fails while efr is missing.
+# Called only from widgets and never under emulate: reset-prompt expands the prompt
+# at once, with the options in effect, and a theme may need the user's prompt_subst.
+_efr_set_sticky() {
+  (( $1 )) && ! _efr_available && return 1
+  _efr_sticky=$1
   _efr_apply_indicator
   zle reset-prompt
+}
+
+_efr_toggle_sticky() {
+  _efr_set_sticky $(( ! _efr_sticky )) ||
+    zle -M "efr: not on PATH; sticky agent mode is unavailable"
+  return 0
+}
+
+# True when $1 is a line of just `,`, which toggles sticky agent mode.
+_efr_is_toggle_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == [[:space:]]#,[[:space:]]# ]]
+}
+
+# Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a
+# line goes to the agent unless it starts with `,` (one of the plugin's commands) or
+# `!` (an escape hatch for one shell command), or is empty.
+_efr_line_to_run() {
+  emulate -L zsh -o extended_glob
+  local line=$1
+  if (( ! _efr_sticky )) || [[ $line == [[:space:]]#,* ]]; then
+    _efr_rewrite_line "$line"
+  elif [[ $line == '!'* ]]; then
+    REPLY=${line#!}
+  elif [[ -z ${line//[[:space:]]/} ]]; then
+    REPLY=$line
+  else
+    # Through the rewrite, so the prompt is quoted the same way as after a typed `,`.
+    _efr_rewrite_line ", $line"
+  fi
 }
 
 # Wraps whatever accept-line was before (another plugin's widget or the builtin),
 # so loading order with other plugins keeps working. Lines are rewritten rather than
 # sent to efr directly, so each lands in history as the command that actually ran.
+# The wrapped widget runs outside any emulate, with the user's own options.
 _efr_accept_line() {
-  local line=$BUFFER
-  if (( _efr_sticky )); then
-    if [[ $line == ',' ]]; then
-      _efr_sticky=0
-      _efr_apply_indicator
-      BUFFER=''
-      zle reset-prompt
-      return 0
-    elif [[ $line == '!'* ]]; then
-      # An escape hatch for one shell command without leaving sticky mode.
-      BUFFER=${line#!}
-    elif [[ -z ${line//[[:space:]]/} ]]; then
-      : # an empty line runs as typed
-    elif [[ $line == [[:space:]]#,* ]]; then
-      _efr_rewrite_line "$line"
-      BUFFER=$REPLY
-    else
-      BUFFER=", ${(q)line}"
-    fi
-  else
-    _efr_rewrite_line "$line"
-    BUFFER=$REPLY
+  # A line of just `,` toggles sticky agent mode, as Ctrl+Space does: nothing runs and
+  # nothing lands in history. Without efr it runs, and `,` says what is missing.
+  if _efr_is_toggle_line "$BUFFER" && _efr_set_sticky $(( ! _efr_sticky )); then
+    BUFFER=''
+    return 0
   fi
+  _efr_line_to_run "$BUFFER"
+  BUFFER=$REPLY
   zle _efr_orig_accept_line
 }
 

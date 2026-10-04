@@ -126,8 +126,11 @@ directory, with a fixed screen, scripted keys and a Ctrl+C the test triggers.
 codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
 variables it was handed, so a test can prove that no typed text reaches a command
-line; one test runs the built `efr` behind the plugin against a `TestDaemon`. Its
-`e2e_` tests need zsh and skip with a message unless `EFR_TEST_ZSH=1`:
+line; one test runs the built `efr` behind the plugin against a `TestDaemon`. The
+widgets (the lone `,` and Ctrl+Space toggles, sticky mode) are tested by typing into
+an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
+so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
+with a message unless `EFR_TEST_ZSH=1`:
 
 ```sh
 EFR_TEST_ZSH=1 cargo nextest run -p efr-cli --test plugin
