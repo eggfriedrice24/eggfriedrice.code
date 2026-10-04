@@ -33,7 +33,9 @@ the source of truth for every backend.
 The pin (libghostty-rs rev, ghostty commit, Zig version) is in `docs/ghostty-pin.md`.
 This crate is not a default workspace member, and `efr-daemon` reaches it only
 through its `screen-ghostty` feature, so `cargo build` and `cargo test` at the root
-never run Zig.
+never run Zig once `default-members` in the root `Cargo.toml` is switched on. Until
+then a bare root build includes this crate; the `just` gates and the CI jobs name
+their packages or exclude it.
 
 ## Tier
 
