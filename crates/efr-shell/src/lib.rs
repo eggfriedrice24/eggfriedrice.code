@@ -2,6 +2,9 @@
 //!
 //! - [`ShellState`] and [`Phase`]: what a hidden shell is doing, followed from its
 //!   OSC 133 and OSC 7 marks.
+//! - [`RunRequest`], [`CommandResult`], [`Completion`], [`RunProgress`]: one command
+//!   line, delimited by OSC 133 marks or, in shells without the integration, by
+//!   random-token sentinels ([`RunMode`], [`Delimiter`]).
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`ScreenFactory`]
 //!   builds each shell's screen, [`RecordingSink`] receives every byte for the PTY
 //!   recording and [`ShellObserver`] hears [`ShellNotice`]s.
@@ -21,11 +24,17 @@ mod env;
 mod error;
 mod integration;
 mod recording_sink;
+mod run;
 mod screens;
+mod sentinel;
 mod state;
 
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
+pub use run::{
+    CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,
+    RunRequest,
+};
 pub use screens::ScreenFactory;
 pub use state::{Phase, ShellState};
