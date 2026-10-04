@@ -1,0 +1,33 @@
+[package]
+name = "efr-provider-openai"
+description = "The OpenAI Responses API client of efr, over the ChatGPT subscription backend or an API key"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-http.workspace = true
+efr-provider.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+jiff.workspace = true
+pretty_assertions.workspace = true
+rstest.workspace = true
+tokio.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true
