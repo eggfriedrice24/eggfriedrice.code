@@ -29,8 +29,9 @@ prompts such as `sudo` stay visible.
 `run_command(conversation, RunRequest, progress)` (also the `CommandRunner` trait that
 `efr-tools` drives):
 
-- With the integration, the command is typed as one bracketed paste and Enter, so a
-  multi-line command is one command line. The output is the recording between the
+- With the integration, the command is typed as a key that empties the line editor
+  (text typed at the attached screen and never sent must not join it), one bracketed
+  paste and Enter, so a multi-line command is one command line. The output is the recording between the
   end of `C` (`OutputStart`) and the start of `D` (`CommandEnd`); the result has the
   exit status, the output as plain text (escape sequences dropped, `\r\n` as `\n`,
   carriage-return progress bars collapsed), a truncation flag (head and tail of
@@ -39,7 +40,9 @@ prompts such as `sudo` stay visible.
 - A run waits for the prompt: while the shell starts, while an earlier command still
   runs, and until the user answers what it asks; it fails with `NotReady` when the
   prompt does not come before its timeout. A run that overlaps another run of the same
-  conversation, or a shell at a continuation prompt, is `Busy`.
+  conversation, or a shell at a continuation prompt, is `Busy`. A caller that drops
+  the run's future (a turn the user interrupted) lets go of it: a run still waiting is
+  never typed, and a typed one goes on without a caller until its `D`.
 - An unfinished line (an unclosed quote) shows a continuation prompt; the session
   cancels it with a key the integration binds to `send-break` and returns
   `Completion::NotStarted`. A line that does not parse is `NotStarted` too, with the
