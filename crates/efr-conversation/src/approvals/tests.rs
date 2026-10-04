@@ -1,0 +1,90 @@
+use std::path::Path;
+
+use efr_permissions::{
+    ConversationPolicy, Decision, DecisionInput, Engine, Locations, Requirements,
+};
+use efr_protocol::{ApprovalDecision, CallId, Origin, Scope, TurnId};
+use efr_stdx::id::uuid_v7;
+use efr_test_support::{TestClock, TestRng};
+use pretty_assertions::assert_eq;
+
+use super::{Approvals, denial, summary};
+
+fn call(seed: u64) -> CallId {
+    CallId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
+}
+
+fn turn(seed: u64) -> TurnId {
+    TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
+}
+
+fn decide(requirements: Requirements) -> Decision {
+    let engine = Engine::with_defaults(Locations::new("/home/u").expect("home"));
+    engine.decide(&DecisionInput {
+        requirements,
+        scope: Scope::Machine,
+        origin: Origin::Shell,
+        conversation_policy: ConversationPolicy::new("/home/u/.local/share/efr/scratch/s"),
+    })
+}
+
+#[tokio::test]
+async fn an_answer_reaches_the_parked_call_once() {
+    let approvals = Approvals::default();
+    let receiver = approvals.park(turn(1), call(2));
+
+    assert_eq!(approvals.waiting_turn(call(2)), Some(turn(1)));
+    assert!(approvals.answer(call(2), ApprovalDecision::Allow));
+    assert_eq!(receiver.await.expect("answered"), ApprovalDecision::Allow);
+    assert!(!approvals.answer(call(2), ApprovalDecision::Deny), "a call is answered once");
+    assert_eq!(approvals.waiting_turn(call(2)), None);
+}
+
+#[test]
+fn an_answer_for_a_call_that_stopped_waiting_is_not_delivered() {
+    let approvals = Approvals::default();
+    drop(approvals.park(turn(1), call(2)));
+    assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
+}
+
+#[test]
+fn a_withdrawn_call_takes_no_answer() {
+    let approvals = Approvals::default();
+    let _receiver = approvals.park(turn(1), call(2));
+    assert!(approvals.withdraw(call(2)));
+    assert!(!approvals.withdraw(call(2)));
+    assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
+}
+
+#[test]
+fn withdrawing_a_turn_takes_out_only_its_calls() {
+    let approvals = Approvals::default();
+    let _a = approvals.park(turn(1), call(2));
+    let _b = approvals.park(turn(1), call(3));
+    let _c = approvals.park(turn(4), call(5));
+    let mut expected = vec![call(2), call(3)];
+    expected.sort_unstable();
+
+    assert_eq!(approvals.withdraw_turn(turn(1)), expected);
+    assert_eq!(approvals.parked(), vec![call(5)]);
+}
+
+#[test]
+fn a_summary_names_the_tool_and_what_needs_approval() {
+    let decision = decide(Requirements::none().with_write("/home/u/.zshrc"));
+    assert_eq!(summary("write_file", &decision), "write_file: write /home/u/.zshrc (user config)");
+    let command = decide(Requirements::none().with_command("ls -l"));
+    assert_eq!(summary("shell", &command), "shell: run \"ls -l\"");
+}
+
+#[test]
+fn a_denial_names_each_refused_path_with_its_class() {
+    let decision = decide(Requirements::none().with_read(Path::new("/home/u/.ssh/id_ed25519")));
+    let text = denial("read_file", &decision);
+    assert!(
+        text.starts_with(
+            "Permission denied for the read_file call: read /home/u/.ssh/id_ed25519 (secrets): deny"
+        ),
+        "{text}"
+    );
+}

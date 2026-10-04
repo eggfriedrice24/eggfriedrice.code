@@ -9,11 +9,14 @@
 //! (reached only through the daemon's shell tool), transports, the mapping of errors to
 //! wire codes, and rendering.
 
+mod approvals;
 mod error;
 mod history;
+mod interrupt;
 mod preamble;
 mod resolver;
 mod scratch;
+mod steer;
 mod toolbox;
 
 pub use error::ConversationError;
