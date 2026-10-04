@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use efr_stdx::StdxError;
+use efr_store::StoreError;
 
 /// Every way a test helper can fail.
 ///
@@ -47,6 +48,22 @@ pub enum TestSupportError {
         /// The error from `efr-stdx`.
         #[source]
         source: StdxError,
+    },
+
+    /// The in-memory store could not be opened.
+    #[error("could not open the in-memory store")]
+    OpenStore {
+        /// The error from `efr-store`.
+        #[source]
+        source: StoreError,
+    },
+
+    /// A read from the store failed.
+    #[error("could not read the store")]
+    ReadStore {
+        /// The error from `efr-store`.
+        #[source]
+        source: StoreError,
     },
 
     /// A transcript file could not be read.

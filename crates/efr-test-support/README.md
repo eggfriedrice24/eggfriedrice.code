@@ -30,6 +30,10 @@ directories, a store and provider traffic from one place and never from the mach
   wrong JSON type or bad base64 fails with the line number, because a fixture with a
   typo would otherwise test nothing. `to_ndjson` writes a transcript back with `dir`
   and `kind` first. What a body means is checked by the consumer of the record.
+- `store`: `TestStore::open(clock)`, the real `efr-store` over a new private in-memory
+  database: the same migrations, writer and read functions as the daemon's, with event
+  times from the clock the test passes. PTY recordings, which are files, go to a
+  temporary directory removed with the value. `events()` reads the whole log.
 - `fixtures`: `fixtures::path(file!(), "case.ndjson")` is the file in the `fixtures/`
   directory of the crate that holds the calling test, found from `file!()` and never
   from the current directory. `crate_dir` and `dir` give the crate and its fixture
@@ -70,5 +74,6 @@ The clock tests poll sleeps and timeouts by hand and drive one spawned task with
 UUIDv7 made from `TestClock` and `TestRng`. The transcript tests parse every record
 form, run a decision table of invalid lines against the problem each one names, and
 check with a proptest that any transcript survives writing and reading. The fixture
-tests find `fixtures/transcripts/single_exchange.ndjson` from `file!()`. They use no
+tests find `fixtures/transcripts/single_exchange.ndjson` from `file!()`. The store tests
+append through the real writer and read events and a recording back. They use no
 network, no real-time sleeps and no Zig.

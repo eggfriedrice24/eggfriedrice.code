@@ -13,7 +13,9 @@ doctest = false
 
 [dependencies]
 base64.workspace = true
+efr-protocol.workspace = true
 efr-stdx.workspace = true
+efr-store.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true

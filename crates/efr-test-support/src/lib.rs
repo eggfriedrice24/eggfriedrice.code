@@ -3,6 +3,7 @@
 //! - [`TestClock`]: an `efr_stdx` clock that moves only when a test moves it.
 //! - [`TestRng`]: a seeded `efr_stdx` generator whose sequence never changes.
 //! - [`TestDirs`]: the four efr roots and a home directory in a throwaway tree.
+//! - [`TestStore`]: the real `efr-store` over an in-memory database.
 //! - [`Transcript`]: the NDJSON transcript reader and validator, with its [`Record`]s.
 //! - [`fixtures`]: a crate's fixture files, found from `file!()`.
 //!
@@ -27,9 +28,11 @@ mod error;
 pub mod fixtures;
 mod ndjson;
 mod rng;
+mod store;
 
 pub use clock::TestClock;
 pub use dirs::TestDirs;
 pub use error::TestSupportError;
 pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
 pub use rng::TestRng;
+pub use store::TestStore;
