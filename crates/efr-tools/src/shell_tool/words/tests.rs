@@ -38,8 +38,8 @@ fn shape(line: &Line) -> Vec<String> {
 #[case::subshell("(cd /tmp && ls)", &["cd /tmp", "ls"], true)]
 #[case::process_substitution("diff <(ls a) b", &["diff", "ls a", "b"], true)]
 #[case::here_document("cat <<EOF", &["cat"], true)]
-#[case::variable("cat $HOME/.netrc", &["cat $HOME/.netrc"], true)]
-#[case::braced_variable("cat ${HOME}/.netrc", &["cat ${HOME}/.netrc"], true)]
+#[case::variable("cat $DIR/.netrc", &["cat $DIR/.netrc"], true)]
+#[case::braced_variable("cat ${DIR}/.netrc", &["cat ${DIR}/.netrc"], true)]
 #[case::history("ls; !!", &["ls", "!!"], true)]
 #[case::unclosed("echo 'a", &["echo a"], true)]
 fn splits(#[case] line: &str, #[case] expected: &[&str], #[case] opaque: bool) {
@@ -59,6 +59,17 @@ fn a_leading_tilde_is_the_home_directory_only_outside_quotes() {
     assert!(!first_word("ls '~/p'", 1).tilde);
     assert!(!first_word("ls ~root", 1).tilde);
     assert!(!first_word("ls a~", 1).tilde);
+}
+
+#[test]
+fn home_at_the_start_of_a_word_is_the_home_directory() {
+    let home = first_word("cat $HOME/.ssh/id_rsa", 1);
+    assert_eq!((home.text.as_str(), home.tilde, home.expansion), ("~/.ssh/id_rsa", true, false));
+    let braced = first_word("cat \"${HOME}/.netrc\"", 1);
+    assert_eq!((braced.text.as_str(), braced.tilde), ("~/.netrc", true));
+    assert!(first_word("cat $HOMEDIR/x", 1).expansion);
+    assert!(first_word("cat a$HOME", 1).expansion);
+    assert!(split("cat $HOME/x").opaque);
 }
 
 #[test]

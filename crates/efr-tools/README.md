@@ -51,7 +51,8 @@ The tools:
   `echo`, `printf`, `basename` and the like; everything below the paths of `rg`, `grep
   -r`, `find`, `du`, `tree`, `ls -R` and `diff`, and the working directory when such a
   search names no path, with an unknown option failing closed), and
-  `shell_tool/declare.rs` resolves them against the hidden shell's directory, follows
+  `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
+  `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows
   `cd` within the line, turns a glob into everything below its fixed directory and an
   output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is
   denied, and `rg TOKEN ~/.aws` declares `~/.aws` with everything below and asks.

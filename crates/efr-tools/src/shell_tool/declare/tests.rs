@@ -36,6 +36,7 @@ fn declare(line: &str) -> Declared {
 #[case::inside_substitution("echo $(cat ~/.ssh/id_rsa)", &["/home/u/.ssh/id_rsa"], &[], &[])]
 #[case::every_program("cp ~/.ssh/id_rsa /tmp/k", &["/home/u/.ssh/id_rsa", "/tmp/k"], &[], &[])]
 #[case::echo_names_nothing("echo ~/.ssh/id_rsa", &[], &[], &[])]
+#[case::home_variable("cat $HOME/.ssh/id_rsa", &["/home/u/.ssh/id_rsa"], &[], &[])]
 fn declares(
     #[case] line: &str,
     #[case] reads: &[&str],

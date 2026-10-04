@@ -270,9 +270,13 @@ impl Splitter {
         self.slot = Slot::Output;
     }
 
-    /// `$` outside single quotes: a substitution starts a command of its own; any
-    /// other expansion stays in the word as text.
+    /// `$` outside single quotes: `$HOME` at the start of a word is the home directory,
+    /// a substitution starts a command of its own, and any other expansion stays in the
+    /// word as text.
     fn dollar(&mut self) {
+        if self.home_variable() {
+            return;
+        }
         match self.peek_at(1) {
             Some('(') => {
                 self.line.opaque = true;
@@ -311,6 +315,33 @@ impl Splitter {
                 }
             }
         }
+    }
+
+    /// Reads `$HOME` or `${HOME}` at the start of a word as `~`, whose value the tool
+    /// knows; true when it did.
+    fn home_variable(&mut self) -> bool {
+        if self.word.as_ref().is_some_and(|word| !word.text.is_empty()) {
+            return false;
+        }
+        let rest: String = self.chars[self.at + 1..].iter().take(7).collect();
+        let name_char = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+        let length = if rest.starts_with("{HOME}") {
+            7
+        } else if rest.starts_with("HOME") && !name_char(rest.chars().nth(4)) {
+            5
+        } else {
+            return false;
+        };
+        self.at += length;
+        self.line.opaque = true;
+        let ends = matches!(
+            self.peek(),
+            None | Some('/' | '"' | ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | ')')
+        );
+        let word = self.current();
+        word.text.push('~');
+        word.tilde = ends;
+        true
     }
 
     fn single_quoted(&mut self) {

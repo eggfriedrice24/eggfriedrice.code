@@ -442,6 +442,14 @@ fn generic(args: &[Word]) -> Reads {
         }
         if after_options || !text.starts_with('-') {
             named.push(from_word(word, Depth::One));
+            // NOTE: `HEAD:path` names a path in a repository, and `host:path` one on a
+            // host; the part after the colon counts as a path too.
+            if let Some((_, after)) = text.split_once(':')
+                && !after.is_empty()
+                && !text.contains("://")
+            {
+                named.push(named_value(after));
+            }
         } else if let Some(value) = option_value(word) {
             named.push(value);
         }
