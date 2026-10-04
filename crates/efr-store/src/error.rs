@@ -109,10 +109,10 @@ pub enum StoreError {
         source: rusqlite::Error,
     },
 
-    /// The finished backup could not be moved into place.
-    #[error("could not move the backup {} into place", .path.display())]
-    BackupRename {
-        /// The backup file.
+    /// A backup file could not be cleared away or moved into place.
+    #[error("could not put the backup file {} in place", .path.display())]
+    BackupFile {
+        /// The file.
         path: PathBuf,
         /// The error from the file system.
         #[source]

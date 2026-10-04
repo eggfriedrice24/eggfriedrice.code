@@ -20,5 +20,7 @@
 
 pub mod db;
 mod error;
+mod migrations;
 
 pub use error::StoreError;
+pub use migrations::{MigrationReport, Migrations};
