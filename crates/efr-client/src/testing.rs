@@ -1,5 +1,10 @@
 //! Fakes shared by the unit tests of this crate: clocks and a fake daemon built from
 //! the transport's server codec.
+//!
+//! The clocks stay here instead of coming from `efr-test-support`: its `TestClock` can
+//! stand in only for `StoppedClock` (a clock that nobody moves), not for a clock whose
+//! sleeps end at once, and `efr-test-support` brings `efr-store` with its bundled SQLite
+//! build, which about triples the time to build these tests from clean.
 
 use std::future::{pending, ready};
 use std::time::Duration;

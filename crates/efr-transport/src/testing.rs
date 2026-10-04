@@ -1,5 +1,10 @@
 //! Fakes shared by the unit tests of this crate: clocks, a scripted dispatcher and a raw
 //! protocol client.
+//!
+//! The clocks stay here instead of coming from `efr-test-support`: its `TestClock` can
+//! stand in only for `StoppedClock` (a clock that nobody moves), not for a clock whose
+//! sleeps end at once, and `efr-test-support` brings `efr-store` with its bundled SQLite
+//! build, which about triples the time to build these tests from clean.
 
 use std::collections::VecDeque;
 use std::future::{Future, pending, ready};

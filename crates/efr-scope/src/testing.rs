@@ -3,6 +3,11 @@
 //! Every test runs in a [`Sandbox`]: a temporary directory with a `home` inside it,
 //! passed to the code under test as the home directory, so no test reads the real
 //! `$HOME` or the user's git configuration.
+//!
+//! The clocks stay here instead of coming from `efr-test-support`: its `TestClock` can
+//! stand in only for `StoppedClock` (a clock that nobody moves), not for a clock whose
+//! sleeps end at once, and `efr-test-support` brings `efr-store` with its bundled SQLite
+//! build, which about triples the time to build these tests from clean.
 
 use std::future::{pending, ready};
 use std::path::{Path, PathBuf};
