@@ -51,7 +51,8 @@ with `tool_call_started`, judged at the check point, run when allowed or approve
 (with coalesced `tool_call_output_updated` events), and answered with
 `tool_call_completed`, until the model answers without a tool call. The turn ends with
 `turn_completed` (with the summed usage), `turn_failed` (a provider error mapped to an
-`ErrorBody`: 401 and missing credentials to `unauthorized`, rate limits to `busy` with
+`ErrorBody`: 401, missing credentials and a token source that cannot produce a token
+to `unauthorized`, rate limits to `busy` with
 `retry_after_ms`, an unknown model to `invalid`, the rest to `internal`) or
 `turn_interrupted`.
 

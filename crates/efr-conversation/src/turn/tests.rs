@@ -890,6 +890,10 @@ async fn a_scratch_root_that_cannot_be_made_fails_the_turn() {
 fn provider_errors_map_to_codes_a_client_can_act_on() {
     use efr_provider::ProviderError;
     assert_eq!(provider_failure(&ProviderError::NotLoggedIn).code, ErrorCode::Unauthorized);
+    let refused = ProviderError::Token { source: "the refresh grant was refused".into() };
+    let refused = provider_failure(&refused);
+    assert_eq!(refused.code, ErrorCode::Unauthorized);
+    assert_eq!(refused.message, "the token source could not produce an access token");
     assert_eq!(
         provider_failure(&ProviderError::UnknownModel { model: "m".to_owned() }).code,
         ErrorCode::Invalid

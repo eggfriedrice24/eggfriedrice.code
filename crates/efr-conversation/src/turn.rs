@@ -632,7 +632,13 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
 /// error's one-sentence message.
 pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
     let code = match error {
-        ProviderError::Unauthorized | ProviderError::NotLoggedIn => ErrorCode::Unauthorized,
+        // NOTE: a token source that cannot produce a token has no usable credentials,
+        // whether none were saved, the saved ones are of the wrong kind or the refresh
+        // grant was refused; `unauthorized` is what tells the client to send the user
+        // to `efr login`.
+        ProviderError::Unauthorized | ProviderError::NotLoggedIn | ProviderError::Token { .. } => {
+            ErrorCode::Unauthorized
+        }
         ProviderError::RateLimited { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
