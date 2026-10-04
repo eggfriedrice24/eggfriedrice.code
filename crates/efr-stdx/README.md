@@ -17,7 +17,7 @@ Modules, in the order of the milestone 1 file map:
   operating system.
 - `process`: `command(program, cwd)`, the only constructor of a child process. It
   sets the working directory and `PWD`, and removes the systemd variables of the
-  daemon's own unit.
+  daemon's own unit and the private variables below.
 - `fs`: `write_atomic` (temporary file, flush, rename, flush the directory),
   `create_private` (a new file with mode 0600) and `claim_dir` (a non-recursive
   `mkdir` with mode 0700, where an existing entry means taken).
@@ -66,9 +66,18 @@ table names the same set. An empty value counts as unset.
 | `EFR_OPEN_BROWSER` | A flag. When it is on, `efr login openai` opens the login URL in a browser. |
 | `EFR_RECORD_TRANSCRIPT` | An absolute path. `efrd` writes an NDJSON transcript of provider traffic and PTY bytes to it. |
 | `EFR_TEST_ZSH` | A flag. Tests that drive a real zsh run only when it is on. |
+| `EFR_CONTEXT` | Private. The shell context JSON that the zsh plugin hands to `efr send` and `efr new`. |
+| `EFR_LAST_COMMAND` | Private. The last command line of the user's shell, from the zsh plugin to `efr send` and `efr new`. |
+| `EFR_PROMPT` | Private. The prompt that the zsh plugin hands to `efr send` and `efr new`. |
 
 A flag accepts `1`, `true`, `yes` or `on` for on and `0`, `false`, `no` or `off` for
 off, in any letter case. Any other value is an error.
+
+The private variables (`Var::PRIVATE`) carry what the user typed. They travel in the
+environment and not as arguments because any local user can read a command line in
+`/proc/<pid>/cmdline`, while `/proc/<pid>/environ` is readable only by the process's
+own user. `process::command` removes them from every child, and `Env`'s `Debug` shows
+their values only by length.
 
 ## Tests
 

@@ -6,6 +6,7 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 
 use super::{SCRUBBED_ENV, command};
+use crate::env::Var;
 
 /// The environment changes a command makes: `Some` sets a variable, `None` removes it.
 fn env_changes(command: &tokio::process::Command) -> BTreeMap<String, Option<String>> {
@@ -41,6 +42,14 @@ fn systemd_unit_variables_are_removed(#[case] name: &str) {
 }
 
 #[test]
+fn what_the_plugin_hands_to_efr_never_reaches_a_child() {
+    let changes = env_changes(&command("true", "/"));
+    for name in ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_PROMPT"] {
+        assert_eq!(changes.get(name), Some(&None), "{name} is not removed");
+    }
+}
+
+#[test]
 fn scrub_list_has_no_duplicates() {
     let mut names = SCRUBBED_ENV.to_vec();
     names.sort_unstable();
@@ -65,7 +74,9 @@ fn other_variables_are_inherited() {
     let changes = env_changes(&command("true", "/"));
     let expected: BTreeMap<_, _> = SCRUBBED_ENV
         .iter()
-        .map(|name| ((*name).to_owned(), None))
+        .copied()
+        .chain(Var::PRIVATE.iter().map(|var| var.name()))
+        .map(|name| (name.to_owned(), None))
         .chain([("PWD".to_owned(), Some("/".to_owned()))])
         .collect();
     assert_eq!(changes, expected);

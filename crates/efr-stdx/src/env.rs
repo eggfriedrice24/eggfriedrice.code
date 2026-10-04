@@ -38,6 +38,15 @@ pub enum Var {
     RecordTranscript,
     /// `EFR_TEST_ZSH`: a flag; tests that drive a real zsh run only when it is on.
     TestZsh,
+    /// `EFR_CONTEXT`: the shell context JSON that the zsh plugin hands to `efr send`
+    /// and `efr new`. Private: see [`Var::PRIVATE`].
+    Context,
+    /// `EFR_LAST_COMMAND`: the last command line of the user's shell, which the zsh
+    /// plugin hands to `efr send` and `efr new`. Private: see [`Var::PRIVATE`].
+    LastCommand,
+    /// `EFR_PROMPT`: the prompt that the zsh plugin hands to `efr send` and `efr new`.
+    /// Private: see [`Var::PRIVATE`].
+    Prompt,
 }
 
 impl Var {
@@ -52,7 +61,24 @@ impl Var {
         Var::OpenBrowser,
         Var::RecordTranscript,
         Var::TestZsh,
+        Var::Context,
+        Var::LastCommand,
+        Var::Prompt,
     ];
+
+    /// The variables that carry what the user typed from the zsh plugin to `efr`.
+    ///
+    /// They exist because a command line is public: any local user can read
+    /// `/proc/<pid>/cmdline`, while `/proc/<pid>/environ` is readable only by the
+    /// process's own user. So they stay out of every child process
+    /// ([`process::command`](crate::process::command) removes them) and out of `Debug`
+    /// output.
+    pub const PRIVATE: &'static [Var] = &[Var::Context, Var::LastCommand, Var::Prompt];
+
+    /// True for a variable in [`Var::PRIVATE`].
+    pub fn is_private(self) -> bool {
+        Self::PRIVATE.contains(&self)
+    }
 
     /// The name of the variable in the environment.
     pub const fn name(self) -> &'static str {
@@ -66,6 +92,9 @@ impl Var {
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
             Var::RecordTranscript => "EFR_RECORD_TRANSCRIPT",
             Var::TestZsh => "EFR_TEST_ZSH",
+            Var::Context => "EFR_CONTEXT",
+            Var::LastCommand => "EFR_LAST_COMMAND",
+            Var::Prompt => "EFR_PROMPT",
         }
     }
 }
@@ -98,10 +127,39 @@ pub struct Env {
     source: Source,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum Source {
     Process,
     Fixed(BTreeMap<Var, OsString>),
+}
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Source::Process => f.write_str("Process"),
+            Source::Fixed(vars) => {
+                let shown =
+                    vars.iter().map(|(var, value)| (var.name(), Shown { var: *var, value }));
+                f.debug_map().entries(shown).finish()
+            }
+        }
+    }
+}
+
+/// A value as `Debug` shows it: a private variable's by its length only.
+struct Shown<'a> {
+    var: Var,
+    value: &'a OsString,
+}
+
+impl fmt::Debug for Shown<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.var.is_private() {
+            write!(f, "<{} bytes>", self.value.len())
+        } else {
+            fmt::Debug::fmt(self.value, f)
+        }
+    }
 }
 
 impl Env {

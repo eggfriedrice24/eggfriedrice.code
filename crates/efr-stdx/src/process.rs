@@ -3,10 +3,13 @@
 //! `clippy.toml` denies `std::process::Command::new` and `tokio::process::Command::new`
 //! in every other place and names [`command`] instead. The caller must choose the
 //! working directory, so no child runs in whatever directory the daemon started in, and
-//! no child inherits the variables that systemd set for the daemon's own unit.
+//! no child inherits the variables that systemd set for the daemon's own unit, nor what
+//! the zsh plugin handed to `efr` in [`Var::PRIVATE`].
 
 use std::ffi::OsStr;
 use std::path::Path;
+
+use crate::env::Var;
 
 /// Variables that systemd sets for the daemon's own unit. A child that inherits them
 /// can send readiness or status for `efrd.service`, claim the daemon's
@@ -26,7 +29,7 @@ pub const SCRUBBED_ENV: &[&str] = &[
 ];
 
 /// A tokio command for `program` that runs in `cwd` without the variables in
-/// [`SCRUBBED_ENV`].
+/// [`SCRUBBED_ENV`] and [`Var::PRIVATE`].
 ///
 /// `PWD` is set to `cwd` when `cwd` is absolute and removed when it is relative: the
 /// inherited value names the daemon's directory, and shells trust `PWD` when it looks
@@ -47,6 +50,9 @@ pub fn command(program: impl AsRef<OsStr>, cwd: impl AsRef<Path>) -> tokio::proc
     command.current_dir(cwd);
     for name in SCRUBBED_ENV {
         command.env_remove(name);
+    }
+    for var in Var::PRIVATE {
+        command.env_remove(var.name());
     }
     if cwd.is_absolute() {
         command.env("PWD", cwd);

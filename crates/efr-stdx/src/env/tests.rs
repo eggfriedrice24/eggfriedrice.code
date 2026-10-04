@@ -138,6 +138,9 @@ fn all_lists_every_variant() {
         Var::OpenBrowser,
         Var::RecordTranscript,
         Var::TestZsh,
+        Var::Context,
+        Var::LastCommand,
+        Var::Prompt,
     ];
     for var in every {
         match var {
@@ -149,10 +152,36 @@ fn all_lists_every_variant() {
             | Var::RuntimeDir
             | Var::OpenBrowser
             | Var::RecordTranscript
-            | Var::TestZsh => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
+            | Var::TestZsh
+            | Var::Context
+            | Var::LastCommand
+            | Var::Prompt => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
         }
     }
     assert_eq!(every.len(), Var::ALL.len());
+}
+
+#[test]
+fn the_plugins_handover_variables_are_the_private_ones() {
+    let private: Vec<_> =
+        Var::ALL.iter().filter(|var| var.is_private()).map(|var| var.name()).collect();
+    assert_eq!(private, ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_PROMPT"]);
+    assert_eq!(Var::PRIVATE.len(), private.len());
+}
+
+#[test]
+fn debug_shows_a_private_value_only_by_its_length() {
+    let env = Env::fixed([
+        (Var::Prompt, "export TOKEN=s3cret"),
+        (Var::LastCommand, "s3cret"),
+        (Var::Context, r#"{"pwd":"/s3cret"}"#),
+        (Var::Log, "debug"),
+    ]);
+    let debug = format!("{env:?}");
+    assert!(!debug.contains("s3cret"), "{debug}");
+    assert!(debug.contains(r#""EFR_PROMPT": <19 bytes>"#), "{debug}");
+    assert!(debug.contains(r#""EFR_LOG": "debug""#), "{debug}");
+    assert_eq!(format!("{:?}", Env::process()), "Env { source: Process }");
 }
 
 #[test]
