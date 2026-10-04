@@ -1,5 +1,7 @@
 //! One long-lived hidden zsh per conversation, and running commands in it.
 //!
+//! - [`ShellState`] and [`Phase`]: what a hidden shell is doing, followed from its
+//!   OSC 133 and OSC 7 marks.
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`ScreenFactory`]
 //!   builds each shell's screen, [`RecordingSink`] receives every byte for the PTY
 //!   recording and [`ShellObserver`] hears [`ShellNotice`]s.
@@ -20,8 +22,10 @@ mod error;
 mod integration;
 mod recording_sink;
 mod screens;
+mod state;
 
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use screens::ScreenFactory;
+pub use state::{Phase, ShellState};
