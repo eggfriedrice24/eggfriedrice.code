@@ -12,7 +12,9 @@
 //! the wire mapping of errors, and any other crate opening SQLite.
 //!
 //! `db` is a public module because its paths are the replacements that `clippy.toml`
-//! names for `rusqlite::Connection::open` and `open_in_memory`.
+//! names for `rusqlite::Connection::open` and `open_in_memory`. The modules named after
+//! tables (`events` and the projections) are public too: they hold the read functions
+//! that run inside `Readers::with`, and their types.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -20,7 +22,13 @@
 
 pub mod db;
 mod error;
+pub mod events;
 mod migrations;
+mod sql;
+#[cfg(test)]
+mod testing;
+mod writer;
 
 pub use error::StoreError;
 pub use migrations::{MigrationReport, Migrations};
+pub use writer::{Batch, Committed, DEFAULT_BROADCAST_CAPACITY, StoreWriter, WriterHandle};
