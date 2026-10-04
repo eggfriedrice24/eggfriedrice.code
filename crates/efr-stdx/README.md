@@ -13,6 +13,9 @@ Modules:
 - `paths`: `Dirs { config, data, state, runtime }`, each `<XDG base>/efr` through
   `etcetera` unless an `EFR_*_DIR` variable replaces it, and the socket, `daemon.json`
   and lock file paths.
+- `process`: `command(program, cwd)`, the only constructor of a child process. It
+  sets the working directory and `PWD`, and removes the systemd variables of the
+  daemon's own unit.
 - `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
   caller of `SystemTime::now` and `tokio::time::sleep`.
 - `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
