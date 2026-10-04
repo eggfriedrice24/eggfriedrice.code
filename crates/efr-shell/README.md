@@ -107,7 +107,9 @@ environment, passed in by the daemon; this crate reads no environment) without
 `LINES`, `SHLVL`, `OLDPWD` and `_`. It sets `TERM` and `COLORTERM` (default
 `xterm-256color` and `truecolor`), `PWD`, and `EFR_HIDDEN_SHELL=1`, which nothing in
 efr reads but the user's startup files can test (to skip `exec tmux` or an instant
-prompt). A zsh starts as an interactive login shell (`-l -i`, `login` in the config).
+prompt). It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
+nobody reads a pager on the hidden screen, so `git log` or `systemctl status` would
+otherwise open `less` there and the run would wait until someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the config).
 
 The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
 `ShellConfig::integration_dir` on the first spawn):
@@ -126,8 +128,10 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   `D`. It is an original script: ghostty's is GPLv3 and is never copied.
 - The integration changes a few options in the hidden shell only: no `!` history
   expansion, no spelling correction prompts, no history file (`HISTFILE` is unset;
-  efr keeps its own recording), and zsh's `PROMPT_SP` mark is printed after `D`
-  instead of before the precmd hooks, so it never counts as output.
+  efr keeps its own recording), no pager (the four pager variables are set to `cat`
+  again, because a `.zshrc` often exports `PAGER=less`), and zsh's `PROMPT_SP` mark
+  is printed after `D` instead of before the precmd hooks, so it never counts as
+  output.
 
 ## Tier
 

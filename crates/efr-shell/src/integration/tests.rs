@@ -53,6 +53,16 @@ fn every_name_of_the_script_is_private_to_the_hidden_shell() {
     }
 }
 
+/// The script turns off the same pagers as the daemon's environment, after the
+/// user's startup files.
+#[test]
+fn the_script_turns_off_the_pagers_the_environment_turns_off() {
+    let assignments: Vec<String> =
+        crate::env::PAGERS.iter().map(|(name, value)| format!("{name}={value}")).collect();
+    let export = format!("builtin export {}", assignments.join(" "));
+    assert!(INTEGRATION.contains(&export), "missing {export}");
+}
+
 #[test]
 fn the_shim_restores_zdotdir_and_sources_the_users_zshenv() {
     assert!(ZSHENV.contains("ZDOTDIR=$_EFR_USER_ZDOTDIR"));

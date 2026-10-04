@@ -42,6 +42,14 @@ pub(crate) const USER_ZDOTDIR: &str = "_EFR_USER_ZDOTDIR";
 /// it and stays out of a hidden shell.
 pub(crate) const HIDDEN_SHELL: &str = "EFR_HIDDEN_SHELL";
 
+/// Pagers turned off. Nobody reads a pager on the hidden screen: `git log` or
+/// `systemctl status` would open `less` there, and the run would wait until someone
+/// quit it. `cat` is the value git, systemd and man all treat as "no pager". The zsh
+/// integration sets the same values again after the user's startup files, which often
+/// export `PAGER=less`; its tests keep the two lists equal.
+pub(crate) const PAGERS: &[(&str, &str)] =
+    &[("PAGER", "cat"), ("GIT_PAGER", "cat"), ("SYSTEMD_PAGER", "cat"), ("MANPAGER", "cat")];
+
 /// The whole environment of a new hidden shell started in `cwd`. `integration` is
 /// true for a zsh that gets the ZDOTDIR shim.
 pub(crate) fn shell_env(
@@ -67,6 +75,9 @@ pub(crate) fn shell_env(
     // its working directory, which keeps the logical path the user gave.
     env.insert("PWD".to_owned(), cwd.to_string_lossy().into_owned());
     env.insert(HIDDEN_SHELL.to_owned(), "1".to_owned());
+    for (name, value) in PAGERS {
+        env.insert((*name).to_owned(), (*value).to_owned());
+    }
     env
 }
 

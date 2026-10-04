@@ -44,7 +44,18 @@ fn daemon_and_terminal_variables_are_removed() {
     let names: Vec<&str> = env.keys().map(String::as_str).collect();
     assert_eq!(
         names,
-        ["COLORTERM", "EFR_HIDDEN_SHELL", "KEEP", "PWD", "TERM", "ZDOTDIR"],
+        [
+            "COLORTERM",
+            "EFR_HIDDEN_SHELL",
+            "GIT_PAGER",
+            "KEEP",
+            "MANPAGER",
+            "PAGER",
+            "PWD",
+            "SYSTEMD_PAGER",
+            "TERM",
+            "ZDOTDIR"
+        ],
         "{env:?}"
     );
 }
@@ -90,4 +101,17 @@ fn a_saved_zdotdir_from_the_base_environment_is_not_trusted() {
     vars.insert("_EFR_USER_ZDOTDIR".to_owned(), "/elsewhere".to_owned());
     let env = shell_env(&ShellConfig::new("/z", vars), Path::new("/"), true);
     assert!(!env.contains_key("_EFR_USER_ZDOTDIR"));
+}
+
+#[test]
+fn every_pager_is_cat_whatever_the_user_set() {
+    let env = shell_env(
+        &config(&[("PAGER", "less"), ("GIT_PAGER", "delta"), ("MANPAGER", "nvim +Man!")]),
+        Path::new("/"),
+        false,
+    );
+    assert_eq!(env["PAGER"], "cat");
+    assert_eq!(env["GIT_PAGER"], "cat");
+    assert_eq!(env["SYSTEMD_PAGER"], "cat");
+    assert_eq!(env["MANPAGER"], "cat");
 }

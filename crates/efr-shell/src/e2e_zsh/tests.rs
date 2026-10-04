@@ -172,6 +172,16 @@ async fn e2e_the_users_startup_files_run_and_zdotdir_is_restored() {
     assert_eq!(result.output, "hello from zshrc\nunset 1\n");
 }
 
+#[tokio::test]
+async fn e2e_a_pager_from_the_users_zshrc_is_turned_off() {
+    let Some(zsh) = Zsh::start("e2e_a_pager_from_the_users_zshrc_is_turned_off") else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshrc"), "export PAGER=less GIT_PAGER=less\n").unwrap();
+    let result = zsh.run("print -r -- $PAGER $GIT_PAGER $SYSTEMD_PAGER $MANPAGER").await;
+    assert_eq!(result.output, "cat cat cat cat\n");
+}
+
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
 fn plugin() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")

@@ -136,6 +136,11 @@ _efr_hs_init() {
   builtin setopt no_bang_hist no_correct no_correct_all no_prompt_sp
   builtin unset HISTFILE
 
+  # No pager either: nobody reads one on the hidden screen, and a command that opens
+  # less would wait until someone quit it. The daemon sets these already; they are
+  # set again because the user's .zshrc often exports PAGER=less.
+  builtin export PAGER=cat GIT_PAGER=cat SYSTEMD_PAGER=cat MANPAGER=cat
+
   # This hook already runs as a precmd hook, so the first prompt is marked from here.
   _efr_hs_precmd
 }
