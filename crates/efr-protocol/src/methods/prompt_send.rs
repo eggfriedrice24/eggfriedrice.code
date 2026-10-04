@@ -1,5 +1,7 @@
 //! `prompt.send`: send a prompt to a conversation.
 
+use std::fmt;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +12,10 @@ use crate::{CommandId, ConversationId, Seq, ShellContext, TurnId};
 /// Without `conversation_id`, the prompt goes to the active conversation of the
 /// context's tty, and a new conversation starts when the tty has none. A prompt sent
 /// while a turn runs queues behind it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+///
+/// `Debug` leaves out `last_command`, because a command line can hold a secret and
+/// requests are logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PromptSend {
     /// Makes the send idempotent: a retry with the same id returns the first result.
     pub command_id: CommandId,
@@ -26,6 +31,27 @@ pub struct PromptSend {
     /// The user's shell when the prompt was sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<ShellContext>,
+    /// The last command line from the user's shell history, for the turn's live-state
+    /// preamble only.
+    ///
+    /// It is not part of [`ShellContext`], because a command line can hold a secret such
+    /// as `export TOKEN=...`. The daemon hands it to the turn in memory and never records
+    /// it in an event, which the event log keeps forever and every subscriber receives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_command: Option<String>,
+}
+
+impl fmt::Debug for PromptSend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NOTE: last_command is deliberately missing; see the type's doc comment.
+        f.debug_struct("PromptSend")
+            .field("command_id", &self.command_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("new_conversation", &self.new_conversation)
+            .field("text", &self.text)
+            .field("context", &self.context)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The result of `prompt.send`.

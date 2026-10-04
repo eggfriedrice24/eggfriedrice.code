@@ -89,3 +89,20 @@ fn the_document_names_the_protocol_version_and_closed_sets() {
     assert_eq!(doc["error_codes"].as_array().unwrap().len(), 10);
     assert_eq!(doc["scopes"], json!(["read", "operate", "approve", "terminal", "admin"]));
 }
+
+#[test]
+fn the_last_command_is_a_member_of_prompt_send_and_never_of_a_shell_context() {
+    let doc = document();
+    let context = &doc["$defs"]["ShellContext"]["properties"];
+    assert!(context.is_object(), "{doc:#}");
+    assert!(context.get("last_command").is_none(), "{context:#}");
+    let prompt_send = doc["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == json!("prompt.send"))
+        .unwrap();
+    assert_eq!(prompt_send["params"], json!({ "$ref": "#/$defs/PromptSend" }));
+    let params = &doc["$defs"]["PromptSend"]["properties"];
+    assert!(params["last_command"].is_object(), "{params:#}");
+}

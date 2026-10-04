@@ -10,7 +10,6 @@ fn full() -> ShellContext {
         tty: Some("/dev/pts/3".into()),
         shell_pid: Some(4242),
         last_status: Some(1),
-        last_command: Some("export TOKEN=hunter2".into()),
         shlvl: Some(1),
         ssh_connection: None,
         hostname: Some("desk".into()),
@@ -18,11 +17,17 @@ fn full() -> ShellContext {
 }
 
 #[test]
-fn debug_leaves_out_the_last_command() {
-    let text = format!("{:?}", full());
+fn a_last_command_sent_inside_a_context_is_dropped() {
+    let context: ShellContext = serde_json::from_value(json!({
+        "pwd": "/etc",
+        "last_status": 0,
+        "last_command": "export TOKEN=hunter2",
+    }))
+    .unwrap();
+    let text = serde_json::to_string(&context).unwrap();
     assert!(!text.contains("hunter2"), "{text}");
     assert!(!text.contains("last_command"), "{text}");
-    assert!(text.contains("/dev/pts/3"), "{text}");
+    assert!(!format!("{context:?}").contains("hunter2"));
 }
 
 #[test]

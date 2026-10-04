@@ -60,7 +60,9 @@ pub enum Event {
         text: String,
         /// The surface that sent it.
         origin: Origin,
-        /// The user's shell when the prompt was sent.
+        /// The user's shell when the prompt was sent. A [`ShellContext`] holds no command
+        /// line, so this event, which the log keeps forever and every subscriber receives,
+        /// never carries the last command of `prompt.send`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ShellContext>,
     },

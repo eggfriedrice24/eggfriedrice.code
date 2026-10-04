@@ -6,7 +6,8 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId, Scope, Seq, TurnId,
+    CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PromptSend,
+    PtyId, Scope, Seq, ShellContext, TurnId,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -24,6 +25,80 @@ fn a_known_event_is_one_object_tagged_by_kind() {
         serde_json::to_value(&event).unwrap(),
         json!({ "kind": "turn_started", "turn_id": TURN, "cwd": "/etc", "scope": { "kind": "machine" } })
     );
+}
+
+/// A `prompt.send` whose last command holds a secret, decoded from the wire the way the
+/// daemon receives it, with a copy of the command inside the context as an older client
+/// might put it.
+fn prompt_with_a_secret() -> PromptSend {
+    serde_json::from_value(json!({
+        "command_id": "01928c4e-7a3b-7c1d-8e2f-000000000004",
+        "text": "why did that fail",
+        "context": {
+            "pwd": "/srv",
+            "tty": "/dev/pts/3",
+            "last_status": 1,
+            "last_command": "export TOKEN=hunter2",
+        },
+        "last_command": "export TOKEN=hunter2",
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_prompt_queued_event_never_contains_the_last_command() {
+    let prompt = prompt_with_a_secret();
+    assert_eq!(prompt.last_command.as_deref(), Some("export TOKEN=hunter2"));
+    let event = Event::PromptQueued {
+        turn_id: turn(),
+        command_id: prompt.command_id,
+        text: prompt.text.clone(),
+        origin: Origin::Shell,
+        context: prompt.context.clone(),
+    };
+    let envelope = EventEnvelope {
+        seq: Seq::new(1),
+        conversation_id: Some(ConversationId::from_str(CONVERSATION).unwrap()),
+        at: Timestamp::UNIX_EPOCH,
+        event: event.clone(),
+    };
+    for text in [
+        serde_json::to_string(&event).unwrap(),
+        serde_json::to_string(&envelope).unwrap(),
+        format!("{event:?}"),
+    ] {
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(!text.contains("last_command"), "{text}");
+    }
+    assert_eq!(
+        serde_json::to_value(&event).unwrap()["context"],
+        json!({ "pwd": "/srv", "tty": "/dev/pts/3", "last_status": 1 })
+    );
+}
+
+#[test]
+fn the_debug_output_of_a_prompt_leaves_out_the_last_command() {
+    let prompt = prompt_with_a_secret();
+    let text = format!("{prompt:?}");
+    assert!(!text.contains("hunter2"), "{text}");
+    assert!(text.contains("why did that fail"), "{text}");
+}
+
+#[test]
+fn the_last_command_of_a_prompt_is_a_member_of_the_params_not_of_the_context() {
+    let prompt = PromptSend {
+        command_id: CommandId::from_str("01928c4e-7a3b-7c1d-8e2f-000000000004").unwrap(),
+        conversation_id: None,
+        new_conversation: false,
+        text: "why".to_owned(),
+        context: Some(ShellContext::new("/srv")),
+        last_command: Some("make".to_owned()),
+    };
+    let value = serde_json::to_value(&prompt).unwrap();
+    assert_eq!(value["last_command"], json!("make"));
+    assert_eq!(value["context"], json!({ "pwd": "/srv" }));
+    let back: PromptSend = serde_json::from_value(value).unwrap();
+    assert_eq!(back, prompt);
 }
 
 #[test]

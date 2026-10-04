@@ -139,7 +139,6 @@ fn shell_context() -> ShellContext {
         tty: Some("/dev/pts/3".into()),
         shell_pid: Some(4242),
         last_status: Some(1),
-        last_command: Some("du -sh /var/log".into()),
         shlvl: Some(1),
         ssh_connection: Some("192.0.2.10 51234 192.0.2.20 22".into()),
         hostname: Some("desk".into()),
@@ -248,6 +247,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             new_conversation: false,
             text: "why is the disk full".into(),
             context: Some(shell_context()),
+            last_command: Some("du -sh /var/log".into()),
         }),
         Method::TurnInterrupt(TurnInterrupt {
             command_id: command_id(),
