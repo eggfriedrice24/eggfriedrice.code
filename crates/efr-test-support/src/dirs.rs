@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::fs::DirBuilder;
 use std::os::unix::fs::DirBuilderExt as _;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::Dirs;
@@ -95,8 +95,17 @@ impl TestDirs {
     }
 
     /// Creates `relative` and its parents under the root, mode 0700, and returns its
-    /// path. It is not an error when the directory exists.
+    /// path. It is not an error when the directory exists. An absolute path or one with
+    /// a `..` component is refused, because it could name a directory outside the tree
+    /// that the test would then leave behind.
     pub fn create_dir(&self, relative: impl AsRef<Path>) -> Result<PathBuf, TestSupportError> {
+        let relative = relative.as_ref();
+        let inside = relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+        if !inside {
+            return Err(TestSupportError::OutsideTree { path: relative.to_path_buf() });
+        }
         let path = self.root.join(relative);
         create_dir(&path)?;
         Ok(path)

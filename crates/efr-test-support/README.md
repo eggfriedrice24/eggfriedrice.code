@@ -19,8 +19,9 @@ directories, a store and provider traffic from one place and never from the mach
   `state/`, `runtime/`, the layout `just run` uses) and a stand-in `home/`, all mode
   0700, removed on drop. `dirs()` gives the `efr_stdx::paths::Dirs`, `env()` an
   `efr_stdx::env::Env` that names them through `EFR_*_DIR`, and `create_dir` makes a
-  working directory for a test. The root is the real path of the temporary directory,
-  so code that canonicalizes a path gets back the path the test holds.
+  working directory for a test and refuses a path that could leave the tree. The root is
+  the real path of the temporary directory, so code that canonicalizes a path gets back
+  the path the test holds.
 - `ndjson`: `Transcript`, the reader and validator of NDJSON transcripts, one `Record`
   per line, each `Entry` with its line number. The kinds are those of the structure
   document: `expect_outbound` `provider_request` and `event`, `emit_inbound`
@@ -86,6 +87,11 @@ Third-party crates: `async-trait`, `base64`, `futures`, `jiff`, `serde`, `serde_
   scenario driver live in `efr-test-daemon`, so a leaf crate's tests never compile the
   daemon and never link two copies of a library.
 - Nothing here reads the wall clock or waits on real time.
+- The `TestRng` sequence never changes: fixtures hold ids made from it, and a test pins
+  its first values.
+- The transcript format is defined here, in `ndjson`. The daemon's recorder behind
+  `EFR_RECORD_TRANSCRIPT` may not depend on this crate, so it must write the same
+  shape; `Transcript::to_ndjson` is the reference for it.
 
 ## Tests
 

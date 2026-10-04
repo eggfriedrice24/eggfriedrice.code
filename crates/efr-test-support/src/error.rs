@@ -43,6 +43,14 @@ pub enum TestSupportError {
         source: io::Error,
     },
 
+    /// A directory to create in the temporary tree is named by a path that could leave
+    /// the tree.
+    #[error("{} is not a relative path inside the temporary tree", .path.display())]
+    OutsideTree {
+        /// The path as given.
+        path: PathBuf,
+    },
+
     /// The temporary tree does not make valid efr roots.
     #[error("the temporary directories are not valid efr roots")]
     Dirs {

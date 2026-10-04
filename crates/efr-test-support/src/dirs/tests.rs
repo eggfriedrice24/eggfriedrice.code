@@ -5,6 +5,7 @@ use efr_stdx::env::Var;
 use pretty_assertions::assert_eq;
 
 use super::TestDirs;
+use crate::TestSupportError;
 
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
@@ -79,4 +80,17 @@ fn the_redactor_hides_the_root_and_keeps_room_for_a_cwd() {
     let redactor = dirs.redactor().cwd(&project);
     let text = format!("{} {}", project.display(), socket.display());
     assert_eq!(redactor.redact(&text), "<CWD> <TMP>/runtime/daemon.sock");
+}
+
+#[test]
+fn create_dir_refuses_paths_that_leave_the_tree() {
+    let dirs = TestDirs::new().unwrap();
+    for path in ["/tmp/efr-escape", "home/../../efr-escape", ".."] {
+        let err = dirs.create_dir(path).unwrap_err();
+        assert!(
+            matches!(&err, TestSupportError::OutsideTree { path: given } if given == Path::new(path)),
+            "{path}: {err:?}"
+        );
+    }
+    assert!(!dirs.root().parent().unwrap().join("efr-escape").exists());
 }
