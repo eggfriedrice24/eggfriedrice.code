@@ -1,0 +1,13 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/da1_reply.ndjson
+---
+case: da1_reply
+size: 10x1
+cursor: row 0, col 0
+title: (none)
+rows:
+  0 ||
+title changes: []
+bells: 0
+replies: "\x1b[?62;22c"

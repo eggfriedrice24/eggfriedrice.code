@@ -1,0 +1,13 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/strings_do_not_render.ndjson
+---
+case: strings_do_not_render
+size: 10x1
+cursor: row 0, col 2
+title: (none)
+rows:
+  0 |ok|
+title changes: []
+bells: 0
+replies: ""

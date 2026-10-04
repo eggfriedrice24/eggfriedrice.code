@@ -1,0 +1,15 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/plain_text.ndjson
+---
+case: plain_text
+size: 10x3
+cursor: row 1, col 5
+title: (none)
+rows:
+  0 |hello|
+  1 |world|
+  2 ||
+title changes: []
+bells: 0
+replies: ""

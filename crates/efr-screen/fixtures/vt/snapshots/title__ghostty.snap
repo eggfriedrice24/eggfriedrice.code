@@ -1,0 +1,14 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/title.ndjson
+---
+case: title
+size: 10x2
+cursor: row 0, col 0
+title: second
+rows:
+  0 ||
+  1 ||
+title changes: ["first", "second"]
+bells: 0
+replies: ""
