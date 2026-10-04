@@ -27,8 +27,10 @@ pub struct DecisionInput {
 
 /// What a tool call declared that it needs.
 ///
-/// A call that declares nothing is allowed: the engine cannot judge what a tool does
-/// not declare, so declaring is the tool's contract.
+/// The engine cannot judge what a tool does not declare, so declaring is the tool's
+/// contract. A call that declares nothing is allowed for a turn from the shell, the CLI
+/// or the proxy, and needs approval for a turn from any other origin, which fails
+/// closed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Requirements {
     /// Paths that the call reads or writes, each as the absolute path the tool resolved.

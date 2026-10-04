@@ -120,8 +120,8 @@ pub enum Cause {
     NoRule,
     /// The path is relative, so its class is unknown.
     NotAbsolute,
-    /// A rule allowed the requirement, but the turn comes from a remote origin, which
-    /// needs approval for everything outside `$SCRATCH`.
+    /// A rule allowed the requirement, or the call declared none, but the turn comes from
+    /// a remote origin, which needs approval for everything outside `$SCRATCH`.
     RemoteOrigin {
         /// The origin.
         origin: Origin,
@@ -159,6 +159,11 @@ impl fmt::Display for Reason {
             Cause::Rule { layer, index } => write!(f, ", by rule {index} of the {layer} policy"),
             Cause::NoRule => f.write_str(", because no rule matched"),
             Cause::NotAbsolute => f.write_str(", because the path is not absolute"),
+            Cause::RemoteOrigin { origin } if self.subject == Subject::Nothing => write!(
+                f,
+                ", because the turn comes from {} and the call declares nothing to judge",
+                origin_name(*origin)
+            ),
             Cause::RemoteOrigin { origin } => {
                 write!(
                     f,

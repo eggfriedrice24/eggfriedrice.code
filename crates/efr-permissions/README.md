@@ -65,6 +65,9 @@ decisions follow these rules, each covered by a decision table in
   becomes `Ask`, `Deny` stays `Deny`. Any origin other than shell, CLI or proxy,
   including one added to the protocol later, counts as remote (property: the phone is
   never looser than the shell).
+- A call that declares no requirement is allowed for the shell, the CLI and the proxy,
+  and needs approval for every remote origin, because the engine cannot see what an
+  undeclared call does (fail closed).
 - Every form of `~` classifies alike: a secret reached through a linked home is
   still a secret (property: both forms of a path get the same class).
 - `~`, `/` and the directories above `~`, in any form of `~`, are never treated as a

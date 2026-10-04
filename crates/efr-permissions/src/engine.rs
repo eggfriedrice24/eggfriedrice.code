@@ -19,6 +19,11 @@ use crate::{DecisionInput, Locations, PathAccess, PathClass, Policy};
 /// 3. A turn from a remote origin (the phone, or any origin newer than this crate) needs
 ///    approval for everything outside `$SCRATCH`: an `Allow` becomes `Ask`. An
 ///    interactive call always needs approval.
+///
+/// A call that declares no requirement gets one reason, [`Subject::Nothing`]. It is
+/// allowed for the local origins (shell, CLI and proxy) and needs approval for any other,
+/// because the engine cannot see what an undeclared call does, and a remote turn fails
+/// closed.
 #[derive(Debug, Clone)]
 pub struct Engine {
     locations: Locations,
@@ -97,11 +102,9 @@ impl Engine {
             });
         }
         if reasons.is_empty() {
-            reasons.push(Reason {
-                subject: Subject::Nothing,
-                effect: Effect::Allow,
-                cause: Cause::NoRequirements,
-            });
+            let (effect, cause) =
+                clamp_remote(Effect::Allow, Cause::NoRequirements, None, input.origin);
+            reasons.push(Reason { subject: Subject::Nothing, effect, cause });
         }
         Decision::from_reasons(reasons)
     }
@@ -128,7 +131,8 @@ impl Engine {
     }
 }
 
-/// Step 3 for one requirement: outside `$SCRATCH`, a remote turn needs approval.
+/// Step 3 for one requirement: outside `$SCRATCH`, a remote turn needs approval. A
+/// requirement without a class, such as a command or no requirement at all, is outside.
 fn clamp_remote(
     effect: Effect,
     cause: Cause,

@@ -82,6 +82,10 @@ fn a_decision_without_reasons_fails_closed() {
     reason(Subject::Nothing, Effect::Allow, Cause::NoRequirements),
     "no requirements: allow"
 )]
+#[case::nothing_from_the_phone(
+    reason(Subject::Nothing, Effect::Ask, Cause::RemoteOrigin { origin: Origin::Phone }),
+    "no requirements: ask, because the turn comes from the phone and the call declares nothing to judge"
+)]
 fn reasons_read_as_one_line(#[case] reason: Reason, #[case] expected: &str) {
     assert_eq!(reason.to_string(), expected);
 }

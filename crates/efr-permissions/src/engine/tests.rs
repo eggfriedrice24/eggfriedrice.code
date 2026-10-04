@@ -142,7 +142,7 @@ fn scratch_file() -> String {
 #[case::command(Requirements::none().with_command("ls -la"), Effect::Ask)]
 #[case::network(Requirements::none().with_network(), Effect::Ask)]
 #[case::interactive(read(&scratch_file()).with_interactive(), Effect::Ask)]
-// A call that declares nothing runs.
+// A call that declares nothing runs for the shell; see `no_requirements_by_origin`.
 #[case::nothing(Requirements::none(), Effect::Allow)]
 fn shell_turn_in_machine_scope(#[case] requirements: Requirements, #[case] expected: Effect) {
     assert_eq!(effect(requirements, Scope::Machine, Origin::Shell), expected);
@@ -274,7 +274,7 @@ fn a_scratch_or_project_in_the_resolved_form_widens_both_forms() {
 #[case::relative(read("a"), Scope::Machine, Effect::Deny)]
 #[case::command(Requirements::none().with_command("ls"), Scope::Machine, Effect::Ask)]
 #[case::network(Requirements::none().with_network(), Scope::Machine, Effect::Ask)]
-#[case::nothing(Requirements::none(), Scope::Machine, Effect::Allow)]
+#[case::nothing(Requirements::none(), Scope::Machine, Effect::Ask)]
 fn phone_tightens_every_class_but_scratch_to_ask(
     #[case] requirements: Requirements,
     #[case] scope: Scope,
@@ -299,6 +299,39 @@ fn local_origins_decide_like_the_shell(#[case] origin: Origin) {
             effect(requirements, scope, Origin::Shell)
         );
     }
+}
+
+#[rstest]
+#[case::shell(Origin::Shell, Effect::Allow)]
+#[case::cli(Origin::Cli, Effect::Allow)]
+#[case::proxy(Origin::Proxy, Effect::Allow)]
+#[case::phone(Origin::Phone, Effect::Ask)]
+fn no_requirements_by_origin(#[case] origin: Origin, #[case] expected: Effect) {
+    for scope in [Scope::Machine, Scope::Path("/srv".into()), Scope::Project(app())] {
+        assert_eq!(effect(Requirements::none(), scope.clone(), origin), expected, "{scope:?}");
+    }
+}
+
+#[test]
+fn no_requirements_from_the_phone_ask_with_the_remote_reason() {
+    let decision = engine().decide(&input(Requirements::none(), Scope::Machine, Origin::Phone));
+    assert_eq!(
+        decision.reasons(),
+        [Reason {
+            subject: Subject::Nothing,
+            effect: Effect::Ask,
+            cause: Cause::RemoteOrigin { origin: Origin::Phone },
+        }]
+    );
+}
+
+#[test]
+fn no_requirements_from_a_local_origin_allow_with_their_own_reason() {
+    let decision = engine().decide(&input(Requirements::none(), Scope::Machine, Origin::Cli));
+    assert_eq!(
+        decision.reasons(),
+        [Reason { subject: Subject::Nothing, effect: Effect::Allow, cause: Cause::NoRequirements }]
+    );
 }
 
 #[test]
