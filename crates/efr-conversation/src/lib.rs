@@ -10,11 +10,13 @@
 //! wire codes, and rendering.
 
 mod error;
+mod history;
 mod preamble;
 mod resolver;
 mod scratch;
 mod toolbox;
 
 pub use error::ConversationError;
+pub use history::HistoryLimits;
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use toolbox::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};

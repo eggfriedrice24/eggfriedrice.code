@@ -1,0 +1,325 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use efr_protocol::{
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, Origin, PtyId, Scope, TurnId,
+};
+use efr_provider::{ContentBlock, Message, ProviderId, Role};
+use efr_stdx::id::uuid_v7;
+use efr_store::Batch;
+use efr_test_support::{TestClock, TestRng, TestStore};
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use super::{CachedTurn, HistoryLimits, Snapshot, rebuild};
+
+fn turn(seed: u64) -> TurnId {
+    TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
+}
+
+fn call(seed: u64) -> CallId {
+    CallId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
+}
+
+fn conversation() -> ConversationId {
+    ConversationId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1)))
+}
+
+fn provider(name: &str) -> ProviderId {
+    ProviderId::new(name).expect("provider id")
+}
+
+fn completed(turn_id: TurnId, index: u32, text: &str) -> Event {
+    Event::AssistantMessageCompleted { turn_id, index, text: text.to_owned() }
+}
+
+fn started(turn_id: TurnId, call_id: CallId, tool: &str) -> Event {
+    Event::ToolCallStarted { turn_id, call_id, tool: tool.to_owned(), input: json!({}) }
+}
+
+fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
+    Event::ToolCallCompleted {
+        turn_id,
+        call_id,
+        output: output.to_owned(),
+        truncated: false,
+        is_error: false,
+        exit_code: None,
+    }
+}
+
+fn tool_call(call_id: CallId, name: &str) -> ContentBlock {
+    ContentBlock::ToolCall { call_id: call_id.to_string(), name: name.to_owned(), input: json!({}) }
+}
+
+fn tool_result(call_id: CallId, output: &str) -> ContentBlock {
+    ContentBlock::ToolResult {
+        call_id: call_id.to_string(),
+        output: output.to_owned(),
+        is_error: false,
+    }
+}
+
+#[test]
+fn a_text_turn_is_the_prompt_and_the_answer() {
+    let t = turn(2);
+    let events = [completed(t, 0, "Hi.")];
+    let refs: Vec<&Event> = events.iter().collect();
+    assert_eq!(rebuild("hello", &refs), vec![Message::user("hello"), Message::assistant("Hi.")]);
+}
+
+#[test]
+fn tool_calls_join_the_assistant_message_until_a_result_comes() {
+    let t = turn(2);
+    let (c1, c2) = (call(3), call(4));
+    let events = [
+        completed(t, 0, "Looking."),
+        started(t, c1, "read_file"),
+        finished(t, c1, "one"),
+        started(t, c2, "read_file"),
+        finished(t, c2, "two"),
+        completed(t, 1, "Done."),
+    ];
+    let refs: Vec<&Event> = events.iter().collect();
+
+    assert_eq!(
+        rebuild("look", &refs),
+        vec![
+            Message::user("look"),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Text { text: "Looking.".to_owned() },
+                    tool_call(c1, "read_file")
+                ]
+            ),
+            Message::new(Role::User, vec![tool_result(c1, "one")]),
+            Message::new(Role::Assistant, vec![tool_call(c2, "read_file")]),
+            Message::new(Role::User, vec![tool_result(c2, "two")]),
+            Message::assistant("Done."),
+        ]
+    );
+}
+
+#[test]
+fn steering_is_a_user_message_where_it_happened() {
+    let t = turn(2);
+    let events = [
+        completed(t, 0, "Working."),
+        Event::TurnSteered { turn_id: t, text: "faster".to_owned() },
+        completed(t, 1, "Done."),
+    ];
+    let refs: Vec<&Event> = events.iter().collect();
+    assert_eq!(
+        rebuild("go", &refs),
+        vec![
+            Message::user("go"),
+            Message::assistant("Working."),
+            Message::user("faster"),
+            Message::assistant("Done."),
+        ]
+    );
+}
+
+#[test]
+fn text_that_streamed_but_never_completed_ends_the_turn() {
+    let t = turn(2);
+    let events = [
+        Event::AssistantMessageUpdated { turn_id: t, index: 0, text: "Hal".to_owned() },
+        Event::AssistantMessageUpdated { turn_id: t, index: 0, text: "Half an answ".to_owned() },
+    ];
+    let refs: Vec<&Event> = events.iter().collect();
+    assert_eq!(rebuild("go", &refs), vec![Message::user("go"), Message::assistant("Half an answ")]);
+}
+
+/// Records a whole turn: queued, started, `body`, then `end`.
+fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Event> {
+    let command_id = CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1000)));
+    let mut events = vec![
+        Event::PromptQueued {
+            turn_id: t,
+            command_id,
+            text: prompt.to_owned(),
+            origin: Origin::Shell,
+            context: None,
+        },
+        Event::TurnStarted { turn_id: t, cwd: PathBuf::from("/home/u"), scope: Scope::Machine },
+    ];
+    events.extend(body);
+    events.push(end);
+    events
+}
+
+async fn store_with(batches: Vec<Vec<Event>>) -> TestStore {
+    let clock = TestClock::new();
+    let store = TestStore::open(clock.shared()).await.expect("store");
+    let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
+    let mut all = vec![vec![created]];
+    all.extend(batches);
+    for events in all {
+        let batch = events.into_iter().fold(Batch::new(), |b, e| b.event(conversation(), e));
+        store.writer().append(batch).await.expect("append");
+    }
+    store
+}
+
+async fn snapshot(store: &TestStore, limits: HistoryLimits) -> Snapshot {
+    Snapshot::read(store.readers(), conversation(), limits).await.expect("snapshot")
+}
+
+#[tokio::test]
+async fn only_finished_turns_other_than_the_current_one_count() {
+    let (a, b, current) = (turn(2), turn(3), turn(4));
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "first",
+            vec![completed(a, 0, "One.")],
+            Event::TurnCompleted { turn_id: a, usage: None },
+        ),
+        whole_turn(
+            b,
+            "second",
+            vec![],
+            Event::TurnFailed { turn_id: b, error: ErrorBody::new(ErrorCode::Unauthorized, "no") },
+        ),
+        vec![
+            Event::PromptQueued {
+                turn_id: current,
+                command_id: CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1001))),
+                text: "third".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+            },
+            Event::TurnStarted { turn_id: current, cwd: PathBuf::from("/"), scope: Scope::Machine },
+        ],
+    ])
+    .await;
+
+    let history = snapshot(&store, HistoryLimits::default()).await.history(
+        current,
+        &HashMap::new(),
+        &provider("replay"),
+        HistoryLimits::default(),
+    );
+
+    assert_eq!(
+        history,
+        vec![Message::user("first"), Message::assistant("One."), Message::user("second")]
+    );
+}
+
+#[tokio::test]
+async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
+    let (a, b) = (turn(2), turn(3));
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "first",
+            vec![completed(a, 0, "One.")],
+            Event::TurnCompleted { turn_id: a, usage: None },
+        ),
+        whole_turn(
+            b,
+            "second",
+            vec![completed(b, 0, "Two.")],
+            Event::TurnCompleted { turn_id: b, usage: None },
+        ),
+    ])
+    .await;
+    let limits = HistoryLimits::new(50, 4, usize::MAX);
+
+    let history = snapshot(&store, limits).await.history(
+        turn(9),
+        &HashMap::new(),
+        &provider("replay"),
+        limits,
+    );
+
+    assert_eq!(history, vec![Message::user("second"), Message::assistant("Two.")]);
+}
+
+#[tokio::test]
+async fn a_cached_turn_keeps_its_provider_items_only_for_the_same_provider() {
+    let a = turn(2);
+    let store = store_with(vec![whole_turn(
+        a,
+        "first",
+        vec![completed(a, 0, "One.")],
+        Event::TurnCompleted { turn_id: a, usage: None },
+    )])
+    .await;
+    let raw = json!([{ "type": "reasoning", "encrypted_content": "opaque" }]);
+    let exact = vec![Message::user("first"), Message::assistant("One.").with_provider_raw(raw)];
+    let cache = HashMap::from([(
+        a,
+        Arc::new(CachedTurn { provider: provider("replay"), messages: exact.clone() }),
+    )]);
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+
+    let same = snapshot.history(turn(9), &cache, &provider("replay"), HistoryLimits::default());
+    let other = snapshot.history(turn(9), &cache, &provider("other"), HistoryLimits::default());
+
+    assert_eq!(same, exact);
+    assert_eq!(other, vec![Message::user("first"), Message::assistant("One.")]);
+}
+
+#[tokio::test]
+async fn the_oldest_turns_go_first_when_history_is_too_long() {
+    let (a, b, c) = (turn(2), turn(3), turn(4));
+    let long = "x".repeat(1000);
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "first",
+            vec![completed(a, 0, &long)],
+            Event::TurnCompleted { turn_id: a, usage: None },
+        ),
+        whole_turn(
+            b,
+            "second",
+            vec![completed(b, 0, "Two.")],
+            Event::TurnCompleted { turn_id: b, usage: None },
+        ),
+        whole_turn(
+            c,
+            "third",
+            vec![completed(c, 0, "Three.")],
+            Event::TurnCompleted { turn_id: c, usage: None },
+        ),
+    ])
+    .await;
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+    let none = HashMap::new();
+    let replay = provider("replay");
+
+    let by_turns =
+        snapshot.history(turn(9), &none, &replay, HistoryLimits::new(2, 4096, usize::MAX));
+    let by_bytes = snapshot.history(turn(9), &none, &replay, HistoryLimits::new(50, 4096, 500));
+
+    let last_two = vec![
+        Message::user("second"),
+        Message::assistant("Two."),
+        Message::user("third"),
+        Message::assistant("Three."),
+    ];
+    assert_eq!(by_turns, last_two);
+    assert_eq!(by_bytes, last_two);
+}
+
+#[tokio::test]
+async fn the_hidden_shell_s_directory_is_the_newest_report() {
+    let pty = PtyId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(50)));
+    let store = store_with(vec![
+        vec![Event::ShellStarted { pty_id: pty, cwd: PathBuf::from("/home/u"), pid: Some(1) }],
+        vec![Event::CwdChanged { pty_id: pty, cwd: PathBuf::from("/etc"), host: None }],
+    ])
+    .await;
+    assert_eq!(
+        snapshot(&store, HistoryLimits::default()).await.agent_cwd(),
+        Some(PathBuf::from("/etc"))
+    );
+    let empty = store_with(Vec::new()).await;
+    assert_eq!(snapshot(&empty, HistoryLimits::default()).await.agent_cwd(), None);
+}
