@@ -8,6 +8,8 @@
 //! - [`fixtures`]: a crate's fixture files, found from `file!()`.
 //! - [`Redactor`]: placeholders for the temporary cwd, the scratch path, the host name
 //!   and timestamps, and back.
+//! - [`ReplayProvider`]: an `efr_provider::Provider` that answers from a transcript and
+//!   checks every request against it.
 //!
 //! This is a dev crate: a crate names it under `[dev-dependencies]` only, and no
 //! shipped binary links it.
@@ -30,6 +32,7 @@ mod error;
 pub mod fixtures;
 mod ndjson;
 mod redact;
+mod replay_provider;
 mod rng;
 mod store;
 
@@ -38,5 +41,6 @@ pub use dirs::TestDirs;
 pub use error::TestSupportError;
 pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
 pub use redact::Redactor;
+pub use replay_provider::ReplayProvider;
 pub use rng::TestRng;
 pub use store::TestStore;

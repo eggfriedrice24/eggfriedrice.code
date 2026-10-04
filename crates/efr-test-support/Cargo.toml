@@ -12,10 +12,13 @@ publish = false
 doctest = false
 
 [dependencies]
+async-trait.workspace = true
 base64.workspace = true
 efr-protocol.workspace = true
+efr-provider.workspace = true
 efr-stdx.workspace = true
 efr-store.workspace = true
+futures.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -24,7 +27,6 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-futures.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 

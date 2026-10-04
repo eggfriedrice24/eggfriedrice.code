@@ -45,6 +45,25 @@ directories, a store and provider traffic from one place and never from the mach
   values wins. `restore` puts the real paths back into inbound records. Both work on
   text and on every string and key of a JSON value. `TestDirs::redactor` starts one
   with the temporary root registered.
+- `replay_provider`: `ReplayProvider`, an `efr_provider::Provider` driven by a
+  transcript. Each `provider_request` record and the `provider_sse` records after it
+  form one exchange. Each call to `stream` takes the next exchange, compares the
+  request with the record as JSON after redaction on both sides, and streams the
+  answer with placeholders restored. Records of other kinds are left to the scenario
+  driver of `efr-test-daemon`. The answer format is canonical: each SSE `data` field
+  is an `efr_provider::ProviderEvent` in its serde form, and an event of type `error`
+  ends the answer with a `ProviderError` (`unauthorized`, `rate_limited`,
+  `not_logged_in`, `incomplete` or `api`). A request that does not match, or that
+  comes after the last exchange, fails with `ProviderError::Api` and code
+  `replay_mismatch` or `replay_exhausted`, not with a panic, because the code under
+  test may run in a task whose panic the test never sees. `finish()` then reports the
+  line, the JSON pointer of the first difference and both bodies, or the exchanges
+  that were never requested. `paced()` holds each `provider_sse` record until the
+  harness reports through `handled_through(line)` that it has handled the records
+  before it, for an interrupt in the middle of an answer. The transcript is validated
+  when the provider is built, so a broken fixture fails before the test runs. A
+  provider's own wire format, such as the Responses API, is replayed at the HTTP level
+  with wiremock instead.
 - `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
@@ -57,8 +76,8 @@ binary links it.
 `efr-protocol`, `efr-store`, `efr-provider` and `efr-stdx`. `xtask/src/deps.rs` holds
 the allowlist.
 
-Third-party crates: `base64`, `jiff`, `serde`, `serde_json`, `tempfile`, `thiserror` and
-`tokio`.
+Third-party crates: `async-trait`, `base64`, `futures`, `jiff`, `serde`, `serde_json`,
+`tempfile`, `thiserror` and `tokio`.
 
 ## Invariant
 
@@ -84,4 +103,7 @@ check with a proptest that any transcript survives writing and reading. The fixt
 tests find `fixtures/transcripts/single_exchange.ndjson` from `file!()`. The store tests
 append through the real writer and read events and a recording back. The redaction tests
 cover whole-name matching, the timestamp grammar in both directions, and a proptest that
-`restore` undoes `redact`. They use no network, no real-time sleeps and no Zig.
+`restore` undoes `redact`. The replay provider tests replay the fixture through
+`Arc<dyn Provider>`, check the failure reports, map every error event, validate broken
+transcripts, and step a paced answer with `handled_through`. They use no network, no
+real-time sleeps and no Zig.

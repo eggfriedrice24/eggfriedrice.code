@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use efr_stdx::StdxError;
 use efr_store::StoreError;
+use serde_json::Value;
 
 /// Every way a test helper can fail.
 ///
@@ -103,6 +104,56 @@ pub enum TestSupportError {
         line: usize,
         /// What is wrong.
         problem: &'static str,
+    },
+
+    /// A provider record holds something the replay provider cannot read: a request
+    /// body that is not an `efr_provider::Request`, or answer data that is not JSON, a
+    /// `ProviderEvent` or an error record.
+    #[error("line {line} of the transcript is not a valid provider record")]
+    ProviderRecord {
+        /// The line, from 1.
+        line: usize,
+        /// The JSON error.
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// The replay provider got a request after the last exchange of its transcript.
+    #[error("the replay provider got a request after the last provider_request of its transcript")]
+    UnexpectedRequest {
+        /// The request, redacted.
+        request: Value,
+    },
+
+    /// A request differs from the `provider_request` record it was compared with.
+    #[error(
+        "the request does not match the provider_request at line {line}; the first difference \
+         is at {pointer:?}"
+    )]
+    RequestMismatch {
+        /// The line of the record.
+        line: usize,
+        /// The JSON pointer of the first difference; empty when the whole request
+        /// differs.
+        pointer: String,
+        /// The record's body, redacted.
+        expected: Value,
+        /// The request, redacted.
+        actual: Value,
+    },
+
+    /// The replay ended with exchanges of the transcript that were never requested.
+    #[error(
+        "the replay provider served {served} requests, but its transcript has {remaining} \
+         more, the next at line {next_line}"
+    )]
+    UnusedRequests {
+        /// The requests that matched.
+        served: usize,
+        /// The exchanges left.
+        remaining: usize,
+        /// The line of the next `provider_request` record.
+        next_line: usize,
     },
 
     /// A fixture was looked up from a source file that is not inside a crate on disk.
