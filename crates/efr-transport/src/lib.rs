@@ -1,5 +1,8 @@
 //! The daemon's protocol edge, without the engine.
 //!
+//! - [`subscription`]: bounded per-subscriber queues of [`SUBSCRIBER_QUEUE_FRAMES`]
+//!   items; overflow closes that subscription with `overflow` and `last_seq`, and never
+//!   slows the producer.
 //! - [`ServerCodec`]: the tokio codec over `efr_protocol::framing`.
 //! - [`ConnectionContext`]: `{ surface, uid, pid, conn_id }`, carried by every request.
 //!
@@ -11,7 +14,12 @@
 mod codec;
 mod context;
 mod error;
+mod subscriptions;
 
 pub use codec::ServerCodec;
 pub use context::{ConnId, ConnectionContext, PeerCred};
 pub use error::TransportError;
+pub use subscriptions::{
+    Delivery, Offer, SUBSCRIBER_QUEUE_FRAMES, SubscriptionReceiver, SubscriptionSender,
+    subscription,
+};
