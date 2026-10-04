@@ -8,21 +8,22 @@ The tools the model calls, and the registry that offers them.
   generated with schemars from the input type, without `$schema` and `title`),
   `requirements(ctx, input)`, `preview(ctx, input)` (what a call would change, for
   its approval; none by default) and `invoke(ctx, input, out)`.
-- `ToolRequirements`: every path a call touches with its `AccessMode` (read or write),
-  the command line it runs, and whether it talks to the network or may wait for input
-  at the terminal. `requirements` is pure: paths are resolved lexically (`~` and `~/`
-  under the home directory, relative paths under the user's working directory, `.`
-  and `..` folded), so the conversation can ask before anything runs. Its `Debug`
-  shows the command's length, not its text.
+- `ToolRequirements`: every path a call touches with its `AccessMode` (read, read with
+  everything below, or write), the command line it runs, and whether it talks to the
+  network or may wait for input at the terminal. `requirements` is pure: paths are
+  resolved lexically (`~` and `~/` under the home directory, relative paths under the
+  user's working directory, or the hidden shell's for a command, `.` and `..` folded),
+  so the conversation can ask before anything runs. Its `Debug` shows the command's
+  length, not its text.
 - `ToolRegistry`: `register`, `specs` (for the provider request, in registration
   order), and `requirements`, `preview` and `invoke` by name. It never hands out a
   tool.
 - `write_file` previews a write as a unified diff against the current file (every
   line added for a new file), at most 200 lines and 16 KiB, with a line that says
   how much is left out.
-- `ToolContext`: the call's ids (`CallIds`), the user's working directory, `$SCRATCH`,
-  the scope, the origin, the home directory (`efr_scope::Home`), the clock and the
-  write journal.
+- `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
+  hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
+  the home directory (`efr_scope::Home`), the clock and the write journal.
 - `ToolResult`: the output the model sees, the truncation flag, the error flag and the
   exit code; `ToolOutputSink` hears a call's output while it runs.
 - `truncate_middle`: the head and the tail of a long output with a
@@ -38,9 +39,22 @@ The tools:
   starts in the user's working directory. It declares the command line, `interactive`
   when a program of the line may wait for input (`sudo`, `ssh`, an editor, a pager) or
   the call targets a nested shell, and `network` when a program usually reaches the
-  network (`curl`, package managers, `git pull`); both are a heuristic over the
-  program names, and the engine judges the command line itself too. It declares no
-  paths, because a command's file accesses cannot be known from its text. The answer
+  network (`curl`, package installs and syncs but not `pacman -Q` or `-Ss`, `git
+  pull`); both are a heuristic over the program names, and the engine judges the
+  command line itself too. It also declares the paths the line names, so the path
+  rules judge what a freely allowed read-only command reads: `shell_tool/words.rs`
+  splits the line (quotes read as zsh reads them, the commands inside `$(...)` and
+  groups included) and never fails, `shell_tool/reads.rs` says which words of each
+  program are paths (every operand and every path-like option value; nothing for
+  `echo`, `printf`, `basename` and the like; everything below the paths of `rg`, `grep
+  -r`, `find`, `du`, `tree`, `ls -R` and `diff`, and the working directory when such a
+  search names no path, with an unknown option failing closed), and
+  `shell_tool/declare.rs` resolves them against the hidden shell's directory, follows
+  `cd` within the line, turns a glob into everything below its fixed directory and an
+  output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is
+  denied, and `rg TOKEN ~/.aws` declares `~/.aws` with everything below and asks.
+  What the text cannot show, such as the files a script opens, it cannot declare. The
+  answer
   ends with `[exit code N, cwd DIR]`; a command still running at the timeout gets the
   screen's last lines and a note that the next call waits for it. A busy shell, a
   shell that did not reach its prompt, a shell that exited and a command that cannot
@@ -97,5 +111,6 @@ cargo nextest run -p efr-tools
 
 The file tools run against temporary directories (a home and a working directory,
 with symbolic links made where a test needs one); the shell tool runs against a fake
-`CommandRunner` that scripts results and progress. No test starts a shell, uses the
-network or touches the user's home.
+`CommandRunner` that scripts results and progress, and tables cover the split, the
+paths each program reads and the declared paths with `cd` and globs. No test starts a
+shell, uses the network or touches the user's home.

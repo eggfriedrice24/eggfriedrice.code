@@ -33,7 +33,7 @@ pub(crate) fn resolve(ctx: &ToolContext, raw: &str) -> Result<PathBuf, ToolError
 
 /// `.` dropped, `..` removing the component before it (never above `/`), repeated
 /// separators collapsed.
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     let mut normal = PathBuf::new();
     for component in path.components() {
         match component {

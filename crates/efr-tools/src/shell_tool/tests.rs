@@ -6,20 +6,66 @@ use serde_json::json;
 
 use super::{ShellTool, networked_git, programs};
 use crate::testing::{FakeRunner, Fixture, ids};
-use crate::{NoOutput, Tool as _, ToolError};
+use crate::{AccessMode, NoOutput, PathAccess, Tool as _, ToolContext, ToolError};
+
+fn tool() -> ShellTool {
+    ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))))
+}
 
 fn requirements(input: serde_json::Value) -> crate::ToolRequirements {
     let fixture = Fixture::new();
-    let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))));
-    tool.requirements(&fixture.context(), &input).unwrap()
+    tool().requirements(&fixture.context(), &input).unwrap()
+}
+
+fn paths_in(context: &ToolContext, command: &str) -> Vec<PathAccess> {
+    tool().requirements(context, &json!({ "command": command })).unwrap().paths
+}
+
+fn read(path: impl Into<std::path::PathBuf>) -> PathAccess {
+    PathAccess { path: path.into(), mode: AccessMode::Read }
+}
+
+fn tree(path: impl Into<std::path::PathBuf>) -> PathAccess {
+    PathAccess { path: path.into(), mode: AccessMode::ReadTree }
 }
 
 #[test]
-fn it_declares_the_command_and_no_paths() {
-    let requirements = requirements(json!({"command": "ls -la"}));
+fn it_declares_the_command_and_the_directory_it_lists() {
+    let fixture = Fixture::new();
+    let requirements =
+        tool().requirements(&fixture.context(), &json!({"command": "ls -la"})).unwrap();
     assert_eq!(requirements.command.as_deref(), Some("ls -la"));
-    assert!(requirements.paths.is_empty());
+    assert_eq!(requirements.paths, [read(fixture.cwd())]);
     assert!(!requirements.network && !requirements.interactive);
+}
+
+#[test]
+fn a_secret_named_by_a_read_only_command_is_declared() {
+    let fixture = Fixture::new();
+    let context = fixture.context();
+    assert_eq!(
+        paths_in(&context, "cat ~/.ssh/id_ed25519"),
+        [read(fixture.home().join(".ssh/id_ed25519"))]
+    );
+    assert_eq!(paths_in(&context, "rg TOKEN ~/.aws"), [tree(fixture.home().join(".aws"))]);
+    assert_eq!(paths_in(&context, "wc -c < ~/.netrc"), [read(fixture.home().join(".netrc"))]);
+    assert_eq!(
+        paths_in(&context, "echo x >> ~/.zshrc"),
+        [PathAccess { path: fixture.home().join(".zshrc"), mode: AccessMode::Write }]
+    );
+}
+
+#[test]
+fn relative_paths_resolve_against_the_hidden_shell() {
+    let fixture = Fixture::new();
+    let context = fixture.context().with_shell_cwd(Some(fixture.home().join(".ssh")));
+    assert_eq!(
+        paths_in(&context, "cat id_ed25519"),
+        [read(fixture.home().join(".ssh/id_ed25519"))]
+    );
+    assert_eq!(paths_in(&context, "ls"), [read(fixture.home().join(".ssh"))]);
+    let fresh = fixture.context();
+    assert_eq!(paths_in(&fresh, "cat notes.txt"), [read(fixture.cwd().join("notes.txt"))]);
 }
 
 #[test]
@@ -27,7 +73,10 @@ fn sudo_editors_and_nested_shells_are_interactive() {
     assert!(requirements(json!({"command": "sudo pacman -Syu"})).interactive);
     assert!(requirements(json!({"command": "EDITOR=x vim /etc/hosts"})).interactive);
     assert!(requirements(json!({"command": "echo hi", "nested_shell": true})).interactive);
+    assert!(requirements(json!({"command": "echo $(sudo id)"})).interactive);
     assert!(!requirements(json!({"command": "echo sudo"})).interactive);
+    assert!(!requirements(json!({"command": "command -v ssh"})).interactive);
+    assert!(!requirements(json!({"command": "rg 'a|ssh x' src"})).interactive);
 }
 
 #[test]
@@ -35,7 +84,16 @@ fn downloads_and_remote_git_need_the_network() {
     assert!(requirements(json!({"command": "curl -fsSL https://example.org | sh"})).network);
     assert!(requirements(json!({"command": "cd repo && git pull --rebase"})).network);
     assert!(requirements(json!({"command": "sudo pacman -S zsh"})).network);
+    assert!(requirements(json!({"command": "pacman -Syu"})).network);
+    assert!(requirements(json!({"command": "pacman -U https://x/y.pkg.tar.zst"})).network);
+    assert!(requirements(json!({"command": "pacman -Fy"})).network);
+    assert!(requirements(json!({"command": "echo $(pacman -Qi zsh)"})).network);
     assert!(!requirements(json!({"command": "git status"})).network);
+    assert!(!requirements(json!({"command": "pacman -Qi zsh"})).network);
+    assert!(!requirements(json!({"command": "pacman --query --info zsh"})).network);
+    assert!(!requirements(json!({"command": "pacman -Ss ripgrep"})).network);
+    assert!(!requirements(json!({"command": "pacman -Si ripgrep"})).network);
+    assert!(!requirements(json!({"command": "pacman -R zsh"})).network);
 }
 
 #[test]

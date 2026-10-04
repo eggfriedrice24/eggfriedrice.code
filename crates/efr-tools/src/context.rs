@@ -30,6 +30,9 @@ pub struct ToolContext {
     /// The user's working directory when the prompt was sent: relative paths in a
     /// call resolve against it, and a new hidden shell starts in it.
     pub cwd: PathBuf,
+    /// Where the conversation's hidden shell is now, when one runs: a relative path in
+    /// a command resolves against it. A new shell starts in `cwd`.
+    pub shell_cwd: Option<PathBuf>,
     /// The conversation's `$SCRATCH` directory.
     pub scratch: PathBuf,
     /// The turn's scope.
@@ -60,6 +63,7 @@ impl ToolContext {
         ToolContext {
             ids,
             cwd: cwd.into(),
+            shell_cwd: None,
             scratch: scratch.into(),
             scope: Scope::Machine,
             origin: Origin::Shell,
@@ -81,5 +85,18 @@ impl ToolContext {
     pub fn with_origin(mut self, origin: Origin) -> Self {
         self.origin = origin;
         self
+    }
+
+    /// Sets where the conversation's hidden shell is now.
+    #[must_use]
+    pub fn with_shell_cwd(mut self, shell_cwd: Option<PathBuf>) -> Self {
+        self.shell_cwd = shell_cwd;
+        self
+    }
+
+    /// The directory a command of this call runs in: the hidden shell's, or the user's
+    /// when no shell runs yet.
+    pub fn command_dir(&self) -> &std::path::Path {
+        self.shell_cwd.as_deref().unwrap_or(&self.cwd)
     }
 }

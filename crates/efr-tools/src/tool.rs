@@ -95,6 +95,9 @@ pub(crate) fn parse_input<T: DeserializeOwned>(tool: &str, input: &Value) -> Res
 pub enum AccessMode {
     /// The call reads the path or lists the directory.
     Read,
+    /// The call reads the path and may read anything below it, as a recursive search
+    /// or a glob does.
+    ReadTree,
     /// The call creates, changes or deletes the path.
     Write,
 }
@@ -136,6 +139,13 @@ impl ToolRequirements {
     #[must_use]
     pub fn with_read(mut self, path: impl Into<PathBuf>) -> Self {
         self.paths.push(PathAccess { path: path.into(), mode: AccessMode::Read });
+        self
+    }
+
+    /// Adds a directory the call reads with everything below it.
+    #[must_use]
+    pub fn with_read_tree(mut self, path: impl Into<PathBuf>) -> Self {
+        self.paths.push(PathAccess { path: path.into(), mode: AccessMode::ReadTree });
         self
     }
 

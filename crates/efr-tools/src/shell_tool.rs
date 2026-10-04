@@ -1,6 +1,10 @@
 //! `shell`: a command line in the conversation's hidden zsh, through
 //! `efr_shell::CommandRunner`.
 
+mod declare;
+mod reads;
+mod words;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,10 +43,17 @@ struct ShellInput {
 ///
 /// It declares the command line, `interactive` for commands that may wait for input
 /// at the terminal (`sudo`, `ssh`, an editor, or any nested shell) and `network` for
-/// commands that usually reach the network (`curl`, `git pull`, package managers).
+/// commands that usually reach the network (`curl`, `git pull`, package installs).
 /// Both come from the command's program names and are a heuristic: the engine judges
-/// the command line itself too. A shell command's file accesses cannot be known from
-/// its text, so it declares no paths.
+/// the command line itself too.
+///
+/// It also declares the paths the line names, resolved against the hidden shell's
+/// directory: every operand of every program as a read (so `cat ~/.ssh/id_ed25519`
+/// meets the secrets rule although `cat` may run freely), recursive searches, listings
+/// and globs as reads of everything below their directory, the working directory of a
+/// search that names no path, and output redirections as writes. What the text cannot
+/// show, such as the files a script opens, it cannot declare; the engine asks for a
+/// line it cannot read.
 #[derive(Debug, Clone)]
 pub struct ShellTool {
     runner: Arc<dyn CommandRunner>,
@@ -147,19 +158,38 @@ impl Tool for ShellTool {
 
     fn requirements(
         &self,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
         input: &Value,
     ) -> Result<ToolRequirements, ToolError> {
         let input: ShellInput = parse_input(Self::NAME, input)?;
-        let programs = programs(&input.command);
-        let interactive =
-            input.nested_shell || programs.iter().any(|program| INTERACTIVE.contains(program));
-        let network = programs.iter().any(|program| NETWORK.contains(program))
+        let line = words::split(&input.command);
+        let commands = programs_of(&line);
+        let mut interactive = input.nested_shell
+            || commands.iter().any(|(program, _)| INTERACTIVE.contains(&program.as_str()));
+        let mut network = commands.iter().any(|(program, args)| reaches_network(program, args))
             || networked_git(&input.command);
-        Ok(ToolRequirements::none()
+        if line.opaque {
+            // NOTE: the split may miss a program inside quotes or a substitution, so the
+            // coarse scan that ignores quotes adds what it finds.
+            let coarse = programs(&input.command);
+            interactive |= coarse.iter().any(|program| INTERACTIVE.contains(program));
+            network |= coarse.iter().any(|program| NETWORK.contains(program));
+        }
+        let declared = declare::declared(&line, ctx.command_dir(), ctx.home.path());
+        let mut requirements = ToolRequirements::none()
             .with_command(input.command)
             .with_interactive(interactive)
-            .with_network(network))
+            .with_network(network);
+        for path in declared.reads {
+            requirements = requirements.with_read(path);
+        }
+        for path in declared.trees {
+            requirements = requirements.with_read_tree(path);
+        }
+        for path in declared.writes {
+            requirements = requirements.with_write(path);
+        }
+        Ok(requirements)
     }
 
     async fn invoke(
@@ -209,7 +239,8 @@ const INTERACTIVE: &[&str] = &[
     "nvim", "nano", "emacs", "less", "more", "man", "top", "htop", "btop",
 ];
 
-/// Programs that usually reach the network.
+/// Programs that usually reach the network. `pacman` reaches it only to sync, install
+/// or upgrade; [`reaches_network`] reads its options when the line is plain.
 const NETWORK: &[&str] = &[
     "curl", "wget", "ssh", "scp", "sftp", "rsync", "ftp", "telnet", "nc", "ncat", "ping", "dig",
     "nslookup", "host", "pacman", "yay", "paru", "apt", "apt-get", "dnf", "zypper", "brew", "pip",
@@ -223,16 +254,71 @@ const GIT_NETWORK: &[&str] = &["clone", "fetch", "pull", "push", "ls-remote", "s
 const WRAPPERS: &[&str] =
     &["sudo", "doas", "env", "command", "builtin", "exec", "nohup", "time", "nice"];
 
+/// The program of each simple command of the split `line` with its arguments, past
+/// leading assignments and wrappers such as `sudo` or `env` (which count themselves),
+/// as base names. `command -v` and `command -V` only look a program up.
+fn programs_of(line: &words::Line) -> Vec<(String, Vec<String>)> {
+    let mut programs = Vec::new();
+    for command in &line.commands {
+        let mut rest = command.program_and_args();
+        while let Some((first, args)) = rest.split_first() {
+            let program = first.text.rsplit('/').next().unwrap_or(&first.text).to_owned();
+            let args: Vec<String> = args.iter().map(|word| word.text.clone()).collect();
+            let looks_up =
+                program == "command" && args.iter().any(|arg| arg == "-v" || arg == "-V");
+            let wraps = WRAPPERS.contains(&program.as_str()) && !looks_up;
+            programs.push((program, args));
+            if !wraps {
+                break;
+            }
+            let next = rest[1..]
+                .iter()
+                .position(|word| !word.text.starts_with('-') && !words::is_assignment(&word.text));
+            rest = match next {
+                Some(at) => &rest[1 + at..],
+                None => &[],
+            };
+        }
+    }
+    programs
+}
+
+/// True when `program` with `args` usually reaches the network.
+fn reaches_network(program: &str, args: &[String]) -> bool {
+    if program != "pacman" {
+        return NETWORK.contains(&program);
+    }
+    // Querying, searching and showing read the local databases; syncing, installing,
+    // upgrading, downloading and refreshing the file database fetch from mirrors.
+    let Some(operation) = args.iter().find(|arg| arg.starts_with('-')) else {
+        return true;
+    };
+    if operation.starts_with("--") {
+        return !matches!(operation.as_str(), "--query" | "--remove" | "--deptest" | "--database");
+    }
+    let letters = &operation[1..];
+    match letters.chars().next() {
+        Some('Q' | 'R' | 'T' | 'D') => false,
+        Some('S') => {
+            letters.contains(['y', 'u', 'w'])
+                || !letters[1..].chars().any(|c| matches!(c, 's' | 'i' | 'l' | 'g' | 'p'))
+        }
+        Some('F') => letters.contains('y'),
+        _ => true,
+    }
+}
+
 /// The program of each simple command in `line`: split at `;`, `|`, `&`, newlines,
 /// parentheses and backquotes, past leading `NAME=value` assignments and wrappers
 /// such as `sudo` or `env` (which count themselves), as base names. Quoting is not
-/// parsed; this feeds a heuristic.
+/// parsed, so it finds a program too many rather than too few, for a line that the
+/// split could not read whole.
 fn programs(line: &str) -> Vec<&str> {
     let mut programs = Vec::new();
     for segment in line.split([';', '|', '&', '\n', '(', ')', '`']) {
         for word in segment.split_whitespace() {
             let word = word.trim_matches(['"', '\'', '$', '{', '}']);
-            if word.is_empty() || is_assignment(word) || word.starts_with('-') {
+            if word.is_empty() || words::is_assignment(word) || word.starts_with('-') {
                 continue;
             }
             let program = word.rsplit('/').next().unwrap_or(word);
@@ -243,12 +329,6 @@ fn programs(line: &str) -> Vec<&str> {
         }
     }
     programs
-}
-
-fn is_assignment(word: &str) -> bool {
-    word.split_once('=').is_some_and(|(name, _)| {
-        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    })
 }
 
 /// True when a `git` command in `line` uses a subcommand that reaches a remote.
