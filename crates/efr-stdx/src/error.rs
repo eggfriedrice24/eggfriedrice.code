@@ -12,6 +12,21 @@ use crate::env::Var;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum StdxError {
+    /// The home directory is unknown, so the XDG base directories cannot be found.
+    #[error("the home directory could not be found")]
+    HomeNotFound,
+
+    /// `XDG_RUNTIME_DIR` is unset and `EFR_RUNTIME_DIR` does not replace it.
+    #[error("XDG_RUNTIME_DIR is not set and EFR_RUNTIME_DIR does not replace it")]
+    RuntimeDirUnset,
+
+    /// A path that must be absolute is relative.
+    #[error("{} is not an absolute path", .path.display())]
+    NotAbsolute {
+        /// The relative path.
+        path: PathBuf,
+    },
+
     /// An environment variable holds bytes that are not valid UTF-8.
     #[error("{var} is not valid UTF-8")]
     NotUnicode {

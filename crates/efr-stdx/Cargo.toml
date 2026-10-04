@@ -9,6 +9,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+etcetera.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

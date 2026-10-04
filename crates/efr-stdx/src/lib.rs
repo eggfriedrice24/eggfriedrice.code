@@ -19,5 +19,6 @@
 
 pub mod env;
 mod error;
+pub mod paths;
 
 pub use error::StdxError;

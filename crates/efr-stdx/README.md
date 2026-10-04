@@ -10,6 +10,9 @@ Modules:
 
 - `env`: typed access to the `EFR_*` variables below; the only reader of the process
   environment.
+- `paths`: `Dirs { config, data, state, runtime }`, each `<XDG base>/efr` through
+  `etcetera` unless an `EFR_*_DIR` variable replaces it, and the socket, `daemon.json`
+  and lock file paths.
 
 ## Tier
 
@@ -21,7 +24,7 @@ No workspace crate, ever. Every crate depends on this one, so an edge out of it 
 make a cycle or pull a heavy crate into every build. `xtask/src/deps.rs` holds the
 empty allowlist.
 
-Third-party crates: `thiserror`.
+Third-party crates: `etcetera`, `thiserror`.
 
 ## Invariant
 
