@@ -1111,6 +1111,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-test-daemon"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "efr-client",
+ "efr-daemon",
+ "efr-protocol",
+ "efr-test-support",
+ "futures",
+ "jiff",
+ "pretty_assertions",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "wiremock",
+]
+
+[[package]]
 name = "efr-test-support"
 version = "0.1.0"
 dependencies = [

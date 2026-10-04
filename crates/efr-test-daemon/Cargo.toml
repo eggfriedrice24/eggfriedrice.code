@@ -1,0 +1,34 @@
+[package]
+name = "efr-test-daemon"
+description = "The real efr daemon in-process for integration tests: TestDaemon, the fake PTY holder and the NDJSON scenario replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-client.workspace = true
+# Without its default local-pty feature (the workspace entry says so), so a test picks
+# the fake holder or, through the daemon's own build, the real one.
+efr-daemon.workspace = true
+efr-protocol.workspace = true
+efr-test-support.workspace = true
+futures.workspace = true
+jiff.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+wiremock.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
