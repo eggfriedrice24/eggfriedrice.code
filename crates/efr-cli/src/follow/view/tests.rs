@@ -19,8 +19,19 @@ fn raw_view() -> TurnView {
     TurnView::new(turn(), RenderOptions::new(40).with_terminal(false))
 }
 
+/// The first update of message `index`.
 fn updated(index: u32, text: &str) -> Event {
-    Event::AssistantMessageUpdated { turn_id: turn(), index, text: text.to_owned() }
+    Event::AssistantMessageUpdated { turn_id: turn(), index, offset: 0, delta: text.to_owned() }
+}
+
+/// An update of message `index` that grows its text from `before` to `after`.
+fn grown(index: u32, before: &str, after: &str) -> Event {
+    Event::AssistantMessageUpdated {
+        turn_id: turn(),
+        index,
+        offset: before.len() as u64,
+        delta: after.strip_prefix(before).unwrap().to_owned(),
+    }
 }
 
 fn completed(index: u32, text: &str) -> Event {
@@ -77,7 +88,7 @@ fn raw_output_is_the_markdown_as_it_streams() {
         &mut view,
         &[
             updated(0, "It failed "),
-            updated(0, "It failed because **make**"),
+            grown(0, "It failed ", "It failed because **make**"),
             completed(0, "It failed because **make** ran out of memory."),
             tool_started("free -h"),
             updated(1, "Add swap:\n"),
@@ -100,8 +111,8 @@ fn a_terminal_reply_commits_complete_blocks_and_redraws_the_live_zone() {
     let mut writes = Vec::new();
     for event in [
         updated(0, "# Plan"),
-        updated(0, "# Plan\n\nFirst we"),
-        updated(0, "# Plan\n\nFirst we check the logs.\n\n- one"),
+        grown(0, "# Plan", "# Plan\n\nFirst we"),
+        grown(0, "# Plan\n\nFirst we", "# Plan\n\nFirst we check the logs.\n\n- one"),
         completed(0, "# Plan\n\nFirst we check the logs.\n\n- one\n- two\n"),
         turn_completed(),
     ] {
@@ -213,7 +224,12 @@ fn approval_summaries_cannot_drive_the_terminal() {
 fn events_of_other_turns_change_nothing() {
     let mut view = terminal_view();
     let other: TurnId = "019a9b1c-3d00-7a10-8b20-0000000000ff".parse().unwrap();
-    let event = Event::AssistantMessageUpdated { turn_id: other, index: 0, text: "x".to_owned() };
+    let event = Event::AssistantMessageUpdated {
+        turn_id: other,
+        index: 0,
+        offset: 0,
+        delta: "x".to_owned(),
+    };
     assert_eq!(view.event(&event, SIZE, true), Step::default());
     let started =
         Event::TurnStarted { turn_id: turn(), cwd: PathBuf::from("/etc"), scope: Scope::Machine };
@@ -281,11 +297,31 @@ fn without_colour_the_reply_keeps_its_styles_but_no_colours() {
 }
 
 #[test]
+fn an_update_past_what_the_view_holds_waits_for_the_completed_text() {
+    let mut view = raw_view();
+    // The view joined after the message's first update.
+    let (out, _, _) = feed(
+        &mut view,
+        &[
+            grown(0, "Half ", "Half a line"),
+            grown(0, "Half a line", "Half a line and more"),
+            completed(0, "Half a line and more."),
+        ],
+        false,
+    );
+    assert_eq!(out, "Half a line and more.\n");
+}
+
+#[test]
 fn a_tool_call_completes_the_message_before_it() {
     let mut view = raw_view();
     let (out, err, _) = feed(
         &mut view,
-        &[updated(0, "Let me check"), tool_started("df -h"), updated(0, "Let me check more")],
+        &[
+            updated(0, "Let me check"),
+            tool_started("df -h"),
+            grown(0, "Let me check", "Let me check more"),
+        ],
         false,
     );
     assert_eq!(out, "Let me check\n");

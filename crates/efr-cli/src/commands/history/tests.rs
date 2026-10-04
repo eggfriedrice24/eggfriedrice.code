@@ -70,7 +70,12 @@ fn events() -> Vec<EventEnvelope> {
         ),
         envelope(
             5,
-            Event::AssistantMessageUpdated { turn_id: turn(), index: 0, text: "It is".to_owned() },
+            Event::AssistantMessageUpdated {
+                turn_id: turn(),
+                index: 0,
+                offset: 0,
+                delta: "It is".to_owned(),
+            },
         ),
         envelope(
             6,
@@ -85,10 +90,20 @@ fn events() -> Vec<EventEnvelope> {
             Event::AssistantMessageUpdated {
                 turn_id: turn(),
                 index: 1,
-                text: "Cut off mid".to_owned(),
+                offset: 0,
+                delta: "Cut off".to_owned(),
             },
         ),
-        envelope(8, Event::TurnInterrupted { turn_id: turn() }),
+        envelope(
+            8,
+            Event::AssistantMessageUpdated {
+                turn_id: turn(),
+                index: 1,
+                offset: 7,
+                delta: " mid".to_owned(),
+            },
+        ),
+        envelope(9, Event::TurnInterrupted { turn_id: turn() }),
     ]
 }
 

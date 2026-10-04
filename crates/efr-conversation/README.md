@@ -42,8 +42,11 @@ request:
 4. the tool definitions.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at
-most one per `update_interval` on the injected clock, the newest held text sent when
-the interval ends), then `assistant_message_completed`. Every tool call is recorded
+most one per `update_interval` on the injected clock, the text held back sent when the
+interval ends), each with only the text added since the previous one and its byte
+offset, then `assistant_message_completed` with the whole text. Earlier turns are
+rebuilt from the newest events without `tool_call_output_updated`, so a long command's
+progress cannot push them out of the page. Every tool call is recorded
 with `tool_call_started`, judged at the check point, run when allowed or approved
 (with coalesced `tool_call_output_updated` events), and answered with
 `tool_call_completed`, until the model answers without a tool call. The turn ends with

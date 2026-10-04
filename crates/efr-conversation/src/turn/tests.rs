@@ -689,13 +689,16 @@ async fn text_updates_are_coalesced_on_the_clock() {
 
     let sent = h.prompt("count").await;
     let first = h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
-    assert!(matches!(first, Event::AssistantMessageUpdated { ref text, .. } if text == "one"));
+    assert!(
+        matches!(first, Event::AssistantMessageUpdated { offset: 0, ref delta, .. } if delta == "one"),
+        "{first:?}"
+    );
     h.clock.wait_for_sleeps(1).await;
     h.clock.advance(Duration::from_millis(200));
     let flushed = h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
     assert!(
-        matches!(flushed, Event::AssistantMessageUpdated { ref text, .. } if text == "one two three"),
-        "the held text is sent when the interval ends: {flushed:?}"
+        matches!(flushed, Event::AssistantMessageUpdated { offset: 3, ref delta, .. } if delta == " two three"),
+        "the held text is sent when the interval ends, without what went before: {flushed:?}"
     );
     h.provider.handled_through(3);
     h.wait_end(sent.turn_id).await;

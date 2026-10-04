@@ -132,11 +132,16 @@ impl<'a> Transcript<'a> {
 
     fn event(&mut self, envelope: &EventEnvelope) {
         match &envelope.event {
-            Event::AssistantMessageUpdated { turn_id, index, text } => {
+            Event::AssistantMessageUpdated { turn_id, index, offset, delta } => {
                 if self.partial.as_ref().is_some_and(|(t, i, _)| (t, i) != (turn_id, index)) {
                     self.flush();
                 }
-                self.partial = Some((*turn_id, *index, text.clone()));
+                match &mut self.partial {
+                    Some((_, _, text)) if *offset == text.len() as u64 => text.push_str(delta),
+                    // The page may start in the middle of a message, whose start it lacks.
+                    _ if *offset == 0 => self.partial = Some((*turn_id, *index, delta.clone())),
+                    _ => {}
+                }
             }
             Event::AssistantMessageCompleted { turn_id, index, text } => {
                 if self.partial.as_ref().is_some_and(|(t, i, _)| (t, i) == (turn_id, index)) {

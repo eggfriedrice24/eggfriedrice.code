@@ -85,6 +85,27 @@ pub fn read_conversation_before(
     Ok(page)
 }
 
+/// The `limit` most recent events of one conversation without its
+/// `tool_call_output_updated` events, oldest first: what a turn rebuilds the earlier
+/// turns from. A command's output is in its `tool_call_completed`; the updates only
+/// showed it growing, and a long command writes thousands of them, which would push
+/// earlier turns out of the page.
+pub fn read_turn_history(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    limit: u32,
+) -> Result<Vec<EventEnvelope>, StoreError> {
+    let mut page = query(
+        conn,
+        "SELECT seq, conversation_id, created_at, payload FROM events \
+         WHERE conversation_id = ?1 AND kind <> 'tool_call_output_updated' \
+         ORDER BY seq DESC LIMIT ?2",
+        params![conversation_id.to_string(), limit],
+    )?;
+    page.reverse();
+    Ok(page)
+}
+
 /// The sequence number of the newest event, or [`Seq::ZERO`] for an empty log: the
 /// high-water mark a subscriber reads after it subscribes.
 pub fn last_seq(conn: &Connection) -> Result<Seq, StoreError> {

@@ -181,9 +181,15 @@ async fn on_a_terminal_the_reply_is_rendered() {
         conn.reply(id, &sent(false)).await;
         let (sub, _) = conn.request().await;
         let updates = ["# Plan\n\nRestart", "# Plan\n\nRestart nginx, then check `journalctl`."];
+        let mut offset = 0;
         for (seq, text) in (11..).zip(updates) {
-            let event =
-                Event::AssistantMessageUpdated { turn_id: turn(), index: 0, text: text.to_owned() };
+            let event = Event::AssistantMessageUpdated {
+                turn_id: turn(),
+                index: 0,
+                offset: offset as u64,
+                delta: text[offset..].to_owned(),
+            };
+            offset = text.len();
             conn.item(sub, &item(seq, event)).await;
         }
         let done = Event::AssistantMessageCompleted {

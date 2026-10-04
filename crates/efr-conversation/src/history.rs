@@ -37,7 +37,8 @@ pub(crate) const UNFINISHED_CALL: &str = "The call did not finish: the turn ende
 pub struct HistoryLimits {
     /// The most earlier turns.
     pub max_turns: usize,
-    /// The most events read from the log; a turn whose start is older is left out.
+    /// The most events read from the log, not counting the progress of tool output;
+    /// a turn whose start is older is left out.
     pub max_events: u32,
     /// The most bytes of history, measured as the JSON of its messages; the oldest
     /// turns are left out first.
@@ -89,12 +90,7 @@ impl Snapshot {
                 Ok(Snapshot {
                     summary: conversations::get(conn, conversation_id)?,
                     turns: conversations::turns(conn, conversation_id)?,
-                    page: events::read_conversation_before(
-                        conn,
-                        conversation_id,
-                        None,
-                        limits.max_events,
-                    )?,
+                    page: events::read_turn_history(conn, conversation_id, limits.max_events)?,
                 })
             })
             .await
@@ -184,16 +180,23 @@ fn json_size(messages: &[Message]) -> usize {
 /// Each `assistant_message_completed` starts an assistant message; a tool call joins
 /// the assistant message before it unless a tool result came in between; results
 /// gather in a user message; steering is a user message of its own. Text that was
-/// streamed but never completed, as when the daemon stopped mid-answer, ends the turn
-/// as its last assistant message. A tool call without a recorded result gets an error
+/// streamed but never completed, as when the daemon stopped mid-answer, is joined from
+/// its updates and ends the turn as its last assistant message. A tool call without a recorded result gets an error
 /// result, see [`close_open_calls`].
 pub(crate) fn rebuild(prompt: &str, events: &[&Event]) -> Vec<Message> {
     let mut rebuilt = Rebuilt { messages: vec![Message::user(prompt)], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
     for event in events {
         match event {
-            Event::AssistantMessageUpdated { index, text, .. } => {
-                streaming = Some((*index, text.clone()));
+            Event::AssistantMessageUpdated { index, offset, delta, .. } => {
+                match &mut streaming {
+                    Some((open, text)) if open == index && *offset == text.len() as u64 => {
+                        text.push_str(delta);
+                    }
+                    // An update past the text held means the start was never seen.
+                    _ if *offset == 0 => streaming = Some((*index, delta.clone())),
+                    _ => {}
+                }
             }
             Event::AssistantMessageCompleted { index, text, .. } => {
                 if streaming.as_ref().is_some_and(|(open, _)| open == index) {

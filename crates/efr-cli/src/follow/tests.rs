@@ -111,14 +111,22 @@ async fn an_overflowed_subscription_resumes_after_the_last_event_shown() {
     let ctx = env.context();
     let (result, out, _) = run(&env, &ctx, |mut conn, _| async move {
         let first = subscribed(&mut conn, 10).await;
-        let updated =
-            Event::AssistantMessageUpdated { turn_id: turn(), index: 0, text: "Hello".to_owned() };
+        let updated = Event::AssistantMessageUpdated {
+            turn_id: turn(),
+            index: 0,
+            offset: 0,
+            delta: "Hello".to_owned(),
+        };
         conn.item(first, &item(11, updated)).await;
         conn.fail(first, ErrorBody::overflow(Seq::new(11))).await;
         let second = subscribed(&mut conn, 11).await;
         // A replayed event is not shown twice.
-        let again =
-            Event::AssistantMessageUpdated { turn_id: turn(), index: 0, text: "Hello".to_owned() };
+        let again = Event::AssistantMessageUpdated {
+            turn_id: turn(),
+            index: 0,
+            offset: 0,
+            delta: "Hello".to_owned(),
+        };
         conn.item(second, &item(11, again)).await;
         conn.item(second, &item(12, completed("Hello."))).await;
         conn.item(second, &item(13, turn_completed())).await;
@@ -377,7 +385,8 @@ async fn ctrl_c_interrupts_the_turn_and_keeps_what_arrived() {
         let updated = Event::AssistantMessageUpdated {
             turn_id: turn(),
             index: 0,
-            text: "Partial answer".to_owned(),
+            offset: 0,
+            delta: "Partial answer".to_owned(),
         };
         conn.item(sub, &item(11, updated)).await;
         // Ctrl+C once the update is on the screen.

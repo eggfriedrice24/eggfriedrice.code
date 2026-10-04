@@ -146,8 +146,8 @@ impl TurnView {
                 self.queued = false;
                 Step::default()
             }
-            Event::AssistantMessageUpdated { index, text, .. } => {
-                self.message_text(*index, text, false, size)
+            Event::AssistantMessageUpdated { index, offset, delta, .. } => {
+                self.message_delta(*index, *offset, delta, size)
             }
             Event::AssistantMessageCompleted { index, text, .. } => {
                 self.message_text(*index, text, true, size)
@@ -270,6 +270,23 @@ impl TurnView {
         self.asking = None;
         let committed = self.finish_message();
         self.commit(committed, size)
+    }
+
+    /// An update of message `index`: `delta` at byte `offset` of its text. An update
+    /// that starts past what this view holds, because it joined in the middle of the
+    /// message, is skipped; the completed message fills the gap.
+    fn message_delta(&mut self, index: u32, offset: u64, delta: &str, size: Size) -> Step {
+        let held = self
+            .message
+            .as_ref()
+            .filter(|message| message.index == index)
+            .map_or("", |message| message.pushed.as_str());
+        let Some(before) = usize::try_from(offset).ok().and_then(|offset| held.get(..offset))
+        else {
+            return Step::default();
+        };
+        let text = format!("{before}{delta}");
+        self.message_text(index, &text, false, size)
     }
 
     fn message_text(&mut self, index: u32, text: &str, complete: bool, size: Size) -> Step {

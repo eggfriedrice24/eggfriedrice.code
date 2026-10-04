@@ -172,7 +172,8 @@ fn message_updated() -> Event {
     Event::AssistantMessageUpdated {
         turn_id: turn_id(),
         index: 0,
-        text: "The journal takes 3.1 GiB under /var/log/journal.".into(),
+        offset: 12,
+        delta: "takes 3.1 GiB under /var/log/journal.".into(),
     }
 }
 

@@ -183,6 +183,8 @@ struct Turn {
     transcript: Vec<Message>,
     /// The position of the next assistant message with text.
     assistant_index: u32,
+    /// How many bytes of that message's text `assistant_message_updated` events hold.
+    streamed: usize,
     usage: Option<TokenUsage>,
 }
 
@@ -199,6 +201,7 @@ impl Turn {
             scratch,
             transcript: Vec::new(),
             assistant_index: 0,
+            streamed: 0,
             usage: None,
         }
     }

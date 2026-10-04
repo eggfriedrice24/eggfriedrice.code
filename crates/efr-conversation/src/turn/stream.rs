@@ -31,9 +31,10 @@ enum Streamed {
 
 impl Turn {
     /// Sends `request` and records the answer as it streams: coalesced
-    /// `assistant_message_updated` events while text arrives, then
-    /// `assistant_message_completed` with the whole text. Text that streamed before a
-    /// failure or an interrupt is completed too, so the log shows what the user saw.
+    /// `assistant_message_updated` events with the text added since the last one while
+    /// text arrives, then `assistant_message_completed` with the whole text. Text that
+    /// streamed before a failure or an interrupt is completed too, so the log shows
+    /// what the user saw.
     pub(super) async fn respond(
         &mut self,
         request: Request,
@@ -57,6 +58,7 @@ impl Turn {
         };
         let mut builder = CompletionBuilder::new();
         let mut updates = Coalescer::new(self.shared.config.update_interval);
+        self.streamed = 0;
         let streamed = loop {
             let flush = updates.flush_after(clock.now());
             tokio::select! {
@@ -109,16 +111,20 @@ impl Turn {
         Ok(failure)
     }
 
-    async fn record_text(&self, text: String) -> Result<(), ConversationError> {
-        if text.is_empty() {
+    /// Records what `text`, the current message so far, added since the last update.
+    async fn record_text(&mut self, text: String) -> Result<(), ConversationError> {
+        let Some(delta) = text.get(self.streamed..).filter(|delta| !delta.is_empty()) else {
             return Ok(());
-        }
+        };
         let event = Event::AssistantMessageUpdated {
             turn_id: self.turn_id(),
             index: self.assistant_index,
-            text,
+            offset: self.streamed as u64,
+            delta: delta.to_owned(),
         };
-        self.record(vec![event]).await.map(drop)
+        self.record(vec![event]).await?;
+        self.streamed = text.len();
+        Ok(())
     }
 
     /// Records the whole text of the current assistant message, when it has any, and
@@ -134,6 +140,7 @@ impl Turn {
         };
         self.record(vec![event]).await?;
         self.assistant_index += 1;
+        self.streamed = 0;
         Ok(())
     }
 }

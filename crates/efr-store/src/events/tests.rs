@@ -153,6 +153,34 @@ async fn conversation_reads_see_one_conversation_and_page_both_ways() {
 }
 
 #[tokio::test]
+async fn the_turn_history_leaves_out_tool_output_updates() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let one = testing::conversation(1);
+    let output = |bytes: u64| Event::ToolCallOutputUpdated {
+        turn_id: testing::turn(1),
+        call_id: testing::call(9),
+        tail: "building".to_owned(),
+        bytes,
+    };
+    writer
+        .append(
+            Batch::new()
+                .event(one, testing::created(None))
+                .event(one, prompt(1, "a"))
+                .event(one, output(10))
+                .event(one, output(20))
+                .event(one, prompt(2, "b")),
+        )
+        .await
+        .unwrap();
+
+    let page = on_writer(&writer, move |conn| read_turn_history(conn, one, 2)).await.unwrap();
+
+    let seqs: Vec<u64> = page.iter().map(|envelope| envelope.seq.get()).collect();
+    assert_eq!(seqs, [2, 5], "the limit counts only the events kept");
+}
+
+#[tokio::test]
 async fn last_seq_is_zero_for_an_empty_log_and_the_newest_seq_after() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
     assert_eq!(on_writer(&writer, last_seq).await.unwrap(), Seq::ZERO);

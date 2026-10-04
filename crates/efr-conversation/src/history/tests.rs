@@ -193,8 +193,13 @@ fn steering_is_a_user_message_where_it_happened() {
 fn text_that_streamed_but_never_completed_ends_the_turn() {
     let t = turn(2);
     let events = [
-        Event::AssistantMessageUpdated { turn_id: t, index: 0, text: "Hal".to_owned() },
-        Event::AssistantMessageUpdated { turn_id: t, index: 0, text: "Half an answ".to_owned() },
+        Event::AssistantMessageUpdated { turn_id: t, index: 0, offset: 0, delta: "Hal".to_owned() },
+        Event::AssistantMessageUpdated {
+            turn_id: t,
+            index: 0,
+            offset: 3,
+            delta: "f an answ".to_owned(),
+        },
     ];
     let refs: Vec<&Event> = events.iter().collect();
     assert_eq!(rebuild("go", &refs), vec![Message::user("go"), Message::assistant("Half an answ")]);

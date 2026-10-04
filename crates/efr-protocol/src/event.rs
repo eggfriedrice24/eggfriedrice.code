@@ -94,15 +94,20 @@ pub enum Event {
         to: Scope,
     },
 
-    /// An assistant message grew while the model streamed it. The text is the whole
-    /// message so far.
+    /// An assistant message grew while the model streamed it. The event carries only
+    /// the text added since the previous update, so a long answer costs the log its
+    /// length once rather than once per update; `assistant_message_completed` carries
+    /// the whole text. A reader that joined in the middle of a message (`offset` past
+    /// what it holds) waits for the completed text.
     AssistantMessageUpdated {
         /// The turn.
         turn_id: TurnId,
         /// The position of the message among the turn's assistant messages, from 0.
         index: u32,
-        /// The text so far.
-        text: String,
+        /// The length in bytes of the message's text before `delta`.
+        offset: u64,
+        /// The text added at `offset`.
+        delta: String,
     },
 
     /// An assistant message is complete.

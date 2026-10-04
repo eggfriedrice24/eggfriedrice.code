@@ -19,3 +19,7 @@ it holds only this header and the changelog.
 ## Changelog
 
 No protocol version has shipped yet.
+
+- Before version 1 ships: `assistant_message_updated` carries `offset` and `delta`, the
+  text added since the previous update, instead of `text`, the whole message so far,
+  which made the event log grow with the square of an answer's length.
