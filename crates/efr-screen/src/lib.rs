@@ -1,7 +1,19 @@
 //! The screen model boundary.
 //!
-//! - [`Screen`]: the trait a terminal backend implements; it has no `Send` bound.
+//! - [`Screen`]: the trait a terminal backend implements (`efr-screen-vt100`,
+//!   `efr-screen-ghostty`). It has no `Send` bound, because libghostty-vt types are
+//!   neither `Send` nor `Sync`.
 //! - [`ScreenSink`]: where a backend reports PTY replies, bells and title changes.
+//! - [`ScreenActor`]: runs one screen on its own named std thread. [`ScreenHandle`]
+//!   commands it and [`ScreenEvents`] carries what it produces as [`ScreenEvent`]s;
+//!   those two are the only types other crates hold.
+//! - [`ShellMarkScanner`]: finds OSC 133 and OSC 7 [`ShellMark`]s with their
+//!   recording offsets. The actor runs it on every chunk before the backend sees it,
+//!   so every backend reports the same marks.
+//! - [`ScreenCapture`] and [`row_text`]: snapshots in the wire form of
+//!   `efr_protocol::ScreenSnapshot`, and the text a row shows.
+//! - `conformance` (feature `conformance`, for test targets only): the suite every
+//!   backend runs over the fixtures in `fixtures/`.
 //!
 //! Allowed dependencies: `efr-protocol` and `efr-stdx`. What does not belong here: a
 //! terminal emulator (`efr-screen-vt100`, `efr-screen-ghostty`), PTY IO and shell
@@ -15,6 +27,7 @@ mod error;
 mod screen;
 mod shell_marks;
 mod sink;
+mod snapshot;
 
 pub use error::ScreenError;
 pub use screen::Screen;
@@ -22,3 +35,4 @@ pub use shell_marks::{
     ClickMode, PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, ShellMarkScanner,
 };
 pub use sink::ScreenSink;
+pub use snapshot::{ScreenCapture, row_text};
