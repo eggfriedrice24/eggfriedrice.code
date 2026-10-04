@@ -20,6 +20,7 @@
 pub mod env;
 mod error;
 pub mod paths;
+pub mod rng;
 pub mod time;
 
 pub use error::StdxError;

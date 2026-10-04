@@ -1,5 +1,6 @@
 //! The one public error type of the crate.
 
+use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -61,5 +62,13 @@ pub enum StdxError {
     TimedOut {
         /// The duration that passed.
         after: Duration,
+    },
+
+    /// The operating system's random source could not seed a generator.
+    #[error("the system random number generator could not be seeded")]
+    SeedRng {
+        /// The error from the random source.
+        #[source]
+        source: io::Error,
     },
 }

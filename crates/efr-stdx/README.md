@@ -15,6 +15,8 @@ Modules:
   and lock file paths.
 - `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
   caller of `SystemTime::now` and `tokio::time::sleep`.
+- `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
+  operating system.
 
 ## Tier
 
@@ -26,7 +28,7 @@ No workspace crate, ever. Every crate depends on this one, so an edge out of it 
 make a cycle or pull a heavy crate into every build. `xtask/src/deps.rs` holds the
 empty allowlist.
 
-Third-party crates: `etcetera`, `jiff`, `thiserror`, `tokio`.
+Third-party crates: `etcetera`, `jiff`, `rand`, `thiserror`, `tokio`.
 
 ## Invariant
 
