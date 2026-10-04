@@ -6,6 +6,8 @@
 //! - [`TestStore`]: the real `efr-store` over an in-memory database.
 //! - [`Transcript`]: the NDJSON transcript reader and validator, with its [`Record`]s.
 //! - [`fixtures`]: a crate's fixture files, found from `file!()`.
+//! - [`Redactor`]: placeholders for the temporary cwd, the scratch path, the host name
+//!   and timestamps, and back.
 //!
 //! This is a dev crate: a crate names it under `[dev-dependencies]` only, and no
 //! shipped binary links it.
@@ -27,6 +29,7 @@ mod dirs;
 mod error;
 pub mod fixtures;
 mod ndjson;
+mod redact;
 mod rng;
 mod store;
 
@@ -34,5 +37,6 @@ pub use clock::TestClock;
 pub use dirs::TestDirs;
 pub use error::TestSupportError;
 pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
+pub use redact::Redactor;
 pub use rng::TestRng;
 pub use store::TestStore;

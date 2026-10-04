@@ -70,3 +70,13 @@ fn create_dir_makes_nested_directories_under_the_root() {
     assert_eq!(mode(&project), 0o700);
     assert_eq!(dirs.create_dir("home/src/project").unwrap(), project);
 }
+
+#[test]
+fn the_redactor_hides_the_root_and_keeps_room_for_a_cwd() {
+    let dirs = TestDirs::new().unwrap();
+    let project = dirs.create_dir("home/project").unwrap();
+    let socket = dirs.dirs().socket_path();
+    let redactor = dirs.redactor().cwd(&project);
+    let text = format!("{} {}", project.display(), socket.display());
+    assert_eq!(redactor.redact(&text), "<CWD> <TMP>/runtime/daemon.sock");
+}

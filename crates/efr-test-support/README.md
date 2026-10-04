@@ -38,6 +38,13 @@ directories, a store and provider traffic from one place and never from the mach
   directory of the crate that holds the calling test, found from `file!()` and never
   from the current directory. `crate_dir` and `dir` give the crate and its fixture
   directory. The file need not exist yet, so a bless step can write it.
+- `redact`: `Redactor` replaces the values of one run with placeholders: the
+  temporary working directory (`<CWD>`), the scratch path (`<SCRATCH>`), the host name
+  (`<HOSTNAME>`), the temporary root (`<TMP>`) and RFC 3339 timestamps
+  (`<TIMESTAMP>`). Values match only as whole names, and the longer of two overlapping
+  values wins. `restore` puts the real paths back into inbound records. Both work on
+  text and on every string and key of a JSON value. `TestDirs::redactor` starts one
+  with the temporary root registered.
 - `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
@@ -75,5 +82,6 @@ UUIDv7 made from `TestClock` and `TestRng`. The transcript tests parse every rec
 form, run a decision table of invalid lines against the problem each one names, and
 check with a proptest that any transcript survives writing and reading. The fixture
 tests find `fixtures/transcripts/single_exchange.ndjson` from `file!()`. The store tests
-append through the real writer and read events and a recording back. They use no
-network, no real-time sleeps and no Zig.
+append through the real writer and read events and a recording back. The redaction tests
+cover whole-name matching, the timestamp grammar in both directions, and a proptest that
+`restore` undoes `redact`. They use no network, no real-time sleeps and no Zig.

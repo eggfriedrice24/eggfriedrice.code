@@ -9,7 +9,7 @@ use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::Dirs;
 use tempfile::TempDir;
 
-use crate::TestSupportError;
+use crate::{Redactor, TestSupportError};
 
 /// The mode of every directory in the tree, the mode the daemon gives its own.
 const DIR_MODE: u32 = 0o700;
@@ -85,6 +85,13 @@ impl TestDirs {
             (Var::StateDir, os(dirs.state())),
             (Var::RuntimeDir, os(dirs.runtime())),
         ])
+    }
+
+    /// A [`Redactor`] that replaces the root with [`Redactor::TEMP_ROOT`], so no path of
+    /// this tree reaches a comparison. A test adds its working directory and scratch
+    /// path to it, which win over the root because they are longer.
+    pub fn redactor(&self) -> Redactor {
+        Redactor::new().temp_root(&self.root)
     }
 
     /// Creates `relative` and its parents under the root, mode 0700, and returns its
