@@ -198,3 +198,238 @@ fn migrating_an_existing_database_rebuilds_the_projections() {
     let summary = crate::conversations::get(&conn, id).unwrap().unwrap();
     assert_eq!(summary.last_seq.get(), 1);
 }
+
+/// The checked-in databases, one per schema version: `fixtures/db/efr.sqlite.<n>`.
+fn fixture_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("db")
+}
+
+fn fixture_conversation() -> efr_protocol::ConversationId {
+    crate::testing::conversation(1)
+}
+
+#[test]
+fn every_fixture_database_migrates_to_the_latest_version() {
+    let latest = Migrations::new().latest();
+    let mut names: Vec<String> = fs::read_dir(fixture_dir())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    // A new migration ships with a fixture at its version.
+    let expected: Vec<String> =
+        (1..=latest).map(|version| format!("efr.sqlite.{version}")).collect();
+    assert_eq!(names, expected);
+
+    for version in 1..=latest {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("efr.sqlite");
+        fs::copy(fixture_dir().join(format!("efr.sqlite.{version}")), &path).unwrap();
+        let backups = dir.path().join("backups");
+        let mut conn = db::open(&path).unwrap();
+
+        let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+
+        assert_eq!((report.from, report.to), (version, latest), "efr.sqlite.{version}");
+        assert_eq!(report.backup.is_some(), version < latest, "efr.sqlite.{version}");
+        let log = crate::events::read_after(&conn, efr_protocol::Seq::ZERO, 100).unwrap();
+        assert!(log.len() >= 6, "efr.sqlite.{version} lost events");
+        let summary = crate::conversations::get(&conn, fixture_conversation()).unwrap().unwrap();
+        assert_eq!(summary.title.as_deref(), Some("update the system"), "efr.sqlite.{version}");
+        assert_eq!(summary.status, efr_protocol::ConversationStatus::Idle);
+        if version >= 3 {
+            let receipt = crate::receipts::lookup(&conn, crate::testing::command(1)).unwrap();
+            assert!(receipt.is_some(), "efr.sqlite.{version} lost its receipt");
+            assert!(!crate::outbox::open_items(&conn).unwrap().is_empty());
+        }
+    }
+}
+
+/// The events every fixture holds: one finished turn and a login.
+fn fixture_events() -> Vec<(Option<efr_protocol::ConversationId>, efr_protocol::Event)> {
+    use efr_protocol::{Event, Usage};
+    let id = Some(fixture_conversation());
+    vec![
+        (id, crate::testing::created(Some("pts-1"))),
+        (id, crate::testing::queued(1, "update the system")),
+        (id, crate::testing::started(1, "/etc/nixos")),
+        (
+            id,
+            Event::AssistantMessageCompleted {
+                turn_id: crate::testing::turn(1),
+                index: 0,
+                text: "Running nixos-rebuild switch.".to_owned(),
+            },
+        ),
+        (
+            id,
+            Event::TurnCompleted {
+                turn_id: crate::testing::turn(1),
+                usage: Some(Usage { input_tokens: 812, output_tokens: 64 }),
+            },
+        ),
+        (None, Event::LoginCompleted { provider: "openai".to_owned() }),
+    ]
+}
+
+/// Leaves the database as one small file: no write-ahead log, 1 KiB pages.
+fn compact(conn: &Connection) {
+    conn.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(())).unwrap();
+    conn.pragma_update(None, "page_size", 1024).unwrap();
+    conn.execute_batch("VACUUM").unwrap();
+}
+
+/// A database at an old `version`, written the way a build of that version would
+/// have: events, the projections that existed, and receipts and outbox rows from
+/// version 3.
+fn write_old_fixture(path: &Path, version: u32) {
+    let mut conn = db::open(path).unwrap();
+    Migrations::new().steps.to_version(&mut conn, version as usize).unwrap();
+    let start = crate::testing::start();
+    for (index, (conversation_id, event)) in fixture_events().into_iter().enumerate() {
+        let at = start.checked_add(jiff::SignedDuration::from_secs(index as i64)).unwrap();
+        let envelope = efr_protocol::EventEnvelope {
+            seq: efr_protocol::Seq::new(index as u64 + 1),
+            conversation_id,
+            at: crate::sql::truncate_to_micros(at),
+            event,
+        };
+        crate::events::insert(&conn, &envelope).unwrap();
+    }
+    let id = fixture_conversation().to_string();
+    let turn = crate::testing::turn(1).to_string();
+    if version >= 2 {
+        conn.execute(
+            "INSERT INTO conversations (id, origin, title, status, tty, cwd, scope, created_at, \
+             updated_at, last_seq) VALUES (?1, 'shell', 'update the system', 'idle', 'pts-1', \
+             '/etc/nixos', '{\"kind\":\"path\",\"value\":\"/etc/nixos\"}', 0, 4, 5)",
+            [&id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO turns (id, conversation_id, command_id, prompt, status, queued_seq, \
+             started_at, ended_at, last_seq) VALUES (?1, ?2, ?3, 'update the system', \
+             'completed', 2, 2, 4, 5)",
+            [&turn, &id, &crate::testing::command(1).to_string()],
+        )
+        .unwrap();
+    }
+    if version >= 3 {
+        conn.execute(
+            "INSERT INTO receipts (command_id, method, outcome, result, seq, created_at) \
+             VALUES (?1, 'prompt.send', 'accepted', '{\"queued\":false}', 2, 1)",
+            [&crate::testing::command(1).to_string()],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO outbox (kind, payload, replay_safe, created_at, claimed_at) \
+             VALUES ('notify.tty', '{\"tty\":\"pts-1\"}', 1, 1, 2);
+             INSERT INTO outbox (kind, payload, replay_safe, created_at) \
+             VALUES ('provider.turn', '{}', 0, 1);",
+        )
+        .unwrap();
+    }
+    compact(&conn);
+}
+
+/// A database at the latest version, written through the store itself.
+async fn write_latest_fixture(path: &Path, recordings: &Path) {
+    use efr_protocol::{ApprovalDecision, Event, Origin};
+    use serde_json::json;
+
+    use crate::outbox::NewOutboxItem;
+    use crate::receipts::NewReceipt;
+    use crate::{Batch, Store, StoreConfig};
+
+    let clock = crate::testing::TestClock::new();
+    let mut config = StoreConfig::in_data_dir(path.parent().unwrap());
+    config.path = path.to_path_buf();
+    config.backups = None;
+    let store = Store::open(config, clock.clone()).await.unwrap();
+    let id = fixture_conversation();
+    let mut events = fixture_events().into_iter();
+    let mut first = Batch::new();
+    for (conversation_id, event) in events.by_ref().take(2) {
+        first = first.event(conversation_id.unwrap(), event);
+    }
+    let first = first
+        .event(
+            id,
+            Event::ShellStarted {
+                pty_id: crate::testing::pty(1),
+                cwd: "/etc/nixos".into(),
+                pid: Some(4242),
+            },
+        )
+        .receipt(NewReceipt::accepted(
+            crate::testing::command(1),
+            "prompt.send",
+            json!({ "queued": false }),
+        ))
+        .enqueue(NewOutboxItem::replay_safe("notify.tty", json!({ "tty": "pts-1" })))
+        .enqueue(NewOutboxItem::process_bound("provider.turn", json!({})));
+    store.writer().append(first).await.unwrap();
+    let approval = [
+        Event::ApprovalRequested {
+            turn_id: crate::testing::turn(1),
+            call_id: crate::testing::call(1),
+            summary: "nixos-rebuild switch".to_owned(),
+            diff_preview: None,
+        },
+        Event::ApprovalResolved {
+            turn_id: crate::testing::turn(1),
+            call_id: crate::testing::call(1),
+            decision: ApprovalDecision::Allow,
+            origin: Origin::Shell,
+        },
+    ];
+    let mut rest = Batch::new();
+    for (index, (conversation_id, event)) in events.enumerate() {
+        rest = match conversation_id {
+            Some(id) => rest.event(id, event),
+            None => rest.global_event(event),
+        };
+        if index == 0 {
+            for event in approval.clone() {
+                rest = rest.event(id, event);
+            }
+        }
+    }
+    store.writer().append(rest).await.unwrap();
+    let recordings = crate::recording::Recordings::new(
+        recordings,
+        store.writer().clone(),
+        store.readers().clone(),
+        clock,
+    );
+    let mut recorder = recordings.start(crate::testing::pty(1)).await.unwrap();
+    recorder.append(b"$ nixos-rebuild switch\r\n").await.unwrap();
+    recorder.close().await.unwrap();
+    drop(recordings);
+    store.close().await;
+    compact(&db::open(path).unwrap());
+}
+
+/// Writes `fixtures/db/`. Run it only to add the fixture of a new version:
+/// `cargo nextest run -p efr-store --run-ignored only write_fixture_databases`.
+/// A fixture of a shipped version is never rewritten.
+#[tokio::test]
+#[ignore = "writes fixtures/db; run by hand when a migration is added"]
+async fn write_fixture_databases() {
+    let latest = Migrations::new().latest();
+    fs::create_dir_all(fixture_dir()).unwrap();
+    for version in 1..=latest {
+        let target = fixture_dir().join(format!("efr.sqlite.{version}"));
+        if target.exists() {
+            continue;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("efr.sqlite");
+        if version == latest {
+            write_latest_fixture(&path, &dir.path().join("recordings")).await;
+        } else {
+            write_old_fixture(&path, version);
+        }
+        fs::copy(&path, &target).unwrap();
+    }
+}
