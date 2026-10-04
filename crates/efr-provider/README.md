@@ -41,8 +41,11 @@ Modules:
 - `token_source`: the `TokenSource` trait (`access_token`, `invalidate`) and
   `StaticToken` for an API key. A provider holds an `Arc<dyn TokenSource>` and never
   sees a refresh token; `efr-oauth-openai` implements the trait for the subscription
-  login. Tokens are `secrecy::SecretString` (re-exported with `ExposeSecret`), whose
-  `Debug` is redacted.
+  login. `access_token` returns an `AccessToken`: the token as a
+  `secrecy::SecretString` (re-exported with `ExposeSecret`), whose `Debug` is
+  redacted, and the account it belongs to, which the subscription path sends as
+  `chatgpt-account-id`. The source reads the account from the token's claims, so a
+  provider never parses a JWT and the token and its account come from one login.
 - `error`: `ProviderError`, the crate's one error type, shared by every provider.
   `Unauthorized` is what a provider reports after a 401 survived one
   `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider

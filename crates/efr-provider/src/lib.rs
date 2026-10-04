@@ -14,8 +14,9 @@
 //! it forwards events.
 //!
 //! A provider gets its credentials from a [`TokenSource`] ([`StaticToken`] for an API
-//! key) and never learns how a token was obtained. `SecretString` and `ExposeSecret`
-//! are re-exported from `secrecy` because they appear in that trait.
+//! key) as an [`AccessToken`], the token with the account it belongs to, and never
+//! learns how a token was obtained. `SecretString` and `ExposeSecret` are re-exported
+//! from `secrecy` because they appear in that trait.
 //!
 //! Allowed dependencies: `efr-protocol` (for `Base64Bytes` and `Usage`) and
 //! `efr-stdx`. What does not belong here: any provider's API, endpoints or event names
@@ -44,5 +45,5 @@ pub use provider::{ModelInfo, Provider, ProviderStream};
 pub use provider_id::ProviderId;
 pub use request::{Request, ToolDefinition};
 pub use secrecy::{ExposeSecret, SecretString};
-pub use token_source::{StaticToken, TokenSource};
+pub use token_source::{AccessToken, StaticToken, TokenSource};
 pub use usage::TokenUsage;
