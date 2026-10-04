@@ -120,6 +120,7 @@ efr-http = { path = "crates/efr-http" }
 efr-screen = { path = "crates/efr-screen" }
 efr-provider = { path = "crates/efr-provider" }
 efr-transport = { path = "crates/efr-transport" }
+efr-client = { path = "crates/efr-client" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -1,0 +1,34 @@
+[package]
+name = "efr-client"
+description = "The client side of the efr protocol: daemon discovery, the Unix socket connection, hello, calls, streams and cancellation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+bytes.workspace = true
+efr-protocol.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+# The fake daemons in the tests are built from the real server side of the protocol.
+efr-transport.workspace = true
+jiff.workspace = true
+pretty_assertions.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
