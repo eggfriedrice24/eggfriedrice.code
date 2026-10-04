@@ -1,0 +1,194 @@
+//! The engine's answer: `Allow`, `Ask` or `Deny`, with the reasons behind it.
+
+use std::fmt;
+use std::path::PathBuf;
+
+use efr_protocol::Origin;
+use serde::{Deserialize, Serialize};
+
+use crate::{Access, PathClass};
+
+/// What happens to a tool call, ordered from the least to the most strict, so the
+/// strictest of several effects is their maximum.
+///
+/// The enum is deliberately exhaustive: the check point in `efr-conversation` must
+/// handle every effect, and a new one must not fall into a wildcard arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Effect {
+    /// The call runs.
+    Allow,
+    /// The call waits until the user approves or denies it.
+    Ask,
+    /// The call does not run; the model gets an error that names the reason.
+    Deny,
+}
+
+impl fmt::Display for Effect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Effect::Allow => "allow",
+            Effect::Ask => "ask",
+            Effect::Deny => "deny",
+        })
+    }
+}
+
+/// The decision about one tool call: the strictest effect of its reasons.
+///
+/// Only the engine builds decisions, so the effect always agrees with the reasons.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decision {
+    effect: Effect,
+    reasons: Vec<Reason>,
+}
+
+impl Decision {
+    /// What happens to the call.
+    pub fn effect(&self) -> Effect {
+        self.effect
+    }
+
+    /// One reason per requirement, in the order the requirements were declared, then
+    /// the reason for an interactive call.
+    pub fn reasons(&self) -> &[Reason] {
+        &self.reasons
+    }
+
+    /// The reasons that set the effect: why the call is denied, or what needs approval.
+    pub fn deciding(&self) -> impl Iterator<Item = &Reason> {
+        self.reasons.iter().filter(move |reason| reason.effect == self.effect)
+    }
+}
+
+/// Why one requirement got its effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reason {
+    /// The requirement.
+    pub subject: Subject,
+    /// The effect for this requirement alone.
+    pub effect: Effect,
+    /// What set the effect.
+    pub cause: Cause,
+}
+
+/// The requirement that a [`Reason`] is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Subject {
+    /// A path that the call reads or writes.
+    Path {
+        /// The path in lexical normal form, or as declared when it is relative.
+        path: PathBuf,
+        /// Read or write.
+        access: Access,
+        /// The class, or `None` for a relative path.
+        class: Option<PathClass>,
+    },
+    /// A command line that the call runs.
+    Command {
+        /// The line as the model wrote it.
+        line: String,
+    },
+    /// Network access by the call itself.
+    Network,
+    /// The call may wait for input at the terminal.
+    Interactive,
+    /// The call declared no requirement.
+    Nothing,
+}
+
+/// What set the effect of a [`Reason`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Cause {
+    /// A rule matched, and it was the last rule to match.
+    Rule {
+        /// The policy that holds the rule.
+        layer: Layer,
+        /// The rule's position in that policy, counted from 0.
+        index: usize,
+    },
+    /// No rule matched, so the engine refused.
+    NoRule,
+    /// The path is relative, so its class is unknown.
+    NotAbsolute,
+    /// A rule allowed the requirement, but the turn comes from a remote origin, which
+    /// needs approval for everything outside `$SCRATCH`.
+    RemoteOrigin {
+        /// The origin.
+        origin: Origin,
+    },
+    /// The call may wait for input at the terminal, so the user must be there.
+    Interactive,
+    /// The call declared nothing that needs a decision.
+    NoRequirements,
+}
+
+/// The policy that a rule belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Layer {
+    /// The engine's policy: the defaults plus the user's configured rules.
+    Machine,
+    /// The rules of one conversation.
+    Conversation,
+}
+
+impl fmt::Display for Layer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Layer::Machine => "machine",
+            Layer::Conversation => "conversation",
+        })
+    }
+}
+
+/// One line for a log, an approval summary or the error that the model sees, such as
+/// `write /home/u/.zshrc (user config): ask, by rule 4 of the machine policy`.
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.subject, self.effect)?;
+        match &self.cause {
+            Cause::Rule { layer, index } => write!(f, ", by rule {index} of the {layer} policy"),
+            Cause::NoRule => f.write_str(", because no rule matched"),
+            Cause::NotAbsolute => f.write_str(", because the path is not absolute"),
+            Cause::RemoteOrigin { origin } => {
+                write!(
+                    f,
+                    ", because the turn comes from {} and is outside $SCRATCH",
+                    origin_name(*origin)
+                )
+            }
+            Cause::Interactive => f.write_str(", because the user must answer at the terminal"),
+            Cause::NoRequirements => Ok(()),
+        }
+    }
+}
+
+impl fmt::Display for Subject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Subject::Path { path, access, class: Some(class) } => {
+                write!(f, "{access} {} ({class})", path.display())
+            }
+            Subject::Path { path, access, class: None } => write!(f, "{access} {}", path.display()),
+            Subject::Command { line } => write!(f, "run {line:?}"),
+            Subject::Network => f.write_str("network access"),
+            Subject::Interactive => f.write_str("input at the terminal"),
+            Subject::Nothing => f.write_str("no requirements"),
+        }
+    }
+}
+
+fn origin_name(origin: Origin) -> &'static str {
+    match origin {
+        Origin::Shell => "the shell",
+        Origin::Cli => "the CLI",
+        Origin::Proxy => "the PTY proxy",
+        Origin::Phone => "the phone",
+        _ => "a remote client",
+    }
+}
+
+#[cfg(test)]
+mod tests;
