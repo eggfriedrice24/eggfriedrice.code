@@ -17,6 +17,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod child;
 mod error;
 mod termios;
 
