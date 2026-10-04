@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "Your refresh token has expired. Please log out and sign in again.",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "refresh_token_expired"
+  }
+}

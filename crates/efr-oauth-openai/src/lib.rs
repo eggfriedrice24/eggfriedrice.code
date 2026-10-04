@@ -36,6 +36,7 @@ mod error;
 mod pkce;
 #[cfg(test)]
 mod testing;
+mod token;
 
 pub use config::OAuthConfig;
 pub use error::{GrantKind, OAuthError};
