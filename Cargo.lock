@@ -805,6 +805,7 @@ dependencies = [
  "efr-shell",
  "efr-stdx",
  "efr-store",
+ "efr-test-daemon",
  "efr-test-support",
  "efr-tools",
  "efr-transport",

@@ -64,6 +64,9 @@ tracing-journald.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# Only tests/ may use it (a tidy rule): a unit test in src/ that linked it would hold a
+# second copy of this crate's types.
+efr-test-daemon.workspace = true
 efr-test-support.workspace = true
 futures.workspace = true
 insta.workspace = true
