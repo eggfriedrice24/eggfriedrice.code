@@ -115,6 +115,7 @@ efr-store = { path = "crates/efr-store" }
 efr-credentials = { path = "crates/efr-credentials" }
 efr-permissions = { path = "crates/efr-permissions" }
 efr-scope = { path = "crates/efr-scope" }
+efr-holder = { path = "crates/efr-holder" }
 efr-http = { path = "crates/efr-http" }
 efr-screen = { path = "crates/efr-screen" }
 

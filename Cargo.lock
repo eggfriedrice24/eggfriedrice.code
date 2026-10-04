@@ -648,6 +648,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-holder"
+version = "0.1.0"
+dependencies = [
+ "efr-protocol",
+ "pretty_assertions",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "efr-http"
 version = "0.1.0"
 dependencies = [
