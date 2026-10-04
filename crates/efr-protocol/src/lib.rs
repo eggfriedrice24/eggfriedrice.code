@@ -19,6 +19,7 @@ mod capabilities;
 mod error;
 mod event;
 mod frame;
+pub mod framing;
 mod ids;
 mod method;
 mod methods;

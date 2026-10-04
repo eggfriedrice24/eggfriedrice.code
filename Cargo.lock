@@ -221,6 +221,7 @@ dependencies = [
  "base64",
  "jiff",
  "pretty_assertions",
+ "proptest",
  "schemars",
  "serde",
  "serde_json",

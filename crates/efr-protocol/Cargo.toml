@@ -28,6 +28,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true

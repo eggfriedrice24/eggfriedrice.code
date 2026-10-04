@@ -154,8 +154,8 @@ pub struct ErrorFrame {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProtocolError {
-    /// A frame is larger than the 16 MiB limit, either on the way out or in the length
-    /// prefix of an incoming frame.
+    /// A frame is larger than [`MAX_FRAME_LEN`](crate::framing::MAX_FRAME_LEN), either on
+    /// the way out or in the length prefix of an incoming frame.
     #[error("a frame of {len} bytes is larger than the limit of {max} bytes")]
     FrameTooLarge {
         /// The length of the frame's JSON payload.
