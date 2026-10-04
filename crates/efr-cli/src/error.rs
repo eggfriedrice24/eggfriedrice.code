@@ -3,8 +3,11 @@
 use std::io;
 
 use efr_client::ClientError;
-use efr_protocol::ErrorBody;
+use efr_protocol::{ErrorBody, ErrorCode};
 use efr_stdx::StdxError;
+
+/// The next step when the model provider has no usable credentials.
+pub(crate) const LOGIN_HINT: &str = "log in with: efr login openai";
 
 /// How `efr` exits. The zsh plugin and scripts tell the cases apart by the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,14 +159,26 @@ impl CliError {
         }
     }
 
-    /// A next step for the user, printed on its own line after the error.
+    /// A next step for the user, printed on its own line after the error. The ones a
+    /// first run meets most (no daemon, no login) name the command that fixes them.
     pub(crate) fn hint(&self) -> Option<&'static str> {
         match self {
-            CliError::Client(ClientError::DaemonNotRunning { .. }) => {
-                Some("start the daemon with: systemctl --user start efrd")
-            }
+            CliError::Client(ClientError::DaemonNotRunning { .. }) => Some(
+                "start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one",
+            ),
+            CliError::Client(
+                ClientError::ConnectTimedOut { .. } | ClientError::HelloTimedOut { .. },
+            ) => Some("the daemon is not answering; its log: journalctl --user -u efrd"),
             CliError::Client(ClientError::ProtocolMismatch { .. }) => {
                 Some("efr and efrd come from different builds; install both from one build")
+            }
+            CliError::Dirs { source: StdxError::RuntimeDirUnset } => {
+                Some("a systemd login sets XDG_RUNTIME_DIR; without one, set EFR_RUNTIME_DIR")
+            }
+            CliError::Dirs { source: StdxError::HomeNotFound } => Some("set HOME"),
+            // A turn fails as unauthorized when the provider has no usable credentials.
+            CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
+                Some(LOGIN_HINT)
             }
             CliError::NewWithoutPrompt => {
                 Some("in zsh, a bare ,new makes the next , line start a new conversation")

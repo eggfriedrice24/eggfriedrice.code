@@ -13,7 +13,7 @@ state and never writes the daemon's database or credentials.
 | `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
 | `efr new [--context-json <json>] [--last-command <text>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
-| `efr status` | `admin.status` | |
+| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in |
 | `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
 | `efr config show` | none | the client's effective settings with the source of each, as TOML |
@@ -68,8 +68,15 @@ behind another turn cannot be taken back yet, and the CLI says so. During a logi
 Ctrl+C closes the connection. What arrived stays on the screen.
 
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
-interrupted elsewhere, or the connection broke; 2 a usage error; 3 no daemon listens
-(with the hint `systemctl --user start efrd`); 130 Ctrl+C.
+interrupted elsewhere, or the connection broke; 2 a usage error; 3 no daemon listens;
+130 Ctrl+C.
+
+A failure that a first run meets gets a second line with the command that fixes it:
+no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
+turn that fails as `unauthorized` because the provider has no usable credentials
+(`efr login openai`), a daemon that does not answer (`journalctl --user -u efrd`), a
+missing `XDG_RUNTIME_DIR` or `HOME`, and `efr` and `efrd` from different builds.
+`efr status` adds the login line on stderr when no provider is logged in.
 
 Logs go to stderr, filtered by `EFR_LOG` (default `warn`, because stderr shares the
 terminal with the reply).

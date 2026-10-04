@@ -190,7 +190,7 @@ fn without_a_daemon_status_exits_three_with_the_hint() {
     assert_eq!(output.status.code(), Some(3));
     let stderr = stderr_of(&output);
     assert!(stderr.contains("no daemon is listening on"), "{stderr}");
-    assert!(stderr.ends_with("efr: start the daemon with: systemctl --user start efrd\n"));
+    assert!(stderr.ends_with("efr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n"));
 }
 
 #[test]

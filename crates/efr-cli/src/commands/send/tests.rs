@@ -317,7 +317,7 @@ async fn without_a_daemon_send_exits_with_three_and_a_hint() {
     assert_eq!(
         captured.stderr(),
         format!(
-            "efr: no daemon is listening on {}\nefr: start the daemon with: systemctl --user start efrd\n",
+            "efr: no daemon is listening on {}\nefr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n",
             socket.display()
         )
     );
@@ -341,6 +341,32 @@ async fn a_refused_prompt_exits_with_one_and_the_daemons_message() {
     assert_eq!(
         captured.stderr(),
         "efr: the daemon failed the request with busy: the daemon is starting\n"
+    );
+}
+
+#[tokio::test]
+async fn a_turn_without_a_login_says_how_to_log_in() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &sent(false)).await;
+        let (sub, _) = conn.request().await;
+        let error =
+            ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
+        conn.item(sub, &item(11, Event::TurnFailed { turn_id: turn(), error })).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "hello"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::DaemonError);
+    assert_eq!(
+        captured.stderr(),
+        "efr: the turn failed with unauthorized: no credentials are stored for the provider\n\
+         efr: log in with: efr login openai\n"
     );
 }
 

@@ -45,6 +45,35 @@ async fn status_shows_the_daemons_answer_and_its_socket() {
     assert_eq!(exit, Exit::Success);
     let text = captured.stdout().replace(&env.socket().display().to_string(), "<socket>");
     insta::assert_snapshot!(text);
+    // No provider has credentials, so every prompt would fail until a login.
+    assert_eq!(
+        captured.stderr(),
+        "efr: no model provider is logged in; log in with: efr login openai\n"
+    );
+}
+
+#[tokio::test]
+async fn a_logged_in_provider_needs_no_login_hint() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.providers.push(ProviderStatus {
+        provider: "openai-subscription".to_owned(),
+        logged_in: true,
+        expires_at: None,
+    });
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(captured.stderr(), "");
 }
 
 #[tokio::test]
@@ -55,7 +84,7 @@ async fn status_without_a_daemon_exits_with_three() {
     let exit = run::run(&command(&["status"]), &ctx, &mut out).await;
     assert_eq!(exit, Exit::NotRunning);
     assert!(
-        captured.stderr().ends_with("efr: start the daemon with: systemctl --user start efrd\n")
+        captured.stderr().ends_with("efr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n")
     );
     assert_eq!(captured.stdout(), "");
 }
@@ -89,5 +118,9 @@ async fn a_daemon_that_does_not_answer_times_out() {
     let exit = run::run(&command(&["status"]), &ctx, &mut out).await;
     assert_eq!(exit, Exit::DaemonError);
     // The connect or the hello times out, whichever the clock reaches first.
-    assert!(captured.stderr().ends_with("did not finish within 5s\n"), "{}", captured.stderr());
+    let stderr = captured.stderr();
+    assert!(stderr.contains("did not finish within 5s\n"), "{stderr}");
+    assert!(
+        stderr.ends_with("efr: the daemon is not answering; its log: journalctl --user -u efrd\n")
+    );
 }

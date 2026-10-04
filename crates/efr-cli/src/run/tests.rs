@@ -35,7 +35,7 @@ fn a_hint_follows_on_its_own_line() {
     let error = CliError::Client(ClientError::DaemonNotRunning { socket: PathBuf::from("/s") });
     assert_eq!(
         message(&error),
-        "efr: no daemon is listening on /s\nefr: start the daemon with: systemctl --user start efrd\n"
+        "efr: no daemon is listening on /s\nefr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n"
     );
 }
 

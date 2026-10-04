@@ -25,7 +25,41 @@ fn exit_codes_are_the_documented_numbers() {
 fn a_missing_daemon_exits_with_three_and_a_hint() {
     let error = not_running();
     assert_eq!(error.exit(), Exit::NotRunning);
-    assert_eq!(error.hint(), Some("start the daemon with: systemctl --user start efrd"));
+    let hint = error.hint().unwrap();
+    assert!(hint.starts_with("start the daemon with: systemctl --user start efrd"), "{hint}");
+    assert!(hint.contains("`just run`"), "{hint}");
+}
+
+#[test]
+fn a_turn_without_usable_credentials_hints_at_the_login() {
+    let body =
+        ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
+    let error = CliError::TurnFailed { body };
+    assert_eq!(error.exit(), Exit::DaemonError);
+    assert_eq!(error.hint(), Some("log in with: efr login openai"));
+}
+
+#[test]
+fn a_daemon_that_does_not_answer_points_at_its_log() {
+    let after = std::time::Duration::from_secs(5);
+    let socket = PathBuf::from("/run/user/1000/efr/daemon.sock");
+    for error in [
+        CliError::Client(ClientError::HelloTimedOut { after }),
+        CliError::Client(ClientError::ConnectTimedOut { socket, after }),
+    ] {
+        assert_eq!(
+            error.hint(),
+            Some("the daemon is not answering; its log: journalctl --user -u efrd")
+        );
+    }
+}
+
+#[test]
+fn missing_directories_say_which_variable_to_set() {
+    let runtime = CliError::Dirs { source: efr_stdx::StdxError::RuntimeDirUnset };
+    assert!(runtime.hint().unwrap().contains("EFR_RUNTIME_DIR"));
+    let home = CliError::Dirs { source: efr_stdx::StdxError::HomeNotFound };
+    assert_eq!(home.hint(), Some("set HOME"));
 }
 
 #[test]
