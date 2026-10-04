@@ -1,0 +1,36 @@
+[package]
+name = "efr-conversation"
+description = "The conversation engine of efr: one actor per conversation, the turn loop and the single permission check point"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-permissions.workspace = true
+efr-protocol.workspace = true
+efr-provider.workspace = true
+efr-scope.workspace = true
+efr-stdx.workspace = true
+efr-store.workspace = true
+futures.workspace = true
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+efr-test-support.workspace = true
+insta.workspace = true
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

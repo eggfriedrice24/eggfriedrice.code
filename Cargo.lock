@@ -740,6 +740,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-conversation"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "efr-permissions",
+ "efr-protocol",
+ "efr-provider",
+ "efr-scope",
+ "efr-stdx",
+ "efr-store",
+ "efr-test-support",
+ "futures",
+ "insta",
+ "jiff",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "efr-credentials"
 version = "0.1.0"
 dependencies = [
