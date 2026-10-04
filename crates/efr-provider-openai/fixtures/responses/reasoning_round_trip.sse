@@ -1,0 +1,60 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_2c3d4e5f60718293a4b5c6d7e8f90a1b","object":"response","created_at":1791115320,"status":"in_progress","model":"gpt-5.5","output":[],"reasoning":{"effort":"medium","summary":"auto"},"store":false,"usage":null}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_2c3d4e5f60718293a4b5c6d7e8f90a1b","object":"response","created_at":1791115320,"status":"in_progress","model":"gpt-5.5","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_part.added
+data: {"type":"response.reasoning_summary_part.added","sequence_number":3,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":4,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":0,"delta":"**Checking the package manager**"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":5,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":0,"delta":" The machine runs Arch, so pacman."}
+
+event: response.reasoning_summary_text.done
+data: {"type":"response.reasoning_summary_text.done","sequence_number":6,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":0,"text":"**Checking the package manager** The machine runs Arch, so pacman."}
+
+event: response.reasoning_summary_part.done
+data: {"type":"response.reasoning_summary_part.done","sequence_number":7,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"**Checking the package manager** The machine runs Arch, so pacman."}}
+
+event: response.reasoning_summary_part.added
+data: {"type":"response.reasoning_summary_part.added","sequence_number":8,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":1,"part":{"type":"summary_text","text":""}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":9,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":1,"delta":"**Answering** No command is needed."}
+
+event: response.reasoning_summary_text.done
+data: {"type":"response.reasoning_summary_text.done","sequence_number":10,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":1,"text":"**Answering** No command is needed."}
+
+event: response.reasoning_summary_part.done
+data: {"type":"response.reasoning_summary_part.done","sequence_number":11,"item_id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":0,"summary_index":1,"part":{"type":"summary_text","text":"**Answering** No command is needed."}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":12,"output_index":0,"item":{"id":"rs_2c3d4e5f60718293a4b5c6d7e8f90a1b","type":"reasoning","encrypted_content":"gAAAAABo4cF4reasoning_state_8Jk2Lm4Np6Qr8St0Uv2Wx4Yz6Ab8Cd0Ef2Gh4Ij6Kl8Mn0Op2Qr4St6Uv8Wx0Yz2Ab4Cd6Ef8Gh0","summary":[{"type":"summary_text","text":"**Checking the package manager** The machine runs Arch, so pacman."},{"type":"summary_text","text":"**Answering** No command is needed."}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":13,"output_index":1,"item":{"id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","type":"message","status":"in_progress","content":[],"role":"assistant"}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":14,"item_id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":1,"content_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":15,"item_id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":1,"content_index":0,"delta":"Use pacman: sudo pacman -Syu.","logprobs":[]}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","sequence_number":16,"item_id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":1,"content_index":0,"text":"Use pacman: sudo pacman -Syu.","logprobs":[]}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","sequence_number":17,"item_id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","output_index":1,"content_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":"Use pacman: sudo pacman -Syu."}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"msg_2c3d4e5f60718293a4b5c6d7e8f90a1b","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"Use pacman: sudo pacman -Syu."}],"role":"assistant"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":19,"response":{"id":"resp_2c3d4e5f60718293a4b5c6d7e8f90a1b","object":"response","created_at":1791115320,"status":"completed","model":"gpt-5.5","output":[],"usage":{"input_tokens":980,"input_tokens_details":{"cached_tokens":0},"output_tokens":212,"output_tokens_details":{"reasoning_tokens":192},"total_tokens":1192}}}
+

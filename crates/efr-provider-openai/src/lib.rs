@@ -15,6 +15,9 @@ mod config;
 mod convert;
 mod error;
 mod models;
+mod sse_events;
+#[cfg(test)]
+mod testing;
 
 pub use config::{
     API_BASE_URL, Backend, DEFAULT_ORIGINATOR, OpenAiConfig, ReasoningMode, SUBSCRIPTION_BASE_URL,

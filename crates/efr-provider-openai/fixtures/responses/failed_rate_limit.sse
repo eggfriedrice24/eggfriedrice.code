@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_4e5f60718293a4b5c6d7e8f90a1b2c3d","object":"response","created_at":1791115440,"status":"in_progress","model":"gpt-5.5","output":[],"usage":null}}
+
+event: response.failed
+data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_4e5f60718293a4b5c6d7e8f90a1b2c3d","object":"response","created_at":1791115440,"status":"failed","background":false,"error":{"code":"rate_limit_exceeded","message":"Rate limit reached for gpt-5.5 on tokens per min (TPM): Limit 30000, Used 22999, Requested 12528. Please try again in 11.054s."},"usage":null,"metadata":{}}}
+
