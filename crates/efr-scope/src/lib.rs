@@ -1,6 +1,9 @@
 //! Where a turn stands: the shell's working directory turned into an
 //! `efr_protocol::Scope`, again on every turn.
 //!
+//! - [`derive()`]: `Project` when the directory is inside a root that the user
+//!   registered, `Path` when it is inside a git work tree, and `Machine` for `$HOME`,
+//!   `/` and everything else. `$HOME` and `/` are never a project unless registered.
 //! - [`Registry`]: the explicit project registry, `$XDG_CONFIG_HOME/efr/projects.toml`.
 //! - [`Git`]: guarded git discovery with `GIT_CEILING_DIRECTORIES`, so a dotfiles
 //!   `~/.git` never turns every directory under `$HOME` into one repository.
@@ -18,6 +21,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod derive;
 mod dotfiles;
 mod error;
 mod git;
@@ -26,6 +30,7 @@ mod registry;
 #[cfg(test)]
 mod testing;
 
+pub use derive::{Basis, Derivation, derive};
 pub use dotfiles::{Dotfiles, detect_dotfiles};
 pub use error::ScopeError;
 pub use git::{DEFAULT_GIT_TIMEOUT, Discovery, Git, Repo};
