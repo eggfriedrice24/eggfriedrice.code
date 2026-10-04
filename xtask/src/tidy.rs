@@ -42,7 +42,9 @@ pub(crate) const TEST_DAEMON_HOMES: &[&str] = &["crates/efr-test-daemon/"];
 const RULE_SOURCES: &[&str] = &["xtask/src/tidy.rs", "xtask/src/tidy/tests.rs"];
 
 /// Directory names never walked.
-const SKIP_DIRS: &[&str] = &["target", ".git"];
+// `.claude` holds agent worktrees: full checkouts whose copies of this file would
+// trip every rule while a parallel run is in progress.
+const SKIP_DIRS: &[&str] = &["target", ".git", ".claude"];
 
 /// Extensions checked for trailing whitespace.
 const WHITESPACE_EXTENSIONS: &[&str] = &["rs", "toml", "md"];
