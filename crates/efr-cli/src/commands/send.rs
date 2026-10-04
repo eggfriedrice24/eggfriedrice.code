@@ -1,5 +1,11 @@
 //! `efr send`: send a prompt to the terminal's conversation and follow the reply, or,
 //! with `--steer`, add text to the running turn.
+//!
+//! The zsh plugin hands the shell context, the last command line and the prompt over
+//! in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`, not as arguments: any local
+//! user can read a command line in `/proc/<pid>/cmdline`, while `/proc/<pid>/environ`
+//! is readable only by the user's own processes. The arguments stay for use by hand,
+//! and an argument wins over its variable.
 
 use efr_client::Client;
 use efr_protocol::{
@@ -7,6 +13,7 @@ use efr_protocol::{
     PromptSendResult, ShellContext, TurnSteer, TurnSteerResult,
 };
 use efr_render::render_trace;
+use efr_stdx::env::Var;
 
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
@@ -30,14 +37,58 @@ pub(crate) struct Prompt {
     pub(crate) last_command: Option<LastCommand>,
 }
 
+/// The parts of a prompt that the zsh plugin hands over, each from its argument or,
+/// without one, from its variable.
+#[derive(Debug)]
+pub(crate) struct Handover {
+    pub(crate) context: ShellContext,
+    /// `shell` when the context came from the plugin, `cli` when it is the process's.
+    pub(crate) origin: Origin,
+    pub(crate) last_command: Option<LastCommand>,
+    pub(crate) text: String,
+}
+
+impl Handover {
+    /// Reads the handover for a command with these arguments.
+    pub(crate) fn read(
+        ctx: &Context,
+        context_json: Option<&str>,
+        last_command: Option<&LastCommand>,
+        prompt: &[String],
+    ) -> Result<Handover, CliError> {
+        let var = |var| ctx.env.var(var).map_err(|source| CliError::Environment { source });
+        let context = match context_json {
+            Some(json) => Some(("--context-json", json.to_owned())),
+            None => var(Var::Context)?.map(|json| (Var::Context.name(), json)),
+        };
+        let origin = origin_of(context.is_some());
+        let context = shell_context(ctx, context)?;
+        let last_command = match last_command {
+            Some(line) => Some(line.clone()),
+            None => var(Var::LastCommand)?.map(LastCommand::from),
+        };
+        let text = if prompt.is_empty() {
+            var(Var::Prompt)?.unwrap_or_default()
+        } else {
+            prompt_text(prompt)
+        };
+        Ok(Handover { context, origin, last_command, text })
+    }
+}
+
 pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Result<(), CliError> {
-    let context = shell_context(ctx, args.context_json.as_deref())?;
-    let origin = origin_of(args.context_json.is_some());
-    let text = prompt_text(&args.prompt);
+    let handover = Handover::read(
+        ctx,
+        args.context_json.as_deref(),
+        args.last_command.as_ref(),
+        &args.prompt,
+    )?;
+    let Handover { context, origin, last_command, text } = handover;
     if text.trim().is_empty() {
         return Err(CliError::EmptyPrompt);
     }
     if args.steer {
+        // A steer joins a turn whose context is set, so a last command has no place.
         return steer(ctx, out, args.conversation, &context, origin, text).await;
     }
     let prompt = Prompt {
@@ -45,7 +96,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         new_conversation: false,
         text,
         context,
-        last_command: args.last_command.clone(),
+        last_command,
     };
     send(ctx, out, origin, prompt).await
 }
@@ -153,12 +204,16 @@ pub(crate) async fn active_conversation(
     Err(CliError::NoActiveConversation { tty: tty.to_owned() })
 }
 
-/// The shell context to send: the plugin's, or, typed by hand, the working directory
-/// and the terminal on stdin.
-pub(crate) fn shell_context(ctx: &Context, json: Option<&str>) -> Result<ShellContext, CliError> {
+/// The shell context to send: the plugin's, given as JSON with the name of the
+/// argument or variable it came from, or, typed by hand, the working directory and the
+/// terminal on stdin.
+fn shell_context(
+    ctx: &Context,
+    json: Option<(&'static str, String)>,
+) -> Result<ShellContext, CliError> {
     match json {
-        Some(json) => {
-            serde_json::from_str(json).map_err(|source| CliError::InvalidContext { source })
+        Some((input, json)) => {
+            serde_json::from_str(&json).map_err(|source| CliError::InvalidContext { input, source })
         }
         None => {
             let mut context = ShellContext::new(ctx.cwd.clone().unwrap_or_default());
@@ -170,12 +225,12 @@ pub(crate) fn shell_context(ctx: &Context, json: Option<&str>) -> Result<ShellCo
 
 /// The origin a connection announces: the shell when the plugin sent its context,
 /// otherwise `efr` used by hand or from a script.
-pub(crate) fn origin_of(from_plugin: bool) -> Origin {
+fn origin_of(from_plugin: bool) -> Origin {
     if from_plugin { Origin::Shell } else { Origin::Cli }
 }
 
 /// The prompt words joined with single spaces, as the shell split them.
-pub(crate) fn prompt_text(words: &[String]) -> String {
+fn prompt_text(words: &[String]) -> String {
     words.join(" ")
 }
 

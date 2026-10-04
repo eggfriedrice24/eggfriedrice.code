@@ -42,6 +42,17 @@ fn send_takes_the_last_command_as_its_own_flag() {
 }
 
 #[test]
+fn the_plugins_calls_need_no_arguments() {
+    // The plugin hands everything over in the environment, so its calls are bare.
+    let Command::Send(args) = command(&["send"]) else { panic!("not send") };
+    assert_eq!((args.context_json, args.last_command, args.prompt.len()), (None, None, 0));
+    let Command::Send(args) = command(&["send", "--steer"]) else { panic!("not send") };
+    assert!(args.steer);
+    let Command::New(args) = command(&["new"]) else { panic!("not new") };
+    assert!(args.prompt.is_empty());
+}
+
+#[test]
 fn prompt_words_after_the_separator_may_look_like_flags() {
     let Command::Send(args) = command(&["send", "--", "what", "does", "--steer", "do", "-x"])
     else {

@@ -10,20 +10,29 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send --context-json <json> [--last-command <text>] -- <prompt>` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
-| `efr send --steer --context-json <json> -- <text>` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
-| `efr new --context-json <json> [--last-command <text>] -- <prompt>` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
+| `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
+| `efr new [--context-json <json>] [--last-command <text>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr status` | `admin.status` | |
 | `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
 | `efr config show` | none | the client's effective settings with the source of each, as TOML |
 
-`--last-command` travels as `prompt.send` `params.last_command`, never inside the
-context: the daemon gives it to the turn's preamble and records it in no event.
-`--context-json` is decoded as a `ShellContext`, so a `last_command` member that a
-caller puts there is dropped. Without `--context-json` (typed by hand), the context is
-the working directory and the terminal on stdin, and the connection's origin is `cli`
-instead of `shell`.
+The zsh plugin runs a bare `efr send`, `efr send --steer` or `efr new` and hands the
+shell context, the last command line and the prompt over in the environment:
+`EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`. Any local user can read a command
+line in `/proc/<pid>/cmdline`; `/proc/<pid>/environ` is readable only by the user's
+own processes. `--context-json`, `--last-command` and the prompt words do the same by
+hand, and each wins over its variable. The variables reach no child process (`efr`
+starts only `xdg-open`, through `efr_stdx::process::command`, which removes them) and
+no log: `LastCommand` and `efr_stdx::env::Env` show them in `Debug` by length only.
+
+The last command travels as `prompt.send` `params.last_command`, never inside the
+context: the daemon gives it to the turn's preamble and records it in no event. The
+context is decoded as a `ShellContext`, so a `last_command` member that a caller puts
+there is dropped. Without a context (typed by hand), the context is the working
+directory and the terminal on stdin, and the connection's origin is `cli` instead of
+`shell`.
 
 Replies:
 
@@ -96,6 +105,8 @@ they are terminal conventions that `efr_stdx::env::Var` does not name.
   `efr-render`, and everything else the CLI prints passes through `format::one_line` or
   `format::lines`, which turn control characters into visible stand-ins.
 - The last command line never reaches the shell context, and so never an event.
+- What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
+  reaches no child process and no log.
 
 ## Tests
 

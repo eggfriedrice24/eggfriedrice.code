@@ -6,25 +6,23 @@
 //! line run `efr new` instead of `efr send`.
 
 use crate::cli::NewArgs;
-use crate::commands::send::{self, Prompt};
+use crate::commands::send::{self, Handover, Prompt};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::output::Output;
 
 pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &NewArgs) -> Result<(), CliError> {
-    let context = send::shell_context(ctx, args.context_json.as_deref())?;
-    let origin = send::origin_of(args.context_json.is_some());
-    let text = send::prompt_text(&args.prompt);
+    let handover = Handover::read(
+        ctx,
+        args.context_json.as_deref(),
+        args.last_command.as_ref(),
+        &args.prompt,
+    )?;
+    let Handover { context, origin, last_command, text } = handover;
     if text.trim().is_empty() {
         return Err(CliError::NewWithoutPrompt);
     }
-    let prompt = Prompt {
-        conversation: None,
-        new_conversation: true,
-        text,
-        context,
-        last_command: args.last_command.clone(),
-    };
+    let prompt = Prompt { conversation: None, new_conversation: true, text, context, last_command };
     send::send(ctx, out, origin, prompt).await
 }
 

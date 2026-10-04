@@ -1,11 +1,16 @@
 //! The command line: what `efr` accepts, as clap derive types.
 //!
 //! The zsh plugin is the main caller, so its three calls are the contract this file
-//! must keep:
+//! must keep. The plugin passes the shell context, the last command line and the prompt
+//! in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`, so that no other user can
+//! read them in the command line:
 //!
-//! - `efr send --context-json <json> [--last-command <text>] -- <prompt words>`
-//! - `efr send --steer --context-json <json> -- <text>`
-//! - `efr new --context-json <json> [--last-command <text>] -- <prompt words>`
+//! - `efr send`
+//! - `efr send --steer` (without `EFR_LAST_COMMAND`)
+//! - `efr new`
+//!
+//! The flags `--context-json` and `--last-command` and the prompt words do the same by
+//! hand, and each wins over its variable.
 
 use std::convert::Infallible;
 use std::fmt;
@@ -54,12 +59,13 @@ pub(crate) struct SendArgs {
     #[arg(long)]
     pub(crate) steer: bool,
 
-    /// The user's shell as the zsh plugin observed it, as a JSON object.
+    /// The user's shell as the zsh plugin observed it, as a JSON object [env:
+    /// EFR_CONTEXT]
     #[arg(long, value_name = "JSON")]
     pub(crate) context_json: Option<String>,
 
     /// The last command line of the user's shell, for the turn's context only; it is
-    /// never stored.
+    /// never stored [env: EFR_LAST_COMMAND]
     #[arg(long, value_name = "TEXT", conflicts_with = "steer")]
     pub(crate) last_command: Option<LastCommand>,
 
@@ -67,7 +73,7 @@ pub(crate) struct SendArgs {
     #[arg(long, value_name = "ID")]
     pub(crate) conversation: Option<ConversationId>,
 
-    /// The prompt; the words are joined with spaces.
+    /// The prompt; the words are joined with spaces [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "PROMPT")]
     pub(crate) prompt: Vec<String>,
 }
@@ -75,22 +81,25 @@ pub(crate) struct SendArgs {
 /// The arguments of `efr new`.
 #[derive(Debug, Args)]
 pub(crate) struct NewArgs {
-    /// The user's shell as the zsh plugin observed it, as a JSON object.
+    /// The user's shell as the zsh plugin observed it, as a JSON object [env:
+    /// EFR_CONTEXT]
     #[arg(long, value_name = "JSON")]
     pub(crate) context_json: Option<String>,
 
     /// The last command line of the user's shell, for the turn's context only; it is
-    /// never stored.
+    /// never stored [env: EFR_LAST_COMMAND]
     #[arg(long, value_name = "TEXT")]
     pub(crate) last_command: Option<LastCommand>,
 
-    /// The first prompt of the new conversation; the words are joined with spaces.
+    /// The first prompt of the new conversation; the words are joined with spaces
+    /// [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "PROMPT")]
     pub(crate) prompt: Vec<String>,
 }
 
-/// A command line from the user's shell, as `--last-command` gives it. It can hold a
-/// secret (`export TOKEN=...`), so `Debug` shows only its length.
+/// A command line from the user's shell, as `--last-command` or `EFR_LAST_COMMAND`
+/// gives it. It can hold a secret (`export TOKEN=...`), so `Debug` shows only its
+/// length.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct LastCommand(String);
 
@@ -108,6 +117,12 @@ impl LastCommand {
 impl fmt::Debug for LastCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "LastCommand(<{} bytes>)", self.0.len())
+    }
+}
+
+impl From<String> for LastCommand {
+    fn from(text: String) -> Self {
+        LastCommand(text)
     }
 }
 

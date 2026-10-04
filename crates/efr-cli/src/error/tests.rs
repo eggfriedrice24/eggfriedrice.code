@@ -32,7 +32,7 @@ fn a_missing_daemon_exits_with_three_and_a_hint() {
 fn bad_input_is_a_usage_error() {
     let invalid = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
     for error in [
-        CliError::InvalidContext { source: invalid },
+        CliError::InvalidContext { input: "EFR_CONTEXT", source: invalid },
         CliError::EmptyPrompt,
         CliError::SteerNeedsConversation,
         CliError::AmbiguousConversation { query: "019a".to_owned(), matches: 2 },

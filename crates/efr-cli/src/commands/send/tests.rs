@@ -6,6 +6,7 @@ use efr_protocol::{
     ErrorBody, ErrorCode, Event, Method, Origin, PageCursor, PromptSendResult, Seq,
     TurnSteerResult,
 };
+use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
 use crate::context::Context;
@@ -85,6 +86,84 @@ async fn send_relays_the_plugins_context_and_last_command_and_writes_the_raw_rep
     assert_eq!(context.hostname.as_deref(), Some("box"));
     assert_eq!(captured.stdout(), "A **typo** on line 3.\n");
     assert_eq!(captured.stderr(), "");
+}
+
+/// A context whose environment holds what the zsh plugin hands over.
+fn plugin_context(env: &TestEnv, prompt: &str) -> Context {
+    let vars = [(Var::Context, CONTEXT), (Var::LastCommand, "nginx -t"), (Var::Prompt, prompt)];
+    Context { env: Env::fixed(vars), ..env.context() }
+}
+
+#[tokio::test]
+async fn send_reads_what_the_plugin_hands_over_in_the_environment() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = plugin_context(&env, "why does it fail?");
+    let (mut out, captured) = capture();
+    let line = command(&["send"]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        assert_eq!(conn.hello().origin, Origin::Shell);
+        assert_eq!(conn.hello().tty.as_deref(), Some("/dev/pts/3"));
+        answer(&mut conn, sent(false), "A typo.").await
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    assert_eq!(params.text, "why does it fail?");
+    assert_eq!(params.last_command.as_deref(), Some("nginx -t"));
+    let context = params.context.unwrap();
+    assert_eq!(context.pwd, PathBuf::from("/etc/nginx"));
+    assert_eq!(context.last_status, Some(1));
+    assert_eq!(captured.stdout(), "A typo.\n");
+}
+
+#[tokio::test]
+async fn arguments_win_over_the_plugins_variables() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = plugin_context(&env, "from the variable");
+    let (mut out, _captured) = capture();
+    let line = command(&[
+        "send",
+        "--context-json",
+        r#"{"pwd":"/srv"}"#,
+        "--last-command",
+        "ls",
+        "--",
+        "from",
+        "the",
+        "arguments",
+    ]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "ok").await
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(params.text, "from the arguments");
+    assert_eq!(params.last_command.as_deref(), Some("ls"));
+    assert_eq!(params.context.unwrap().pwd, PathBuf::from("/srv"));
+}
+
+#[tokio::test]
+async fn a_bad_context_variable_is_a_usage_error_that_names_it() {
+    let env = TestEnv::new();
+    let ctx =
+        Context { env: Env::fixed([(Var::Context, "{pwd"), (Var::Prompt, "x")]), ..env.context() };
+    let (mut out, captured) = capture();
+    let exit = run::run(&command(&["send"]), &ctx, &mut out).await;
+    assert_eq!(exit, Exit::Usage);
+    assert!(captured.stderr().starts_with("efr: EFR_CONTEXT is not a shell context object: "));
+}
+
+#[tokio::test]
+async fn an_empty_prompt_variable_is_an_empty_prompt() {
+    let env = TestEnv::new();
+    let ctx = Context { env: Env::fixed([(Var::Context, CONTEXT)]), ..env.context() };
+    let (mut out, captured) = capture();
+    let exit = run::run(&command(&["send"]), &ctx, &mut out).await;
+    assert_eq!(exit, Exit::Usage);
+    assert_eq!(captured.stderr(), "efr: the prompt is empty\n");
 }
 
 #[tokio::test]
@@ -320,6 +399,35 @@ async fn steer_finds_the_terminals_conversation_across_pages() {
     assert_eq!(params.text, "use port 8080");
     assert_eq!(params.turn_id, None);
     assert_eq!(captured.stderr(), "steered the running turn\n");
+}
+
+#[tokio::test]
+async fn steer_takes_its_text_and_terminal_from_the_plugins_variables() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    // The plugin sets no last command for a steer; one left in the environment is
+    // ignored rather than refused.
+    let ctx = plugin_context(&env, "use port 8080");
+    let (mut out, _captured) = capture();
+    let line = command(&["send", "--steer"]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        assert_eq!(conn.hello().tty.as_deref(), Some("/dev/pts/3"));
+        let (id, _) = conn.request().await;
+        let list = ConversationsListResult {
+            conversations: vec![summary(CONVERSATION, Some("/dev/pts/3"))],
+            next_cursor: None,
+        };
+        conn.reply(id, &list).await;
+        let (id, method) = conn.request().await;
+        let Method::TurnSteer(params) = method else { panic!("expected turn.steer") };
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.until_closed().await;
+        params
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(params.text, "use port 8080");
 }
 
 #[tokio::test]

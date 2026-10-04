@@ -275,6 +275,23 @@ fn a_piped_reply_is_raw_markdown() {
 }
 
 #[test]
+fn the_plugins_variables_carry_the_prompt_without_arguments() {
+    let roots = Roots::new();
+    let daemon = answering(&roots, Ok("Use **sccache**."));
+    let output = roots
+        .efr()
+        .arg("send")
+        .env("EFR_CONTEXT", r#"{"pwd":"/srv","tty":"/dev/pts/4"}"#)
+        .env("EFR_LAST_COMMAND", "cargo build")
+        .env("EFR_PROMPT", "why so slow?")
+        .output()
+        .unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(stdout_of(&output), "Use **sccache**.\n");
+}
+
+#[test]
 fn a_failed_turn_exits_one_with_the_reason() {
     let roots = Roots::new();
     let daemon = answering(&roots, Err("the provider is down"));

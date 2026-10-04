@@ -65,9 +65,11 @@ pub(crate) enum CliError {
     #[error(transparent)]
     Client(#[from] ClientError),
 
-    /// `--context-json` is not the JSON object the zsh plugin sends.
-    #[error("--context-json is not a shell context object")]
+    /// `--context-json` or `EFR_CONTEXT`, named by `input`, is not the JSON object the
+    /// zsh plugin sends.
+    #[error("{input} is not a shell context object")]
     InvalidContext {
+        input: &'static str,
         #[source]
         source: serde_json::Error,
     },
@@ -81,7 +83,7 @@ pub(crate) enum CliError {
     NewWithoutPrompt,
 
     /// `efr send --steer` cannot tell which conversation to steer.
-    #[error("efr send --steer needs --conversation, or a --context-json with a tty")]
+    #[error("efr send --steer needs --conversation, or a shell context with a tty")]
     SteerNeedsConversation,
 
     /// The terminal has no active conversation to steer.

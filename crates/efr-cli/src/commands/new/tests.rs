@@ -1,6 +1,8 @@
-use efr_protocol::{Event, Method, PromptSendResult, Seq};
+use efr_protocol::{Event, Method, Origin, PromptSendResult, Seq};
+use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
+use crate::context::Context;
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{TestEnv, capture, command, conversation, item, turn};
@@ -53,6 +55,37 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
     assert_eq!(params.text, "start fresh");
     assert_eq!(params.last_command.as_deref(), Some("ls"));
     assert_eq!(captured.stdout(), "Fresh.\n");
+}
+
+#[tokio::test]
+async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [
+        (Var::Context, r#"{"pwd":"/srv","tty":"/dev/pts/2"}"#),
+        (Var::LastCommand, "ls"),
+        (Var::Prompt, "start fresh"),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        assert_eq!(conn.hello().origin, Origin::Shell);
+        let (id, method) = conn.request().await;
+        let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
+        conn.reply(id, &sent()).await;
+        let (sub, _) = conn.request().await;
+        conn.item(sub, &item(6, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.until_closed().await;
+        params
+    };
+    let line = command(&["new"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert!(params.new_conversation);
+    assert_eq!(params.text, "start fresh");
+    assert_eq!(params.last_command.as_deref(), Some("ls"));
+    assert_eq!(params.context.unwrap().tty.as_deref(), Some("/dev/pts/2"));
 }
 
 #[tokio::test]
