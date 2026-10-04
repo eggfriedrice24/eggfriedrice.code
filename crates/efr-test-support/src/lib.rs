@@ -1,6 +1,7 @@
 //! Light helpers for the tests of every efr crate.
 //!
 //! - [`TestClock`]: an `efr_stdx` clock that moves only when a test moves it.
+//! - [`TestRng`]: a seeded `efr_stdx` generator whose sequence never changes.
 //!
 //! This is a dev crate: a crate names it under `[dev-dependencies]` only, and no
 //! shipped binary links it.
@@ -15,5 +16,7 @@
 #![warn(missing_docs)]
 
 mod clock;
+mod rng;
 
 pub use clock::TestClock;
+pub use rng::TestRng;

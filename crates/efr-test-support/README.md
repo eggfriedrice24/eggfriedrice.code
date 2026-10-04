@@ -11,6 +11,10 @@ directories, a store and provider traffic from one place and never from the mach
   `wait_for_sleeps(n)` waits, without real time, until the code under test is asleep,
   so a test does not race the task it drives. `requested_sleeps` lists every duration
   the code asked for, for backoff assertions.
+- `rng`: `TestRng::new(seed)`, an `efr_stdx::rng::Rng` over SplitMix64. The same seed
+  gives the same ids, PKCE verifiers and scratch names on every run and every machine.
+  The algorithm is written out here, not taken from `rand`, because `rand` does not
+  promise to keep a seeded sequence across versions; a test pins the first values.
 
 ## Tier
 
@@ -41,4 +45,6 @@ cargo nextest run -p efr-test-support
 ```
 
 The clock tests poll sleeps and timeouts by hand and drive one spawned task with
-`wait_for_sleeps`. They use no network, no real-time sleeps and no Zig.
+`wait_for_sleeps`. The generator tests pin the published SplitMix64 values and one
+UUIDv7 made from `TestClock` and `TestRng`. They use no network, no real-time sleeps
+and no Zig.
