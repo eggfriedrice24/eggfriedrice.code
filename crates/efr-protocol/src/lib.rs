@@ -19,6 +19,8 @@ mod capabilities;
 mod error;
 mod event;
 mod ids;
+mod method;
+mod methods;
 mod scope;
 mod screen;
 mod shell_context;
@@ -30,6 +32,26 @@ pub use event::{ApprovalDecision, Event, EventEnvelope, Usage};
 pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
 };
+pub use method::Method;
+pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
+pub use methods::admin_status::{AdminStatus, AdminStatusResult, ProviderStatus};
+pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
+pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
+pub use methods::conversation_subscribe::{
+    ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem,
+};
+pub use methods::conversations_list::{
+    ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
+};
+pub use methods::hello::{DaemonPaths, Hello, HelloResult};
+pub use methods::lease_report::{LeaseReport, LeaseReportResult};
+pub use methods::prompt_send::{PromptSend, PromptSendResult};
+pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
+pub use methods::pty_resize::{PtyResize, PtyResizeResult};
+pub use methods::pty_write::{PtyWrite, PtyWriteResult};
+pub use methods::turn_interrupt::{TurnInterrupt, TurnInterruptResult};
+pub use methods::turn_steer::{TurnSteer, TurnSteerResult};
+pub use methods::{Base64Bytes, PageCursor};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use shell_context::ShellContext;

@@ -14,6 +14,7 @@ publish = false
 schema = []
 
 [dependencies]
+base64.workspace = true
 jiff.workspace = true
 # NOTE: schemars is not optional although the `schema` feature gates the schema module.
 # The tidy rule allows `cfg(feature)` only on the one `mod schema;` line of lib.rs, so a
