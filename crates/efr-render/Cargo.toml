@@ -1,0 +1,27 @@
+[package]
+name = "efr-render"
+description = "Markdown to ANSI for efr: a streaming renderer with a committed zone and a live zone, syntax colours, tables, diffs and OSC 8 links"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+pulldown-cmark.workspace = true
+syntect.workspace = true
+thiserror.workspace = true
+two-face.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+pretty_assertions.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

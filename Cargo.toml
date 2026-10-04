@@ -89,6 +89,13 @@ indexmap = { version = "2.14.2", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
 which = "8.0.6"
 
+# Markdown rendering (efr-render, structure document addendum A). syntect uses the
+# pure-Rust fancy-regex backend, so no oniguruma C build; two-face must match it.
+pulldown-cmark = { version = "0.13.4", default-features = false }
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "dump-load", "regex-fancy"] }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
+unicode-width = { version = "0.2.2", default-features = false }
+
 # Screen backends
 vt100 = "0.16.2"
 # The pin triple (this rev, ghostty 22d13172, Zig 0.16.0) is recorded in docs/ghostty-pin.md.
@@ -121,6 +128,7 @@ efr-http = { path = "crates/efr-http" }
 efr-screen = { path = "crates/efr-screen" }
 efr-provider = { path = "crates/efr-provider" }
 efr-test-support = { path = "crates/efr-test-support" }
+efr-render = { path = "crates/efr-render" }
 efr-screen-vt100 = { path = "crates/efr-screen-vt100" }
 efr-screen-ghostty = { path = "crates/efr-screen-ghostty" }
 efr-pty = { path = "crates/efr-pty" }
