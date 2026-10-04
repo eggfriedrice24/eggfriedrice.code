@@ -154,7 +154,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - Wire types and the protocol version: `crates/efr-protocol/src/`.
 - One file per protocol method in the daemon: `crates/efr-daemon/src/methods/`, with
   the exhaustive scope match in `methods.rs`.
-- The permission check point: `crates/efr-conversation/src/turn.rs`.
+- The permission check point: `crates/efr-conversation/src/turn.rs`. The rules, the
+  built-in read-only commands and how a command line is read: `docs/permissions.md`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

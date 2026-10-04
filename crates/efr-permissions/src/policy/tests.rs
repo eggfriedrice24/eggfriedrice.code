@@ -78,6 +78,16 @@ fn the_documented_table_is_the_data() {
 }
 
 #[test]
+fn the_permissions_doc_holds_the_same_table() {
+    let doc = include_str!("../../../../docs/permissions.md");
+    let header = "| # | Program | Args | Forbid | Max |\n|---|---|---|---|---|\n";
+    assert!(
+        doc.contains(&format!("{header}{}\n", table(8))),
+        "copy src/policy/defaults.md under the read-only table of docs/permissions.md"
+    );
+}
+
+#[test]
 fn the_last_matching_rule_wins() {
     let allow_then_deny = Policy::new(vec![
         Rule::new(Action::Write, Resource::Any, Effect::Allow),

@@ -5,7 +5,9 @@
 Pure permission policy. Before any tool call runs, `efr-conversation/src/turn.rs` asks
 `Engine::decide(&DecisionInput { requirements, scope, origin, conversation_policy })`
 and gets `Allow` (run it), `Ask` (park the turn on an approval) or `Deny` (return an
-error to the model), with one reason per requirement.
+error to the model), with one reason per requirement. `docs/permissions.md` describes
+the rules for users: the built-in table, how a command line is read, and the
+`[[permissions.rules]]` of `config.toml` with examples.
 
 Modules:
 

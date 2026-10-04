@@ -320,6 +320,42 @@ fn a_rule_may_allow_a_command_in_one_project_only() {
     assert_eq!(decide("cd ../other && cargo test", None), Effect::Ask);
 }
 
+/// The rules of each `toml` example in `docs/permissions.md`, as the config reads them.
+fn documented_rules() -> Vec<Vec<Rule>> {
+    let doc = include_str!("../../../../docs/permissions.md");
+    doc.split("```toml\n")
+        .skip(1)
+        .map(|block| {
+            let text = block.split("```").next().unwrap_or_default();
+            let config = Config::resolve(
+                Path::new("/home/u/.config/efr/config.toml"),
+                Some(text),
+                &efr_stdx::env::Env::fixed(Vec::<(efr_stdx::env::Var, &str)>::new()),
+                &crate::config::Flags::default(),
+            )
+            .unwrap();
+            config.permissions.rules.rules().to_vec()
+        })
+        .collect()
+}
+
+#[test]
+fn the_examples_in_the_permissions_doc_do_what_it_says() {
+    let [cargo_test, restart_nginx] = documented_rules().try_into().unwrap();
+    let cargo = |line: &str, shell_cwd: Option<&str>| {
+        shell_decision(line, shell_cwd, cargo_test.clone(), Origin::Shell)
+    };
+    assert_eq!(cargo("cargo test", None), Effect::Allow);
+    assert_eq!(cargo("cargo test --workspace", Some("p/app/crates/x")), Effect::Allow);
+    assert_eq!(cargo("cargo test", Some("p/other")), Effect::Ask);
+    assert_eq!(cargo("cd ../other && cargo test", None), Effect::Ask);
+
+    let nginx = |line: &str| shell_decision(line, None, restart_nginx.clone(), Origin::Shell);
+    assert_eq!(nginx("systemctl restart nginx"), Effect::Allow);
+    assert_eq!(nginx("systemctl restart nginx sshd"), Effect::Ask);
+    assert_eq!(nginx("sudo systemctl restart nginx"), Effect::Ask);
+}
+
 #[test]
 fn a_tool_result_keeps_its_flags_and_exit_code() {
     let result =
