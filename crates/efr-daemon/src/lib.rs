@@ -27,6 +27,7 @@ mod ptys;
 mod reconcile;
 mod screens;
 mod shells;
+mod tools;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
