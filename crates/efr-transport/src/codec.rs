@@ -1,0 +1,81 @@
+//! The tokio codec of the daemon side: client frames in, server frames out.
+//!
+//! The byte format belongs to `efr_protocol::framing`; this module only adapts its push
+//! decoder and its encoder to `tokio_util::codec`, so a change of encoding still
+//! touches one module in the protocol crate.
+
+use std::collections::VecDeque;
+
+use bytes::BytesMut;
+use efr_protocol::framing::{self, Decoder as FrameDecoder};
+use efr_protocol::{ClientFrame, ProtocolError, ServerFrame};
+use tokio_util::codec::{Decoder, Encoder};
+
+use crate::TransportError;
+
+/// Decodes client frames and encodes server frames on a byte stream.
+///
+/// Each decoded item is the result of reading one frame payload. A payload that is not
+/// a valid client frame is an `Err` item, not a codec error, because the length prefix
+/// was valid and the next frame still starts at the right byte; the connection answers
+/// it with `invalid` and reads on. A codec error (an oversized prefix, a stream that
+/// ends inside a frame, an IO failure) leaves the stream out of step and ends it.
+#[derive(Debug, Default)]
+pub struct ServerCodec {
+    framing: FrameDecoder,
+    ready: VecDeque<Vec<u8>>,
+}
+
+impl ServerCodec {
+    /// A codec at the start of a stream.
+    pub fn new() -> Self {
+        ServerCodec::default()
+    }
+}
+
+impl Decoder for ServerCodec {
+    type Item = Result<ClientFrame, ProtocolError>;
+    type Error = TransportError;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let payload = next_payload(&mut self.framing, &mut self.ready, src)?;
+        Ok(payload.map(|payload| ClientFrame::from_json(&payload)))
+    }
+
+    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if let Some(frame) = self.decode(src)? {
+            return Ok(Some(frame));
+        }
+        self.framing.finish()?;
+        Ok(None)
+    }
+}
+
+impl Encoder<ServerFrame> for ServerCodec {
+    type Error = TransportError;
+
+    fn encode(&mut self, frame: ServerFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.extend_from_slice(&framing::encode(&frame)?);
+        Ok(())
+    }
+}
+
+/// The next whole payload, feeding every buffered byte to the push decoder first.
+///
+/// The push decoder copies what it needs, so `src` is always drained. It is called even
+/// when `src` is empty, because a chunk that completes some frames and then announces
+/// an oversized one reports the error on the following call.
+fn next_payload(
+    framing: &mut FrameDecoder,
+    ready: &mut VecDeque<Vec<u8>>,
+    src: &mut BytesMut,
+) -> Result<Option<Vec<u8>>, ProtocolError> {
+    if ready.is_empty() {
+        ready.extend(framing.push(src)?);
+        src.clear();
+    }
+    Ok(ready.pop_front())
+}
+
+#[cfg(test)]
+mod tests;

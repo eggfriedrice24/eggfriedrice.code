@@ -1,0 +1,34 @@
+[package]
+name = "efr-transport"
+description = "The daemon's protocol edge: the frame codec, the 0600 Unix listener, the request-id table, bounded subscriptions, hello and the Dispatcher trait"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+bytes.workspace = true
+efr-protocol.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+nix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+jiff.workspace = true
+pretty_assertions.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

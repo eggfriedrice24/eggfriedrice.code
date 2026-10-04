@@ -119,6 +119,7 @@ efr-holder = { path = "crates/efr-holder" }
 efr-http = { path = "crates/efr-http" }
 efr-screen = { path = "crates/efr-screen" }
 efr-provider = { path = "crates/efr-provider" }
+efr-transport = { path = "crates/efr-transport" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
