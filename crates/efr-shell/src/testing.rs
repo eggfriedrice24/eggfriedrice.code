@@ -16,6 +16,7 @@ use efr_holder::{
 };
 use efr_protocol::{ConversationId, Cursor, RowCells, ScreenSnapshot, Seq};
 use efr_screen::{Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink};
+use efr_stdx::StdxError;
 use efr_test_support::{TestClock, TestRng};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::watch;
@@ -233,6 +234,91 @@ pub(crate) struct Vt100Screens;
 impl ScreenFactory for Vt100Screens {
     fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
         ScreenActor::spawn(name, efr_screen_vt100::factory(size), size)
+    }
+}
+
+/// Screens over vt100 that remember every screen they started (its name, its size and
+/// a handle), so a test sees which capture screens a run used and that they stopped.
+#[derive(Debug, Default)]
+pub(crate) struct CountingScreens {
+    spawned: Mutex<Vec<(String, Size, ScreenHandle)>>,
+}
+
+impl CountingScreens {
+    /// The capture screens started so far, oldest first.
+    pub(crate) fn captures(&self) -> Vec<(Size, ScreenHandle)> {
+        let spawned = self.spawned.lock().unwrap();
+        spawned
+            .iter()
+            .filter(|(name, ..)| name.starts_with("replay-"))
+            .map(|(_, size, handle)| (*size, handle.clone()))
+            .collect()
+    }
+}
+
+impl ScreenFactory for CountingScreens {
+    fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
+        let (handle, events) = ScreenActor::spawn(name, efr_screen_vt100::factory(size), size)?;
+        self.spawned.lock().unwrap().push((name.to_owned(), size, handle.clone()));
+        Ok((handle, events))
+    }
+}
+
+/// A factory that cannot start a screen, as when the system refuses a thread.
+#[derive(Debug)]
+pub(crate) struct NoScreens;
+
+impl ScreenFactory for NoScreens {
+    fn spawn(&self, name: &str, _size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
+        let source = StdxError::SpawnThread {
+            name: name.to_owned(),
+            source: std::io::Error::from(std::io::ErrorKind::OutOfMemory),
+        };
+        Err(ScreenError::Spawn { name: name.to_owned(), source })
+    }
+}
+
+/// Screens whose backend panics on the first byte, which stops the actor.
+#[derive(Debug)]
+pub(crate) struct DyingScreens;
+
+impl ScreenFactory for DyingScreens {
+    fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
+        ScreenActor::spawn(name, move || DyingScreen { size }, size)
+    }
+}
+
+struct DyingScreen {
+    size: Size,
+}
+
+impl Screen for DyingScreen {
+    fn feed(&mut self, _bytes: &[u8], _sink: &mut dyn ScreenSink) {
+        panic!("a backend bug");
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16, _sink: &mut dyn ScreenSink) {
+        self.size = Size { cols, rows };
+    }
+
+    fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
+        ScreenSnapshot { size: self.size, ..ScreenSnapshot::default() }
+    }
+
+    fn row(&self, _index: usize) -> RowCells {
+        RowCells::default()
+    }
+
+    fn cursor(&self) -> Cursor {
+        Cursor::default()
+    }
+
+    fn title(&self) -> Option<&str> {
+        None
+    }
+
+    fn pwd(&self) -> Option<&str> {
+        None
     }
 }
 

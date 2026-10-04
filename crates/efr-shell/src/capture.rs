@@ -1,5 +1,6 @@
 //! A command's output as it arrives: kept within a byte limit (head and tail), and
-//! the byte cleaner that turns terminal bytes into plain text.
+//! the byte cleaner that turns terminal bytes into plain text. Output that moves the
+//! cursor is read on a capture screen instead (`replay.rs`).
 
 use std::collections::VecDeque;
 
@@ -205,7 +206,7 @@ fn push_text(out: &mut Vec<u8>, line_start: usize, carriage_return: &mut bool, b
 
 /// The index after the escape sequence that starts at `start` (an `ESC`), or the end
 /// of `bytes` when the sequence is not complete.
-fn skip_escape(bytes: &[u8], start: usize) -> usize {
+pub(crate) fn skip_escape(bytes: &[u8], start: usize) -> usize {
     let Some(&kind) = bytes.get(start + 1) else {
         return bytes.len();
     };

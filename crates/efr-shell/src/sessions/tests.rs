@@ -2,6 +2,7 @@
 //! socketpair and drives time with a manual clock, so nothing waits on real time.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -11,11 +12,11 @@ use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::{CommandRunner, ShellSessions, screen_name};
-use crate::testing::{AnsweringScreens, FakeTerminal, Harness, conversation};
+use super::{CommandRunner, ShellSessions, replay_name, screen_name};
+use crate::testing::{AnsweringScreens, CountingScreens, FakeTerminal, Harness, conversation};
 use crate::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, Phase, RunMode, RunRequest,
-    ShellError, ShellNotice,
+    ScreenFactory, ShellError, ShellNotice,
 };
 
 const ZSH: &str = "/usr/bin/zsh";
@@ -128,6 +129,65 @@ async fn output_over_the_limit_keeps_its_head_and_tail() {
     assert!(result.truncated);
     assert_eq!(result.output_bytes, 16);
     assert_eq!(result.output, "0123\n[... 8 bytes omitted ...]\ncdef");
+}
+
+#[tokio::test]
+async fn a_redrawn_progress_display_leaves_its_last_frame() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run) = typed(&harness, "docker pull alpine").await;
+    terminal
+        .run(b"one: 10%\r\ntwo: 0%\r\n\x1b[2Aone: 90%\r\ntwo: 50%\r\n\x1b[2Aone: done\r\ntwo: done\r\n", 0)
+        .await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.output, "one: done\ntwo: done");
+    assert_eq!(result.exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn the_capture_screen_takes_the_width_of_the_last_resize() {
+    let screens = Arc::new(CountingScreens::default());
+    let harness = Harness::with(ZSH, Arc::clone(&screens) as Arc<dyn ScreenFactory>);
+    let run = spawn_run(&harness.sessions, request("progress"));
+    let mut terminal = harness.holder.terminal(0).await;
+    let resized = Size { cols: 100, rows: 30 };
+    harness.sessions.resize(conversation(1), resized).await.unwrap();
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    terminal.run(b"step 1\r\n\x1b[Astep 2\r\n", 0).await;
+    assert_eq!(run.await.unwrap().unwrap().output, "step 2");
+    let captures = screens.captures();
+    assert_eq!(captures.len(), 1);
+    assert_eq!(captures[0].0, resized);
+}
+
+#[tokio::test]
+async fn a_run_left_running_shows_its_output_as_the_screen_does() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run) = typed(&harness, "cargo build").await;
+    terminal.print(b"\r\n\x1b]133;C\x07a: 1/3\r\nb: 1/3\r\n\x1b[2Aa: 2/3\r\nb: 2/3\r\n").await;
+    screen_shows(&harness.sessions, conversation(1), "b: 2/3").await;
+    harness.clock.advance(RunRequest::DEFAULT_TIMEOUT);
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::StillRunning);
+    assert_eq!(result.output, "a: 2/3\nb: 2/3");
+}
+
+#[tokio::test]
+async fn a_sentinel_run_is_replayed_too() {
+    let harness = Harness::new("/bin/bash");
+    let run = spawn_run(&harness.sessions, request("progress"));
+    let mut terminal = harness.holder.terminal(0).await;
+    let line = terminal.typed_line().await;
+    let token = sentinel_token(&line);
+    terminal
+        .print(
+            format!("__efr_{token}_b\r\nold\r\n\x1b[Anew\r\n\r\n__efr_{token}_e:0:/srv\r\n")
+                .as_bytes(),
+        )
+        .await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.delimiter, Delimiter::Sentinel);
+    assert_eq!(result.output, "new");
 }
 
 #[tokio::test]
@@ -506,7 +566,7 @@ async fn written_input_reaches_the_shell() {
 
 #[tokio::test]
 async fn screen_replies_to_terminal_queries_reach_the_shell() {
-    let harness = Harness::with(ZSH, std::sync::Arc::new(AnsweringScreens));
+    let harness = Harness::with(ZSH, Arc::new(AnsweringScreens));
     harness.sessions.open(conversation(1), Path::new("/")).await.unwrap();
     let mut terminal = harness.holder.terminal(0).await;
     terminal.print(b"\x1b[c").await;
@@ -535,7 +595,7 @@ async fn a_cwd_report_is_a_notice_and_part_of_the_state() {
 #[tokio::test]
 async fn the_trait_runs_through_the_manager() {
     let harness = Harness::new(ZSH);
-    let runner: std::sync::Arc<dyn CommandRunner> = std::sync::Arc::new(harness.sessions.clone());
+    let runner: Arc<dyn CommandRunner> = Arc::new(harness.sessions.clone());
     let run = tokio::spawn(async move {
         runner.run_command(conversation(1), request("true"), &mut NoProgress).await
     });
@@ -550,6 +610,8 @@ async fn the_trait_runs_through_the_manager() {
 fn screen_names_use_the_random_end_of_the_id() {
     assert_eq!(screen_name(conversation(7)), "screen-00000007");
     assert!(screen_name(conversation(7)).len() <= 15);
+    assert_eq!(replay_name(conversation(7)), "replay-00000007");
+    assert!(replay_name(conversation(7)).len() <= 15);
 }
 
 #[test]
@@ -559,9 +621,9 @@ fn a_missing_zsh_is_an_error() {
     let clock = efr_test_support::TestClock::new();
     let deps = crate::ShellDeps::new(
         crate::testing::FakeHolder::new(),
-        std::sync::Arc::new(crate::testing::Vt100Screens),
+        Arc::new(crate::testing::Vt100Screens),
         clock.shared(),
-        std::sync::Arc::new(efr_test_support::TestRng::new(1)),
+        Arc::new(efr_test_support::TestRng::new(1)),
     );
     let error = ShellSessions::new(config, deps).unwrap_err();
     assert!(matches!(error, ShellError::ProgramNotFound { .. }), "{error:?}");

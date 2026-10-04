@@ -8,9 +8,11 @@
 //!   [`RunRequest`], waits for the output to start and end, and returns a
 //!   [`CommandResult`] with the exit status, the output, the truncation flag and the
 //!   directory after; or, at the timeout, [`Completion::Interactive`] with the screen's
-//!   last lines when the command waits for input. [`RunProgress`] hears the output as
-//!   it grows. Shells without the integration are driven with random-token sentinels
-//!   ([`RunMode`], [`Delimiter`]).
+//!   last lines when the command waits for input. Output that moves the cursor is
+//!   replayed on a short-lived capture screen from the same factory, so the text is
+//!   what the screen shows. [`RunProgress`] hears the output as it grows. Shells
+//!   without the integration are driven with random-token sentinels ([`RunMode`],
+//!   [`Delimiter`]).
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`RecordingSink`]
 //!   receives every byte for the PTY recording; [`ShellObserver`] hears
 //!   [`ShellNotice`]s.
@@ -33,6 +35,7 @@ mod error;
 mod integration;
 mod reader;
 mod recording_sink;
+mod replay;
 mod run;
 mod screens;
 mod sentinel;

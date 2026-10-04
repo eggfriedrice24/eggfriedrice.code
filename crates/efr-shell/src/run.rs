@@ -122,8 +122,11 @@ pub struct CommandResult {
     pub completion: Completion,
     /// The exit status, for a finished command.
     pub exit_code: Option<i32>,
-    /// The output as plain text, so far for a command that still runs. When it was
-    /// over the request's output limit, a marker line stands for the middle.
+    /// The output as plain text, so far for a command that still runs. Output that
+    /// moves the cursor (a progress display redrawn in place, a full-screen program)
+    /// is what a screen of the shell's width shows at the end, without trailing
+    /// blanks; other output is its bytes without escape sequences. When it was over
+    /// the request's output limit, a marker line stands for the middle.
     pub output: String,
     /// True when bytes were left out of [`output`](Self::output).
     pub truncated: bool,
@@ -312,7 +315,8 @@ pub(crate) enum MarkStep {
 pub(crate) struct RunOutput {
     pub(crate) completion: Completion,
     pub(crate) exit_code: Option<i32>,
-    /// The raw bytes; the caller turns them into text, off the session's actor.
+    /// The raw bytes. The caller turns them into text off the session's actor, because
+    /// output that moves the cursor is replayed on a screen first.
     pub(crate) kept: Kept,
     pub(crate) range: Option<Range<Seq>>,
     /// The directory from the sentinel's end line; marks report it through the state.

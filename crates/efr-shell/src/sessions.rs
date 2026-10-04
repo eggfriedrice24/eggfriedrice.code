@@ -19,6 +19,7 @@ use efr_stdx::time::Clock as _;
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
 use crate::reader::{self, ReaderTargets};
+use crate::replay::Replayer;
 use crate::run::{Progress, screen_tail, waits_for_input};
 use crate::session::{
     Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore, SessionHandle,
@@ -162,6 +163,8 @@ impl ShellSessions {
             .resize(session.pty_id, size)
             .await
             .map_err(|source| ShellError::Holder { conversation, source })?;
+        // The programs see the new size from here on, whatever the screen does.
+        session.set_size(size);
         session
             .screen
             .resize(size)
@@ -357,7 +360,16 @@ impl ShellSessions {
             startup: inner.integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
-        Ok(SessionHandle { conversation, pty_id, pid, screen, inbox, writer, life: lives })
+        Ok(SessionHandle {
+            conversation,
+            pty_id,
+            pid,
+            screen,
+            inbox,
+            writer,
+            life: lives,
+            size: Arc::new(Mutex::new(inner.config.size)),
+        })
     }
 
     async fn run_on(
@@ -389,7 +401,7 @@ impl ShellSessions {
                 biased;
                 ended = &mut answer => {
                     guard.disarm();
-                    return finished(session, ended);
+                    return self.finished(session, ended).await;
                 }
                 changed = updates.changed(), if updates_open => match changed {
                     Ok(()) => {
@@ -406,7 +418,7 @@ impl ShellSessions {
         session.send(Msg::Detach { id, reply }).await?;
         guard.disarm();
         match detached.await.map_err(|_| session.exited())? {
-            Detached::Gone => finished(session, answer.await),
+            Detached::Gone => self.finished(session, answer.await).await,
             Detached::Unstarted => Err(ShellError::NotReady { conversation: session.conversation }),
             Detached::Running { kept, range, last_output, cwd, delimiter } => {
                 // This task does not read the screen's events, so it may wait for a
@@ -424,7 +436,7 @@ impl ShellSessions {
                 } else {
                     Completion::StillRunning
                 };
-                let captured = kept.clean();
+                let captured = self.replayer(session).render(&kept).await;
                 Ok(CommandResult {
                     completion,
                     exit_code: None,
@@ -438,6 +450,40 @@ impl ShellSessions {
                 })
             }
         }
+    }
+
+    /// The result of a run that ended.
+    async fn finished(
+        &self,
+        session: &SessionHandle,
+        ended: Result<Result<RunEnd, ShellError>, oneshot::error::RecvError>,
+    ) -> Result<CommandResult, ShellError> {
+        let RunEnd { output, cwd, delimiter } = ended.map_err(|_| session.exited())??;
+        let captured = match output.completion {
+            // A line that ran nothing has no program output to replay: its text is the
+            // shell's complaint around the echo of the line, which the line editor
+            // drew relative to a prompt that a capture screen does not have.
+            Completion::NotStarted => output.kept.clean(),
+            _ => self.replayer(session).render(&output.kept).await,
+        };
+        Ok(CommandResult {
+            completion: output.completion,
+            exit_code: output.exit_code,
+            output: captured.text,
+            truncated: captured.truncated,
+            output_bytes: captured.bytes,
+            output_range: output.range,
+            cwd_after: cwd,
+            screen_tail: None,
+            delimiter,
+        })
+    }
+
+    /// Reads a run's output on capture screens from the session's own factory, at the
+    /// shell's current size. This runs in the caller's task, so a long replay never
+    /// holds up the session's actor.
+    fn replayer(&self, session: &SessionHandle) -> Replayer<'_> {
+        Replayer::new(&*self.inner.deps.screens, replay_name(session.conversation), session.size())
     }
 }
 
@@ -503,25 +549,6 @@ impl Drop for DetachOnDrop {
     }
 }
 
-fn finished(
-    session: &SessionHandle,
-    ended: Result<Result<RunEnd, ShellError>, oneshot::error::RecvError>,
-) -> Result<CommandResult, ShellError> {
-    let RunEnd { output, cwd, delimiter } = ended.map_err(|_| session.exited())??;
-    let captured = output.kept.clean();
-    Ok(CommandResult {
-        completion: output.completion,
-        exit_code: output.exit_code,
-        output: captured.text,
-        truncated: captured.truncated,
-        output_bytes: captured.bytes,
-        output_range: output.range,
-        cwd_after: cwd,
-        screen_tail: None,
-        delimiter,
-    })
-}
-
 /// Writes the integration files on the blocking pool.
 async fn install(dir: PathBuf) -> Result<(), ShellError> {
     let target = dir.clone();
@@ -538,9 +565,18 @@ async fn install(dir: PathBuf) -> Result<(), ShellError> {
 /// a UUIDv7, so two conversations started in the same minute get different names, in
 /// the 15 bytes Linux shows of a thread name.
 fn screen_name(conversation: ConversationId) -> String {
+    format!("screen-{}", short_id(conversation))
+}
+
+/// `replay-` and the same eight digits: the capture screen that reads a command's
+/// output, named apart from the shell's own screen.
+fn replay_name(conversation: ConversationId) -> String {
+    format!("replay-{}", short_id(conversation))
+}
+
+fn short_id(conversation: ConversationId) -> String {
     let id = conversation.to_string();
-    let tail = id.get(id.len().saturating_sub(8)..).unwrap_or(&id);
-    format!("screen-{tail}")
+    id.get(id.len().saturating_sub(8)..).unwrap_or(&id).to_owned()
 }
 
 #[cfg(test)]

@@ -9,10 +9,10 @@
 
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
-use efr_holder::{ChildStatus, PtyHolder};
+use efr_holder::{ChildStatus, PtyHolder, Size};
 use efr_protocol::{ConversationId, PtyId, Seq};
 use efr_screen::{ScreenHandle, ShellMark, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep};
@@ -506,11 +506,23 @@ pub(crate) struct SessionHandle {
     pub(crate) inbox: mpsc::Sender<Msg>,
     pub(crate) writer: mpsc::Sender<Bytes>,
     pub(crate) life: watch::Receiver<Life>,
+    /// The terminal size the shell's programs see, shared by every clone; a finished
+    /// command's output is replayed at this width.
+    pub(crate) size: Arc<Mutex<Size>>,
 }
 
 impl SessionHandle {
     pub(crate) fn is_ended(&self) -> bool {
         self.inbox.is_closed() || matches!(*self.life.borrow(), Life::Ended(_))
+    }
+
+    pub(crate) fn size(&self) -> Size {
+        // A size is copied in and out whole, so a poisoned lock still holds a valid one.
+        *self.size.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn set_size(&self, size: Size) {
+        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = size;
     }
 
     pub(crate) async fn send(&self, msg: Msg) -> Result<(), ShellError> {
