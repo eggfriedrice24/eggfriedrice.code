@@ -1,5 +1,7 @@
 //! The daemon's protocol edge, without the engine.
 //!
+//! - [`UnixListener`]: the socket at `$XDG_RUNTIME_DIR/efr/daemon.sock`, created with
+//!   mode 0600; every peer's uid is checked with `SO_PEERCRED`.
 //! - [`subscription`]: bounded per-subscriber queues of [`SUBSCRIBER_QUEUE_FRAMES`]
 //!   items; overflow closes that subscription with `overflow` and `last_seq`, and never
 //!   slows the producer.
@@ -15,6 +17,7 @@ mod codec;
 mod context;
 mod error;
 mod subscriptions;
+mod unix_listener;
 
 pub use codec::ServerCodec;
 pub use context::{ConnId, ConnectionContext, PeerCred};
@@ -23,3 +26,4 @@ pub use subscriptions::{
     Delivery, Offer, SUBSCRIBER_QUEUE_FRAMES, SubscriptionReceiver, SubscriptionSender,
     subscription,
 };
+pub use unix_listener::{Accepted, UnixListener};
