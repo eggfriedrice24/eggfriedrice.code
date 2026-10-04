@@ -205,9 +205,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -d crates/efr-test-daemon ]]; then
-            cargo nextest run -p efr-shell -p efr-test-daemon --profile ci
+            cargo nextest run -p efr-shell -p efr-cli -p efr-test-daemon --profile ci
           else
-            cargo nextest run -p efr-shell --profile ci
+            cargo nextest run -p efr-shell -p efr-cli --profile ci
           fi
         env:
           EFR_TEST_ZSH: "1"

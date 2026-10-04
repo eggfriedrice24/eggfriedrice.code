@@ -85,7 +85,7 @@ test-shell:
         exit 0
     fi
     # The efr-test-daemon half joins once that crate exists (milestone 1, step 5).
-    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli
 
 # Formatting, clippy, cargo-deny, tidy and the dependency rule.
 lint: fmt-check clippy deny tidy deps
