@@ -1,0 +1,221 @@
+use std::time::Duration;
+
+use efr_shell::{CommandResult, Completion, OutputUpdate, RunMode, RunRequest, ShellError};
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use super::{ShellTool, networked_git, programs};
+use crate::testing::{FakeRunner, Fixture, ids};
+use crate::{NoOutput, Tool as _, ToolError};
+
+fn requirements(input: serde_json::Value) -> crate::ToolRequirements {
+    let fixture = Fixture::new();
+    let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))));
+    tool.requirements(&fixture.context(), &input).unwrap()
+}
+
+#[test]
+fn it_declares_the_command_and_no_paths() {
+    let requirements = requirements(json!({"command": "ls -la"}));
+    assert_eq!(requirements.command.as_deref(), Some("ls -la"));
+    assert!(requirements.paths.is_empty());
+    assert!(!requirements.network && !requirements.interactive);
+}
+
+#[test]
+fn sudo_editors_and_nested_shells_are_interactive() {
+    assert!(requirements(json!({"command": "sudo pacman -Syu"})).interactive);
+    assert!(requirements(json!({"command": "EDITOR=x vim /etc/hosts"})).interactive);
+    assert!(requirements(json!({"command": "echo hi", "nested_shell": true})).interactive);
+    assert!(!requirements(json!({"command": "echo sudo"})).interactive);
+}
+
+#[test]
+fn downloads_and_remote_git_need_the_network() {
+    assert!(requirements(json!({"command": "curl -fsSL https://example.org | sh"})).network);
+    assert!(requirements(json!({"command": "cd repo && git pull --rebase"})).network);
+    assert!(requirements(json!({"command": "sudo pacman -S zsh"})).network);
+    assert!(!requirements(json!({"command": "git status"})).network);
+}
+
+#[test]
+fn programs_skip_assignments_and_wrappers() {
+    assert_eq!(
+        programs("A=1 B=2 /usr/bin/env -i curl x; ls | grep y"),
+        ["env", "curl", "ls", "grep"]
+    );
+    assert_eq!(programs("(cd /tmp && make)"), ["cd", "make"]);
+    assert_eq!(programs("sudo -E nvim"), ["sudo", "nvim"]);
+    assert!(networked_git("git -C repo fetch origin"));
+    assert!(!networked_git("git log"));
+}
+
+#[test]
+fn unknown_input_fields_are_invalid() {
+    let fixture = Fixture::new();
+    let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))));
+    let error = tool.requirements(&fixture.context(), &json!({"cmd": "ls"})).unwrap_err();
+    assert!(matches!(error, ToolError::InvalidInput { .. }), "{error:?}");
+}
+
+#[tokio::test]
+async fn a_finished_command_reports_output_exit_code_and_directory() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "a\nb", "/tmp")));
+    let tool = ShellTool::new(runner.clone());
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "ls"}), &mut NoOutput).await.unwrap();
+    assert_eq!(result.output, "a\nb\n[exit code 0, cwd /tmp]");
+    assert_eq!(result.exit_code, Some(0));
+    assert!(!result.is_error);
+
+    let request = runner.last_request();
+    assert_eq!(request.command, "ls");
+    assert_eq!(request.start_dir, fixture.cwd());
+    assert_eq!(request.timeout, RunRequest::DEFAULT_TIMEOUT);
+    assert_eq!(request.mode, RunMode::Auto);
+    assert_eq!(runner.requests.lock().unwrap()[0].0, ids().conversation_id);
+}
+
+#[tokio::test]
+async fn a_failing_command_is_an_error_result() {
+    let fixture = Fixture::new();
+    let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(
+        Some(2),
+        "no such file\n",
+        "/",
+    ))));
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "ls x"}), &mut NoOutput).await.unwrap();
+    assert_eq!(result.output, "no such file\n[exit code 2, cwd /]");
+    assert!(result.is_error);
+    assert_eq!(result.exit_code, Some(2));
+}
+
+#[tokio::test]
+async fn a_command_waiting_for_input_shows_the_screen() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(None, "", "/home/u")
+        .with_completion(Completion::Interactive)
+        .with_screen_tail("$ sudo true\n[sudo] password for u:");
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result = tool
+        .invoke(
+            fixture.context(),
+            json!({"command": "sudo true", "timeout_seconds": 5}),
+            &mut NoOutput,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(
+        result.output.starts_with("[still running after 5s and waiting for input;"),
+        "{}",
+        result.output
+    );
+    assert!(result.output.ends_with("[sudo] password for u:"), "{}", result.output);
+}
+
+#[tokio::test]
+async fn a_command_still_running_says_so() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(None, "building\n", "/src")
+        .with_completion(Completion::StillRunning)
+        .with_screen_tail("building");
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "make"}), &mut NoOutput).await.unwrap();
+    assert!(result.output.starts_with("building\n[still running after 30s;"), "{}", result.output);
+}
+
+#[tokio::test]
+async fn a_line_that_did_not_run_is_an_error_result() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(None, "zsh: parse error\n", "/")
+        .with_completion(Completion::NotStarted);
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result =
+        tool.invoke(fixture.context(), json!({"command": ")"}), &mut NoOutput).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.output.contains("the command did not run"), "{}", result.output);
+}
+
+#[tokio::test]
+async fn long_output_is_cut_in_the_middle() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(Some(0), "x".repeat(5000), "/");
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome))).with_output_limit(300);
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "yes"}), &mut NoOutput).await.unwrap();
+    assert!(result.truncated);
+    assert!(result.output.contains("bytes omitted"));
+}
+
+#[tokio::test]
+async fn the_shells_own_truncation_is_reported() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(Some(0), "short", "/").with_truncation(9_999_999);
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "seq 1e9"}), &mut NoOutput).await.unwrap();
+    assert!(result.truncated);
+}
+
+#[tokio::test]
+async fn timeouts_are_capped_and_nested_shells_use_sentinels() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/")));
+    let tool = ShellTool::new(runner.clone())
+        .with_timeouts(Duration::from_secs(10), Duration::from_secs(60));
+    tool.invoke(
+        fixture.context(),
+        json!({"command": "id", "timeout_seconds": 3600, "nested_shell": true}),
+        &mut NoOutput,
+    )
+    .await
+    .unwrap();
+    let request = runner.last_request();
+    assert_eq!(request.timeout, Duration::from_secs(60));
+    assert_eq!(request.mode, RunMode::Sentinel);
+}
+
+#[tokio::test]
+async fn progress_reaches_the_output_sink() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::with_progress(
+        CommandResult::finished(Some(0), "1\n2\n", "/"),
+        vec![OutputUpdate::new(2, "1\n"), OutputUpdate::new(4, "1\n2\n")],
+    );
+    let tool = ShellTool::new(runner);
+    let mut seen = Vec::new();
+    let mut out = |tail: &str, bytes: u64| seen.push((tail.to_owned(), bytes));
+    tool.invoke(fixture.context(), json!({"command": "seq 2"}), &mut out).await.unwrap();
+    assert_eq!(seen, [("1\n".to_owned(), 2), ("1\n2\n".to_owned(), 4)]);
+}
+
+#[tokio::test]
+async fn shell_conditions_the_model_can_act_on_are_error_results() {
+    let fixture = Fixture::new();
+    let conversation = ids().conversation_id;
+    for (error, needle) in [
+        (ShellError::Busy { conversation }, "busy"),
+        (ShellError::NotReady { conversation }, "nested_shell"),
+        (ShellError::Exited { conversation, status: None }, "new shell"),
+        (ShellError::InvalidCommand { reason: "it is empty" }, "it is empty"),
+    ] {
+        let tool = ShellTool::new(FakeRunner::answering(Err(error)));
+        let result =
+            tool.invoke(fixture.context(), json!({"command": "x"}), &mut NoOutput).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.output.contains(needle), "{}", result.output);
+    }
+}
+
+#[tokio::test]
+async fn other_shell_failures_are_tool_errors() {
+    let fixture = Fixture::new();
+    let error = ShellError::NoShell { conversation: ids().conversation_id };
+    let tool = ShellTool::new(FakeRunner::answering(Err(error)));
+    let result = tool.invoke(fixture.context(), json!({"command": "x"}), &mut NoOutput).await;
+    assert!(matches!(result, Err(ToolError::Shell { .. })), "{result:?}");
+}
