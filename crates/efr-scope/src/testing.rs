@@ -117,4 +117,14 @@ impl Sandbox {
         self.git(dir, &["init", "--quiet"]).await;
         dir.to_path_buf()
     }
+
+    /// `git init --bare` at `dir` with `core.worktree` set to `worktree`.
+    pub(crate) async fn init_bare(&self, dir: &Path, worktree: Option<&str>) -> PathBuf {
+        self.mkdir(dir);
+        self.git(dir, &["init", "--quiet", "--bare"]).await;
+        if let Some(worktree) = worktree {
+            self.git(dir, &["config", "core.worktree", worktree]).await;
+        }
+        dir.to_path_buf()
+    }
 }

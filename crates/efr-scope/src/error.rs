@@ -111,4 +111,14 @@ pub enum ScopeError {
         /// The timeout.
         after: Duration,
     },
+
+    /// A directory could not be listed.
+    #[error("could not list the directory {}", .path.display())]
+    ReadDir {
+        /// The directory.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
 }
