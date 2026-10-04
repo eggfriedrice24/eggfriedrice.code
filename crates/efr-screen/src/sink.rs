@@ -18,3 +18,46 @@ pub trait ScreenSink {
     /// The program set the window title (OSC 0 or OSC 2).
     fn title_changed(&mut self, title: &str);
 }
+
+/// One sink call other than a reply, kept in the order it happened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Notice {
+    Bell,
+    Title(String),
+}
+
+/// The actor's sink: it buffers replies and notices until the command finishes.
+#[derive(Debug, Default)]
+pub(crate) struct Collector {
+    replies: Vec<u8>,
+    notices: Vec<Notice>,
+}
+
+impl Collector {
+    /// Takes the reply bytes buffered since the last call.
+    pub(crate) fn take_replies(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.replies)
+    }
+
+    /// Takes the notices buffered since the last call, oldest first.
+    pub(crate) fn take_notices(&mut self) -> Vec<Notice> {
+        std::mem::take(&mut self.notices)
+    }
+}
+
+impl ScreenSink for Collector {
+    fn pty_reply(&mut self, bytes: &[u8]) {
+        self.replies.extend_from_slice(bytes);
+    }
+
+    fn bell(&mut self) {
+        self.notices.push(Notice::Bell);
+    }
+
+    fn title_changed(&mut self, title: &str) {
+        self.notices.push(Notice::Title(title.to_owned()));
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -23,12 +23,16 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod actor;
 mod error;
+#[cfg(test)]
+mod fake;
 mod screen;
 mod shell_marks;
 mod sink;
 mod snapshot;
 
+pub use actor::{SCREEN_STACK_SIZE, ScreenActor, ScreenEvent, ScreenEvents, ScreenHandle};
 pub use error::ScreenError;
 pub use screen::Screen;
 pub use shell_marks::{
