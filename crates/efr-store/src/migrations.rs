@@ -17,7 +17,7 @@ use rusqlite_migration::M;
 use crate::{StoreError, projection};
 
 /// The migrations in order; the position plus one is the version a file produces.
-const STEPS: &[M<'static>] = &[
+pub(crate) const STEPS: &[M<'static>] = &[
     M::up(include_str!("migrations/0001_events.sql")),
     M::up(include_str!("migrations/0002_conversations.sql")),
     M::up(include_str!("migrations/0003_receipts_outbox.sql")),
