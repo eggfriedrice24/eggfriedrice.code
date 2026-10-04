@@ -11,6 +11,7 @@
 
 mod error;
 mod resolver;
+mod scratch;
 mod toolbox;
 
 pub use error::ConversationError;
