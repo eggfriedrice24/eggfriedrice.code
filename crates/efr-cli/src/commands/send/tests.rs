@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    ConversationStatus, ConversationSummary, ConversationsListResult, ErrorBody, ErrorCode, Event,
-    Method, Origin, PageCursor, PromptSendResult, Seq, TurnSteerResult,
+    ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
+    ErrorBody, ErrorCode, Event, Method, Origin, PageCursor, PromptSendResult, Seq,
+    TurnSteerResult,
 };
 use pretty_assertions::assert_eq;
 
@@ -139,9 +140,25 @@ async fn a_queued_prompt_says_so_and_still_follows_its_turn() {
     let line = command(&["send", "--", "next"]);
     let script = async {
         let mut conn = daemon.accept().await;
-        answer(&mut conn, sent(true), "Later.").await
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::PromptSend(_)), "{}", method.name());
+        conn.reply(id, &sent(true)).await;
+        // A queued prompt looks for the approvals that the running turn waits for.
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationHistory(_)), "{}", method.name());
+        conn.reply(id, &ConversationHistoryResult::default()).await;
+        let (sub, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationSubscribe(_)));
+        let message = Event::AssistantMessageCompleted {
+            turn_id: turn(),
+            index: 0,
+            text: "Later.".to_owned(),
+        };
+        conn.item(sub, &item(11, message)).await;
+        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.until_closed().await;
     };
-    let (exit, _) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     assert_eq!(captured.stderr(), "queued behind the running turn\n");
     assert_eq!(captured.stdout(), "Later.\n");

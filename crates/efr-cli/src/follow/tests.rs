@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationSnapshot, ConversationStatus,
-    ConversationSubscribeItem, ConversationSummary, ErrorBody, ErrorCode, Event, Method, Origin,
-    RequestId, Seq, TurnInterruptResult,
+    ApprovalDecision, ApprovalRespondResult, CallId, ClientFrame, ConversationHistoryResult,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribeItem, ConversationSummary,
+    ErrorBody, ErrorCode, Event, Method, Origin, RequestId, Seq, TurnId, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -63,10 +63,22 @@ async fn run<F>(
 where
     F: Future<Output = ()>,
 {
+    run_view(env, ctx, raw_view(), script).await
+}
+
+/// Runs `follow` of `view` with `ctx` against the fake daemon, which runs `script`.
+async fn run_view<F>(
+    env: &TestEnv,
+    ctx: &Context,
+    mut view: TurnView,
+    script: impl FnOnce(Conn, Captured) -> F,
+) -> (Result<(), CliError>, String, String)
+where
+    F: Future<Output = ()>,
+{
     let daemon = env.listen();
     let (mut out, captured) = capture();
     let seen = captured.clone();
-    let mut view = raw_view();
     let client = async {
         let client = ctx.connect(Origin::Cli, None).await.unwrap();
         follow(ctx, &client, &mut out, &mut view, target()).await
@@ -249,6 +261,85 @@ async fn a_key_answers_the_approval() {
     result.unwrap();
     assert_eq!(keys.starts(), 1);
     assert_eq!(err, "approval needed: run rm -rf build\nallow? y = yes, n = no\ndenied\n");
+}
+
+#[tokio::test]
+async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_for() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let mut view = raw_view();
+    view.queue();
+    let running: TurnId = "0192f0c1-7a00-7000-8000-000000000077".parse().unwrap();
+    let parked: CallId = "0192f0c1-7a00-7000-8000-000000000078".parse().unwrap();
+    let answered: CallId = "0192f0c1-7a00-7000-8000-000000000079".parse().unwrap();
+    let presser = Arc::clone(&keys);
+    let (result, _, err) = run_view(&env, &ctx, view, |mut conn, _| async move {
+        // The running turn asked before the prompt queued, so the subscription would
+        // never replay the question; the newest page of the log has it.
+        let (id, method) = conn.request().await;
+        let Method::ConversationHistory(params) = method else {
+            panic!("expected conversation.history, got {}", method.name());
+        };
+        assert_eq!(params.conversation_id, conversation());
+        let asked = |call_id, summary: &str| Event::ApprovalRequested {
+            turn_id: running,
+            call_id,
+            summary: summary.to_owned(),
+            diff_preview: None,
+        };
+        let page = ConversationHistoryResult {
+            events: vec![
+                envelope(6, asked(answered, "an earlier question")),
+                envelope(
+                    7,
+                    Event::ApprovalResolved {
+                        turn_id: running,
+                        call_id: answered,
+                        decision: ApprovalDecision::Allow,
+                        origin: Origin::Phone,
+                    },
+                ),
+                envelope(8, asked(parked, "write ~/.zshrc")),
+            ],
+            next_cursor: None,
+        };
+        conn.reply(id, &page).await;
+        let sub = subscribed(&mut conn, 10).await;
+        presser.press(b'y').await;
+        let (id, method) = conn.request().await;
+        let Method::ApprovalRespond(params) = method else {
+            panic!("expected approval.respond, got {}", method.name());
+        };
+        assert_eq!(params.call_id, parked);
+        assert_eq!(params.decision, ApprovalDecision::Allow);
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(11) }).await;
+        let resolved = Event::ApprovalResolved {
+            turn_id: running,
+            call_id: parked,
+            decision: ApprovalDecision::Allow,
+            origin: Origin::Shell,
+        };
+        conn.item(sub, &item(11, resolved)).await;
+        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: running, usage: None })).await;
+        let started = Event::TurnStarted {
+            turn_id: turn(),
+            cwd: std::path::PathBuf::from("/home/u"),
+            scope: efr_protocol::Scope::Machine,
+        };
+        conn.item(sub, &item(13, started)).await;
+        // Once the prompt's own turn runs, other turns' approvals are not this view's.
+        conn.item(sub, &item(14, asked(answered, "not shown"))).await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert_eq!(
+        err,
+        "the running turn needs approval: write ~/.zshrc\nallow? y = yes, n = no\nallowed\n"
+    );
 }
 
 #[tokio::test]

@@ -63,6 +63,7 @@ pub(crate) async fn send(
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
     let mut view = TurnView::new(result.turn_id, options);
     if result.queued {
+        view.queue();
         let step = view.note("queued behind the running turn", size);
         out.err(&step.err);
         out.out(&step.out)?;

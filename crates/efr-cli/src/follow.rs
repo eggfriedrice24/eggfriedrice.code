@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationId,
-    ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Method, Seq, TurnId,
-    TurnInterrupt, TurnInterruptResult,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
+    ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
+    ErrorCode, Event, Method, Seq, TurnId, TurnInterrupt, TurnInterruptResult,
 };
 use efr_stdx::time::Clock as _;
 use futures::StreamExt as _;
@@ -30,6 +30,9 @@ pub(crate) use view::{Step, TurnEnd, TurnView};
 
 /// How often in a row a subscription may fall behind before the command gives up.
 const MAX_RESUBSCRIBES: u32 = 8;
+
+/// The events read to find the approvals that a queued prompt waits behind.
+const BLOCKING_PAGE: u32 = 500;
 
 /// How long Ctrl+C waits for the daemon to take the interrupt before the command ends
 /// anyway.
@@ -54,7 +57,10 @@ pub(crate) async fn follow(
     target: Target,
 ) -> Result<(), CliError> {
     let mut follower = Follower { ctx, client, target, last_seen: target.after, keys: None };
-    let result = follower.run(out, view).await;
+    let result = match follower.blocking(out, view).await {
+        Ok(()) => follower.run(out, view).await,
+        Err(error) => Err(error),
+    };
     // NOTE: the terminal must be back in its normal mode before anything else is
     // written or the process exits, whichever way the loop ended.
     if let Some((keys, _)) = follower.keys.take() {
@@ -105,6 +111,49 @@ struct Follower<'a> {
 }
 
 impl Follower<'_> {
+    /// Shows the approvals that the turn ahead of a queued prompt waits for, so the
+    /// user can answer them here. They were asked before the prompt's event, where
+    /// the subscription starts, so they come from the newest page of the log; one
+    /// older than that page is not found.
+    async fn blocking(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        if !view.is_queued() {
+            return Ok(());
+        }
+        let method = Method::ConversationHistory(ConversationHistory {
+            conversation_id: self.target.conversation,
+            cursor: None,
+            limit: Some(BLOCKING_PAGE),
+        });
+        let page = match self.client.call::<ConversationHistoryResult>(method).await {
+            Ok(page) => page,
+            Err(error) => {
+                tracing::debug!(error = %error, "the approvals ahead of the prompt could not be read");
+                return Ok(());
+            }
+        };
+        let mut pending: Vec<Event> = Vec::new();
+        for envelope in page.events.into_iter().filter(|envelope| envelope.seq <= self.target.after)
+        {
+            match &envelope.event {
+                Event::ApprovalRequested { turn_id, .. } if *turn_id != self.target.turn => {
+                    pending.push(envelope.event);
+                }
+                Event::ApprovalResolved { call_id, .. }
+                | Event::ApprovalExpired { call_id, .. } => {
+                    pending.retain(|event| {
+                        !matches!(event, Event::ApprovalRequested { call_id: asked, .. } if asked == call_id)
+                    });
+                }
+                _ => {}
+            }
+        }
+        for event in pending {
+            let step = view.event(&event, self.ctx.screen.size(), self.ctx.keys.available());
+            self.apply(step, out).await?;
+        }
+        Ok(())
+    }
+
     async fn run(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
         let mut interrupt = self.ctx.interrupt.wait();
         let mut resubscribes = 0;

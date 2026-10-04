@@ -9,10 +9,14 @@
 //! the messages, and a pending approval question sits below the live zone. When stdout
 //! is not a terminal, the messages are written as raw markdown and everything else
 //! goes to stderr, so stdout holds the reply alone.
+//!
+//! While the turn waits behind another one, the other turn's approvals show too: that
+//! turn may be parked on a question nobody else will answer, and the prompt runs only
+//! once it is answered.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, TurnId};
+use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, Origin, TurnId};
 use efr_render::{RenderOptions, Renderer, render, render_trace};
 
 use crate::format::{self, Block, Spacing, Tone};
@@ -21,6 +25,12 @@ use crate::terminal::{Size, at_width};
 
 /// The question under a pending approval.
 const QUESTION: &str = "allow? y = yes, n = no";
+
+/// The heading of an approval of the followed turn.
+const APPROVAL: &str = "approval needed:";
+
+/// The heading of an approval of the turn that the followed one waits behind.
+const BLOCKING_APPROVAL: &str = "the running turn needs approval:";
 
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +90,10 @@ pub(crate) struct TurnView {
     asking: Option<CallId>,
     /// The approval that this client answered, whose resolution needs no second note.
     answered: Option<CallId>,
+    /// The turn waits behind another one and has not started.
+    queued: bool,
+    /// The other turn's approvals shown while this one waited.
+    blocking: HashSet<CallId>,
 }
 
 impl TurnView {
@@ -96,7 +110,20 @@ impl TurnView {
             raw_messages: 0,
             asking: None,
             answered: None,
+            queued: false,
+            blocking: HashSet::new(),
         }
+    }
+
+    /// The turn waits behind the running one: until it starts, the running turn's
+    /// approvals show and can be answered here.
+    pub(crate) fn queue(&mut self) {
+        self.queued = true;
+    }
+
+    /// True while the turn waits behind another one.
+    pub(crate) fn is_queued(&self) -> bool {
+        self.queued
     }
 
     fn terminal(&self) -> bool {
@@ -107,13 +134,18 @@ impl TurnView {
         at_width(&self.options, effective_width(size))
     }
 
-    /// Takes one event of the conversation. Events of other turns change nothing.
-    /// `can_ask` says whether one-key answers can be read.
+    /// Takes one event of the conversation. Events of other turns change nothing,
+    /// except approvals while this turn waits behind another one. `can_ask` says
+    /// whether one-key answers can be read.
     pub(crate) fn event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         if event.turn_id() != Some(self.turn) {
-            return Step::default();
+            return self.other_turn(event, size, can_ask);
         }
         match event {
+            Event::TurnStarted { .. } => {
+                self.queued = false;
+                Step::default()
+            }
             Event::AssistantMessageUpdated { index, text, .. } => {
                 self.message_text(*index, text, false, size)
             }
@@ -135,21 +167,13 @@ impl TurnView {
                 }
             }
             Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
-                self.approval(*call_id, summary, diff_preview.as_deref(), size, can_ask)
+                let request = Request { heading: APPROVAL, summary, diff: diff_preview.as_deref() };
+                self.approval(*call_id, &request, size, can_ask)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. } => {
-                if self.answered == Some(*call_id) {
-                    return Step::default();
-                }
-                let settled = self.settle(*call_id);
-                let line =
-                    format!("{} from {}", format::decision(*decision), format::origin(*origin));
-                Step { settled, ..self.note(&line, size) }
+                self.resolved(*call_id, *decision, *origin, size)
             }
-            Event::ApprovalExpired { call_id, .. } => {
-                let settled = self.settle(*call_id);
-                Step { settled, ..self.note("the approval expired", size) }
-            }
+            Event::ApprovalExpired { call_id, .. } => self.expired(*call_id, size),
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)), size)
             }
@@ -164,6 +188,51 @@ impl TurnView {
             Event::TurnCancelled { .. } => self.end(TurnEnd::Cancelled, None, size),
             _ => Step::default(),
         }
+    }
+
+    /// An event of another turn: only the approvals of the turn this one waits behind
+    /// show, and only until this one starts.
+    fn other_turn(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
+        if !self.queued {
+            return Step::default();
+        }
+        match event {
+            Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
+                self.blocking.insert(*call_id);
+                let request =
+                    Request { heading: BLOCKING_APPROVAL, summary, diff: diff_preview.as_deref() };
+                self.approval(*call_id, &request, size, can_ask)
+            }
+            Event::ApprovalResolved { call_id, decision, origin, .. }
+                if self.blocking.contains(call_id) =>
+            {
+                self.resolved(*call_id, *decision, *origin, size)
+            }
+            Event::ApprovalExpired { call_id, .. } if self.blocking.contains(call_id) => {
+                self.expired(*call_id, size)
+            }
+            _ => Step::default(),
+        }
+    }
+
+    fn resolved(
+        &mut self,
+        call_id: CallId,
+        decision: ApprovalDecision,
+        origin: Origin,
+        size: Size,
+    ) -> Step {
+        if self.answered == Some(call_id) {
+            return Step::default();
+        }
+        let settled = self.settle(call_id);
+        let line = format!("{} from {}", format::decision(decision), format::origin(origin));
+        Step { settled, ..self.note(&line, size) }
+    }
+
+    fn expired(&mut self, call_id: CallId, size: Size) -> Step {
+        let settled = self.settle(call_id);
+        Step { settled, ..self.note("the approval expired", size) }
     }
 
     /// A dim note line, such as `queued behind the running turn`.
@@ -267,8 +336,7 @@ impl TurnView {
     fn approval(
         &mut self,
         call_id: CallId,
-        summary: &str,
-        diff: Option<&str>,
+        request: &Request<'_>,
         size: Size,
         can_ask: bool,
     ) -> Step {
@@ -276,10 +344,10 @@ impl TurnView {
         let options = self.options_at(size);
         let mut text = format!(
             "{} {}\n",
-            format::paint("approval needed:", Tone::Attention, &options),
-            format::one_line(summary)
+            format::paint(request.heading, Tone::Attention, &options),
+            format::one_line(request.summary)
         );
-        if let Some(diff) = diff {
+        if let Some(diff) = request.diff {
             if self.terminal() {
                 text.push_str(&render(&format::code_block("diff", diff), &options));
             } else {
@@ -356,6 +424,13 @@ impl TurnView {
         }
         self.live.redraw(committed, &live, measured, size)
     }
+}
+
+/// An approval request as the view shows it.
+struct Request<'a> {
+    heading: &'static str,
+    summary: &'a str,
+    diff: Option<&'a str>,
 }
 
 #[cfg(test)]
