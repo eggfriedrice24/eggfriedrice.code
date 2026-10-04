@@ -3,7 +3,7 @@
 //! `efr-test-support` provides the general `TestClock` and `TestRng`. These few fakes
 //! keep the tests of this crate free of that crate and of the SQLite build it brings.
 
-use std::future::ready;
+use std::future::{pending, ready};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -44,6 +44,20 @@ impl Clock for InstantClock {
         let mut now = self.now.lock().unwrap();
         *now = now.checked_add(SignedDuration::try_from(duration).unwrap()).unwrap();
         Box::pin(ready(()))
+    }
+}
+
+/// A clock whose sleeps never finish, so a timeout on it never fires.
+#[derive(Debug)]
+pub(crate) struct StoppedClock;
+
+impl Clock for StoppedClock {
+    fn now(&self) -> Timestamp {
+        start()
+    }
+
+    fn sleep(&self, _duration: Duration) -> Sleep {
+        Box::pin(pending())
     }
 }
 

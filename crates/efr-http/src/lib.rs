@@ -6,7 +6,7 @@
 //!   the injected `efr_stdx::time::Clock` so tests never sleep.
 //! - [`SseDecoder`] and [`SseStream`]: server-sent events over a byte stream, for the
 //!   streaming Responses API.
-//! - `UnixClient`: HTTP/1.1 over a Unix socket through hyper, for tailscaled's
+//! - [`UnixClient`]: HTTP/1.1 over a Unix socket through hyper, for tailscaled's
 //!   LocalAPI at the phone milestone.
 //! - [`redact`]: header and URL redaction for logs, errors and transcripts.
 //! - [`Recorder`]: the hook through which the daemon records provider traffic as an
@@ -34,6 +34,7 @@ mod retry;
 mod sse;
 #[cfg(test)]
 mod testing;
+mod unix;
 
 pub use bytes::Bytes;
 pub use client::{HttpClient, HttpConfig};
@@ -44,4 +45,5 @@ pub use request::HttpRequest;
 pub use response::{ByteStream, HttpResponse};
 pub use retry::{Decision, Outcome, RetryPolicy, Retryable, is_retryable_status, retry_after};
 pub use sse::{SseDecoder, SseEvent, SseStream};
+pub use unix::UnixClient;
 pub use url::Url;
