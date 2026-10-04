@@ -1,21 +1,23 @@
 //! The read-only commands of [`Policy::defaults`](super::Policy::defaults), as data.
 //!
 //! Each row is a program, the words that must follow it, the words that must not
-//! appear, and the fewest and most operands. A row allows only what cannot change the
+//! appear, and the fewest and most operands, or nothing at all after the args. A row allows only what cannot change the
 //! machine or print the environment:
 //! options that write a file, run another program, wait forever or change a setting
 //! are forbidden, so a command that uses one needs approval. `defaults.md` beside this
 //! file is the same table for the docs, and a test keeps the two equal.
 
-use self::Operands::{Any, AtLeast, AtMost};
+use self::Operands::{Alone, Any, AtLeast, AtMost};
 use crate::CommandPattern;
 
-/// The fewest and the most operands of a row.
+/// The fewest and the most operands of a row, or nothing at all after its args.
 #[derive(Debug, Clone, Copy)]
 enum Operands {
     Any,
     AtMost(usize),
     AtLeast(usize),
+    /// No operand and no option after the args.
+    Alone,
 }
 
 /// One row: program, args, forbid, operands.
@@ -108,8 +110,13 @@ const ROWS: &[Row] = &[
     ("column", &[], &[], Any),
     // jq programs can print the environment through `env` and `$ENV`.
     ("jq", &[], &["-i", "--in-place", "env", "ENV"], Any),
-    // BSD-style `e` shows the environment of each process.
-    ("ps", &[], &["e"], Any),
+    // BSD-style `e` shows the environment of each process. procps reads the whole line
+    // again as BSD syntax when one word is not valid UNIX syntax, dashed clusters
+    // included, so `ps -ex` and `ps -e -x` show it too: an `e` may stand in no word but
+    // a long option.
+    ("ps", &[], &["e", "-e"], Any),
+    // The UNIX forms with `-e`, alone: nothing after them can send the line to BSD.
+    ("ps", &["-e|-ef|-eF|-ely|-eLf|-ejH"], &[], Alone),
     ("pgrep", &[], &[], Any),
     ("ss", &[], &["-K", "--kill", "-D", "--diag"], Any),
     ("ip", &["addr|address|a"], &[], AtMost(0)),
@@ -177,6 +184,7 @@ pub(super) fn read_only() -> Vec<CommandPattern> {
                 Any => pattern,
                 AtMost(max) => pattern.with_max_operands(*max),
                 AtLeast(min) => pattern.with_min_operands(*min),
+                Alone => pattern.with_max_operands(0).with_max_options(0),
             }
         })
         .collect()

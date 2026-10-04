@@ -55,80 +55,81 @@ shell is in.
 Rule 0 makes every command line and all network access ask. The rules from 8 on allow
 read-only commands. A command matches a row when it starts with the program and the
 words in `args`, holds none of the words in `forbid`, and has at least `min` and at
-most `max` operands after `args`:
+most `max` operands and at most `options` options after `args`:
 
-| # | Program | Args | Forbid | Min | Max |
-|---|---|---|---|---|---|
-| 8 | `ls` |  |  |  |  |
-| 9 | `pwd` |  |  |  |  |
-| 10 | `cat` |  |  |  |  |
-| 11 | `head` |  |  |  |  |
-| 12 | `tail` |  | `-f` `-F` `--follow` |  |  |
-| 13 | `wc` |  |  |  |  |
-| 14 | `file` |  | `-C` `--compile` |  |  |
-| 15 | `stat` |  |  |  |  |
-| 16 | `du` |  |  |  |  |
-| 17 | `df` |  |  |  |  |
-| 18 | `lsblk` |  |  |  |  |
-| 19 | `blkid` |  | `-g` `--garbage-collect` `-c` `--cache-file` |  |  |
-| 20 | `findmnt` |  | `-p` `--poll` |  |  |
-| 21 | `free` |  | `-s` `--seconds` |  |  |
-| 22 | `uptime` |  |  |  |  |
-| 23 | `uname` |  |  |  |  |
-| 24 | `whoami` |  |  |  |  |
-| 25 | `id` |  |  |  |  |
-| 26 | `groups` |  |  |  |  |
-| 27 | `hostname` |  | `-F` `--file` `-b` `--boot` |  | 0 |
-| 28 | `date` |  | `-s` `--set` |  |  |
-| 29 | `which` |  |  |  |  |
-| 30 | `type` |  |  |  |  |
-| 31 | `command` | `-v\|-V` |  |  |  |
-| 32 | `echo` |  |  |  |  |
-| 33 | `printf` |  | `-v` |  |  |
-| 34 | `realpath` |  |  |  |  |
-| 35 | `readlink` |  |  |  |  |
-| 36 | `basename` |  |  |  |  |
-| 37 | `dirname` |  |  |  |  |
-| 38 | `tree` |  | `-o` `-R` |  |  |
-| 39 | `rg` |  | `--pre` `--hostname-bin` |  |  |
-| 40 | `grep` |  |  |  |  |
-| 41 | `egrep` |  |  |  |  |
-| 42 | `fgrep` |  |  |  |  |
-| 43 | `diff` |  |  |  |  |
-| 44 | `cmp` |  |  |  |  |
-| 45 | `sort` |  | `-o` `--output` `--compress-program` `--files0-from` |  |  |
-| 46 | `uniq` |  |  |  | 1 |
-| 47 | `cut` |  |  |  |  |
-| 48 | `tr` |  |  |  |  |
-| 49 | `column` |  |  |  |  |
-| 50 | `jq` |  | `-i` `--in-place` `env` `ENV` |  |  |
-| 51 | `ps` |  | `e` |  |  |
-| 52 | `pgrep` |  |  |  |  |
-| 53 | `ss` |  | `-K` `--kill` `-D` `--diag` |  |  |
-| 54 | `ip` | `addr\|address\|a` |  |  | 0 |
-| 55 | `ip` | `addr\|address\|a` `show\|list` |  |  |  |
-| 56 | `ip` | `route\|r` |  |  | 0 |
-| 57 | `ip` | `route\|r` `show\|list` |  |  |  |
-| 58 | `ip` | `link\|l` |  |  | 0 |
-| 59 | `ip` | `link\|l` `show\|list` |  |  |  |
-| 60 | `journalctl` |  | `--vacuum*` `--rotate` `--flush` `--sync` `--relinquish-var` `--smart-relinquish-var` `--setup-keys` `--update-catalog` `--cursor-file` `-f` `--follow` |  |  |
-| 61 | `systemctl` | `status\|list-units\|list-unit-files\|is-active\|is-enabled\|is-failed\|cat` | `-H` `--host` |  |  |
-| 62 | `systemctl` | `--user` `status\|list-units\|list-unit-files\|is-active\|is-enabled\|is-failed\|cat` | `-H` `--host` |  |  |
-| 63 | `systemctl` | `show` | `-H` `--host` `-p` `-P` `--property` | 1 |  |
-| 64 | `systemctl` | `--user` `show` | `-H` `--host` `-p` `-P` `--property` | 1 |  |
-| 65 | `git` | `status\|diff\|log\|show\|rev-parse\|ls-files\|blame` | `--output` |  |  |
-| 66 | `git` | `--no-pager` `status\|diff\|log\|show\|rev-parse\|ls-files\|blame` | `--output` |  |  |
-| 67 | `git` | `branch` | `-d` `-D` `--delete` `-m` `-M` `--move` `-c` `-C` `--copy` `-f` `--force` `-u` `--set-upstream-to` `--unset-upstream` `--edit-description` `-t` `--track` `--no-track` `--create-reflog` |  | 0 |
-| 68 | `git` | `--no-pager` `branch` | `-d` `-D` `--delete` `-m` `-M` `--move` `-c` `-C` `--copy` `-f` `--force` `-u` `--set-upstream-to` `--unset-upstream` `--edit-description` `-t` `--track` `--no-track` `--create-reflog` |  | 0 |
-| 69 | `git` | `remote` |  |  | 0 |
-| 70 | `git` | `--no-pager` `remote` |  |  | 0 |
-| 71 | `pacman` | `-Q*\|--query` |  |  |  |
-| 72 | `pacman` | `-Ss\|-Ssq\|-Sqs\|-Si\|-Sii` | `-y` `-u` `-w` `-c` `--refresh` `--sysupgrade` `--downloadonly` `--clean` |  |  |
-| 73 | `lspci` |  |  |  |  |
-| 74 | `lsusb` |  |  |  |  |
-| 75 | `sensors` |  | `-s` `--set` |  |  |
-| 76 | `nproc` |  |  |  |  |
-| 77 | `find` |  | `-exec` `-execdir` `-ok` `-okdir` `-delete` `-fprint*` `-fls` |  |  |
+| # | Program | Args | Forbid | Min | Max | Options |
+|---|---|---|---|---|---|---|
+| 8 | `ls` |  |  |  |  |  |
+| 9 | `pwd` |  |  |  |  |  |
+| 10 | `cat` |  |  |  |  |  |
+| 11 | `head` |  |  |  |  |  |
+| 12 | `tail` |  | `-f` `-F` `--follow` |  |  |  |
+| 13 | `wc` |  |  |  |  |  |
+| 14 | `file` |  | `-C` `--compile` |  |  |  |
+| 15 | `stat` |  |  |  |  |  |
+| 16 | `du` |  |  |  |  |  |
+| 17 | `df` |  |  |  |  |  |
+| 18 | `lsblk` |  |  |  |  |  |
+| 19 | `blkid` |  | `-g` `--garbage-collect` `-c` `--cache-file` |  |  |  |
+| 20 | `findmnt` |  | `-p` `--poll` |  |  |  |
+| 21 | `free` |  | `-s` `--seconds` |  |  |  |
+| 22 | `uptime` |  |  |  |  |  |
+| 23 | `uname` |  |  |  |  |  |
+| 24 | `whoami` |  |  |  |  |  |
+| 25 | `id` |  |  |  |  |  |
+| 26 | `groups` |  |  |  |  |  |
+| 27 | `hostname` |  | `-F` `--file` `-b` `--boot` |  | 0 |  |
+| 28 | `date` |  | `-s` `--set` |  |  |  |
+| 29 | `which` |  |  |  |  |  |
+| 30 | `type` |  |  |  |  |  |
+| 31 | `command` | `-v\|-V` |  |  |  |  |
+| 32 | `echo` |  |  |  |  |  |
+| 33 | `printf` |  | `-v` |  |  |  |
+| 34 | `realpath` |  |  |  |  |  |
+| 35 | `readlink` |  |  |  |  |  |
+| 36 | `basename` |  |  |  |  |  |
+| 37 | `dirname` |  |  |  |  |  |
+| 38 | `tree` |  | `-o` `-R` |  |  |  |
+| 39 | `rg` |  | `--pre` `--hostname-bin` |  |  |  |
+| 40 | `grep` |  |  |  |  |  |
+| 41 | `egrep` |  |  |  |  |  |
+| 42 | `fgrep` |  |  |  |  |  |
+| 43 | `diff` |  |  |  |  |  |
+| 44 | `cmp` |  |  |  |  |  |
+| 45 | `sort` |  | `-o` `--output` `--compress-program` `--files0-from` |  |  |  |
+| 46 | `uniq` |  |  |  | 1 |  |
+| 47 | `cut` |  |  |  |  |  |
+| 48 | `tr` |  |  |  |  |  |
+| 49 | `column` |  |  |  |  |  |
+| 50 | `jq` |  | `-i` `--in-place` `env` `ENV` |  |  |  |
+| 51 | `ps` |  | `e` `-e` |  |  |  |
+| 52 | `ps` | `-e\|-ef\|-eF\|-ely\|-eLf\|-ejH` |  |  | 0 | 0 |
+| 53 | `pgrep` |  |  |  |  |  |
+| 54 | `ss` |  | `-K` `--kill` `-D` `--diag` |  |  |  |
+| 55 | `ip` | `addr\|address\|a` |  |  | 0 |  |
+| 56 | `ip` | `addr\|address\|a` `show\|list` |  |  |  |  |
+| 57 | `ip` | `route\|r` |  |  | 0 |  |
+| 58 | `ip` | `route\|r` `show\|list` |  |  |  |  |
+| 59 | `ip` | `link\|l` |  |  | 0 |  |
+| 60 | `ip` | `link\|l` `show\|list` |  |  |  |  |
+| 61 | `journalctl` |  | `--vacuum*` `--rotate` `--flush` `--sync` `--relinquish-var` `--smart-relinquish-var` `--setup-keys` `--update-catalog` `--cursor-file` `-f` `--follow` |  |  |  |
+| 62 | `systemctl` | `status\|list-units\|list-unit-files\|is-active\|is-enabled\|is-failed\|cat` | `-H` `--host` |  |  |  |
+| 63 | `systemctl` | `--user` `status\|list-units\|list-unit-files\|is-active\|is-enabled\|is-failed\|cat` | `-H` `--host` |  |  |  |
+| 64 | `systemctl` | `show` | `-H` `--host` `-p` `-P` `--property` | 1 |  |  |
+| 65 | `systemctl` | `--user` `show` | `-H` `--host` `-p` `-P` `--property` | 1 |  |  |
+| 66 | `git` | `status\|diff\|log\|show\|rev-parse\|ls-files\|blame` | `--output` |  |  |  |
+| 67 | `git` | `--no-pager` `status\|diff\|log\|show\|rev-parse\|ls-files\|blame` | `--output` |  |  |  |
+| 68 | `git` | `branch` | `-d` `-D` `--delete` `-m` `-M` `--move` `-c` `-C` `--copy` `-f` `--force` `-u` `--set-upstream-to` `--unset-upstream` `--edit-description` `-t` `--track` `--no-track` `--create-reflog` |  | 0 |  |
+| 69 | `git` | `--no-pager` `branch` | `-d` `-D` `--delete` `-m` `-M` `--move` `-c` `-C` `--copy` `-f` `--force` `-u` `--set-upstream-to` `--unset-upstream` `--edit-description` `-t` `--track` `--no-track` `--create-reflog` |  | 0 |  |
+| 70 | `git` | `remote` |  |  | 0 |  |
+| 71 | `git` | `--no-pager` `remote` |  |  | 0 |  |
+| 72 | `pacman` | `-Q*\|--query` |  |  |  |  |
+| 73 | `pacman` | `-Ss\|-Ssq\|-Sqs\|-Si\|-Sii` | `-y` `-u` `-w` `-c` `--refresh` `--sysupgrade` `--downloadonly` `--clean` |  |  |  |
+| 74 | `lspci` |  |  |  |  |  |
+| 75 | `lsusb` |  |  |  |  |  |
+| 76 | `sensors` |  | `-s` `--set` |  |  |  |
+| 77 | `nproc` |  |  |  |  |  |
+| 78 | `find` |  | `-exec` `-execdir` `-ok` `-okdir` `-delete` `-fprint*` `-fls` |  |  |  |
 
 The `forbid` words and `max` stop what would change the machine or never end: an
 option that writes a file (`sort -o`, `tree -o`, `git diff --output`), runs another
@@ -137,8 +138,11 @@ program (`rg --pre`, `find -exec`, `sort --compress-program`), deletes
 `hostname NAME`), reads the files that another file names (`sort --files0-from`), or
 waits forever and keeps the hidden shell busy (`tail -f`, `journalctl -f`). `env` and
 `printenv` are not in the table, because they print every variable, tokens included.
-For the same reason an argument of `ps` without a dash may not hold an `e` (it shows
-each process's environment), a `jq` program may not use `env` or `$ENV`, and
+For the same reason no argument of `ps` but a long option may hold an `e`: in BSD
+syntax `e` shows each process's environment, and `ps` reads the whole line as BSD
+syntax when one word is not valid UNIX syntax, so `ps -ex` and `ps -e -x` show it too.
+The UNIX forms `ps -e`, `ps -ef`, `ps -eF`, `ps -ely`, `ps -eLf` and `ps -ejH` run
+alone, with nothing after them. A `jq` program may not use `env` or `$ENV`, and
 `systemctl show` must name a unit (without one it shows the service manager's
 environment).
 

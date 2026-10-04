@@ -357,10 +357,10 @@ impl Policy {
     /// project are free to write, network access needs approval, and a command line
     /// needs approval unless every simple command in it is one of these (`args` must
     /// follow the program, `forbid` must not appear, `min` and `max` bound the
-    /// operands):
+    /// operands and `options` the options after `args`):
     ///
-    /// | # | Program | Args | Forbid | Min | Max |
-    /// |---|---|---|---|---|---|
+    /// | # | Program | Args | Forbid | Min | Max | Options |
+    /// |---|---|---|---|---|---|---|
     #[doc = include_str!("policy/defaults.md")]
     ///
     /// `env` and `printenv` are left out on purpose, because they print every variable,

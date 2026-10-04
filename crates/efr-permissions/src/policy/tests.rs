@@ -60,13 +60,14 @@ fn table(first: usize) -> String {
         .map(|(offset, pattern)| {
             let count = |count: Option<usize>| count.map(|n| n.to_string()).unwrap_or_default();
             format!(
-                "| {} | `{}` | {} | {} | {} | {} |\n",
+                "| {} | `{}` | {} | {} | {} | {} | {} |\n",
                 first + offset,
                 pattern.program,
                 code(&pattern.args),
                 code(&pattern.forbid),
                 count(pattern.min_operands),
-                count(pattern.max_operands)
+                count(pattern.max_operands),
+                count(pattern.max_options)
             )
         })
         .collect()
@@ -81,7 +82,8 @@ fn the_documented_table_is_the_data() {
 #[test]
 fn the_permissions_doc_holds_the_same_table() {
     let doc = include_str!("../../../../docs/permissions.md");
-    let header = "| # | Program | Args | Forbid | Min | Max |\n|---|---|---|---|---|---|\n";
+    let header =
+        "| # | Program | Args | Forbid | Min | Max | Options |\n|---|---|---|---|---|---|---|\n";
     assert!(
         doc.contains(&format!("{header}{}\n", table(8))),
         "copy src/policy/defaults.md under the read-only table of docs/permissions.md"
