@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::{any, prop, prop_assert_eq, proptest};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 
-use super::ServerCodec;
+use super::{EncodedFrame, ServerCodec};
 use crate::TransportError;
 
 fn list(id: u64) -> ClientFrame {
@@ -107,12 +107,14 @@ fn server_frames_encode_exactly_as_the_framing_module_does() {
     let mut buffer = BytesMut::new();
     ServerCodec::new().encode(frame.clone(), &mut buffer).unwrap();
     assert_eq!(&buffer[..], &framing::encode(&frame).unwrap()[..]);
+    assert_eq!(EncodedFrame::new(&frame).unwrap().as_bytes(), &buffer[..]);
 }
 
 #[test]
-fn a_frame_over_the_limit_is_refused() {
+fn an_encoded_frame_over_the_limit_is_refused() {
     let huge = "x".repeat(MAX_FRAME_LEN);
     let frame = ServerFrame::item(RequestId::new(6), &huge).unwrap();
+    assert!(matches!(EncodedFrame::new(&frame), Err(ProtocolError::FrameTooLarge { .. })));
     let error = ServerCodec::new().encode(frame, &mut BytesMut::new()).unwrap_err();
     assert!(matches!(
         error,

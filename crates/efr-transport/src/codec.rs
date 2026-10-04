@@ -77,5 +77,22 @@ fn next_payload(
     Ok(ready.pop_front())
 }
 
+/// A server frame already encoded behind its length prefix.
+///
+/// Responders encode before they queue a frame, so a result too large for the wire
+/// fails in the handler that made it instead of breaking the connection's writer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EncodedFrame(Vec<u8>);
+
+impl EncodedFrame {
+    pub(crate) fn new(frame: &ServerFrame) -> Result<Self, ProtocolError> {
+        framing::encode(frame).map(EncodedFrame)
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests;

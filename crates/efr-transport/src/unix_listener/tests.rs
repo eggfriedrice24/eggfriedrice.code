@@ -1,13 +1,18 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
+use std::sync::Arc;
 
+use efr_protocol::{RequestId, ServerFrame};
 use pretty_assertions::assert_eq;
+use serde_json::json;
 use tokio::io::AsyncReadExt as _;
 use tokio::net::UnixStream;
+use tokio::sync::oneshot;
 
 use super::{UnixListener, authorize};
-use crate::{PeerCred, TransportError};
+use crate::testing::{FakeDispatcher, StoppedClock, TestClient, internal, list_frame};
+use crate::{PeerCred, Request, TransportError};
 
 fn own_uid() -> u32 {
     nix::unistd::getuid().as_raw()
@@ -137,4 +142,32 @@ async fn dropping_a_replaced_listener_leaves_its_successor_in_place() {
     assert!(path.exists());
     let _client = UnixStream::connect(&path).await.unwrap();
     assert!(second.accept().await.is_ok());
+}
+
+#[tokio::test]
+async fn serve_answers_over_the_socket_and_cleans_up_on_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("daemon.sock");
+    let listener = UnixListener::bind(&path).await.unwrap();
+    let dispatcher = FakeDispatcher::new(|request: Request| async move {
+        request.responder.item(&json!({ "served": true })).await.map_err(internal)
+    });
+    let (stop, stopped) = oneshot::channel::<()>();
+    let server = tokio::spawn(listener.serve(dispatcher, Arc::new(StoppedClock), async {
+        let _ = stopped.await;
+    }));
+
+    let mut client = TestClient::new(UnixStream::connect(&path).await.unwrap());
+    client.hello().await;
+    client.send(&list_frame(2)).await;
+    assert_eq!(
+        client.recv().await,
+        Some(ServerFrame::Item { id: RequestId::new(2), item: json!({ "served": true }) })
+    );
+    assert_eq!(client.recv().await, Some(ServerFrame::end(RequestId::new(2))));
+
+    stop.send(()).unwrap();
+    server.await.unwrap();
+    assert_eq!(client.recv().await, None, "shutdown closes open connections");
+    assert!(!path.exists(), "the socket file goes away with the listener");
 }

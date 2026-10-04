@@ -6,8 +6,9 @@
 //! subscription is closed instead. The request that serves the subscriber drains its
 //! [`SubscriptionReceiver`]: first every item that was queued before the overflow, then
 //! [`Delivery::Overflowed`] with `last_seq`, the sequence number of the last item it
-//! received. The request ends with the `overflow` error frame carrying it, and the
-//! client subscribes again after `last_seq` without a gap.
+//! received. [`Responder::forward`](crate::Responder::forward) turns that into the
+//! `overflow` error frame, and the client subscribes again after `last_seq` without a
+//! gap.
 
 use std::fmt;
 use std::sync::Arc;

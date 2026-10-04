@@ -12,23 +12,35 @@
 //! that is not a socket is left alone and reported.
 
 use std::fs::{self, DirBuilder, Permissions};
+use std::future::Future;
 use std::io;
 use std::os::unix::fs::{
     DirBuilderExt as _, FileTypeExt as _, MetadataExt as _, PermissionsExt as _,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
+use efr_stdx::time::Clock;
 use nix::sys::socket::{getsockopt, sockopt};
 use tokio::net::UnixStream;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
-use crate::{ConnId, PeerCred, TransportError};
+use crate::connection::{self, ConnectionParams};
+use crate::{ConnId, Dispatcher, PeerCred, TransportError};
 
 /// The socket's mode: owner read and write, nothing for anyone else.
 const SOCKET_MODE: u32 = 0o600;
 
 /// The mode of a socket directory that the listener creates.
 const DIR_MODE: u32 = 0o700;
+
+/// How long the accept loop waits after a failed accept, such as when the process is
+/// out of file descriptors, before it tries again.
+const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 
 /// A connection that passed the uid check.
 #[derive(Debug)]
@@ -130,6 +142,60 @@ impl UnixListener {
         authorize(peer, self.allowed_uid)?;
         let conn_id = ConnId::new(self.next_conn.fetch_add(1, Ordering::Relaxed));
         Ok(Accepted { stream, peer, conn_id })
+    }
+
+    /// Accepts connections and serves each one in its own task until `shutdown`
+    /// completes. Then it cancels every request still in flight, waits for the
+    /// connections to close, and removes the socket file.
+    ///
+    /// `clock` times the retry after a failed accept and each closing connection's flush.
+    pub async fn serve<D: Dispatcher>(
+        self,
+        dispatcher: Arc<D>,
+        clock: Arc<dyn Clock>,
+        shutdown: impl Future<Output = ()> + Send,
+    ) {
+        let stopping = CancellationToken::new();
+        let mut connections = JoinSet::new();
+        let mut shutdown = std::pin::pin!(shutdown);
+        tracing::info!(socket = %self.path.display(), "listening");
+        loop {
+            let accepted = tokio::select! {
+                biased;
+                () = &mut shutdown => break,
+                Some(_) = connections.join_next(), if !connections.is_empty() => continue,
+                accepted = self.accept() => accepted,
+            };
+            match accepted {
+                Ok(Accepted { stream, peer, conn_id }) => {
+                    let params = ConnectionParams {
+                        conn_id,
+                        peer,
+                        dispatcher: Arc::clone(&dispatcher),
+                        clock: Arc::clone(&clock),
+                        shutdown: stopping.child_token(),
+                    };
+                    connections.spawn(connection::run(stream, params).in_current_span());
+                }
+                Err(
+                    error @ (TransportError::PeerRejected { .. }
+                    | TransportError::PeerCredentials { .. }),
+                ) => {
+                    tracing::warn!(error = %error, "closed a connection");
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "accept failed; retrying");
+                    tokio::select! {
+                        biased;
+                        () = &mut shutdown => break,
+                        () = clock.sleep(ACCEPT_RETRY) => {}
+                    }
+                }
+            }
+        }
+        stopping.cancel();
+        while connections.join_next().await.is_some() {}
+        tracing::info!(socket = %self.path.display(), "stopped listening");
     }
 }
 
