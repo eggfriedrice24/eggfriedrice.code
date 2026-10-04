@@ -22,7 +22,7 @@ use crate::PermissionsError;
 /// | Class | Examples | Read | Write |
 /// |---|---|---|---|
 /// | `Scratch` | the conversation's `$SCRATCH` | free | free |
-/// | `UserConfig` | `~/.config`, `~/.zshrc`, other dot entries in `~` | free | approval |
+/// | `UserConfig` | `~/.config`, `~/.zshrc`, other dot entries in `~`, a repository's `.git` in `~` or `$SCRATCH` | free | approval |
 /// | `UserData` | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, or free inside the turn's registered project |
 /// | `System` | everything outside `~`: `/etc`, `/usr`, `/srv` | free | approval |
 /// | `Secrets` | `~/.ssh`, `~/.gnupg`, password stores, credential files such as `~/.aws/credentials`, the daemon's `secrets/` | denied | denied |
@@ -34,7 +34,9 @@ use crate::PermissionsError;
 pub enum PathClass {
     /// The conversation's own `$SCRATCH` directory.
     Scratch,
-    /// The user's configuration: dot entries in `~` and the configured config roots.
+    /// The user's configuration: dot entries in `~`, the configured config roots, and
+    /// the `.git` of a repository that would otherwise be user data or scratch, whose
+    /// config names programs that git runs.
     UserConfig,
     /// The user's files: everything else in `~`.
     UserData,
@@ -257,15 +259,25 @@ impl Locations {
         if self.is_secret(path) {
             return PathClass::Secrets;
         }
-        if scratch.is_some_and(|scratch| path.starts_with(scratch)) {
-            return PathClass::Scratch;
-        }
-        if self.user_config_roots.iter().any(|root| path.starts_with(root)) {
-            return PathClass::UserConfig;
-        }
-        match path.strip_prefix(&self.home) {
-            Ok(relative) => classify_in_home(relative),
-            Err(_) => PathClass::System,
+        let class = if scratch.is_some_and(|scratch| path.starts_with(scratch)) {
+            PathClass::Scratch
+        } else if self.user_config_roots.iter().any(|root| path.starts_with(root)) {
+            PathClass::UserConfig
+        } else {
+            match path.strip_prefix(&self.home) {
+                Ok(relative) => classify_in_home(relative),
+                Err(_) => PathClass::System,
+            }
+        };
+        // NOTE: `git status`, `git diff` and `git log` run the programs that a
+        // repository's own config names (core.fsmonitor, filter drivers, diff.external),
+        // so writing a `.git` is changing what an allowed command runs. Inside the
+        // turn's project or `$SCRATCH` it would otherwise be free to write.
+        match class {
+            PathClass::Scratch | PathClass::UserData if in_repository_metadata(path) => {
+                PathClass::UserConfig
+            }
+            other => other,
         }
     }
 
@@ -377,6 +389,11 @@ fn proc_secret_below(dir: &Path) -> Option<PathBuf> {
         [process, "task", _] if is_process(process) => Some(dir.join("environ")),
         _ => None,
     }
+}
+
+/// True when `path` is a `.git` file or directory, or lies below one.
+fn in_repository_metadata(path: &Path) -> bool {
+    path.components().any(|component| component == Component::Normal(".git".as_ref()))
 }
 
 /// The class of a path inside the home directory, given relative to it.

@@ -70,6 +70,20 @@ fn locations() -> Locations {
 )]
 #[case::shadow("/etc/shadow", PathClass::Secrets)]
 #[case::gshadow("/etc/gshadow", PathClass::Secrets)]
+// A repository's .git holds config that names programs git runs, so it is user
+// config wherever it would be user data or scratch.
+#[case::git_config("/home/u/p/app/.git/config", PathClass::UserConfig)]
+#[case::git_hook("/home/u/p/app/.git/hooks/pre-commit", PathClass::UserConfig)]
+#[case::git_dir("/home/u/p/app/.git", PathClass::UserConfig)]
+#[case::git_file_of_a_worktree("/home/u/p/app/vendor/lib/.git", PathClass::UserConfig)]
+#[case::git_in_scratch(
+    "/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d/r/.git/config",
+    PathClass::UserConfig
+)]
+#[case::git_in_system("/srv/site/.git/config", PathClass::System)]
+#[case::gitignore("/home/u/p/app/.gitignore", PathClass::UserData)]
+#[case::github("/home/u/p/app/.github/workflows/ci.yml", PathClass::UserData)]
+#[case::bare_repository_name("/home/u/p/app.git/config", PathClass::UserData)]
 #[case::similar_name("/home/u/.sshx/config", PathClass::UserConfig)]
 #[case::similar_system_name("/etc/shadowsocks/config.json", PathClass::System)]
 // The parts of a process under /proc that reach its environment, memory, open files or

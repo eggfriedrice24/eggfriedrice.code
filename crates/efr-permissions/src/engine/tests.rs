@@ -166,6 +166,16 @@ fn shell_turn_in_machine_scope(#[case] requirements: Requirements, #[case] expec
     Effect::Allow
 )]
 #[case::escape_project(Scope::Project(app()), "/home/u/p/app/../../.ssh/config", Effect::Deny)]
+// The repository's .git names programs that an allowed `git status` runs.
+#[case::git_config(Scope::Project(app()), "/home/u/p/app/.git/config", Effect::Ask)]
+#[case::git_hook(Scope::Project(app()), "/home/u/p/app/.git/hooks/pre-commit", Effect::Ask)]
+#[case::git_file(Scope::Project(app()), "/home/u/p/app/sub/.git", Effect::Ask)]
+#[case::git_in_scratch(
+    Scope::Project(app()),
+    "/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d/r/.git/config",
+    Effect::Ask
+)]
+#[case::gitignore(Scope::Project(app()), "/home/u/p/app/.gitignore", Effect::Allow)]
 // Home and root are never treated as a project, even when registered.
 #[case::home_project_file(Scope::Project(home_project()), "/home/u/notes.txt", Effect::Ask)]
 #[case::home_project_inner(

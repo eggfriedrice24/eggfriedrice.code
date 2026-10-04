@@ -17,7 +17,7 @@ Modules:
   | Class | Examples | Read | Write |
   |---|---|---|---|
   | Scratch | the conversation's `$SCRATCH` | free | free |
-  | UserConfig | `~/.config`, `~/.zshrc`, other dot entries in `~`, extra config roots | free | approval |
+  | UserConfig | `~/.config`, `~/.zshrc`, other dot entries in `~`, extra config roots, a repository's `.git` in `~` or `$SCRATCH` | free | approval |
   | UserData | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, free inside the turn's registered project |
   | System | everything outside `~` | free | approval |
   | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc` (its tokens, and back doors to every other path), the daemon's `secrets/`, and the roots the config adds | denied | denied |
@@ -124,7 +124,9 @@ paths before they declare them (the shell tool resolves its arguments lexically 
 the hidden shell's directory and cannot follow a link that an earlier approved command
 made), and a pattern trusts that a program name means in the hidden shell what it says:
 no alias or function of that name from the user's startup files, and no repository
-configuration that runs a program for `git status`.
+configuration that runs a program for `git status`. A `.git` is user config, so the
+model cannot write one without approval; configuration that a repository already has,
+or includes from its work tree, still runs.
 
 ## Tests
 

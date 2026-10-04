@@ -31,12 +31,16 @@ shell is in.
 | Class | Examples | Read | Write |
 |---|---|---|---|
 | Scratch | the conversation's `$SCRATCH` | free | free |
-| User config | `~/.config`, `~/.zshrc`, other dot entries in `~` | free | approval |
+| User config | `~/.config`, `~/.zshrc`, other dot entries in `~`, a repository's `.git` in `~` or `$SCRATCH` | free | approval |
 | User data | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, free inside the turn's registered project |
 | System | everything outside `~` | free | approval |
 | Secrets | `~/.ssh`, `~/.gnupg`, password stores, credential files such as `~/.aws/credentials`, `/etc/shadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc`, the daemon's `secrets/`, and `permissions.secret_paths` | denied | denied |
 
-`crates/efr-permissions/src/path_class.rs` lists every secret location.
+`crates/efr-permissions/src/path_class.rs` lists every secret location. A
+repository's `.git` is user config, also inside the turn's project or `$SCRATCH`:
+`git status`, `git diff` and `git log` run without approval, and they run the programs
+that the repository's config names (`core.fsmonitor`, filter drivers,
+`diff.external`), so a write to `.git/config` or `.git/hooks` asks.
 
 ## The built-in rules
 
@@ -220,8 +224,9 @@ secret denies the call without asking you, unless one of your rules opens it.
 What the text cannot show, the engine cannot judge. The shell tool resolves paths
 lexically, so it cannot follow a symbolic link that an earlier approved command made.
 A rule trusts that a program name means what it says: an alias or a function of the
-same name in your startup files changes what runs, and so can a repository's own
-configuration for `git`. A script or a build reads files that the line does not name.
+same name in your startup files changes what runs, and so can configuration that a
+repository already has for `git`, or includes from its work tree. A script or a build
+reads files that the line does not name.
 
 ## Your rules
 
