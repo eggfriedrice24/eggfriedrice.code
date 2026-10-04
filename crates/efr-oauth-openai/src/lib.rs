@@ -34,6 +34,8 @@ mod callback;
 mod claims;
 mod config;
 mod error;
+mod login;
+mod persist;
 mod pkce;
 #[cfg(test)]
 mod testing;
@@ -41,3 +43,4 @@ mod token;
 
 pub use config::OAuthConfig;
 pub use error::{GrantKind, OAuthError};
+pub use login::{LoginCompleted, OpenAiLogin, PendingLogin};
