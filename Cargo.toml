@@ -123,6 +123,7 @@ efr-provider = { path = "crates/efr-provider" }
 efr-test-support = { path = "crates/efr-test-support" }
 efr-screen-vt100 = { path = "crates/efr-screen-vt100" }
 efr-screen-ghostty = { path = "crates/efr-screen-ghostty" }
+efr-pty = { path = "crates/efr-pty" }
 efr-transport = { path = "crates/efr-transport" }
 efr-client = { path = "crates/efr-client" }
 

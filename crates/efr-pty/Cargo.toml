@@ -1,0 +1,32 @@
+[package]
+name = "efr-pty"
+description = "The in-process PTY holder for efr: opens pseudo-terminals, starts each child as a session leader on one and reaps it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-holder.workspace = true
+efr-stdx.workspace = true
+libc.workspace = true
+# `stdio` adds dup2_stdin, dup2_stdout and dup2_stderr, which the pre_exec block uses
+# to put the slave on the child's standard streams without building an OwnedFd for 0.
+rustix = { workspace = true, features = ["stdio"] }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
