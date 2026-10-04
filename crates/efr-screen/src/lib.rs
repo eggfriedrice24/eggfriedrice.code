@@ -13,8 +13,12 @@
 
 mod error;
 mod screen;
+mod shell_marks;
 mod sink;
 
 pub use error::ScreenError;
 pub use screen::Screen;
+pub use shell_marks::{
+    ClickMode, PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, ShellMarkScanner,
+};
 pub use sink::ScreenSink;
