@@ -7,6 +7,12 @@
 //! exactly what it produced. The answer streams back as [`ProviderEvent`]s, ending with
 //! a [`StopReason`] and the call's [`TokenUsage`].
 //!
+//! [`Provider`] is the dyn-compatible trait every model client implements, named by a
+//! [`ProviderId`]: [`Provider::stream`] is the one model call it must provide, returning
+//! a [`ProviderStream`], and [`Provider::complete`] folds that stream into a
+//! [`Completion`] with a [`CompletionBuilder`], which the conversation also uses while
+//! it forwards events.
+//!
 //! A provider gets its credentials from a [`TokenSource`] ([`StaticToken`] for an API
 //! key) and never learns how a token was obtained. `SecretString` and `ExposeSecret`
 //! are re-exported from `secrecy` because they appear in that trait.
@@ -20,16 +26,22 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod completion;
 mod error;
 mod event;
 mod message;
+mod provider;
+mod provider_id;
 mod request;
 mod token_source;
 mod usage;
 
+pub use completion::{Completion, CompletionBuilder};
 pub use error::ProviderError;
 pub use event::{ProviderEvent, StopReason};
 pub use message::{ContentBlock, Message, Role};
+pub use provider::{ModelInfo, Provider, ProviderStream};
+pub use provider_id::ProviderId;
 pub use request::{Request, ToolDefinition};
 pub use secrecy::{ExposeSecret, SecretString};
 pub use token_source::{StaticToken, TokenSource};

@@ -26,6 +26,18 @@ Modules:
   provider events with no canonical form become `Raw` instead of being dropped.
 - `usage`: `TokenUsage` with cached and reasoning parts; usages add with saturation
   and convert to the wire's `efr_protocol::Usage`.
+- `provider`: the `Provider` trait, dyn-compatible through `async-trait`.
+  `stream(Request) -> ProviderStream` is the one model call a provider implements;
+  `complete` collects it by default, and `models` defaults to an empty list. `id`
+  is also required: a `ProviderId` such as `openai-subscription` or `openai-api`,
+  which decides whose `provider_raw` a message carries. `ModelInfo` describes a
+  model's limits.
+- `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
+  logs, the config and the event log.
+- `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
+  assistant message by the order rules of `ProviderEvent` and reject a stream that
+  breaks them. The conversation pushes each event into a builder as it forwards it,
+  so the stored message and what clients saw come from the same events.
 - `token_source`: the `TokenSource` trait (`access_token`, `invalidate`) and
   `StaticToken` for an API key. A provider holds an `Arc<dyn TokenSource>` and never
   sees a refresh token; `efr-oauth-openai` implements the trait for the subscription
@@ -50,7 +62,8 @@ Tier 1.
 `efr-protocol`: nothing here reads a clock or draws randomness; token refresh timing
 lives in `efr-oauth-openai`. `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `async-trait`, `secrecy`, `serde`, `serde_json` and `thiserror`.
+Third-party crates: `async-trait`, `futures`, `secrecy`, `serde`, `serde_json` and
+`thiserror`.
 
 ## Invariant
 
@@ -74,5 +87,8 @@ cargo nextest run -p efr-provider
 ```
 
 The tests pin the JSON shape of every canonical type and round-trip it, including a
-proptest that any JSON value (without floats) survives as `provider_raw`. They use no
-network, no real-time sleeps and no Zig.
+proptest that any JSON value (without floats) survives as `provider_raw`; decision
+tables cover the stream order rules of `CompletionBuilder` and the `ProviderId`
+naming rules; an in-memory provider that implements only the required methods is
+driven through `Arc<dyn Provider>`. They use no network, no real-time sleeps and no
+Zig.

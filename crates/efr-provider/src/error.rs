@@ -71,8 +71,8 @@ pub enum ProviderError {
         model: String,
     },
 
-    /// The event stream broke the order that `ProviderEvent` documents, such as
-    /// arguments for a tool call that never started.
+    /// The event stream broke the order that [`ProviderEvent`](crate::ProviderEvent)
+    /// documents, such as arguments for a tool call that never started.
     #[error("the provider's event stream is malformed: {problem}")]
     InvalidStream {
         /// What was wrong.
@@ -83,7 +83,7 @@ pub enum ProviderError {
     #[error("the provider's event stream ended before the response was done")]
     Incomplete,
 
-    /// A provider id breaks the naming rules of `ProviderId`.
+    /// A provider id breaks the naming rules of [`ProviderId`](crate::ProviderId).
     #[error("{id:?} is not a valid provider id")]
     InvalidProviderId {
         /// The rejected id.

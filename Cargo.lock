@@ -723,8 +723,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "efr-protocol",
+ "futures",
  "pretty_assertions",
  "proptest",
+ "rstest",
  "secrecy",
  "serde",
  "serde_json",
