@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use efr_protocol::Seq;
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
@@ -159,6 +160,49 @@ fn detaching_a_typed_run_returns_the_output_so_far() {
     assert_eq!(captured.text, "cc -c a.c\n");
     assert_eq!(last_output, Some(TestClock::START));
     assert!(matches!(core.detach(3), Detached::Gone));
+}
+
+#[test]
+fn a_run_whose_caller_left_while_the_shell_started_is_never_typed() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    let (first, answer, _) = order(1, "rm -rf build", RunMode::Auto);
+    assert!(core.submit(first).is_empty());
+    drop(answer);
+    assert!(feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07").is_empty());
+    // The dropped run left nothing behind: the next one is typed at once.
+    let (next, _next_answer, _) = order(2, "ls", RunMode::Auto);
+    assert_eq!(core.submit(next), [Bytes::from_static(b"\x1b[200~ls\x1b[201~\r")]);
+}
+
+#[test]
+fn a_run_whose_caller_left_while_a_command_ran_is_never_typed() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    feed(&mut core, &mut at, b"\x1b]133;C\x07");
+    let (order, answer, _) = order(1, "make install", RunMode::Auto);
+    assert!(core.submit(order).is_empty());
+    drop(answer);
+    // Ctrl+C ends the earlier command and brings the prompt back.
+    assert!(feed(&mut core, &mut at, b"^C\r\n\x1b]133;D;130\x07").is_empty());
+    assert!(feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07").is_empty());
+}
+
+#[test]
+fn a_run_detached_before_its_output_holds_the_next_until_it_ends() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (first, _first_answer, _) = order(1, "sleep 9", RunMode::Auto);
+    assert_eq!(core.submit(first).len(), 1);
+    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    // The line is typed but its `C` has not come: the phase still says Ready.
+    assert_eq!(core.state().phase, Phase::Ready);
+    let (second, _second_answer, _) = order(2, "ls", RunMode::Auto);
+    assert!(core.submit(second).is_empty(), "nothing is typed ahead into the first line");
+    assert!(feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07\x1b]133;D;0\x07").is_empty());
+    let writes = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
+    assert_eq!(writes, [b"\x1b[200~ls\x1b[201~\r".to_vec()]);
 }
 
 #[test]

@@ -132,9 +132,11 @@ pub(crate) struct SessionCore {
     last_output: Option<Timestamp>,
     active: Option<Active>,
     queued: Option<RunOrder>,
-    /// A sentinel run whose caller timed out, still read so that the next run knows
-    /// when the shell is free again.
-    orphan: Option<SentinelRun>,
+    /// A typed run whose caller stopped waiting, still read so that the next run knows
+    /// when the shell is free again. Without it, a run detached before its `C` mark
+    /// would leave the phase at `Ready` and the next line would be typed ahead into
+    /// the running one.
+    orphan: Option<Machine>,
     observer: Arc<dyn ShellObserver>,
 }
 
@@ -166,8 +168,13 @@ impl SessionCore {
     }
 
     /// Takes a run: types it now, keeps it until the shell is free, or refuses it when
-    /// another run is under way or an unfinished line waits for input.
+    /// another run is under way or an unfinished line waits for input. A run whose
+    /// caller has stopped waiting is dropped, never typed: the turn that asked for it
+    /// may have been interrupted, and an approved command must not run after that.
     pub(crate) fn submit(&mut self, order: RunOrder) -> Vec<Bytes> {
+        if order.reply.is_closed() {
+            return Vec::new();
+        }
         if self.active.is_some() || self.queued.is_some() {
             self.refuse(order);
             return Vec::new();
@@ -187,9 +194,14 @@ impl SessionCore {
 
     /// Whether a run in `mode` can be typed now.
     fn placement(&self, mode: RunMode) -> Placement {
-        // An orphaned sentinel run still owns the foreground until its end marker.
-        if self.orphan.is_some() {
-            return Placement::Wait;
+        // An orphaned sentinel run owns the foreground until its end marker. An
+        // orphaned marked run holds the next marked line until its `D`, but a sentinel
+        // run is meant for whatever runs in the foreground, such as a nested shell.
+        match (&self.orphan, mode) {
+            (Some(Machine::Sentinel(_)), _) | (Some(Machine::Marks(_)), RunMode::Auto) => {
+                return Placement::Wait;
+            }
+            _ => {}
         }
         match (mode, self.state.phase) {
             (RunMode::Sentinel, _) | (_, Phase::Unmarked) => Placement::Now(Delimiter::Sentinel),
@@ -248,14 +260,11 @@ impl SessionCore {
             return Detached::Gone;
         };
         let delimiter = active.machine.delimiter();
-        let (captured, range) = match active.machine {
+        let (captured, range) = match &active.machine {
             Machine::Marks(run) => run.partial(),
-            Machine::Sentinel(run) => {
-                let partial = run.partial();
-                self.orphan = Some(run);
-                partial
-            }
+            Machine::Sentinel(run) => run.partial(),
         };
+        self.orphan = Some(active.machine);
         Detached::Running {
             captured,
             range,
@@ -315,6 +324,8 @@ impl SessionCore {
         }
     }
 
+    /// Types the waiting run when the shell is free; [`submit`](Self::submit) drops it
+    /// when its caller has gone in the meantime.
     fn start_queued(&mut self) -> Vec<Bytes> {
         if self.active.is_some() {
             return Vec::new();
@@ -329,9 +340,9 @@ impl SessionCore {
         self.next
     }
 
-    /// Bytes between marks: output for the active run, or for an orphaned one.
+    /// Bytes between marks: output for the active run, or for an orphaned sentinel run.
     fn bytes(&mut self, at: Seq, bytes: &[u8]) {
-        if let Some(orphan) = &mut self.orphan
+        if let Some(Machine::Sentinel(orphan)) = &mut self.orphan
             && orphan.on_bytes(at, bytes).0.is_some()
         {
             self.orphan = None;
@@ -358,6 +369,13 @@ impl SessionCore {
     fn mark(&mut self, mark: &ShellMark, writes: &mut Vec<Bytes>) {
         if self.state.apply(&mark.kind) {
             self.notice_cwd();
+        }
+        if let Some(Machine::Marks(orphan)) = &mut self.orphan {
+            match orphan.on_mark(mark) {
+                MarkStep::Continue => {}
+                MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
+                MarkStep::Ended(_) => self.orphan = None,
+            }
         }
         let Some(Active { machine: Machine::Marks(run), .. }) = &mut self.active else {
             return;

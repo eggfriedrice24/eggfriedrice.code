@@ -380,13 +380,17 @@ impl ShellSessions {
             progress: publish,
         };
         session.send(Msg::Run(order)).await?;
+        let mut guard = DetachOnDrop { inbox: Some(session.inbox.clone()), id };
 
         let mut deadline = deps.clock.sleep(request.timeout);
         let mut updates_open = true;
         loop {
             tokio::select! {
                 biased;
-                ended = &mut answer => return finished(session, ended),
+                ended = &mut answer => {
+                    guard.disarm();
+                    return finished(session, ended);
+                }
                 changed = updates.changed(), if updates_open => match changed {
                     Ok(()) => {
                         let update = updates.borrow_and_update().update();
@@ -400,6 +404,7 @@ impl ShellSessions {
 
         let (reply, detached) = oneshot::channel();
         session.send(Msg::Detach { id, reply }).await?;
+        guard.disarm();
         match detached.await.map_err(|_| session.exited())? {
             Detached::Gone => finished(session, answer.await),
             Detached::Unstarted => Err(ShellError::NotReady { conversation: session.conversation }),
@@ -467,6 +472,33 @@ impl CommandRunner for ShellSessions {
         progress: &mut dyn RunProgress,
     ) -> Result<CommandResult, ShellError> {
         ShellSessions::run_command(self, conversation, request, progress).await
+    }
+}
+
+/// Lets the session's actor go of a run whose caller dropped the future before an
+/// answer came, as a turn does when the user interrupts it: a run still waiting for
+/// the prompt is dropped instead of typed later, and a typed one goes on without a
+/// caller, so the next run waits for the prompt instead of being refused as busy.
+struct DetachOnDrop {
+    inbox: Option<mpsc::Sender<Msg>>,
+    id: u64,
+}
+
+impl DetachOnDrop {
+    /// The run was answered or detached on purpose; nothing is left to do.
+    fn disarm(&mut self) {
+        self.inbox = None;
+    }
+}
+
+impl Drop for DetachOnDrop {
+    fn drop(&mut self) {
+        if let Some(inbox) = self.inbox.take() {
+            let (reply, _) = oneshot::channel();
+            // NOTE: a full inbox loses the detach; the actor then drops a waiting run
+            // anyway, because its reply channel is closed.
+            let _ = inbox.try_send(Msg::Detach { id: self.id, reply });
+        }
     }
 }
 

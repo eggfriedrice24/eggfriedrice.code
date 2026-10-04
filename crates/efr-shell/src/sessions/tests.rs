@@ -88,6 +88,24 @@ async fn the_output_range_points_into_the_recording() {
 }
 
 #[tokio::test]
+async fn a_dropped_run_frees_the_shell_for_the_next_run() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run) = typed(&harness, "sleep 100").await;
+    // The turn drops the future when the user interrupts it.
+    run.abort();
+    assert!(run.await.unwrap_err().is_cancelled());
+    terminal.print(b"\r\n\x1b]133;C\x07").await;
+
+    // The next run waits for the prompt instead of being refused as busy.
+    let next = spawn_run(&harness.sessions, request("ls"));
+    terminal.print(b"^C\r\n\x1b]133;D;130\x07").await;
+    terminal.prompt().await;
+    assert_eq!(terminal.typed_line().await, b"\x1b[200~ls\x1b[201~\r");
+    terminal.run(b"a\r\n", 0).await;
+    assert_eq!(next.await.unwrap().unwrap().output, "a\n");
+}
+
+#[tokio::test]
 async fn a_failing_command_reports_its_status() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run) = typed(&harness, "false").await;
