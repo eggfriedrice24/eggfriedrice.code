@@ -19,7 +19,9 @@
 //! as the turn loop, permission decisions, SQL, terminal emulation or the wire format.
 
 mod config;
+mod discovery;
 mod error;
+mod lock;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
