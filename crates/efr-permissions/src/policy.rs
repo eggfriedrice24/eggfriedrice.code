@@ -138,6 +138,12 @@ pub struct CommandPattern {
     /// service manager's environment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_operands: Option<usize>,
+    /// The most options after the words of `args`. An option is a word that starts with
+    /// `-`, other than `-` itself, up to and including `--`. With `max_operands`, a
+    /// limit of 0 allows the words of `args` and nothing after them, such as `ps -ef`
+    /// alone: one more option could make the program read the whole line another way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_options: Option<usize>,
     /// A directory the command must run in, or below: absolute or starting with `~`.
     /// The directory is where the hidden shell is when the line starts; after a `cd`,
     /// `pushd` or `popd` earlier in the line it is unknown, and the pattern matches
@@ -155,6 +161,7 @@ impl CommandPattern {
             forbid: Vec::new(),
             max_operands: None,
             min_operands: None,
+            max_options: None,
             under: None,
         }
     }
@@ -192,6 +199,13 @@ impl CommandPattern {
     #[must_use]
     pub fn with_min_operands(mut self, min: usize) -> Self {
         self.min_operands = Some(min);
+        self
+    }
+
+    /// Refuses a command with more than `max` options after the words of `args`.
+    #[must_use]
+    pub fn with_max_options(mut self, max: usize) -> Self {
+        self.max_options = Some(max);
         self
     }
 
@@ -233,9 +247,11 @@ impl CommandPattern {
         if !prefix || rest.iter().any(|word| self.forbid.iter().any(|entry| forbids(entry, word))) {
             return false;
         }
-        let count = operands(&rest[self.args.len()..]);
+        let after = &rest[self.args.len()..];
+        let count = operands(after);
         self.max_operands.is_none_or(|max| count <= max)
             && self.min_operands.is_none_or(|min| count >= min)
+            && self.max_options.is_none_or(|max| options(after) <= max)
     }
 }
 
@@ -274,6 +290,21 @@ fn operands(words: &[String]) -> usize {
             count += 1;
         } else if word == "--" {
             after_options = true;
+        }
+    }
+    count
+}
+
+/// How many of `words` are options: words that start with `-`, other than `-`, up to
+/// and including `--`.
+fn options(words: &[String]) -> usize {
+    let mut count = 0;
+    for word in words {
+        if word.starts_with('-') && word != "-" {
+            count += 1;
+            if word == "--" {
+                break;
+            }
         }
     }
     count

@@ -49,9 +49,9 @@ Modules:
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
   words that must not appear (`forbid`: `--long` with its abbreviations, `-x` inside a
   cluster, `-word` as `find` reads it, or a substring of an operand), `min_operands`
-  and `max_operands`, and `under`, a directory the command must run in or below, which
-  matches only while the line's directory is known: before any `cd`, `pushd` or `popd`
-  in it. `Policy::defaults()` is the table above as eight rules followed by the
+  and `max_operands`, `max_options` (with `max_operands`, 0 allows the `args` alone),
+  and `under`, a directory the command must run in or below, which matches only while
+  the line's directory is known: before any `cd`, `pushd` or `popd` in it. `Policy::defaults()` is the table above as eight rules followed by the
   read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
   `systemctl status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without
   `-exec` or `-delete` and more; `env` and `printenv` are left out because they print

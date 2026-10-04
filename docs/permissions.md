@@ -241,6 +241,9 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
     every operand that contains it;
   - `max_operands` and `min_operands`: the most and the fewest operands after `args`.
     An operand is `-`, a word that does not start with `-`, or any word after `--`;
+  - `max_options`: the most options after `args`. An option is a word that starts
+    with `-`, other than `-`, up to and including `--`. `max_options = 0` with
+    `max_operands = 0` allows the words of `args` and nothing after them;
   - `under`: a directory where the command must run, or below it. It is the hidden
     shell's directory when the line starts. After a `cd`, `pushd` or `popd` earlier in
     the line, the directory is unknown and the rule matches nothing.

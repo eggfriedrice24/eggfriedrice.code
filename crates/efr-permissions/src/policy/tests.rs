@@ -424,6 +424,32 @@ fn max_operands_counts_after_the_args() {
 }
 
 #[rstest]
+#[case::the_args_alone("ps -ef", true)]
+#[case::an_operand("ps -ef x", false)]
+#[case::an_option("ps -ef -x", false)]
+#[case::a_long_option("ps -ef --forest", false)]
+#[case::end_of_options("ps -ef --", false)]
+fn max_options_with_max_operands_allows_the_args_alone(#[case] line: &str, #[case] expected: bool) {
+    let pattern =
+        CommandPattern::new("ps").with_args(["-ef"]).with_max_operands(0).with_max_options(0);
+    assert_eq!(pattern.matches_words(&words(line)), expected, "{line:?}");
+}
+
+#[rstest]
+#[case::none("ls", 0, true)]
+#[case::one("ls -l src", 1, true)]
+#[case::two("ls -l -a", 2, false)]
+#[case::a_cluster_is_one("ls -la", 1, true)]
+#[case::stdin_dash_is_an_operand("cat -n -", 1, true)]
+#[case::end_of_options_counts("ls -- -l -a", 1, true)]
+#[case::words_after_end_of_options_are_operands("ls -l -- -a -b", 2, false)]
+fn max_options_counts_options(#[case] line: &str, #[case] count: usize, #[case] expected: bool) {
+    let words = words(line);
+    let pattern = CommandPattern::new(words[0].clone()).with_max_options(1);
+    assert_eq!(pattern.matches_words(&words), expected, "{line:?} has {count}");
+}
+
+#[rstest]
 #[case::relative_under(
     Rule::new(Action::Write, Resource::Under("p/app".into()), Effect::Allow),
     PermissionsError::RulePathNotAbsolute { index: 0, path: "p/app".into() }
@@ -553,6 +579,7 @@ rules = [
     { action = "network", resource = "any", effect = "allow" },
     { action = "execute", resource = { command = { program = "find", forbid = ["-delete"], max_operands = 2 } }, effect = "allow" },
     { action = "execute", resource = { command = { program = "cargo", args = ["test"], under = "~/p/app" } }, effect = "allow" },
+    { action = "execute", resource = { command = { program = "ps", args = ["-ef"], max_operands = 0, max_options = 0 } }, effect = "allow" },
 ]
 "#;
     let config: Config = toml::from_str(text).unwrap();
@@ -577,6 +604,16 @@ rules = [
             Action::Execute,
             Resource::Command(
                 CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app"),
+            ),
+            Effect::Allow,
+        ),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(
+                CommandPattern::new("ps")
+                    .with_args(["-ef"])
+                    .with_max_operands(0)
+                    .with_max_options(0),
             ),
             Effect::Allow,
         ),
