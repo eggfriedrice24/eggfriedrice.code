@@ -21,6 +21,9 @@ impl Home {
     ///
     /// Fails when `path` is relative or is `/`. When `path` cannot be resolved (it does
     /// not exist yet), the resolved form is the normal form.
+    ///
+    /// This resolves links on the file system and so blocks; the daemon builds the home
+    /// once at startup, and an async caller builds it in `spawn_blocking`.
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, ScopeError> {
         let given = path.into();
         let Some(path) = normalize(&given) else {

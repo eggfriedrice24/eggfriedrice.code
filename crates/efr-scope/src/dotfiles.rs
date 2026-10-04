@@ -55,19 +55,44 @@ impl Dotfiles {
 /// then bare repositories by name.
 ///
 /// `data_home` is `$XDG_DATA_HOME` when the caller knows it; `None` means
-/// `~/.local/share`. Fails when `home` cannot be listed or git cannot run.
+/// `~/.local/share`. The disk is read on tokio's blocking pool under the git timeout.
+/// Fails when `home` cannot be listed, when git cannot run, or when git or a look at
+/// the disk does not finish in time.
 pub async fn detect_dotfiles(
     home: &Home,
     data_home: Option<&Path>,
     git: &Git,
 ) -> Result<Vec<Dotfiles>, ScopeError> {
+    let scan = {
+        let (owned, data_home) = (home.clone(), data_home.map(Path::to_path_buf));
+        git.probe(home.path(), move || scan(&owned, data_home.as_deref())).await??
+    };
     let mut found = Vec::new();
-
-    let dot_git = home.path().join(".git");
-    if dot_git.symlink_metadata().is_ok() && is_home_work_tree(home, git).await? {
-        found.push(Dotfiles::HomeWorkTree { git_dir: dot_git });
+    if scan.dot_git && is_home_work_tree(home, git).await? {
+        found.push(Dotfiles::HomeWorkTree { git_dir: home.path().join(".git") });
     }
+    found.extend(scan.yadm.into_iter().map(|git_dir| Dotfiles::Yadm { git_dir }));
+    for git_dir in scan.bare_candidates {
+        if worktree_is_home(&git_dir, home, git).await? {
+            found.push(Dotfiles::BareRepo { git_dir });
+        }
+    }
+    Ok(found)
+}
 
+/// What [`detect_dotfiles`] needs from the disk, read in one blocking call.
+#[derive(Debug)]
+struct Scan {
+    /// Something is at `~/.git`.
+    dot_git: bool,
+    /// The yadm repositories that exist.
+    yadm: Vec<PathBuf>,
+    /// The dot directories of `$HOME` shaped like a git directory, by name.
+    bare_candidates: Vec<PathBuf>,
+}
+
+fn scan(home: &Home, data_home: Option<&Path>) -> Result<Scan, ScopeError> {
+    let dot_git = home.path().join(".git").symlink_metadata().is_ok();
     let default_data_home = home.path().join(".local/share");
     let mut yadm = vec![
         data_home.unwrap_or(&default_data_home).join("yadm/repo.git"),
@@ -75,23 +100,17 @@ pub async fn detect_dotfiles(
         home.path().join(".yadm/repo.git"),
     ];
     yadm.dedup();
-    for git_dir in yadm {
-        if looks_like_git_dir(&git_dir) {
-            found.push(Dotfiles::Yadm { git_dir });
-        }
-    }
-
-    for git_dir in dot_dirs(home)? {
-        if looks_like_git_dir(&git_dir) && worktree_is_home(&git_dir, home, git).await? {
-            found.push(Dotfiles::BareRepo { git_dir });
-        }
-    }
-    Ok(found)
+    yadm.retain(|git_dir| looks_like_git_dir(git_dir));
+    let mut bare_candidates = dot_dirs(home)?;
+    bare_candidates.retain(|git_dir| looks_like_git_dir(git_dir));
+    Ok(Scan { dot_git, yadm, bare_candidates })
 }
 
 async fn is_home_work_tree(home: &Home, git: &Git) -> Result<bool, ScopeError> {
-    let root = git.run(home.path(), home, ["rev-parse", "--show-toplevel"]).await?;
-    Ok(root.is_some_and(|root| is_home(&PathBuf::from(OsString::from_vec(root)), home)))
+    match git.run(home.path(), home, ["rev-parse", "--show-toplevel"]).await? {
+        Some(root) => is_home(PathBuf::from(OsString::from_vec(root)), home, git).await,
+        None => Ok(false),
+    }
 }
 
 /// Whether the bare repository `git_dir` names `$HOME` as its work tree.
@@ -114,17 +133,19 @@ async fn worktree_is_home(git_dir: &Path, home: &Home, git: &Git) -> Result<bool
         Ok(rest) => home.path().join(rest),
         Err(_) => git_dir.join(value),
     };
-    Ok(is_home(&worktree, home))
+    is_home(worktree, home, git).await
 }
 
-/// True when `path` names the home directory, lexically or after resolving links.
-fn is_home(path: &Path, home: &Home) -> bool {
-    let normal = normalize(path);
-    let canonical = std::fs::canonicalize(path).ok();
-    [normal, canonical]
-        .into_iter()
-        .flatten()
-        .any(|path| path == home.path() || path == home.canonical())
+/// True when `path` names the home directory, lexically or after resolving links. Links
+/// are resolved on the blocking pool, and only when the lexical form does not match.
+async fn is_home(path: PathBuf, home: &Home, git: &Git) -> Result<bool, ScopeError> {
+    let names_home = |candidate: &Path| candidate == home.path() || candidate == home.canonical();
+    if normalize(&path).is_some_and(|normal| names_home(&normal)) {
+        return Ok(true);
+    }
+    let target = path.clone();
+    let canonical = git.probe(&path, move || std::fs::canonicalize(target).ok()).await?;
+    Ok(canonical.is_some_and(|canonical| names_home(&canonical)))
 }
 
 /// The directories directly in `$HOME` whose names start with a dot, except `.git`,

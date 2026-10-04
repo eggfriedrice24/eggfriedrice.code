@@ -46,7 +46,7 @@ Tier 1.
 clock for git timeouts, atomic writes). `xtask/src/deps.rs` holds the allowlist.
 
 Third-party crates: `serde` and `toml` (the registry file), `thiserror`, and `tokio`
-only to name the type of the git command that `efr-stdx` builds.
+for the type of the git command that `efr-stdx` builds and for `spawn_blocking`.
 
 ## Invariant
 
@@ -57,7 +57,11 @@ never reported as a work tree.
 
 The scope is derived again every turn from the current `ShellContext` and the current
 registry, never cached. When derivation fails (a relative directory, git missing or
-hung), the caller uses `Machine`, the scope that widens nothing.
+hung, a file system that does not answer), the caller uses `Machine`, the scope that
+widens nothing. Derivation never blocks an async worker: every look at the file system
+(`is_dir`, `canonicalize`, listing `$HOME`) and the start of git run on tokio's
+blocking pool under the git timeout, because a `stat` on a hung network mount never
+returns.
 
 Known limits: a repository owned by another user (etckeeper's `/etc`) counts as no
 repository, because git refuses it; register it to make it a project. A bare dotfiles

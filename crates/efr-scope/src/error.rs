@@ -112,6 +112,28 @@ pub enum ScopeError {
         after: Duration,
     },
 
+    /// Looking at a path on the file system did not finish in time, for example on a
+    /// hung network mount. The look runs on tokio's blocking pool, so only that pool
+    /// thread waits on.
+    #[error("looking at {} did not finish within {after:?}", .path.display())]
+    InspectTimedOut {
+        /// The path.
+        path: PathBuf,
+        /// The timeout.
+        after: Duration,
+    },
+
+    /// The blocking task that looked at a path ended without an answer, because it
+    /// panicked or the runtime is shutting down.
+    #[error("looking at {} ended without an answer", .path.display())]
+    InspectAborted {
+        /// The path.
+        path: PathBuf,
+        /// The error from tokio.
+        #[source]
+        source: tokio::task::JoinError,
+    },
+
     /// A directory could not be listed.
     #[error("could not list the directory {}", .path.display())]
     ReadDir {

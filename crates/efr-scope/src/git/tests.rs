@@ -132,9 +132,34 @@ async fn git_that_hangs_times_out_without_waiting() {
     std::fs::write(&script, "#!/bin/sh\nexec sleep 600\n").unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let cwd = sandbox.mkdir(&sandbox.in_home("p"));
+    // `run` and not `discover`: with a clock that fires at once, the look at `cwd` that
+    // comes first in `discover` would time out before git starts.
     let git = Git::new(Arc::new(InstantClock)).isolated().with_program(&script);
-    let error = git.discover(&cwd, sandbox.home()).await.unwrap_err();
+    let error = git.run(&cwd, sandbox.home(), ["rev-parse"]).await.unwrap_err();
     assert!(matches!(error, ScopeError::GitTimedOut { after } if after == DEFAULT_GIT_TIMEOUT));
+}
+
+#[tokio::test]
+async fn a_probe_runs_on_the_blocking_pool_and_not_on_the_calling_worker() {
+    let caller = std::thread::current().id();
+    let ran_on = git().probe(Path::new("/"), || std::thread::current().id()).await.unwrap();
+    assert_ne!(ran_on, caller);
+}
+
+#[tokio::test]
+async fn a_probe_that_hangs_times_out_and_lets_the_turn_go_on() {
+    let (release, hold) = std::sync::mpsc::channel::<()>();
+    let git = Git::new(Arc::new(InstantClock));
+    let error = git.probe(Path::new("/mnt/hung"), move || hold.recv()).await.unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            ScopeError::InspectTimedOut { path, after }
+                if path == Path::new("/mnt/hung") && *after == DEFAULT_GIT_TIMEOUT
+        ),
+        "{error:?}"
+    );
+    release.send(()).unwrap();
 }
 
 #[test]

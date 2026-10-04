@@ -16,8 +16,8 @@ efr-protocol.workspace = true
 efr-stdx.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-# Only for the type of the git command; efr-stdx builds the command, and its tokio
-# runtime runs it.
+# For the type of the git command that efr-stdx builds, and for spawn_blocking, which
+# keeps every look at the file system off the async workers.
 tokio.workspace = true
 toml.workspace = true
 

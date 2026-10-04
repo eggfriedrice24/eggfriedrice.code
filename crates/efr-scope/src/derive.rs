@@ -50,8 +50,10 @@ pub enum Basis {
 /// `cwd` is matched against the registry both as given and with symbolic links
 /// resolved, because the shell reports its logical directory. The registry is passed
 /// in, so the caller decides how often to read the file; the daemon reads it every
-/// turn. Fails when `cwd` is relative or when git cannot run; the caller then uses
-/// `Machine`, which widens nothing.
+/// turn. The file system is read on tokio's blocking pool (see [`Git`]), never on the
+/// calling task. Fails when `cwd` is relative, when git cannot run, or when git or a look
+/// at the file system does not finish in time; the caller then uses `Machine`, which
+/// widens nothing.
 pub async fn derive(
     cwd: &Path,
     home: &Home,
@@ -61,7 +63,8 @@ pub async fn derive(
     let Some(cwd) = normalize(cwd) else {
         return Err(ScopeError::NotAbsolute { path: cwd.to_path_buf() });
     };
-    let resolved = std::fs::canonicalize(&cwd).ok();
+    let target = cwd.clone();
+    let resolved = git.probe(&cwd, move || std::fs::canonicalize(target).ok()).await?;
     let forms = || std::iter::once(cwd.as_path()).chain(resolved.as_deref());
 
     let project = forms().find_map(|form| registry.containing(form));

@@ -13,8 +13,14 @@
 //! git also runs without the variables that point it at another repository or inject
 //! configuration, with optional locks and terminal prompts off, and under a timeout on
 //! the injected clock, because the next turn waits for it.
+//!
+//! Every look at the file system that discovery and derivation make (`is_dir`,
+//! `canonicalize`, listing `$HOME`) and the start of git itself run on tokio's blocking
+//! pool under the same timeout, through `Git::probe`: on a hung network mount a
+//! `stat` never returns, and it must hold neither an async worker nor the turn.
 
 use std::ffi::{OsStr, OsString};
+use std::io;
 use std::os::unix::ffi::OsStringExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -121,13 +127,14 @@ impl Git {
 
     /// Which git work tree holds `cwd`, with the guards of this module.
     ///
-    /// Fails when `cwd` is relative, when git cannot be started, or when it does not
-    /// finish in time.
+    /// Fails when `cwd` is relative, when git cannot be started, or when git or the look
+    /// at `cwd` does not finish in time.
     pub async fn discover(&self, cwd: &Path, home: &Home) -> Result<Discovery, ScopeError> {
         let Some(cwd) = normalize(cwd) else {
             return Err(ScopeError::NotAbsolute { path: cwd.to_path_buf() });
         };
-        if !cwd.is_dir() {
+        let target = cwd.clone();
+        if !self.probe(&cwd, move || target.is_dir()).await? {
             return Ok(Discovery::NotARepository);
         }
         let Some(root) = self.run(&cwd, home, ["rev-parse", "--show-toplevel"]).await? else {
@@ -160,7 +167,15 @@ impl Git {
         S: AsRef<OsStr>,
     {
         let mut command = self.command(cwd, home, args);
-        let output = match self.clock.timeout(self.timeout, command.output()).await {
+        let output = async move {
+            // NOTE: spawning returns only once the child has changed into `cwd` and
+            // executed git, and on a hung mount that change never ends.
+            let child = tokio::task::spawn_blocking(move || command.spawn())
+                .await
+                .map_err(io::Error::other)??;
+            child.wait_with_output().await
+        };
+        let output = match self.clock.timeout(self.timeout, output).await {
             Ok(Ok(output)) => output,
             Ok(Err(source)) => {
                 return Err(ScopeError::RunGit { program: self.program.clone(), source });
@@ -175,6 +190,26 @@ impl Git {
             stdout.pop();
         }
         Ok(Some(stdout))
+    }
+
+    /// Runs `probe`, a look at the file system around `path`, on tokio's blocking pool
+    /// under this runner's timeout.
+    ///
+    /// A `stat` or `realpath` on a hung network mount never returns. On the blocking
+    /// pool it holds one pool thread instead of an async worker, and the timeout lets the
+    /// turn go on with `Machine`.
+    pub(crate) async fn probe<T, F>(&self, path: &Path, probe: F) -> Result<T, ScopeError>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        match self.clock.timeout(self.timeout, tokio::task::spawn_blocking(probe)).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(source)) => Err(ScopeError::InspectAborted { path: path.to_path_buf(), source }),
+            Err(_) => {
+                Err(ScopeError::InspectTimedOut { path: path.to_path_buf(), after: self.timeout })
+            }
+        }
     }
 
     /// The command for one git run, with the environment of this module.
