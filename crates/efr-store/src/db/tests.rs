@@ -70,3 +70,23 @@ fn open_without_a_parent_directory_fails_with_the_path() {
     let error = open(&path).unwrap_err();
     assert!(matches!(error, StoreError::CreateFile { path: ref p, .. } if *p == path), "{error:?}");
 }
+
+#[test]
+fn read_only_connections_refuse_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("efr.sqlite");
+    let writer = open(&path).unwrap();
+    writer.execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)").unwrap();
+    let reader = open_read_only(&path).unwrap();
+    let x: i64 = reader.query_row("SELECT x FROM t", [], |row| row.get(0)).unwrap();
+    assert_eq!(x, 1);
+    assert!(reader.execute("INSERT INTO t VALUES (2)", []).is_err());
+    assert_eq!(pragma_i64(&reader, "busy_timeout"), 5000);
+}
+
+#[test]
+fn read_only_open_of_a_missing_database_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("efr.sqlite");
+    assert!(matches!(open_read_only(&path), Err(StoreError::Open { .. })));
+}

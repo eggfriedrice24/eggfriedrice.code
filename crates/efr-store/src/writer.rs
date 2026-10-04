@@ -17,7 +17,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
-use crate::{StoreError, events, projection, receipts, sql};
+use crate::{StoreError, events, projection, reader, receipts, sql};
 
 mod batch;
 
@@ -156,6 +156,20 @@ impl WriterHandle {
         self.run(|state| state.write(|tx, _at| projection::rebuild(tx))).await
     }
 
+    /// Runs a read on the writer's connection with `query_only` set, for an in-memory
+    /// store whose only connection is the writer's.
+    pub(crate) async fn read<T, F>(&self, f: F) -> Result<T, StoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+    {
+        self.run(move |state| {
+            let _query_only = QueryOnly::set(&state.conn)?;
+            reader::read_in_transaction(&state.conn, f)
+        })
+        .await
+    }
+
     /// Runs `job` on the writer thread with the connection and returns its result.
     pub(crate) async fn run<T, F>(&self, job: F) -> Result<T, StoreError>
     where
@@ -216,6 +230,25 @@ impl WriterState {
             let _ = self.events.send(committed.clone());
         }
         Ok(committed)
+    }
+}
+
+/// Keeps the writer's connection from writing while a read runs on it. Dropping the
+/// guard, also while a panic unwinds, makes the connection writable again.
+struct QueryOnly<'c>(&'c Connection);
+
+impl<'c> QueryOnly<'c> {
+    fn set(conn: &'c Connection) -> Result<Self, StoreError> {
+        conn.pragma_update(None, "query_only", true)?;
+        Ok(QueryOnly(conn))
+    }
+}
+
+impl Drop for QueryOnly<'_> {
+    fn drop(&mut self) {
+        // Clearing a pragma on an open connection does not fail in practice; if it did,
+        // the next write would fail loudly rather than write anything wrong.
+        let _ = self.0.pragma_update(None, "query_only", false);
     }
 }
 

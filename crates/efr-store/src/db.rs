@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use efr_stdx::StdxError;
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::StoreError;
 
@@ -66,6 +66,22 @@ pub fn open_in_memory() -> Result<Connection, StoreError> {
     let conn = Connection::open_in_memory()
         .map_err(|source| StoreError::Open { path: PathBuf::from(":memory:"), source })?;
     configure(&conn)?;
+    Ok(conn)
+}
+
+/// Opens the database at `path` read-only, for the reader pool. The database must
+/// exist and be in WAL mode, which the writer's [`open`] guarantees.
+///
+/// `query_only` is set as well, so a write fails even through a statement that the
+/// read-only flag would not catch, such as a pragma.
+pub(crate) fn open_read_only(path: &Path) -> Result<Connection, StoreError> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(path, flags)
+        .map_err(|source| StoreError::Open { path: path.to_path_buf(), source })?;
+    conn.busy_timeout(BUSY_TIMEOUT)
+        .map_err(|source| StoreError::Configure { pragma: "busy_timeout", source })?;
+    set_pragma(&conn, "temp_store", "MEMORY")?;
+    set_pragma(&conn, "query_only", "ON")?;
     Ok(conn)
 }
 

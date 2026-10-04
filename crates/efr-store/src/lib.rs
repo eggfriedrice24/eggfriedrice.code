@@ -28,6 +28,7 @@ pub mod events;
 mod migrations;
 pub mod outbox;
 mod projection;
+mod reader;
 pub mod receipts;
 pub mod shells;
 mod sql;
@@ -37,4 +38,5 @@ mod writer;
 
 pub use error::StoreError;
 pub use migrations::{MigrationReport, Migrations};
+pub use reader::{DEFAULT_READERS, Readers};
 pub use writer::{Batch, Committed, DEFAULT_BROADCAST_CAPACITY, StoreWriter, WriterHandle};
