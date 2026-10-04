@@ -22,8 +22,16 @@
 
 mod error;
 mod pty_script;
+mod test_daemon;
 
+// NOTE: the client types are part of this crate's API (a test daemon hands out
+// clients), so its users need no efr-client edge of their own.
+pub use efr_client::{Client, ClientError, ConnectOptions, ItemStream};
 pub use error::TestDaemonError;
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
+};
+pub use test_daemon::{
+    API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME, OS, ReceivedRequest, ResponsesAnswer,
+    ResponsesServer, SYSTEM_PROMPT, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until,
 };
