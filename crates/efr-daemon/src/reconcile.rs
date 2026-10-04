@@ -6,6 +6,9 @@
 //!   calls died with the process;
 //! - a pending approval expires (`approval_expired`): the turn that waited for it is
 //!   gone, so the answer could not resume anything;
+//! - a tool call of that turn without a result gets an error result
+//!   (`tool_call_completed`), so the log answers every call it started, as a provider
+//!   requires of the history;
 //! - a queued prompt is held (`prompt_held`) until the user confirms it;
 //! - a hidden shell that was running is recorded as exited (`shell_exited`): shells are
 //!   children of the daemon at milestone 1 and end with it;
@@ -16,9 +19,9 @@
 //! table is testable on its own; [`reconcile`] reads, plans and writes one batch per
 //! conversation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use efr_protocol::{ConversationId, Event};
+use efr_protocol::{CallId, ConversationId, Event, EventEnvelope, TurnId};
 use efr_store::approvals::PendingApproval;
 use efr_store::conversations::{Turn, TurnStatus};
 use efr_store::shells::Shell;
@@ -26,11 +29,21 @@ use efr_store::{Batch, Readers, WriterHandle};
 
 use crate::DaemonError;
 
+/// What the model reads for a call that was running or waiting for approval when the
+/// daemon stopped.
+pub(crate) const STOPPED_CALL: &str = "The call did not finish: the daemon stopped while it \
+                                       ran or waited for approval; it may or may not have \
+                                       run.";
+
+/// How many events one read of a turn's events asks for.
+const PAGE: u32 = 512;
+
 /// What the reconciliation did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Reconciled {
     pub(crate) turns_cancelled: usize,
     pub(crate) approvals_expired: usize,
+    pub(crate) calls_closed: usize,
     pub(crate) prompts_held: usize,
     pub(crate) shells_exited: usize,
     pub(crate) outbox_cancelled: u64,
@@ -38,10 +51,12 @@ pub(crate) struct Reconciled {
 }
 
 /// The events that settle what was in flight, per conversation, in log order: expired
-/// approvals first, then the cancelled turn, then the held prompts.
+/// approvals first, then the results of the calls in `open_calls` (the calls of each
+/// running turn without a result), then the cancelled turn, then the held prompts.
 pub(crate) fn plan(
     turns: &[Turn],
     approvals: &[PendingApproval],
+    open_calls: &HashMap<TurnId, Vec<CallId>>,
     shells: &[Shell],
 ) -> BTreeMap<ConversationId, Vec<Event>> {
     let mut events: BTreeMap<ConversationId, Vec<Event>> = BTreeMap::new();
@@ -52,10 +67,18 @@ pub(crate) fn plan(
             .push(Event::ApprovalExpired { turn_id: approval.turn_id, call_id: approval.call_id });
     }
     for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Running) {
-        events
-            .entry(turn.conversation_id)
-            .or_default()
-            .push(Event::TurnCancelled { turn_id: turn.id });
+        let settled = events.entry(turn.conversation_id).or_default();
+        for call_id in open_calls.get(&turn.id).into_iter().flatten() {
+            settled.push(Event::ToolCallCompleted {
+                turn_id: turn.id,
+                call_id: *call_id,
+                output: STOPPED_CALL.to_owned(),
+                truncated: false,
+                is_error: true,
+                exit_code: None,
+            });
+        }
+        settled.push(Event::TurnCancelled { turn_id: turn.id });
     }
     for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Queued) {
         events
@@ -78,11 +101,32 @@ pub(crate) async fn reconcile(
     readers: &Readers,
     writer: &WriterHandle,
 ) -> Result<Reconciled, DaemonError> {
-    let (turns, approvals, shells) = readers
+    let (turns, approvals, open_calls, shells) = readers
         .with(|conn| {
+            let turns = efr_store::conversations::unfinished_turns(conn)?;
+            let mut open = HashMap::new();
+            for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Running) {
+                let mut calls = Vec::new();
+                let mut after = turn.queued_seq;
+                while after < turn.last_seq {
+                    let page = efr_store::events::read_conversation_after(
+                        conn,
+                        turn.conversation_id,
+                        after,
+                        PAGE,
+                    )?;
+                    let Some(last) = page.last() else {
+                        break;
+                    };
+                    after = last.seq;
+                    track_calls(&mut calls, turn.id, &page);
+                }
+                open.insert(turn.id, calls);
+            }
             Ok((
-                efr_store::conversations::unfinished_turns(conn)?,
+                turns,
                 efr_store::approvals::pending(conn, None)?,
+                open,
                 efr_store::shells::running(conn)?,
             ))
         })
@@ -90,11 +134,12 @@ pub(crate) async fn reconcile(
     let mut done = Reconciled {
         turns_cancelled: turns.iter().filter(|turn| turn.status == TurnStatus::Running).count(),
         approvals_expired: approvals.len(),
+        calls_closed: open_calls.values().map(Vec::len).sum(),
         prompts_held: turns.iter().filter(|turn| turn.status == TurnStatus::Queued).count(),
         shells_exited: shells.len(),
         ..Reconciled::default()
     };
-    for (conversation_id, events) in plan(&turns, &approvals, &shells) {
+    for (conversation_id, events) in plan(&turns, &approvals, &open_calls, &shells) {
         let batch = events
             .into_iter()
             .fold(Batch::new(), |batch, event| batch.event(conversation_id, event));
@@ -104,6 +149,22 @@ pub(crate) async fn reconcile(
     done.outbox_cancelled = outbox.cancelled;
     done.outbox_requeued = outbox.requeued;
     Ok(done)
+}
+
+/// Adds the calls of `turn_id` that start in `page` to `open`, and removes those that
+/// end there, so `open` keeps the calls without a result in the order they started.
+fn track_calls(open: &mut Vec<CallId>, turn_id: TurnId, page: &[EventEnvelope]) {
+    for envelope in page {
+        match &envelope.event {
+            Event::ToolCallStarted { turn_id: turn, call_id, .. } if *turn == turn_id => {
+                open.push(*call_id);
+            }
+            Event::ToolCallCompleted { turn_id: turn, call_id, .. } if *turn == turn_id => {
+                open.retain(|open| open != call_id);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

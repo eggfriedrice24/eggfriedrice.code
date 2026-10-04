@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use efr_protocol::{
@@ -10,7 +11,7 @@ use efr_test_support::{TestClock, TestStore};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::reconcile::{Reconciled, plan, reconcile};
+use crate::reconcile::{Reconciled, STOPPED_CALL, plan, reconcile};
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -28,6 +29,15 @@ fn queued(turn: TurnId, n: u128) -> Event {
 
 fn started(turn: TurnId) -> Event {
     Event::TurnStarted { turn_id: turn, cwd: PathBuf::from("/home/u"), scope: Scope::Machine }
+}
+
+fn call_started(turn: TurnId, call: CallId) -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn,
+        call_id: call,
+        tool: "write_file".to_owned(),
+        input: json!({ "path": "/etc/hosts", "content": "" }),
+    }
 }
 
 fn created() -> Event {
@@ -53,6 +63,7 @@ async fn scene() -> Scene {
     let (t1, t2, t3) =
         (TurnId::from_uuid(id(11)), TurnId::from_uuid(id(12)), TurnId::from_uuid(id(13)));
     let call = CallId::from_uuid(id(21));
+    let done = CallId::from_uuid(id(22));
     let pty = PtyId::from_uuid(id(31));
     let batch = Batch::new()
         .event(busy, created())
@@ -62,6 +73,19 @@ async fn scene() -> Scene {
             busy,
             Event::ShellStarted { pty_id: pty, cwd: PathBuf::from("/home/u"), pid: Some(7) },
         )
+        .event(busy, call_started(t1, done))
+        .event(
+            busy,
+            Event::ToolCallCompleted {
+                turn_id: t1,
+                call_id: done,
+                output: "ok".to_owned(),
+                truncated: false,
+                is_error: false,
+                exit_code: Some(0),
+            },
+        )
+        .event(busy, call_started(t1, call))
         .event(
             busy,
             Event::ApprovalRequested {
@@ -101,6 +125,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
         Reconciled {
             turns_cancelled: 1,
             approvals_expired: 1,
+            calls_closed: 1,
             prompts_held: 1,
             shells_exited: 1,
             outbox_cancelled: 1,
@@ -111,6 +136,17 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
         after(store.events().await.unwrap(), hwm),
         [
             (Some(busy), Event::ApprovalExpired { turn_id: t1, call_id: call }),
+            (
+                Some(busy),
+                Event::ToolCallCompleted {
+                    turn_id: t1,
+                    call_id: call,
+                    output: STOPPED_CALL.to_owned(),
+                    truncated: false,
+                    is_error: true,
+                    exit_code: None,
+                }
+            ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),
             (Some(busy), Event::PromptHeld { turn_id: t2 }),
             (Some(busy), Event::ShellExited { pty_id: pty, exit_code: None }),
@@ -166,6 +202,6 @@ async fn the_plan_leaves_finished_and_held_turns_alone() {
         .unwrap();
 
     assert_eq!(turns.len(), 2, "the cancelled turn and the held one");
-    assert!(plan(&turns, &approvals, &shells).is_empty());
+    assert!(plan(&turns, &approvals, &HashMap::new(), &shells).is_empty());
     store.close().await;
 }
