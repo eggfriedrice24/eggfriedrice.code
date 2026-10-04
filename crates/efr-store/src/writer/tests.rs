@@ -136,3 +136,25 @@ async fn join_returns_once_every_handle_is_gone() {
 
     thread.join().await;
 }
+
+#[tokio::test]
+async fn a_failed_batch_writes_nothing_and_uses_up_no_sequence_numbers() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    let mut receiver = writer.subscribe();
+
+    let failed = writer
+        .append(
+            Batch::new()
+                .event(id, testing::queued(1, "fine on its own"))
+                .event(testing::conversation(2), testing::queued(2, "unknown conversation")),
+        )
+        .await;
+    let committed =
+        writer.append(Batch::new().event(id, testing::queued(3, "next"))).await.unwrap();
+
+    assert!(failed.is_err());
+    assert_eq!(seqs(&committed), [2]);
+    assert_eq!(receiver.recv().await.unwrap(), committed, "the failed batch is never broadcast");
+}

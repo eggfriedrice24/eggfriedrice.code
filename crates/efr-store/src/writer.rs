@@ -15,7 +15,7 @@ use efr_stdx::time::Clock;
 use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use crate::{StoreError, events, sql};
+use crate::{StoreError, events, projection, sql};
 
 mod batch;
 
@@ -126,6 +126,19 @@ impl WriterHandle {
         self.events.subscribe()
     }
 
+    /// Throws the projections away and rebuilds them from the event log in one
+    /// transaction. They are a function of the log, so the result equals what the
+    /// writer built event by event; this is how a projection bug is repaired.
+    pub async fn rebuild_projections(&self) -> Result<(), StoreError> {
+        self.run(|state| {
+            let tx = state.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            projection::rebuild(&tx)?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Runs `job` on the writer thread with the connection and returns its result.
     pub(crate) async fn run<T, F>(&self, job: F) -> Result<T, StoreError>
     where
@@ -155,6 +168,7 @@ impl WriterState {
             next += 1;
             let envelope = EventEnvelope { seq: Seq::new(next), conversation_id, at, event };
             events::insert(&tx, &envelope)?;
+            projection::apply(&tx, &envelope)?;
             envelopes.push(envelope);
         }
         tx.commit()?;

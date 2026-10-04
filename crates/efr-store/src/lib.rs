@@ -20,10 +20,14 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+pub mod approvals;
+pub mod conversations;
 pub mod db;
 mod error;
 pub mod events;
 mod migrations;
+mod projection;
+pub mod shells;
 mod sql;
 #[cfg(test)]
 mod testing;

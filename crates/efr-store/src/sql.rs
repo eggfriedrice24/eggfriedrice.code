@@ -5,11 +5,14 @@
 //! `INTEGER`; SQLite integers are signed, and a sequence number never comes near
 //! `i64::MAX`.
 
+use std::path::Path;
 use std::str::FromStr;
 
 use efr_protocol::Seq;
 use jiff::Timestamp;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 use crate::StoreError;
 
@@ -65,6 +68,43 @@ where
 pub(crate) fn to_json<T: Serialize>(value: &T, what: &'static str) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|source| StoreError::Encode { what, source })
 }
+
+/// JSON text read from a column.
+pub(crate) fn from_json<T: DeserializeOwned>(
+    text: &str,
+    table: &'static str,
+    column: &'static str,
+) -> Result<T, StoreError> {
+    serde_json::from_str(text).map_err(|source| decode_error(table, column, source))
+}
+
+/// The wire name of a unit enum value, such as `awaiting_approval`, for a text column.
+/// Going through serde keeps the column and the wire spelling the same.
+pub(crate) fn wire_name<T: Serialize>(value: &T, what: &'static str) -> Result<String, StoreError> {
+    let json = to_json(value, what)?;
+    serde_json::from_str(&json).map_err(|source| StoreError::Encode { what, source })
+}
+
+/// A unit enum value read from its wire name in a text column.
+pub(crate) fn from_wire<T: DeserializeOwned>(
+    text: &str,
+    table: &'static str,
+    column: &'static str,
+) -> Result<T, StoreError> {
+    serde_json::from_value(Value::String(text.to_owned()))
+        .map_err(|source| decode_error(table, column, source))
+}
+
+/// A path as a text column. Paths reach the store inside JSON events, which hold only
+/// UTF-8 paths, so the conversion loses nothing in practice.
+pub(crate) fn path_text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// A name in an enum column that this build does not know.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not a known value")]
+pub(crate) struct UnknownName(pub(crate) String);
 
 pub(crate) fn decode_error(
     table: &'static str,

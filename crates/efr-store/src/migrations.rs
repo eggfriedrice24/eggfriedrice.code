@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use rusqlite_migration::M;
 
-use crate::StoreError;
+use crate::{StoreError, projection};
 
 /// The migrations in order; the position plus one is the version a file produces.
 const STEPS: &[M<'static>] = &[
@@ -92,7 +92,8 @@ impl Migrations {
         })
     }
 
-    /// Brings the database behind `conn` to [`Migrations::latest`].
+    /// Brings the database behind `conn` to [`Migrations::latest`], and rebuilds the
+    /// projections when the database had a schema before.
     ///
     /// When the database already has a schema and a migration is pending, a copy of
     /// it is written to `backups/<file name>.<version>` first (with mode 0600, through
@@ -121,6 +122,13 @@ impl Migrations {
         for version in from + 1..=latest {
             // One call per file, so each file commits on its own.
             self.steps.to_version(conn, version as usize)?;
+        }
+        if from > 0 {
+            // A migration may add or reshape a projection, and projections are a
+            // function of the log, so they are rebuilt rather than migrated row by row.
+            let tx = conn.transaction()?;
+            projection::rebuild(&tx)?;
+            tx.commit()?;
         }
         Ok(MigrationReport { from, to: latest, backup })
     }

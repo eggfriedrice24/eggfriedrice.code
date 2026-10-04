@@ -3,15 +3,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::*;
-use crate::testing::{self, TestClock};
+use crate::testing::{self, TestClock, on_writer};
 use crate::{Batch, WriterHandle};
-
-async fn on_writer<T: Send + 'static>(
-    writer: &WriterHandle,
-    f: impl FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
-) -> Result<T, StoreError> {
-    writer.run(move |state| f(&state.conn)).await
-}
 
 fn login(provider: &str) -> Event {
     Event::LoginCompleted { provider: provider.to_owned() }

@@ -179,3 +179,22 @@ fn payload_columns_must_hold_json() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn migrating_an_existing_database_rebuilds_the_projections() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().steps.to_version(&mut conn, 1).unwrap();
+    let id = crate::testing::conversation(1);
+    conn.execute(
+        "INSERT INTO events (seq, conversation_id, kind, payload, created_at) \
+         VALUES (1, ?1, 'conversation_created', '{\"kind\":\"conversation_created\",\"origin\":\"cli\"}', 0)",
+        [id.to_string()],
+    )
+    .unwrap();
+
+    Migrations::new().migrate(&mut conn, None).unwrap();
+
+    let summary = crate::conversations::get(&conn, id).unwrap().unwrap();
+    assert_eq!(summary.last_seq.get(), 1);
+}

@@ -5,16 +5,20 @@
 
 use std::fmt::Debug;
 use std::future::ready;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use efr_protocol::{CommandId, ConversationId, Event, Origin, TurnId};
+use efr_protocol::{
+    CallId, CommandId, ConversationId, Event, Origin, PtyId, Scope, ShellContext, TurnId,
+};
 use efr_stdx::time::{Clock, Sleep};
 use jiff::{SignedDuration, Timestamp};
+use rusqlite::Connection;
 
 use crate::writer::DEFAULT_BROADCAST_CAPACITY;
-use crate::{Migrations, StoreWriter, WriterHandle, db};
+use crate::{Migrations, StoreError, StoreWriter, WriterHandle, db};
 
 /// The instant every test clock starts at: 2026-10-04T12:00:00Z, plus a nanosecond
 /// part that the store must drop.
@@ -71,6 +75,14 @@ pub(crate) fn command(n: u64) -> CommandId {
     id(3, n)
 }
 
+pub(crate) fn call(n: u64) -> CallId {
+    id(4, n)
+}
+
+pub(crate) fn pty(n: u64) -> PtyId {
+    id(5, n)
+}
+
 pub(crate) fn created(tty: Option<&str>) -> Event {
     Event::ConversationCreated { origin: Origin::Shell, tty: tty.map(str::to_owned) }
 }
@@ -80,4 +92,51 @@ pub(crate) fn memory_writer(clock: Arc<TestClock>) -> (WriterHandle, StoreWriter
     let mut conn = db::open_in_memory().unwrap();
     Migrations::new().migrate(&mut conn, None).unwrap();
     StoreWriter::spawn(conn, clock, DEFAULT_BROADCAST_CAPACITY).unwrap()
+}
+
+pub(crate) fn path(text: &str) -> PathBuf {
+    PathBuf::from(text)
+}
+
+/// A prompt for turn `turn`, sent from `/etc/nixos`.
+pub(crate) fn queued(turn: u64, text: &str) -> Event {
+    Event::PromptQueued {
+        turn_id: self::turn(turn),
+        command_id: command(turn),
+        text: text.to_owned(),
+        origin: Origin::Shell,
+        context: Some(ShellContext::new("/etc/nixos")),
+    }
+}
+
+/// Turn `turn` starts in `cwd`, scoped to that path.
+pub(crate) fn started(turn: u64, cwd: &str) -> Event {
+    Event::TurnStarted {
+        turn_id: self::turn(turn),
+        cwd: cwd.into(),
+        scope: Scope::Path(cwd.into()),
+    }
+}
+
+/// Runs `f` on the writer's connection.
+pub(crate) async fn on_writer<T: Send + 'static>(
+    writer: &WriterHandle,
+    f: impl FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+) -> Result<T, StoreError> {
+    writer.run(move |state| f(&state.conn)).await
+}
+
+/// Every row of `table` as text, ordered by the first column.
+pub(crate) fn dump(conn: &Connection, table: &str) -> Vec<String> {
+    let mut stmt = conn.prepare(&format!("SELECT * FROM {table} ORDER BY 1")).unwrap();
+    let columns = stmt.column_count();
+    stmt.query_map([], |row| {
+        let values: Vec<String> = (0..columns)
+            .map(|index| row.get_ref(index).map(|value| format!("{value:?}")))
+            .collect::<Result<_, _>>()?;
+        Ok(values.join(" | "))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
 }
