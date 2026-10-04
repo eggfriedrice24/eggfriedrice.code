@@ -53,8 +53,10 @@ a named thread puts the terminal into non-canonical mode without echo, discards 
 typed before the question, and restores the terminal before the command goes on or
 exits. Without a terminal on stdin, the question waits for another client (the phone).
 
-Ctrl+C closes the connection; the daemon sees it close and cancels the turn (or the
-login). What arrived stays on the screen.
+Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
+130); the daemon stops the model and any running command. A prompt that still waits
+behind another turn cannot be taken back yet, and the CLI says so. During a login,
+Ctrl+C closes the connection. What arrived stays on the screen.
 
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
 interrupted elsewhere, or the connection broke; 2 a usage error; 3 no daemon listens

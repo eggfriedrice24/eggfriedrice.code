@@ -3,7 +3,7 @@ use std::sync::Arc;
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationSnapshot, ConversationStatus,
     ConversationSubscribeItem, ConversationSummary, ErrorBody, ErrorCode, Event, Method, Origin,
-    RequestId, Seq,
+    RequestId, Seq, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -17,7 +17,7 @@ use crate::testing::{
 };
 
 fn target() -> Target {
-    Target { conversation: conversation(), after: Seq::new(10) }
+    Target { conversation: conversation(), turn: turn(), after: Seq::new(10) }
 }
 
 fn raw_view() -> TurnView {
@@ -41,6 +41,17 @@ async fn subscribed(conn: &mut Conn, after: u64) -> RequestId {
     assert_eq!(params.conversation_id, conversation());
     assert_eq!(params.after_seq, Some(Seq::new(after)));
     id
+}
+
+/// The next request, after the cancels of streams the client dropped.
+async fn request_after_cancels(conn: &mut Conn) -> (RequestId, Method) {
+    loop {
+        match conn.recv().await {
+            Some(ClientFrame::Cancel { .. }) => {}
+            Some(ClientFrame::Request { id, method }) => return (id, method),
+            other => panic!("expected a request, got {other:?}"),
+        }
+    }
 }
 
 /// Runs `follow` with `ctx` against the fake daemon, which runs `script`.
@@ -266,7 +277,7 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
 }
 
 #[tokio::test]
-async fn ctrl_c_closes_the_connection_and_keeps_what_arrived() {
+async fn ctrl_c_interrupts_the_turn_and_keeps_what_arrived() {
     let env = TestEnv::new();
     let interrupt = Arc::new(TestInterrupt::default());
     let ctx = Context { interrupt: interrupt.clone(), ..env.context() };
@@ -283,12 +294,41 @@ async fn ctrl_c_closes_the_connection_and_keeps_what_arrived() {
             tokio::task::yield_now().await;
         }
         interrupt.trigger();
-        // The daemon sees the connection close, which is what cancels the turn.
-        let rest = conn.until_closed().await;
-        assert!(rest.iter().all(|frame| matches!(frame, ClientFrame::Cancel { .. })), "{rest:?}");
+        // A closed connection alone would leave the turn running in the daemon.
+        let (id, method) = request_after_cancels(&mut conn).await;
+        let Method::TurnInterrupt(params) = method else {
+            panic!("expected turn.interrupt, got {}", method.name());
+        };
+        assert_eq!(params.conversation_id, conversation());
+        assert_eq!(params.turn_id, Some(turn()));
+        conn.reply(id, &TurnInterruptResult { turn_id: turn(), seq: Seq::new(12) }).await;
+        conn.until_closed().await;
     })
     .await;
     assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
     assert_eq!(out, "Partial answer\n");
     assert!(err.ends_with("interrupted\n"), "{err:?}");
+}
+
+#[tokio::test]
+async fn ctrl_c_on_a_queued_prompt_says_it_was_not_interrupted() {
+    let env = TestEnv::new();
+    let interrupt = Arc::new(TestInterrupt::default());
+    let ctx = Context { interrupt: interrupt.clone(), ..env.context() };
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        subscribed(&mut conn, 10).await;
+        interrupt.trigger();
+        let (id, method) = request_after_cancels(&mut conn).await;
+        assert!(matches!(method, Method::TurnInterrupt(_)), "{}", method.name());
+        conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "another turn is running")).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert!(
+        err.ends_with(
+            "not interrupted: the turn is not running; a queued prompt still runs in its turn\n"
+        ),
+        "{err:?}"
+    );
 }

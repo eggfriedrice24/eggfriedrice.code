@@ -67,7 +67,8 @@ pub(crate) async fn send(
         out.err(&step.err);
         out.out(&step.out)?;
     }
-    let target = Target { conversation: result.conversation_id, after: result.seq };
+    let target =
+        Target { conversation: result.conversation_id, turn: result.turn_id, after: result.seq };
     follow::follow(ctx, &client, out, &mut view, target).await
 }
 

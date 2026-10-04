@@ -2,17 +2,22 @@
 //! turn's events as they arrive, answer approvals with one key, and return when the
 //! turn ends.
 //!
-//! Ctrl+C ends the command and drops the connection; the daemon sees the connection
-//! close and cancels the turn. A subscription that falls behind is resumed from the
-//! last event shown, so a slow terminal loses nothing.
+//! Ctrl+C asks the daemon to interrupt the turn (`turn.interrupt`, naming the
+//! followed turn) and then ends the command; a closed connection alone would leave the
+//! turn running in its conversation. A subscription that falls behind is resumed from
+//! the last event shown, so a slow terminal loses nothing.
 
 mod view;
+
+use std::time::Duration;
 
 use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationId,
-    ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Method, Seq,
+    ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Method, Seq, TurnId,
+    TurnInterrupt, TurnInterruptResult,
 };
+use efr_stdx::time::Clock as _;
 use futures::StreamExt as _;
 use serde_json::Value;
 
@@ -26,10 +31,16 @@ pub(crate) use view::{Step, TurnEnd, TurnView};
 /// How often in a row a subscription may fall behind before the command gives up.
 const MAX_RESUBSCRIBES: u32 = 8;
 
-/// Where the turn to follow is; the view knows which turn it is.
+/// How long Ctrl+C waits for the daemon to take the interrupt before the command ends
+/// anyway.
+const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Where the turn to follow is.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Target {
     pub(crate) conversation: ConversationId,
+    /// The turn, which Ctrl+C interrupts.
+    pub(crate) turn: TurnId,
     /// The sequence number of the prompt's event; the turn's events come after it.
     pub(crate) after: Seq,
 }
@@ -53,10 +64,35 @@ pub(crate) async fn follow(
         let size = ctx.screen.size();
         write(out, &view.close(size))?;
         if matches!(error, CliError::Interrupted) {
-            write(out, &view.note("interrupted", size))?;
+            let note = interrupt(ctx, client, target).await;
+            write(out, &view.note(&note, ctx.screen.size()))?;
         }
     }
     result
+}
+
+/// Asks the daemon to stop the followed turn, and says how that went.
+async fn interrupt(ctx: &Context, client: &Client, target: Target) -> String {
+    let method = Method::TurnInterrupt(TurnInterrupt {
+        command_id: ctx.command_id(),
+        conversation_id: target.conversation,
+        turn_id: Some(target.turn),
+    });
+    let call = client.call::<TurnInterruptResult>(method);
+    match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {
+        Ok(Ok(_)) => "interrupted".to_owned(),
+        // The turn already ended, or it still waits behind another turn, which the
+        // daemon cannot take back yet.
+        Ok(Err(ClientError::Server { body })) if body.code == ErrorCode::Conflict => {
+            "not interrupted: the turn is not running; a queued prompt still runs in its turn"
+                .to_owned()
+        }
+        Ok(Err(error)) => {
+            tracing::debug!(error = %error, "turn.interrupt failed");
+            format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
+        }
+        Err(_) => "the daemon did not confirm the interrupt; the turn may still run".to_owned(),
+    }
 }
 
 struct Follower<'a> {
