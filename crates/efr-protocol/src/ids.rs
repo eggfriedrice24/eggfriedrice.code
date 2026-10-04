@@ -16,6 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Declares a UUID newtype with the same API and wire form as every other entity id.
+/// Paths inside are absolute, so that `scope.rs` can use the macro for `ProjectId`.
 macro_rules! uuid_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -69,6 +70,8 @@ macro_rules! uuid_id {
         }
     };
 }
+
+pub(crate) use uuid_id;
 
 uuid_id!(
     /// One conversation: the unit a `,` line talks to and a subscription follows.

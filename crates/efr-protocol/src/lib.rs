@@ -17,10 +17,12 @@
 
 mod error;
 mod ids;
+mod scope;
 mod version;
 
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
 };
+pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use version::PROTOCOL_VERSION;
