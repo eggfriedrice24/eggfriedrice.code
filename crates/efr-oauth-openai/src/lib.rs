@@ -30,6 +30,7 @@
 #![warn(missing_docs)]
 
 mod authorize;
+mod callback;
 mod claims;
 mod config;
 mod error;
