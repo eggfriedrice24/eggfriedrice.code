@@ -51,6 +51,10 @@ Tier 1.
 `efr-protocol` so far: nothing here reads a clock, draws randomness or touches the
 file system. `xtask/src/deps.rs` holds the allowlist.
 
+`PtyId` and `Size` are re-exported, because the trait's signatures name them: a holder
+implementation (`efr-pty`, later `efr-ptyd`) then needs no `efr-protocol` edge of its
+own.
+
 Third-party crates: `async-trait`, `serde` and `thiserror`.
 
 ## Invariant

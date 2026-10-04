@@ -30,6 +30,10 @@ mod signal;
 mod spec;
 mod wire;
 
+// NOTE: the trait's method signatures name these two protocol types. Re-exporting them
+// lets a holder implementation such as efr-pty, whose allowlist in xtask/src/deps.rs
+// has no efr-protocol edge, implement the trait through this crate alone.
+pub use efr_protocol::{PtyId, Size};
 pub use error::HolderError;
 pub use holder::{PtyHandle, PtyHolder};
 pub use info::{ChildStatus, PtyInfo};
