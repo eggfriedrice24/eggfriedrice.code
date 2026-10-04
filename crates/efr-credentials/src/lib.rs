@@ -21,6 +21,8 @@
 mod error;
 mod file_store;
 mod id;
+#[cfg(feature = "keyring")]
+pub mod keyring_store;
 mod record;
 mod store;
 
