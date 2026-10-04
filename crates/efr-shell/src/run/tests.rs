@@ -2,7 +2,10 @@ use efr_protocol::{Cell, Cursor, RowCells, ScreenSnapshot, Seq, Size};
 use efr_screen::ShellMarkScanner;
 use pretty_assertions::assert_eq;
 
-use super::{Completion, MarkRun, MarkStep, RunRequest, marked_line, screen_tail, waits_for_input};
+use super::{
+    CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputUpdate, RunRequest, marked_line,
+    screen_tail, waits_for_input,
+};
 
 fn row(text: &str) -> RowCells {
     RowCells {
@@ -122,4 +125,21 @@ fn the_screen_tail_ends_at_the_cursor_row() {
     assert_eq!(screen_tail(&snapshot), "one\ntwo\n\nfour");
     let snapshot = screen(&["one", "", ""], (2, 0));
     assert_eq!(screen_tail(&snapshot), "one");
+}
+
+#[test]
+fn other_runners_can_build_results() {
+    let result = CommandResult::finished(Some(0), "ok\n", "/tmp")
+        .with_completion(Completion::Interactive)
+        .with_screen_tail("Password:")
+        .with_truncation(10_000)
+        .with_delimiter(Delimiter::Sentinel);
+    assert!(result.interactive());
+    assert_eq!(result.output, "ok\n");
+    assert_eq!(result.output_bytes, 10_000);
+    assert!(result.truncated);
+    assert_eq!(result.screen_tail.as_deref(), Some("Password:"));
+    assert_eq!(result.delimiter, Delimiter::Sentinel);
+    assert_eq!(CommandResult::finished(None, "abc", "/").output_bytes, 3);
+    assert_eq!(OutputUpdate::new(3, "abc").tail, "abc");
 }

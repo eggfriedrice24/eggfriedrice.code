@@ -141,6 +141,58 @@ pub struct CommandResult {
 }
 
 impl CommandResult {
+    /// A finished, marked run with nothing truncated and no recording range. The
+    /// setters below change the rest. [`ShellSessions`](crate::ShellSessions) builds
+    /// its results itself; this is for other [`CommandRunner`](crate::CommandRunner)s,
+    /// such as the fakes in other crates' tests.
+    pub fn finished(
+        exit_code: Option<i32>,
+        output: impl Into<String>,
+        cwd_after: impl Into<PathBuf>,
+    ) -> Self {
+        let output = output.into();
+        CommandResult {
+            completion: Completion::Finished,
+            exit_code,
+            output_bytes: output.len() as u64,
+            output,
+            truncated: false,
+            output_range: None,
+            cwd_after: cwd_after.into(),
+            screen_tail: None,
+            delimiter: Delimiter::Marks,
+        }
+    }
+
+    /// Sets how the run ended.
+    #[must_use]
+    pub fn with_completion(mut self, completion: Completion) -> Self {
+        self.completion = completion;
+        self
+    }
+
+    /// Sets the screen's last lines.
+    #[must_use]
+    pub fn with_screen_tail(mut self, screen_tail: impl Into<String>) -> Self {
+        self.screen_tail = Some(screen_tail.into());
+        self
+    }
+
+    /// Marks the output as truncated, with `output_bytes` the size of the whole.
+    #[must_use]
+    pub fn with_truncation(mut self, output_bytes: u64) -> Self {
+        self.truncated = true;
+        self.output_bytes = output_bytes;
+        self
+    }
+
+    /// Sets what delimited the output.
+    #[must_use]
+    pub fn with_delimiter(mut self, delimiter: Delimiter) -> Self {
+        self.delimiter = delimiter;
+        self
+    }
+
     /// True when the command waits for input at the terminal.
     pub fn interactive(&self) -> bool {
         self.completion == Completion::Interactive
@@ -155,6 +207,13 @@ pub struct OutputUpdate {
     pub bytes: u64,
     /// The end of the output so far as plain text, at most a few KiB.
     pub tail: String,
+}
+
+impl OutputUpdate {
+    /// An update with `bytes` of output so far, ending in `tail`.
+    pub fn new(bytes: u64, tail: impl Into<String>) -> Self {
+        OutputUpdate { bytes, tail: tail.into() }
+    }
 }
 
 /// Hears a command's output as it grows. Updates are coalesced: a slow listener gets
