@@ -1,0 +1,3 @@
+{"kind":"case","size":{"cols":40,"rows":5},"about":"D with and without an exit code, a signal status and an error option"}
+{"kind":"feed","text":"\u001b]133;D;0\u0007\u001b]133;D;1\u0007\u001b]133;D;130\u0007\u001b]133;D\u0007\u001b]133;D;\u0007\u001b]133;D;2;err=not found\u0007\u001b]133;D;aid=9\u0007"}
+{"kind":"expect_marks","marks":[{"start":0,"end":10,"command_end":{"exit_code":0}},{"start":10,"end":20,"command_end":{"exit_code":1}},{"start":20,"end":32,"command_end":{"exit_code":130}},{"start":32,"end":40,"command_end":{}},{"start":40,"end":49,"command_end":{}},{"start":49,"end":73,"command_end":{"exit_code":2,"error":"not found"}},{"start":73,"end":87,"command_end":{"aid":"9"}}]}

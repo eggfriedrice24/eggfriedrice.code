@@ -1,0 +1,5 @@
+{"kind":"case","size":{"cols":40,"rows":5},"about":"OSC 7 as file:// (percent-encoded) and kitty-shell-cwd:// (raw), with both terminators"}
+{"kind":"feed","text":"\u001b]7;file://arch/home/egg/My%20Docs/caf%C3%A9\u0007\u001b]7;file:///tmp\u001b\\\u001b]7;kitty-shell-cwd://arch/tmp/100% sure\u0007\u001b]7;file://h/srv/x?query#frag\u001b\\\u001b]7;\u0007\u001b]7;http://arch/tmp\u0007\u001b]7;file://h/bad%zz\u0007"}
+{"kind":"expect_marks","marks":[{"start":0,"end":45,"cwd_changed":{"host":"arch","path":"/home/egg/My Docs/caf\u00e9"}},{"start":45,"end":62,"cwd_changed":{"path":"/tmp"}},{"start":62,"end":103,"cwd_changed":{"host":"arch","path":"/tmp/100% sure"}},{"start":103,"end":134,"cwd_changed":{"host":"h","path":"/srv/x"}}]}
+{"kind":"feed","hex":"1b5d373b6b697474792d7368656c6c2d6377643a2f2f617263682f746d702fff07","about":"a path byte that is not UTF-8 shows as U+FFFD in the fixture form"}
+{"kind":"expect_marks","marks":[{"start":179,"end":212,"cwd_changed":{"host":"arch","path":"/tmp/\ufffd"}}]}

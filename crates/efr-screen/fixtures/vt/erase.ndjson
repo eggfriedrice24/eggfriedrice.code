@@ -1,0 +1,7 @@
+{"kind":"case","size":{"cols":10,"rows":2},"about":"EL to the end, EL to the start, then ED of the whole screen"}
+{"kind":"feed","text":"abcdef\r\n123456\u001b[1;3H\u001b[K\u001b[2;4H\u001b[1K"}
+{"kind":"expect_rows","rows":["ab","    56"]}
+{"kind":"expect_cursor","row":1,"col":3}
+{"kind":"feed","text":"\u001b[2J"}
+{"kind":"expect_rows","rows":["",""]}
+{"kind":"expect_cursor","row":1,"col":3}

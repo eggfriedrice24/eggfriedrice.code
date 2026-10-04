@@ -1,0 +1,3 @@
+{"kind":"case","size":{"cols":40,"rows":5},"about":"the application id comes back on A, C and D, also when two shells interleave"}
+{"kind":"feed","text":"\u001b]133;A;aid=4242;cl=line\u0007$ \u001b]133;B\u0007sudo -i\r\n\u001b]133;C;aid=4242\u0007\u001b]133;A;aid=7\u0007# \u001b]133;D;0;aid=7\u0007\u001b]133;D;1;aid=4242\u0007"}
+{"kind":"expect_marks","marks":[{"start":0,"end":25,"prompt_start":{"kind":"initial","fresh_line":true,"aid":"4242","click":"line"}},{"start":27,"end":35,"input_start":{}},{"start":44,"end":61,"output_start":{"aid":"4242"}},{"start":61,"end":75,"prompt_start":{"kind":"initial","fresh_line":true,"aid":"7"}},{"start":77,"end":93,"command_end":{"exit_code":0,"aid":"7"}},{"start":93,"end":112,"command_end":{"exit_code":1,"aid":"4242"}}]}

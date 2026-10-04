@@ -1,0 +1,6 @@
+{"kind":"case","size":{"cols":10,"rows":3},"about":"CUP, CUU, CUD, CUF and CUB"}
+{"kind":"feed","text":"\u001b[2;3HX\u001b[1;1HY\u001b[3;9HZ"}
+{"kind":"expect_rows","rows":["Y","  X","        Z"]}
+{"kind":"expect_cursor","row":2,"col":9}
+{"kind":"feed","text":"\u001b[2A\u001b[3D!\u001b[B\u001b[2C?"}
+{"kind":"expect_rows","rows":["Y     !","  X      ?","        Z"]}

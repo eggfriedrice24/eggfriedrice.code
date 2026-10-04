@@ -1,0 +1,5 @@
+{"kind":"case","size":{"cols":10,"rows":2},"about":"OSC 133 and OSC 7 print nothing; the marks still come from the scanner"}
+{"kind":"feed","text":"\u001b]133;A;cl=line\u0007\u001b]7;kitty-shell-cwd://arch/tmp\u0007$ \u001b]133;B\u0007"}
+{"kind":"expect_rows","rows":["$",""]}
+{"kind":"expect_cursor","row":0,"col":2}
+{"kind":"expect_marks","marks":[{"start":0,"end":16,"prompt_start":{"kind":"initial","fresh_line":true,"click":"line"}},{"start":16,"end":47,"cwd_changed":{"host":"arch","path":"/tmp"}},{"start":49,"end":57,"input_start":{}}]}

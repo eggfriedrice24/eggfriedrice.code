@@ -1,0 +1,5 @@
+{"kind":"case","size":{"cols":10,"rows":2},"differs":["vt100"],"about":"device status and cursor position reports; vt100 answers no queries"}
+{"kind":"feed","text":"ab\u001b[6n"}
+{"kind":"expect_replies","text":"\u001b[1;3R"}
+{"kind":"feed","text":"\u001b[5n"}
+{"kind":"expect_replies","text":"\u001b[0n"}

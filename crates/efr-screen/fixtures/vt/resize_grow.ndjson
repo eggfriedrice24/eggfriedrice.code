@@ -1,0 +1,6 @@
+{"kind":"case","size":{"cols":5,"rows":2},"about":"growing the grid keeps the text and the cursor"}
+{"kind":"feed","text":"hey"}
+{"kind":"resize","size":{"cols":10,"rows":3}}
+{"kind":"expect_size","cols":10,"rows":3}
+{"kind":"expect_rows","rows":["hey","",""]}
+{"kind":"expect_cursor","row":0,"col":3}

@@ -1,0 +1,4 @@
+{"kind":"case","size":{"cols":5,"rows":3},"about":"text past the right edge wraps onto the next row"}
+{"kind":"feed","text":"abcdefg"}
+{"kind":"expect_rows","rows":["abcde","fg",""]}
+{"kind":"expect_cursor","row":1,"col":2}

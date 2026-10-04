@@ -1,0 +1,6 @@
+{"kind":"case","size":{"cols":10,"rows":2},"about":"OSC 0 and OSC 2 set the title, with both terminators, and print nothing"}
+{"kind":"feed","text":"\u001b]0;first\u0007"}
+{"kind":"expect_title","title":"first","changes":["first"]}
+{"kind":"feed","text":"\u001b]2;second\u001b\\"}
+{"kind":"expect_title","title":"second","changes":["second"]}
+{"kind":"expect_rows","rows":["",""]}

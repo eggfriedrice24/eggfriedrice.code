@@ -1,0 +1,4 @@
+{"kind":"case","size":{"cols":10,"rows":1},"differs":["vt100"],"about":"the primary device attributes answer, as libghostty-vt gives it; vt100 answers no queries"}
+{"kind":"feed","text":"\u001b[c"}
+{"kind":"expect_replies","text":"\u001b[?62;22c"}
+{"kind":"expect_rows","rows":[""]}

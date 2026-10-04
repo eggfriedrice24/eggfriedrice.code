@@ -1,0 +1,4 @@
+{"kind":"case","size":{"cols":10,"rows":1},"about":"BEL rings and prints nothing"}
+{"kind":"feed","text":"a\u0007b\u0007"}
+{"kind":"expect_bells","count":2}
+{"kind":"expect_rows","rows":["ab"]}

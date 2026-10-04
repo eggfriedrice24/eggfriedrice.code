@@ -1,0 +1,4 @@
+{"kind":"case","size":{"cols":5,"rows":3},"about":"a line feed on the last row scrolls the grid up"}
+{"kind":"feed","text":"1\r\n2\r\n3\r\n4"}
+{"kind":"expect_rows","rows":["2","3","4"]}
+{"kind":"expect_cursor","row":2,"col":1}

@@ -1,0 +1,4 @@
+{"kind":"case","size":{"cols":10,"rows":3},"about":"printable text, CR and LF"}
+{"kind":"feed","text":"hello\r\nworld"}
+{"kind":"expect_rows","rows":["hello","world",""]}
+{"kind":"expect_cursor","row":1,"col":5}
