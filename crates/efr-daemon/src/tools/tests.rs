@@ -265,6 +265,10 @@ fn shell_calls_decide_by_the_command_and_the_paths_it_names() {
         ("cd ~/.ssh && cat id_ed25519", None, Effect::Deny),
         ("cat /proc/self/environ", None, Effect::Deny),
         ("echo key >> ~/.ssh/authorized_keys", None, Effect::Deny),
+        ("cat $HOME/.ssh/id_ed25519", None, Effect::Deny),
+        ("git show HEAD:.ssh/id_ed25519", Some(""), Effect::Deny),
+        ("sort --files0-from=list.txt", None, Effect::Ask),
+        ("systemctl --user show", None, Effect::Ask),
         // Relative paths run from where the hidden shell is.
         ("cat id_ed25519", Some(".ssh"), Effect::Deny),
         ("ls", Some(".ssh"), Effect::Deny),

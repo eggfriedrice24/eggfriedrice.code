@@ -58,14 +58,15 @@ fn table(first: usize) -> String {
         .iter()
         .enumerate()
         .map(|(offset, pattern)| {
-            let max = pattern.max_operands.map(|max| max.to_string()).unwrap_or_default();
+            let count = |count: Option<usize>| count.map(|n| n.to_string()).unwrap_or_default();
             format!(
-                "| {} | `{}` | {} | {} | {} |\n",
+                "| {} | `{}` | {} | {} | {} | {} |\n",
                 first + offset,
                 pattern.program,
                 code(&pattern.args),
                 code(&pattern.forbid),
-                max
+                count(pattern.min_operands),
+                count(pattern.max_operands)
             )
         })
         .collect()
@@ -80,7 +81,7 @@ fn the_documented_table_is_the_data() {
 #[test]
 fn the_permissions_doc_holds_the_same_table() {
     let doc = include_str!("../../../../docs/permissions.md");
-    let header = "| # | Program | Args | Forbid | Max |\n|---|---|---|---|---|\n";
+    let header = "| # | Program | Args | Forbid | Min | Max |\n|---|---|---|---|---|---|\n";
     assert!(
         doc.contains(&format!("{header}{}\n", table(8))),
         "copy src/policy/defaults.md under the read-only table of docs/permissions.md"
@@ -404,6 +405,15 @@ fn under_limits_a_command_to_a_directory(#[case] dir: &'static str, #[case] expe
 fn a_pattern_with_a_directory_matches_no_bare_line() {
     let pattern = CommandPattern::new("cargo").with_under("/srv/app");
     assert!(!pattern.matches("cargo test"));
+}
+
+#[test]
+fn min_operands_requires_operands_after_the_args() {
+    let pattern = CommandPattern::new("systemctl").with_args(["show"]).with_min_operands(1);
+    assert!(pattern.matches_words(&words("systemctl show nginx")));
+    assert!(pattern.matches_words(&words("systemctl show -p MainPID nginx")));
+    assert!(!pattern.matches_words(&words("systemctl show")));
+    assert!(!pattern.matches_words(&words("systemctl show --all")));
 }
 
 #[test]

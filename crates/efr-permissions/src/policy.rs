@@ -133,6 +133,11 @@ pub struct CommandPattern {
     /// separate word counts too, so the limit errs towards asking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_operands: Option<usize>,
+    /// The fewest operands after the words of `args`, counted like `max_operands`, such
+    /// as the unit that `systemctl show` must name, because without one it shows the
+    /// service manager's environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_operands: Option<usize>,
     /// A directory the command must run in, or below: absolute or starting with `~`.
     /// The directory is where the hidden shell is when the line starts; after a `cd`,
     /// `pushd` or `popd` earlier in the line it is unknown, and the pattern matches
@@ -149,6 +154,7 @@ impl CommandPattern {
             args: Vec::new(),
             forbid: Vec::new(),
             max_operands: None,
+            min_operands: None,
             under: None,
         }
     }
@@ -179,6 +185,13 @@ impl CommandPattern {
     #[must_use]
     pub fn with_max_operands(mut self, max: usize) -> Self {
         self.max_operands = Some(max);
+        self
+    }
+
+    /// Refuses a command with fewer than `min` operands after the words of `args`.
+    #[must_use]
+    pub fn with_min_operands(mut self, min: usize) -> Self {
+        self.min_operands = Some(min);
         self
     }
 
@@ -220,7 +233,9 @@ impl CommandPattern {
         if !prefix || rest.iter().any(|word| self.forbid.iter().any(|entry| forbids(entry, word))) {
             return false;
         }
-        self.max_operands.is_none_or(|max| operands(&rest[self.args.len()..]) <= max)
+        let count = operands(&rest[self.args.len()..]);
+        self.max_operands.is_none_or(|max| count <= max)
+            && self.min_operands.is_none_or(|min| count >= min)
     }
 }
 
@@ -310,10 +325,11 @@ impl Policy {
     /// So reading is free outside secrets, only scratch and the user data of the turn's
     /// project are free to write, network access needs approval, and a command line
     /// needs approval unless every simple command in it is one of these (`args` must
-    /// follow the program, `forbid` must not appear, `max` caps the operands):
+    /// follow the program, `forbid` must not appear, `min` and `max` bound the
+    /// operands):
     ///
-    /// | # | Program | Args | Forbid | Max |
-    /// |---|---|---|---|---|
+    /// | # | Program | Args | Forbid | Min | Max |
+    /// |---|---|---|---|---|---|
     #[doc = include_str!("policy/defaults.md")]
     ///
     /// `env` and `printenv` are left out on purpose, because they print every variable,
