@@ -1,0 +1,171 @@
+use std::path::PathBuf;
+
+use efr_protocol::{
+    CallId, CommandId, ConversationId, Event, EventEnvelope, Origin, PtyId, Scope, Seq, TurnId,
+};
+use efr_store::Batch;
+use efr_store::conversations::TurnStatus;
+use efr_store::outbox::NewOutboxItem;
+use efr_test_support::{TestClock, TestStore};
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use crate::reconcile::{Reconciled, plan, reconcile};
+
+fn id(n: u128) -> uuid::Uuid {
+    uuid::Uuid::from_u128(n)
+}
+
+fn queued(turn: TurnId, n: u128) -> Event {
+    Event::PromptQueued {
+        turn_id: turn,
+        command_id: CommandId::from_uuid(id(100 + n)),
+        text: format!("prompt {n}"),
+        origin: Origin::Shell,
+        context: None,
+    }
+}
+
+fn started(turn: TurnId) -> Event {
+    Event::TurnStarted { turn_id: turn, cwd: PathBuf::from("/home/u"), scope: Scope::Machine }
+}
+
+fn created() -> Event {
+    Event::ConversationCreated { origin: Origin::Shell, tty: None }
+}
+
+struct Scene {
+    store: TestStore,
+    busy: ConversationId,
+    t1: TurnId,
+    t2: TurnId,
+    call: CallId,
+    pty: PtyId,
+    hwm: Seq,
+}
+
+/// A conversation that was running a turn waiting for an approval, with a second
+/// prompt queued and a shell open, and a finished conversation next to it.
+async fn scene() -> Scene {
+    let store = TestStore::open(TestClock::new().shared()).await.unwrap();
+    let busy = ConversationId::from_uuid(id(1));
+    let idle = ConversationId::from_uuid(id(2));
+    let (t1, t2, t3) =
+        (TurnId::from_uuid(id(11)), TurnId::from_uuid(id(12)), TurnId::from_uuid(id(13)));
+    let call = CallId::from_uuid(id(21));
+    let pty = PtyId::from_uuid(id(31));
+    let batch = Batch::new()
+        .event(busy, created())
+        .event(busy, queued(t1, 1))
+        .event(busy, started(t1))
+        .event(
+            busy,
+            Event::ShellStarted { pty_id: pty, cwd: PathBuf::from("/home/u"), pid: Some(7) },
+        )
+        .event(
+            busy,
+            Event::ApprovalRequested {
+                turn_id: t1,
+                call_id: call,
+                summary: "write /etc/hosts".to_owned(),
+                diff_preview: None,
+            },
+        )
+        .event(busy, queued(t2, 2))
+        .event(idle, created())
+        .event(idle, queued(t3, 3))
+        .event(idle, started(t3))
+        .event(idle, Event::TurnCompleted { turn_id: t3, usage: None })
+        .enqueue(NewOutboxItem::process_bound("notify", json!({})))
+        .enqueue(NewOutboxItem::replay_safe("index", json!({})));
+    let hwm = store.writer().append(batch).await.unwrap().last_seq();
+    Scene { store, busy, t1, t2, call, pty, hwm }
+}
+
+fn after(events: Vec<EventEnvelope>, hwm: Seq) -> Vec<(Option<ConversationId>, Event)> {
+    events
+        .into_iter()
+        .filter(|envelope| envelope.seq > hwm)
+        .map(|envelope| (envelope.conversation_id, envelope.event))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_restart_settles_every_kind_of_work_in_flight() {
+    let Scene { store, busy, t1, t2, call, pty, hwm } = scene().await;
+
+    let done = reconcile(store.readers(), store.writer()).await.unwrap();
+
+    assert_eq!(
+        done,
+        Reconciled {
+            turns_cancelled: 1,
+            approvals_expired: 1,
+            prompts_held: 1,
+            shells_exited: 1,
+            outbox_cancelled: 1,
+            outbox_requeued: 0,
+        }
+    );
+    assert_eq!(
+        after(store.events().await.unwrap(), hwm),
+        [
+            (Some(busy), Event::ApprovalExpired { turn_id: t1, call_id: call }),
+            (Some(busy), Event::TurnCancelled { turn_id: t1 }),
+            (Some(busy), Event::PromptHeld { turn_id: t2 }),
+            (Some(busy), Event::ShellExited { pty_id: pty, exit_code: None }),
+        ]
+    );
+    let (turns, approvals, shells) = store
+        .readers()
+        .with(|conn| {
+            Ok((
+                efr_store::conversations::unfinished_turns(conn)?,
+                efr_store::approvals::pending(conn, None)?,
+                efr_store::shells::running(conn)?,
+            ))
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        turns.iter().map(|turn| (turn.id, turn.status)).collect::<Vec<_>>(),
+        [(t2, TurnStatus::Held)]
+    );
+    assert!(approvals.is_empty());
+    assert!(shells.is_empty());
+    store.close().await;
+}
+
+#[tokio::test]
+async fn a_second_restart_finds_nothing_left_to_settle() {
+    let Scene { store, .. } = scene().await;
+    reconcile(store.readers(), store.writer()).await.unwrap();
+    let hwm = store.writer().append(Batch::new()).await.unwrap().last_seq();
+
+    let done = reconcile(store.readers(), store.writer()).await.unwrap();
+
+    assert_eq!(done, Reconciled::default());
+    assert_eq!(after(store.events().await.unwrap(), hwm), []);
+    store.close().await;
+}
+
+#[tokio::test]
+async fn the_plan_leaves_finished_and_held_turns_alone() {
+    let Scene { store, busy, .. } = scene().await;
+    reconcile(store.readers(), store.writer()).await.unwrap();
+    let (turns, approvals, shells) = store
+        .readers()
+        .with(move |conn| {
+            Ok((
+                efr_store::conversations::turns(conn, busy)?,
+                efr_store::approvals::pending(conn, None)?,
+                efr_store::shells::running(conn)?,
+            ))
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(turns.len(), 2, "the cancelled turn and the held one");
+    assert!(plan(&turns, &approvals, &shells).is_empty());
+    store.close().await;
+}

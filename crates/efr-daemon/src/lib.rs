@@ -22,6 +22,7 @@ mod config;
 mod discovery;
 mod error;
 mod lock;
+mod reconcile;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
