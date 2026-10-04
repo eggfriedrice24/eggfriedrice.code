@@ -19,6 +19,13 @@ Modules:
   provider_options }` and `ToolDefinition`, the tool as the model sees it.
   `efr-tools` has its own `ToolSpec`; the conversation converts between the two,
   because neither crate depends on the other.
+- `event`: `ProviderEvent` (`TextDelta`, `ReasoningDelta`, `ToolCallStart`,
+  `ToolCallDelta`, `ToolCallEnd`, `Usage`, `Done`, `Raw`) and `StopReason`. The order
+  a provider keeps is documented on the type: a tool call is start, deltas, end (with
+  the complete arguments); `Done` is last and carries the message's `provider_raw`;
+  provider events with no canonical form become `Raw` instead of being dropped.
+- `usage`: `TokenUsage` with cached and reasoning parts; usages add with saturation
+  and convert to the wire's `efr_protocol::Usage`.
 - `error`: `ProviderError`, the crate's one error type, shared by every provider.
   `Unauthorized` is what a provider reports after a 401 survived one
   `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider
@@ -34,7 +41,7 @@ Tier 1.
 
 ## Allowed dependencies
 
-`efr-protocol` (for `Base64Bytes`) and `efr-stdx`. The crate uses only
+`efr-protocol` (for `Base64Bytes` and `Usage`) and `efr-stdx`. The crate uses only
 `efr-protocol`: nothing here reads a clock or draws randomness; token refresh timing
 lives in `efr-oauth-openai`. `xtask/src/deps.rs` holds the allowlist.
 
