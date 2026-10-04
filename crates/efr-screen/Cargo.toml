@@ -1,0 +1,39 @@
+[package]
+name = "efr-screen"
+description = "The screen boundary for efr: the Screen trait, a screen actor per thread, the OSC 133 and OSC 7 scanner and the backend conformance suite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[features]
+# The backend conformance suite (`efr_screen::conformance`). Only test targets enable
+# it: this crate's own tests through the dev-dependency below, and the
+# tests/conformance.rs of each backend crate.
+conformance = ["dep:insta", "dep:serde_json"]
+
+[dependencies]
+bytes.workspace = true
+efr-protocol.workspace = true
+efr-stdx.workspace = true
+insta = { workspace = true, optional = true }
+memchr.workspace = true
+serde_json = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+# NOTE: a dev-dependency on the crate itself turns the conformance feature on for this
+# crate's test builds only, so `cargo nextest run -p efr-screen` runs the suite against
+# the in-crate fake screen without a --features flag.
+efr-screen = { workspace = true, features = ["conformance"] }
+pretty_assertions.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

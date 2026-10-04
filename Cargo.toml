@@ -116,6 +116,7 @@ efr-credentials = { path = "crates/efr-credentials" }
 efr-permissions = { path = "crates/efr-permissions" }
 efr-scope = { path = "crates/efr-scope" }
 efr-http = { path = "crates/efr-http" }
+efr-screen = { path = "crates/efr-screen" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
