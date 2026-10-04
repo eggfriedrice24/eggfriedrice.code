@@ -64,6 +64,13 @@ impl ToolRegistry {
         self.entry(name)?.tool.requirements(ctx, input)
     }
 
+    /// What a call of the tool `name` with `input` would change, for its approval;
+    /// `None` for an unknown tool or a call without a preview.
+    pub async fn preview(&self, name: &str, ctx: &ToolContext, input: &Value) -> Option<String> {
+        let tool = Arc::clone(&self.entry(name).ok()?.tool);
+        tool.preview(ctx, input).await
+    }
+
     /// Runs a call of the tool `name`. The caller has checked the call's requirements
     /// with the permission engine first.
     pub async fn invoke(

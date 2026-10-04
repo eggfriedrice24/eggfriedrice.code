@@ -136,6 +136,32 @@ async fn a_read_runs_and_answers_with_the_file() {
     assert!(outcome.output.contains("hello"), "{outcome:?}");
 }
 
+#[tokio::test]
+async fn a_write_is_previewed_as_a_diff_of_the_file() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    std::fs::write(home.join(".zshrc"), "alias ll='ls -l'\n").unwrap();
+    let toolbox = toolbox(&home);
+    let write = call(
+        "write_file",
+        json!({"path": "~/.zshrc", "content": "alias ll='ls -l'\nalias la='ls -a'\n"}),
+        &home,
+    );
+
+    let preview = toolbox.preview(&write).await.unwrap();
+
+    let path = home.join(".zshrc");
+    assert_eq!(
+        preview,
+        format!(
+            "--- a{0}\n+++ b{0}\n@@ -1,1 +1,2 @@\n alias ll='ls -l'\n+alias la='ls -a'\n",
+            path.display()
+        )
+    );
+    let read = call("read_file", json!({"path": "~/.zshrc"}), &home);
+    assert_eq!(toolbox.preview(&read).await, None, "only a write has a preview");
+}
+
 #[test]
 fn every_declared_requirement_is_copied() {
     let declared = ToolRequirements::none()

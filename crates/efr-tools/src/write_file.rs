@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::diff;
 use crate::paths::{check_real, resolve};
 use crate::tool::parse_input;
 use crate::{
@@ -73,6 +74,29 @@ impl Tool for WriteFileTool {
     ) -> Result<ToolRequirements, ToolError> {
         let input: WriteFileInput = parse_input(Self::NAME, input)?;
         Ok(ToolRequirements::none().with_write(resolve(ctx, &input.path)?))
+    }
+
+    /// A unified diff from the current file to the new content (every line added for a
+    /// new file), bounded to a few hundred lines. Nothing when the write would fail
+    /// anyway, such as through a symbolic link, which the call then reports.
+    async fn preview(&self, ctx: &ToolContext, input: &Value) -> Option<String> {
+        let input: WriteFileInput = parse_input(Self::NAME, input).ok()?;
+        let path = resolve(ctx, &input.path).ok()?;
+        let home = ctx.home.clone();
+        let target = path.clone();
+        let snapshot = blocking(&path, move || snapshot(&home, &target)).await.ok()?;
+        match &snapshot.original {
+            Original::Missing => Some(diff::unified(&path, None, &input.content)),
+            Original::File { content, .. } => match std::str::from_utf8(content) {
+                Ok(old) => Some(diff::unified(&path, Some(old), &input.content)),
+                Err(_) => Some(format!(
+                    "{} is not a text file ({} bytes); all of it would be replaced with {} bytes",
+                    path.display(),
+                    content.len(),
+                    input.content.len()
+                )),
+            },
+        }
     }
 
     async fn invoke(

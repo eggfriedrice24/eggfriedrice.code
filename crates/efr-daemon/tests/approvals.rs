@@ -33,6 +33,20 @@ async fn approval_ask_then_allow() {
     let resolved = events.iter().position(|e| e.event.kind() == "approval_resolved").unwrap();
     let completed = events.iter().position(|e| e.event.kind() == "tool_call_completed").unwrap();
     assert!(asked < resolved && resolved < completed, "the call ran only after the answer");
+    // The user sees what the write would put there before answering.
+    let Event::ApprovalRequested { diff_preview, .. } = &events[asked].event else {
+        panic!("{:?}", events[asked]);
+    };
+    assert_eq!(
+        diff_preview.as_deref(),
+        Some(
+            format!(
+                "--- /dev/null\n+++ b{}\n@@ -0,0 +1,1 @@\n+remember the milk\n",
+                note.display()
+            )
+            .as_str()
+        )
+    );
     replay.stop().await.unwrap();
 }
 

@@ -6,7 +6,8 @@ The tools the model calls, and the registry that offers them.
 
 - `Tool`: `spec()` (a `ToolSpec`: name, description and the input's JSON Schema,
   generated with schemars from the input type, without `$schema` and `title`),
-  `requirements(ctx, input)` and `invoke(ctx, input, out)`.
+  `requirements(ctx, input)`, `preview(ctx, input)` (what a call would change, for
+  its approval; none by default) and `invoke(ctx, input, out)`.
 - `ToolRequirements`: every path a call touches with its `AccessMode` (read or write),
   the command line it runs, and whether it talks to the network or may wait for input
   at the terminal. `requirements` is pure: paths are resolved lexically (`~` and `~/`
@@ -14,7 +15,11 @@ The tools the model calls, and the registry that offers them.
   and `..` folded), so the conversation can ask before anything runs. Its `Debug`
   shows the command's length, not its text.
 - `ToolRegistry`: `register`, `specs` (for the provider request, in registration
-  order), and `requirements` and `invoke` by name. It never hands out a tool.
+  order), and `requirements`, `preview` and `invoke` by name. It never hands out a
+  tool.
+- `write_file` previews a write as a unified diff against the current file (every
+  line added for a new file), at most 200 lines and 16 KiB, with a line that says
+  how much is left out.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, `$SCRATCH`,
   the scope, the origin, the home directory (`efr_scope::Home`), the clock and the
   write journal.

@@ -30,6 +30,13 @@ pub trait Tool: Send + Sync + fmt::Debug {
     fn requirements(&self, ctx: &ToolContext, input: &Value)
     -> Result<ToolRequirements, ToolError>;
 
+    /// What a call with `input` would change, for the user who approves it, such as a
+    /// diff of the file a write replaces. It reads but never changes anything; a call
+    /// that cannot be previewed has none, and so does every tool by default.
+    async fn preview(&self, _ctx: &ToolContext, _input: &Value) -> Option<String> {
+        None
+    }
+
     /// Runs the call. Output that grows while the call runs goes to `out`.
     async fn invoke(
         &self,

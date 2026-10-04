@@ -124,3 +124,48 @@ async fn a_directory_or_a_dangling_link_is_not_a_file() {
         assert!(matches!(result, Err(ToolError::NotAFile { .. })), "{path}: {result:?}");
     }
 }
+
+#[tokio::test]
+async fn the_preview_of_a_replacement_is_a_diff_and_writes_nothing() {
+    let fixture = Fixture::new();
+    let path = fixture.home().join(".zshrc");
+    std::fs::write(&path, "export PATH\nalias ll='ls -l'\n").unwrap();
+    let input = json!({"path": "~/.zshrc", "content": "export PATH\nalias ll='ls -la'\n"});
+
+    let preview = WriteFileTool::new().preview(&fixture.context(), &input).await.unwrap();
+
+    let shown = path.display();
+    assert_eq!(
+        preview,
+        format!(
+            "--- a{shown}\n+++ b{shown}\n@@ -1,2 +1,2 @@\n export PATH\n-alias ll='ls -l'\n+alias ll='ls -la'\n"
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "export PATH\nalias ll='ls -l'\n");
+    assert!(fixture.journal.entries().is_empty());
+}
+
+#[tokio::test]
+async fn the_preview_of_a_new_file_shows_all_of_it() {
+    let fixture = Fixture::new();
+    let input = json!({"path": "notes/todo.txt", "content": "one\n"});
+
+    let preview = WriteFileTool::new().preview(&fixture.context(), &input).await.unwrap();
+
+    let shown = fixture.cwd().join("notes/todo.txt");
+    assert_eq!(
+        preview,
+        format!("--- /dev/null\n+++ b{}\n@@ -0,0 +1,1 @@\n+one\n", shown.display())
+    );
+    assert!(!shown.exists());
+}
+
+#[tokio::test]
+async fn there_is_no_preview_through_a_symbolic_link() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.root().join("real.txt"), "x").unwrap();
+    symlink(fixture.root().join("real.txt"), fixture.cwd().join("link.txt")).unwrap();
+    let input = json!({"path": "link.txt", "content": "y"});
+
+    assert_eq!(WriteFileTool::new().preview(&fixture.context(), &input).await, None);
+}

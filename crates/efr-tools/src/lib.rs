@@ -9,7 +9,9 @@
 //!   never hands out a tool.
 //! - [`ShellTool`] over `efr_shell::CommandRunner`, [`ReadFileTool`] and
 //!   [`WriteFileTool`], which records each original in a [`WriteJournal`]
-//!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes.
+//!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes, and
+//!   previews a write as a bounded unified diff for its approval
+//!   ([`Tool::preview`]).
 //! - [`ToolContext`] and [`CallIds`]: where a call runs.
 //! - [`truncate_middle`]: head and tail with a marker, [`DEFAULT_OUTPUT_LIMIT`]
 //!   (32 KiB) unless a tool says otherwise.
@@ -20,6 +22,7 @@
 //! its single check point; `xtask/src/deps.rs` forbids `efr-tools -> efr-permissions`.
 
 mod context;
+mod diff;
 mod error;
 mod journal;
 mod output;

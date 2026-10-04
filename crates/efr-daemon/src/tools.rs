@@ -99,6 +99,11 @@ impl Toolbox for DaemonToolbox {
             .map_err(|error| for_model(&error))
     }
 
+    async fn preview(&self, call: &ToolCall) -> Option<String> {
+        let context = self.context(&call.context);
+        self.registry.preview(&call.name, &context, &call.input).await
+    }
+
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
         let context = self.context(&call.context);
         let mut sink = |tail: &str, bytes: u64| out.update(tail, bytes);
