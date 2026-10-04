@@ -16,6 +16,7 @@ mod error;
 mod highlight;
 mod link;
 mod options;
+mod outline;
 mod style;
 mod wrap;
 
