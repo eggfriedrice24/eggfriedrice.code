@@ -18,6 +18,7 @@
 mod capabilities;
 mod error;
 mod event;
+mod frame;
 mod ids;
 mod method;
 mod methods;
@@ -29,6 +30,7 @@ mod version;
 pub use capabilities::Capabilities;
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{ApprovalDecision, Event, EventEnvelope, Usage};
+pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
 };
