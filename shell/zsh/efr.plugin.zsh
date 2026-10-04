@@ -20,6 +20,9 @@ zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 autoload -Uz add-zsh-hook
 
 typeset -g _efr_sticky=0
+# The last shell command line and its exit status, for the next `,` line, and the line
+# that is running now. Declared without values so that re-sourcing keeps them.
+typeset -g _efr_last_command _efr_last_command_status _efr_running
 # Override before sourcing to change how sticky mode shows in the prompt.
 : ${EFR_STICKY_INDICATOR:='%F{magenta}efr>%f '}
 
@@ -81,6 +84,21 @@ _efr_context_json() {
   REPLY="{${(j:,:)fields}}"
 }
 
+# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`), which is not a
+# shell command worth reporting as the last command.
+_efr_is_plugin_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == [[:space:]]#,* ]]
+}
+
+# Sets reply to the efr arguments that carry the last shell command line. The line
+# travels as its own argument, never inside the context JSON: it can hold a secret, and
+# the daemon keeps the context in its event log.
+_efr_last_command_args() {
+  reply=()
+  [[ -n $_efr_last_command ]] && reply=(--last-command "$_efr_last_command")
+}
+
 # --- commands ---------------------------------------------------------------------
 
 function , {
@@ -92,19 +110,28 @@ function , {
     print -u2 -- "usage: , <prompt>   (Ctrl+Space toggles sticky agent mode)"
     return 2
   fi
+  # After an earlier `,` line, $? is efr's own status; report the status of the shell
+  # command that goes with the last command line instead.
+  [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
-  efr send --context-json "$REPLY" -- "$@"
+  local context=$REPLY
+  _efr_last_command_args
+  efr send --context-json "$context" "${reply[@]}" -- "$@"
 }
 
 function ,new {
   local last_status=$?
   emulate -L zsh
   _efr_available || { _efr_missing; return 127 }
+  [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
-  efr new --context-json "$REPLY" -- "$@"
+  local context=$REPLY
+  _efr_last_command_args
+  efr new --context-json "$context" "${reply[@]}" -- "$@"
 }
 
-# Steering goes through `efr send --steer`, the CLI side of turn.steer.
+# Steering goes through `efr send --steer`, the CLI side of turn.steer. A steer joins
+# the running turn, whose context is already set, so it carries no last command.
 function ,! {
   local last_status=$?
   emulate -L zsh
@@ -179,7 +206,26 @@ _efr_print_notices() {
   zf_rm -f -- "$shown" 2>/dev/null
 }
 
+# --- last command -----------------------------------------------------------------
+
+# preexec gets the line as typed, just before it runs.
+_efr_preexec() {
+  _efr_running=$1
+}
+
+# Keeps the line that just finished, with its status, unless it ran a plugin command.
+_efr_remember_command() {
+  if [[ -n $_efr_running ]] && ! _efr_is_plugin_line "$_efr_running"; then
+    _efr_last_command=$_efr_running
+    _efr_last_command_status=$1
+  fi
+  _efr_running=''
+}
+
 _efr_precmd() {
+  # Must be first: the status of the line that just finished.
+  local exit_status=$?
+  _efr_remember_command $exit_status
   _efr_apply_indicator
   _efr_print_notices
 }
@@ -196,5 +242,6 @@ zle -N _efr_toggle_sticky
 bindkey -M emacs '^@' _efr_toggle_sticky
 bindkey -M viins '^@' _efr_toggle_sticky
 add-zsh-hook precmd _efr_precmd
+add-zsh-hook preexec _efr_preexec
 
 _efr_available || print -u2 -- "efr.plugin.zsh: efr is not on PATH; the , commands stay inactive until it is installed"
