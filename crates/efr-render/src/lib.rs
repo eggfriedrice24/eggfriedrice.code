@@ -11,7 +11,9 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod code;
 mod error;
+mod highlight;
 mod link;
 mod options;
 mod style;
