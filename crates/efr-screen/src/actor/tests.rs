@@ -254,6 +254,23 @@ fn a_thread_name_with_a_nul_byte_is_a_spawn_error() {
     assert!(matches!(result, Err(ScreenError::Spawn { name, .. }) if name == "bad\0name"));
 }
 
+fn assert_send<T: Send>(_: &T) {}
+
+#[test]
+fn handles_events_and_their_futures_can_move_between_tasks() {
+    fn shared<T: Send + Sync + Clone>() {}
+    shared::<ScreenHandle>();
+    let (handle, mut events) = spawn_fake(4, 1);
+    assert_send(&events);
+    // tokio::spawn needs Send futures; the PTY reader and writer tasks are spawned.
+    assert_send(&handle.feed(bytes(b"x"), Seq::ZERO));
+    assert_send(&handle.resize(size(4, 1)));
+    assert_send(&handle.snapshot(0));
+    assert_send(&handle.request_snapshot(1, 0));
+    assert_send(&handle.shutdown());
+    assert_send(&events.recv());
+}
+
 /// What a [`GatedScreen`] does once its gate opens.
 enum Gate {
     Go,

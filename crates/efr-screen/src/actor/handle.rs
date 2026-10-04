@@ -21,7 +21,8 @@ use crate::snapshot::ScreenCapture;
 /// the current thread and are for plain threads only (the PTY proxy, the conformance
 /// suite); called from an async task they would stall a worker.
 ///
-/// Every method fails with [`ScreenError::Closed`] once the actor has stopped.
+/// Every method but [`name`](Self::name) fails with [`ScreenError::Closed`] once the
+/// actor has stopped.
 #[derive(Clone)]
 pub struct ScreenHandle {
     name: Arc<str>,
