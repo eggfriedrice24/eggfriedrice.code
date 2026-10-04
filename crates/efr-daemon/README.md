@@ -143,6 +143,12 @@ attaches to its PTY; it skips with a message unless `EFR_TEST_ZSH=1`:
 EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 ```
 
+The integration tests in `tests/` (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
+`approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`) run the
+daemon through `efr-test-daemon`'s `TestDaemon` and replay its fourteen NDJSON
+scenarios, each with the assertions of its case: the fake PTY holder plays the hidden
+shell, the replay provider or a local Responses server plays the model. The `shell_`
+test runs a real zsh and skips with a message unless `EFR_TEST_ZSH=1`.
+
 No test uses the network, a real model, real time, the user's home, config or runtime
-directory, or the git configuration of the machine. The integration tests over
-`TestDaemon` (`tests/`) come with `efr-test-daemon`.
+directory, or the git configuration of the machine.
