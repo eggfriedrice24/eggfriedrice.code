@@ -693,6 +693,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-scope"
+version = "0.1.0"
+dependencies = [
+ "efr-protocol",
+ "efr-stdx",
+ "jiff",
+ "pretty_assertions",
+ "rstest",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "efr-stdx"
 version = "0.1.0"
 dependencies = [

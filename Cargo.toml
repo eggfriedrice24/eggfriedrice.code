@@ -114,6 +114,7 @@ efr-protocol = { path = "crates/efr-protocol" }
 efr-store = { path = "crates/efr-store" }
 efr-credentials = { path = "crates/efr-credentials" }
 efr-permissions = { path = "crates/efr-permissions" }
+efr-scope = { path = "crates/efr-scope" }
 efr-http = { path = "crates/efr-http" }
 
 [workspace.lints.rust]
