@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&out)
+---
+\e[?2026hChecking.
+\e[?2026l\e[?2026h
+\e[2mshell: journalctl -u nginx --since today\e[0m
+\e[?2026l\e[?2026h\e[2mshell exited with 3\e[0m
+\e[?2026l\e[?2026h
+It exited with 3.
+\e[?2026l

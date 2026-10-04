@@ -1,0 +1,111 @@
+//! Everything a command needs from the world, gathered once: the directories, the
+//! terminal, time, randomness, keys and Ctrl+C.
+//!
+//! Commands take a [`Context`] instead of reaching for process state themselves, so a
+//! test can run a whole command against a fake daemon with a fixed screen, scripted
+//! keys and a Ctrl+C it triggers.
+
+use std::fmt;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use efr_client::{Client, ConnectOptions, Discovered};
+use efr_protocol::{CommandId, Origin};
+use efr_stdx::paths::Dirs;
+use efr_stdx::rng::{Rng, SystemRng};
+use efr_stdx::time::{Clock, SystemClock};
+
+use crate::error::CliError;
+use crate::keys::{Keys, TtyKeys};
+use crate::settings::Settings;
+use crate::terminal::{self, Screen, StdoutScreen, TermFacts};
+
+/// The tracing filter when `EFR_LOG` is unset: only warnings and errors, because
+/// stderr shares the terminal with the reply.
+pub(crate) const DEFAULT_LOG_FILTER: &str = "warn";
+
+/// A future that resolves when the user asks to stop.
+pub(crate) type Stop = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// Where Ctrl+C comes from.
+pub(crate) trait Interrupt: Send + Sync + fmt::Debug {
+    /// Resolves at the next Ctrl+C.
+    fn wait(&self) -> Stop;
+}
+
+/// Ctrl+C from the terminal, as SIGINT.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CtrlC;
+
+impl Interrupt for CtrlC {
+    fn wait(&self) -> Stop {
+        Box::pin(async {
+            // NOTE: the handler is installed on the first call, so only the commands
+            // that follow a stream stop the default SIGINT exit. When it cannot be
+            // installed, the default exit stays, which also ends the command.
+            if tokio::signal::ctrl_c().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        })
+    }
+}
+
+/// What every command runs with.
+#[derive(Debug)]
+pub(crate) struct Context {
+    pub(crate) dirs: Dirs,
+    pub(crate) term: TermFacts,
+    pub(crate) settings: Settings,
+    pub(crate) clock: Arc<dyn Clock>,
+    pub(crate) rng: Arc<dyn Rng>,
+    pub(crate) screen: Arc<dyn Screen>,
+    pub(crate) keys: Arc<dyn Keys>,
+    pub(crate) interrupt: Arc<dyn Interrupt>,
+    /// The working directory, for a prompt sent without the plugin's context.
+    pub(crate) cwd: Option<PathBuf>,
+    /// The terminal on stdin, for a prompt sent without the plugin's context.
+    pub(crate) tty: Option<String>,
+}
+
+impl Context {
+    /// The context of this process.
+    pub(crate) async fn from_process(term: TermFacts) -> Result<Context, CliError> {
+        let dirs = Dirs::resolve().map_err(|source| CliError::Dirs { source })?;
+        let settings = Settings::load(dirs.config()).await;
+        let rng = SystemRng::new().map_err(|source| CliError::Random { source })?;
+        let keys = TtyKeys { available: term.stdin_tty };
+        Ok(Context {
+            dirs,
+            settings,
+            clock: Arc::new(SystemClock),
+            rng: Arc::new(rng),
+            screen: Arc::new(StdoutScreen),
+            keys: Arc::new(keys),
+            interrupt: Arc::new(CtrlC),
+            cwd: std::env::current_dir().ok(),
+            tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },
+            term,
+        })
+    }
+
+    /// Finds the daemon and connects as `origin`, naming `tty` in hello.
+    pub(crate) async fn connect(
+        &self,
+        origin: Origin,
+        tty: Option<&str>,
+    ) -> Result<Client, CliError> {
+        let Discovered { socket, .. } = efr_client::discover(&self.dirs).await?;
+        let mut options = ConnectOptions::new(origin, Arc::clone(&self.clock))
+            .with_client(concat!("efr ", env!("CARGO_PKG_VERSION")));
+        if let Some(tty) = tty {
+            options = options.with_tty(tty);
+        }
+        Ok(Client::connect(&socket, options).await?)
+    }
+
+    /// A new command id, which makes a write idempotent.
+    pub(crate) fn command_id(&self) -> CommandId {
+        CommandId::from_uuid(efr_stdx::id::uuid_v7(&*self.clock, &*self.rng))
+    }
+}

@@ -1,0 +1,12 @@
+---
+source: crates/efr-cli/src/commands/send/tests.rs
+expression: readable(&captured.stdout())
+---
+\e[?2026h\e[1;35mPlan\e[0m
+
+Restart
+\e[?2026l\e[?2026h\r\e[2A\e[J
+Restart nginx, then check \e[33mjournalctl\e[0m.
+\e[?2026l\e[?2026h\r\e[2A\e[J
+Restart nginx, then check \e[33mjournalctl\e[0m.
+\e[?2026l

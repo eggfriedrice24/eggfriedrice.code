@@ -1,0 +1,41 @@
+[package]
+name = "efr-cli"
+description = "efr, the command-line relay to the efr daemon: send, new, status, history, login and config, with replies rendered through efr-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "efr"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+efr-client.workspace = true
+efr-protocol.workspace = true
+efr-render.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+jiff.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+insta.workspace = true
+pretty_assertions.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

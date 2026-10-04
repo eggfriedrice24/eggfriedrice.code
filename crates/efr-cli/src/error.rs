@@ -1,0 +1,157 @@
+//! The one error type of the CLI, and the exit code each failure maps to.
+
+use std::io;
+
+use efr_client::ClientError;
+use efr_protocol::ErrorBody;
+use efr_stdx::StdxError;
+
+/// How `efr` exits. The zsh plugin and scripts tell the cases apart by the code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Exit {
+    /// 0: the command did what it was asked.
+    Success,
+    /// 1: the daemon failed the request, the turn failed, or the connection broke.
+    DaemonError,
+    /// 2: the command line or its input is wrong.
+    Usage,
+    /// 3: no daemon listens on the socket.
+    NotRunning,
+    /// 130: the user pressed Ctrl+C, the shell convention for an interrupt.
+    Interrupted,
+}
+
+impl Exit {
+    /// The process exit code.
+    pub(crate) const fn code(self) -> u8 {
+        match self {
+            Exit::Success => 0,
+            Exit::DaemonError => 1,
+            Exit::Usage => 2,
+            Exit::NotRunning => 3,
+            Exit::Interrupted => 130,
+        }
+    }
+}
+
+/// Every way an `efr` command can fail.
+///
+/// The message says what failed in one sentence; [`report`](crate::run) adds the
+/// sources after it and a hint where there is a useful next step.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CliError {
+    /// The XDG directories, and so the socket, could not be found.
+    #[error("the efr directories could not be found")]
+    Dirs {
+        #[source]
+        source: StdxError,
+    },
+
+    /// The system random number generator could not be seeded for command ids.
+    #[error("the random number generator could not be seeded")]
+    Random {
+        #[source]
+        source: StdxError,
+    },
+
+    /// Talking to the daemon failed, including when no daemon is running.
+    #[error(transparent)]
+    Client(#[from] ClientError),
+
+    /// `--context-json` is not the JSON object the zsh plugin sends.
+    #[error("--context-json is not a shell context object")]
+    InvalidContext {
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// There is no prompt text to send.
+    #[error("the prompt is empty")]
+    EmptyPrompt,
+
+    /// `efr send --steer` cannot tell which conversation to steer.
+    #[error("efr send --steer needs --conversation, or a --context-json with a tty")]
+    SteerNeedsConversation,
+
+    /// The terminal has no active conversation to steer.
+    #[error("no conversation is active in {tty}")]
+    NoActiveConversation { tty: String },
+
+    /// The turn ended with an error from the daemon or the model provider.
+    #[error("the turn failed with {}: {}", .body.code, .body.message)]
+    TurnFailed { body: ErrorBody },
+
+    /// Another client interrupted the turn.
+    #[error("the turn was interrupted")]
+    TurnInterrupted,
+
+    /// The daemon restarted while the turn ran, so it was cancelled.
+    #[error("the turn was cancelled because the daemon restarted")]
+    TurnCancelled,
+
+    /// The daemon ended the subscription before the turn ended.
+    #[error("the daemon stopped sending the turn's events before it ended")]
+    SubscriptionEnded,
+
+    /// The subscription fell behind again and again; the terminal cannot keep up.
+    #[error("the turn's events arrived faster than they could be shown, {times} times")]
+    FellBehind { times: u32 },
+
+    /// The user pressed Ctrl+C.
+    #[error("interrupted")]
+    Interrupted,
+
+    /// Writing to stdout failed, usually because the reader of a pipe went away.
+    #[error("the output could not be written")]
+    Output {
+        #[source]
+        source: io::Error,
+    },
+
+    /// Reading keys from the terminal failed.
+    #[error("the terminal could not be read")]
+    Terminal {
+        #[source]
+        source: io::Error,
+    },
+}
+
+impl CliError {
+    /// The exit code for this failure.
+    pub(crate) fn exit(&self) -> Exit {
+        match self {
+            CliError::Client(ClientError::DaemonNotRunning { .. }) => Exit::NotRunning,
+            CliError::InvalidContext { .. }
+            | CliError::EmptyPrompt
+            | CliError::SteerNeedsConversation => Exit::Usage,
+            CliError::Interrupted => Exit::Interrupted,
+            _ => Exit::DaemonError,
+        }
+    }
+
+    /// A next step for the user, printed on its own line after the error.
+    pub(crate) fn hint(&self) -> Option<&'static str> {
+        match self {
+            CliError::Client(ClientError::DaemonNotRunning { .. }) => {
+                Some("start the daemon with: systemctl --user start efrd")
+            }
+            CliError::Client(ClientError::ProtocolMismatch { .. }) => {
+                Some("efr and efrd come from different builds; install both from one build")
+            }
+            _ => None,
+        }
+    }
+
+    /// True when the failure needs no message: the reader of stdout went away, or the
+    /// user interrupted and already sees that.
+    pub(crate) fn is_silent(&self) -> bool {
+        match self {
+            CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
+            CliError::Interrupted => true,
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

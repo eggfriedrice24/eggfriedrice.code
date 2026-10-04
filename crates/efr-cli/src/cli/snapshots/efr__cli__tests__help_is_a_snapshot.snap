@@ -1,0 +1,18 @@
+---
+source: crates/efr-cli/src/cli/tests.rs
+expression: "Cli::command().render_help().to_string()"
+---
+Talk to the efr daemon: send prompts, follow replies, check status
+
+Usage: efr <COMMAND>
+
+Commands:
+  send  Send a prompt to this terminal's conversation and follow the reply
+  new   Start a new conversation for this terminal, optionally with a first prompt
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+In zsh, the efr plugin runs these for you: `, <prompt>`, `,new` and `,! <text>`.

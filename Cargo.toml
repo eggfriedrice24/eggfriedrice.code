@@ -7,7 +7,8 @@ default-members = [
   "crates/efr-permissions", "crates/efr-scope", "crates/efr-holder", "crates/efr-http",
   "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-render",
   "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
-  "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "xtask",
+  "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
+  "xtask",
 ]
 
 [workspace.package]
@@ -135,6 +136,7 @@ efr-provider-openai = { path = "crates/efr-provider-openai" }
 efr-oauth-openai = { path = "crates/efr-oauth-openai" }
 efr-transport = { path = "crates/efr-transport" }
 efr-client = { path = "crates/efr-client" }
+efr-cli = { path = "crates/efr-cli" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

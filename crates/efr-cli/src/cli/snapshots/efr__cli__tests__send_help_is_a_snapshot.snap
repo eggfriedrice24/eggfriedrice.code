@@ -1,0 +1,17 @@
+---
+source: crates/efr-cli/src/cli/tests.rs
+expression: send.render_help().to_string()
+---
+Send a prompt to this terminal's conversation and follow the reply
+
+Usage: efr send [OPTIONS] [PROMPT]...
+
+Arguments:
+  [PROMPT]...  The prompt; the words are joined with spaces
+
+Options:
+      --steer                Add the text to the running turn instead of queueing a new prompt
+      --context-json <JSON>  The user's shell as the zsh plugin observed it, as a JSON object
+      --last-command <TEXT>  The last command line of the user's shell, for the turn's context only; it is never stored
+      --conversation <ID>    Send to this conversation instead of the terminal's active one
+  -h, --help                 Print help
