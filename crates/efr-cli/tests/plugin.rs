@@ -66,6 +66,11 @@ fn run(script: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// `text` as one single-quoted zsh word.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
 /// The value after `flag` in one call's arguments.
 fn value_of<'a>(call: &'a [String], flag: &str) -> Option<&'a str> {
     let at = call.iter().position(|arg| arg == flag)?;
@@ -165,4 +170,60 @@ fn e2e_the_hooks_are_registered_once_even_when_sourced_twice() {
     let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
     // One preexec and one precmd hook, and the remembered command survived.
     assert_eq!(call[..], ["hooks", "1", "1", "uptime"]);
+}
+
+#[test]
+fn e2e_a_prompt_with_shell_syntax_reaches_efr_as_typed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let prompts = [
+        "what is using port 8080?",
+        "list the *.log files",
+        "files > 1MB",
+        "explain this; rm -rf build",
+        "what's this",
+        "run !make again",
+        "count lines | sort",
+        "a  b",
+    ];
+    // The accept-line widget runs `_efr_rewrite_line` on the typed line; zsh then parses
+    // what it returns, as eval does here.
+    let script: String = prompts
+        .iter()
+        .map(|prompt| {
+            format!("_efr_rewrite_line {}; eval \"$REPLY\"\n", quoted(&format!(", {prompt}")))
+        })
+        .collect();
+    let calls = run(&script);
+    assert_eq!(calls.len(), prompts.len(), "{calls:?}");
+    for (call, prompt) in calls.iter().zip(prompts) {
+        assert_eq!(call[0], "send");
+        let separator = call.iter().position(|arg| arg == "--").unwrap();
+        assert_eq!(call[separator + 1..], [prompt], "{call:?}");
+    }
+}
+
+#[test]
+fn e2e_the_rewrite_quotes_only_plugin_lines() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        for line in ',new start over?' '  ,! use the *other* file' ',new' 'ls -l *.rs' ',newline'; do
+          _efr_rewrite_line "$line"
+          efr rewritten "$REPLY"
+        done
+    "#);
+    let rewritten: Vec<&str> = calls.iter().map(|call| call[1].as_str()).collect();
+    assert_eq!(
+        rewritten,
+        [
+            r",new start\ over\?",
+            r"  ,! use\ the\ \*other\*\ file",
+            ",new",
+            "ls -l *.rs",
+            ",newline",
+        ]
+    );
 }

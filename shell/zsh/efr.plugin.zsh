@@ -94,6 +94,26 @@ _efr_is_plugin_line() {
   [[ $1 == [[:space:]]#,* ]]
 }
 
+# Sets REPLY to the line that runs for the line $1. A line that calls one of this
+# plugin's commands comes back with its prompt quoted as one word, so zsh never reads
+# the prompt as shell syntax: `?` and `*` as globs, `>` as a redirection, `;` or `|`
+# as another command, an apostrophe as an unclosed quote, `!` as history. Any other
+# line comes back as it is.
+_efr_rewrite_line() {
+  emulate -L zsh -o extended_glob
+  REPLY=$1
+  [[ $1 == (#b)([[:space:]]#)(,new|,!|,)([[:space:]]##(*)|) ]] || return 0
+  # The leading blanks stay: with hist_ignore_space they keep the line out of history.
+  local lead=$match[1] cmd=$match[2] rest=${match[4]%%[[:space:]]##}
+  if [[ -z $rest ]]; then
+    REPLY=$lead$cmd
+    return 0
+  fi
+  # (q) leaves `!` alone, and history expansion still sees it in the accepted line.
+  local quoted=${(q)rest}
+  REPLY="$lead$cmd ${quoted//\!/\\!}"
+}
+
 # Sets reply to the efr arguments that carry the last shell command line. The line
 # travels as its own argument, never inside the context JSON: it can hold a secret, and
 # the daemon keeps the context in its event log.
@@ -170,10 +190,11 @@ _efr_toggle_sticky() {
 }
 
 # Wraps whatever accept-line was before (another plugin's widget or the builtin),
-# so loading order with other plugins keeps working.
+# so loading order with other plugins keeps working. Lines are rewritten rather than
+# sent to efr directly, so each lands in history as the command that actually ran.
 _efr_accept_line() {
+  local line=$BUFFER
   if (( _efr_sticky )); then
-    local line=$BUFFER
     if [[ $line == ',' ]]; then
       _efr_sticky=0
       _efr_apply_indicator
@@ -183,13 +204,17 @@ _efr_accept_line() {
     elif [[ $line == '!'* ]]; then
       # An escape hatch for one shell command without leaving sticky mode.
       BUFFER=${line#!}
-    elif [[ $line == ','* || -z ${line//[[:space:]]/} ]]; then
-      : # plugin commands and empty lines run as typed
+    elif [[ -z ${line//[[:space:]]/} ]]; then
+      : # an empty line runs as typed
+    elif [[ $line == [[:space:]]#,* ]]; then
+      _efr_rewrite_line "$line"
+      BUFFER=$REPLY
     else
-      # Rewrite rather than call efr directly, so the line lands in history as the
-      # command that actually ran.
       BUFFER=", ${(q)line}"
     fi
+  else
+    _efr_rewrite_line "$line"
+    BUFFER=$REPLY
   fi
   zle _efr_orig_accept_line
 }
