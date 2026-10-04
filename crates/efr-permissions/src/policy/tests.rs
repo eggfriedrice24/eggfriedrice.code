@@ -10,7 +10,11 @@ use crate::{Access, Effect, PathClass, PermissionsError, Subject};
 const HOME: &str = "/home/u";
 
 fn cx() -> MatchContext<'static> {
-    MatchContext { home: Path::new(HOME), project_root: Some(Path::new("/home/u/p/app")) }
+    MatchContext {
+        home: Path::new(HOME),
+        home_aliases: &[],
+        project_root: Some(Path::new("/home/u/p/app")),
+    }
 }
 
 fn write(path: &str, class: PathClass) -> Subject {
@@ -154,8 +158,31 @@ fn project_matches_only_inside_the_widening_root() {
     let outside = write("/home/u/p/other/a", PathClass::UserData);
     assert!(policy.last_match(&inside, &cx()).is_some());
     assert!(policy.last_match(&outside, &cx()).is_none());
-    let no_project = MatchContext { home: Path::new(HOME), project_root: None };
+    let no_project = MatchContext { home: Path::new(HOME), home_aliases: &[], project_root: None };
     assert!(policy.last_match(&inside, &no_project).is_none());
+}
+
+#[test]
+fn under_and_project_rules_match_both_forms_of_a_linked_home() {
+    let policy = Policy::new(vec![
+        Rule::new(Action::Write, Resource::Under("/var/home/u/.config/nvim".into()), Effect::Allow),
+        Rule::new(Action::Write, Resource::Under("~/.config/zsh".into()), Effect::Allow),
+        Rule::new(Action::Write, Resource::Project, Effect::Ask),
+    ])
+    .unwrap();
+    let aliases = [PathBuf::from("/var/home/u")];
+    let cx = MatchContext {
+        home: Path::new(HOME),
+        home_aliases: &aliases,
+        project_root: Some(Path::new("/home/u/p/app")),
+    };
+    let rule = |path: &str| policy.last_match(&write(path, PathClass::UserConfig), &cx);
+    assert_eq!(rule("/home/u/.config/nvim/init.lua"), Some((0, Effect::Allow)));
+    assert_eq!(rule("/var/home/u/.config/nvim/init.lua"), Some((0, Effect::Allow)));
+    assert_eq!(rule("/var/home/u/.config/zsh/aliases.zsh"), Some((1, Effect::Allow)));
+    assert_eq!(rule("/var/home/u/p/app/src/main.rs"), Some((2, Effect::Ask)));
+    assert_eq!(rule("/var/home/u/.config/fish/config.fish"), None);
+    assert_eq!(rule("/var/home/u2/.config/nvim/init.lua"), None);
 }
 
 #[rstest]

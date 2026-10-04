@@ -22,6 +22,14 @@ pub enum PermissionsError {
     #[error("the home directory is /, so user paths cannot be told apart from system paths")]
     HomeIsRoot,
 
+    /// A home alias lies inside or above the home directory or another alias, so one
+    /// form of a path would sit inside another.
+    #[error("the home alias {} lies inside or above another form of the home directory", .alias.display())]
+    HomeAliasOverlaps {
+        /// The alias.
+        alias: PathBuf,
+    },
+
     /// A rule's `under` path is neither absolute nor relative to `~`.
     #[error("rule {index} names {}, which is neither absolute nor under ~", .path.display())]
     RulePathNotAbsolute {

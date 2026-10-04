@@ -21,7 +21,13 @@ Modules:
   | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, `/etc/shadow`, `/etc/gshadow`, the daemon's `secrets/` | denied | denied |
 
   Classification is lexical: `.` and `..` are resolved by name, nothing is read from
-  the disk, and a relative path has no class.
+  the disk, and a relative path has no class. Tools resolve symbolic links before they
+  declare a path, so when `/home` links to `/var/home` a tool declares
+  `/var/home/u/.ssh/id_ed25519`. The daemon therefore builds `Locations` from
+  `efr_scope::Home::path()` and adds `Home::canonical()` with `with_home_alias`; a
+  path, a scratch directory or a root under any form of `~` is classified as the same
+  path under `~`. A root outside `~` whose resolved form differs is added in both
+  forms.
 - `request`: `DecisionInput`, `Requirements` (paths with `Access`, a command line,
   network, interactive) and `ConversationPolicy` (the conversation's `$SCRATCH` and its
   own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
@@ -59,10 +65,13 @@ decisions follow these rules, each covered by a decision table in
   becomes `Ask`, `Deny` stays `Deny`. Any origin other than shell, CLI or proxy,
   including one added to the protocol later, counts as remote (property: the phone is
   never looser than the shell).
-- `~`, `/` and the directories above `~` are never treated as a project, even when the
-  registry lists one: the project rule then matches nothing. Only the user data of the
+- Every form of `~` classifies alike: a secret reached through a linked home is
+  still a secret (property: both forms of a path get the same class).
+- `~`, `/` and the directories above `~`, in any form of `~`, are never treated as a
+  project, even when the registry lists one: the project rule then matches nothing. Only the user data of the
   turn's own registered project is free to write.
-- A scratch path of `/`, `~` or a directory above `~` makes nothing scratch.
+- A scratch path of `/`, `~` or a directory above `~`, in any form of `~`, makes
+  nothing scratch.
 - A relative path, or a requirement that no rule matches, is denied (fail closed).
   Adding a requirement never loosens a decision (property).
 - A command pattern matches only a simple command line (plain words of

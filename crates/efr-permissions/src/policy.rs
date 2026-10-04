@@ -10,12 +10,13 @@
 //! { action = "execute", resource = { command = { program = "git", args = ["status"] } }, effect = "allow" }
 //! ```
 
+use std::borrow::Cow;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::path_class::normalize;
+use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError, Subject};
 
 /// One rule: when a requirement matches `action` and `resource`, its effect is
@@ -239,8 +240,18 @@ impl From<Policy> for Vec<Rule> {
 pub(crate) struct MatchContext<'a> {
     /// The home directory, for `~` in `under` paths.
     pub(crate) home: &'a Path,
-    /// The root of the turn's project, when it may widen permissions.
+    /// The other forms of the home directory. A path or an `under` root in one of them
+    /// is compared as the same path under `home`.
+    pub(crate) home_aliases: &'a [PathBuf],
+    /// The root of the turn's project, when it may widen permissions, already under
+    /// `home` when it lies under an alias.
     pub(crate) project_root: Option<&'a Path>,
+}
+
+impl MatchContext<'_> {
+    fn rehome<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
+        rehome(self.home, self.home_aliases, path)
+    }
 }
 
 impl Rule {
@@ -276,10 +287,11 @@ impl Rule {
         match &self.resource {
             Resource::Any => true,
             Resource::Class(wanted) => *wanted == class,
-            Resource::Under(root) => {
-                expand(root, cx.home).is_some_and(|root| path.starts_with(root))
+            Resource::Under(root) => expand(root, cx.home)
+                .is_some_and(|root| cx.rehome(path).starts_with(cx.rehome(&root))),
+            Resource::Project => {
+                cx.project_root.is_some_and(|root| cx.rehome(path).starts_with(root))
             }
-            Resource::Project => cx.project_root.is_some_and(|root| path.starts_with(root)),
             Resource::Command(_) => false,
         }
     }

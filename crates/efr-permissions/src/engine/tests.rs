@@ -183,6 +183,85 @@ fn writes_by_scope(#[case] scope: Scope, #[case] path: &str, #[case] expected: E
     assert_eq!(effect(write(path), scope, Origin::Shell), expected);
 }
 
+/// The engine for a machine where `/home` links to `/var/home`: the daemon passes the
+/// home directory as given and adds its resolved form, which is what tools declare.
+fn linked_engine() -> Engine {
+    Engine::with_defaults(locations().with_home_alias("/var/home/u").unwrap())
+}
+
+#[rstest]
+// Secrets stay denied when a tool declares their resolved path.
+#[case::read_ssh_key(read("/var/home/u/.ssh/id_rsa"), Scope::Machine, Effect::Deny)]
+#[case::write_ssh_key(write("/var/home/u/.ssh/id_rsa"), Scope::Machine, Effect::Deny)]
+#[case::write_ssh_from_project(
+    write("/var/home/u/.ssh/authorized_keys"),
+    Scope::Project(app()),
+    Effect::Deny
+)]
+#[case::read_daemon_secrets(
+    read("/var/home/u/.local/share/efr/secrets/openai-subscription.json"),
+    Scope::Machine,
+    Effect::Deny
+)]
+// The other classes decide as their lexical form does.
+#[case::read_documents(read("/var/home/u/Documents/plan.md"), Scope::Machine, Effect::Allow)]
+#[case::write_rc(write("/var/home/u/.zshrc"), Scope::Machine, Effect::Ask)]
+#[case::write_scratch(
+    write("/var/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d/out.txt"),
+    Scope::Machine,
+    Effect::Allow
+)]
+#[case::write_project(write("/var/home/u/p/app/src/main.rs"), Scope::Project(app()), Effect::Allow)]
+#[case::write_other_project(write("/var/home/u/p/other/a"), Scope::Project(app()), Effect::Ask)]
+#[case::write_home_project(
+    write("/var/home/u/notes.txt"),
+    Scope::Project(home_project()),
+    Effect::Ask
+)]
+#[case::read_lexical_ssh_key(read("/home/u/.ssh/id_rsa"), Scope::Machine, Effect::Deny)]
+fn a_linked_home_decides_like_its_lexical_form(
+    #[case] requirements: Requirements,
+    #[case] scope: Scope,
+    #[case] expected: Effect,
+) {
+    let decision = linked_engine().decide(&input(requirements, scope, Origin::Shell));
+    assert_eq!(decision.effect(), expected);
+}
+
+#[test]
+fn a_secret_behind_the_link_is_denied_by_the_secrets_rule_under_its_declared_path() {
+    let input = input(read("/var/home/u/.ssh/id_rsa"), Scope::Machine, Origin::Shell);
+    let decision = linked_engine().decide(&input);
+    let deciding: Vec<_> = decision.deciding().map(ToString::to_string).collect();
+    assert_eq!(
+        deciding,
+        ["read /var/home/u/.ssh/id_rsa (secrets): deny, by rule 7 of the machine policy"]
+    );
+}
+
+#[test]
+fn a_scratch_or_project_in_the_resolved_form_widens_both_forms() {
+    let locations = Locations::new(HOME)
+        .unwrap()
+        .with_home_alias("/var/home/u")
+        .unwrap()
+        .with_project(app(), "/var/home/u/p/app")
+        .unwrap();
+    let engine = Engine::with_defaults(locations);
+    let decide = |requirements: Requirements, scope: Scope| {
+        let mut input = input(requirements, scope, Origin::Shell);
+        input.conversation_policy =
+            ConversationPolicy::new("/var/home/u/.local/share/efr/scratch/2026-10-04-a-00000000");
+        engine.decide(&input).effect()
+    };
+    for form in [HOME, "/var/home/u"] {
+        let scratch = format!("{form}/.local/share/efr/scratch/2026-10-04-a-00000000/out.txt");
+        assert_eq!(decide(write(&scratch), Scope::Machine), Effect::Allow, "{form}");
+        let source = format!("{form}/p/app/src/main.rs");
+        assert_eq!(decide(write(&source), Scope::Project(app())), Effect::Allow, "{form}");
+    }
+}
+
 #[rstest]
 #[case::read_scratch(read(&scratch_file()), Scope::Machine, Effect::Allow)]
 #[case::write_scratch(write(&scratch_file()), Scope::Machine, Effect::Allow)]

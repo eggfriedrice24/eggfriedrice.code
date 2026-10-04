@@ -164,6 +164,127 @@ fn project_roots_are_kept_but_never_widen_from_home_or_above() {
     assert_eq!(locations.widening_project_root(&above), None);
 }
 
+/// `/home` links to `/var/home`, so tools declare paths under this form.
+const CANONICAL_HOME: &str = "/var/home/u";
+
+fn linked_locations() -> Locations {
+    locations().with_home_alias(CANONICAL_HOME).unwrap()
+}
+
+#[rstest]
+#[case::ssh_key("/var/home/u/.ssh/id_rsa", PathClass::Secrets)]
+#[case::ssh_dir("/var/home/u/.ssh", PathClass::Secrets)]
+#[case::gnupg("/var/home/u/.gnupg/pubring.kbx", PathClass::Secrets)]
+#[case::keyrings("/var/home/u/.local/share/keyrings/login.keyring", PathClass::Secrets)]
+#[case::netrc("/var/home/u/.netrc", PathClass::Secrets)]
+#[case::daemon_secrets(
+    "/var/home/u/.local/share/efr/secrets/openai-subscription.json",
+    PathClass::Secrets
+)]
+#[case::scratch(
+    "/var/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d/a.txt",
+    PathClass::Scratch
+)]
+#[case::rc_file("/var/home/u/.zshrc", PathClass::UserConfig)]
+#[case::config_dir("/var/home/u/.config/nvim/init.lua", PathClass::UserConfig)]
+#[case::documents("/var/home/u/Documents/plan.md", PathClass::UserData)]
+#[case::cache("/var/home/u/.cache/pip/x", PathClass::UserData)]
+#[case::home_itself(CANONICAL_HOME, PathClass::UserData)]
+#[case::lexical_ssh_key("/home/u/.ssh/id_rsa", PathClass::Secrets)]
+#[case::lexical_documents("/home/u/Documents/plan.md", PathClass::UserData)]
+#[case::above_alias("/var/home", PathClass::System)]
+#[case::other_user("/var/home/u2/.ssh/id_rsa", PathClass::System)]
+#[case::escape_by_dots("/var/home/u/p/../../u2/.ssh/id_rsa", PathClass::System)]
+#[case::back_in_by_dots("/var/home/u2/../u/.ssh/id_rsa", PathClass::Secrets)]
+fn a_linked_home_classifies_both_forms_alike(#[case] path: &str, #[case] expected: PathClass) {
+    assert_eq!(linked_locations().classify(Path::new(path), Path::new(SCRATCH)), Some(expected));
+}
+
+#[test]
+fn a_scratch_in_the_resolved_form_matches_paths_in_either_form() {
+    let scratch = Path::new("/var/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d");
+    let locations = linked_locations();
+    for path in [format!("{SCRATCH}/a"), format!("{}/a", scratch.display())] {
+        assert_eq!(locations.classify(Path::new(&path), scratch), Some(PathClass::Scratch));
+    }
+}
+
+#[rstest]
+#[case::canonical_home(CANONICAL_HOME)]
+#[case::above_canonical_home("/var/home")]
+#[case::var("/var")]
+fn a_scratch_that_covers_any_form_of_home_makes_nothing_scratch(#[case] scratch: &str) {
+    let locations = linked_locations();
+    for path in ["/home/u/notes.txt", "/var/home/u/notes.txt"] {
+        assert_eq!(
+            locations.classify(Path::new(path), Path::new(scratch)),
+            Some(PathClass::UserData),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn roots_in_either_form_match_paths_in_either_form_whatever_the_order() {
+    let id: ProjectId = "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap();
+    let above: ProjectId = "0192f0c1-7a00-7000-8000-000000000002".parse().unwrap();
+    let home: ProjectId = "0192f0c1-7a00-7000-8000-000000000003".parse().unwrap();
+    let locations = Locations::new(HOME)
+        .unwrap()
+        // Added in the resolved form before the alias is known.
+        .with_secret_root("/var/home/u/vault")
+        .unwrap()
+        .with_project(id, "/var/home/u/p/app")
+        .unwrap()
+        .with_home_alias(CANONICAL_HOME)
+        .unwrap()
+        .with_user_config_root("/var/home/u/dotfiles")
+        .unwrap()
+        .with_project(above, "/var/home")
+        .unwrap()
+        .with_project(home, CANONICAL_HOME)
+        .unwrap();
+    for form in [HOME, CANONICAL_HOME] {
+        assert_eq!(
+            locations.classify(&Path::new(form).join("vault/key"), Path::new(SCRATCH)),
+            Some(PathClass::Secrets),
+            "{form}"
+        );
+        assert_eq!(
+            locations.classify(&Path::new(form).join("dotfiles/zshrc"), Path::new(SCRATCH)),
+            Some(PathClass::UserConfig),
+            "{form}"
+        );
+    }
+    assert_eq!(locations.project_root(&id), Some(Path::new("/home/u/p/app")));
+    assert_eq!(locations.widening_project_root(&id), Some(Path::new("/home/u/p/app")));
+    assert_eq!(locations.widening_project_root(&above), None);
+    assert_eq!(locations.widening_project_root(&home), None);
+}
+
+#[test]
+fn a_home_alias_must_be_absolute_and_apart_from_every_form_of_home() {
+    let home = || Locations::new(HOME).unwrap();
+    assert_eq!(
+        home().with_home_alias("var/home/u").unwrap_err(),
+        PermissionsError::NotAbsolute { path: PathBuf::from("var/home/u") }
+    );
+    assert_eq!(home().with_home_alias("/").unwrap_err(), PermissionsError::HomeIsRoot);
+    for overlapping in ["/home", "/home/u/link"] {
+        assert_eq!(
+            home().with_home_alias(overlapping).unwrap_err(),
+            PermissionsError::HomeAliasOverlaps { alias: PathBuf::from(overlapping) }
+        );
+    }
+    assert_eq!(
+        home().with_home_alias(CANONICAL_HOME).unwrap().with_home_alias("/var/home").unwrap_err(),
+        PermissionsError::HomeAliasOverlaps { alias: PathBuf::from("/var/home") }
+    );
+    assert_eq!(home().with_home_alias("/home/./u/").unwrap().home_aliases(), [] as [PathBuf; 0]);
+    let twice = home().with_home_alias("/var/home/u/").unwrap().with_home_alias(CANONICAL_HOME);
+    assert_eq!(twice.unwrap().home_aliases(), [PathBuf::from(CANONICAL_HOME)]);
+}
+
 #[rstest]
 #[case("/", "/")]
 #[case("/a/b", "/a/b")]
@@ -217,6 +338,20 @@ proptest! {
         prop_assert_eq!(
             locations.classify(&plain, Path::new(SCRATCH)),
             locations.classify(&with_detour, Path::new(SCRATCH))
+        );
+    }
+
+    #[test]
+    fn both_forms_of_a_linked_home_get_the_same_class(
+        segments in prop::collection::vec(segment().prop_filter("stays below home", |s| *s != ".."), 0..8),
+    ) {
+        let locations = linked_locations();
+        let rest = segments.join("/");
+        let lexical = PathBuf::from(format!("{HOME}/{rest}"));
+        let resolved = PathBuf::from(format!("{CANONICAL_HOME}/{rest}"));
+        prop_assert_eq!(
+            locations.classify(&lexical, Path::new(SCRATCH)),
+            locations.classify(&resolved, Path::new(SCRATCH))
         );
     }
 }

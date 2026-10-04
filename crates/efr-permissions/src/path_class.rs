@@ -3,8 +3,11 @@
 //! The engine judges a call by the paths that it touches, never by the shell's working
 //! directory: a shell in `~` must not make every file in `~` writable. Classification
 //! is lexical. `.` and `..` are resolved by name and nothing is read from the disk, so
-//! the caller (the tool) resolves symbolic links before it declares a path.
+//! the caller (the tool) resolves symbolic links before it declares a path. A home
+//! directory reached through a link therefore arrives in its resolved form, and
+//! [`Locations`] knows every form of it.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -87,15 +90,25 @@ const SYSTEM_SECRETS: &[&str] = &["/etc/shadow", "/etc/gshadow"];
 /// Dot entries of the home directory that hold data, not configuration.
 const HOME_DATA: &[&str] = &[".local/share", ".local/state", ".cache"];
 
-/// The machine facts that classification needs: the home directory, extra secret and
-/// configuration roots, and the roots of the registered projects.
+/// The machine facts that classification needs: the home directory in every form it
+/// has, extra secret and configuration roots, and the roots of the registered projects.
 ///
 /// The daemon builds this from its directories and the project registry, and builds a
 /// new [`Engine`](crate::Engine) when the registry changes. Every path is stored in its
 /// lexical normal form.
+///
+/// Tools resolve symbolic links before they declare a path, so when `/home` links to
+/// `/var/home`, a tool declares `/var/home/u/.ssh/id_ed25519` and never
+/// `/home/u/.ssh/id_ed25519`. The daemon therefore passes `efr_scope::Home::path()` to
+/// [`Locations::new`] and `efr_scope::Home::canonical()` to
+/// [`Locations::with_home_alias`]. A path under an alias is classified as the same path
+/// under the home directory, and a root under an alias is stored that way, so every
+/// check compares one form. A root outside the home directory whose resolved form
+/// differs is added in both forms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Locations {
     home: PathBuf,
+    home_aliases: Vec<PathBuf>,
     secret_roots: Vec<PathBuf>,
     user_config_roots: Vec<PathBuf>,
     projects: BTreeMap<ProjectId, PathBuf>,
@@ -113,16 +126,49 @@ impl Locations {
         }
         Ok(Locations {
             home,
+            home_aliases: Vec::new(),
             secret_roots: Vec::new(),
             user_config_roots: Vec::new(),
             projects: BTreeMap::new(),
         })
     }
 
+    /// Adds another form of the home directory, such as its form with symbolic links
+    /// resolved, so that a path a tool resolved through the link is classified like the
+    /// same path under the home directory.
+    ///
+    /// An alias equal to the home directory changes nothing. Fails when `alias` is
+    /// relative or `/`, or when it lies inside or above the home directory or another
+    /// alias: then one form of a path would sit inside another, and `/home` as an alias
+    /// of `/home/u` would make every user's files on the machine this user's.
+    pub fn with_home_alias(mut self, alias: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let alias = absolute(alias.into())?;
+        if alias.parent().is_none() {
+            return Err(PermissionsError::HomeIsRoot);
+        }
+        if self.home_forms().any(|form| *form == alias) {
+            return Ok(self);
+        }
+        if self.home_forms().any(|form| form.starts_with(&alias) || alias.starts_with(form)) {
+            return Err(PermissionsError::HomeAliasOverlaps { alias });
+        }
+        self.home_aliases.push(alias);
+        // NOTE: a root added before the alias may be in the alias's form. Rewriting the
+        // roots now keeps the order of the builder calls from mattering.
+        let Locations { home, home_aliases, secret_roots, user_config_roots, projects } = &mut self;
+        for root in secret_roots.iter_mut().chain(user_config_roots).chain(projects.values_mut()) {
+            if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
+                *root = rehomed;
+            }
+        }
+        Ok(self)
+    }
+
     /// Adds a directory or file whose contents are secret, such as the daemon's
     /// `secrets/` directory.
     pub fn with_secret_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
-        self.secret_roots.push(absolute(root.into())?);
+        let root = self.absolute_root(root.into())?;
+        self.secret_roots.push(root);
         Ok(self)
     }
 
@@ -132,7 +178,8 @@ impl Locations {
         mut self,
         root: impl Into<PathBuf>,
     ) -> Result<Self, PermissionsError> {
-        self.user_config_roots.push(absolute(root.into())?);
+        let root = self.absolute_root(root.into())?;
+        self.user_config_roots.push(root);
         Ok(self)
     }
 
@@ -143,7 +190,8 @@ impl Locations {
         id: ProjectId,
         root: impl Into<PathBuf>,
     ) -> Result<Self, PermissionsError> {
-        self.projects.insert(id, absolute(root.into())?);
+        let root = self.absolute_root(root.into())?;
+        self.projects.insert(id, root);
         Ok(self)
     }
 
@@ -152,7 +200,13 @@ impl Locations {
         &self.home
     }
 
-    /// The root of the registered project `id`, if it was added.
+    /// The other forms of the home directory, from [`Locations::with_home_alias`].
+    pub fn home_aliases(&self) -> &[PathBuf] {
+        &self.home_aliases
+    }
+
+    /// The root of the registered project `id`, if it was added. A root under a home
+    /// alias is reported under the home directory.
     pub fn project_root(&self, id: &ProjectId) -> Option<&Path> {
         self.projects.get(id).map(PathBuf::as_path)
     }
@@ -167,6 +221,8 @@ impl Locations {
     /// The class of a path that is already in normal form, with the scratch root from
     /// [`Locations::scratch_root`].
     pub(crate) fn classify_normal(&self, path: &Path, scratch: Option<&Path>) -> PathClass {
+        let path = self.rehome(path);
+        let path = path.as_ref();
         if self.is_secret(path) {
             return PathClass::Secrets;
         }
@@ -182,22 +238,48 @@ impl Locations {
         }
     }
 
-    /// The conversation's scratch directory in normal form, when it may count as
-    /// scratch at all.
+    /// The conversation's scratch directory in normal form, under the home directory
+    /// when it lies under an alias, when it may count as scratch at all.
     ///
-    /// NOTE: a scratch path of `/`, `~` or a directory above `~` would turn every user
-    /// file into free scratch, so such a path makes nothing scratch.
+    /// NOTE: a scratch path of `/`, `~` or a directory above `~`, in any form of `~`,
+    /// would turn every user file into free scratch, so such a path makes nothing
+    /// scratch.
     pub(crate) fn scratch_root(&self, scratch: &Path) -> Option<PathBuf> {
-        normalize(scratch).filter(|scratch| !self.home.starts_with(scratch))
+        normalize(scratch)
+            .map(|scratch| self.rehome(&scratch).into_owned())
+            .filter(|scratch| !self.is_at_or_above_home(scratch))
     }
 
     /// The root of the registered project `id`, when it may widen what a turn can do.
     ///
-    /// NOTE: `~`, `/` and the directories above `~` are never treated as a project here,
-    /// even when the registry lists one of them: that would make every user file
-    /// writable without approval.
+    /// NOTE: `~`, `/` and the directories above `~`, in any form of `~`, are never
+    /// treated as a project here, even when the registry lists one of them: that would
+    /// make every user file writable without approval.
     pub(crate) fn widening_project_root(&self, id: &ProjectId) -> Option<&Path> {
-        self.project_root(id).filter(|root| !self.home.starts_with(root))
+        self.project_root(id).filter(|root| !self.is_at_or_above_home(root))
+    }
+
+    /// `path` with a leading home alias replaced by the home directory.
+    fn rehome<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
+        rehome(&self.home, &self.home_aliases, path)
+    }
+
+    /// The home directory and its aliases.
+    fn home_forms(&self) -> impl Iterator<Item = &PathBuf> {
+        std::iter::once(&self.home).chain(&self.home_aliases)
+    }
+
+    /// True when `dir` is a form of the home directory, `/`, or a directory above a form
+    /// of the home directory.
+    fn is_at_or_above_home(&self, dir: &Path) -> bool {
+        self.home_forms().any(|form| form.starts_with(dir))
+    }
+
+    /// An absolute root in normal form, under the home directory when it lies under an
+    /// alias.
+    fn absolute_root(&self, root: PathBuf) -> Result<PathBuf, PermissionsError> {
+        let root = absolute(root)?;
+        Ok(self.rehome(&root).into_owned())
     }
 
     fn is_secret(&self, path: &Path) -> bool {
@@ -218,6 +300,21 @@ fn classify_in_home(relative: &Path) -> PathClass {
         }
         _ => PathClass::UserData,
     }
+}
+
+/// `path` with a leading alias of `home` replaced by `home`; `path` itself when it lies
+/// under no alias. At most one alias can match, because
+/// [`Locations::with_home_alias`] refuses aliases inside one another.
+pub(crate) fn rehome<'p>(home: &Path, aliases: &[PathBuf], path: &'p Path) -> Cow<'p, Path> {
+    for alias in aliases {
+        if let Ok(rest) = path.strip_prefix(alias) {
+            // `join` with an empty path would add a trailing separator.
+            let rehomed =
+                if rest.as_os_str().is_empty() { home.to_path_buf() } else { home.join(rest) };
+            return Cow::Owned(rehomed);
+        }
+    }
+    Cow::Borrowed(path)
 }
 
 /// The lexical normal form of an absolute path: `.` dropped, `..` removing the

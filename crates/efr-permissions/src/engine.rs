@@ -56,7 +56,11 @@ impl Engine {
             Scope::Project(id) => self.locations.widening_project_root(id),
             _ => None,
         };
-        let cx = MatchContext { home: self.locations.home(), project_root };
+        let cx = MatchContext {
+            home: self.locations.home(),
+            home_aliases: self.locations.home_aliases(),
+            project_root,
+        };
         let judge = |subject: Subject, class: Option<PathClass>| -> Reason {
             let (effect, cause) = self.by_rules(&subject, class, input, &cx);
             let (effect, cause) = clamp_remote(effect, cause, class, input.origin);
