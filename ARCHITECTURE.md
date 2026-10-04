@@ -38,6 +38,7 @@ shipped binary.
 | `efr-screen` | lib | 1 | the `Screen` trait, `ScreenActor` and `ScreenHandle`, the OSC 133 and OSC 7 scanner, the conformance suite | `efr-protocol`, `efr-stdx` |
 | `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages | `efr-protocol`, `efr-stdx` |
 | `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
+| `efr-render` | lib | 1 | markdown and render events to ANSI: committed and live zones, syntax colours, OSC 8 links; no IO, the CLI passes `RenderOptions` | none |
 | `efr-screen-vt100` | lib | 2 | `Screen` over vt100; the Zig-free default | `efr-screen` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
@@ -49,7 +50,7 @@ shipped binary.
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `login openai`, `config show` | `efr-client`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `login openai`, `config show`; renders replies through `efr-render` | `efr-client`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the

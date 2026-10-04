@@ -37,6 +37,8 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-screen", &["efr-protocol", "efr-stdx"]),
     ("efr-provider", &["efr-protocol", "efr-stdx"]),
     ("efr-test-support", &["efr-protocol", "efr-store", "efr-provider", "efr-stdx"]),
+    // Markdown and render events in, ANSI out; no IO (structure document, addendum A).
+    ("efr-render", &[]),
     // Tier 2
     ("efr-screen-vt100", &["efr-screen"]),
     ("efr-screen-ghostty", &["efr-screen"]),
@@ -86,7 +88,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-transport",
         ],
     ),
-    ("efr-cli", &["efr-client", "efr-protocol", "efr-stdx"]),
+    ("efr-cli", &["efr-client", "efr-render", "efr-protocol", "efr-stdx"]),
     // Tier T
     ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-client", "efr-protocol"]),
     // Tooling
