@@ -87,12 +87,17 @@ that will not compile:
 
 - `ESC ]` opens an OSC; `BEL` or `ESC \` closes it. A body longer than 4096 bytes is
   dropped up to its terminator. DCS, SOS, PM and APC strings are skipped up to `ESC \`,
-  so an OSC inside them is not a mark. CAN and SUB abort any sequence, as in the VT
-  parser.
+  so their payload (a sixel image, a kitty graphics blob) is never read as an OSC.
+  CAN and SUB abort any sequence, as in the VT parser.
 - An `ESC` inside an OSC body that is not followed by `\` aborts the OSC without a mark
   and starts a new escape sequence. libghostty-vt and vt100 dispatch the OSC in that
   case; the scanner does not, so a stray fragment in binary output never produces a
   false mark and never swallows the next real one.
+- Inside a skipped string, a doubled `ESC ESC` is payload: that is how tmux wraps
+  passthrough sequences, so the marks of a shell running in tmux inside the hidden
+  shell are not taken for the hidden shell's own. Any other `ESC` ends the string and
+  starts a new sequence, as in the VT parser, so a stray `ESC P` in binary output
+  cannot hide the next real mark.
 - State survives chunk boundaries, so any split of a stream yields the same marks
   (proptest). When a chunk's base offset does not continue the previous chunk (a gap
   in the recording), a partly read sequence is dropped.
