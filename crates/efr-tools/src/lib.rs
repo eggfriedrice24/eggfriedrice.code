@@ -23,6 +23,7 @@ mod context;
 mod error;
 mod journal;
 mod output;
+mod paths;
 #[cfg(test)]
 mod testing;
 mod tool;
