@@ -124,8 +124,10 @@ end-to-end tests run whole commands against a fake daemon on a socket in a tempo
 directory, with a fixed screen, scripted keys and a Ctrl+C the test triggers.
 `tests/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
 codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
-`zsh -f` with a fake `efr` that records its arguments; its `e2e_` tests need zsh and
-skip with a message unless `EFR_TEST_ZSH=1`:
+`zsh -f` with a fake `efr` that records its command line from `/proc` and the
+variables it was handed, so a test can prove that no typed text reaches a command
+line; one test runs the built `efr` behind the plugin against a `TestDaemon`. Its
+`e2e_` tests need zsh and skip with a message unless `EFR_TEST_ZSH=1`:
 
 ```sh
 EFR_TEST_ZSH=1 cargo nextest run -p efr-cli --test plugin

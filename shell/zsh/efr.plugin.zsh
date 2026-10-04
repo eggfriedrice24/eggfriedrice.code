@@ -11,6 +11,11 @@
 # The plugin only observes and relays. The daemon derives git root, scope and
 # permissions, so nothing here runs git or forks per prompt.
 #
+# What the user typed reaches efr in its environment, never in its arguments: the
+# context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND and the prompt as
+# EFR_PROMPT. Any local user can read a command line in /proc/<pid>/cmdline, while
+# /proc/<pid>/environ is readable only by this user.
+#
 # Written from scratch for this project (MIT); it is not derived from any terminal's
 # shell integration.
 
@@ -118,12 +123,17 @@ _efr_rewrite_line() {
   REPLY="$lead$cmd ${quoted//\!/\\!}"
 }
 
-# Sets reply to the efr arguments that carry the last shell command line. The line
-# travels as its own argument, never inside the context JSON: it can hold a secret, and
-# the daemon keeps the context in its event log.
-_efr_last_command_args() {
-  reply=()
-  [[ -n $_efr_last_command ]] && reply=(--last-command "$_efr_last_command")
+# Runs efr with the arguments after the first three, and hands it the context JSON $1,
+# the last command line $2 and the prompt $3 in its environment. The last command
+# travels on its own, never inside the context: it can hold a secret, and the daemon
+# keeps the context in its event log. Prefix assignments set the variables for this
+# one command, so they never stay in the shell, and an empty one hides a value that
+# the shell may have exported.
+_efr_call() {
+  # NOTE: not named prompt, which is zsh's special parameter for PS1.
+  local context=$1 last_command=$2 text=$3
+  shift 3
+  EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text efr "$@"
 }
 
 # --- commands ---------------------------------------------------------------------
@@ -142,11 +152,10 @@ function , {
   [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
   local context=$REPLY
-  _efr_last_command_args
   if (( _efr_new_pending )); then
     _efr_new "$context" "$@"
   else
-    efr send --context-json "$context" "${reply[@]}" -- "$@"
+    _efr_call "$context" "$_efr_last_command" "${(j: :)@}" send
   fi
 }
 
@@ -162,17 +171,16 @@ function ,new {
   [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
   local context=$REPLY
-  _efr_last_command_args
   _efr_new "$context" "$@"
 }
 
-# Runs `efr new` with the context $1 and the prompt words after it; reply holds the
-# last command arguments. A pending bare `,new` is settled unless efr refused the
-# command line (2) or found no daemon (3): then no conversation started.
+# Runs `efr new` with the context $1 and the prompt words after it. A pending bare
+# `,new` is settled unless efr refused the command line (2) or found no daemon (3):
+# then no conversation started.
 _efr_new() {
   local context=$1
   shift
-  efr new --context-json "$context" "${reply[@]}" -- "$@"
+  _efr_call "$context" "$_efr_last_command" "${(j: :)@}" new
   local code=$?
   (( code == 2 || code == 3 )) || _efr_new_pending=0
   return $code
@@ -189,7 +197,7 @@ function ,! {
     return 2
   fi
   _efr_context_json $last_status
-  efr send --steer --context-json "$REPLY" -- "$@"
+  _efr_call "$REPLY" '' "${(j: :)@}" send --steer
 }
 
 # --- sticky agent mode ------------------------------------------------------------
