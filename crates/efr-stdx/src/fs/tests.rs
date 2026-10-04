@@ -61,9 +61,12 @@ fn write_atomic_needs_a_file_name() {
 #[test]
 fn write_atomic_needs_the_parent_directory() {
     let dir = tempfile::tempdir().unwrap();
-    let err = write_atomic(&dir.path().join("missing/file"), b"x").unwrap_err();
-    match err {
-        StdxError::CreateFile { source, .. } => assert_eq!(source.kind(), ErrorKind::NotFound),
+    let target = dir.path().join("missing/file");
+    match write_atomic(&target, b"x").unwrap_err() {
+        StdxError::CreateFile { path, source } => {
+            assert_eq!(path, target);
+            assert_eq!(source.kind(), ErrorKind::NotFound);
+        }
         other => panic!("unexpected error {other:?}"),
     }
     assert_eq!(entries(dir.path()), Vec::<String>::new());
@@ -110,6 +113,19 @@ fn concurrent_writes_never_mix() {
     assert!((1..=WRITERS).contains(&last[0]));
     assert!(last.iter().all(|byte| *byte == last[0]));
     assert_eq!(entries(dir.path()), ["shared"]);
+}
+
+#[test]
+fn write_atomic_replaces_a_symlink_instead_of_following_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("target");
+    let link = dir.path().join("link");
+    fs::write(&target, b"target").unwrap();
+    symlink(&target, &link).unwrap();
+    write_atomic(&link, b"new").unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"target");
+    assert!(!fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(&link).unwrap(), b"new");
 }
 
 #[test]

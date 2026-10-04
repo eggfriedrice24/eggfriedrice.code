@@ -42,13 +42,15 @@ pub enum Claim {
 /// The bytes go to a hidden temporary file in the same directory. That file is flushed
 /// to disk and renamed over `path`, and then the directory is flushed so that the
 /// rename survives a crash. The new file has mode 0600, because efr writes nothing
-/// that other users may read. The parent directory must exist.
+/// that other users may read. The parent directory must exist. A symbolic link at
+/// `path` is replaced by the new file, not followed.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), StdxError> {
     let Some(file_name) = path.file_name() else {
         return Err(StdxError::NoFileName { path: path.to_path_buf() });
     };
     let dir = parent_dir(path);
-    let (temp_path, mut file) = create_temp(dir, file_name)?;
+    let (temp_path, mut file) = create_temp(dir, file_name)
+        .map_err(|source| StdxError::CreateFile { path: path.to_path_buf(), source })?;
     if let Err(source) = file.write_all(contents).and_then(|()| file.sync_all()) {
         remove_leftover(&temp_path);
         return Err(StdxError::WriteFile { path: path.to_path_buf(), source });
@@ -99,7 +101,7 @@ fn open_new_private(path: &Path) -> io::Result<File> {
 /// A new private file named `.<file_name>.<pid>.<n>.tmp` in `dir`. The leading dot
 /// hides it from listings, and the suffix keeps it from matching a pattern such as
 /// `*.json`.
-fn create_temp(dir: &Path, file_name: &OsStr) -> Result<(PathBuf, File), StdxError> {
+fn create_temp(dir: &Path, file_name: &OsStr) -> io::Result<(PathBuf, File)> {
     let pid = std::process::id();
     let mut attempt = 0;
     loop {
@@ -113,7 +115,7 @@ fn create_temp(dir: &Path, file_name: &OsStr) -> Result<(PathBuf, File), StdxErr
             Ok(file) => return Ok((temp_path, file)),
             Err(source)
                 if source.kind() == io::ErrorKind::AlreadyExists && attempt < TEMP_ATTEMPTS => {}
-            Err(source) => return Err(StdxError::CreateFile { path: temp_path, source }),
+            Err(source) => return Err(source),
         }
     }
 }
