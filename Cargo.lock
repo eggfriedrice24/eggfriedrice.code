@@ -702,6 +702,7 @@ dependencies = [
  "efr-protocol",
  "efr-render",
  "efr-stdx",
+ "efr-test-daemon",
  "futures",
  "insta",
  "jiff",

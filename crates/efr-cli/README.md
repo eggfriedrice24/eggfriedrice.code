@@ -118,5 +118,9 @@ skip with a message unless `EFR_TEST_ZSH=1`:
 EFR_TEST_ZSH=1 cargo nextest run -p efr-cli --test plugin
 ```
 
+`tests/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s
+`TestDaemon`, in the test's process: the `efr --help` snapshot, `efr status`, and an
+`efr send` round trip whose model is a local Responses server.
+
 Nothing touches the network, the real home, config or runtime directory, and nothing
-sleeps on real time. The `TestDaemon` smoke tests come with `efr-test-daemon`.
+sleeps on real time.
