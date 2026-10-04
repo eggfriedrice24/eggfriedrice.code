@@ -17,24 +17,16 @@ build:
 
 # Release build of efrd and efr with the ghostty screen backend (needs Zig 0.16.0).
 build-release:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -d crates/efr-daemon || ! -d crates/efr-cli ]]; then
-        echo "build-release: not available until milestone 1 lands (efr-daemon and efr-cli do not exist yet)"
-        exit 0
-    fi
     cargo build --release -p efr-daemon -p efr-cli --features efr-daemon/screen-ghostty
 
-# Run efrd in the foreground on vt100 screens with throwaway directories.
+# Run efrd in the foreground on vt100 screens with throwaway directories; Ctrl+C stops it.
 run:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d crates/efr-daemon ]]; then
-        echo "run: not available until milestone 1 lands (efr-daemon does not exist yet)"
-        exit 0
-    fi
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
+    echo "run: efrd on vt100 screens in $tmp (config, data, state, runtime); Ctrl+C stops it"
+    echo "run: point efr at it with EFR_RUNTIME_DIR=$tmp/runtime"
     EFR_SCREEN=vt100 EFR_LOG=debug \
         EFR_CONFIG_DIR="$tmp/config" EFR_DATA_DIR="$tmp/data" \
         EFR_STATE_DIR="$tmp/state" EFR_RUNTIME_DIR="$tmp/runtime" \
@@ -144,20 +136,24 @@ doc:
 protocol-docs:
     cargo xtask protocol-docs
 
-# Install efrd and efr to ~/.local/bin and the user unit, then reload systemd.
+# Install efrd and efr to ~/.local/bin and the user unit, reload systemd; never starts it.
 install:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d crates/efr-daemon || ! -d crates/efr-cli ]]; then
-        echo "install: not available until milestone 1 lands (efr-daemon and efr-cli do not exist yet)"
-        exit 0
-    fi
+    bin="$HOME/.local/bin"
+    unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    echo "install: building the release binaries (just build-release)"
     just build-release
-    install -Dm755 target/release/efrd "$HOME/.local/bin/efrd"
-    install -Dm755 target/release/efr "$HOME/.local/bin/efr"
-    install -Dm644 systemd/efrd.service "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/efrd.service"
+    echo "install: copying target/release/efrd to $bin/efrd"
+    install -Dm755 target/release/efrd "$bin/efrd"
+    echo "install: copying target/release/efr to $bin/efr"
+    install -Dm755 target/release/efr "$bin/efr"
+    echo "install: installing systemd/efrd.service to $unit_dir/efrd.service"
+    install -Dm644 systemd/efrd.service "$unit_dir/efrd.service"
+    echo "install: running systemctl --user daemon-reload"
     systemctl --user daemon-reload
-    echo "installed; start with: systemctl --user enable --now efrd"
+    echo "install: done; the unit is neither enabled nor started"
+    echo "install: start it with: systemctl --user enable --now efrd"
 
 # Use the repository's git hooks.
 install-hooks:
