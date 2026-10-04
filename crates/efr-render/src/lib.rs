@@ -6,6 +6,7 @@
 //!   caller redraws in place ([`Update`]).
 //! - [`render`]: a whole document at once, identical to what a [`Renderer`] commits
 //!   for the same text in any pieces.
+//! - [`render_trace`]: one dim line for a tool call trace or reasoning.
 //! - [`RenderOptions`]: width, [`ColourMode`], [`Theme`], hyperlinks, and whether the
 //!   output is a terminal at all (when it is not, markdown passes through unchanged).
 //!
@@ -34,8 +35,10 @@ mod outline;
 mod renderer;
 mod style;
 mod table;
+mod trace;
 mod wrap;
 
 pub use error::RenderError;
 pub use options::{ColourMode, RenderOptions, Theme};
 pub use renderer::{Renderer, Update, render};
+pub use trace::render_trace;
