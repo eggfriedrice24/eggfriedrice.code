@@ -25,7 +25,7 @@ use std::time::Duration;
 use efr_stdx::time::Clock;
 use nix::sys::socket::{getsockopt, sockopt};
 use tokio::net::UnixStream;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
@@ -163,7 +163,10 @@ impl UnixListener {
             let accepted = tokio::select! {
                 biased;
                 () = &mut shutdown => break,
-                Some(_) = connections.join_next(), if !connections.is_empty() => continue,
+                Some(joined) = connections.join_next(), if !connections.is_empty() => {
+                    report_panic(joined);
+                    continue;
+                }
                 accepted = self.accept() => accepted,
             };
             match accepted {
@@ -194,8 +197,20 @@ impl UnixListener {
             }
         }
         stopping.cancel();
-        while connections.join_next().await.is_some() {}
+        while let Some(joined) = connections.join_next().await {
+            report_panic(joined);
+        }
         tracing::info!(socket = %self.path.display(), "stopped listening");
+    }
+}
+
+/// Logs a connection task that panicked. The connection loop catches its handlers'
+/// panics itself, so one that reaches here is a bug in the transport.
+fn report_panic(joined: Result<(), JoinError>) {
+    if let Err(error) = joined
+        && error.is_panic()
+    {
+        tracing::error!("a connection task panicked");
     }
 }
 
