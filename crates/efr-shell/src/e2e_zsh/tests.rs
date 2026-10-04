@@ -71,6 +71,21 @@ async fn e2e_a_command_with_output_and_exit_code() {
 }
 
 #[tokio::test]
+async fn e2e_a_redrawn_progress_display_leaves_its_last_frame() {
+    let Some(zsh) = Zsh::start("e2e_a_redrawn_progress_display_leaves_its_last_frame") else {
+        return;
+    };
+    let result = zsh
+        .run(
+            "printf 'one 1\\ntwo 1\\n'; for i in 2 3; do printf '\\e[2Aone %s\\ntwo %s\\n' $i $i; done",
+        )
+        .await;
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.output, "one 3\ntwo 3");
+}
+
+#[tokio::test]
 async fn e2e_a_failing_command() {
     let Some(zsh) = Zsh::start("e2e_a_failing_command") else {
         return;
