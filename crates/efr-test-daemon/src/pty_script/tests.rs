@@ -28,7 +28,7 @@ async fn spawn(holder: &FakePtyHolder, n: u128) -> UnixStream {
 
 #[test]
 fn a_command_is_typed_as_one_bracketed_paste_and_enter() {
-    assert_eq!(typed_command("ls -l"), b"\x1b[200~ls -l\x1b[201~\r");
+    assert_eq!(typed_command("ls -l"), b"\x1b[efr-clear~\x1b[200~ls -l\x1b[201~\r");
 }
 
 #[test]
@@ -89,8 +89,8 @@ async fn a_script_plays_and_a_difference_is_a_mismatch() {
     match mismatch {
         Err(TestDaemonError::Mismatch { line, kind, expected, actual }) => {
             assert_eq!((line, kind), (2, "pty_bytes"));
-            assert_eq!(expected, "\u{1b}[200~cd\u{1b}[201~\r");
-            assert_eq!(actual, "\u{1b}[200~pwd\u{1b}[201~\r");
+            assert_eq!(expected, "\u{1b}[efr-clear~\u{1b}[200~cd\u{1b}[201~\r");
+            assert_eq!(actual, "\u{1b}[efr-clear~\u{1b}[200~pwd\u{1b}[201~\r");
         }
         other => panic!("{other:?}"),
     }

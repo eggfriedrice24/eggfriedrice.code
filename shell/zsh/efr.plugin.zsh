@@ -14,6 +14,9 @@
 # shell integration.
 
 [[ -o interactive ]] || return 0
+# The daemon's own hidden shells read the user's .zshrc too; the plugin has no job
+# there, and its hooks must stay out of the way of the hidden shell's integration.
+[[ -n $EFR_HIDDEN_SHELL ]] && return 0
 
 zmodload zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null

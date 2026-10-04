@@ -178,8 +178,8 @@ async fn typed_bytes_that_differ_are_a_mismatch() {
     match failed {
         Err(TestDaemonError::Mismatch { line, kind, expected, actual }) => {
             assert_eq!((line, kind), (typed + 1, "pty_bytes"));
-            assert_eq!(expected, "\u{1b}[200~pwd\u{1b}[201~\r");
-            assert_eq!(actual, "\u{1b}[200~ls\u{1b}[201~\r");
+            assert_eq!(expected, "\u{1b}[efr-clear~\u{1b}[200~pwd\u{1b}[201~\r");
+            assert_eq!(actual, "\u{1b}[efr-clear~\u{1b}[200~ls\u{1b}[201~\r");
         }
         other => panic!("{other:?}"),
     }

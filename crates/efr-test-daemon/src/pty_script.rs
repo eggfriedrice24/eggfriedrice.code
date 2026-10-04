@@ -35,10 +35,10 @@ pub const PROMPT: &[u8] = b"\x1b]133;A;cl=line\x07% \x1b]133;B\x07";
 /// The first pid the fake holder hands out; each spawn gets the next one.
 const FIRST_PID: u32 = 4000;
 
-/// The bytes a shell session types for `command` at a marked prompt: one bracketed
-/// paste and Enter.
+/// The bytes a shell session types for `command` at a marked prompt: the key that
+/// empties the line, one bracketed paste and Enter.
 pub fn typed_command(command: &str) -> Vec<u8> {
-    let mut bytes = b"\x1b[200~".to_vec();
+    let mut bytes = b"\x1b[efr-clear~\x1b[200~".to_vec();
     bytes.extend_from_slice(command.as_bytes());
     bytes.extend_from_slice(b"\x1b[201~\r");
     bytes

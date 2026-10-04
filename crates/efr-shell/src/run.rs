@@ -260,8 +260,12 @@ impl Progress {
     }
 }
 
-/// The bytes that type `command` at a zsh prompt: one bracketed paste, so newlines
-/// and tabs are inserted rather than acted on, then Enter.
+/// The key the integration binds to a widget that empties the line editor, so text
+/// typed at the attached screen and never sent cannot join the command.
+pub(crate) const CLEAR_LINE: &[u8] = b"\x1b[efr-clear~";
+
+/// The bytes that type `command` at a zsh prompt: the clear key, one bracketed paste,
+/// so newlines and tabs are inserted rather than acted on, then Enter.
 pub(crate) fn marked_line(command: &str) -> Result<Bytes, ShellError> {
     const PASTE_START: &[u8] = b"\x1b[200~";
     const PASTE_END: &[u8] = b"\x1b[201~";
@@ -276,7 +280,10 @@ pub(crate) fn marked_line(command: &str) -> Result<Bytes, ShellError> {
     if command.trim().is_empty() {
         return Err(ShellError::InvalidCommand { reason: "it is empty" });
     }
-    let mut line = Vec::with_capacity(command.len() + PASTE_START.len() + PASTE_END.len() + 1);
+    let mut line = Vec::with_capacity(
+        CLEAR_LINE.len() + PASTE_START.len() + command.len() + PASTE_END.len() + 1,
+    );
+    line.extend_from_slice(CLEAR_LINE);
     line.extend_from_slice(PASTE_START);
     line.extend_from_slice(command.as_bytes());
     line.extend_from_slice(PASTE_END);

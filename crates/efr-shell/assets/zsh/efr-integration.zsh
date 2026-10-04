@@ -17,58 +17,63 @@
 # command leaves behind is known when D arrives.
 #
 # .zshenv sources this file before the user's .zshrc. All it does now is define
-# functions and arm _efr_init, which runs at the first prompt, after every startup
+# functions and arm _efr_hs_init, which runs at the first prompt, after every startup
 # file, and installs the hooks around whatever the user's files set up.
+#
+# Every name here starts with _efr_hs_, so nothing the user's .zshrc loads can
+# replace it. The efr plugin for interactive terminals (efr.plugin.zsh) has hooks of
+# its own with the shorter efr prefix; with the same names, sourcing it from .zshrc
+# would replace these hooks and the hidden shell would never print A, C or D.
 
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
-builtin typeset -gi _efr_state=0
-builtin typeset -g _efr_pwd=
-# 1 when the user's options asked for zsh's PROMPT_SP mark; see _efr_precmd.
-builtin typeset -gi _efr_prompt_sp=0
+builtin typeset -gi _efr_hs_state=0
+builtin typeset -g _efr_hs_pwd=
+# 1 when the user's options asked for zsh's PROMPT_SP mark; see _efr_hs_precmd.
+builtin typeset -gi _efr_hs_prompt_sp=0
 
-_efr_report_pwd() {
+_efr_hs_report_pwd() {
   builtin emulate -L zsh
-  [[ $PWD == "$_efr_pwd" ]] && return 0
+  [[ $PWD == "$_efr_hs_pwd" ]] && return 0
   # A control character in the path would end the OSC sequence early.
   [[ $PWD == *[[:cntrl:]]* ]] && return 0
-  _efr_pwd=$PWD
+  _efr_hs_pwd=$PWD
   builtin print -rn -- $'\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'
 }
 
-_efr_precmd() {
+_efr_hs_precmd() {
   builtin local -i st=$?
   builtin emulate -L zsh
   # Some plugins run precmd hooks from inside a widget to refresh the prompt; a mark
   # printed then would land in the middle of the line editor's display.
   builtin zle && return 0
-  _efr_report_pwd
-  if (( _efr_state == 2 )); then
+  _efr_hs_report_pwd
+  if (( _efr_hs_state == 2 )); then
     builtin print -rn -- $'\e]133;D;'"${st}"$'\a'
-  elif (( _efr_state == 1 )); then
+  elif (( _efr_hs_state == 1 )); then
     builtin print -rn -- $'\e]133;D\a'
   fi
   # zsh prints its PROMPT_SP mark before any precmd hook runs, which would put it
-  # inside the output of every command, so _efr_init turns the option off and the
+  # inside the output of every command, so _efr_hs_init turns the option off and the
   # same mark is printed here, after D.
-  if (( _efr_prompt_sp )); then
+  if (( _efr_hs_prompt_sp )); then
     builtin printf '%s%*s\r \r' "${(%)PROMPT_EOL_MARK-%B%S%#%s%b}" $(( COLUMNS - 1 )) ''
   fi
   builtin print -rn -- $'\e]133;A;cl=line\a'
-  _efr_state=1
+  _efr_hs_state=1
   # Hooks that plugins add later go to the end; this hook must stay last so that no
   # other hook's output counts as the next command's.
-  preexec_functions=(${preexec_functions:#_efr_preexec} _efr_preexec)
+  preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)
 }
 
-_efr_preexec() {
+_efr_hs_preexec() {
   builtin emulate -L zsh
   # The precmd array is reordered here and not in precmd, where zsh walks it.
-  precmd_functions=(_efr_precmd ${precmd_functions:#_efr_precmd})
+  precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})
   builtin print -rn -- $'\e]133;C\a'
-  _efr_state=2
+  _efr_hs_state=2
 }
 
-_efr_line_init() {
+_efr_hs_line_init() {
   builtin emulate -L zsh
   case $CONTEXT in
     start) builtin print -rn -- $'\e]133;B\a' ;;
@@ -76,40 +81,53 @@ _efr_line_init() {
   esac
 }
 
-_efr_install() {
+_efr_hs_install() {
   builtin emulate -L zsh
-  precmd_functions=(${precmd_functions:#_efr_init})
+  precmd_functions=(${precmd_functions:#_efr_hs_init})
 
   # zsh loads the line editor when it first starts it, which is after this first
   # precmd, and add-zle-hook-widget gives up when the module is not loaded yet.
   builtin zmodload zsh/zle
   builtin autoload -Uz add-zle-hook-widget
-  add-zle-hook-widget line-init _efr_line_init
-  chpwd_functions=(${chpwd_functions:#_efr_report_pwd} _efr_report_pwd)
-  preexec_functions=(${preexec_functions:#_efr_preexec} _efr_preexec)
-  precmd_functions=(_efr_precmd ${precmd_functions:#_efr_precmd})
+  add-zle-hook-widget line-init _efr_hs_line_init
+  chpwd_functions=(${chpwd_functions:#_efr_hs_report_pwd} _efr_hs_report_pwd)
+  preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)
+  precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})
 
-  # efr types each command as one bracketed paste followed by Enter. The paste key is
-  # bound to the plain builtin widget here, so plugins that rewrite pasted text (such
-  # as url-quote-magic) cannot change what runs. A line that is unfinished (an
-  # unclosed quote) is cancelled with a key bound to send-break: unlike Ctrl+C, a key
-  # waits in the input until the line editor reads it, while a SIGINT that arrives
-  # during zle-line-init is lost.
-  builtin zle -A .bracketed-paste _efr_bracketed_paste
+  # efr types each command as a key that empties the line, one bracketed paste and
+  # Enter. Text that someone typed at the attached screen and did not send would
+  # otherwise join the command: `rm -rf ` left at the prompt and a pasted `build/tmp`
+  # would run `rm -rf build/tmp`. The paste key is bound to the plain builtin widget
+  # here, so plugins that rewrite pasted text (such as url-quote-magic) cannot change
+  # what runs. A line that is unfinished (an unclosed quote) is cancelled with a key
+  # bound to send-break: unlike Ctrl+C, a key waits in the input until the line
+  # editor reads it, while a SIGINT that arrives during zle-line-init is lost.
+  builtin zle -N _efr_hs_clear_line
+  builtin zle -A .bracketed-paste _efr_hs_bracketed_paste
   builtin local keymap
   for keymap in emacs viins vicmd; do
-    builtin bindkey -M $keymap $'\e[200~' _efr_bracketed_paste
+    builtin bindkey -M $keymap $'\e[efr-clear~' _efr_hs_clear_line
+    builtin bindkey -M $keymap $'\e[200~' _efr_hs_bracketed_paste
     builtin bindkey -M $keymap $'\e[efr-cancel~' send-break
   done
 }
 
-# No `emulate -L` here: it would make the option changes below local to this function.
-_efr_init() {
-  _efr_install
+# Empties the line and leaves the line editor in insert mode, so the paste that
+# follows is the whole command line, even for a vi user left in command mode.
+_efr_hs_clear_line() {
+  BUFFER=
+  CURSOR=0
+  [[ $KEYMAP == vicmd ]] && builtin zle vi-insert
+  return 0
+}
 
-  # See _efr_precmd: the PROMPT_SP mark moves from before the precmd hooks to after D.
+# No `emulate -L` here: it would make the option changes below local to this function.
+_efr_hs_init() {
+  _efr_hs_install
+
+  # See _efr_hs_precmd: the PROMPT_SP mark moves from before the precmd hooks to after D.
   if [[ -o prompt_sp && -o prompt_cr ]]; then
-    _efr_prompt_sp=1
+    _efr_hs_prompt_sp=1
   fi
 
   # The commands come from a model, not from a person at the keyboard: `!` must not
@@ -119,8 +137,8 @@ _efr_init() {
   builtin unset HISTFILE
 
   # This hook already runs as a precmd hook, so the first prompt is marked from here.
-  _efr_precmd
+  _efr_hs_precmd
 }
 
 builtin typeset -ga precmd_functions preexec_functions chpwd_functions
-precmd_functions+=(_efr_init)
+precmd_functions+=(_efr_hs_init)

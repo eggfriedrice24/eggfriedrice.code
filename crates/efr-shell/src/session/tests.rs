@@ -57,7 +57,7 @@ fn a_run_at_a_ready_prompt_is_typed_at_once() {
     ready(&mut core, &mut at);
     let (order, _answer, _) = order(1, "ls", RunMode::Auto);
     let writes = core.submit(order);
-    assert_eq!(writes, [b"\x1b[200~ls\x1b[201~\r".to_vec()]);
+    assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn a_run_before_the_prompt_is_typed_when_it_comes() {
     let (order, _answer, _) = order(1, "ls", RunMode::Auto);
     assert!(core.submit(order).is_empty());
     let writes = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
-    assert_eq!(writes, [b"\x1b[200~ls\x1b[201~\r".to_vec()]);
+    assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn a_running_shell_holds_an_auto_run_until_its_prompt() {
     assert!(answer.try_recv().is_err(), "the run waits");
     assert!(feed(&mut core, &mut at, b"done\r\n\x1b]133;D;0\x07").is_empty());
     let writes = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
-    assert_eq!(writes, [b"\x1b[200~ls\x1b[201~\r".to_vec()]);
+    assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn a_run_whose_caller_left_while_the_shell_started_is_never_typed() {
     assert!(feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07").is_empty());
     // The dropped run left nothing behind: the next one is typed at once.
     let (next, _next_answer, _) = order(2, "ls", RunMode::Auto);
-    assert_eq!(core.submit(next), [Bytes::from_static(b"\x1b[200~ls\x1b[201~\r")]);
+    assert_eq!(core.submit(next), [Bytes::from_static(b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r")]);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn a_run_detached_before_its_output_holds_the_next_until_it_ends() {
     assert!(core.submit(second).is_empty(), "nothing is typed ahead into the first line");
     assert!(feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07\x1b]133;D;0\x07").is_empty());
     let writes = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
-    assert_eq!(writes, [b"\x1b[200~ls\x1b[201~\r".to_vec()]);
+    assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
 }
 
 #[test]

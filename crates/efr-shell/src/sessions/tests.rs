@@ -43,7 +43,7 @@ async fn typed(
     let mut terminal = harness.holder.terminal(0).await;
     terminal.prompt().await;
     let line = terminal.typed_line().await;
-    assert_eq!(line, format!("\x1b[200~{command}\x1b[201~\r").into_bytes());
+    assert_eq!(line, format!("\x1b[efr-clear~\x1b[200~{command}\x1b[201~\r").into_bytes());
     (terminal, run)
 }
 
@@ -100,7 +100,7 @@ async fn a_dropped_run_frees_the_shell_for_the_next_run() {
     let next = spawn_run(&harness.sessions, request("ls"));
     terminal.print(b"^C\r\n\x1b]133;D;130\x07").await;
     terminal.prompt().await;
-    assert_eq!(terminal.typed_line().await, b"\x1b[200~ls\x1b[201~\r");
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r");
     terminal.run(b"a\r\n", 0).await;
     assert_eq!(next.await.unwrap().unwrap().output, "a\n");
 }
@@ -139,7 +139,7 @@ async fn a_run_before_the_first_prompt_waits_for_it() {
     terminal.print(b"loading plugins...\r\n").await;
     assert_eq!(harness.sessions.state(conversation(1)).await.unwrap().phase, Phase::Starting);
     terminal.prompt().await;
-    assert_eq!(terminal.typed_line().await, b"\x1b[200~true\x1b[201~\r");
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
     terminal.run(b"", 0).await;
     assert_eq!(run.await.unwrap().unwrap().exit_code, Some(0));
 }
@@ -210,7 +210,7 @@ async fn the_timeout_reports_a_command_that_waits_for_input() {
     let next = spawn_run(&harness.sessions, request("true"));
     terminal.print(b"\r\n\x1b]133;D;0\x07").await;
     terminal.prompt().await;
-    assert_eq!(terminal.typed_line().await, b"\x1b[200~true\x1b[201~\r");
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
     terminal.run(b"", 0).await;
     assert_eq!(next.await.unwrap().unwrap().exit_code, Some(0));
 }

@@ -49,9 +49,9 @@ fn a_request_has_the_defaults() {
 }
 
 #[test]
-fn a_marked_line_is_one_bracketed_paste_and_enter() {
+fn a_marked_line_is_the_clear_key_one_bracketed_paste_and_enter() {
     let line = marked_line("for f in *; do\n\techo $f\ndone").unwrap();
-    assert_eq!(&line[..], b"\x1b[200~for f in *; do\n\techo $f\ndone\x1b[201~\r");
+    assert_eq!(&line[..], b"\x1b[efr-clear~\x1b[200~for f in *; do\n\techo $f\ndone\x1b[201~\r");
 }
 
 #[test]

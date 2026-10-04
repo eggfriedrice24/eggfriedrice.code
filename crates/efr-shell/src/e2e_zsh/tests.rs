@@ -157,6 +157,65 @@ async fn e2e_the_users_startup_files_run_and_zdotdir_is_restored() {
     assert_eq!(result.output, "hello from zshrc\nunset 1\n");
 }
 
+/// The zsh plugin of the user's terminals, which a real .zshrc sources.
+fn plugin() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")
+}
+
+/// Runs a command with `zshrc` as the user's .zshrc and checks that the marks still
+/// delimit it.
+async fn marks_survive(test: &str, zshrc: impl FnOnce(&Zsh) -> String) {
+    let Some(zsh) = Zsh::start(test) else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshrc"), zshrc(&zsh)).unwrap();
+    let result = zsh.run("echo marked").await;
+    assert_eq!(result.delimiter, Delimiter::Marks);
+    assert_eq!(result.output, "marked\n");
+    let next = zsh.run("echo again").await;
+    assert_eq!(next.delimiter, Delimiter::Marks);
+    assert_eq!(next.exit_code, Some(0));
+    let state = zsh.sessions.state(zsh.conversation).await.unwrap();
+    assert!(state.integration);
+    assert_eq!(state.last_exit, Some(0));
+}
+
+#[tokio::test]
+async fn e2e_the_efr_plugin_in_the_users_zshrc_keeps_the_marks() {
+    marks_survive("e2e_the_efr_plugin_in_the_users_zshrc_keeps_the_marks", |_| {
+        format!("source '{}'\n", plugin().display())
+    })
+    .await;
+}
+
+/// Without its guard the plugin defines its own hooks in the hidden shell; the
+/// integration's names are its own, so its hooks survive anyway.
+#[tokio::test]
+async fn e2e_the_efr_plugin_loaded_anyway_cannot_replace_the_hooks() {
+    marks_survive("e2e_the_efr_plugin_loaded_anyway_cannot_replace_the_hooks", |zsh| {
+        let runtime = zsh.dir("runtime");
+        format!(
+            "unset EFR_HIDDEN_SHELL\nexport XDG_RUNTIME_DIR='{}'\nsource '{}'\n",
+            runtime.display(),
+            plugin().display()
+        )
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn e2e_unsent_text_at_the_prompt_does_not_join_the_command() {
+    let Some(zsh) = Zsh::start("e2e_unsent_text_at_the_prompt_does_not_join_the_command") else {
+        return;
+    };
+    zsh.run("true").await;
+    // Someone typed at the attached screen and did not press Enter.
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"echo leftover ")).await.unwrap();
+    let result = zsh.run("printf ok").await;
+    assert_eq!(result.output, "ok");
+    assert_eq!(result.exit_code, Some(0));
+}
+
 #[tokio::test]
 async fn e2e_a_nested_shell_is_driven_by_sentinels() {
     let Some(zsh) = Zsh::start("e2e_a_nested_shell_is_driven_by_sentinels") else {

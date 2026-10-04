@@ -38,7 +38,8 @@ pub(crate) const SCRUBBED_PREFIXES: &[&str] =
 pub(crate) const USER_ZDOTDIR: &str = "_EFR_USER_ZDOTDIR";
 
 /// Set in every hidden shell, so the user's startup files can tell it from a terminal
-/// (to skip `exec tmux` or an instant prompt, for example). Nothing in efr reads it.
+/// (to skip `exec tmux` or an instant prompt, for example). The efr zsh plugin reads
+/// it and stays out of a hidden shell.
 pub(crate) const HIDDEN_SHELL: &str = "EFR_HIDDEN_SHELL";
 
 /// The whole environment of a new hidden shell started in `cwd`. `integration` is

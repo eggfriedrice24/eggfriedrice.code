@@ -24,17 +24,33 @@ fn the_script_emits_the_ghostty_sequence_set() {
 #[test]
 fn the_script_puts_its_precmd_hook_first_and_its_preexec_hook_last() {
     assert!(
-        INTEGRATION.contains("precmd_functions=(_efr_precmd ${precmd_functions:#_efr_precmd})")
+        INTEGRATION
+            .contains("precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})")
     );
     assert!(
-        INTEGRATION.contains("preexec_functions=(${preexec_functions:#_efr_preexec} _efr_preexec)")
+        INTEGRATION
+            .contains("preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)")
     );
 }
 
 #[test]
 fn the_script_binds_the_keys_the_session_types() {
-    assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[200~' _efr_bracketed_paste"));
+    assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-clear~' _efr_hs_clear_line"));
+    assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[200~' _efr_hs_bracketed_paste"));
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-cancel~' send-break"));
+}
+
+/// The user's .zshrc may load efr.plugin.zsh, whose functions are named `_efr_*`; a
+/// shared name would let the plugin replace a hook of the hidden shell.
+#[test]
+fn every_name_of_the_script_is_private_to_the_hidden_shell() {
+    let mut rest = INTEGRATION;
+    while let Some(at) = rest.find("_efr_") {
+        let name: String =
+            rest[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        assert!(name.starts_with("_efr_hs_"), "{name} is not private to the hidden shell");
+        rest = &rest[at + name.len()..];
+    }
 }
 
 #[test]
