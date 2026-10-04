@@ -24,7 +24,7 @@ use efr_protocol::Seq;
 use efr_stdx::rng::Rng;
 
 use crate::ShellError;
-use crate::capture::Capture;
+use crate::capture::{Capture, Kept};
 use crate::run::{Completion, RunOutput};
 
 /// A new token: 16 hex digits from `rng`.
@@ -127,7 +127,7 @@ impl SentinelRun {
     }
 
     /// The output so far, for a run that is left running.
-    pub(crate) fn partial(&self) -> (crate::capture::Captured, Option<Range<Seq>>) {
+    pub(crate) fn partial(&self) -> (Kept, Option<Range<Seq>>) {
         (self.capture.finish(), self.output_start.map(|start| start..self.captured_end))
     }
 
@@ -234,7 +234,7 @@ impl SentinelRun {
         RunOutput {
             completion: Completion::Finished,
             exit_code,
-            captured: self.capture.finish(),
+            kept: self.capture.finish(),
             range,
             cwd,
         }

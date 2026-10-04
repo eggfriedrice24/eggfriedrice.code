@@ -83,7 +83,7 @@ fn a_command_end_split_across_chunks_is_cut_where_it_starts() {
     assert!(answer.try_recv().is_err(), "the run has not ended yet");
     feed(&mut core, &mut at, b"3;D;0\x07");
     let end = answer.try_recv().unwrap().unwrap();
-    assert_eq!(end.output.captured.text, "out");
+    assert_eq!(end.output.kept.clean().text, "out");
     assert_eq!(end.output.exit_code, Some(0));
     assert_eq!(end.output.range, Some(Seq::new(output_start)..Seq::new(end_start)));
     assert_eq!(end.cwd, PathBuf::from("/home/u"));
@@ -154,10 +154,10 @@ fn detaching_a_typed_run_returns_the_output_so_far() {
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07cc -c a.c\r\n");
     assert!(updates.has_changed().unwrap());
     assert_eq!(updates.borrow_and_update().bytes, 11);
-    let Detached::Running { captured, last_output, .. } = core.detach(3) else {
+    let Detached::Running { kept, last_output, .. } = core.detach(3) else {
         panic!("the run was typed");
     };
-    assert_eq!(captured.text, "cc -c a.c\n");
+    assert_eq!(kept.clean().text, "cc -c a.c\n");
     assert_eq!(last_output, Some(TestClock::START));
     assert!(matches!(core.detach(3), Detached::Gone));
 }
@@ -235,5 +235,5 @@ fn a_bare_end_after_the_line_means_it_never_ran() {
     feed(&mut core, &mut at, b")\r\nzsh: parse error\r\n\x1b]133;D\x07");
     let end = answer.try_recv().unwrap().unwrap();
     assert_eq!(end.output.completion, Completion::NotStarted);
-    assert_eq!(end.output.captured.text, ")\nzsh: parse error\n");
+    assert_eq!(end.output.kept.clean().text, ")\nzsh: parse error\n");
 }

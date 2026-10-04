@@ -1,5 +1,5 @@
 //! A command's output as it arrives: kept within a byte limit (head and tail), and
-//! turned from terminal bytes into plain text for the model.
+//! the byte cleaner that turns terminal bytes into plain text.
 
 use std::collections::VecDeque;
 
@@ -16,6 +16,20 @@ pub(crate) struct Capture {
     tail_cap: usize,
     /// Every byte pushed, kept or not.
     total: u64,
+}
+
+/// The bytes a capture kept: the start of the output and, when bytes were dropped
+/// from the middle, its end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Kept {
+    /// The output from its start: all of it when nothing was dropped.
+    pub(crate) head: Bytes,
+    /// The output's end after the dropped middle; empty when nothing was dropped.
+    pub(crate) tail: Bytes,
+    /// How many bytes were dropped between `head` and `tail`.
+    pub(crate) dropped: u64,
+    /// The size of the whole output in bytes.
+    pub(crate) bytes: u64,
 }
 
 /// A finished capture as text.
@@ -96,23 +110,48 @@ impl Capture {
         Bytes::from(last)
     }
 
-    pub(crate) fn finish(&self) -> Captured {
-        let kept = self.kept();
-        let dropped = self.total.saturating_sub(kept);
-        let tail: Vec<u8> = self.tail.iter().copied().collect();
+    /// The bytes kept so far. The capture goes on, so a run left running can be read
+    /// again later.
+    pub(crate) fn finish(&self) -> Kept {
+        let dropped = self.total.saturating_sub(self.kept());
+        let mut head = self.head.clone();
         if dropped == 0 {
-            let mut all = self.head.clone();
-            all.extend_from_slice(&tail);
-            return Captured { text: clean(&all), truncated: false, bytes: self.total };
+            head.extend(&self.tail);
+            return Kept {
+                head: Bytes::from(head),
+                tail: Bytes::new(),
+                dropped,
+                bytes: self.total,
+            };
         }
-        let text =
-            format!("{}\n[... {dropped} bytes omitted ...]\n{}", clean(&self.head), clean(&tail));
-        Captured { text, truncated: true, bytes: self.total }
+        let tail: Vec<u8> = self.tail.iter().copied().collect();
+        Kept { head: Bytes::from(head), tail: Bytes::from(tail), dropped, bytes: self.total }
     }
 
     fn kept(&self) -> u64 {
         (self.head.len() + self.tail.len()) as u64
     }
+}
+
+impl Kept {
+    /// True when bytes were dropped from the middle.
+    pub(crate) fn truncated(&self) -> bool {
+        self.dropped > 0
+    }
+
+    /// The text through the byte cleaner alone.
+    pub(crate) fn clean(&self) -> Captured {
+        let head = clean(&self.head);
+        let text =
+            if self.truncated() { join(&head, self.dropped, &clean(&self.tail)) } else { head };
+        Captured { text, truncated: self.truncated(), bytes: self.bytes }
+    }
+}
+
+/// The text of a truncated output: its head, a marker line for the `dropped` bytes, and
+/// its tail.
+pub(crate) fn join(head: &str, dropped: u64, tail: &str) -> String {
+    format!("{head}\n[... {dropped} bytes omitted ...]\n{tail}")
 }
 
 /// Terminal output as plain text: escape sequences (CSI, OSC, DCS and the like)

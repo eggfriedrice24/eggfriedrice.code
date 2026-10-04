@@ -73,20 +73,20 @@ fn the_output_status_and_directory_come_from_the_markers() {
     assert_eq!(ended.completion, Completion::Finished);
     assert_eq!(ended.exit_code, Some(3));
     assert_eq!(ended.cwd, Some(PathBuf::from("/etc/nixos")));
-    assert_eq!(ended.captured.text, "one\ntwo");
+    assert_eq!(ended.kept.clean().text, "one\ntwo");
 }
 
 #[test]
 fn output_that_ends_with_a_newline_keeps_it() {
     let ended = run_whole(&reply("line\r\n", 0, "/"));
-    assert_eq!(ended.captured.text, "line\n");
+    assert_eq!(ended.kept.clean().text, "line\n");
 }
 
 #[test]
 fn empty_output_is_empty() {
     let ended = run_whole(&reply("", 0, "/"));
-    assert_eq!(ended.captured.text, "");
-    assert_eq!(ended.captured.bytes, 0);
+    assert_eq!(ended.kept.clean().text, "");
+    assert_eq!(ended.kept.bytes, 0);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn the_range_points_into_the_stream() {
 fn a_marker_with_another_token_is_output() {
     let other = "__efr_ffffffffffffffff_e:9:/nope\r\n";
     let ended = run_whole(&reply(other.trim_end(), 0, "/"));
-    assert_eq!(ended.captured.text, other.trim_end());
+    assert_eq!(ended.kept.clean().text, other.trim_end());
     assert_eq!(ended.exit_code, Some(0));
 }
 
@@ -117,7 +117,7 @@ fn a_run_without_its_end_marker_keeps_going() {
     let (ended, captured) = run.on_bytes(Seq::new(30), &[b'.'; 64]);
     assert!(ended.is_none());
     assert!(captured);
-    assert!(run.partial().0.text.starts_with("waiting"));
+    assert!(run.partial().0.clean().text.starts_with("waiting"));
 }
 
 #[test]

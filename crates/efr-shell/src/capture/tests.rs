@@ -61,7 +61,11 @@ fn a_capture_under_its_limit_keeps_everything() {
     let mut capture = Capture::new(16);
     capture.push(b"hello ");
     capture.push(b"world");
-    let captured = capture.finish();
+    let kept = capture.finish();
+    assert_eq!(&kept.head[..], b"hello world");
+    assert!(kept.tail.is_empty());
+    assert!(!kept.truncated());
+    let captured = kept.clean();
     assert_eq!(captured.text, "hello world");
     assert!(!captured.truncated);
     assert_eq!(captured.bytes, 11);
@@ -73,10 +77,21 @@ fn a_capture_over_its_limit_keeps_the_head_and_the_tail() {
     capture.push(b"0123");
     capture.push(b"456789");
     capture.push(b"abcdef");
-    let captured = capture.finish();
+    let kept = capture.finish();
+    assert_eq!((&kept.head[..], &kept.tail[..], kept.dropped), (&b"0123"[..], &b"cdef"[..], 8));
+    let captured = kept.clean();
     assert_eq!(captured.text, "0123\n[... 8 bytes omitted ...]\ncdef");
     assert!(captured.truncated);
     assert_eq!(captured.bytes, 16);
+}
+
+#[test]
+fn reading_a_capture_leaves_it_going() {
+    let mut capture = Capture::new(64);
+    capture.push(b"one ");
+    assert_eq!(&capture.finish().head[..], b"one ");
+    capture.push(b"two");
+    assert_eq!(&capture.finish().head[..], b"one two");
 }
 
 #[test]
@@ -84,7 +99,7 @@ fn trimming_takes_back_the_latest_bytes() {
     let mut capture = Capture::new(64);
     capture.push(b"out\r\n\x1b]13");
     capture.trim_end(4);
-    assert_eq!(capture.finish().text, "out\n");
+    assert_eq!(capture.finish().clean().text, "out\n");
     assert_eq!(capture.total(), 5);
 }
 
@@ -93,7 +108,7 @@ fn trimming_after_a_gap_only_touches_the_tail() {
     let mut capture = Capture::new(4);
     capture.push(b"abcdefgh");
     capture.trim_end(3);
-    let captured = capture.finish();
+    let captured = capture.finish().clean();
     assert_eq!(captured.text, "ab\n[... 3 bytes omitted ...]\n");
     assert_eq!(captured.bytes, 5);
 }

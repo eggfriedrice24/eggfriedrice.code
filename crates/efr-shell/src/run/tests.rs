@@ -70,7 +70,7 @@ fn the_output_lies_between_c_and_d() {
     };
     assert_eq!(output.completion, Completion::Finished);
     assert_eq!(output.exit_code, Some(0));
-    assert_eq!(output.captured.text, "hi\n");
+    assert_eq!(output.kept.clean().text, "hi\n");
     // "echo\r\n" is 10..16 and C (ESC ] 1 3 3 ; C BEL) is 16..24.
     assert_eq!(output.range, Some(Seq::new(24)..Seq::new(28)));
 }

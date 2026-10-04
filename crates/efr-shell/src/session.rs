@@ -20,7 +20,7 @@ use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::capture::Captured;
+use crate::capture::Kept;
 use crate::run::{Delimiter, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line};
 use crate::sentinel::{SentinelRun, sentinel_line};
 use crate::{Phase, ShellError, ShellNotice, ShellObserver, ShellState};
@@ -77,7 +77,7 @@ pub(crate) enum Detached {
     Unstarted,
     /// The run was typed and goes on without a caller.
     Running {
-        captured: Captured,
+        kept: Kept,
         range: Option<Range<Seq>>,
         last_output: Option<Timestamp>,
         cwd: PathBuf,
@@ -260,13 +260,13 @@ impl SessionCore {
             return Detached::Gone;
         };
         let delimiter = active.machine.delimiter();
-        let (captured, range) = match &active.machine {
+        let (kept, range) = match &active.machine {
             Machine::Marks(run) => run.partial(),
             Machine::Sentinel(run) => run.partial(),
         };
         self.orphan = Some(active.machine);
         Detached::Running {
-            captured,
+            kept,
             range,
             last_output: self.last_output,
             cwd: self.state.cwd.clone(),

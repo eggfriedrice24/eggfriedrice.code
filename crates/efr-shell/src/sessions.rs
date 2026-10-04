@@ -408,7 +408,7 @@ impl ShellSessions {
         match detached.await.map_err(|_| session.exited())? {
             Detached::Gone => finished(session, answer.await),
             Detached::Unstarted => Err(ShellError::NotReady { conversation: session.conversation }),
-            Detached::Running { captured, range, last_output, cwd, delimiter } => {
+            Detached::Running { kept, range, last_output, cwd, delimiter } => {
                 // This task does not read the screen's events, so it may wait for a
                 // snapshot.
                 let capture = session.screen.snapshot(0).await.map_err(|source| {
@@ -424,6 +424,7 @@ impl ShellSessions {
                 } else {
                     Completion::StillRunning
                 };
+                let captured = kept.clean();
                 Ok(CommandResult {
                     completion,
                     exit_code: None,
@@ -507,12 +508,13 @@ fn finished(
     ended: Result<Result<RunEnd, ShellError>, oneshot::error::RecvError>,
 ) -> Result<CommandResult, ShellError> {
     let RunEnd { output, cwd, delimiter } = ended.map_err(|_| session.exited())??;
+    let captured = output.kept.clean();
     Ok(CommandResult {
         completion: output.completion,
         exit_code: output.exit_code,
-        output: output.captured.text,
-        truncated: output.captured.truncated,
-        output_bytes: output.captured.bytes,
+        output: captured.text,
+        truncated: captured.truncated,
+        output_bytes: captured.bytes,
         output_range: output.range,
         cwd_after: cwd,
         screen_tail: None,

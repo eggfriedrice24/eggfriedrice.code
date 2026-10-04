@@ -15,7 +15,7 @@ use efr_protocol::{ScreenSnapshot, Seq};
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, row_text};
 
 use crate::ShellError;
-use crate::capture::{Capture, Captured};
+use crate::capture::{Capture, Kept};
 
 /// One command line for a conversation's hidden shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -312,7 +312,8 @@ pub(crate) enum MarkStep {
 pub(crate) struct RunOutput {
     pub(crate) completion: Completion,
     pub(crate) exit_code: Option<i32>,
-    pub(crate) captured: Captured,
+    /// The raw bytes; the caller turns them into text, off the session's actor.
+    pub(crate) kept: Kept,
     pub(crate) range: Option<Range<Seq>>,
     /// The directory from the sentinel's end line; marks report it through the state.
     pub(crate) cwd: Option<PathBuf>,
@@ -402,7 +403,7 @@ impl MarkRun {
     }
 
     /// The output so far, for a run that is left running.
-    pub(crate) fn partial(&self) -> (Captured, Option<Range<Seq>>) {
+    pub(crate) fn partial(&self) -> (Kept, Option<Range<Seq>>) {
         let range = self.output_start.map(|start| start..self.captured_end);
         (self.capture.finish(), range)
     }
@@ -412,7 +413,7 @@ impl MarkRun {
             return RunOutput {
                 completion: Completion::NotStarted,
                 exit_code: None,
-                captured: self.before.finish(),
+                kept: self.before.finish(),
                 range: None,
                 cwd: None,
             };
@@ -424,7 +425,7 @@ impl MarkRun {
         RunOutput {
             completion: Completion::Finished,
             exit_code,
-            captured: self.capture.finish(),
+            kept: self.capture.finish(),
             range: Some(start..end.max(start)),
             cwd: None,
         }
