@@ -16,9 +16,9 @@ effect. The strictest effect decides the call, in the order `allow < ask < deny`
 1. The machine policy sets the effect of each requirement. It is the built-in rules
    below, then your `[[permissions.rules]]`. The last rule that matches wins, so your
    rules win where they match. A requirement that no rule matches is denied.
-2. The rules of one conversation come after the machine policy. They can make a
-   decision stricter for any path. They can never loosen a decision about a secret or
-   a system path.
+2. The rules of one conversation come after the machine policy. They can make any
+   decision stricter. They can never loosen a decision about a secret or a system
+   path.
 3. A turn from the phone asks for everything outside `$SCRATCH`, also when a rule
    allows it. A call that can wait for input at the terminal, such as `sudo`, always
    asks.
@@ -171,8 +171,8 @@ rule 0 asks:
   `LD_PRELOAD=... ls` ask. An assignment without a command asks, because it changes the
   shell for every later command;
 - a pattern that could expand to an option: a word that starts with `*`, `?` or `[`,
-  or a word that starts with `-` and holds a pattern. `cat *.rs` asks, `cat ./*.rs`
-  does not;
+  or a word that starts with `-` and holds a pattern. `cat *.rs` asks; `cat ./*.rs`
+  is judged by its parts, and its glob reads everything below `.` (see below);
 - a builtin that runs a string as commands or changes how later commands run: `eval`,
   `exec`, `source`, `.`, `alias`, `export`, `set`, `trap`, `builtin` and more;
 - an unclosed quote, a backslash at the end of the line, a control character, a
@@ -190,9 +190,10 @@ shell tool declares the paths that a line names, resolved against the hidden she
 directory:
 
 - every operand of every program is a read, and so is an option value that looks like
-  a path, such as `--file=x` or `-f/x`. `echo`, `printf`, `basename`, `dirname`,
-  `which`, `type` and a few more declare nothing, because their arguments are not
-  files;
+  a path, such as `--file=x` or `-f/x`, and the path in `HEAD:path`. `echo`, `printf`,
+  `basename`, `dirname`, `which`, `type` and a few more declare nothing, because their
+  arguments are not files. `$HOME` at the start of a word counts as `~`;
+- `ls` with no path lists the working directory, which is a read of it;
 - `rg`, `grep -r`, `find`, `du`, `tree`, `ls -R` and `diff` read everything below their
   paths. With no path, they read the working directory. An option that the shell tool
   does not know makes it assume the worst: every operand is a path, and the working
