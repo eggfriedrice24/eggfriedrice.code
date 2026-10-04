@@ -33,10 +33,10 @@ prompts such as `sudo` stay visible.
   (text typed at the attached screen and never sent must not join it), one bracketed
   paste and Enter, so a multi-line command is one command line. The output is the recording between the
   end of `C` (`OutputStart`) and the start of `D` (`CommandEnd`); the result has the
-  exit status, the output as plain text (escape sequences dropped, `\r\n` as `\n`,
-  carriage-return progress bars collapsed), a truncation flag (head and tail of
-  `output_limit`, 1 MiB by default), the output's range in the recording and the
-  directory after. `RunProgress` hears the output's size and tail as it grows.
+  exit status, the output as plain text (see "The output as text" below), a truncation
+  flag (head and tail of `output_limit`, 1 MiB by default), the output's range in the
+  recording and the directory after. `RunProgress` hears the output's size and tail as
+  it grows.
 - A run waits for the prompt: while the shell starts, while an earlier command still
   runs, and until the user answers what it asks; it fails with `NotReady` when the
   prompt does not come before its timeout. A run that overlaps another run of the same
@@ -58,6 +58,46 @@ prompts such as `sudo` stay visible.
   with a random-token sentinel: `printf '__efr_%s_b\n' TOKEN; eval 'COMMAND'; printf
   '\n__efr_%s_e:%s:%s\n' TOKEN "$?" "$PWD"`. The echo of the typed line never contains
   a marker, because the token is never next to `__efr_` there.
+
+The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
+so far of a run left running at its timeout:
+
+- The run keeps at most `output_limit` bytes: the first half from the start of the
+  output, the second half from its end. When bytes were dropped, the head and the
+  tail are read apart and a line `[... N bytes omitted ...]` joins them, so no reader
+  holds more than the kept bytes.
+- Output that only prints text, colours, carriage-return progress bars and
+  backspaces goes through the byte cleaner: escape sequences dropped, `\r\n` as `\n`,
+  the text after a bare `\r` replacing the line, a backspace removing the character
+  before it, tabs kept. This is most output, and it costs no screen. A screen would
+  give the same lines, except that it turns tabs into spaces.
+- Output that moves the cursor (cursor movement and positioning, erasing more than
+  the rest of a line, scrolling, inserting or deleting, saving and restoring the
+  cursor, the alternate screen) is replayed on a capture screen: one from the
+  session's own `ScreenFactory`, named `replay-<last eight hex digits>`, at the
+  shell's current width (it follows `resize`), with as many rows as the output can
+  fill, at least the shell's height and at most 200, and read back with its
+  scrollback. The text is the rows that the screen shows at the end: a soft-wrapped
+  row joined to the next, colours dropped, wide characters kept, trailing blanks and
+  blank rows at the end removed. So a multi-line progress display that redraws itself
+  with cursor-up leaves only its last frame.
+- A program that switched to the alternate screen leaves what is on the main screen
+  and one line `[a full-screen program ran here; only what it left on the main screen
+  is shown]`. Output that ends on the alternate screen is switched back first.
+- A row that scrolled off the top is final, because no cursor movement reaches it.
+  Every backend keeps at least 1000 rows of scrollback; a replay whose scrollback
+  reaches that many may have lost its oldest rows, so it is replayed again in two
+  halves split at the line end nearest the middle, as often as needed. A display that
+  redraws itself across such a split shows one extra frame there.
+- Output that sets a scroll region (`apt`'s progress bar) stays on the cleaner,
+  because a screen drops the lines that scroll out of a region.
+- The capture screen is shut down when its replay ends, and also when the caller
+  drops the run, so a finished run keeps no thread. The replay runs in the caller's
+  task, never in the session's actor. When the screen cannot start or stops early,
+  the cleaner reads the bytes and the failure is logged at `debug`.
+- A line that ran no command (`NotStarted`) is read by the cleaner: its text is the
+  shell's complaint around the echo of the line, which the line editor drew relative
+  to a prompt that a capture screen does not have.
 
 Environment hygiene: the shell inherits `ShellConfig::base_env` (the user's
 environment, passed in by the daemon; this crate reads no environment) without
@@ -104,8 +144,9 @@ Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fc
 for `O_NONBLOCK`), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
 timestamps), `async-trait`, `thiserror` and `tracing`.
 
-Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests,
-`efr-test-support` for the manual clock and the seeded generator.
+Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests (vt100 also
+backs the capture screens of the replay tests), `efr-test-support` for the manual
+clock and the seeded generator.
 
 ## Invariant
 
@@ -114,6 +155,8 @@ Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests,
 - Marks come from the stream itself, scanned in order with the bytes around them, so a
   command's output is exactly `recording[C.end .. D.start]` whatever the screen
   backend.
+- A capture screen lives for one replay and no longer, so a finished run keeps no
+  thread; only output that moves the cursor starts one.
 - Time and randomness are injected: every timeout runs on the `Clock`, and PTY ids
   and sentinel tokens come from the `Rng`.
 - No error, notice or `Debug` output carries a command line or an environment value.
