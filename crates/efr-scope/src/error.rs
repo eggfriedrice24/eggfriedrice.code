@@ -1,7 +1,9 @@
 //! The one public error type of the crate.
 
+use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use efr_stdx::StdxError;
 
@@ -91,5 +93,22 @@ pub enum ScopeError {
         /// The error from the atomic write.
         #[source]
         source: StdxError,
+    },
+
+    /// git could not be started, for example because it is not installed.
+    #[error("could not run {}", .program.to_string_lossy())]
+    RunGit {
+        /// The program that was started, normally `git`.
+        program: OsString,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// git did not finish in time, for example on a hung network file system.
+    #[error("git did not finish within {after:?}")]
+    GitTimedOut {
+        /// The timeout.
+        after: Duration,
     },
 }

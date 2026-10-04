@@ -2,6 +2,8 @@
 //! `efr_protocol::Scope`, again on every turn.
 //!
 //! - [`Registry`]: the explicit project registry, `$XDG_CONFIG_HOME/efr/projects.toml`.
+//! - [`Git`]: guarded git discovery with `GIT_CEILING_DIRECTORIES`, so a dotfiles
+//!   `~/.git` never turns every directory under `$HOME` into one repository.
 //! - [`Home`]: the home directory, always passed in, never read from the environment.
 //!
 //! Allowed dependencies: `efr-protocol` (`Scope`, `ProjectId`) and `efr-stdx` (the
@@ -14,11 +16,13 @@
 #![warn(missing_docs)]
 
 mod error;
+mod git;
 mod home;
 mod registry;
 #[cfg(test)]
 mod testing;
 
 pub use error::ScopeError;
+pub use git::{DEFAULT_GIT_TIMEOUT, Discovery, Git, Repo};
 pub use home::Home;
 pub use registry::{Project, REGISTRY_FILE, Registry, RegistryProblem};
