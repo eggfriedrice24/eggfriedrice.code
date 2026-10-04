@@ -1,0 +1,71 @@
+[package]
+name = "efr-daemon"
+description = "efrd, the efr daemon: the composition root that owns conversations, hidden shells, screens and the event log"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+# The library is the daemon itself, so efr-test-daemon can run it in-process; the
+# binary only parses arguments, sets up tracing and calls `run`.
+[lib]
+doctest = false
+
+
+[features]
+default = ["local-pty"]
+# Hidden shells on PTYs that this process opens (efr-pty). The PTY holder milestone
+# deletes it together with the efr-pty edge.
+local-pty = ["dep:efr-pty"]
+# The libghostty-vt screen backend; needs Zig 0.16.0 (docs/ghostty-pin.md).
+screen-ghostty = ["dep:efr-screen-ghostty"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+clap.workspace = true
+efr-conversation.workspace = true
+efr-credentials.workspace = true
+efr-holder.workspace = true
+efr-http.workspace = true
+efr-oauth-openai.workspace = true
+efr-permissions.workspace = true
+efr-protocol.workspace = true
+efr-provider.workspace = true
+efr-provider-openai.workspace = true
+efr-pty = { workspace = true, optional = true }
+efr-scope.workspace = true
+efr-screen.workspace = true
+efr-screen-ghostty = { workspace = true, optional = true }
+efr-screen-vt100.workspace = true
+efr-shell.workspace = true
+efr-stdx.workspace = true
+efr-store.workspace = true
+efr-tools.workspace = true
+efr-transport.workspace = true
+jiff.workspace = true
+nix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-journald.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+efr-test-support.workspace = true
+futures.workspace = true
+insta.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

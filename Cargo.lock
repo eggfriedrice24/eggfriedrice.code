@@ -780,6 +780,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.23.1",
+ "bytes",
+ "clap",
+ "efr-conversation",
+ "efr-credentials",
+ "efr-holder",
+ "efr-http",
+ "efr-oauth-openai",
+ "efr-permissions",
+ "efr-protocol",
+ "efr-provider",
+ "efr-provider-openai",
+ "efr-pty",
+ "efr-scope",
+ "efr-screen",
+ "efr-screen-ghostty",
+ "efr-screen-vt100",
+ "efr-shell",
+ "efr-stdx",
+ "efr-store",
+ "efr-test-support",
+ "efr-tools",
+ "efr-transport",
+ "futures",
+ "insta",
+ "jiff",
+ "nix",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "tracing-journald",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "efr-holder"
 version = "0.1.0"
 dependencies = [
@@ -3322,6 +3369,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-journald"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d3a81ed245bfb62592b1e2bc153e77656d94ee6a0497683a65a12ccaf2438d0"
+dependencies = [
+ "libc",
+ "tracing-core",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3433,6 +3492,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"

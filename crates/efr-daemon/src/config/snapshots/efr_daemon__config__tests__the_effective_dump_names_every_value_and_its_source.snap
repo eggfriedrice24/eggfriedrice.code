@@ -1,0 +1,23 @@
+---
+source: crates/efr-daemon/src/config/tests.rs
+expression: config.effective()
+---
+# /home/u/.config/efr/config.toml
+log = "debug"  # env EFR_LOG
+screen = "vt100"  # flag --screen
+model.provider = "openai-subscription"  # default
+model.name = "gpt-6-sol"  # file
+model.system_prompt = <551 bytes>  # default
+model.max_output_tokens = (unset)  # default
+openai.originator = "efr"  # default
+openai.models = (built in)  # default
+openai.subscription_base_url = (unset)  # default
+openai.api_base_url = (unset)  # default
+openai.reasoning_effort = (unset)  # default
+shell.program = (unset)  # default
+shell.login = true  # default
+shell.idle_minutes = 30  # file
+conversation.max_queued = 16  # default
+conversation.approval_timeout_secs = (unset)  # default
+conversation.update_interval_ms = 200  # default
+render.theme = "catppuccin-mocha"  # file

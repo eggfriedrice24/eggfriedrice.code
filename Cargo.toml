@@ -8,7 +8,7 @@ default-members = [
   "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-render",
   "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
-  "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation",
+  "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
   "xtask",
 ]
 
@@ -138,6 +138,8 @@ efr-oauth-openai = { path = "crates/efr-oauth-openai" }
 efr-conversation = { path = "crates/efr-conversation" }
 efr-transport = { path = "crates/efr-transport" }
 efr-client = { path = "crates/efr-client" }
+# Without its default local-pty feature, so efr-test-daemon can choose the PTY holder.
+efr-daemon = { path = "crates/efr-daemon", default-features = false }
 efr-cli = { path = "crates/efr-cli" }
 
 [workspace.lints.rust]
