@@ -1,8 +1,8 @@
 //! Vendor-neutral credential storage.
 //!
-//! A `CredentialRecord` is what efr keeps for one login: a static API key or a set
-//! of OAuth tokens. A `SecretStore` loads, saves and deletes records by
-//! [`CredentialId`]. `FileStore` keeps one JSON file per record under
+//! A [`CredentialRecord`] is what efr keeps for one login: a static API key or a set
+//! of OAuth tokens. A [`SecretStore`] loads, saves and deletes records by
+//! [`CredentialId`]. [`FileStore`] keeps one JSON file per record under
 //! `$XDG_DATA_HOME/efr/secrets/` (directory 0700, files 0600) and is the default. The
 //! `keyring` feature adds `keyring_store::KeyringStore`, which keeps the same JSON in
 //! the platform keyring.
@@ -19,7 +19,13 @@
 #![warn(missing_docs)]
 
 mod error;
+mod file_store;
 mod id;
+mod record;
+mod store;
 
 pub use error::CredentialsError;
+pub use file_store::FileStore;
 pub use id::CredentialId;
+pub use record::{CredentialRecord, OAuthTokens};
+pub use store::SecretStore;
