@@ -1,0 +1,24 @@
+[package]
+name = "efr-test-support"
+description = "Test helpers for efr: a manual clock, a seeded generator, temporary XDG roots, an in-memory store, fixtures, NDJSON transcripts and the replay provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-stdx.workspace = true
+jiff.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

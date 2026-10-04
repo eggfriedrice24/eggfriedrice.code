@@ -822,6 +822,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-test-support"
+version = "0.1.0"
+dependencies = [
+ "efr-stdx",
+ "futures",
+ "jiff",
+ "pretty_assertions",
+ "tokio",
+]
+
+[[package]]
 name = "efr-transport"
 version = "0.1.0"
 dependencies = [
