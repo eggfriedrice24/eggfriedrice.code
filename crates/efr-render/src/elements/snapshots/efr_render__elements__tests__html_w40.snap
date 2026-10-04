@@ -1,0 +1,7 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+\e[2m<details>\e[0m
+\e[2m<summary>More</summary>\e[0m
+\e[2m</details>\e[0m

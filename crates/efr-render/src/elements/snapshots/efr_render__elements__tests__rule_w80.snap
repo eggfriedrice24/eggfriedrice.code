@@ -1,0 +1,9 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+above
+
+\e[2m────────────────────────────────────────────────────────────────────────────────\e[0m
+
+below

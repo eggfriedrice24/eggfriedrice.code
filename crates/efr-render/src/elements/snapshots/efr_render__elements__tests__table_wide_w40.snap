@@ -1,0 +1,9 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+\e[1mOption:\e[0m width
+\e[1mMeaning:\e[0m the number of columns text is laid out in
+
+\e[1mOption:\e[0m theme
+\e[1mMeaning:\e[0m the syntax theme of code blocks and diffs

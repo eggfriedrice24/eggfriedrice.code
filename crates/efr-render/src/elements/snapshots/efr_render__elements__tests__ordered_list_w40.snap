@@ -1,0 +1,10 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+1. first
+2. second
+3. third
+   with a second paragraph in the third
+   item
+4. fourth

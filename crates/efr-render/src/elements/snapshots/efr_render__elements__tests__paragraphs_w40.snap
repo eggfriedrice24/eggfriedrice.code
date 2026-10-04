@@ -1,0 +1,8 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+A first paragraph on one line.
+Its second line stays a line of its own.
+
+A second paragraph long enough to pass forty columns, which the terminal wraps, not the renderer.

@@ -1,0 +1,5 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+Some \e[3mitalic\e[0m, \e[1mbold\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m and \e[33minline code\e[0m in one line of prose.

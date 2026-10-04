@@ -1,0 +1,5 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+\e]8;;https://example.com/diagram.png\e\\e[2m[image: a diagram]\e[0m\e]8;;\e\

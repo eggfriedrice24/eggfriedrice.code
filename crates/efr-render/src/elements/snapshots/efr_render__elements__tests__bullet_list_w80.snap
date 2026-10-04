@@ -1,0 +1,9 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+• one
+• two, with text long enough to wrap inside the item at forty columns
+  ◦ nested
+    ▪ deeper
+• three

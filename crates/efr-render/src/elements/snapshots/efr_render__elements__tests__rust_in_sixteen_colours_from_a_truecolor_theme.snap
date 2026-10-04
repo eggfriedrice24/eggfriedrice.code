@@ -1,0 +1,9 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(element(\"code_rust\"), &options))"
+---
+\e[2mrust\e[0m
+\e[90mfn\e[0m\e[37m \e[0m\e[33mmain\e[0m\e[37m() {\e[0m
+\e[37m    \e[0m\e[91mlet\e[0m\e[37m greeting \e[0m\e[90m=\e[0m\e[37m "\e[0m\e[33mhello\e[0m\e[37m"; \e[0m\e[3;90m// a comment\e[0m
+\e[37m    println!("\e[0m\e[90m{greeting}\e[0m\e[33m, from a line that is wider than forty columns\e[0m\e[37m");\e[0m
+\e[37m}\e[0m

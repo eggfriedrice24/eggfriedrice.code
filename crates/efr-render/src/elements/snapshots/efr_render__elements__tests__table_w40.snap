@@ -1,0 +1,8 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+\e[1mName\e[0m      \e[2m │ \e[0m\e[1mKind\e[0m\e[2m │ \e[0m\e[1mSize\e[0m
+\e[2m───────────┼──────┼─────\e[0m
+\e[33mefr-render\e[0m\e[2m │ \e[0mlib \e[2m │ \e[0m   1
+efrd      \e[2m │ \e[0m\e[1mbin\e[0m \e[2m │ \e[0m  22

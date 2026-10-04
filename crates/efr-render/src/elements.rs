@@ -1,5 +1,6 @@
-//! One sample document per element the renderer draws. The streaming property tests
-//! in `renderer/tests.rs` build documents out of them.
+//! One sample document per element the renderer draws. The snapshot tests in
+//! `elements/tests.rs` render each at 80 and 40 columns with the `ansi` theme; the
+//! streaming property test in `renderer/tests.rs` builds documents out of them.
 
 pub(crate) const ELEMENTS: &[(&str, &str)] = &[
     (
@@ -65,3 +66,6 @@ pub(crate) const ELEMENTS: &[(&str, &str)] = &[
 pub(crate) fn element(name: &str) -> &'static str {
     ELEMENTS.iter().find(|(element, _)| *element == name).map_or("", |(_, markdown)| markdown)
 }
+
+#[cfg(test)]
+mod tests;

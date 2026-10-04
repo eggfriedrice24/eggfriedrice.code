@@ -1,0 +1,10 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+\e[2m│ \e[0mA quote long enough to wrap when the
+\e[2m│ \e[0mterminal is forty columns wide.
+\e[2m│\e[0m
+\e[2m│ \e[0mIts second paragraph.
+\e[2m│\e[0m
+\e[2m│ \e[0m• a list inside the quote

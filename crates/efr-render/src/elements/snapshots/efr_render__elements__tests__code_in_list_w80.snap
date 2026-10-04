@@ -1,0 +1,8 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+1. Build it:
+   \e[2msh\e[0m
+   cargo build\e[36m --release\e[0m
+2. Done.

@@ -1,0 +1,10 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: "readable(&render(markdown, &options))"
+---
+line one of a long paragraph
+line two
+line three
+line four
+line five
+line six
