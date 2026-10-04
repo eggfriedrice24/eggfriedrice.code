@@ -1,0 +1,40 @@
+[package]
+name = "efr-shell"
+description = "One hidden zsh per efr conversation: PTY IO, shell state from OSC 133 and OSC 7 marks, and run_command"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+efr-holder.workspace = true
+efr-protocol.workspace = true
+efr-screen.workspace = true
+efr-stdx.workspace = true
+jiff.workspace = true
+# The `fs` feature of the workspace entry has fcntl, which sets O_NONBLOCK on the master
+# before tokio's AsyncFd takes it.
+rustix.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+which.workspace = true
+
+[dev-dependencies]
+# The e2e_ tests spawn a real zsh on a real PTY and watch it through a vt100 screen.
+efr-pty.workspace = true
+efr-screen-vt100.workspace = true
+efr-test-support.workspace = true
+pretty_assertions.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
