@@ -1,0 +1,22 @@
+[package]
+name = "efr-screen-vt100"
+description = "The vt100 screen backend for efr: the Screen trait over the vt100 crate, which needs no Zig"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-screen.workspace = true
+vt100.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
