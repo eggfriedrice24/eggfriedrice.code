@@ -13,6 +13,7 @@
 //! notices into events (`efr-daemon`), and anything about tools or permissions
 //! (`efr-tools`, `efr-conversation`).
 
+mod capture;
 mod config;
 mod env;
 mod error;
