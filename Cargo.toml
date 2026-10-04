@@ -112,6 +112,7 @@ walkdir = "2.5.0"
 efr-stdx = { path = "crates/efr-stdx" }
 efr-protocol = { path = "crates/efr-protocol" }
 efr-credentials = { path = "crates/efr-credentials" }
+efr-http = { path = "crates/efr-http" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
