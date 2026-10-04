@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/commands/login/tests.rs
+expression: captured.stdout()
+---
+Open this URL in a browser to log in to OpenAI:
+
+  https://auth.openai.com/oauth/authorize?client_id=app&state=s
+
+Waiting for the browser to finish the login...
+Logged in to openai.

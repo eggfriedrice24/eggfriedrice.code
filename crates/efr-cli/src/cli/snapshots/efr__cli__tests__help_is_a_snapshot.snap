@@ -10,6 +10,7 @@ Commands:
   send     Send a prompt to this terminal's conversation and follow the reply
   new      Start a new conversation for this terminal, optionally with a first prompt
   history  List recent conversations, or show the events of one
+  login    Log in to a model provider
   help     Print this message or the help of the given subcommand(s)
 
 Options:

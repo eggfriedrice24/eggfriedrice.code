@@ -20,6 +20,7 @@ use efr_protocol::{
     ErrorBody, Event, EventEnvelope, Hello, HelloResult, Method, PROTOCOL_VERSION, RequestId, Seq,
     ServerFrame, TurnId,
 };
+use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
@@ -30,7 +31,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Notify, mpsc};
 
 use crate::cli::{Cli, Command};
-use crate::context::{Context, Interrupt, Stop};
+use crate::context::{Browser, Context, Interrupt, Stop};
 use crate::error::CliError;
 use crate::keys::{KeyReader, Keys};
 use crate::output::Output;
@@ -190,6 +191,17 @@ impl Interrupt for TestInterrupt {
     }
 }
 
+/// A browser that only remembers the URLs it was asked to open.
+#[derive(Debug, Default)]
+pub(crate) struct RecordingBrowser(pub(crate) Mutex<Vec<String>>);
+
+impl Browser for RecordingBrowser {
+    fn open(&self, url: &str) -> io::Result<()> {
+        self.0.lock().unwrap().push(url.to_owned());
+        Ok(())
+    }
+}
+
 /// An [`Output`] that keeps what was written, and the handle to read it.
 pub(crate) fn capture() -> (Output, Captured) {
     let captured = Captured::default();
@@ -275,11 +287,12 @@ impl TestEnv {
         FakeDaemon { listener: UnixListener::bind(self.socket()).unwrap() }
     }
 
-    /// A context on these roots: not a terminal, no keys, the stopped clock, and a
-    /// working directory of `/home/user/project`.
+    /// A context on these roots: not a terminal, no keys, no environment variables,
+    /// the stopped clock, and a working directory of `/home/user/project`.
     pub(crate) fn context(&self) -> Context {
         Context {
             dirs: self.dirs.clone(),
+            env: Env::fixed(Vec::<(Var, String)>::new()),
             term: TermFacts::default(),
             settings: Settings::default(),
             clock: Arc::new(StoppedClock),
@@ -287,6 +300,7 @@ impl TestEnv {
             screen: Arc::new(FixedScreen(Size::default())),
             keys: Arc::new(NoKeys),
             interrupt: Arc::new(TestInterrupt::default()),
+            browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),
             tty: None,
         }

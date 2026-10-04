@@ -53,6 +53,7 @@ fn daemon_failures_exit_with_one() {
         CliError::SubscriptionEnded,
         CliError::NoActiveConversation { tty: "/dev/pts/3".to_owned() },
         CliError::ConversationNotFound { query: "abcd".to_owned() },
+        CliError::LoginIncomplete,
     ] {
         assert_eq!(error.exit(), Exit::DaemonError, "{error}");
         assert_eq!(error.hint(), None);

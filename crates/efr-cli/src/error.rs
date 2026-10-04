@@ -47,6 +47,13 @@ pub(crate) enum CliError {
         source: StdxError,
     },
 
+    /// An `EFR_*` variable holds a value that cannot be used.
+    #[error("an environment variable cannot be used")]
+    Environment {
+        #[source]
+        source: StdxError,
+    },
+
     /// The system random number generator could not be seeded for command ids.
     #[error("the random number generator could not be seeded")]
     Random {
@@ -104,6 +111,10 @@ pub(crate) enum CliError {
     /// The subscription fell behind again and again; the terminal cannot keep up.
     #[error("the turn's events arrived faster than they could be shown, {times} times")]
     FellBehind { times: u32 },
+
+    /// The login stream ended without a completed login.
+    #[error("the daemon ended the login before it completed")]
+    LoginIncomplete,
 
     /// The user pressed Ctrl+C.
     #[error("interrupted")]

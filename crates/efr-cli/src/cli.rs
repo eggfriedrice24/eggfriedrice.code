@@ -37,6 +37,9 @@ pub(crate) enum Command {
     New(NewArgs),
     /// List recent conversations, or show the events of one.
     History(HistoryArgs),
+    /// Log in to a model provider.
+    #[command(subcommand)]
+    Login(LoginCommand),
 }
 
 /// The arguments of `efr send`.
@@ -126,6 +129,14 @@ pub(crate) struct HistoryArgs {
     /// Continue from a cursor that an earlier page printed.
     #[arg(long, value_name = "CURSOR")]
     pub(crate) cursor: Option<String>,
+}
+
+/// The providers `efr login` knows.
+#[derive(Debug, Subcommand)]
+pub(crate) enum LoginCommand {
+    /// Log in to the OpenAI subscription in a browser. The daemon runs the login; this
+    /// prints the URL to open and waits for the browser to finish.
+    Openai,
 }
 
 #[cfg(test)]

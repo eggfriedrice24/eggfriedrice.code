@@ -1,17 +1,20 @@
 //! Everything a command needs from the world, gathered once: the directories, the
-//! terminal, time, randomness, keys and Ctrl+C.
+//! environment, the terminal, time, randomness, keys, Ctrl+C and the browser.
 //!
 //! Commands take a [`Context`] instead of reaching for process state themselves, so a
 //! test can run a whole command against a fake daemon with a fixed screen, scripted
 //! keys and a Ctrl+C it triggers.
 
 use std::fmt;
+use std::io;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::process::Stdio;
 use std::sync::Arc;
 
 use efr_client::{Client, ConnectOptions, Discovered};
 use efr_protocol::{CommandId, Origin};
+use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
@@ -51,10 +54,30 @@ impl Interrupt for CtrlC {
     }
 }
 
+/// How a URL reaches a browser.
+pub(crate) trait Browser: Send + Sync + fmt::Debug {
+    /// Opens `url` without waiting for the browser.
+    fn open(&self, url: &str) -> io::Result<()>;
+}
+
+/// `xdg-open`, the desktop's choice of browser.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct XdgOpen;
+
+impl Browser for XdgOpen {
+    fn open(&self, url: &str) -> io::Result<()> {
+        let mut command = efr_stdx::process::command("xdg-open", "/");
+        command.arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // The child is not awaited: the login waits for the daemon, not the browser.
+        command.spawn().map(drop)
+    }
+}
+
 /// What every command runs with.
 #[derive(Debug)]
 pub(crate) struct Context {
     pub(crate) dirs: Dirs,
+    pub(crate) env: Env,
     pub(crate) term: TermFacts,
     pub(crate) settings: Settings,
     pub(crate) clock: Arc<dyn Clock>,
@@ -62,6 +85,7 @@ pub(crate) struct Context {
     pub(crate) screen: Arc<dyn Screen>,
     pub(crate) keys: Arc<dyn Keys>,
     pub(crate) interrupt: Arc<dyn Interrupt>,
+    pub(crate) browser: Arc<dyn Browser>,
     /// The working directory, for a prompt sent without the plugin's context.
     pub(crate) cwd: Option<PathBuf>,
     /// The terminal on stdin, for a prompt sent without the plugin's context.
@@ -77,12 +101,14 @@ impl Context {
         let keys = TtyKeys { available: term.stdin_tty };
         Ok(Context {
             dirs,
+            env: Env::process(),
             settings,
             clock: Arc::new(SystemClock),
             rng: Arc::new(rng),
             screen: Arc::new(StdoutScreen),
             keys: Arc::new(keys),
             interrupt: Arc::new(CtrlC),
+            browser: Arc::new(XdgOpen),
             cwd: std::env::current_dir().ok(),
             tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },
             term,
@@ -107,5 +133,10 @@ impl Context {
     /// A new command id, which makes a write idempotent.
     pub(crate) fn command_id(&self) -> CommandId {
         CommandId::from_uuid(efr_stdx::id::uuid_v7(&*self.clock, &*self.rng))
+    }
+
+    /// True when `EFR_OPEN_BROWSER` asks `efr login` to open the URL.
+    pub(crate) fn open_browser(&self) -> Result<bool, CliError> {
+        self.env.flag(Var::OpenBrowser).map_err(|source| CliError::Environment { source })
     }
 }
