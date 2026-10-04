@@ -105,7 +105,7 @@ most `max` operands and at most `options` options after `args`:
 | 47 | `cut` |  |  |  |  |  |
 | 48 | `tr` |  |  |  |  |  |
 | 49 | `column` |  |  |  |  |  |
-| 50 | `jq` |  | `-i` `--in-place` `env` `ENV` |  |  |  |
+| 50 | `jq` |  | `-i` `--in-place` `-f` `--from-file` `-L` `--library-path` `env` `ENV` `include` `import` |  |  |  |
 | 51 | `ps` |  | `e` `-e` |  |  |  |
 | 52 | `ps` | `-e\|-ef\|-eF\|-ely\|-eLf\|-ejH` |  |  | 0 | 0 |
 | 53 | `pgrep` |  |  |  |  |  |
@@ -146,9 +146,10 @@ For the same reason no argument of `ps` but a long option may hold an `e`: in BS
 syntax `e` shows each process's environment, and `ps` reads the whole line as BSD
 syntax when one word is not valid UNIX syntax, so `ps -ex` and `ps -e -x` show it too.
 The UNIX forms `ps -e`, `ps -ef`, `ps -eF`, `ps -ely`, `ps -eLf` and `ps -ejH` run
-alone, with nothing after them. A `jq` program may not use `env` or `$ENV`, and
-`systemctl show` must name a unit (without one it shows the service manager's
-environment).
+alone, with nothing after them. A `jq` program may not use `env` or `$ENV`, nor come
+from a file (`-f`) or a module (`include`, `import`, `-L`) that the line does not
+show, and `systemctl show` must name a unit (without one it shows the service
+manager's environment).
 
 `crates/efr-permissions/src/policy/defaults.rs` holds the table as data. A test keeps
 this file, the table in the crate and the data equal.

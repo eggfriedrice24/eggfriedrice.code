@@ -108,8 +108,27 @@ const ROWS: &[Row] = &[
     ("cut", &[], &[], Any),
     ("tr", &[], &[], Any),
     ("column", &[], &[], Any),
-    // jq programs can print the environment through `env` and `$ENV`.
-    ("jq", &[], &["-i", "--in-place", "env", "ENV"], Any),
+    // jq programs can print the environment through `env` and `$ENV`. A program read
+    // from a file (`-f`), or a module that `include` or `import` loads from a library
+    // path (`-L`), is text the line does not show, and `$SCRATCH` may hold it without
+    // an approval.
+    (
+        "jq",
+        &[],
+        &[
+            "-i",
+            "--in-place",
+            "-f",
+            "--from-file",
+            "-L",
+            "--library-path",
+            "env",
+            "ENV",
+            "include",
+            "import",
+        ],
+        Any,
+    ),
     // BSD-style `e` shows the environment of each process. procps reads the whole line
     // again as BSD syntax when one word is not valid UNIX syntax, dashed clusters
     // included, so `ps -ex` and `ps -e -x` show it too: an `e` may stand in no word but

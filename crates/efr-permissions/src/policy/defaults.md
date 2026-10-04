@@ -40,7 +40,7 @@
 | 47 | `cut` |  |  |  |  |  |
 | 48 | `tr` |  |  |  |  |  |
 | 49 | `column` |  |  |  |  |  |
-| 50 | `jq` |  | `-i` `--in-place` `env` `ENV` |  |  |  |
+| 50 | `jq` |  | `-i` `--in-place` `-f` `--from-file` `-L` `--library-path` `env` `ENV` `include` `import` |  |  |  |
 | 51 | `ps` |  | `e` `-e` |  |  |  |
 | 52 | `ps` | `-e\|-ef\|-eF\|-ely\|-eLf\|-ejH` |  |  | 0 | 0 |
 | 53 | `pgrep` |  |  |  |  |  |

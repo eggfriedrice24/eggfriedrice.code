@@ -160,6 +160,13 @@ fn every_read_only_default_runs_without_approval(#[case] line: &str) {
 #[case::jq_in_place("jq -i '.a = 1' x.json")]
 #[case::jq_env("jq -n env")]
 #[case::jq_env_variable("jq -n '$ENV.TOKEN'")]
+#[case::jq_program_file("jq -n -f prog.jq")]
+#[case::jq_program_file_cluster("jq -nf prog.jq")]
+#[case::jq_program_file_long("jq -n --from-file prog.jq")]
+#[case::jq_library_path("jq -n -L . 'x'")]
+#[case::jq_library_path_long("jq -n --library-path=. 'x'")]
+#[case::jq_include("jq -n 'include \"m\"; x'")]
+#[case::jq_import("jq -n 'import \"m\" as m; m::x'")]
 #[case::ps_environment("ps axe")]
 #[case::ps_environment_separate("ps aux e")]
 // procps reads a dashed cluster that is not valid UNIX syntax as BSD syntax, and then
