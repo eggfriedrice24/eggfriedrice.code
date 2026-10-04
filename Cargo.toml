@@ -1,9 +1,6 @@
 [workspace]
 resolver = "3"
-# `crates/*` joins this list with the first crate (milestone 1, step 1). Cargo 1.99
-# rejects a member glob that matches nothing ("failed to read crates/*/Cargo.toml"),
-# so until then the workspace holds only the xtask.
-members = ["xtask"]
+members = ["crates/*", "xtask"]
 # The intended default members once milestone 1 lands: every crate except
 # efr-screen-ghostty, so a bare `cargo build` or `cargo test` never invokes Zig.
 # default-members = [
@@ -110,9 +107,9 @@ pretty_assertions = "1.4.1"
 cargo_metadata = "0.23.1"
 walkdir = "2.5.0"
 
-# Internal crates are added here as they land, so a member writes
-# `efr-stdx.workspace = true`, for example:
-# efr-stdx = { path = "crates/efr-stdx" }
+# Internal crates, in the tier order of the crate table, so a member writes
+# `efr-stdx.workspace = true`.
+efr-stdx = { path = "crates/efr-stdx" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
