@@ -20,7 +20,7 @@ use crate::testing::{
     Closed, FakeDispatcher, InstantClock, StoppedClock, TestClient, cancel_frame, drop_signal,
     hello_frame, internal, list_frame, subscribe_frame,
 };
-use crate::{ConnId, ConnectionContext, PeerCred, Request};
+use crate::{ConnId, ConnectionContext, PeerCred, Request, TransportError};
 
 const PEER: PeerCred = PeerCred::new(1000, Some(4242));
 
@@ -237,6 +237,73 @@ async fn a_panicking_handler_is_answered_with_internal_and_the_connection_goes_o
     running.client.send(&list_frame(3)).await;
     assert_eq!(running.client.recv().await, Some(ServerFrame::item(id(3), &1).unwrap()));
     assert_eq!(running.client.recv().await, Some(ServerFrame::end(id(3))));
+}
+
+/// A dispatcher whose streaming handler moves its responder into a task of its own and
+/// returns at once. The task sends one item when `release` fires and reports whether the
+/// transport refused it because the request had ended.
+fn leaking_responders(
+    panic_after_spawning: bool,
+) -> (Arc<FakeDispatcher>, tokio::sync::oneshot::Sender<()>, mpsc::UnboundedReceiver<bool>) {
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let release = Arc::new(Mutex::new(Some(release_rx)));
+    let (refused_tx, refused) = mpsc::unbounded_channel();
+    let dispatcher = FakeDispatcher::new(move |request: Request| {
+        let release = release.lock().unwrap().take();
+        let refused = refused_tx.clone();
+        async move {
+            if !request.method.is_stream() {
+                return request.responder.item(&json!({ "ok": true })).await.map_err(internal);
+            }
+            let (id, responder, release) = (request.id, request.responder, release.unwrap());
+            tokio::spawn(async move {
+                release.await.unwrap();
+                let sent = responder.item(&"late").await;
+                let ended =
+                    matches!(sent, Err(TransportError::RequestEnded { id: ended }) if ended == id);
+                refused.send(ended).unwrap();
+            });
+            if panic_after_spawning {
+                panic!("a handler bug");
+            }
+            Ok(())
+        }
+    });
+    (dispatcher, release_tx, refused)
+}
+
+#[tokio::test]
+async fn an_item_from_a_task_the_handler_spawned_never_follows_the_end_frame() {
+    let (dispatcher, release, mut refused) = leaking_responders(false);
+    let mut running = start(dispatcher);
+    running.client.hello().await;
+    running.client.send(&subscribe_frame(5)).await;
+    assert_eq!(running.client.recv().await, Some(ServerFrame::end(id(5))));
+    release.send(()).unwrap();
+    assert!(refused.recv().await.unwrap(), "the late item must be refused as ended");
+    running.client.send(&list_frame(6)).await;
+    assert_eq!(
+        running.client.recv().await,
+        Some(ServerFrame::Item { id: id(6), item: json!({ "ok": true }) }),
+        "nothing for request 5 arrives after its end frame"
+    );
+    assert_eq!(running.client.recv().await, Some(ServerFrame::end(id(6))));
+}
+
+#[tokio::test]
+async fn an_item_from_a_task_of_a_panicked_handler_never_follows_its_error() {
+    let (dispatcher, release, mut refused) = leaking_responders(true);
+    let mut running = start(dispatcher);
+    running.client.hello().await;
+    running.client.send(&subscribe_frame(5)).await;
+    assert_eq!(error_code(running.client.recv().await), (Some(id(5)), ErrorCode::Internal));
+    release.send(()).unwrap();
+    assert!(refused.recv().await.unwrap(), "the late item must be refused as ended");
+    running.client.send(&list_frame(6)).await;
+    assert_eq!(
+        running.client.recv().await,
+        Some(ServerFrame::Item { id: id(6), item: json!({ "ok": true }) })
+    );
 }
 
 #[tokio::test]

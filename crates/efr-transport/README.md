@@ -24,7 +24,9 @@ the daemon and the daemon's answers back into frames:
   `dispatch`, and `closed`, which reports once that a connection with an accepted
   hello has closed, after all its handlers are gone), the `Request` it receives and
   the `Responder` it answers through. The transport sends the one frame that ends each
-  request and enforces that a unary method sends exactly one result.
+  request and enforces that a unary method sends exactly one result. A responder that
+  a handler moved into a task of its own is refused with `RequestEnded` once the
+  request has ended, so no item ever follows the end frame.
 - `subscriptions`: bounded per-subscriber queues of 64 items. An offer never waits;
   overflow closes that subscription, which then delivers what was queued and ends with
   `overflow` carrying `last_seq`, so the client resubscribes without a gap.

@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::{ProtocolError, Seq};
+use efr_protocol::{ProtocolError, RequestId, Seq};
 
 /// Every way an `efr-transport` operation can fail.
 ///
@@ -133,6 +133,15 @@ pub enum TransportError {
     Overflow {
         /// The last sequence number that the subscriber received.
         last_seq: Seq,
+    },
+
+    /// The request has ended, so nothing more can be sent for it: its end frame or error
+    /// is queued, or its connection closed. A responder that a handler moved into a task
+    /// of its own meets this once the handler has returned.
+    #[error("request {id} has already ended")]
+    RequestEnded {
+        /// The request.
+        id: RequestId,
     },
 
     /// A unary method tried to send a second result.

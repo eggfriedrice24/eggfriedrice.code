@@ -5,9 +5,15 @@
 //! it. The dispatcher only answers methods. It sends results and stream items through
 //! the request's [`Responder`] and returns `Ok(())` or the error to send; mapping the
 //! daemon's own errors to an [`ErrorBody`] is the daemon's job.
+//!
+//! A handler may move its responder into a task of its own, so the transport cannot rely
+//! on the handler's return to stop the items. Each request's `ResponseState` holds the
+//! connection's sender until the request ends. Every frame of the request is queued
+//! while its lock is held, and the end frame is queued only after the sender was taken
+//! out under the same lock, so no item can follow the end frame.
 
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_protocol::{ErrorBody, ErrorCode, Hello, HelloResult, Method, RequestId, Seq, ServerFrame};
 use serde::Serialize;
@@ -81,7 +87,9 @@ pub struct Request {
     pub method: Method,
     /// Who sent it.
     pub context: ConnectionContext,
-    /// Where its results and items go.
+    /// Where its results and items go. It may move into a task that the handler spawns;
+    /// once the request has ended, every send through it fails with
+    /// [`TransportError::RequestEnded`].
     pub responder: Responder,
     /// Cancelled when the client cancels the request, the connection closes or the
     /// daemon shuts down. The transport drops the handler's future at that moment;
@@ -89,33 +97,51 @@ pub struct Request {
     pub cancelled: CancellationToken,
 }
 
-/// What the transport needs to know about a request after its handler returns.
-#[derive(Debug, Default)]
+/// What the transport needs to know about a request after its handler returns, and the
+/// sender its frames go through until it ends.
+#[derive(Debug)]
 pub(crate) struct ResponseState {
     /// Item frames queued so far.
     items: u64,
     /// Set when [`Responder::forward`] met an overflow.
     overflow: Option<Seq>,
+    /// The connection's outbound queue, until the request ends. Taking it out ends the
+    /// request: no frame of the request is queued after that, and a responder that a
+    /// handler leaked into a task no longer keeps the connection's writer alive.
+    outbound: Option<mpsc::Sender<EncodedFrame>>,
+}
+
+impl ResponseState {
+    pub(crate) fn new(outbound: mpsc::Sender<EncodedFrame>) -> Self {
+        ResponseState { items: 0, overflow: None, outbound: Some(outbound) }
+    }
+
+    /// Ends the request. Later sends through its responder fail.
+    pub(crate) fn end(&mut self) {
+        self.outbound = None;
+    }
+
+    pub(crate) fn has_ended(&self) -> bool {
+        self.outbound.is_none()
+    }
 }
 
 /// Sends the result or the stream items of one request.
+///
+/// Sends wait while the connection's outbound queue is full. Once the request has ended
+/// (its handler returned, it was cancelled, or its connection closed), every send fails
+/// with [`TransportError::RequestEnded`] and queues nothing.
 #[derive(Debug)]
 pub struct Responder {
     id: RequestId,
     method: &'static str,
     stream: bool,
-    outbound: mpsc::Sender<EncodedFrame>,
     state: Arc<Mutex<ResponseState>>,
 }
 
 impl Responder {
-    pub(crate) fn new(
-        id: RequestId,
-        method: &Method,
-        outbound: mpsc::Sender<EncodedFrame>,
-        state: Arc<Mutex<ResponseState>>,
-    ) -> Self {
-        Responder { id, method: method.name(), stream: method.is_stream(), outbound, state }
+    pub(crate) fn new(id: RequestId, method: &Method, state: Arc<Mutex<ResponseState>>) -> Self {
+        Responder { id, method: method.name(), stream: method.is_stream(), state }
     }
 
     /// The request this responder answers.
@@ -128,17 +154,11 @@ impl Responder {
     /// Waits while the connection's outbound queue is full, so a client that reads
     /// slowly slows its own requests and nothing else. Fails without sending when the
     /// item cannot be encoded or is larger than the frame limit, when a unary method
-    /// already sent its result, and when the connection is closed.
+    /// already sent its result, when the request has ended, and when the connection is
+    /// closed.
     pub async fn item<T: Serialize + ?Sized>(&self, item: &T) -> Result<(), TransportError> {
         let frame = EncodedFrame::new(&ServerFrame::item(self.id, item)?)?;
-        {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if !self.stream && state.items > 0 {
-                return Err(TransportError::ResultAlreadySent { method: self.method });
-            }
-            state.items += 1;
-        }
-        self.queue(frame).await
+        self.queue(frame, true).await
     }
 
     /// Sends `{ack: id}`, for streaming methods that document an acknowledgement before
@@ -147,7 +167,7 @@ impl Responder {
         if !self.stream {
             return Err(TransportError::NotAStream { method: self.method });
         }
-        self.queue(EncodedFrame::new(&ServerFrame::Ack { id: self.id })?).await
+        self.queue(EncodedFrame::new(&ServerFrame::Ack { id: self.id })?, false).await
     }
 
     /// Sends every item of `subscription` until its producer finishes, which returns
@@ -168,8 +188,7 @@ impl Responder {
             match delivery {
                 Delivery::Item { item, .. } => self.item(&item).await?,
                 Delivery::Overflowed { last_seq } => {
-                    self.state.lock().unwrap_or_else(PoisonError::into_inner).overflow =
-                        Some(last_seq);
+                    self.lock().overflow = Some(last_seq);
                     return Err(TransportError::Overflow { last_seq });
                 }
             }
@@ -177,8 +196,39 @@ impl Responder {
         Ok(())
     }
 
-    async fn queue(&self, frame: EncodedFrame) -> Result<(), TransportError> {
-        self.outbound.send(frame).await.map_err(|_| TransportError::Closed)
+    /// Queues one frame of this request; `counts` marks an item frame.
+    ///
+    /// The wait for queue space happens without the lock. The checks and the queueing
+    /// itself happen under it, the same lock under which the request ends, so a frame
+    /// is either queued before the end frame or not at all.
+    async fn queue(&self, frame: EncodedFrame, counts: bool) -> Result<(), TransportError> {
+        let outbound = {
+            let state = self.lock();
+            self.check(&state, counts)?;
+            state.outbound.clone().ok_or(TransportError::RequestEnded { id: self.id })?
+        };
+        let permit = outbound.reserve().await.map_err(|_| TransportError::Closed)?;
+        let mut state = self.lock();
+        self.check(&state, counts)?;
+        if counts {
+            state.items += 1;
+        }
+        permit.send(frame);
+        Ok(())
+    }
+
+    fn check(&self, state: &ResponseState, counts: bool) -> Result<(), TransportError> {
+        if state.has_ended() {
+            return Err(TransportError::RequestEnded { id: self.id });
+        }
+        if counts && !self.stream && state.items > 0 {
+            return Err(TransportError::ResultAlreadySent { method: self.method });
+        }
+        Ok(())
+    }
+
+    fn lock(&self) -> MutexGuard<'_, ResponseState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

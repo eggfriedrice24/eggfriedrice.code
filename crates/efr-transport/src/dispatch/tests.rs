@@ -31,8 +31,8 @@ fn responder(
     capacity: usize,
 ) -> (Responder, mpsc::Receiver<EncodedFrame>, Arc<Mutex<ResponseState>>) {
     let (tx, rx) = mpsc::channel(capacity);
-    let state = Arc::new(Mutex::new(ResponseState::default()));
-    (Responder::new(ID, method, tx, Arc::clone(&state)), rx, state)
+    let state = Arc::new(Mutex::new(ResponseState::new(tx)));
+    (Responder::new(ID, method, Arc::clone(&state)), rx, state)
 }
 
 fn decode(frame: &EncodedFrame) -> ServerFrame {
@@ -118,6 +118,38 @@ async fn sending_on_a_closed_connection_fails() {
 }
 
 #[tokio::test]
+async fn nothing_is_queued_once_the_request_has_ended() {
+    let (responder, mut rx, state) = responder(&stream(), 4);
+    responder.item(&1).await.unwrap();
+    state.lock().unwrap().end();
+    assert!(matches!(responder.item(&2).await, Err(TransportError::RequestEnded { id: ID })));
+    assert!(matches!(responder.ack().await, Err(TransportError::RequestEnded { id: ID })));
+    assert_eq!(decode(&rx.recv().await.unwrap()), ServerFrame::item(ID, &1).unwrap());
+    // The ended state let go of the sender, so a leaked responder keeps no writer alive.
+    assert!(rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn an_item_waiting_for_queue_space_when_the_request_ends_is_dropped() {
+    let (responder, mut rx, state) = responder(&stream(), 1);
+    responder.item(&1).await.unwrap();
+    let mut second = std::pin::pin!(responder.item(&2));
+    assert!(futures::poll!(second.as_mut()).is_pending(), "the queue is full");
+    state.lock().unwrap().end();
+    assert_eq!(decode(&rx.recv().await.unwrap()), ServerFrame::item(ID, &1).unwrap());
+    assert!(matches!(second.await, Err(TransportError::RequestEnded { id: ID })));
+    assert!(rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn a_unary_result_lost_to_a_closed_connection_is_not_counted() {
+    let (responder, rx, state) = responder(&unary(), 1);
+    drop(rx);
+    assert!(matches!(responder.item(&1).await, Err(TransportError::Closed)));
+    assert_eq!(state.lock().unwrap().items, 0);
+}
+
+#[tokio::test]
 async fn a_result_too_large_for_a_frame_fails_without_using_the_one_result() {
     let (responder, mut rx, _state) = responder(&unary(), 1);
     let huge = "x".repeat(efr_protocol::framing::MAX_FRAME_LEN);
@@ -128,7 +160,7 @@ async fn a_result_too_large_for_a_frame_fails_without_using_the_one_result() {
 
 #[test]
 fn the_terminal_frame_table() {
-    let state = |items, overflow| ResponseState { items, overflow };
+    let state = |items, overflow| ResponseState { items, overflow, outbound: None };
     let failed = ErrorBody::new(ErrorCode::NotFound, "no such conversation");
     let no_result = ErrorBody::new(ErrorCode::Internal, "admin.status finished without a result");
     let overflow = ErrorBody::overflow(Seq::new(9));

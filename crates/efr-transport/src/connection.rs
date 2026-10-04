@@ -8,9 +8,11 @@
 //!   version check. Every other request gets an entry in the request-id table and a task
 //!   of its own; a cancel frame cancels that entry's token.
 //! - Each request task races [`Dispatcher::dispatch`] against its token, removes its
-//!   entry, and then queues the one frame that ends the request. Every frame of a
-//!   request comes from its own task, so none can follow the end frame, and an id is
-//!   free again by the time the client reads that frame.
+//!   entry, ends the request's response state and then queues the one frame that ends
+//!   the request. A handler may have moved its responder into a task that outlives it,
+//!   but every frame is queued under the state's lock and fails once the state has
+//!   ended, so no item can follow the end frame. An id is free again by the time the
+//!   client reads that frame.
 //! - The writer drains a bounded queue of encoded frames to the socket. A client that
 //!   reads slowly fills the queue and slows its own requests, nothing else.
 //!
@@ -402,8 +404,9 @@ impl<D: Dispatcher> RequestTask<D> {
         let RequestTask { dispatcher, id, method, context, outbound, table, token, closing } = self;
         let name = method.name();
         let stream = method.is_stream();
-        let state = Arc::new(Mutex::new(ResponseState::default()));
-        let responder = Responder::new(id, &method, outbound.clone(), Arc::clone(&state));
+        let state = Arc::new(Mutex::new(ResponseState::new(outbound.clone())));
+        let _ended = EndOnDrop(Arc::clone(&state));
+        let responder = Responder::new(id, &method, Arc::clone(&state));
         let request = Request { id, method, context, responder, cancelled: token.clone() };
         let outcome = tokio::select! {
             biased;
@@ -411,28 +414,42 @@ impl<D: Dispatcher> RequestTask<D> {
             outcome = dispatcher.dispatch(request) => outcome,
         };
         table.remove(id);
-        let frame = {
-            let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-            terminal_frame(id, name, stream, outcome, &state)
-        };
-        let encoded = match EncodedFrame::new(&frame) {
-            Ok(encoded) => encoded,
-            Err(error) => {
-                tracing::error!(request_id = %id, error = %error, "could not encode an end frame");
-                return;
-            }
-        };
         // NOTE: once the connection is closing, the end frame is best effort: waiting for
         // queue space could wait forever on a peer that stopped reading.
-        if closing.is_cancelled() {
-            let _ = outbound.try_send(encoded);
+        let permit = if closing.is_cancelled() {
+            outbound.try_reserve().ok()
+        } else {
+            tokio::select! {
+                biased;
+                () = closing.cancelled() => None,
+                permit = outbound.reserve() => permit.ok(),
+            }
+        };
+        let frame = {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.end();
+            terminal_frame(id, name, stream, outcome, &state)
+        };
+        let Some(permit) = permit else {
             return;
+        };
+        match EncodedFrame::new(&frame) {
+            Ok(encoded) => permit.send(encoded),
+            Err(error) => {
+                tracing::error!(request_id = %id, error = %error, "could not encode an end frame");
+            }
         }
-        tokio::select! {
-            biased;
-            () = closing.cancelled() => {}
-            _ = outbound.send(encoded) => {}
-        }
+    }
+}
+
+/// Ends a request's response state when its task stops, normally or by a panic. After a
+/// panic the reader loop answers the request, and a responder that the handler leaked
+/// into a task must not send after that answer.
+struct EndOnDrop(Arc<Mutex<ResponseState>>);
+
+impl Drop for EndOnDrop {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).end();
     }
 }
 
