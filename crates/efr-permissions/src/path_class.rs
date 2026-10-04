@@ -25,7 +25,7 @@ use crate::PermissionsError;
 /// | `UserConfig` | `~/.config`, `~/.zshrc`, other dot entries in `~` | free | approval |
 /// | `UserData` | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, or free inside the turn's registered project |
 /// | `System` | everything outside `~`: `/etc`, `/usr`, `/srv` | free | approval |
-/// | `Secrets` | `~/.ssh`, `~/.gnupg`, password stores, the daemon's `secrets/` | denied | denied |
+/// | `Secrets` | `~/.ssh`, `~/.gnupg`, password stores, credential files such as `~/.aws/credentials`, the daemon's `secrets/` | denied | denied |
 ///
 /// The enum is deliberately exhaustive: a new class must make every consumer decide
 /// what it means, instead of falling into a wildcard arm.
@@ -81,8 +81,33 @@ impl fmt::Display for PathClass {
 
 /// Secret locations relative to the home directory. Checked before every other class,
 /// so `~/.local/share/keyrings` is a secret although `~/.local/share` is user data.
-const HOME_SECRETS: &[&str] =
-    &[".ssh", ".gnupg", ".password-store", ".local/share/keyrings", ".netrc"];
+/// Besides keys and password stores, the files where common tools keep credentials:
+/// read freely as user config, they would go to the model provider with the turn.
+const HOME_SECRETS: &[&str] = &[
+    ".ssh",
+    ".gnupg",
+    ".password-store",
+    ".local/share/keyrings",
+    ".netrc",
+    // Cloud, container and cluster credentials.
+    ".aws/credentials",
+    ".aws/sso/cache",
+    ".azure",
+    ".config/gcloud",
+    ".docker/config.json",
+    ".kube/config",
+    // Tokens of developer tools and package registries.
+    ".codex/auth.json",
+    ".git-credentials",
+    ".config/gh/hosts.yml",
+    ".npmrc",
+    ".pypirc",
+    ".cargo/credentials",
+    ".cargo/credentials.toml",
+    ".gem/credentials",
+    ".vault-token",
+    ".terraform.d/credentials.tfrc.json",
+];
 
 /// Secret locations outside the home directory.
 const SYSTEM_SECRETS: &[&str] = &["/etc/shadow", "/etc/gshadow"];

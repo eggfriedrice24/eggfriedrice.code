@@ -18,7 +18,7 @@ Modules:
   | UserConfig | `~/.config`, `~/.zshrc`, other dot entries in `~`, extra config roots | free | approval |
   | UserData | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, free inside the turn's registered project |
   | System | everything outside `~` | free | approval |
-  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, `/etc/shadow`, `/etc/gshadow`, the daemon's `secrets/` | denied | denied |
+  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, the daemon's `secrets/`, and the roots the config adds | denied | denied |
 
   Classification is lexical: `.` and `..` are resolved by name, nothing is read from
   the disk, and a relative path has no class. Tools resolve symbolic links before they

@@ -52,6 +52,18 @@ fn locations() -> Locations {
 #[case::pass("/home/u/.password-store/mail.gpg", PathClass::Secrets)]
 #[case::keyrings("/home/u/.local/share/keyrings/login.keyring", PathClass::Secrets)]
 #[case::netrc("/home/u/.netrc", PathClass::Secrets)]
+#[case::aws_credentials("/home/u/.aws/credentials", PathClass::Secrets)]
+#[case::aws_config("/home/u/.aws/config", PathClass::UserConfig)]
+#[case::codex_auth("/home/u/.codex/auth.json", PathClass::Secrets)]
+#[case::codex_config("/home/u/.codex/config.toml", PathClass::UserConfig)]
+#[case::git_credentials("/home/u/.git-credentials", PathClass::Secrets)]
+#[case::gh_hosts("/home/u/.config/gh/hosts.yml", PathClass::Secrets)]
+#[case::docker("/home/u/.docker/config.json", PathClass::Secrets)]
+#[case::kube("/home/u/.kube/config", PathClass::Secrets)]
+#[case::npmrc("/home/u/.npmrc", PathClass::Secrets)]
+#[case::pypirc("/home/u/.pypirc", PathClass::Secrets)]
+#[case::gcloud("/home/u/.config/gcloud/credentials.db", PathClass::Secrets)]
+#[case::cargo_credentials("/home/u/.cargo/credentials.toml", PathClass::Secrets)]
 #[case::daemon_secrets(
     "/home/u/.local/share/efr/secrets/openai-subscription.json",
     PathClass::Secrets
