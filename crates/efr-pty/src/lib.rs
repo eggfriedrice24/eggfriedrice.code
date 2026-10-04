@@ -1,6 +1,6 @@
 //! The in-process PTY holder.
 //!
-//! `LocalPtyHolder` implements `efr_holder::PtyHolder`: it opens a pseudo-terminal
+//! [`LocalPtyHolder`] implements `efr_holder::PtyHolder`: it opens a pseudo-terminal
 //! (`posix_openpt`, `grantpt`, `unlockpt`, `ptsname`), starts the spec's program on it
 //! as a session leader with the PTY as its controlling terminal, sets and changes the
 //! window size, delivers signals, and reaps every child so that `wait` and `list` agree
@@ -19,6 +19,14 @@
 
 mod child;
 mod error;
+/// Opening PTYs and starting children on them. It is the one module of the workspace
+/// that allows `unsafe_code` (the allowlist is in `xtask/src/tidy.rs`): `pre_exec` runs
+/// a closure between `fork` and `execve`, which the standard library cannot check, and
+/// the child's `signal`, `sigprocmask`, `close_range` and `fcntl` calls have no rustix
+/// wrapper. The module doc says what each block relies on.
+#[allow(unsafe_code)]
+mod local_holder;
 mod termios;
 
 pub use error::PtyError;
+pub use local_holder::LocalPtyHolder;
