@@ -20,7 +20,8 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-daemon/src/config.rs`, `efr-scope/src/registry.rs` |
 
 `EFR_DATA_DIR` and the matching variables for the other roots override each root, which
-is how tests use temporary directories.
+is how tests and `just run` use temporary directories. The zsh plugin follows
+`EFR_RUNTIME_DIR` too, so a shell pointed at a `just run` daemon shows its notices.
 
 ## SQLite access
 

@@ -15,7 +15,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
-use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TestDaemon};
+use efr_protocol::{Event, PromptSendResult};
+use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon, events_until};
 use pretty_assertions::assert_eq;
 
 /// A fake `efr` that records each call under `$EFR_ARGS.<n>`: its command line from
@@ -548,4 +549,97 @@ fn e2e_without_efr_a_lone_comma_says_what_is_missing() {
     let screen = type_lines(&home, &[",", "print -r -- sticky=$_efr_sticky"]);
     assert!(screen.contains("efr: the efr binary is not on PATH"), "{screen}");
     assert!(screen.contains("sticky=0"), "{screen}");
+}
+
+/// Writes `text` as the notice file of `/dev/pts/77` under the runtime root `root`.
+fn notice(root: &Path, text: &str) -> PathBuf {
+    let dir = root.join("notices");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("pts-77");
+    std::fs::write(&file, format!("{text}\n")).unwrap();
+    file
+}
+
+/// Shows the notices of `/dev/pts/77` as the prompt would, with `EFR_RUNTIME_DIR` set
+/// to `runtime` when given, and returns what was printed.
+fn print_notices(home: &Home, runtime: Option<&Path>) -> String {
+    let script = format!("source {}\nTTY=/dev/pts/77\n_efr_print_notices\n", plugin().display());
+    let mut zsh = home.zsh();
+    if let Some(runtime) = runtime {
+        zsh.env("EFR_RUNTIME_DIR", runtime);
+    }
+    let output = zsh.args(["-f", "-i", "-c", &script]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn e2e_notices_come_from_the_runtime_root_that_efr_runtime_dir_names() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let runtime = home.path().join("just-run-runtime");
+    let named = notice(&runtime, "efr: turn finished: from EFR_RUNTIME_DIR");
+    // Home::zsh sets XDG_RUNTIME_DIR to the home, whose efr root holds another notice.
+    let default = notice(&home.path().join("efr"), "efr: turn finished: from XDG_RUNTIME_DIR");
+
+    let shown = print_notices(&home, Some(&runtime));
+
+    assert_eq!(shown, "efr: turn finished: from EFR_RUNTIME_DIR\n");
+    assert!(!named.exists(), "a shown notice is removed");
+    assert!(default.exists(), "another daemon's notice stays");
+}
+
+#[test]
+fn e2e_without_efr_runtime_dir_notices_come_from_xdg_runtime_dir() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let default = notice(&home.path().join("efr"), "efr: approval waiting: a conversation");
+
+    assert_eq!(print_notices(&home, None), "efr: approval waiting: a conversation\n");
+    assert!(!default.exists());
+    assert_eq!(print_notices(&home, None), "", "a notice shows once");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_the_prompt_shows_the_notice_that_the_daemon_wrote() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::text("Hello."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    // A client without a terminal follows the turn, so the terminal of the
+    // conversation does not, and the daemon leaves it a notice.
+    let client = daemon.client().await.unwrap();
+    let sent: PromptSendResult = client.call(daemon.prompt(1, "say hello", TTY)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    events_until(&mut follow, |event| matches!(event, Event::TurnCompleted { .. })).await.unwrap();
+    let runtime = daemon.dirs().dirs().runtime().to_path_buf();
+    let file = runtime.join("notices").join(TTY.trim_start_matches("/dev/").replace('/', "-"));
+    // The daemon writes the notice from its own task after the commit.
+    let mut written = false;
+    for _ in 0..100_000 {
+        if std::fs::metadata(&file).is_ok_and(|meta| meta.len() > 0) {
+            written = true;
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(written, "no notice at {}", file.display());
+
+    let home = Home::new();
+    let script = format!("source {}\nTTY={TTY}\n_efr_print_notices\n", plugin().display());
+    let mut zsh = home.zsh();
+    zsh.env("EFR_RUNTIME_DIR", &runtime).args(["-f", "-i", "-c", &script]);
+    let output = tokio::task::spawn_blocking(move || zsh.output().unwrap()).await.unwrap();
+
+    let shown = String::from_utf8(output.stdout).unwrap();
+    assert!(shown.starts_with("efr: turn finished: "), "{shown:?}");
+    assert!(!file.exists(), "the plugin removed the notice it showed");
+    drop((follow, client));
+    daemon.stop().await.unwrap();
 }

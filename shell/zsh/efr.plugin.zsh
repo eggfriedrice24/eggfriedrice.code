@@ -272,11 +272,14 @@ _efr_accept_line() {
 # --- daemon notices ---------------------------------------------------------------
 
 # The daemon leaves notices (an approval waiting, a finished turn) in one file per
-# terminal; the prompt shows them. Moving the file first means a notice written
-# while printing lands in a new file instead of being lost.
+# terminal under its runtime root; the prompt shows them. The root is the daemon's
+# (efr_stdx's Dirs::runtime): EFR_RUNTIME_DIR, which `just run` sets, else
+# $XDG_RUNTIME_DIR/efr. Moving the file first means a notice written while printing
+# lands in a new file instead of being lost.
 _efr_print_notices() {
   [[ -n $TTY ]] || return 0
-  local file="${XDG_RUNTIME_DIR:-/run/user/$UID}/efr/notices/${${TTY#/dev/}//\//-}"
+  local root=${EFR_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$UID}/efr}
+  local file="$root/notices/${${TTY#/dev/}//\//-}"
   [[ -s $file ]] || return 0
   local shown="$file.shown.$$"
   zf_mv -f -- "$file" "$shown" 2>/dev/null || return 0
