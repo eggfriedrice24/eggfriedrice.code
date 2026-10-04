@@ -110,6 +110,7 @@ walkdir = "2.5.0"
 # Internal crates, in the tier order of the crate table, so a member writes
 # `efr-stdx.workspace = true`.
 efr-stdx = { path = "crates/efr-stdx" }
+efr-protocol = { path = "crates/efr-protocol" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

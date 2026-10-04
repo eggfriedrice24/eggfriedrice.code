@@ -1,0 +1,31 @@
+[package]
+name = "efr-protocol"
+description = "The efr wire contract: frames, methods, events, ids and the length-prefix framing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+# Builds `efr_protocol::schema`, the JSON Schema document of the whole protocol that
+# `cargo xtask protocol-docs` renders into docs/protocol.md.
+schema = []
+
+[dependencies]
+jiff.workspace = true
+# NOTE: schemars is not optional although the `schema` feature gates the schema module.
+# The tidy rule allows `cfg(feature)` only on the one `mod schema;` line of lib.rs, so a
+# `cfg_attr` derive on each wire type is not possible; the README explains the choice.
+schemars = { workspace = true, features = ["jiff02", "uuid1"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
