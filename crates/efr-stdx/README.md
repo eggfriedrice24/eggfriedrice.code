@@ -20,6 +20,9 @@ Modules:
   caller of `SystemTime::now` and `tokio::time::sleep`.
 - `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
   operating system.
+- `fs`: `write_atomic` (temporary file, flush, rename, flush the directory),
+  `create_private` (a new file with mode 0600) and `claim_dir` (a non-recursive
+  `mkdir` with mode 0700, where an existing entry means taken).
 - `id`: `uuid_v7(clock, rng)`, a version 7 UUID whose time and random bits both come
   from the injected `Clock` and `Rng`.
 

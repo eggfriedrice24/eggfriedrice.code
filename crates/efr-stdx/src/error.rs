@@ -71,4 +71,63 @@ pub enum StdxError {
         #[source]
         source: io::Error,
     },
+
+    /// A path that must name a file ends in `/` or `..`.
+    #[error("{} does not name a file", .path.display())]
+    NoFileName {
+        /// The path.
+        path: PathBuf,
+    },
+
+    /// A file could not be created.
+    #[error("could not create {}", .path.display())]
+    CreateFile {
+        /// The file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A file could not be written or flushed to disk.
+    #[error("could not write {}", .path.display())]
+    WriteFile {
+        /// The file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A file could not be renamed into place.
+    #[error("could not rename {} to {}", .from.display(), .to.display())]
+    Rename {
+        /// The file that was to be renamed.
+        from: PathBuf,
+        /// The path it was to get.
+        to: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A directory could not be flushed to disk after a rename in it.
+    #[error("could not flush the directory {} to disk", .path.display())]
+    SyncDir {
+        /// The directory.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A directory could not be created.
+    #[error("could not create the directory {}", .path.display())]
+    CreateDir {
+        /// The directory.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
 }
