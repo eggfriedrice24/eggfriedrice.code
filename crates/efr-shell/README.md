@@ -129,7 +129,9 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
 - The integration changes a few options in the hidden shell only: no `!` history
   expansion, no spelling correction prompts, no history file (`HISTFILE` is unset;
   efr keeps its own recording), no pager (the four pager variables are set to `cat`
-  again, because a `.zshrc` often exports `PAGER=less`), and zsh's `PROMPT_SP` mark
+  again, because a `.zshrc` often exports `PAGER=less`), no `NULL_GLOB` or
+  `CSH_NULL_GLOB` (the permission engine counts a pattern that matches nothing as one
+  word, so it must not vanish), and zsh's `PROMPT_SP` mark
   is printed after `D` instead of before the precmd hooks, so it never counts as
   output.
 

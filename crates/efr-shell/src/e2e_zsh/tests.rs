@@ -182,6 +182,16 @@ async fn e2e_a_pager_from_the_users_zshrc_is_turned_off() {
     assert_eq!(result.output, "cat cat cat cat\n");
 }
 
+#[tokio::test]
+async fn e2e_a_pattern_that_matches_nothing_never_vanishes() {
+    let Some(zsh) = Zsh::start("e2e_a_pattern_that_matches_nothing_never_vanishes") else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshrc"), "setopt null_glob csh_null_glob\n").unwrap();
+    let result = zsh.run("[[ -o null_glob || -o csh_null_glob ]] && echo on || echo off").await;
+    assert_eq!(result.output, "off\n");
+}
+
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
 fn plugin() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")

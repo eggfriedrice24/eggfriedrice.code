@@ -136,6 +136,11 @@ _efr_hs_init() {
   builtin setopt no_bang_hist no_correct no_correct_all no_prompt_sp
   builtin unset HISTFILE
 
+  # The permission engine counts a pattern such as `x*` as at least one word. With
+  # NULL_GLOB or CSH_NULL_GLOB a pattern that matches nothing would vanish, and
+  # `systemctl show x*` would run as `systemctl show`.
+  builtin setopt no_null_glob no_csh_null_glob
+
   # No pager either: nobody reads one on the hidden screen, and a command that opens
   # less would wait until someone quit it. The daemon sets these already; they are
   # set again because the user's .zshrc often exports PAGER=less.
