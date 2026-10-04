@@ -2,8 +2,8 @@
 //!
 //! - [`GhosttyScreen`]: `efr_screen::Screen` over a libghostty-vt `Terminal`. It
 //!   answers terminal queries (DA, DSR, DECRQM, OSC 10 and 11) through the sink,
-//!   and converts its grid into the wire snapshot.
-//! - [`factory`] and [`factory_with`]: the `Send` factories that
+//!   and exports and restores GHOSTSNP snapshots.
+//! - [`factory`], [`factory_with`] and [`restore_factory`]: the `Send` factories that
 //!   `efr_screen::ScreenActor::spawn` runs on the screen thread. libghostty-vt types
 //!   are neither `Send` nor `Sync`, so a screen is built there and never leaves.
 //! - [`GhosttyConfig`]: scrollback and the default colours.
@@ -25,4 +25,4 @@ mod terminal;
 mod testing;
 
 pub use error::GhosttyError;
-pub use terminal::{GhosttyConfig, GhosttyScreen, factory, factory_with};
+pub use terminal::{GhosttyConfig, GhosttyScreen, factory, factory_with, restore_factory};

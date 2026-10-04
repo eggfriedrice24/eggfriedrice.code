@@ -14,7 +14,11 @@ fn create_names_the_size_and_keeps_the_libghostty_error() {
 #[test]
 fn messages_leave_the_source_text_out() {
     let source = libghostty_vt::Error::OutOfMemory;
-    let errors = [GhosttyError::Configure { source }];
+    let errors = [
+        GhosttyError::Configure { source },
+        GhosttyError::EncodeSnapshot { source },
+        GhosttyError::DecodeSnapshot { source },
+    ];
     for err in errors {
         assert!(!err.to_string().contains("out of memory"), "{err}");
         assert_eq!(err.source().map(ToString::to_string).as_deref(), Some("out of memory"));

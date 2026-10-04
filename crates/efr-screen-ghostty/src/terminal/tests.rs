@@ -1,8 +1,9 @@
 use bytes::Bytes;
-use efr_screen::{Cursor, Screen, ScreenActor, ScreenEvent, Seq, Size};
+use efr_screen::{Color, Cursor, Screen, ScreenActor, ScreenEvent, Seq, Size};
 use pretty_assertions::assert_eq;
 
-use super::{GhosttyConfig, GhosttyScreen, factory, factory_with};
+use super::{GhosttyConfig, GhosttyScreen, factory, factory_with, restore_factory};
+use crate::GhosttyError;
 use crate::testing::{Call, Recorder, texts};
 
 fn size(cols: u16, rows: u16) -> Size {
@@ -125,6 +126,45 @@ fn the_scrollback_limit_drops_old_rows() {
 }
 
 #[test]
+fn a_snapshot_round_trip_restores_the_same_screen() {
+    let mut screen = screen(10, 3);
+    feed(
+        &mut screen,
+        b"1\r\n2\r\n3\r\n\x1b[1;31mred\x1b[0m\r\nlast\x1b]2;title\x07\x1b]7;file:///tmp\x07",
+    );
+    let bytes = screen.encode_snapshot().unwrap();
+    let mut restored = GhosttyScreen::restore(&bytes, &GhosttyConfig::default()).unwrap();
+    assert_eq!(restored.snapshot(100), screen.snapshot(100));
+    assert_eq!(restored.pwd(), Some("file:///tmp"));
+    assert_eq!(restored.cursor(), screen.cursor());
+    // The callbacks are installed again, so the restored screen answers queries.
+    assert_eq!(feed(&mut restored, b"\x1b[5n").replies(), b"\x1b[0n".to_vec());
+}
+
+#[test]
+fn a_sequence_cut_by_a_snapshot_completes_after_the_restore() {
+    let mut screen = screen(10, 2);
+    feed(&mut screen, b"hello\x1b[3");
+    let bytes = screen.encode_snapshot().unwrap();
+    let mut restored = GhosttyScreen::restore(&bytes, &GhosttyConfig::default()).unwrap();
+    feed(&mut restored, b"1mX");
+    let row = restored.row(0);
+    assert_eq!(texts(std::slice::from_ref(&row)), vec!["helloX"]);
+    assert_eq!(row.cells[5].fg, Some(Color::Indexed(1)));
+}
+
+#[test]
+fn restore_refuses_bytes_that_are_not_a_whole_snapshot() {
+    let config = GhosttyConfig::default();
+    let err = GhosttyScreen::restore(b"not a snapshot", &config).unwrap_err();
+    assert!(matches!(err, GhosttyError::DecodeSnapshot { .. }), "{err:?}");
+    let mut screen = screen(10, 2);
+    let bytes = screen.encode_snapshot().unwrap();
+    let err = GhosttyScreen::restore(&bytes[..bytes.len() / 2], &config).unwrap_err();
+    assert!(matches!(err, GhosttyError::DecodeSnapshot { .. }), "{err:?}");
+}
+
+#[test]
 fn the_factory_builds_the_screen_on_the_actor_thread() {
     let (handle, mut events) =
         ScreenActor::spawn("screen-ghostty-test", factory(size(8, 2)), size(12, 3)).unwrap();
@@ -152,6 +192,29 @@ fn factory_with_applies_the_config() {
         events.blocking_recv(),
         Some(ScreenEvent::PtyReply(Bytes::from_static(b"\x1b]11;rgb:0000/0000/0000\x07")))
     );
+}
+
+#[test]
+fn restore_factory_restores_on_the_actor_thread() {
+    let mut screen = screen(10, 2);
+    feed(&mut screen, b"kept\x1b]2;old\x07");
+    let snapshot = screen.encode_snapshot().unwrap();
+    let factory = restore_factory(snapshot, size(10, 2), GhosttyConfig::default());
+    let (handle, _events) =
+        ScreenActor::spawn("screen-ghostty-test", factory, size(10, 2)).unwrap();
+    let capture = handle.snapshot_blocking(0).unwrap();
+    assert_eq!(texts(&capture.snapshot.rows), vec!["kept", ""]);
+    assert_eq!(capture.snapshot.title.as_deref(), Some("old"));
+}
+
+#[test]
+fn restore_factory_starts_blank_when_the_snapshot_is_broken() {
+    let factory =
+        restore_factory(b"GHOSTSNP broken".to_vec(), size(6, 2), GhosttyConfig::default());
+    let (handle, _events) = ScreenActor::spawn("screen-ghostty-test", factory, size(6, 2)).unwrap();
+    let capture = handle.snapshot_blocking(0).unwrap();
+    assert_eq!(capture.snapshot.size, size(6, 2));
+    assert_eq!(texts(&capture.snapshot.rows), vec!["", ""]);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use efr_screen::{Cursor, RowCells, Size};
 use pretty_assertions::assert_eq;
 
-use super::{active_row, capture, cursor, title};
+use super::{active_row, capture, cursor, decode, encode, title};
 use crate::testing::{terminal, texts};
 
 #[test]
@@ -76,4 +76,25 @@ fn soft_wrapped_rows_are_marked() {
     let rows = capture(&terminal, 0).rows;
     let wrapped: Vec<bool> = rows.iter().map(|row| row.wrapped).collect();
     assert_eq!(wrapped, vec![true, false, false]);
+}
+
+#[test]
+fn ghostsnp_starts_with_its_magic_and_decodes_to_the_same_terminal() {
+    let (mut terminal, _effects) = terminal(8, 2);
+    terminal.vt_write(b"one\r\ntwo\x1b]2;t\x07");
+    let bytes = encode(&mut terminal).unwrap();
+    assert_eq!(bytes.get(..8), Some(&b"GHOSTSNP"[..]));
+    let restored = decode(&bytes).unwrap();
+    assert_eq!(capture(&restored, 10), capture(&terminal, 10));
+}
+
+#[test]
+fn a_restored_terminal_does_not_borrow_the_snapshot_bytes() {
+    let (mut terminal, _effects) = terminal(8, 2);
+    terminal.vt_write(b"kept");
+    let restored = {
+        let bytes = encode(&mut terminal).unwrap();
+        decode(&bytes).unwrap()
+    };
+    assert_eq!(texts(&capture(&restored, 0).rows), vec!["kept", ""]);
 }

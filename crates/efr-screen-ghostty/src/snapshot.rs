@@ -1,15 +1,23 @@
-//! What a ghostty screen shows, in the wire form `efr_protocol::ScreenSnapshot`,
-//! which every client can render: the visible rows, the newest rows of scrollback,
-//! the cursor, the title and whether the alternate screen is up. Cells are read one
-//! at a time through grid references, which is slow for a render loop but fine for
-//! an attach or a test.
+//! What a ghostty screen shows, in two forms.
+//!
+//! - The wire form, `efr_protocol::ScreenSnapshot`, which every client can render:
+//!   the visible rows, the newest rows of scrollback, the cursor, the title and
+//!   whether the alternate screen is up. Cells are read one at a time through grid
+//!   references, which is slow for a render loop but fine for an attach or a test.
+//! - GHOSTSNP, libghostty-vt's own snapshot: an authenticated record stream of the
+//!   whole terminal, parser state included, that another libghostty-vt restores into
+//!   an identical terminal. It is the attach format for a client that runs
+//!   libghostty-vt itself.
 
 mod cells;
 
 use efr_screen::{Cursor, RowCells, ScreenSnapshot, Size};
 use libghostty_vt::Terminal;
 use libghostty_vt::screen::Screen as ActiveScreen;
+use libghostty_vt::snapshot::Decoder;
 use libghostty_vt::terminal::{Point, PointCoordinate};
+
+use crate::GhosttyError;
 
 /// The visible grid, `scrollback_rows` rows of scrollback (fewer when the terminal
 /// holds fewer), the cursor, the title and the screen in use.
@@ -55,6 +63,22 @@ pub(crate) fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
 /// The title the program set; libghostty-vt reports "no title" as an empty string.
 pub(crate) fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
     terminal.title().ok().filter(|title| !title.is_empty())
+}
+
+/// The whole terminal as a GHOSTSNP record stream.
+pub(crate) fn encode(terminal: &mut Terminal<'_, '_>) -> Result<Vec<u8>, GhosttyError> {
+    let mut bytes = Vec::new();
+    terminal
+        .encode_snapshot(&mut bytes)
+        .map_err(|source| GhosttyError::EncodeSnapshot { source })?;
+    Ok(bytes)
+}
+
+/// A terminal restored from a GHOSTSNP record stream, its scrollback included. The
+/// terminal does not borrow `bytes`.
+pub(crate) fn decode(bytes: &[u8]) -> Result<Terminal<'static, 'static>, GhosttyError> {
+    let decode = |source| GhosttyError::DecodeSnapshot { source };
+    Decoder::new_buf(bytes).and_then(Decoder::decode).map_err(decode)
 }
 
 fn size(terminal: &Terminal<'_, '_>) -> Size {

@@ -16,6 +16,11 @@ use crate::snapshot;
 const CELL_WIDTH_PX: u32 = 8;
 const CELL_HEIGHT_PX: u32 = 16;
 
+/// The longest unfinished escape sequence kept for a GHOSTSNP snapshot. A snapshot
+/// taken while the parser is inside a longer one (a large DCS image) fails until
+/// the sequence ends; ordinary sequences are far shorter.
+const CONTINUATION_LIMIT: usize = 1 << 20;
+
 /// Settings of a [`GhosttyScreen`] that its owner may change.
 ///
 /// Build it from [`GhosttyConfig::default`] and change the fields that differ.
@@ -48,9 +53,10 @@ impl Default for GhosttyConfig {
 /// A screen backed by a libghostty-vt terminal.
 ///
 /// Like every libghostty-vt type it is neither `Send` nor `Sync`, so it is built on
-/// its actor thread by a `Send` factory ([`factory`], [`factory_with`]) and never
-/// leaves it. The terminal is created with `Terminal::new` and its callbacks own
-/// everything they touch, so the screen borrows nothing and is `'static`.
+/// its actor thread by a `Send` factory ([`factory`], [`factory_with`],
+/// [`restore_factory`]) and never leaves it. The terminal is created with
+/// `Terminal::new` and its callbacks own everything they touch, so the screen borrows
+/// nothing and is `'static`.
 ///
 /// Answers to terminal queries, bells and title changes are collected while
 /// libghostty-vt runs and handed to the [`ScreenSink`] after each feed and resize.
@@ -79,6 +85,36 @@ impl GhosttyScreen {
         Self::configure(terminal, config)
     }
 
+    /// A screen restored from a GHOSTSNP snapshot made by
+    /// [`encode_snapshot`](Self::encode_snapshot), here or in another process: the
+    /// grid, the scrollback, the cursor, the modes, the title and the working
+    /// directory, and the parser state, so a sequence that was cut off by the
+    /// snapshot completes with the next feed.
+    ///
+    /// # Errors
+    ///
+    /// [`GhosttyError::DecodeSnapshot`] when the bytes are not a complete, intact
+    /// snapshot, and [`GhosttyError::Configure`] when libghostty-vt refuses a setting
+    /// of `config`.
+    pub fn restore(snapshot: &[u8], config: &GhosttyConfig) -> Result<Self, GhosttyError> {
+        let terminal = snapshot::decode(snapshot)?;
+        Self::configure(terminal, config)
+    }
+
+    /// The whole terminal state as a GHOSTSNP snapshot: an authenticated record
+    /// stream that [`restore`](Self::restore) turns back into an identical screen.
+    /// Unlike [`Screen::snapshot`], it carries everything libghostty-vt knows, so a
+    /// client with its own libghostty-vt can attach without losing modes or styles.
+    ///
+    /// # Errors
+    ///
+    /// [`GhosttyError::EncodeSnapshot`] while the parser is inside an escape sequence
+    /// longer than the continuation limit (1 MiB); it succeeds again once the
+    /// sequence has ended.
+    pub fn encode_snapshot(&mut self) -> Result<Vec<u8>, GhosttyError> {
+        snapshot::encode(&mut self.terminal)
+    }
+
     fn configure(
         mut terminal: Terminal<'static, 'static>,
         config: &GhosttyConfig,
@@ -89,6 +125,7 @@ impl GhosttyScreen {
         terminal
             .set_scrollback_max_lines(Some(config.scrollback_lines))
             .and_then(|terminal| terminal.set_scrollback_max_bytes(None))
+            .and_then(|terminal| terminal.set_continuation_max_bytes(CONTINUATION_LIMIT))
             .and_then(|terminal| terminal.set_default_fg_color(config.foreground.map(rgb)))
             .and_then(|terminal| terminal.set_default_bg_color(config.background.map(rgb)))
             .map_err(configure)?;
@@ -155,6 +192,29 @@ pub fn factory_with(
     move || match GhosttyScreen::new(size, &config) {
         Ok(screen) => screen,
         Err(err) => not_started(&err),
+    }
+}
+
+/// A factory that restores a screen from a GHOSTSNP `snapshot` on the actor thread.
+///
+/// The snapshot is a cache of state the recording also holds, so a snapshot that
+/// cannot be decoded is logged and the screen starts blank at `size` instead; the
+/// owner can replay the recording into it.
+pub fn restore_factory(
+    snapshot: Vec<u8>,
+    size: Size,
+    config: GhosttyConfig,
+) -> impl FnOnce() -> GhosttyScreen + Send + 'static {
+    move || {
+        GhosttyScreen::restore(&snapshot, &config)
+            .or_else(|err| {
+                tracing::warn!(
+                    error = &err as &(dyn std::error::Error + 'static),
+                    "the ghostty screen starts blank because its snapshot could not be restored"
+                );
+                GhosttyScreen::new(size, &config)
+            })
+            .unwrap_or_else(|err| not_started(&err))
     }
 }
 
