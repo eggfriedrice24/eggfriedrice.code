@@ -8,6 +8,7 @@ use libghostty_vt::style::RgbColor;
 
 use crate::GhosttyError;
 use crate::effects::Effects;
+use crate::semantic_prompt::CrossCheck;
 use crate::snapshot;
 
 /// The pixel size of one cell, which libghostty-vt puts into in-band resize reports
@@ -60,11 +61,14 @@ impl Default for GhosttyConfig {
 ///
 /// Answers to terminal queries, bells and title changes are collected while
 /// libghostty-vt runs and handed to the [`ScreenSink`] after each feed and resize.
-/// A feed never fails: malformed input only changes the screen.
+/// Every feed is also cross-checked against a shell mark scanner: libghostty-vt's
+/// working directory and per-row prompt state must agree with the OSC 133 and OSC 7
+/// marks. A disagreement is logged as a warning; a feed never fails.
 #[derive(Debug)]
 pub struct GhosttyScreen {
     terminal: Terminal<'static, 'static>,
     effects: Rc<Effects>,
+    cross_check: CrossCheck,
 }
 
 impl GhosttyScreen {
@@ -132,13 +136,16 @@ impl GhosttyScreen {
         // Terminal::new knows no cell size; a resize to the same grid sets it.
         terminal.resize(cols, rows, CELL_WIDTH_PX, CELL_HEIGHT_PX).map_err(configure)?;
         let effects = Effects::install(&mut terminal).map_err(configure)?;
-        Ok(GhosttyScreen { terminal, effects })
+        let cross_check = CrossCheck::new(&terminal);
+        Ok(GhosttyScreen { terminal, effects, cross_check })
     }
 }
 
 impl Screen for GhosttyScreen {
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
-        self.terminal.vt_write(bytes);
+        for disagreement in self.cross_check.write(&mut self.terminal, &self.effects, bytes) {
+            disagreement.log();
+        }
         self.effects.drain(sink);
     }
 

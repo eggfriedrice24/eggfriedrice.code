@@ -93,6 +93,16 @@ fn pwd_is_the_raw_osc_7_url() {
 }
 
 #[test]
+fn a_disagreement_with_the_scanner_never_fails_a_feed() {
+    let mut screen = screen(10, 2);
+    // ghostty takes an http:// OSC 7 that the scanner refuses: a disagreement.
+    let sink = feed(&mut screen, b"\x1b]7;http://arch/tmp\x07ok\x1b[c");
+    assert_eq!(sink.replies(), b"\x1b[?62;22c".to_vec());
+    assert_eq!(texts(&[screen.row(0)]), vec!["ok"]);
+    assert_eq!(screen.pwd(), Some("http://arch/tmp"));
+}
+
+#[test]
 fn resize_changes_the_grid_and_keeps_the_text() {
     let mut screen = screen(5, 2);
     feed(&mut screen, b"hey");

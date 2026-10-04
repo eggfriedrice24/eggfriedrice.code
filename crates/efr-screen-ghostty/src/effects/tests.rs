@@ -55,3 +55,12 @@ fn plain_output_produces_no_calls() {
     effects.drain(&mut sink);
     assert_eq!(sink.calls, Vec::new());
 }
+
+#[test]
+fn a_working_directory_report_raises_the_flag_once() {
+    let (mut terminal, effects) = terminal(10, 2);
+    assert!(!effects.take_pwd_changed());
+    terminal.vt_write(b"\x1b]7;file:///tmp\x07");
+    assert!(effects.take_pwd_changed());
+    assert!(!effects.take_pwd_changed());
+}

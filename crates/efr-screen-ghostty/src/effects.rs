@@ -7,7 +7,7 @@
 //! each feed and each resize. That is the crate's own advice for `on_pty_write`, and
 //! it means a callback never waits on anything.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use efr_screen::ScreenSink;
@@ -26,6 +26,9 @@ pub(crate) struct Effects {
     replies: RefCell<Vec<u8>>,
     /// Bells and title changes, in the order they happened.
     notices: RefCell<Vec<Notice>>,
+    /// Set when libghostty-vt changed its working directory, cleared by
+    /// [`take_pwd_changed`](Effects::take_pwd_changed).
+    pwd_changed: Cell<bool>,
 }
 
 /// A callback other than a reply, kept in order.
@@ -44,6 +47,7 @@ impl Effects {
         let replies = Rc::clone(&effects);
         let bells = Rc::clone(&effects);
         let titles = Rc::clone(&effects);
+        let pwd = Rc::clone(&effects);
         terminal
             .on_pty_write(move |_, bytes| replies.replies.borrow_mut().extend_from_slice(bytes))?
             .on_bell(move |_| bells.notices.borrow_mut().push(Notice::Bell))?
@@ -53,7 +57,8 @@ impl Effects {
                 if let Ok(title) = terminal.title() {
                     titles.notices.borrow_mut().push(Notice::Title(title.to_owned()));
                 }
-            })?;
+            })?
+            .on_pwd_changed(move |_| pwd.pwd_changed.set(true))?;
         Ok(effects)
     }
 
@@ -71,6 +76,11 @@ impl Effects {
         if !replies.is_empty() {
             sink.pty_reply(&replies);
         }
+    }
+
+    /// True when libghostty-vt changed its working directory since the last call.
+    pub(crate) fn take_pwd_changed(&self) -> bool {
+        self.pwd_changed.replace(false)
     }
 }
 
