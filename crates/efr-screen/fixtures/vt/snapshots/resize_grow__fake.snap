@@ -1,0 +1,15 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/resize_grow.ndjson
+---
+case: resize_grow
+size: 10x3
+cursor: row 0, col 3
+title: (none)
+rows:
+  0 |hey|
+  1 ||
+  2 ||
+title changes: []
+bells: 0
+replies: ""

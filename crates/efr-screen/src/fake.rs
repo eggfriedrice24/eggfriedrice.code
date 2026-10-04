@@ -93,21 +93,19 @@ impl FakeScreen {
                 0x1b => self.parse = Parse::OscEscape,
                 _ => self.sequence.push(byte),
             },
-            Parse::OscEscape => {
-                if byte == b'\\' {
-                    self.osc(sink);
-                } else {
-                    self.parse = Parse::Ground;
-                }
+            Parse::OscEscape | Parse::SkipEscape if byte != b'\\' => {
+                // As in the VT parser, the ESC that ended the string starts a new
+                // escape sequence.
+                self.parse = Parse::Escape;
+                self.byte(byte, sink);
             }
+            Parse::OscEscape => self.osc(sink),
             Parse::Skip => {
                 if byte == 0x1b {
                     self.parse = Parse::SkipEscape;
                 }
             }
-            Parse::SkipEscape => {
-                self.parse = if byte == b'\\' { Parse::Ground } else { Parse::Skip };
-            }
+            Parse::SkipEscape => self.parse = Parse::Ground,
         }
     }
 

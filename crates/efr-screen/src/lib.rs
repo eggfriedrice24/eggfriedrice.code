@@ -24,6 +24,8 @@
 #![warn(missing_docs)]
 
 mod actor;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 mod error;
 #[cfg(test)]
 mod fake;
