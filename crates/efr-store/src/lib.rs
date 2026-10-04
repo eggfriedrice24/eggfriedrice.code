@@ -26,6 +26,7 @@ pub mod db;
 mod error;
 pub mod events;
 mod migrations;
+pub mod outbox;
 mod projection;
 pub mod receipts;
 pub mod shells;

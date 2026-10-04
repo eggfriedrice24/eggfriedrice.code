@@ -4,16 +4,18 @@ use std::sync::Arc;
 
 use efr_protocol::{ConversationId, Event, EventEnvelope, Seq};
 
+use crate::outbox::NewOutboxItem;
 use crate::receipts::NewReceipt;
 
-/// Everything that one transaction writes: events in order, and the receipts of the
-/// commands that produced them. The projections follow from the events and are written
-/// in the same transaction.
+/// Everything that one transaction writes: events in order, the receipts of the
+/// commands that produced them, and outbox items for the effects they decided. The
+/// projections follow from the events and are written in the same transaction.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[must_use]
 pub struct Batch {
     pub(crate) events: Vec<(Option<ConversationId>, Event)>,
     pub(crate) receipts: Vec<NewReceipt>,
+    pub(crate) outbox: Vec<NewOutboxItem>,
 }
 
 impl Batch {
@@ -42,9 +44,15 @@ impl Batch {
         self
     }
 
+    /// Adds an outbox item, enqueued only if the batch commits.
+    pub fn enqueue(mut self, item: NewOutboxItem) -> Self {
+        self.outbox.push(item);
+        self
+    }
+
     /// True when the batch writes nothing.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.receipts.is_empty()
+        self.events.is_empty() && self.receipts.is_empty() && self.outbox.is_empty()
     }
 }
 

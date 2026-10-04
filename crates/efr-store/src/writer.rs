@@ -12,9 +12,11 @@ use std::sync::Arc;
 
 use efr_protocol::{EventEnvelope, Seq};
 use efr_stdx::time::Clock;
+use jiff::Timestamp;
 use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
 use crate::{StoreError, events, projection, receipts, sql};
 
 mod batch;
@@ -127,17 +129,31 @@ impl WriterHandle {
         self.events.subscribe()
     }
 
+    /// Claims up to `limit` waiting outbox items, oldest first. A claimed item is not
+    /// handed out again until a restart requeues it.
+    pub async fn outbox_claim(&self, limit: u32) -> Result<Vec<OutboxItem>, StoreError> {
+        self.run(move |state| state.write(|tx, at| outbox::claim(tx, at, limit))).await
+    }
+
+    /// Marks a claimed outbox item done. Fails with
+    /// [`StoreError::OutboxItemNotClaimed`] for an item that is not claimed, is
+    /// already done or was cancelled.
+    pub async fn outbox_done(&self, id: OutboxId) -> Result<(), StoreError> {
+        self.run(move |state| state.write(|tx, at| outbox::done(tx, id, at))).await
+    }
+
+    /// The outbox step of the startup reconciliation: cancels every unfinished
+    /// process-bound item and returns every claimed, unfinished replay-safe item to
+    /// the queue. Runs before any worker claims.
+    pub async fn outbox_cancel_process_bound(&self) -> Result<OutboxReconciled, StoreError> {
+        self.run(|state| state.write(outbox::cancel_process_bound)).await
+    }
+
     /// Throws the projections away and rebuilds them from the event log in one
     /// transaction. They are a function of the log, so the result equals what the
     /// writer built event by event; this is how a projection bug is repaired.
     pub async fn rebuild_projections(&self) -> Result<(), StoreError> {
-        self.run(|state| {
-            let tx = state.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            projection::rebuild(&tx)?;
-            tx.commit()?;
-            Ok(())
-        })
-        .await
+        self.run(|state| state.write(|tx, _at| projection::rebuild(tx))).await
     }
 
     /// Runs `job` on the writer thread with the connection and returns its result.
@@ -157,6 +173,19 @@ impl WriterHandle {
 }
 
 impl WriterState {
+    /// Runs `f` in an immediate transaction with the current time, and commits when it
+    /// succeeds.
+    pub(crate) fn write<T>(
+        &mut self,
+        f: impl FnOnce(&Connection, Timestamp) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let at = sql::truncate_to_micros(self.clock.now());
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let value = f(&tx, at)?;
+        tx.commit()?;
+        Ok(value)
+    }
+
     fn append(&mut self, batch: Batch) -> Result<Committed, StoreError> {
         if batch.is_empty() {
             return Ok(Committed::new(Vec::new(), self.last_seq));
@@ -175,6 +204,9 @@ impl WriterState {
         let receipt_seq = envelopes.last().map(|envelope| envelope.seq);
         for receipt in &batch.receipts {
             receipts::record(&tx, receipt, receipt_seq, at)?;
+        }
+        for item in &batch.outbox {
+            outbox::enqueue(&tx, item, at)?;
         }
         tx.commit()?;
         self.last_seq = Seq::new(next);

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use efr_protocol::{ConversationId, PtyId, Seq};
 use efr_stdx::StdxError;
 
+use crate::outbox::OutboxId;
 use crate::receipts::Receipt;
 
 /// Every way a store operation can fail.
@@ -188,6 +189,13 @@ pub enum StoreError {
     MissingConversation {
         /// The event's kind.
         kind: String,
+    },
+
+    /// No claimed, unfinished outbox item has this id.
+    #[error("no claimed outbox item has the id {id}")]
+    OutboxItemNotClaimed {
+        /// The id.
+        id: OutboxId,
     },
 
     /// The writer thread could not be started.
