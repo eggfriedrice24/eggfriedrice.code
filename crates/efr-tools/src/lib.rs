@@ -28,6 +28,7 @@ mod read_file;
 #[cfg(test)]
 mod testing;
 mod tool;
+mod write_file;
 
 pub use context::{CallIds, ToolContext};
 pub use error::ToolError;
@@ -37,3 +38,4 @@ pub use read_file::ReadFileTool;
 pub use tool::{
     AccessMode, NoOutput, PathAccess, Tool, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
 };
+pub use write_file::WriteFileTool;
