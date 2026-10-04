@@ -718,6 +718,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-provider"
+version = "0.1.0"
+dependencies = [
+ "efr-protocol",
+ "pretty_assertions",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "efr-scope"
 version = "0.1.0"
 dependencies = [
