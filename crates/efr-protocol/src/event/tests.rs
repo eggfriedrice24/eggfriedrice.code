@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
+use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
@@ -61,9 +62,22 @@ fn the_literal_kind_unknown_is_not_a_variant_name() {
 
 #[test]
 fn a_known_kind_with_a_malformed_body_is_an_error_not_unknown() {
-    let err = serde_json::from_value::<Event>(json!({ "kind": "turn_started", "cwd": "/etc" }))
-        .unwrap_err();
-    assert!(err.to_string().contains("turn_id"), "{err}");
+    let missing_field = json!({ "kind": "turn_started", "cwd": "/etc" });
+    assert!(serde_json::from_value::<Event>(missing_field).is_err());
+    let wrong_type = json!({ "kind": "prompt_held", "turn_id": 7 });
+    assert!(serde_json::from_value::<Event>(wrong_type).is_err());
+}
+
+#[test]
+fn deserializing_through_the_trait_path_keeps_the_passthrough() {
+    // A path call such as `Event::deserialize(..)` must reach the same code as
+    // `serde_json::from_value`; an inherent `deserialize` would shadow the trait.
+    let mut deserializer = serde_json::Deserializer::from_str(r#"{"kind":"device_enrolled"}"#);
+    let event = <Event as serde::Deserialize>::deserialize(&mut deserializer).unwrap();
+    let mut deserializer = serde_json::Deserializer::from_str(r#"{"kind":"device_enrolled"}"#);
+    let by_path = Event::deserialize(&mut deserializer).unwrap();
+    assert_eq!(by_path, event);
+    assert_eq!(event.kind(), "device_enrolled");
 }
 
 #[test]

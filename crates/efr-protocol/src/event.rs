@@ -6,8 +6,7 @@ use std::str::FromStr;
 use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::de::{self, Deserializer};
-use serde::ser::{SerializeMap, Serializer};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::{
@@ -30,9 +29,9 @@ use crate::{
 #[derive(
     Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, strum::EnumDiscriminants,
 )]
-// NOTE: `remote = "Self"` turns the derives into inherent functions, which the
-// `Serialize` and `Deserialize` impls below wrap to add the `Unknown` passthrough.
-#[serde(tag = "kind", rename_all = "snake_case", remote = "Self")]
+#[serde(tag = "kind", rename_all = "snake_case")]
+// NOTE: `EventKind` names every known kind without a hand-kept list. `Unknown` uses it
+// to refuse a known kind, which keeps a malformed known event an error.
 #[strum_discriminants(
     name(EventKind),
     vis(pub(crate)),
@@ -273,12 +272,16 @@ pub enum Event {
     },
 
     /// An event of a kind that this build does not know. It encodes back to the same JSON
-    /// object it was decoded from.
-    #[serde(skip)]
+    /// object it was decoded from. The schema leaves it out: it describes the known
+    /// kinds, and says that readers must accept others.
+    #[serde(untagged)]
+    #[schemars(skip)]
     Unknown {
-        /// The `kind` member.
+        /// The `kind` member, never one of the kinds above.
+        #[serde(deserialize_with = "unknown_kind")]
         kind: String,
-        /// Every other member.
+        /// Every other member. A `kind` key in it is not written.
+        #[serde(flatten, serialize_with = "payload_without_kind")]
         payload: Map<String, Value>,
     },
 }
@@ -327,41 +330,28 @@ impl Event {
     }
 }
 
-impl Serialize for Event {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Event::Unknown { kind, payload } => {
-                let mut map = serializer.serialize_map(None)?;
-                map.serialize_entry("kind", kind)?;
-                // A payload built by hand may hold its own `kind`; writing it would
-                // produce an object with two `kind` members.
-                for (key, value) in payload.iter().filter(|(key, _)| *key != "kind") {
-                    map.serialize_entry(key, value)?;
-                }
-                map.end()
-            }
-            known => Event::serialize(known, serializer),
-        }
-    }
+/// Writes the payload of [`Event::Unknown`]. A payload built by hand may hold its own
+/// `kind`, and writing it would give the object two `kind` members.
+fn payload_without_kind<S: Serializer>(
+    payload: &Map<String, Value>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(payload.iter().filter(|(key, _)| key.as_str() != "kind"))
 }
 
-impl<'de> Deserialize<'de> for Event {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut object = Map::<String, Value>::deserialize(deserializer)?;
-        let kind = match object.get("kind") {
-            Some(Value::String(kind)) => kind.clone(),
-            Some(_) => return Err(de::Error::custom("the `kind` of an event must be a string")),
-            None => return Err(de::Error::missing_field("kind")),
-        };
-        match EventKind::from_str(&kind) {
-            Ok(known) if known != EventKind::Unknown => {
-                Event::deserialize(Value::Object(object)).map_err(de::Error::custom)
-            }
-            _ => {
-                object.remove("kind");
-                Ok(Event::Unknown { kind, payload: object })
-            }
-        }
+/// Reads the `kind` of [`Event::Unknown`], refusing a kind that this build knows.
+///
+/// serde tries the untagged `Unknown` variant after every tagged variant has failed,
+/// which also happens when a known kind has a malformed body. Refusing known kinds here
+/// turns that case into an error instead of a silent `Unknown`. The price is serde's
+/// generic message for it, because serde drops the errors of the variants it tried.
+fn unknown_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let kind = String::deserialize(deserializer)?;
+    match EventKind::from_str(&kind) {
+        Ok(known) if known != EventKind::Unknown => Err(de::Error::custom(format!(
+            "the body of the `{kind}` event does not match its kind"
+        ))),
+        _ => Ok(kind),
     }
 }
 
