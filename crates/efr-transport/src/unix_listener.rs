@@ -1,11 +1,11 @@
 //! The Unix socket listener: mode 0600, the peer's uid checked on every connection.
 //!
-//! Two independent guards keep other users out. The socket file has mode 0600 from the
-//! moment it appears at its path: it is bound under a temporary name, restricted, and
-//! then renamed into place, so there is no window in which it is reachable with the
-//! process umask. And every accepted connection's uid, as the kernel reports it with
-//! `SO_PEERCRED`, must be the daemon's own; any other peer is closed before it can send
-//! a frame.
+//! Two independent guards keep other users out. No other user can ever reach the socket
+//! file while its mode is anything but 0600: `bind` creates it with the process umask,
+//! so it is bound inside a fresh staging directory of mode 0700 next to its path,
+//! restricted to 0600 there, and only then renamed into place. And every accepted
+//! connection's uid, as the kernel reports it with `SO_PEERCRED`, must be the daemon's
+//! own; any other peer is closed before it can send a frame.
 //!
 //! A socket file that no daemon answers on is stale (left by a crash) and is replaced.
 //! A socket that answers belongs to a running daemon and is never taken over. Anything
@@ -92,18 +92,14 @@ impl UnixListener {
                 .map_err(|source| TransportError::CreateDir { path: dir.to_path_buf(), source })?;
         }
         check_existing(&path).await?;
-        let temp = temp_path(&path);
-        remove_if_present(&temp)
-            .map_err(|source| TransportError::Inspect { path: temp.clone(), source })?;
-        let inner = tokio::net::UnixListener::bind(&temp)
-            .map_err(|source| TransportError::Bind { path: temp.clone(), source })?;
-        if let Err(source) = fs::set_permissions(&temp, Permissions::from_mode(SOCKET_MODE)) {
-            let _ = fs::remove_file(&temp);
-            return Err(TransportError::SetPermissions { path: temp, source });
-        }
-        if let Err(source) = fs::rename(&temp, &path) {
-            let _ = fs::remove_file(&temp);
-            return Err(TransportError::Rename { from: temp, to: path, source });
+        let staging = staging_dir(&path);
+        let staged = bind_staged(&staging, &path);
+        let cleaned = remove_staging(&staging, &path);
+        let inner = staged?;
+        if let Err(source) = cleaned {
+            // The socket is in place; a staging directory left behind is removed by the
+            // next bind, so this costs nothing but a stray name.
+            tracing::debug!(error = %source, staging = %staging.display(), "could not remove the staging directory");
         }
         let metadata = fs::symlink_metadata(&path)
             .map_err(|source| TransportError::Inspect { path: path.clone(), source })?;
@@ -264,18 +260,67 @@ fn parent_dir(path: &Path) -> &Path {
     path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
 }
 
-/// A hidden name next to `path`, unique to this process, to bind under before the
-/// socket is restricted and renamed into place.
-fn temp_path(path: &Path) -> PathBuf {
-    let name = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
-    parent_dir(path).join(format!(".{name}.{}.tmp", std::process::id()))
+/// A hidden directory next to `path`, unique to this process, in which the socket is
+/// bound before it is restricted and renamed into place. It is in the same directory as
+/// `path`, so the rename never crosses a file system.
+fn staging_dir(path: &Path) -> PathBuf {
+    parent_dir(path).join(format!(".{}.{}.tmp", file_name(path), std::process::id()))
 }
 
-fn remove_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// Binds a socket for `path` inside a new `staging` directory of mode 0700, restricts it
+/// to 0600 and renames it to `path`. Until the rename, only the owner can reach it.
+fn bind_staged(staging: &Path, path: &Path) -> Result<tokio::net::UnixListener, TransportError> {
+    let (inner, temp) = stage(staging, path)?;
+    fs::rename(&temp, path).map_err(|source| TransportError::Rename {
+        from: temp,
+        to: path.to_path_buf(),
+        source,
+    })?;
+    Ok(inner)
+}
+
+/// The first half of [`bind_staged`]: the private directory and the restricted socket in
+/// it, not yet renamed. Returns the listener and the socket's temporary path.
+fn stage(
+    staging: &Path,
+    path: &Path,
+) -> Result<(tokio::net::UnixListener, PathBuf), TransportError> {
+    remove_staging(staging, path)
+        .map_err(|source| TransportError::Inspect { path: staging.to_path_buf(), source })?;
+    let create_error = |source| TransportError::CreateDir { path: staging.to_path_buf(), source };
+    // The umask can only take bits away from 0700, so the directory is never wider; the
+    // mode is set again in case the umask took the owner's bits too.
+    DirBuilder::new().mode(DIR_MODE).create(staging).map_err(create_error)?;
+    fs::set_permissions(staging, Permissions::from_mode(DIR_MODE)).map_err(create_error)?;
+    let temp = staging.join(file_name(path));
+    let inner = tokio::net::UnixListener::bind(&temp)
+        .map_err(|source| TransportError::Bind { path: temp.clone(), source })?;
+    fs::set_permissions(&temp, Permissions::from_mode(SOCKET_MODE))
+        .map_err(|source| TransportError::SetPermissions { path: temp.clone(), source })?;
+    Ok((inner, temp))
+}
+
+/// Removes a staging directory and the socket in it, as a crash of a process with the
+/// same pid may have left them. Anything else in it makes the removal fail, so a
+/// directory that efr did not create is never emptied.
+fn remove_staging(staging: &Path, path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(staging) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+        Ok(metadata) if !metadata.is_dir() => return fs::remove_file(staging),
+        Ok(_) => {}
     }
+    let socket = staging.join(file_name(path));
+    match fs::symlink_metadata(&socket) {
+        Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(&socket)?,
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    fs::remove_dir(staging)
 }
 
 #[cfg(test)]

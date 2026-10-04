@@ -10,7 +10,7 @@ use tokio::io::AsyncReadExt as _;
 use tokio::net::UnixStream;
 use tokio::sync::oneshot;
 
-use super::{UnixListener, authorize};
+use super::{UnixListener, authorize, stage, staging_dir};
 use crate::testing::{FakeDispatcher, StoppedClock, TestClient, internal, list_frame};
 use crate::{PeerCred, Request, TransportError};
 
@@ -35,6 +35,61 @@ async fn bind_creates_a_0600_socket_in_a_new_0700_directory() {
     let names: Vec<_> =
         fs::read_dir(&socket_dir).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names, vec!["daemon.sock"], "no temporary socket is left behind");
+}
+
+#[tokio::test]
+async fn the_socket_is_restricted_inside_a_private_directory_before_it_gets_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    // A parent that others may enter, as a shared runtime directory might be.
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    let path = dir.path().join("daemon.sock");
+    let staging = staging_dir(&path);
+    assert_eq!(staging.parent(), Some(dir.path()), "the rename stays in one directory");
+    let (_listener, temp) = stage(&staging, &path).unwrap();
+    assert_eq!(temp.parent(), Some(staging.as_path()));
+    assert_eq!(mode(&staging), 0o700, "only the owner can reach the staged socket");
+    assert_eq!(mode(&temp), 0o600);
+    assert!(!path.exists(), "the socket has no public name yet");
+}
+
+#[tokio::test]
+async fn bind_moves_the_socket_out_of_the_staging_directory_and_removes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    let path = dir.path().join("daemon.sock");
+    let _listener = UnixListener::bind(&path).await.unwrap();
+    assert_eq!(mode(&path), 0o600);
+    assert_eq!(mode(dir.path()), 0o755, "an existing parent keeps its mode");
+    assert!(!staging_dir(&path).exists());
+}
+
+#[tokio::test]
+async fn a_staging_directory_left_by_a_crash_is_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("daemon.sock");
+    let staging = staging_dir(&path);
+    fs::create_dir(&staging).unwrap();
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o777)).unwrap();
+    drop(std::os::unix::net::UnixListener::bind(staging.join("daemon.sock")).unwrap());
+    let listener = UnixListener::bind(&path).await.unwrap();
+    assert!(!staging.exists());
+    let _client = UnixStream::connect(&path).await.unwrap();
+    assert!(listener.accept().await.is_ok());
+}
+
+#[tokio::test]
+async fn a_staging_directory_with_foreign_content_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("daemon.sock");
+    let staging = staging_dir(&path);
+    fs::create_dir(&staging).unwrap();
+    fs::write(staging.join("notes.txt"), b"precious").unwrap();
+    fs::write(staging.join("daemon.sock"), b"not a socket").unwrap();
+    let error = UnixListener::bind(&path).await.unwrap_err();
+    assert!(matches!(error, TransportError::Inspect { path: ref p, .. } if *p == staging));
+    assert_eq!(fs::read(staging.join("notes.txt")).unwrap(), b"precious");
+    assert_eq!(fs::read(staging.join("daemon.sock")).unwrap(), b"not a socket");
+    assert!(!path.exists());
 }
 
 #[tokio::test]

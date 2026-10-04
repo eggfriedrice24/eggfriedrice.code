@@ -6,8 +6,9 @@ The daemon's protocol edge, without the engine. It turns sockets into requests f
 the daemon and the daemon's answers back into frames:
 
 - `unix_listener`: `UnixListener`, the socket at `$XDG_RUNTIME_DIR/efr/daemon.sock`.
-  It is bound under a temporary name, set to mode 0600 and renamed into place, so it
-  is never reachable with a wider mode. A missing socket directory is created with
+  It is bound inside a fresh staging directory of mode 0700 next to its path, set to
+  mode 0600 there and renamed into place, so no other user can reach it while it has
+  the umask's mode. A missing socket directory is created with
   mode 0700. Every accepted peer's uid, from `SO_PEERCRED`, must be the daemon's own.
   A stale socket is replaced; a socket that answers is never taken over. `serve` runs
   one task per connection and, on shutdown, cancels everything and removes the file.
@@ -54,8 +55,8 @@ Third-party crates: `tokio`, `tokio-util` (codec and `CancellationToken`), `futu
 ## Invariant
 
 - Only processes of the daemon's own uid ever exchange a frame with it: the socket is
-  0600 from the moment it has its name, and each peer's kernel-reported uid is checked
-  before its first frame is read.
+  0600 from the moment it has its name and unreachable to others before that, and each
+  peer's kernel-reported uid is checked before its first frame is read.
 - No method runs on a connection whose protocol version was not checked.
 - Every request ends with exactly one `end` or `error` frame, and no frame of a request
   follows it. An id is free for reuse by the time the client reads that frame.
