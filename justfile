@@ -5,7 +5,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # The leaf gate: crates that never pull a daemon edge, so their features stay light.
-leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-screen-vt100"
+leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-screen-vt100"
 
 # List the recipes.
 default:
