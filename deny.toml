@@ -3,6 +3,9 @@
 
 [graph]
 all-features = true
+# Only the release targets (dist plan: linux gnu x86_64 and aarch64). Without this,
+# macOS, Android and wasm-only edges of keyring and reqwest enter the graph.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 
 [advisories]
 yanked = "deny"
@@ -32,9 +35,14 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Internal path dependencies have no version; cargo-deny accepts them because every
+# member is publish = false.
+allow-wildcard-paths = true
 highlight = "all"
 deny = [
-  { crate = "log", reason = "tracing is the only logging facade" },
+  # No workspace crate may use log; these third-party crates may depend on it.
+  # Extend the list when a new dependency needs it, never with a workspace crate.
+  { crate = "log", wrappers = ["reqwest", "rustls-platform-verifier", "keyring-core", "wiremock"], reason = "tracing is the only logging facade" },
   { crate = "openssl-sys", reason = "TLS is rustls only" },
   { crate = "native-tls", reason = "TLS is rustls only" },
 ]
