@@ -199,16 +199,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
-      # The efr-test-daemon half joins once that crate exists (milestone 1, step 5), as in `just test-shell`.
+      # efr-daemon is selected so its own tests build it with local-pty, which the
+      # shell_ tests over a TestDaemon need for a real zsh; as in `just test-shell`.
       - if: steps.present.outputs.run == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -d crates/efr-test-daemon ]]; then
-            cargo nextest run -p efr-shell -p efr-cli -p efr-test-daemon --profile ci
-          else
-            cargo nextest run -p efr-shell -p efr-cli --profile ci
-          fi
+        run: cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
         env:
           EFR_TEST_ZSH: "1"
 

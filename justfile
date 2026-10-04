@@ -76,8 +76,9 @@ test-shell:
         echo "test-shell: zsh is not installed; skipping"
         exit 0
     fi
-    # The efr-test-daemon half joins once that crate exists (milestone 1, step 5).
-    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli
+    # efr-daemon is selected so its own tests build it with local-pty, which the shell_
+    # tests over a TestDaemon need for a real zsh.
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon
 
 # Formatting, clippy, cargo-deny, tidy and the dependency rule.
 lint: fmt-check clippy deny tidy deps
