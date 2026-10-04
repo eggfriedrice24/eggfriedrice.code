@@ -16,10 +16,12 @@ Modules:
   checks all of that, and holders call it before they open anything, because a spec
   that arrives over a socket bypasses the constructor. `Debug` shows environment names
   without their values.
-- `holder`: the `PtyHolder` trait (`spawn`, `resize`, `signal`, `list`, `release`),
-  dyn-compatible through `async-trait`, and `PtyHandle { master: OwnedFd, child_pid,
-  pty_id }`. The holder owns and reaps the child; the caller owns the master and closes
-  it by dropping the handle. The master is an `OwnedFd` from the first line, so no raw
+- `holder`: the `PtyHolder` trait (`spawn`, `resize`, `signal`, `list`, `wait`,
+  `release`), dyn-compatible through `async-trait`, and `PtyHandle { master: OwnedFd,
+  child_pid, pty_id }`. The holder owns and reaps the child; the caller owns the master
+  and closes it by dropping the handle. `wait` answers once the holder has reaped the
+  child, with how it ended, so the caller gets the exit status after the master read
+  ends without polling `list` on a clock. The master is an `OwnedFd` from the first line, so no raw
   descriptor number crosses a crate boundary.
 - `signal`: `Signal` (hangup, interrupt, quit, terminate, kill) and `SignalTarget`
   (the child, or the PTY's foreground process group). The holder maps them to the

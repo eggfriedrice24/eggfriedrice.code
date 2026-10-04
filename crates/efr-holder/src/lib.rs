@@ -4,7 +4,8 @@
 //! [`PtyHolder`] spawns a child on a new PTY from a [`SpawnSpec`] and returns a
 //! [`PtyHandle`]: the master side as an `OwnedFd`, the child's pid and the PTY's id. It
 //! also resizes, signals ([`Signal`], [`SignalTarget`]), lists ([`PtyInfo`],
-//! [`ChildStatus`]) and releases the PTYs it holds. At milestone 1 the holder is
+//! [`ChildStatus`]) and releases the PTYs it holds, and waits until a child has been
+//! reaped. At milestone 1 the holder is
 //! `efr_pty::LocalPtyHolder` inside the daemon; at milestone 5 it is `efr-ptyd`, a
 //! separate service reached over the holder socket, whose messages are
 //! [`RequestFrame`] and [`ResponseFrame`]. `efr-shell` only ever sees

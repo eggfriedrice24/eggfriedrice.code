@@ -63,6 +63,7 @@ fn requests_have_a_kind_tag() {
             json!({"kind": "signal", "pty_id": PTY, "signal": "interrupt", "target": "foreground_group"}),
         ),
         (HolderRequest::List, json!({"kind": "list"})),
+        (HolderRequest::Wait { pty_id: pty_id() }, json!({"kind": "wait", "pty_id": PTY})),
         (HolderRequest::Release { pty_id: pty_id() }, json!({"kind": "release", "pty_id": PTY})),
     ];
     for (request, wire) in cases {
@@ -89,6 +90,17 @@ fn responses_have_a_kind_tag() {
                 "size": {"cols": 80, "rows": 24},
                 "status": {"kind": "running"},
             }]}),
+        ),
+        (
+            HolderResponse::Exited { pty_id: pty_id(), status: ChildStatus::Exited { code: 2 } },
+            json!({"kind": "exited", "pty_id": PTY, "status": {"kind": "exited", "code": 2}}),
+        ),
+        (
+            HolderResponse::Exited {
+                pty_id: pty_id(),
+                status: ChildStatus::Signaled { signal: 9 },
+            },
+            json!({"kind": "exited", "pty_id": PTY, "status": {"kind": "signaled", "signal": 9}}),
         ),
         (
             HolderResponse::Error(WireError {
@@ -134,6 +146,7 @@ fn only_a_spawned_response_carries_a_descriptor() {
         (HolderResponse::Spawned { pty_id: pty_id(), child_pid: 1 }, 1),
         (HolderResponse::Done, 0),
         (HolderResponse::Listed { ptys: Vec::new() }, 0),
+        (HolderResponse::Exited { pty_id: pty_id(), status: ChildStatus::Exited { code: 0 } }, 0),
         (HolderResponse::Error(error), 0),
     ];
     for (response, fds) in cases {

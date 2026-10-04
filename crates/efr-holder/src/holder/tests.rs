@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use efr_protocol::{PtyId, Size};
 use pretty_assertions::assert_eq;
+use tokio::sync::watch;
 
 use super::{PtyHandle, PtyHolder};
 use crate::{ChildStatus, HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
@@ -17,13 +18,21 @@ use crate::{ChildStatus, HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
 #[derive(Debug, Default)]
 struct FakeHolder {
     ptys: Mutex<BTreeMap<PtyId, PtyInfo>>,
+    /// One channel per held PTY that carries its status to `wait`; dropping it on
+    /// release ends every wait with `NotFound`.
+    reaped: Mutex<BTreeMap<PtyId, watch::Sender<ChildStatus>>>,
     next_pid: Mutex<u32>,
 }
 
 impl FakeHolder {
+    /// Reaps the child of `pty_id`, which ended with `status`.
+    fn reap(&self, pty_id: PtyId, status: ChildStatus) {
+        self.ptys.lock().unwrap().get_mut(&pty_id).unwrap().status = status;
+        self.reaped.lock().unwrap()[&pty_id].send_replace(status);
+    }
+
     fn exit(&self, pty_id: PtyId, code: i32) {
-        let mut ptys = self.ptys.lock().unwrap();
-        ptys.get_mut(&pty_id).unwrap().status = ChildStatus::Exited { code };
+        self.reap(pty_id, ChildStatus::Exited { code });
     }
 }
 
@@ -51,6 +60,7 @@ impl PtyHolder for FakeHolder {
                 status: ChildStatus::Running,
             },
         );
+        self.reaped.lock().unwrap().insert(spec.pty_id, watch::Sender::new(ChildStatus::Running));
         Ok(PtyHandle { master: OwnedFd::from(reader), child_pid, pty_id: spec.pty_id })
     }
 
@@ -76,7 +86,24 @@ impl PtyHolder for FakeHolder {
         Ok(self.ptys.lock().unwrap().values().copied().collect())
     }
 
+    async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {
+        let mut status = self
+            .reaped
+            .lock()
+            .unwrap()
+            .get(&pty_id)
+            .map(watch::Sender::subscribe)
+            .ok_or(HolderError::NotFound { pty_id })?;
+        // `wait_for` looks at the current value first, so a child reaped before the call
+        // answers at once. A dropped sender means the PTY was released.
+        match status.wait_for(|status| !status.is_running()).await {
+            Ok(status) => Ok(*status),
+            Err(_) => Err(HolderError::NotFound { pty_id }),
+        }
+    }
+
     async fn release(&self, pty_id: PtyId) -> Result<(), HolderError> {
+        self.reaped.lock().unwrap().remove(&pty_id);
         let mut ptys = self.ptys.lock().unwrap();
         ptys.remove(&pty_id).map(drop).ok_or(HolderError::NotFound { pty_id })
     }
@@ -157,6 +184,52 @@ async fn an_exited_child_stays_listed_until_release() {
 }
 
 #[tokio::test]
+async fn wait_answers_at_once_for_a_child_that_was_reaped() {
+    let fake = Arc::new(FakeHolder::default());
+    let holder: Arc<dyn PtyHolder> = fake.clone();
+    let _one = holder.spawn(spec(pty(1))).await.unwrap();
+    let _two = holder.spawn(spec(pty(2))).await.unwrap();
+    fake.exit(pty(1), 3);
+    fake.reap(pty(2), ChildStatus::Signaled { signal: 9 });
+
+    assert_eq!(holder.wait(pty(1)).await.unwrap(), ChildStatus::Exited { code: 3 });
+    assert_eq!(holder.wait(pty(2)).await.unwrap(), ChildStatus::Signaled { signal: 9 });
+}
+
+#[tokio::test]
+async fn wait_ends_when_the_child_is_reaped_and_never_reports_running() {
+    let fake = Arc::new(FakeHolder::default());
+    let holder: Arc<dyn PtyHolder> = fake.clone();
+    let _handle = holder.spawn(spec(pty(1))).await.unwrap();
+
+    let waiting = tokio::spawn({
+        let holder = Arc::clone(&holder);
+        async move { holder.wait(pty(1)).await }
+    });
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished(), "the child still runs");
+    fake.exit(pty(1), 0);
+
+    assert_eq!(waiting.await.unwrap().unwrap(), ChildStatus::Exited { code: 0 });
+}
+
+#[tokio::test]
+async fn a_release_ends_a_wait_with_not_found() {
+    let holder = holder();
+    let _handle = holder.spawn(spec(pty(1))).await.unwrap();
+
+    let waiting = tokio::spawn({
+        let holder = Arc::clone(&holder);
+        async move { holder.wait(pty(1)).await }
+    });
+    tokio::task::yield_now().await;
+    holder.release(pty(1)).await.unwrap();
+
+    let ended = waiting.await.unwrap();
+    assert!(matches!(ended, Err(HolderError::NotFound { pty_id }) if pty_id == pty(1)));
+}
+
+#[tokio::test]
 async fn every_method_answers_not_found_after_release() {
     let holder = holder();
     let _handle = holder.spawn(spec(pty(1))).await.unwrap();
@@ -166,6 +239,7 @@ async fn every_method_answers_not_found_after_release() {
     let results = [
         holder.resize(pty(1), size).await,
         holder.signal(pty(1), Signal::Hangup, SignalTarget::Child).await,
+        holder.wait(pty(1)).await.map(drop),
         holder.release(pty(1)).await,
     ];
     for result in results {

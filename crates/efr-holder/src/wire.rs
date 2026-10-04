@@ -22,7 +22,7 @@ use std::fmt;
 use efr_protocol::{PtyId, Size};
 use serde::{Deserialize, Serialize};
 
-use crate::{HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
+use crate::{ChildStatus, HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
 
 /// The version of the holder socket protocol. Both sides send it in `hello`; any
 /// difference is a mismatch, because the daemon and `efr-ptyd` ship together.
@@ -80,6 +80,12 @@ pub enum HolderRequest {
     },
     /// [`PtyHolder::list`](crate::PtyHolder::list).
     List,
+    /// [`PtyHolder::wait`](crate::PtyHolder::wait). The service answers once it has
+    /// reaped the child, and answers other requests on the connection meanwhile.
+    Wait {
+        /// The PTY.
+        pty_id: PtyId,
+    },
     /// [`PtyHolder::release`](crate::PtyHolder::release).
     Release {
         /// The PTY.
@@ -112,6 +118,13 @@ pub enum HolderResponse {
         /// Every PTY the service holds.
         ptys: Vec<PtyInfo>,
     },
+    /// The answer to `wait`: the child has been reaped.
+    Exited {
+        /// The PTY.
+        pty_id: PtyId,
+        /// How the child ended; never running.
+        status: ChildStatus,
+    },
     /// The request failed. On the wire the error's members sit next to `kind`.
     Error(WireError),
 }
@@ -127,6 +140,7 @@ impl HolderResponse {
             HolderResponse::Hello { .. }
             | HolderResponse::Done
             | HolderResponse::Listed { .. }
+            | HolderResponse::Exited { .. }
             | HolderResponse::Error(_) => 0,
         }
     }

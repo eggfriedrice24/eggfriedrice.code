@@ -6,7 +6,7 @@ use std::os::fd::OwnedFd;
 use async_trait::async_trait;
 use efr_protocol::{PtyId, Size};
 
-use crate::{HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
+use crate::{ChildStatus, HolderError, PtyInfo, Signal, SignalTarget, SpawnSpec};
 
 /// Whoever opens PTYs and keeps their child processes.
 ///
@@ -46,6 +46,17 @@ pub trait PtyHolder: Send + Sync + fmt::Debug {
     /// Every PTY the holder holds, in no particular order, including PTYs whose child
     /// has exited but which nobody has released.
     async fn list(&self) -> Result<Vec<PtyInfo>, HolderError>;
+
+    /// Waits until the holder has reaped the child of a PTY and returns how it ended,
+    /// at once when it was reaped already. It never returns [`ChildStatus::Running`].
+    ///
+    /// This is how the caller learns the exit status for `Event::ShellExited`: when a
+    /// read of the master ends with `EIO`, [`list`](PtyHolder::list) can still report
+    /// the child as running, because the holder may not have reaped it yet, and polling
+    /// it would need a clock. Dropping the future ends the wait and changes nothing.
+    /// Fails with [`HolderError::NotFound`] when no PTY with the id is held, also when
+    /// the PTY is released while the call waits.
+    async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError>;
 
     /// Forgets a PTY. The holder closes its own copy of the master, if it keeps one, so
     /// the child gets `SIGHUP` once the caller's copy is closed too; the holder still
