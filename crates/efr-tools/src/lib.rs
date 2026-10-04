@@ -22,6 +22,7 @@
 mod context;
 mod error;
 mod journal;
+mod output;
 #[cfg(test)]
 mod testing;
 mod tool;
@@ -29,6 +30,7 @@ mod tool;
 pub use context::{CallIds, ToolContext};
 pub use error::ToolError;
 pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJournal};
+pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use tool::{
     AccessMode, NoOutput, PathAccess, Tool, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
 };
