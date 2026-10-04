@@ -30,6 +30,10 @@ directories, a store and provider traffic from one place and never from the mach
   wrong JSON type or bad base64 fails with the line number, because a fixture with a
   typo would otherwise test nothing. `to_ndjson` writes a transcript back with `dir`
   and `kind` first. What a body means is checked by the consumer of the record.
+- `fixtures`: `fixtures::path(file!(), "case.ndjson")` is the file in the `fixtures/`
+  directory of the crate that holds the calling test, found from `file!()` and never
+  from the current directory. `crate_dir` and `dir` give the crate and its fixture
+  directory. The file need not exist yet, so a bless step can write it.
 - `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
@@ -65,5 +69,6 @@ The clock tests poll sleeps and timeouts by hand and drive one spawned task with
 `wait_for_sleeps`. The generator tests pin the published SplitMix64 values and one
 UUIDv7 made from `TestClock` and `TestRng`. The transcript tests parse every record
 form, run a decision table of invalid lines against the problem each one names, and
-check with a proptest that any transcript survives writing and reading. They use no
+check with a proptest that any transcript survives writing and reading. The fixture
+tests find `fixtures/transcripts/single_exchange.ndjson` from `file!()`. They use no
 network, no real-time sleeps and no Zig.

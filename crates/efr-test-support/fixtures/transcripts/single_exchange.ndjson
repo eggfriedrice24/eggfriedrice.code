@@ -1,0 +1,5 @@
+{"dir":"emit_inbound","kind":"client_frame","body":{"id":1,"method":"hello","params":{"protocol":1}}}
+{"dir":"expect_outbound","kind":"provider_request","body":{"model":"gpt-5-codex","system":"You run in <CWD> on <HOSTNAME>.","messages":[{"role":"user","content":[{"kind":"text","text":"list the files"}]}]}}
+{"dir":"emit_inbound","kind":"provider_sse","body":"data: {\"kind\":\"text_delta\",\"data\":{\"text\":\"The files in <CWD> are:\"}}\n\n"}
+{"dir":"emit_inbound","kind":"provider_sse","body":"data: {\"kind\":\"text_delta\",\"data\":{\"text\":\" none.\"}}\n\ndata: {\"kind\":\"done\",\"data\":{\"stop_reason\":\"end_turn\"}}\n\n"}
+{"dir":"expect_outbound","kind":"event","body":{"kind":"assistant_message_completed","turn_id":"00000002-0000-7000-8000-000000000001","index":0,"text":"The files in <CWD> are: none."}}
