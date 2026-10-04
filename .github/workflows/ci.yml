@@ -183,7 +183,7 @@ jobs:
         id: present
         shell: bash
         run: |
-          if [[ -d crates/efr-shell && -d crates/efr-test-daemon ]]; then
+          if [[ -d crates/efr-shell ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "efr-shell does not exist yet; skipping"
@@ -199,8 +199,16 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
+      # The efr-test-daemon half joins once that crate exists (milestone 1, step 5), as in `just test-shell`.
       - if: steps.present.outputs.run == 'true'
-        run: cargo nextest run -p efr-shell -p efr-test-daemon --profile ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d crates/efr-test-daemon ]]; then
+            cargo nextest run -p efr-shell -p efr-test-daemon --profile ci
+          else
+            cargo nextest run -p efr-shell --profile ci
+          fi
         env:
           EFR_TEST_ZSH: "1"
 
