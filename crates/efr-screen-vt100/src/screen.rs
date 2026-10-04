@@ -26,9 +26,15 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 /// - [`title`](Screen::title) and [`pwd`](Screen::pwd) follow libghostty-vt: an empty
 ///   value clears them, a title is cut at 1024 bytes and the OSC 7 URL at 4096, and
 ///   `pwd` is the raw URL as the program sent it.
-/// - vt100 cannot hold a grid without rows or columns, so a dimension of 0 becomes 1.
+/// - A dimension of 0 becomes 1. vt100 0.16.2 panics when a line wraps on a grid of
+///   one row, so a one-row screen runs on two rows of vt100 and shows the row the
+///   cursor is on: text that arrives line by line looks as it would on one row, while
+///   moving the cursor up or down, a no-op on a real single row, switches rows.
 pub struct Vt100Screen {
     parser: vt100::Parser<Recorder>,
+    /// The grid the owner asked for, at least 1 by 1. vt100's own grid may be taller;
+    /// see [`grid_size`].
+    size: Size,
 }
 
 impl Vt100Screen {
@@ -40,21 +46,39 @@ impl Vt100Screen {
     /// A blank screen of `size` that keeps up to `scrollback_rows` rows that scrolled
     /// off the top. With 0 it keeps none.
     pub fn with_scrollback(size: Size, scrollback_rows: usize) -> Self {
-        let parser = vt100::Parser::new_with_callbacks(
-            dimension(size.rows),
-            dimension(size.cols),
-            scrollback_rows,
-            Recorder::default(),
-        );
-        Vt100Screen { parser }
+        let size = visible_size(size);
+        Vt100Screen { parser: parser(size, scrollback_rows, Recorder::default()), size }
     }
 
-    /// Up to `limit` rows of scrollback, oldest first.
+    /// The vt100 row shown as the top visible row. It is 0 unless vt100 holds more
+    /// rows than the owner asked for (one row on a grid of two); then the view is the
+    /// rows that end at the cursor's row.
+    fn top(&self) -> u16 {
+        let screen = self.parser.screen();
+        let (rows, _) = screen.size();
+        let (cursor_row, _) = screen.cursor_position();
+        cursor_row
+            .saturating_sub(self.size.rows.saturating_sub(1))
+            .min(rows.saturating_sub(self.size.rows))
+    }
+
+    /// Up to `limit` rows of scrollback, oldest first. On a one-row screen the vt100
+    /// rows above the view are the newest of them.
+    fn scrollback(&mut self, limit: usize) -> Vec<RowCells> {
+        let top = self.top();
+        let above = top.min(u16::try_from(limit).unwrap_or(u16::MAX));
+        let mut scrollback = self.vt100_scrollback(limit - usize::from(above));
+        let screen = self.parser.screen();
+        scrollback.extend((top - above..top).map(|index| cells::row(screen, index)));
+        scrollback
+    }
+
+    /// Up to `limit` rows of vt100's own scrollback, oldest first.
     ///
     /// vt100 shows scrollback only through a scrolled view whose top rows are
     /// scrollback, so the view moves down from the oldest wanted row a screen at a
     /// time and ends back at the bottom, where every other method expects it.
-    fn scrollback(&mut self, limit: usize) -> Vec<RowCells> {
+    fn vt100_scrollback(&mut self, limit: usize) -> Vec<RowCells> {
         let screen = self.parser.screen_mut();
         // vt100 clamps the offset to the rows it holds.
         screen.set_scrollback(limit);
@@ -79,9 +103,21 @@ pub fn factory(size: Size) -> impl FnOnce() -> Vt100Screen + Send + 'static {
     move || Vt100Screen::new(size)
 }
 
-/// vt100 subtracts 1 from both dimensions whenever it builds or resizes a grid.
-fn dimension(cells: u16) -> u16 {
-    cells.max(1)
+/// The size a screen shows. vt100 subtracts 1 from both dimensions whenever it builds
+/// or resizes a grid, so neither may be 0.
+fn visible_size(size: Size) -> Size {
+    Size { cols: size.cols.max(1), rows: size.rows.max(1) }
+}
+
+/// vt100's own grid as (rows, cols) for a visible size: a second row under a
+/// one-row screen, because vt100 0.16.2 underflows when a line wraps on a single row.
+fn grid_size(size: Size) -> (u16, u16) {
+    (size.rows.max(2), size.cols)
+}
+
+fn parser(size: Size, scrollback_rows: usize, recorder: Recorder) -> vt100::Parser<Recorder> {
+    let (rows, cols) = grid_size(size);
+    vt100::Parser::new_with_callbacks(rows, cols, scrollback_rows, recorder)
 }
 
 impl Screen for Vt100Screen {
@@ -93,17 +129,19 @@ impl Screen for Vt100Screen {
     fn resize(&mut self, cols: u16, rows: u16, _sink: &mut dyn ScreenSink) {
         // vt100 has no in-band resize report (mode 2048), so the program hears nothing
         // and neither does the sink.
-        self.parser.screen_mut().set_size(dimension(rows), dimension(cols));
+        self.size = visible_size(Size { cols, rows });
+        let (rows, cols) = grid_size(self.size);
+        self.parser.screen_mut().set_size(rows, cols);
     }
 
     fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
         let scrollback = self.scrollback(scrollback_rows);
+        let top = self.top();
         let screen = self.parser.screen();
-        let (rows, cols) = screen.size();
         ScreenSnapshot {
-            size: Size { cols, rows },
+            size: self.size,
             cursor: self.cursor(),
-            rows: (0..rows).map(|index| cells::row(screen, index)).collect(),
+            rows: (top..top + self.size.rows).map(|index| cells::row(screen, index)).collect(),
             scrollback,
             title: self.title().map(str::to_owned),
             alternate_screen: screen.alternate_screen(),
@@ -111,10 +149,10 @@ impl Screen for Vt100Screen {
     }
 
     fn row(&self, index: usize) -> RowCells {
-        let screen = self.parser.screen();
-        let (rows, _) = screen.size();
         match u16::try_from(index) {
-            Ok(index) if index < rows => cells::row(screen, index),
+            Ok(index) if index < self.size.rows => {
+                cells::row(self.parser.screen(), self.top() + index)
+            }
             _ => RowCells::default(),
         }
     }
@@ -122,13 +160,12 @@ impl Screen for Vt100Screen {
     fn cursor(&self) -> Cursor {
         let screen = self.parser.screen();
         let (row, col) = screen.cursor_position();
-        let (rows, cols) = screen.size();
         // After a character in the last column vt100 parks the cursor one column past
         // the edge until the next character wraps; the wire cursor is always inside
         // the grid.
         Cursor {
-            row: row.min(rows.saturating_sub(1)),
-            col: col.min(cols.saturating_sub(1)),
+            row: row.saturating_sub(self.top()).min(self.size.rows - 1),
+            col: col.min(self.size.cols - 1),
             hidden: screen.hide_cursor(),
         }
     }
@@ -145,9 +182,8 @@ impl Screen for Vt100Screen {
 // vt100::Parser has no Debug of its own.
 impl fmt::Debug for Vt100Screen {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (rows, cols) = self.parser.screen().size();
         f.debug_struct("Vt100Screen")
-            .field("size", &Size { cols, rows })
+            .field("size", &self.size)
             .field("cursor", &self.cursor())
             .field("alternate_screen", &self.parser.screen().alternate_screen())
             .field("title", &self.title())

@@ -60,6 +60,49 @@ fn a_dimension_of_zero_becomes_one() {
 }
 
 #[test]
+fn a_one_row_screen_shows_the_row_the_cursor_is_on() {
+    let mut screen = fed(10, 1, 10, b"one\r\ntwo\r\nthree");
+    let snapshot = screen.snapshot(10);
+    assert_eq!(snapshot.size, size(10, 1));
+    assert_eq!(texts(&snapshot.rows), ["three"]);
+    assert_eq!(texts(&snapshot.scrollback), ["one", "two"]);
+    assert_eq!(snapshot.cursor, Cursor { row: 0, col: 5, hidden: false });
+    assert_eq!(row_text(&screen.row(0)), "three");
+    assert_eq!(screen.row(1), RowCells::default());
+    assert_eq!(texts(&screen.snapshot(1).scrollback), ["two"]);
+    assert_eq!(screen.snapshot(0).scrollback, []);
+}
+
+#[test]
+fn a_line_wraps_on_a_one_row_screen() {
+    let mut screen = fed(4, 1, 10, b"abcdefghij");
+    let snapshot = screen.snapshot(10);
+    assert_eq!(texts(&snapshot.rows), ["ij"]);
+    assert_eq!(texts(&snapshot.scrollback), ["abcd", "efgh"]);
+    assert!(snapshot.scrollback.iter().all(|row| row.wrapped));
+}
+
+#[test]
+fn moving_up_on_a_one_row_screen_shows_the_row_above() {
+    // The documented approximation: a real single row ignores the move.
+    let mut screen = fed(10, 1, 10, b"first\r\nsecond\x1b[A");
+    let snapshot = screen.snapshot(10);
+    assert_eq!(texts(&snapshot.rows), ["first"]);
+    assert_eq!(snapshot.cursor.row, 0);
+    assert_eq!(snapshot.scrollback, []);
+}
+
+#[test]
+fn a_one_row_screen_grows_into_both_of_its_rows() {
+    let mut screen = fed(10, 1, 10, b"one\r\ntwo");
+    screen.resize(10, 3, &mut TestSink::default());
+    let snapshot = screen.snapshot(10);
+    assert_eq!(texts(&snapshot.rows), ["one", "two", ""]);
+    assert_eq!(snapshot.cursor, Cursor { row: 1, col: 3, hidden: false });
+    assert_eq!(snapshot.scrollback, []);
+}
+
+#[test]
 fn a_one_column_screen_wraps_every_character() {
     let mut screen = fed(1, 3, 10, b"abcd");
     let snapshot = screen.snapshot(10);

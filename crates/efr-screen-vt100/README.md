@@ -45,6 +45,16 @@ actor's `ShellMarkScanner` finds them before the bytes reach the backend.
   the recorder joins the pieces of a title or URL that holds one; vte keeps 16 pieces
   with the OSC number, so a value with more than 14 `;` loses its tail.
 
+### Guards against vt100 panics
+
+Fuzzing vt100 0.16.2 found inputs that make it panic; none of them at 2 by 2 or
+larger without a resize:
+
+- A line that wraps on a grid of one row underflows a row index. A one-row screen
+  therefore runs on two rows of vt100 and shows the row the cursor is on, so text that
+  arrives line by line looks as it would on a single row. Moving the cursor up or
+  down, a no-op on a real single row, switches between the two.
+
 A dimension of 0 becomes 1, because vt100 subtracts 1 from both when it builds or
 resizes a grid.
 
@@ -76,7 +86,7 @@ cargo nextest run -p efr-screen-vt100
 ```
 
 Unit tests cover the cell conversion, the recorder (titles, URLs, limits, order) and
-the screen (scrollback paging, the cursor at a pending wrap).
+the screen (scrollback paging, the one-row view, the cursor at a pending wrap).
 
 `tests/conformance.rs` runs `efr_screen::conformance::run("vt100", factory)` over
 every fixture in `crates/efr-screen/fixtures/`. Its rendered screens are the
