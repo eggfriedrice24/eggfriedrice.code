@@ -65,11 +65,16 @@ test-full:
 test-ghostty:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d crates/efr-screen-ghostty || ! -d crates/efr-daemon ]]; then
-        echo "test-ghostty: not available until milestone 1 lands (efr-screen-ghostty does not exist yet)"
-        exit 0
+    if ! command -v zig >/dev/null; then
+        echo "test-ghostty: zig is not on PATH; install the version docs/ghostty-pin.md pins" >&2
+        exit 1
     fi
-    cargo nextest run -p efr-screen-ghostty -p efr-daemon --features efr-daemon/screen-ghostty
+    # The daemon half joins once efr-daemon exists (milestone 1, step 5).
+    if [[ -d crates/efr-daemon ]]; then
+        cargo nextest run -p efr-screen-ghostty -p efr-daemon --features efr-daemon/screen-ghostty
+    else
+        cargo nextest run -p efr-screen-ghostty
+    fi
 
 # Tests that drive a real zsh; skips when zsh is missing.
 test-shell:
@@ -166,18 +171,35 @@ install-hooks:
 bump-ghostty rev:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d crates/efr-screen-ghostty ]]; then
-        echo "bump-ghostty: not available until milestone 1 lands (efr-screen-ghostty does not exist, so a new pin cannot be verified)"
-        exit 0
+    rev="{{ rev }}"
+    if [[ ! "$rev" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "bump-ghostty: expected a full 40-character libghostty-rs commit" >&2
+        exit 1
     fi
     old="$(sed -nE 's/^libghostty-vt = .*rev = "([0-9a-f]{40})".*/\1/p' Cargo.toml)"
-    sed -i "s/$old/{{ rev }}/g" Cargo.toml docs/ghostty-pin.md
-    build_rs="https://raw.githubusercontent.com/uzaaft/libghostty-rs/{{ rev }}/crates/libghostty-vt-sys/build.rs"
+    old_ghostty="$(sed -nE 's/^\| ghostty \| `([0-9a-f]{40})`.*/\1/p' docs/ghostty-pin.md)"
+    if [[ -z "$old" || -z "$old_ghostty" ]]; then
+        echo "bump-ghostty: the current pin is missing from Cargo.toml or docs/ghostty-pin.md" >&2
+        exit 1
+    fi
+    # Everything is fetched before anything is written, so a failed download changes nothing.
+    build_rs="https://raw.githubusercontent.com/uzaaft/libghostty-rs/$rev/crates/libghostty-vt-sys/build.rs"
     ghostty="$(curl -fsSL "$build_rs" | sed -nE 's/.*GHOSTTY_COMMIT[^"]*"([0-9a-f]{40})".*/\1/p' | head -n1)"
+    if [[ -z "$ghostty" ]]; then
+        echo "bump-ghostty: no GHOSTTY_COMMIT in $build_rs" >&2
+        exit 1
+    fi
     zon="https://raw.githubusercontent.com/ghostty-org/ghostty/$ghostty/build.zig.zon"
     zig="$(curl -fsSL "$zon" | sed -nE 's/.*minimum_zig_version = "([^"]+)".*/\1/p')"
-    echo "libghostty-rs {{ rev }} builds ghostty $ghostty, which needs Zig $zig"
-    echo "update the ghostty commit and the Zig version in docs/ghostty-pin.md and ci.yml, then run just test-ghostty"
+    # The full commits go first, because the short forms are their prefixes.
+    sed -i "s/$old/$rev/g; s/$old_ghostty/$ghostty/g; s/${old_ghostty:0:8}/${ghostty:0:8}/g" \
+        Cargo.toml docs/ghostty-pin.md
+    # Resolving again moves Cargo.lock to the new rev without building anything.
+    cargo fetch --quiet
+    echo "libghostty-rs $rev builds ghostty $ghostty, which needs Zig ${zig:-(not found)}"
+    echo "local zig: $(zig version 2>/dev/null || echo 'not on PATH')"
+    echo "rewritten: the rev and the ghostty commit in Cargo.toml, Cargo.lock and docs/ghostty-pin.md"
+    echo "left to do: the Zig version and the dates in docs/ghostty-pin.md, the Zig version in ci.yml, then just test-ghostty"
 
 # Move the pinned toolchain and the MSRV together.
 bump-toolchain version:
