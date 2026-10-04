@@ -31,17 +31,26 @@ mod providers;
 mod ptys;
 mod receipts;
 mod reconcile;
+mod run;
 mod screens;
 mod shells;
+mod signals;
 mod state;
+mod telemetry;
+#[cfg(test)]
+mod testing;
 mod tools;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
     DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, ScreenChoice, ShellSettings, Source,
 };
+pub use efr_conversation::HostInfo;
 pub use efr_holder::PtyHolder;
 pub use efr_provider::Provider;
 pub use efr_shell::ScreenFactory;
 pub use error::DaemonError;
 pub use providers::{API, ProviderFactory, SUBSCRIPTION};
+pub use run::{Daemon, Deps, run, start};
+pub use signals::shutdown_on_signals;
+pub use telemetry::{LogTarget, init as init_telemetry};

@@ -13,6 +13,9 @@ publish = false
 [lib]
 doctest = false
 
+[[bin]]
+name = "efrd"
+path = "src/main.rs"
 
 [features]
 default = ["local-pty"]
@@ -49,6 +52,7 @@ efr-tools.workspace = true
 efr-transport.workspace = true
 jiff.workspace = true
 nix.workspace = true
+sd-notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
