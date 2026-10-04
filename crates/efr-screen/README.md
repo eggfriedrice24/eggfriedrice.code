@@ -19,6 +19,9 @@ goes through this crate, whichever backend renders it:
   is `recording[OutputStart.end .. CommandEnd.start]`.
 - `snapshot`: `ScreenCapture` and the normalisation of a backend's snapshot into the
   wire `efr_protocol::ScreenSnapshot`.
+- The wire types a backend builds (`ScreenSnapshot`, `RowCells`, `Cell`, `Color`,
+  `Cursor`, `Size`) are re-exported from `efr-protocol`, so a backend crate implements
+  `Screen` with `efr-screen` as its only workspace dependency.
 - `conformance` (feature `conformance`, enabled only by test targets): the suite that
   drives the real `ScreenActor` with a backend factory over the NDJSON fixtures in
   `fixtures/vt/` and `fixtures/shell_marks/`.
