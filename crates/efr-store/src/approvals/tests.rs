@@ -15,12 +15,44 @@ fn requested(turn: u64, call: u64, summary: &str) -> Event {
 }
 
 fn resolved(turn: u64, call: u64) -> Event {
+    resolved_with(turn, call, ApprovalDecision::Deny)
+}
+
+fn resolved_with(turn: u64, call: u64, decision: ApprovalDecision) -> Event {
     Event::ApprovalResolved {
         turn_id: testing::turn(turn),
         call_id: testing::call(call),
-        decision: ApprovalDecision::Deny,
+        decision,
         origin: Origin::Phone,
     }
+}
+
+/// The stored status and decision of every approval.
+async fn statuses(writer: &WriterHandle) -> Vec<(String, Option<String>)> {
+    on_writer(writer, |conn| {
+        let mut stmt = conn.prepare("SELECT status, decision FROM approvals ORDER BY call_id")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })
+    .await
+    .unwrap()
+}
+
+/// How many `approval_resolved` events the log holds.
+async fn resolutions(writer: &WriterHandle) -> usize {
+    let log = on_writer(writer, |conn| crate::events::read_after(conn, Seq::ZERO, 100)).await;
+    log.unwrap()
+        .iter()
+        .filter(|envelope| matches!(envelope.event, Event::ApprovalResolved { .. }))
+        .count()
+}
+
+fn is_not_pending(error: &StoreError, conversation: ConversationId, call: u64) -> bool {
+    matches!(
+        error,
+        StoreError::ApprovalNotPending { conversation_id, call_id }
+            if *conversation_id == conversation && *call_id == testing::call(call)
+    )
 }
 
 async fn writer_with_turn(id: ConversationId) -> (WriterHandle, crate::StoreWriter) {
@@ -158,4 +190,107 @@ async fn asking_again_makes_an_answered_call_pending_again() {
 
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].summary, "second ask");
+}
+
+#[tokio::test]
+async fn a_second_answer_fails_its_batch_and_keeps_the_first() {
+    let id = testing::conversation(1);
+    let (writer, _thread) = writer_with_turn(id).await;
+    writer.append(Batch::new().event(id, requested(1, 1, "x"))).await.unwrap();
+    writer.append(Batch::new().event(id, resolved(1, 1))).await.unwrap();
+
+    let error = writer
+        .append(Batch::new().event(id, resolved_with(1, 1, ApprovalDecision::Allow)))
+        .await
+        .unwrap_err();
+
+    assert!(is_not_pending(&error, id, 1), "{error:?}");
+    assert_eq!(statuses(&writer).await, [("resolved".to_owned(), Some("deny".to_owned()))]);
+    assert_eq!(resolutions(&writer).await, 1);
+}
+
+#[tokio::test]
+async fn of_two_racing_answers_only_one_commits() {
+    let id = testing::conversation(1);
+    let (writer, _thread) = writer_with_turn(id).await;
+    writer.append(Batch::new().event(id, requested(1, 1, "x"))).await.unwrap();
+
+    let (deny, allow) = tokio::join!(
+        writer.append(Batch::new().event(id, resolved_with(1, 1, ApprovalDecision::Deny))),
+        writer.append(Batch::new().event(id, resolved_with(1, 1, ApprovalDecision::Allow))),
+    );
+
+    assert_eq!([deny.is_ok(), allow.is_ok()].iter().filter(|ok| **ok).count(), 1);
+    let error = deny.err().or(allow.err()).unwrap();
+    assert!(is_not_pending(&error, id, 1), "{error:?}");
+    assert_eq!(resolutions(&writer).await, 1);
+}
+
+#[tokio::test]
+async fn an_answer_after_expiry_fails_and_the_approval_stays_expired() {
+    let id = testing::conversation(1);
+    let (writer, _thread) = writer_with_turn(id).await;
+    writer
+        .append(Batch::new().event(id, requested(1, 1, "x")).event(
+            id,
+            Event::ApprovalExpired { turn_id: testing::turn(1), call_id: testing::call(1) },
+        ))
+        .await
+        .unwrap();
+
+    let error = writer.append(Batch::new().event(id, resolved(1, 1))).await.unwrap_err();
+
+    assert!(is_not_pending(&error, id, 1), "{error:?}");
+    assert_eq!(statuses(&writer).await, [("expired".to_owned(), None)]);
+    assert_eq!(resolutions(&writer).await, 0);
+}
+
+#[tokio::test]
+async fn an_answer_for_an_unknown_call_or_another_conversation_fails() {
+    let (one, two) = (testing::conversation(1), testing::conversation(2));
+    let (writer, _thread) = writer_with_turn(one).await;
+    writer
+        .append(
+            Batch::new()
+                .event(two, testing::created(None))
+                .event(two, testing::queued(2, "y"))
+                .event(two, testing::started(2, "/"))
+                .event(one, requested(1, 1, "x")),
+        )
+        .await
+        .unwrap();
+
+    let unknown = writer.append(Batch::new().event(one, resolved(1, 9))).await.unwrap_err();
+    let elsewhere = writer.append(Batch::new().event(two, resolved(2, 1))).await.unwrap_err();
+
+    assert!(is_not_pending(&unknown, one, 9), "{unknown:?}");
+    assert!(is_not_pending(&elsewhere, two, 1), "{elsewhere:?}");
+    let call = testing::call(1);
+    let still = on_writer(&writer, move |conn| pending_call(conn, call)).await.unwrap();
+    assert_eq!(still.map(|approval| approval.conversation_id), Some(one));
+}
+
+#[tokio::test]
+async fn a_failed_answer_writes_nothing_else_from_its_batch() {
+    let id = testing::conversation(1);
+    let (writer, _thread) = writer_with_turn(id).await;
+    let before = writer.append(Batch::new()).await.unwrap().last_seq();
+
+    let error = writer
+        .append(Batch::new().event(id, requested(1, 2, "other")).event(id, resolved(1, 1)).receipt(
+            crate::receipts::NewReceipt::accepted(
+                testing::command(1),
+                "approval.respond",
+                serde_json::json!({}),
+            ),
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(is_not_pending(&error, id, 1), "{error:?}");
+    assert_eq!(on_writer(&writer, |conn| pending(conn, None)).await.unwrap(), []);
+    let receipt = on_writer(&writer, |conn| crate::receipts::lookup(conn, testing::command(1)));
+    assert_eq!(receipt.await.unwrap(), None);
+    let next = writer.append(Batch::new().event(id, requested(1, 3, "next"))).await.unwrap();
+    assert_eq!(next.first_seq(), Some(Seq::new(before.get() + 1)));
 }

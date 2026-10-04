@@ -1,7 +1,11 @@
 //! The approvals projection: which tool calls wait for the user's answer.
 //!
-//! `approval.respond` checks it before it records an answer, and the reconciliation
-//! after a restart expires what it lists.
+//! `approval.respond` may read it to refuse a stale answer early, but the check that
+//! counts runs inside the writer's transaction: an `approval_resolved` event for a call
+//! with no pending approval in its conversation fails its batch with
+//! [`StoreError::ApprovalNotPending`]. Two racing answers therefore cannot both commit,
+//! and an answer never revives an expired approval. The reconciliation after a restart
+//! expires what the projection lists.
 
 use efr_protocol::{CallId, ConversationId, Event, EventEnvelope, Seq, TurnId};
 use jiff::Timestamp;
@@ -70,18 +74,24 @@ pub(crate) fn apply(
             )?;
         }
         Event::ApprovalResolved { call_id, decision, origin, .. } => {
-            conn.execute(
+            let changed = conn.execute(
                 "UPDATE approvals SET status = ?2, decision = ?3, resolved_by = ?4, \
-                 resolved_seq = ?5, resolved_at = ?6 WHERE call_id = ?1",
+                 resolved_seq = ?5, resolved_at = ?6 \
+                 WHERE call_id = ?1 AND conversation_id = ?7 AND status = ?8",
                 params![
                     call_id.to_string(),
                     RESOLVED,
                     sql::wire_name(decision, "approval decision")?,
                     sql::wire_name(origin, "origin")?,
                     seq,
-                    at
+                    at,
+                    conversation_id.to_string(),
+                    PENDING
                 ],
             )?;
+            if changed == 0 {
+                return Err(StoreError::ApprovalNotPending { conversation_id, call_id: *call_id });
+            }
         }
         Event::ApprovalExpired { call_id, .. } => {
             conn.execute(

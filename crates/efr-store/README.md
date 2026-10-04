@@ -74,6 +74,11 @@ the channels and `spawn_blocking`), `serde`, `serde_json`, `jiff`, `thiserror`.
   log and can be rebuilt at any time.
 - A batch is all or nothing: events, projections, receipts and outbox rows commit in
   one transaction or not at all, and a failed batch does not use up sequence numbers.
+- An approval is answered at most once: the writer applies `approval_resolved` only to
+  a pending approval of the event's conversation and otherwise fails the batch with
+  `StoreError::ApprovalNotPending`, so two racing answers cannot both commit and an
+  answer never revives an expired approval. The check runs inside the transaction, not
+  before it on a reader.
 - Time comes from the injected `efr_stdx::time::Clock`; nothing here reads the wall
   clock.
 

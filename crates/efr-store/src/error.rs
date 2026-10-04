@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::{CommandId, ConversationId, PtyId, Seq};
+use efr_protocol::{CallId, CommandId, ConversationId, PtyId, Seq};
 use efr_stdx::StdxError;
 
 use crate::outbox::OutboxId;
@@ -196,6 +196,18 @@ pub enum StoreError {
     ConversationExists {
         /// The conversation.
         conversation_id: ConversationId,
+    },
+
+    /// An `approval_resolved` event answers a call that has no pending approval in its
+    /// conversation: it was never requested there, it is already answered, or it
+    /// expired. The batch wrote nothing, so of two racing answers only the first
+    /// commits; `approval.respond` answers the other with `not_found` or `conflict`.
+    #[error("the call {call_id} has no pending approval in the conversation {conversation_id}")]
+    ApprovalNotPending {
+        /// The conversation of the event.
+        conversation_id: ConversationId,
+        /// The call.
+        call_id: CallId,
     },
 
     /// An event that belongs to a conversation was appended without one.
