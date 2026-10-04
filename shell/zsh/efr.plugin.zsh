@@ -1,7 +1,8 @@
 # efr.plugin.zsh - talk to the eggfriedrice.code daemon from an interactive zsh.
 #
 #   , <prompt>     send a prompt with this shell's context (queues behind a running turn)
-#   ,new [prompt]  start a new conversation for this terminal
+#   ,new [prompt]  start a new conversation for this terminal; without a prompt,
+#                  the next `,` line starts it
 #   ,! <text>      steer the running turn instead of queueing
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,`; a line
@@ -26,6 +27,9 @@ typeset -g _efr_sticky=0
 # The last shell command line and its exit status, for the next `,` line, and the line
 # that is running now. Declared without values so that re-sourcing keeps them.
 typeset -g _efr_last_command _efr_last_command_status _efr_running
+# 1 after a bare `,new`: the next `,` line starts a new conversation. A conversation
+# exists only once it has a prompt, so a bare `,new` can only remember the wish.
+typeset -gi _efr_new_pending
 # Override before sourcing to change how sticky mode shows in the prompt.
 : ${EFR_STICKY_INDICATOR:='%F{magenta}efr>%f '}
 
@@ -139,18 +143,39 @@ function , {
   _efr_context_json $last_status
   local context=$REPLY
   _efr_last_command_args
-  efr send --context-json "$context" "${reply[@]}" -- "$@"
+  if (( _efr_new_pending )); then
+    _efr_new "$context" "$@"
+  else
+    efr send --context-json "$context" "${reply[@]}" -- "$@"
+  fi
 }
 
 function ,new {
   local last_status=$?
   emulate -L zsh
   _efr_available || { _efr_missing; return 127 }
+  if [[ -z ${*//[[:space:]]/} ]]; then
+    _efr_new_pending=1
+    print -u2 -- "efr: the next , line starts a new conversation"
+    return 0
+  fi
   [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
   local context=$REPLY
   _efr_last_command_args
+  _efr_new "$context" "$@"
+}
+
+# Runs `efr new` with the context $1 and the prompt words after it; reply holds the
+# last command arguments. A pending bare `,new` is settled unless efr refused the
+# command line (2) or found no daemon (3): then no conversation started.
+_efr_new() {
+  local context=$1
+  shift
   efr new --context-json "$context" "${reply[@]}" -- "$@"
+  local code=$?
+  (( code == 2 || code == 3 )) || _efr_new_pending=0
+  return $code
 }
 
 # Steering goes through `efr send --steer`, the CLI side of turn.steer. A steer joins

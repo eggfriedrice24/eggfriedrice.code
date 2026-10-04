@@ -1,9 +1,9 @@
-use efr_protocol::{ClientFrame, Event, Method, PromptSendResult, Seq};
+use efr_protocol::{Event, Method, PromptSendResult, Seq};
 use pretty_assertions::assert_eq;
 
 use crate::error::Exit;
 use crate::run;
-use crate::testing::{CONVERSATION, TestEnv, capture, command, conversation, item, turn};
+use crate::testing::{TestEnv, capture, command, conversation, item, turn};
 
 fn sent() -> PromptSendResult {
     PromptSendResult {
@@ -56,27 +56,17 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
 }
 
 #[tokio::test]
-async fn new_without_a_prompt_only_starts_the_conversation() {
+async fn new_without_a_prompt_is_a_usage_error_and_sends_nothing() {
     let env = TestEnv::new();
-    let daemon = env.listen();
     let ctx = env.context();
     let (mut out, captured) = capture();
     let line = command(&["new", "--context-json", r#"{"pwd":"/srv","tty":"/dev/pts/2"}"#, "--"]);
-    let script = async {
-        let mut conn = daemon.accept().await;
-        let (id, method) = conn.request().await;
-        let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
-        conn.reply(id, &sent()).await;
-        // No subscription follows.
-        let rest = conn.until_closed().await;
-        assert!(rest.iter().all(|frame| !matches!(frame, ClientFrame::Request { .. })), "{rest:?}");
-        params
-    };
-    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
-    assert_eq!(exit, Exit::Success);
-    assert!(params.new_conversation);
-    assert_eq!(params.text, "");
-    assert_eq!(params.context.unwrap().tty.as_deref(), Some("/dev/pts/2"));
+
+    // No daemon listens: the command must fail before it connects.
+    let exit = run::run(&line, &ctx, &mut out).await;
+
+    assert_eq!(exit, Exit::Usage);
     assert_eq!(captured.stdout(), "");
-    assert_eq!(captured.stderr(), format!("new conversation {CONVERSATION}\n"));
+    assert!(captured.stderr().contains("efr new needs the first prompt"), "{}", captured.stderr());
+    assert!(captured.stderr().contains("a bare ,new"), "{}", captured.stderr());
 }

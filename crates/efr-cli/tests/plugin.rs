@@ -16,11 +16,12 @@ use assert_cmd::Command;
 use pretty_assertions::assert_eq;
 
 /// A fake `efr` that writes each argument on a line of its own to `$EFR_ARGS`, one
-/// file per call.
+/// file per call, and exits with `$FAKE_EXIT` (0 when unset).
 const FAKE_EFR: &str = r#"#!/bin/sh
 n=0
 while [ -e "$EFR_ARGS.$n" ]; do n=$((n + 1)); done
 for arg in "$@"; do printf '%s\n' "$arg"; done > "$EFR_ARGS.$n"
+exit "${FAKE_EXIT:-0}"
 "#;
 
 fn plugin() -> PathBuf {
@@ -226,4 +227,43 @@ fn e2e_the_rewrite_quotes_only_plugin_lines() {
             ",newline",
         ]
     );
+}
+
+/// The prompt words of one call: what follows `--`.
+fn prompt_of(call: &[String]) -> &[String] {
+    let separator = call.iter().position(|arg| arg == "--").unwrap();
+    &call[separator + 1..]
+}
+
+#[test]
+fn e2e_a_bare_new_makes_the_next_line_start_a_conversation() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        ,new
+        , first prompt
+        , second prompt
+    "#);
+    assert_eq!(calls.len(), 2, "a bare ,new sends nothing: {calls:?}");
+    assert_eq!(calls[0][0], "new");
+    assert_eq!(prompt_of(&calls[0]), ["first", "prompt"]);
+    assert_eq!(calls[1][0], "send");
+    assert_eq!(prompt_of(&calls[1]), ["second", "prompt"]);
+}
+
+#[test]
+fn e2e_a_bare_new_waits_until_a_conversation_could_start() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // Exit 3: no daemon listened, so no conversation started and the wish stays.
+    let calls = run(r#"
+        ,new
+        FAKE_EXIT=3 , first try
+        , second try
+        , third try
+    "#);
+    let commands: Vec<&str> = calls.iter().map(|call| call[0].as_str()).collect();
+    assert_eq!(commands, ["new", "new", "send"]);
 }

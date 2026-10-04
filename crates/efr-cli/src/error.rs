@@ -76,6 +76,10 @@ pub(crate) enum CliError {
     #[error("the prompt is empty")]
     EmptyPrompt,
 
+    /// `efr new` came without the first prompt that a conversation needs.
+    #[error("efr new needs the first prompt of the new conversation")]
+    NewWithoutPrompt,
+
     /// `efr send --steer` cannot tell which conversation to steer.
     #[error("efr send --steer needs --conversation, or a --context-json with a tty")]
     SteerNeedsConversation,
@@ -142,6 +146,7 @@ impl CliError {
             CliError::Client(ClientError::DaemonNotRunning { .. }) => Exit::NotRunning,
             CliError::InvalidContext { .. }
             | CliError::EmptyPrompt
+            | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
@@ -157,6 +162,9 @@ impl CliError {
             }
             CliError::Client(ClientError::ProtocolMismatch { .. }) => {
                 Some("efr and efrd come from different builds; install both from one build")
+            }
+            CliError::NewWithoutPrompt => {
+                Some("in zsh, a bare ,new makes the next , line start a new conversation")
             }
             _ => None,
         }

@@ -5,7 +5,7 @@
 //!
 //! - `efr send --context-json <json> [--last-command <text>] -- <prompt words>`
 //! - `efr send --steer --context-json <json> -- <text>`
-//! - `efr new --context-json <json> [--last-command <text>] -- [prompt words]`
+//! - `efr new --context-json <json> [--last-command <text>] -- <prompt words>`
 
 use std::convert::Infallible;
 use std::fmt;
@@ -33,7 +33,7 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Send a prompt to this terminal's conversation and follow the reply.
     Send(SendArgs),
-    /// Start a new conversation for this terminal, optionally with a first prompt.
+    /// Start a new conversation for this terminal with its first prompt.
     New(NewArgs),
     /// Show whether the daemon runs, and its health.
     Status,

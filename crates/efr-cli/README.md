@@ -12,7 +12,7 @@ state and never writes the daemon's database or credentials.
 |---|---|---|
 | `efr send --context-json <json> [--last-command <text>] -- <prompt>` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
 | `efr send --steer --context-json <json> -- <text>` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
-| `efr new --context-json <json> [--last-command <text>] -- [prompt]` | `prompt.send` with `new_conversation` | without a prompt, the text is empty and nothing is followed |
+| `efr new --context-json <json> [--last-command <text>] -- <prompt>` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr status` | `admin.status` | |
 | `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |

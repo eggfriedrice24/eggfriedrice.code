@@ -8,7 +8,7 @@ Usage: efr <COMMAND>
 
 Commands:
   send     Send a prompt to this terminal's conversation and follow the reply
-  new      Start a new conversation for this terminal, optionally with a first prompt
+  new      Start a new conversation for this terminal with its first prompt
   status   Show whether the daemon runs, and its health
   history  List recent conversations, or show the events of one
   login    Log in to a model provider

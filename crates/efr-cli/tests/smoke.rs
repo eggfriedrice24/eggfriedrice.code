@@ -13,6 +13,7 @@
 use std::process::Output;
 
 use assert_cmd::Command;
+use efr_protocol::{ConversationsList, ConversationsListResult, Method};
 use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon};
 use pretty_assertions::assert_eq;
 
@@ -86,5 +87,36 @@ async fn send_prints_the_models_answer_and_exits_when_the_turn_ends() {
     let [request] = server.received().try_into().unwrap();
     let input = request.body["input"].to_string();
     assert!(input.contains("say hello"), "{input}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn new_starts_a_conversation_only_with_a_first_prompt() {
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::text("A fresh start."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    let context = serde_json::json!({ "pwd": daemon.cwd(), "tty": TTY }).to_string();
+    let new = |words: &[&str]| {
+        let mut command = efr(&daemon);
+        command.args(["new", "--context-json", &context, "--"]).args(words);
+        command
+    };
+
+    let bare = run(new(&[])).await;
+    assert_eq!(bare.status.code(), Some(2), "{}", text(&bare.stderr));
+    let client = daemon.client().await.unwrap();
+    let list = || async {
+        let method = Method::ConversationsList(ConversationsList { cursor: None, limit: None });
+        client.call::<ConversationsListResult>(method).await.unwrap().conversations
+    };
+    assert!(list().await.is_empty(), "a bare new records nothing");
+
+    let started = run(new(&["start", "over"])).await;
+    assert!(started.status.success(), "{}", text(&started.stderr));
+    assert_eq!(text(&started.stdout).trim_end(), "A fresh start.");
+    let conversations = list().await;
+    assert_eq!(conversations.len(), 1);
+    assert_eq!(conversations[0].tty.as_deref(), Some(TTY));
+    drop(client);
     daemon.stop().await.unwrap();
 }
