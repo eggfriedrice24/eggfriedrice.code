@@ -287,6 +287,27 @@ fn a_missing_file_loads_as_the_defaults() {
 }
 
 #[test]
+fn the_effective_dump_prints_every_bound_of_a_command_rule() {
+    let pattern = CommandPattern::new("ps")
+        .with_args(["-ef"])
+        .with_forbid(["-x"])
+        .with_min_operands(0)
+        .with_max_operands(0)
+        .with_max_options(0)
+        .with_under("~/p");
+    let policy =
+        Policy::new(vec![Rule::new(Action::Execute, Resource::Command(pattern), Effect::Allow)])
+            .unwrap();
+
+    assert_eq!(
+        super::rules(&policy),
+        "[{ action = \"execute\", resource = { command = { program = \"ps\", args = [\"-ef\"], \
+         forbid = [\"-x\"], max_operands = 0, min_operands = 0, max_options = 0, under = \"~/p\" } }, \
+         effect = \"allow\" }]"
+    );
+}
+
+#[test]
 fn the_effective_dump_names_every_value_and_its_source() {
     let text = r#"
         [model]

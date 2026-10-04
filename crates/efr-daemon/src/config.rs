@@ -670,6 +670,9 @@ fn resource(resource: &Resource) -> String {
     if let Some(min) = pattern.min_operands {
         fields.push(format!("min_operands = {min}"));
     }
+    if let Some(max) = pattern.max_options {
+        fields.push(format!("max_options = {max}"));
+    }
     if let Some(under) = &pattern.under {
         fields.push(format!("under = {}", inline(&under.to_string_lossy())));
     }
