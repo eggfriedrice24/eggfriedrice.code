@@ -46,6 +46,8 @@ struct FakeState {
     signals: Vec<(PtyId, Signal, SignalTarget)>,
     resizes: Vec<(PtyId, Size)>,
     released: Vec<PtyId>,
+    /// How every new child has already ended, for a shell that dies at startup.
+    dead_on_arrival: Option<ChildStatus>,
 }
 
 #[derive(Debug)]
@@ -85,6 +87,11 @@ impl FakeHolder {
         self.state.lock().unwrap().released.clone()
     }
 
+    /// Makes every later child end with `status` as soon as it is spawned.
+    pub(crate) fn die_on_arrival(&self, status: ChildStatus) {
+        self.state.lock().unwrap().dead_on_arrival = Some(status);
+    }
+
     /// Ends the child of `pty_id` with `status`.
     pub(crate) fn end(&self, pty_id: PtyId, status: ChildStatus) {
         let state = self.state.lock().unwrap();
@@ -99,9 +106,10 @@ impl PtyHolder for FakeHolder {
         let (ours, theirs) = UnixStream::pair().unwrap();
         let mut state = self.state.lock().unwrap();
         let pid = 1000 + u32::try_from(state.specs.len()).unwrap();
+        let status = state.dead_on_arrival.unwrap_or(ChildStatus::Running);
         state.ptys.insert(
             spec.pty_id,
-            FakePty { pid, size: spec.size, status: watch::Sender::new(ChildStatus::Running) },
+            FakePty { pid, size: spec.size, status: watch::Sender::new(status) },
         );
         state.terminals.push(Some((spec.pty_id, theirs)));
         let pty_id = spec.pty_id;

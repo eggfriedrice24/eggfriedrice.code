@@ -422,6 +422,18 @@ async fn a_shell_that_exits_fails_its_run_and_the_next_run_starts_a_new_one() {
 }
 
 #[tokio::test]
+async fn a_shell_that_dies_at_startup_is_not_respawned_in_a_loop() {
+    let harness = Harness::new(ZSH);
+    harness.holder.die_on_arrival(ChildStatus::Exited { code: 1 });
+    for _ in 0..3 {
+        let result = spawn_run(&harness.sessions, request("true")).await.unwrap();
+        assert!(matches!(result, Err(ShellError::Exited { .. })), "{result:?}");
+    }
+    // One spawn per call at most, never a loop of them.
+    assert!(harness.holder.specs().len() <= 3, "{}", harness.holder.specs().len());
+}
+
+#[tokio::test]
 async fn close_hangs_up_and_waits_for_the_end() {
     let harness = Harness::new(ZSH);
     let info = harness.sessions.open(conversation(1), Path::new("/")).await.unwrap();

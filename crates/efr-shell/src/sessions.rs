@@ -244,13 +244,23 @@ impl ShellSessions {
                     self.spawn(conversation, start_dir).await
                 })
                 .await?;
+            let spawned = spawned.load(Ordering::Relaxed);
             if !session.is_ended() {
-                return Ok((session.clone(), spawned.load(Ordering::Relaxed)));
+                return Ok((session.clone(), spawned));
             }
             // The shell ended; a fresh slot gets a fresh shell.
-            let mut sessions = self.lock();
-            if sessions.get(&conversation).is_some_and(|current| Arc::ptr_eq(current, &slot)) {
-                sessions.remove(&conversation);
+            let exited = session.exited();
+            {
+                let mut sessions = self.lock();
+                if sessions.get(&conversation).is_some_and(|current| Arc::ptr_eq(current, &slot)) {
+                    sessions.remove(&conversation);
+                }
+            }
+            // A shell that ended before this call could even use it (an `exit` in the
+            // user's startup files, say) would end again; respawning it in a loop would
+            // only burn processes.
+            if spawned {
+                return Err(exited);
             }
         }
     }
