@@ -25,12 +25,19 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    `main.rs`, because tracing needs its `log` value; reading it changes nothing.
 2. `config.rs`: one file, `$XDG_CONFIG_HOME/efr/config.toml`, unknown keys refused;
    defaults, then the file, then `EFR_LOG` and `EFR_SCREEN`, then the flags.
-   `efrd --print-config` prints every value with its source.
+   `efrd --print-config` prints every value with its source. `[[permissions.rules]]`
+   holds the user's permission rules in the `efr_permissions::Rule` form; a rule of
+   the wrong shape or one that names a relative path, a program that is not one word
+   or an action its resource never matches stops the start with an error that names
+   `permissions.rules[N]`, counted from 0 (`docs/permissions.md`).
 3. The store: the backup copy in `backups/`, the forward-only migrations.
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    held, running shells recorded as exited, process-bound outbox items cancelled.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
    tool registry (`tools.rs`), the permission engine and the conversation registry.
+   The engine decides by `Policy::defaults()` followed by the user's rules, so a user
+   rule wins where both match; the user's rules are the machine policy and not a
+   conversation's, because only the machine policy may open a secret or a system path.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`) and
    the idle shell collector (`gc.rs`).
 7. The Unix socket (0600) and `daemon.json` (`discovery.rs`), then `READY=1` through
@@ -140,8 +147,12 @@ in-process on temporary directories with a manual clock, a seeded generator, vt1
 screens, an in-memory database and a scripted model, and talk to it over its socket in
 raw frames: a prompt followed to the end of its turn, routing and receipts, refusals,
 a notice for a terminal that does not follow its conversation, and a second daemon
-refused by the lock. The `e2e_` test runs an approved command in a real hidden zsh and
-attaches to its PTY; it skips with a message unless `EFR_TEST_ZSH=1`:
+refused by the lock. The tool adapter's tests run shell calls through the real
+toolbox and the engine with the defaults and with user rules: read-only commands run,
+other commands ask, a named secret is denied, and relative paths resolve where the
+hidden shell is. The `e2e_` tests run an approved command in a real hidden zsh and
+attach to its PTY, run `ls && cat` there without approval, and let a configured rule
+allow `seq 3` but not `seq 4`; they skip with a message unless `EFR_TEST_ZSH=1`:
 
 ```sh
 EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_

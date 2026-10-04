@@ -36,6 +36,11 @@
 //! [permissions]
 //! secret_paths = ["~/.config/rclone/rclone.conf"] # never read or written; ~/ or absolute
 //!
+//! [[permissions.rules]]            # after the built-in rules; the last match wins
+//! action = "execute"
+//! resource = { command = { program = "cargo", args = ["test"] } }
+//! effect = "allow"
+//!
 //! [render]
 //! theme = "ansi"                   # read by efr; the daemon only accepts the key
 //! ```
@@ -44,6 +49,7 @@ use std::fmt::{self, Write as _};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use efr_permissions::{Policy, Resource, Rule};
 use efr_stdx::env::{Env, Var};
 use serde::Deserialize;
 
@@ -69,8 +75,11 @@ The user talks to you from their shell with lines that start with a comma. \
 You run commands in a hidden zsh of your own, which starts in the user's working \
 directory, and you read and write files with your tools. Every tool call is checked \
 against the user's permission policy: writes outside $SCRATCH may need the user's \
-approval, and secrets are never readable. Prefer small, reversible steps, say what you \
-change, and keep answers short. Put throwaway files in $SCRATCH.";
+approval, and secrets are never readable. Read-only commands such as ls, cat, rg, git \
+status or systemctl status run at once when every argument is written out literally: \
+no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any \
+other command waits for the user's approval. Prefer small, reversible steps, say what \
+you change, and keep answers short. Put throwaway files in $SCRATCH.";
 
 /// Which screen backend the hidden shells get.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -200,6 +209,16 @@ pub struct PermissionSettings {
     /// model may never read or write them: absolute, or below the home directory as
     /// `~/...`.
     pub secret_paths: Vec<PathBuf>,
+    /// The user's rules, `[[permissions.rules]]`. They come after
+    /// [`Policy::defaults`] in the engine's policy, so they win where both match.
+    pub rules: Policy,
+}
+
+impl PermissionSettings {
+    /// The machine policy: the built-in rules, then the user's.
+    pub fn policy(&self) -> Policy {
+        Policy::defaults().then(self.rules.clone())
+    }
 }
 
 /// The effective configuration of the daemon.
@@ -390,6 +409,7 @@ impl Config {
             ("conversation.update_interval_ms", self.conversation.update_interval_ms.to_string()),
             ("conversation.tty_idle_hours", self.conversation.tty_idle_hours.to_string()),
             ("permissions.secret_paths", paths(&self.permissions.secret_paths)),
+            ("permissions.rules", rules(&self.permissions.rules)),
             ("render.theme", optional(self.render_theme.as_deref())),
         ]
     }
@@ -511,6 +531,25 @@ impl Config {
             set("conversation.tty_idle_hours");
             self.conversation.tty_idle_hours = hours;
         }
+        if let Some(rules) = permissions.rules {
+            let mut policy = Policy::empty();
+            for (index, value) in rules.into_iter().enumerate() {
+                let rule: Rule = value.try_into().map_err(|source| DaemonError::ParseRule {
+                    path: self.path.clone(),
+                    index,
+                    source: Box::new(source),
+                })?;
+                // NOTE: each rule is pushed onto a policy of the ones before it, so the
+                // index in the error is the rule's place in the file.
+                policy.push(rule).map_err(|source| DaemonError::InvalidRule {
+                    path: self.path.clone(),
+                    index,
+                    source,
+                })?;
+            }
+            set("permissions.rules");
+            self.permissions.rules = policy;
+        }
         if let Some(secret_paths) = permissions.secret_paths {
             if let Some(path) =
                 secret_paths.iter().find(|path| !path.is_absolute() && !path.starts_with("~"))
@@ -592,6 +631,49 @@ struct ConversationTable {
 #[serde(deny_unknown_fields)]
 struct PermissionsTable {
     secret_paths: Option<Vec<PathBuf>>,
+    /// Read one by one, so an error names the rule's place in the file.
+    rules: Option<Vec<toml::Value>>,
+}
+
+/// The rules as one inline TOML array, for the effective dump, each with its keys in
+/// the order the docs write them.
+fn rules(policy: &Policy) -> String {
+    let rules: Vec<String> = policy
+        .rules()
+        .iter()
+        .map(|rule| {
+            format!(
+                "{{ action = {}, resource = {}, effect = {} }}",
+                inline(&rule.action),
+                resource(&rule.resource),
+                inline(&rule.effect)
+            )
+        })
+        .collect();
+    format!("[{}]", rules.join(", "))
+}
+
+fn resource(resource: &Resource) -> String {
+    let Resource::Command(pattern) = resource else {
+        return inline(resource);
+    };
+    let mut fields = vec![format!("program = {}", inline(&pattern.program))];
+    if !pattern.args.is_empty() {
+        fields.push(format!("args = {}", inline(&pattern.args)));
+    }
+    if !pattern.forbid.is_empty() {
+        fields.push(format!("forbid = {}", inline(&pattern.forbid)));
+    }
+    if let Some(max) = pattern.max_operands {
+        fields.push(format!("max_operands = {max}"));
+    }
+    format!("{{ command = {{ {} }} }}", fields.join(", "))
+}
+
+/// One value in inline TOML.
+fn inline<T: serde::Serialize + ?Sized>(value: &T) -> String {
+    toml::Value::try_from(value)
+        .map_or_else(|_| "(not printable)".to_owned(), |value| value.to_string())
 }
 
 /// `efr`'s table: the daemon only accepts its key, so the shared file stays valid.

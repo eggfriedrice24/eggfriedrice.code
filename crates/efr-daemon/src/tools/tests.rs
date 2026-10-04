@@ -8,8 +8,11 @@ use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyId, PtyInfo, Signal, SignalTarget, Size,
     SpawnSpec,
 };
-use efr_permissions::Requirements;
-use efr_protocol::{CallId, ConversationId, TurnId};
+use efr_permissions::{
+    Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, Locations,
+    Requirements, Resource, Rule,
+};
+use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
 use efr_test_support::{TestClock, TestRng};
@@ -17,6 +20,7 @@ use efr_tools::{ToolError, ToolRequirements, ToolResult};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
+use crate::config::Config;
 use crate::screens::ScreenBackend;
 use crate::tools::{DaemonToolbox, for_model, outcome, permission_requirements, registry};
 
@@ -166,6 +170,7 @@ async fn a_write_is_previewed_as_a_diff_of_the_file() {
 fn every_declared_requirement_is_copied() {
     let declared = ToolRequirements::none()
         .with_read("/etc/hosts")
+        .with_read_tree("/var/log")
         .with_write("/tmp/out")
         .with_command("make")
         .with_network(true)
@@ -175,10 +180,123 @@ fn every_declared_requirement_is_copied() {
         permission_requirements(declared),
         Requirements::none()
             .with_read("/etc/hosts")
+            .with_read_tree("/var/log")
             .with_write("/tmp/out")
             .with_command("make")
             .with_network()
             .with_interactive()
+    );
+}
+
+#[test]
+fn a_shell_call_resolves_relative_paths_where_the_hidden_shell_is() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    let mut shell_call = call("shell", json!({"command": "cat notes.txt"}), home.path());
+    shell_call.context = shell_call.context.with_shell_cwd(Some(PathBuf::from("/var/log")));
+
+    let requirements = toolbox.requirements(&shell_call).unwrap();
+
+    assert_eq!(requirements.paths, Requirements::none().with_read("/var/log/notes.txt").paths);
+}
+
+/// What the check point decides for a shell call with `command`, from the shell in
+/// `~/p/app` (or the hidden shell's `shell_cwd` below the home directory), with the
+/// built-in rules followed by `rules`, as the daemon composes them.
+fn shell_decision(
+    command: &str,
+    shell_cwd: Option<&str>,
+    rules: Vec<Rule>,
+    origin: Origin,
+) -> Effect {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    let cwd = home.join("p/app");
+    let toolbox = toolbox(&home);
+    let mut shell_call = call("shell", json!({ "command": command }), &cwd);
+    shell_call.context = shell_call
+        .context
+        .with_shell_cwd(shell_cwd.map(|below| home.join(below)))
+        .with_origin(origin);
+    let requirements = toolbox.requirements(&shell_call).unwrap();
+    let mut permissions = Config::default().permissions;
+    permissions.rules = efr_permissions::Policy::new(rules).unwrap();
+    let engine = Engine::new(Locations::new(&home).unwrap(), permissions.policy());
+    let input = DecisionInput {
+        requirements,
+        scope: Scope::Machine,
+        origin,
+        conversation_policy: ConversationPolicy::new(home.join(".local/share/efr/scratch/x")),
+    };
+    engine.decide(&input).effect()
+}
+
+#[test]
+fn shell_calls_decide_by_the_command_and_the_paths_it_names() {
+    let cases = [
+        // Read-only commands run.
+        ("ls -la", None, Effect::Allow),
+        ("cat README.md", None, Effect::Allow),
+        ("git status && git diff --stat", None, Effect::Allow),
+        ("rg -n TODO src", None, Effect::Allow),
+        ("rg TODO", None, Effect::Allow),
+        ("find . -name '*.rs' | wc -l", None, Effect::Allow),
+        ("pacman -Qi zsh", None, Effect::Allow),
+        ("systemctl status nginx --no-pager", None, Effect::Allow),
+        ("journalctl -u nginx -n 20 --no-pager", None, Effect::Allow),
+        ("cat /etc/os-release", None, Effect::Allow),
+        // Anything else asks.
+        ("ls; rm -rf ~", None, Effect::Ask),
+        ("cargo test", None, Effect::Ask),
+        ("cat $(cat list.txt)", None, Effect::Ask),
+        ("sudo cat /etc/hosts", None, Effect::Ask),
+        ("pacman -Syu", None, Effect::Ask),
+        ("du -sh ~", None, Effect::Ask),
+        ("rg TOKEN ~/.aws", None, Effect::Ask),
+        ("grep -r token ~/.config", None, Effect::Ask),
+        // A secret that the line names is denied, whatever runs.
+        ("cat ~/.ssh/id_ed25519", None, Effect::Deny),
+        ("head -c 100 ~/.aws/credentials", None, Effect::Deny),
+        ("wc -c < ~/.netrc", None, Effect::Deny),
+        ("echo $(cat ~/.ssh/id_ed25519)", None, Effect::Deny),
+        ("sudo cat /etc/shadow", None, Effect::Deny),
+        ("cd ~/.ssh && cat id_ed25519", None, Effect::Deny),
+        ("cat /proc/self/environ", None, Effect::Deny),
+        ("echo key >> ~/.ssh/authorized_keys", None, Effect::Deny),
+        // Relative paths run from where the hidden shell is.
+        ("cat id_ed25519", Some(".ssh"), Effect::Deny),
+        ("ls", Some(".ssh"), Effect::Deny),
+        ("cat notes.txt", Some("p/app"), Effect::Allow),
+    ];
+    for (command, shell_cwd, expected) in cases {
+        let effect = shell_decision(command, shell_cwd, Vec::new(), Origin::Shell);
+        assert_eq!(effect, expected, "{command:?} from {shell_cwd:?}");
+    }
+}
+
+#[test]
+fn the_users_rules_come_after_the_built_in_ones() {
+    let cargo_test = Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
+        Effect::Allow,
+    );
+    let deny_cat =
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("cat")), Effect::Deny);
+    let open_ssh_config =
+        Rule::new(Action::Read, Resource::Under("~/.ssh/config".into()), Effect::Allow);
+    let rules = vec![cargo_test, deny_cat, open_ssh_config];
+    let decide = |command: &str| shell_decision(command, None, rules.clone(), Origin::Shell);
+
+    assert_eq!(decide("cargo test --workspace"), Effect::Allow);
+    assert_eq!(decide("cargo build"), Effect::Ask);
+    assert_eq!(decide("cat README.md"), Effect::Deny);
+    assert_eq!(decide("ls ~/.ssh/config"), Effect::Allow);
+    assert_eq!(decide("ls ~/.ssh/id_ed25519"), Effect::Deny);
+    assert_eq!(
+        shell_decision("cargo test", None, rules.clone(), Origin::Phone),
+        Effect::Ask,
+        "the phone asks even when a rule allows"
     );
 }
 

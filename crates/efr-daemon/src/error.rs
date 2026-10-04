@@ -65,6 +65,31 @@ pub enum DaemonError {
         #[source]
         source: Box<toml::de::Error>,
     },
+    /// A permission rule in the config file does not have the shape of a rule: an
+    /// unknown key, a missing one, or a value outside its set.
+    #[error("permissions.rules[{index}] in {} is not a rule", .path.display())]
+    ParseRule {
+        /// The config file.
+        path: PathBuf,
+        /// The rule's place in `permissions.rules`, counted from 0.
+        index: usize,
+        /// The parser's error.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A permission rule in the config file names a relative path, a program, argument
+    /// or forbidden word that is not one plain word, or an action its resource never
+    /// matches.
+    #[error("permissions.rules[{index}] in {} is invalid", .path.display())]
+    InvalidRule {
+        /// The config file.
+        path: PathBuf,
+        /// The rule's place in `permissions.rules`, counted from 0.
+        index: usize,
+        /// The error from `efr-permissions`.
+        #[source]
+        source: PermissionsError,
+    },
     /// A config value is outside its allowed set.
     #[error("the config value {key} = {value:?} is not {expected}")]
     InvalidConfig {
@@ -336,6 +361,8 @@ impl DaemonError {
             | DaemonError::Env { .. }
             | DaemonError::ReadConfig { .. }
             | DaemonError::ParseConfig { .. }
+            | DaemonError::ParseRule { .. }
+            | DaemonError::InvalidRule { .. }
             | DaemonError::Random { .. }
             | DaemonError::HomeUnknown
             | DaemonError::Home { .. }

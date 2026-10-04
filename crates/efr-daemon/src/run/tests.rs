@@ -5,8 +5,8 @@ use efr_conversation::HostInfo;
 use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 
-use crate::config::Config;
-use efr_permissions::PathClass;
+use crate::config::{Config, PermissionSettings};
+use efr_permissions::{Action, CommandPattern, Effect, PathClass, Policy, Resource, Rule};
 
 use crate::run::{conversation_config, engine, os_name};
 
@@ -28,12 +28,18 @@ async fn the_secret_paths_of_the_config_classify_as_secrets() {
     let root = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(root.path()).unwrap();
     let home = efr_scope::Home::new(&home).unwrap();
-    let secret_paths = [PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")];
+    let permissions = PermissionSettings {
+        secret_paths: vec![
+            PathBuf::from("~/.config/rclone/rclone.conf"),
+            PathBuf::from("/srv/vault"),
+        ],
+        ..PermissionSettings::default()
+    };
 
     let engine = engine(
         &home,
         &home.path().join("secrets"),
-        &secret_paths,
+        &permissions,
         &home.path().join("projects.toml"),
     )
     .await
@@ -44,6 +50,36 @@ async fn the_secret_paths_of_the_config_classify_as_secrets() {
     assert_eq!(class(home.path().join(".config/rclone/rclone.conf")), Some(PathClass::Secrets));
     assert_eq!(class(PathBuf::from("/srv/vault/token")), Some(PathClass::Secrets));
     assert_eq!(class(home.path().join(".config/rclone/other.conf")), Some(PathClass::UserConfig));
+}
+
+#[tokio::test]
+async fn the_engine_decides_by_the_built_in_rules_then_the_users() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    let home = efr_scope::Home::new(&home).unwrap();
+    let rule = Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
+        Effect::Allow,
+    );
+    let permissions = PermissionSettings {
+        rules: Policy::new(vec![rule.clone()]).unwrap(),
+        ..PermissionSettings::default()
+    };
+
+    let engine = engine(
+        &home,
+        &home.path().join("secrets"),
+        &permissions,
+        &home.path().join("projects.toml"),
+    )
+    .await
+    .unwrap();
+
+    let defaults = Policy::defaults();
+    let rules = engine.policy().rules();
+    assert_eq!(&rules[..defaults.rules().len()], defaults.rules());
+    assert_eq!(rules[defaults.rules().len()..], [rule]);
 }
 
 #[test]
@@ -397,6 +433,115 @@ mod daemon {
         drop((terminal, other, typist));
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
+    }
+
+    /// Runs one prompt whose model asks for `line` in a real hidden zsh in the home
+    /// directory, which holds `notes.txt`, and answers every approval with allow. The
+    /// answer: whether the call needed approval, and its output.
+    async fn run_in_zsh(line: &str, config: crate::Config) -> (bool, Option<String>) {
+        use std::collections::BTreeMap;
+        use std::sync::Arc;
+
+        use efr_protocol::{ApprovalDecision, ApprovalRespond, ApprovalRespondResult};
+
+        use crate::testing::{RunsOneCommandFactory, serve_with};
+
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+            std::fs::write(dirs.home().join(file), "").unwrap();
+        }
+        std::fs::write(dirs.home().join("notes.txt"), "hello\n").unwrap();
+        let env = BTreeMap::from([
+            ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ]);
+        let mut deps = deps(&dirs, &clock)
+            .with_shell_env(env)
+            .with_providers(Arc::new(RunsOneCommandFactory(line.to_owned())));
+        deps.holder = None;
+        let mut config = config;
+        config.shell.login = false;
+        let daemon = serve_with(config, deps).await;
+        let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        let (mut other, _) = RawClient::hello(&daemon.socket, None).await;
+
+        let sent: PromptSendResult = terminal
+            .call(Method::PromptSend(prompt(1, "run it", dirs.home().to_path_buf())))
+            .await
+            .unwrap();
+        let stream = terminal
+            .send(Method::ConversationSubscribe(ConversationSubscribe {
+                conversation_id: sent.conversation_id,
+                after_seq: Some(sent.seq),
+            }))
+            .await;
+        let mut asked = false;
+        let mut output = None;
+        loop {
+            let item = terminal.next(stream).await.unwrap().unwrap();
+            let ConversationSubscribeItem::Event(envelope) = serde_json::from_value(item).unwrap()
+            else {
+                panic!("a resume right after the prompt replays events");
+            };
+            match envelope.event {
+                Event::ApprovalRequested { call_id, .. } => {
+                    asked = true;
+                    let answer = Method::ApprovalRespond(ApprovalRespond {
+                        command_id: command(2),
+                        conversation_id: sent.conversation_id,
+                        call_id,
+                        decision: ApprovalDecision::Allow,
+                    });
+                    let _: ApprovalRespondResult = other.call(answer).await.unwrap();
+                }
+                Event::ToolCallCompleted { output: text, .. } => output = Some(text),
+                Event::TurnCompleted { .. } => break,
+                Event::TurnFailed { error, .. } => panic!("{error:?}"),
+                _ => {}
+            }
+        }
+        drop((terminal, other));
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
+        (asked, output)
+    }
+
+    #[tokio::test]
+    async fn e2e_a_read_only_command_runs_in_the_hidden_zsh_without_approval() {
+        if !zsh_enabled("e2e_a_read_only_command_runs_in_the_hidden_zsh_without_approval") {
+            return;
+        }
+
+        let (asked, output) = run_in_zsh("ls && cat notes.txt", crate::Config::default()).await;
+
+        assert!(!asked, "ls and cat run without approval");
+        let output = output.unwrap_or_default();
+        assert!(output.contains("notes.txt") && output.contains("hello"), "{output}");
+    }
+
+    #[tokio::test]
+    async fn e2e_a_rule_in_the_config_lets_a_command_run_without_approval() {
+        use efr_permissions::{Action, CommandPattern, Effect, Policy, Resource, Rule};
+
+        if !zsh_enabled("e2e_a_rule_in_the_config_lets_a_command_run_without_approval") {
+            return;
+        }
+        let mut config = crate::Config::default();
+        config.permissions.rules = Policy::new(vec![Rule::new(
+            Action::Execute,
+            Resource::Command(CommandPattern::new("seq").with_args(["3"])),
+            Effect::Allow,
+        )])
+        .unwrap();
+
+        let (asked, output) = run_in_zsh("seq 3", config.clone()).await;
+        assert!(!asked, "the configured rule allows seq 3");
+        assert!(output.unwrap_or_default().starts_with("1\n2\n3\n"));
+
+        let (asked, _) = run_in_zsh("seq 4", config).await;
+        assert!(asked, "seq 4 is not what the rule names");
     }
 
     #[tokio::test]

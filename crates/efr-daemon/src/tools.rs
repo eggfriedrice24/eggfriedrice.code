@@ -76,6 +76,7 @@ impl DaemonToolbox {
         )
         .with_scope(call.scope.clone())
         .with_origin(call.origin)
+        .with_shell_cwd(call.shell_cwd.clone())
     }
 }
 
@@ -135,6 +136,7 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     for access in declared.paths {
         requirements = match access.mode {
             AccessMode::Read => requirements.with_read(access.path),
+            AccessMode::ReadTree => requirements.with_read_tree(access.path),
             // NOTE: a mode this build does not know may change the file, so it counts as
             // a write, which the engine judges more strictly.
             _ => requirements.with_write(access.path),

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use efr_permissions::{Action, CommandPattern, Effect, PermissionsError, Policy, Resource, Rule};
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
@@ -149,6 +150,124 @@ fn values_outside_their_set_are_refused_with_the_key() {
 }
 
 #[test]
+fn permission_rules_come_from_the_file_in_order() {
+    let text = r#"
+        [[permissions.rules]]
+        action = "execute"
+        resource = { command = { program = "cargo", args = ["test"] } }
+        effect = "allow"
+
+        [[permissions.rules]]
+        action = "execute"
+        resource = { command = { program = "systemctl", args = ["restart", "nginx"] } }
+        effect = "allow"
+
+        [[permissions.rules]]
+        action = "read"
+        resource = { under = "~/.ssh/config" }
+        effect = "allow"
+    "#;
+
+    let config = Config::resolve(path(), Some(text), &no_env(), &Flags::default()).unwrap();
+
+    let expected = Policy::new(vec![
+        Rule::new(
+            Action::Execute,
+            Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
+            Effect::Allow,
+        ),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(CommandPattern::new("systemctl").with_args(["restart", "nginx"])),
+            Effect::Allow,
+        ),
+        Rule::new(Action::Read, Resource::Under("~/.ssh/config".into()), Effect::Allow),
+    ])
+    .unwrap();
+    assert_eq!(config.permissions.rules, expected);
+    assert_eq!(config.source("permissions.rules"), Source::File);
+    let policy = config.permissions.policy();
+    let defaults = Policy::defaults();
+    assert_eq!(&policy.rules()[..defaults.rules().len()], defaults.rules());
+    assert_eq!(&policy.rules()[defaults.rules().len()..], expected.rules());
+}
+
+#[test]
+fn without_permission_rules_the_policy_is_the_built_in_one() {
+    let config = Config::resolve(path(), None, &no_env(), &Flags::default()).unwrap();
+
+    assert_eq!(config.permissions.rules, Policy::empty());
+    assert_eq!(config.permissions.policy(), Policy::defaults());
+}
+
+#[test]
+fn an_invalid_permission_rule_is_named_by_its_place() {
+    let text = r#"
+        [[permissions.rules]]
+        action = "execute"
+        resource = { command = { program = "cargo", args = ["test"] } }
+        effect = "allow"
+
+        [[permissions.rules]]
+        action = "execute"
+        resource = { class = "system" }
+        effect = "allow"
+    "#;
+
+    let error = Config::resolve(path(), Some(text), &no_env(), &Flags::default()).unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "permissions.rules[1] in /home/u/.config/efr/config.toml is invalid"
+    );
+    match error {
+        DaemonError::InvalidRule { path: at, index, source } => {
+            assert_eq!(at, PathBuf::from(PATH));
+            assert_eq!(index, 1);
+            assert_eq!(
+                source,
+                PermissionsError::RuleNeverMatches { index: 1, action: Action::Execute }
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_permission_rule_of_the_wrong_shape_is_named_by_its_place() {
+    let text = r#"
+        [[permissions.rules]]
+        action = "read"
+        resource = "any"
+        effect = "allow"
+
+        [[permissions.rules]]
+        action = "read"
+        resource = "any"
+        effect = "allow"
+
+        [[permissions.rules]]
+        action = "execute"
+        resource = { command = { program = "ls" } }
+        effect = "allow"
+        why = "typo"
+    "#;
+
+    let result = Config::resolve(path(), Some(text), &no_env(), &Flags::default());
+
+    match result {
+        Err(DaemonError::ParseRule { index, source, .. }) => {
+            assert_eq!(index, 2);
+            assert!(source.to_string().contains("why"), "{source}");
+        }
+        other => panic!("{other:?}"),
+    }
+    let relative = "[[permissions.rules]]\naction = \"write\"\nresource = { under = \"p\" }\neffect = \"allow\"\n";
+    let result = Config::resolve(path(), Some(relative), &no_env(), &Flags::default());
+    assert!(matches!(result, Err(DaemonError::InvalidRule { index: 0, .. })), "{result:?}");
+}
+
+#[test]
 fn a_bad_screen_from_the_environment_is_refused_too() {
     let env = Env::fixed([(Var::Screen, "kitty")]);
 
@@ -178,6 +297,11 @@ fn the_effective_dump_names_every_value_and_its_source() {
 
         [render]
         theme = "catppuccin-mocha"
+
+        [[permissions.rules]]
+        action = "execute"
+        resource = { command = { program = "cargo", args = ["test"] } }
+        effect = "allow"
     "#;
     let env = Env::fixed([(Var::Log, "debug")]);
     let flags = Flags::new(None, Some("vt100".to_owned()));

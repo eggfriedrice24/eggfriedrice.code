@@ -36,7 +36,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::Config;
+use crate::config::{Config, PermissionSettings};
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
@@ -329,9 +329,7 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
-    let engine = Arc::new(
-        engine(&home, &secret_root, &config.permissions.secret_paths, &registry_path).await?,
-    );
+    let engine = Arc::new(engine(&home, &secret_root, &config.permissions, &registry_path).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
@@ -479,11 +477,15 @@ impl Daemon {
 
 /// The permission engine: the home directory and its resolved form, the daemon's own
 /// secrets, the secret paths of the config (`~/` below the home directory), and the
-/// registered projects.
+/// registered projects, deciding by the built-in rules followed by the user's.
+///
+/// NOTE: the user's rules belong to the engine, the machine policy, and not to
+/// `ConversationConfig::policy`: a conversation's rules may never open a secret or a
+/// system path, and the user's explicit rules must be able to.
 async fn engine(
     home: &Home,
     secrets: &Path,
-    secret_paths: &[PathBuf],
+    permissions: &PermissionSettings,
     registry: &Path,
 ) -> Result<Engine, DaemonError> {
     let invalid = |source| DaemonError::Locations { source };
@@ -507,7 +509,7 @@ async fn engine(
         }
     };
     locations = locations.with_secret_root(secrets).map_err(invalid)?;
-    for path in secret_paths {
+    for path in &permissions.secret_paths {
         let root = match path.strip_prefix("~") {
             Ok(below) => home.path().join(below),
             Err(_) => path.clone(),
@@ -517,7 +519,7 @@ async fn engine(
     for project in projects.projects() {
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
-    Ok(Engine::with_defaults(locations))
+    Ok(Engine::new(locations, permissions.policy()))
 }
 
 /// The conversations' settings from the config.
