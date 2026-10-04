@@ -25,6 +25,7 @@ mod discovery;
 mod error;
 mod gc;
 mod lock;
+mod methods;
 mod notices;
 mod providers;
 mod ptys;
