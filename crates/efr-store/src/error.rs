@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use efr_protocol::{ConversationId, PtyId, Seq};
 use efr_stdx::StdxError;
 
+use crate::receipts::Receipt;
+
 /// Every way a store operation can fail.
 ///
 /// Variants carry the data a caller acts on (the path, the sequence number, the stored
@@ -157,6 +159,14 @@ pub enum StoreError {
         /// What was wrong with the value.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+
+    /// A command id already has a receipt. The batch that carried the new receipt
+    /// wrote nothing; the caller answers with the stored outcome instead.
+    #[error("the command {} already has a receipt", .receipt.command_id)]
+    DuplicateCommand {
+        /// The stored receipt.
+        receipt: Box<Receipt>,
     },
 
     /// An event names a conversation that has no `conversation_created` event.

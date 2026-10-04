@@ -15,7 +15,7 @@ use efr_stdx::time::Clock;
 use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use crate::{StoreError, events, projection, sql};
+use crate::{StoreError, events, projection, receipts, sql};
 
 mod batch;
 
@@ -110,8 +110,9 @@ impl WriterHandle {
     ///
     /// Events get consecutive sequence numbers after the newest committed one and all
     /// get the same time from the clock, to the microsecond. A batch that fails writes
-    /// nothing and uses up no sequence numbers. A batch without events broadcasts
-    /// nothing.
+    /// nothing and uses up no sequence numbers; one whose command id already has a
+    /// receipt fails with [`StoreError::DuplicateCommand`]. A batch without events
+    /// broadcasts nothing.
     pub async fn append(&self, batch: Batch) -> Result<Committed, StoreError> {
         self.run(move |state| state.append(batch)).await
     }
@@ -170,6 +171,10 @@ impl WriterState {
             events::insert(&tx, &envelope)?;
             projection::apply(&tx, &envelope)?;
             envelopes.push(envelope);
+        }
+        let receipt_seq = envelopes.last().map(|envelope| envelope.seq);
+        for receipt in &batch.receipts {
+            receipts::record(&tx, receipt, receipt_seq, at)?;
         }
         tx.commit()?;
         self.last_seq = Seq::new(next);

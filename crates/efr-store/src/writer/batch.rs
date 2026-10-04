@@ -4,12 +4,16 @@ use std::sync::Arc;
 
 use efr_protocol::{ConversationId, Event, EventEnvelope, Seq};
 
-/// Everything that one transaction writes: events, in order. The projections follow
-/// from the events and are written in the same transaction.
+use crate::receipts::NewReceipt;
+
+/// Everything that one transaction writes: events in order, and the receipts of the
+/// commands that produced them. The projections follow from the events and are written
+/// in the same transaction.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[must_use]
 pub struct Batch {
     pub(crate) events: Vec<(Option<ConversationId>, Event)>,
+    pub(crate) receipts: Vec<NewReceipt>,
 }
 
 impl Batch {
@@ -31,9 +35,16 @@ impl Batch {
         self
     }
 
+    /// Adds the receipt of the command that produced the batch. The batch fails, and
+    /// writes nothing, when the command id already has a receipt.
+    pub fn receipt(mut self, receipt: NewReceipt) -> Self {
+        self.receipts.push(receipt);
+        self
+    }
+
     /// True when the batch writes nothing.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
+        self.events.is_empty() && self.receipts.is_empty()
     }
 }
 

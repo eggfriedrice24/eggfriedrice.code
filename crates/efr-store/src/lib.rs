@@ -27,6 +27,7 @@ mod error;
 pub mod events;
 mod migrations;
 mod projection;
+pub mod receipts;
 pub mod shells;
 mod sql;
 #[cfg(test)]
