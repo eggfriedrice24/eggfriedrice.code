@@ -1,11 +1,13 @@
-//! A local stand-in for the OpenAI Responses API, so the daemon's real provider runs
-//! against wiremock instead of the network.
+//! A local stand-in for the OpenAI Responses API and the token endpoint of the OpenAI
+//! login, so the daemon's real provider runs against wiremock instead of the network.
 //!
 //! Every `POST /v1/responses` gets the next queued answer, in order, and is kept for
-//! the test to inspect. The daemon reaches it through the `openai-api` provider, whose
-//! base URL the test daemon points here.
+//! the test to inspect. The daemon reaches it through the `openai-api` provider, or
+//! the `openai-subscription` provider, whose base URL the test daemon points here.
+//! Every `POST /oauth/token` gets the next queued token answer; the subscription
+//! provider's token source refreshes there, with the server as its issuer.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -15,6 +17,9 @@ use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
 
 /// The path the provider posts to, below [`ResponsesServer::base_url`].
 const RESPONSES_PATH: &str = "/v1/responses";
+
+/// The token endpoint below [`ResponsesServer::issuer`].
+const TOKEN_PATH: &str = "/oauth/token";
 
 /// The status of a request that came after the last queued answer.
 const EXHAUSTED_STATUS: u16 = 599;
@@ -131,6 +136,8 @@ pub struct ReceivedRequest {
     pub body: Value,
     /// The `Authorization` header, when there was one.
     pub authorization: Option<String>,
+    /// The `chatgpt-account-id` header, which the subscription provider sends.
+    pub account_id: Option<String>,
 }
 
 impl fmt::Debug for ReceivedRequest {
@@ -139,7 +146,22 @@ impl fmt::Debug for ReceivedRequest {
         f.debug_struct("ReceivedRequest")
             .field("body", &self.body)
             .field("authorization", &self.authorization.as_ref().map(|_| "<redacted>"))
+            .field("account_id", &self.account_id)
             .finish()
+    }
+}
+
+/// A request the token endpoint got: its form parameters. `Debug` leaves out the
+/// values, which carry tokens.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TokenRequest {
+    /// The form parameters, such as `grant_type` and `refresh_token`.
+    pub form: BTreeMap<String, String>,
+}
+
+impl fmt::Debug for TokenRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenRequest").field("keys", &self.form.keys().collect::<Vec<_>>()).finish()
     }
 }
 
@@ -147,6 +169,8 @@ impl fmt::Debug for ReceivedRequest {
 struct Queue {
     answers: VecDeque<ResponsesAnswer>,
     received: Vec<ReceivedRequest>,
+    token_answers: VecDeque<ResponsesAnswer>,
+    token_requests: Vec<TokenRequest>,
 }
 
 /// A wiremock server that answers `POST /v1/responses` from a queue.
@@ -165,6 +189,11 @@ impl ResponsesServer {
             .respond_with(Answers { queue: Arc::clone(&queue) })
             .mount(&server)
             .await;
+        Mock::given(method("POST"))
+            .and(path(TOKEN_PATH))
+            .respond_with(TokenAnswers { queue: Arc::clone(&queue) })
+            .mount(&server)
+            .await;
         ResponsesServer { server, queue }
     }
 
@@ -173,14 +202,30 @@ impl ResponsesServer {
         format!("{}/v1", self.server.uri())
     }
 
+    /// The authorization server the login's token source is configured with: the
+    /// server itself, whose `/oauth/token` answers from the token queue.
+    pub fn issuer(&self) -> String {
+        self.server.uri()
+    }
+
     /// Queues `answer` for the next request.
     pub fn push(&self, answer: ResponsesAnswer) {
         lock(&self.queue).answers.push_back(answer);
     }
 
+    /// Queues `answer`, sent as JSON, for the next request to the token endpoint.
+    pub fn push_token(&self, answer: ResponsesAnswer) {
+        lock(&self.queue).token_answers.push_back(answer);
+    }
+
     /// Every request so far, in order.
     pub fn received(&self) -> Vec<ReceivedRequest> {
         lock(&self.queue).received.clone()
+    }
+
+    /// Every request to the token endpoint so far, in order.
+    pub fn token_requests(&self) -> Vec<TokenRequest> {
+        lock(&self.queue).token_requests.clone()
     }
 
     /// The answers no request has taken yet.
@@ -208,13 +253,13 @@ struct Answers {
 impl Respond for Answers {
     fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
         let body = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
-        let authorization = request
-            .headers
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
+        let header = |name: &str| {
+            request.headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned)
+        };
+        let authorization = header("authorization");
+        let account_id = header("chatgpt-account-id");
         let mut queue = lock(&self.queue);
-        queue.received.push(ReceivedRequest { body, authorization });
+        queue.received.push(ReceivedRequest { body, authorization, account_id });
         match queue.answers.pop_front() {
             Some(answer) if (200..300).contains(&answer.status) => {
                 ResponseTemplate::new(answer.status)
@@ -226,6 +271,26 @@ impl Respond for Answers {
                 .set_body_string(answer.body),
             None => ResponseTemplate::new(EXHAUSTED_STATUS)
                 .set_body_string("the transcript has no answer left for this request"),
+        }
+    }
+}
+
+/// The responder behind the token endpoint's mock.
+struct TokenAnswers {
+    queue: Arc<Mutex<Queue>>,
+}
+
+impl Respond for TokenAnswers {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let form = url::form_urlencoded::parse(&request.body).into_owned().collect();
+        let mut queue = lock(&self.queue);
+        queue.token_requests.push(TokenRequest { form });
+        match queue.token_answers.pop_front() {
+            Some(answer) => ResponseTemplate::new(answer.status)
+                .insert_header("content-type", "application/json")
+                .set_body_string(answer.body),
+            None => ResponseTemplate::new(EXHAUSTED_STATUS)
+                .set_body_string("the test queued no answer for this token request"),
         }
     }
 }

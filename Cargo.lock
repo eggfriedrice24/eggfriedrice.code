@@ -1128,6 +1128,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "url",
  "wiremock",
 ]
 

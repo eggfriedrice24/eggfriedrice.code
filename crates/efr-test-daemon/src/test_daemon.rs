@@ -36,7 +36,7 @@ use jiff::tz::TimeZone;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-pub use self::responses::{ReceivedRequest, ResponsesAnswer, ResponsesServer};
+pub use self::responses::{ReceivedRequest, ResponsesAnswer, ResponsesServer, TokenRequest};
 use crate::{FakePtyHolder, TestDaemonError};
 
 /// The system prompt of a test daemon: short, so provider requests in fixtures stay
@@ -52,6 +52,19 @@ pub const OS: &str = "TestOS";
 /// The API key the test daemon stores for the `openai-api` provider when it talks to
 /// a [`ResponsesServer`].
 pub const API_KEY: &str = "sk-efr-test-key";
+
+/// The access token of the subscription login the test daemon stores for the
+/// `openai-subscription` provider when it talks to a [`ResponsesServer`].
+pub const SUBSCRIPTION_ACCESS_TOKEN: &str = "efr-test-access-1";
+
+/// The refresh token of that login.
+pub const SUBSCRIPTION_REFRESH_TOKEN: &str = "efr-test-refresh-1";
+
+/// The ChatGPT account of that login.
+pub const SUBSCRIPTION_ACCOUNT: &str = "efr-test-account";
+
+/// When that login's access token expires: far enough that only a 401 refreshes it.
+const SUBSCRIPTION_EXPIRES_AT: &str = "2099-01-01T00:00:00Z";
 
 /// The terminal the tests' shell clients say hello from, and the one a replay's
 /// prompts name; prompts without a conversation id go to its active conversation.
@@ -77,6 +90,9 @@ const ZSH_STARTUP_FILES: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin"
 /// The provider credential the `openai-api` provider reads.
 const API_CREDENTIAL: &str = "secrets/openai-api.json";
 
+/// The provider credential the `openai-subscription` provider reads and refreshes.
+pub const SUBSCRIPTION_CREDENTIAL: &str = "secrets/openai-subscription.json";
+
 /// Which PTY holder the daemon gets.
 #[derive(Debug, Clone)]
 enum HolderChoice {
@@ -93,6 +109,12 @@ enum ProviderChoice {
     Custom(Arc<dyn Provider>),
     /// The real `openai-api` provider with this base URL.
     Responses(String),
+    /// The real `openai-subscription` provider with this base URL, refreshing its
+    /// login at this issuer.
+    Subscription {
+        base_url: String,
+        issuer: String,
+    },
 }
 
 /// What a start needs, kept for a restart.
@@ -215,6 +237,18 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Runs the real `openai-subscription` provider against `server`, with a login
+    /// ([`SUBSCRIPTION_ACCESS_TOKEN`], [`SUBSCRIPTION_REFRESH_TOKEN`],
+    /// [`SUBSCRIPTION_ACCOUNT`]) stored as its credential and `server` as the issuer
+    /// its token source refreshes at. The login is stored once per tree, so a
+    /// restart keeps what a refresh saved.
+    #[must_use]
+    pub fn subscription(mut self, server: &ResponsesServer) -> Self {
+        self.settings.provider =
+            ProviderChoice::Subscription { base_url: server.base_url(), issuer: server.issuer() };
+        self
+    }
+
     /// Keeps the database in `efr.sqlite` under the temporary data directory, so a
     /// restart on the same tree finds it.
     #[must_use]
@@ -314,6 +348,12 @@ impl TestDaemon {
                 config.openai.api_base_url = Some(base_url.clone());
                 store_api_key(dirs.dirs().data())?;
             }
+            ProviderChoice::Subscription { base_url, issuer } => {
+                config.provider = efr_daemon::SUBSCRIPTION.to_owned();
+                config.openai.subscription_base_url = Some(base_url.clone());
+                deps = deps.with_oauth_issuer(issuer.clone());
+                store_login(dirs.dirs().data())?;
+            }
         }
         let daemon = efr_daemon::start(config, deps).await?;
         let socket = daemon.socket_path().to_path_buf();
@@ -377,7 +417,9 @@ impl TestDaemon {
     pub fn provider(&self) -> Option<&Arc<ReplayProvider>> {
         match &self.settings.provider {
             ProviderChoice::Replay(provider) => Some(provider),
-            ProviderChoice::Custom(_) | ProviderChoice::Responses(_) => None,
+            ProviderChoice::Custom(_)
+            | ProviderChoice::Responses(_)
+            | ProviderChoice::Subscription { .. } => None,
         }
     }
 
@@ -587,10 +629,33 @@ fn default_shell_env(home: &Path) -> BTreeMap<String, String> {
     ])
 }
 
-/// Stores [`API_KEY`] as the `openai-api` credential, the way the daemon's file store
-/// keeps one: the directory 0700, the file 0600.
+/// Stores [`API_KEY`] as the `openai-api` credential.
 fn store_api_key(data: &Path) -> Result<(), TestDaemonError> {
-    let path = data.join(API_CREDENTIAL);
+    let record = serde_json::json!({ "version": 1, "kind": "api_key", "key": API_KEY });
+    store_credential(&data.join(API_CREDENTIAL), &record)
+}
+
+/// Stores the test login as the `openai-subscription` credential, unless one is there
+/// already: a refresh before a restart saved a newer one.
+fn store_login(data: &Path) -> Result<(), TestDaemonError> {
+    let path = data.join(SUBSCRIPTION_CREDENTIAL);
+    if path.exists() {
+        return Ok(());
+    }
+    let record = serde_json::json!({
+        "version": 1,
+        "kind": "oauth",
+        "access_token": SUBSCRIPTION_ACCESS_TOKEN,
+        "refresh_token": SUBSCRIPTION_REFRESH_TOKEN,
+        "expires_at": SUBSCRIPTION_EXPIRES_AT,
+        "account_id": SUBSCRIPTION_ACCOUNT,
+    });
+    store_credential(&path, &record)
+}
+
+/// Writes `record` to `path` the way the daemon's file store keeps a credential: the
+/// directory 0700, the file 0600.
+fn store_credential(path: &Path, record: &serde_json::Value) -> Result<(), TestDaemonError> {
     let Some(dir) = path.parent() else {
         return Ok(());
     };
@@ -599,13 +664,12 @@ fn store_api_key(data: &Path) -> Result<(), TestDaemonError> {
         .mode(0o700)
         .create(dir)
         .map_err(|source| TestDaemonError::Write { path: dir.to_path_buf(), source })?;
-    let record = serde_json::json!({ "version": 1, "kind": "api_key", "key": API_KEY });
     let write = |path: &Path| -> std::io::Result<()> {
         let mut file =
             OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
         file.write_all(format!("{record}\n").as_bytes())
     };
-    write(&path).map_err(|source| TestDaemonError::Write { path, source })
+    write(path).map_err(|source| TestDaemonError::Write { path: path.to_path_buf(), source })
 }
 
 #[cfg(test)]

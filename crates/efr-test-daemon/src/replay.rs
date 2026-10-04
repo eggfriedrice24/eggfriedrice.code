@@ -29,7 +29,9 @@
 //! In the Responses mode the server queues every exchange's answer at the start: the
 //! `provider_sse` records of an exchange, joined, are the body of a 200 answer, unless
 //! the first line is the comment `: status <code>`, which sets the status. The requests
-//! are compared with the `provider_request` records at the end.
+//! are compared with the `provider_request` records at the end. A subscription
+//! scenario runs the `openai-subscription` provider with a stored login, and the
+//! server's token endpoint answers one refresh grant.
 //!
 //! [`Replay::bless`] rewrites a fixture's outbound records (`provider_request`,
 //! `event`, typed `pty_bytes`) with what the daemon actually did, keeping the inbound
@@ -60,6 +62,13 @@ use crate::{FakeTerminal, TestDaemon, TestDaemonError};
 /// Event kinds whose number depends on how a stream is chunked.
 const INCIDENTAL: &[&str] = &["assistant_message_updated", "tool_call_output_updated"];
 
+/// The access token the token endpoint of a subscription scenario hands out for the
+/// refresh grant.
+pub const REFRESHED_ACCESS_TOKEN: &str = "efr-test-access-2";
+
+/// The refresh token it rotates to.
+pub const REFRESHED_REFRESH_TOKEN: &str = "efr-test-refresh-2";
+
 /// How often a replay yields while it waits for the provider to get a request,
 /// before it gives up.
 const MAX_REQUEST_POLLS: usize = 10_000_000;
@@ -76,6 +85,10 @@ pub struct ScenarioSpec {
     /// The real OpenAI provider against a [`ResponsesServer`] instead of a replay
     /// provider.
     pub responses: bool,
+    /// With `responses`, the `openai-subscription` provider with a stored login instead
+    /// of `openai-api`; the server's token endpoint answers one refresh grant with
+    /// [`REFRESHED_ACCESS_TOKEN`] and [`REFRESHED_REFRESH_TOKEN`].
+    pub subscription: bool,
     /// A file store, so the database survives a restart.
     pub persistent: bool,
     /// Replaces the daemon's update interval of streamed text, in milliseconds.
@@ -91,6 +104,7 @@ impl ScenarioSpec {
         ScenarioSpec {
             name,
             responses: false,
+            subscription: false,
             persistent: false,
             update_interval_ms: None,
             restart_after_event: None,
@@ -98,8 +112,9 @@ impl ScenarioSpec {
         }
     }
 
-    const fn responses(mut self) -> Self {
+    const fn subscription(mut self) -> Self {
         self.responses = true;
+        self.subscription = true;
         self
     }
 
@@ -140,7 +155,8 @@ pub const SCENARIOS: &[ScenarioSpec] = &[
     // resume may replay.
     ScenarioSpec::new("subscribe_gap_too_large_snapshot").update_interval_ms(0),
     ScenarioSpec::new("duplicate_command_id_receipt"),
-    ScenarioSpec::new("provider_401_refresh_once").responses(),
+    // The subscription's token source refreshes its login once on a 401.
+    ScenarioSpec::new("provider_401_refresh_once").subscription(),
     // After the second prompt queued behind the running turn.
     ScenarioSpec::new("restart_reconcile_inflight_turn").persistent().restart_after_event(4),
     ScenarioSpec::new("pty_attach_since_seq"),
@@ -291,7 +307,17 @@ impl Replay {
             for (_, _, answer) in exchanges(&scenario.transcript)? {
                 server.push(ResponsesAnswer::from_sse(&answer));
             }
-            builder = builder.responses(&server);
+            builder = if spec.subscription {
+                let refreshed = serde_json::json!({
+                    "access_token": REFRESHED_ACCESS_TOKEN,
+                    "refresh_token": REFRESHED_REFRESH_TOKEN,
+                    "expires_in": 3600,
+                });
+                server.push_token(ResponsesAnswer::new(200, refreshed.to_string()));
+                builder.subscription(&server)
+            } else {
+                builder.responses(&server)
+            };
             (None, Some(server))
         } else {
             let provider =

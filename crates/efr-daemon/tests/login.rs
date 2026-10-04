@@ -1,5 +1,6 @@
-//! Provider credentials over a `TestDaemon`: the real OpenAI provider against a local
-//! Responses server refreshes its token once on a 401, and `admin.login_openai` hands
+//! Provider credentials over a `TestDaemon`: the real subscription provider against a
+//! local Responses server refreshes its login once on a 401 and saves the new tokens,
+//! the API key provider retries once and then fails, and `admin.login_openai` hands
 //! out the authorize URL, runs one login at a time and ends with what the browser said.
 
 // NOTE: an integration test crate is always built with cfg(test); saying so lets
@@ -10,11 +11,13 @@ use efr_protocol::{
     AdminLoginOpenAi, AdminLoginOpenAiItem, ErrorCode, Event, Method, PromptSendResult,
 };
 use efr_test_daemon::{
-    API_KEY, ClientError, ItemStream, Replay, ResponsesAnswer, ResponsesServer, TTY, TestDaemon,
-    events_until,
+    API_KEY, ClientError, ItemStream, REFRESHED_ACCESS_TOKEN, REFRESHED_REFRESH_TOKEN, Replay,
+    ResponsesAnswer, ResponsesServer, SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT,
+    SUBSCRIPTION_CREDENTIAL, SUBSCRIPTION_REFRESH_TOKEN, TTY, TestDaemon, events_until,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
+use serde_json::Value;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 const UNAUTHORIZED: &str = r#"{"error":{"message":"Your authentication token has expired.","type":"invalid_request_error","code":"token_expired"}}"#;
@@ -22,16 +25,61 @@ const UNAUTHORIZED: &str = r#"{"error":{"message":"Your authentication token has
 #[tokio::test]
 async fn provider_401_refresh_once() {
     let replay = Replay::run("provider_401_refresh_once").await.unwrap();
+    let server = replay.server().unwrap();
 
-    let received = replay.server().unwrap().received();
+    let received = server.received();
     assert_eq!(received.len(), 2, "the refused request and its one retry");
-    let bearer = format!("Bearer {API_KEY}");
+    assert_eq!(
+        received[0].authorization.as_deref(),
+        Some(format!("Bearer {SUBSCRIPTION_ACCESS_TOKEN}").as_str())
+    );
+    assert_eq!(
+        received[1].authorization.as_deref(),
+        Some(format!("Bearer {REFRESHED_ACCESS_TOKEN}").as_str()),
+        "the retry carries the refreshed token"
+    );
     for request in &received {
-        assert_eq!(request.authorization.as_deref(), Some(bearer.as_str()));
+        assert_eq!(request.account_id.as_deref(), Some(SUBSCRIPTION_ACCOUNT));
     }
     assert_eq!(received[0].body, received[1].body, "the retry is the same request");
+    let [refresh] = server.token_requests().try_into().unwrap();
+    assert_eq!(refresh.form.get("grant_type").map(String::as_str), Some("refresh_token"));
+    assert_eq!(
+        refresh.form.get("refresh_token").map(String::as_str),
+        Some(SUBSCRIPTION_REFRESH_TOKEN)
+    );
+    let saved = replay.daemon().dirs().dirs().data().join(SUBSCRIPTION_CREDENTIAL);
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(saved).unwrap()).unwrap();
+    assert_eq!(saved["access_token"], REFRESHED_ACCESS_TOKEN, "the refreshed login is saved");
+    assert_eq!(saved["refresh_token"], REFRESHED_REFRESH_TOKEN);
+    assert_eq!(saved["account_id"], SUBSCRIPTION_ACCOUNT);
     assert_eq!(replay.events().await.unwrap().last().unwrap().event.kind(), "turn_completed");
     replay.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_api_key_provider_retries_a_401_once_with_the_same_key() {
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::new(401, UNAUTHORIZED));
+    server.push(ResponsesAnswer::text("Hello after the retry."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    let sent: PromptSendResult = client.call(daemon.prompt(1, "hello", TTY)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let events = events_until(&mut follow, |event| {
+        matches!(event, Event::TurnFailed { .. } | Event::TurnCompleted { .. })
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed");
+    let bearer = format!("Bearer {API_KEY}");
+    let received = server.received();
+    assert_eq!(received.len(), 2);
+    assert!(received.iter().all(|request| request.authorization.as_deref() == Some(&bearer)));
+    drop((follow, client));
+    daemon.stop().await.unwrap();
 }
 
 #[tokio::test]

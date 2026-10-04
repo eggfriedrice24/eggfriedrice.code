@@ -56,7 +56,7 @@ pub(crate) struct Providers {
 
 impl Providers {
     /// The providers of `config`, with credentials in `store`. `factory` replaces how
-    /// the conversations' provider is built.
+    /// the conversations' provider is built, and `issuer` the authorization server.
     pub(crate) fn build(
         config: &Config,
         store: Arc<dyn SecretStore>,
@@ -64,9 +64,13 @@ impl Providers {
         clock: Arc<dyn Clock>,
         rng: Arc<dyn Rng>,
         factory: Option<Arc<dyn ProviderFactory>>,
+        issuer: Option<String>,
     ) -> Result<Self, DaemonError> {
         let mut oauth = OAuthConfig::default();
         oauth.originator.clone_from(&config.openai.originator);
+        if let Some(issuer) = issuer {
+            oauth.issuer = issuer;
+        }
         let subscription = Arc::new(OpenAiTokenSource::new(
             oauth.clone(),
             http.clone(),

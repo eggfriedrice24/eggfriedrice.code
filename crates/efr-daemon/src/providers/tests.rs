@@ -107,6 +107,7 @@ async fn the_configured_provider_is_built_without_touching_the_network() {
         clock.shared(),
         Arc::new(TestRng::new(2)),
         None,
+        None,
     )
     .unwrap();
 

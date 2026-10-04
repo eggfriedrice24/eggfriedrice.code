@@ -75,6 +75,9 @@ pub struct Deps {
     pub screens: Option<(Arc<dyn ScreenFactory>, String)>,
     /// Builds the conversations' provider; `None` uses the stored credentials.
     pub providers: Option<Arc<dyn ProviderFactory>>,
+    /// The authorization server of the subscription login and its token refresh;
+    /// `None` is `https://auth.openai.com`. Tests point it at a local server.
+    pub oauth_issuer: Option<String>,
     /// The machine facts of the preamble; `None` reads them from the system.
     pub host: Option<HostInfo>,
     /// The time zone of scratch directory names; `None` uses the system's.
@@ -95,6 +98,7 @@ impl fmt::Debug for Deps {
             .field("holder", &self.holder.is_some())
             .field("screens", &self.screens.as_ref().map(|(_, name)| name))
             .field("providers", &self.providers.is_some())
+            .field("oauth_issuer", &self.oauth_issuer)
             .field("host", &self.host)
             .field("in_memory_store", &self.in_memory_store)
             .field("isolated_git", &self.isolated_git)
@@ -120,6 +124,7 @@ impl Deps {
             holder: None,
             screens: None,
             providers: None,
+            oauth_issuer: None,
             host: None,
             time_zone: None,
             in_memory_store: false,
@@ -173,6 +178,14 @@ impl Deps {
     #[must_use]
     pub fn with_providers(mut self, factory: Arc<dyn ProviderFactory>) -> Self {
         self.providers = Some(factory);
+        self
+    }
+
+    /// Uses `issuer` as the authorization server of the subscription login and its
+    /// token refresh.
+    #[must_use]
+    pub fn with_oauth_issuer(mut self, issuer: impl Into<String>) -> Self {
+        self.oauth_issuer = Some(issuer.into());
         self
     }
 
@@ -247,6 +260,7 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
         holder,
         screens,
         providers,
+        oauth_issuer,
         host,
         time_zone,
         in_memory_store,
@@ -303,8 +317,15 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
-    let providers =
-        Providers::build(&config, secrets, http, Arc::clone(&clock), Arc::clone(&rng), providers)?;
+    let providers = Providers::build(
+        &config,
+        secrets,
+        http,
+        Arc::clone(&clock),
+        Arc::clone(&rng),
+        providers,
+        oauth_issuer,
+    )?;
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
