@@ -16,6 +16,16 @@ Modules:
   checks all of that, and holders call it before they open anything, because a spec
   that arrives over a socket bypasses the constructor. `Debug` shows environment names
   without their values.
+- `holder`: the `PtyHolder` trait (`spawn`, `resize`, `signal`, `list`, `release`),
+  dyn-compatible through `async-trait`, and `PtyHandle { master: OwnedFd, child_pid,
+  pty_id }`. The holder owns and reaps the child; the caller owns the master and closes
+  it by dropping the handle. The master is an `OwnedFd` from the first line, so no raw
+  descriptor number crosses a crate boundary.
+- `signal`: `Signal` (hangup, interrupt, quit, terminate, kill) and `SignalTarget`
+  (the child, or the PTY's foreground process group). The holder maps them to the
+  platform's numbers.
+- `info`: `PtyInfo` and `ChildStatus`, what `list` reports. A PTY stays listed with
+  its exit status until it is released.
 - `error`: `HolderError`, the crate's one error type.
 
 ## Tier
@@ -28,7 +38,7 @@ Tier 1.
 `efr-protocol` so far: nothing here reads a clock, draws randomness or touches the
 file system. `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `serde` and `thiserror`.
+Third-party crates: `async-trait`, `serde` and `thiserror`.
 
 ## Invariant
 
@@ -49,5 +59,6 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-holder
 ```
 
-The tests are pure: decision tables for `SpawnSpec::validate` and JSON round trips.
-They use no network, no real-time sleeps and no Zig.
+The tests are decision tables for `SpawnSpec::validate`, JSON round trips, and the
+trait driven through `Arc<dyn PtyHolder>` with an in-memory holder whose "master" is
+one end of a pipe. They open no PTY, use no network, no real-time sleeps and no Zig.

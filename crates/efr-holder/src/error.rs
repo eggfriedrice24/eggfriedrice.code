@@ -1,8 +1,11 @@
 //! The one public error type of the crate.
 
+use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::Size;
+use efr_protocol::{PtyId, Size};
+
+use crate::Signal;
 
 /// Every way a holder operation can fail.
 ///
@@ -56,6 +59,70 @@ pub enum HolderError {
     NulByte {
         /// Which part: `"program"`, `"cwd"` or `"argument"`.
         field: &'static str,
+    },
+
+    /// The holder already holds a PTY with this id. A spawn retried after a lost reply
+    /// gets this instead of a second shell.
+    #[error("the holder already holds the PTY {pty_id}")]
+    AlreadyExists {
+        /// The id in the spec.
+        pty_id: PtyId,
+    },
+
+    /// The holder holds no PTY with this id, or it was released.
+    #[error("the holder holds no PTY {pty_id}")]
+    NotFound {
+        /// The id asked for.
+        pty_id: PtyId,
+    },
+
+    /// The operation needs a running child, and the PTY's child has exited.
+    #[error("the child of the PTY {pty_id} has exited")]
+    Exited {
+        /// The PTY.
+        pty_id: PtyId,
+    },
+
+    /// Opening the PTY or starting the program failed.
+    #[error("could not start {} on a new PTY", .program.display())]
+    Spawn {
+        /// The program of the spec.
+        program: PathBuf,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Setting the terminal size failed.
+    #[error("could not resize the PTY {pty_id}")]
+    Resize {
+        /// The PTY.
+        pty_id: PtyId,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Delivering a signal failed.
+    #[error("could not send {signal} to the PTY {pty_id}")]
+    Signal {
+        /// The PTY.
+        pty_id: PtyId,
+        /// The signal.
+        signal: Signal,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Releasing a PTY failed.
+    #[error("could not release the PTY {pty_id}")]
+    Release {
+        /// The PTY.
+        pty_id: PtyId,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
     },
 }
 
