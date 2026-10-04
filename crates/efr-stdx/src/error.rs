@@ -1,5 +1,9 @@
 //! The one public error type of the crate.
 
+use std::path::PathBuf;
+
+use crate::env::Var;
+
 /// Every way an `efr-stdx` operation can fail.
 ///
 /// Variants carry the data a caller needs to decide what to do (the variable, the
@@ -7,4 +11,31 @@
 /// source's text to the `source()` chain.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum StdxError {}
+pub enum StdxError {
+    /// An environment variable holds bytes that are not valid UTF-8.
+    #[error("{var} is not valid UTF-8")]
+    NotUnicode {
+        /// The variable.
+        var: Var,
+    },
+
+    /// A path variable holds a relative path.
+    #[error("{var} must hold an absolute path, not {}", .path.display())]
+    RelativeEnvPath {
+        /// The variable.
+        var: Var,
+        /// The relative path it holds.
+        path: PathBuf,
+    },
+
+    /// A variable holds a value that does not parse as the expected type.
+    #[error("{var} holds {value:?}, which is not {expected}")]
+    InvalidEnvValue {
+        /// The variable.
+        var: Var,
+        /// The value it holds.
+        value: String,
+        /// What the value must be.
+        expected: &'static str,
+    },
+}

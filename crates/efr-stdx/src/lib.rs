@@ -17,6 +17,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+pub mod env;
 mod error;
 
 pub use error::StdxError;
