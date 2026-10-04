@@ -10,11 +10,15 @@
 //! (the clock, the named writer thread, private file creation). What does not belong
 //! here: deciding what happens next (the conversation actor and the daemon do that),
 //! the wire mapping of errors, and any other crate opening SQLite.
+//!
+//! `db` is a public module because its paths are the replacements that `clippy.toml`
+//! names for `rusqlite::Connection::open` and `open_in_memory`.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+pub mod db;
 mod error;
 
 pub use error::StoreError;
