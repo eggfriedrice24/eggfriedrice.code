@@ -12,7 +12,9 @@ publish = false
 doctest = false
 
 [dependencies]
+async-trait.workspace = true
 efr-protocol.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -20,6 +22,7 @@ thiserror.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

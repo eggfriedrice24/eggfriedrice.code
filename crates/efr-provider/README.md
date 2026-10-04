@@ -26,6 +26,11 @@ Modules:
   provider events with no canonical form become `Raw` instead of being dropped.
 - `usage`: `TokenUsage` with cached and reasoning parts; usages add with saturation
   and convert to the wire's `efr_protocol::Usage`.
+- `token_source`: the `TokenSource` trait (`access_token`, `invalidate`) and
+  `StaticToken` for an API key. A provider holds an `Arc<dyn TokenSource>` and never
+  sees a refresh token; `efr-oauth-openai` implements the trait for the subscription
+  login. Tokens are `secrecy::SecretString` (re-exported with `ExposeSecret`), whose
+  `Debug` is redacted.
 - `error`: `ProviderError`, the crate's one error type, shared by every provider.
   `Unauthorized` is what a provider reports after a 401 survived one
   `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider
@@ -45,12 +50,16 @@ Tier 1.
 `efr-protocol`: nothing here reads a clock or draws randomness; token refresh timing
 lives in `efr-oauth-openai`. `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `serde`, `serde_json` and `thiserror`.
+Third-party crates: `async-trait`, `secrecy`, `serde`, `serde_json` and `thiserror`.
 
 ## Invariant
 
 - The conversation never depends on a provider's API: everything it sends or receives
   is a type from this crate.
+- A provider client never sees how its token was obtained: tokens arrive only through
+  `TokenSource`, which is why `efr-provider-openai` may not depend on
+  `efr-oauth-openai` (a forbidden edge in `xtask/src/deps.rs`). Tokens never reach a
+  `Debug` string.
 - `provider_raw` is opaque outside the provider that wrote it and survives storage
   unchanged: the same `serde_json::Value` comes back, numbers and strings exactly
   (object members come back sorted by key, so a provider must not depend on their
