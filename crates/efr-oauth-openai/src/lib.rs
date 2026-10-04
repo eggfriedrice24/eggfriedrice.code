@@ -40,7 +40,9 @@ mod pkce;
 #[cfg(test)]
 mod testing;
 mod token;
+mod token_source;
 
 pub use config::OAuthConfig;
 pub use error::{GrantKind, OAuthError};
 pub use login::{LoginCompleted, OpenAiLogin, PendingLogin};
+pub use token_source::OpenAiTokenSource;
