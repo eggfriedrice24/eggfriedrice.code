@@ -15,14 +15,20 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod capabilities;
 mod error;
 mod ids;
 mod scope;
+mod screen;
+mod shell_context;
 mod version;
 
+pub use capabilities::Capabilities;
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
 };
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
+pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
+pub use shell_context::ShellContext;
 pub use version::PROTOCOL_VERSION;
