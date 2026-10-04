@@ -20,9 +20,11 @@ the daemon and the daemon's answers back into frames:
 - `hello`: the decision table for the first request. Nothing reaches the dispatcher
   before a hello with the same `PROTOCOL_VERSION`; a mismatch is answered with
   `protocol_mismatch` and the connection closes.
-- `dispatch`: the `Dispatcher` trait that `efr-daemon` implements, the `Request` it
-  receives and the `Responder` it answers through. The transport sends the one frame
-  that ends each request and enforces that a unary method sends exactly one result.
+- `dispatch`: the `Dispatcher` trait that `efr-daemon` implements (`hello`,
+  `dispatch`, and `closed`, which reports once that a connection with an accepted
+  hello has closed, after all its handlers are gone), the `Request` it receives and
+  the `Responder` it answers through. The transport sends the one frame that ends each
+  request and enforces that a unary method sends exactly one result.
 - `subscriptions`: bounded per-subscriber queues of 64 items. An offer never waits;
   overflow closes that subscription, which then delivers what was queued and ends with
   `overflow` carrying `last_seq`, so the client resubscribes without a gap.
@@ -56,7 +58,9 @@ Third-party crates: `tokio`, `tokio-util` (codec and `CancellationToken`), `futu
 - Every request ends with exactly one `end` or `error` frame, and no frame of a request
   follows it. An id is free for reuse by the time the client reads that frame.
 - A dead or slow client never pins resources or slows a producer: closing cancels its
-  requests, and a full subscriber queue closes that subscriber with `overflow`.
+  requests and then tells the dispatcher through `Dispatcher::closed`, so per
+  connection state such as a lease is dropped, and a full subscriber queue closes that
+  subscriber with `overflow`.
 - The transport knows no method's meaning and no daemon error; mapping those to wire
   errors stays in `efr-daemon/src/error.rs`.
 

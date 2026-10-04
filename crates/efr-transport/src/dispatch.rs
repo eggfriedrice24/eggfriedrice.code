@@ -32,11 +32,32 @@ pub trait Dispatcher: Send + Sync + 'static {
     /// sent with its `protocol` set to the transport's
     /// [`PROTOCOL_VERSION`](efr_protocol::PROTOCOL_VERSION). An error is sent as the
     /// answer and the connection stays open, still waiting for a hello.
+    ///
+    /// The context carries only what every request needs. What else the hello declares
+    /// (capabilities, client, tty, device) the dispatcher keeps itself, keyed by
+    /// [`ConnectionContext::conn_id`], and lets go of in [`Dispatcher::closed`]. It
+    /// records that state only once its hello can no longer fail: a hello that returns
+    /// an error, or whose future is dropped because the connection closed first, is
+    /// never followed by `closed`.
     fn hello(
         &self,
         context: &ConnectionContext,
         hello: &Hello,
     ) -> impl Future<Output = Result<HelloResult, ErrorBody>> + Send;
+
+    /// Reports that a connection closed whose hello this dispatcher accepted, so the
+    /// daemon can drop what it keeps per connection: the negotiated capabilities, the
+    /// lease that `lease.report` replaces, a login the connection started.
+    ///
+    /// Called once per connection, with the context of the last accepted hello, even
+    /// when its answer could not be sent. By then every request of the connection has
+    /// ended and its handler future is dropped, so no handler of the connection runs
+    /// alongside it. The transport waits for the future before it flushes the last
+    /// frames and frees the connection's task, so it must be quick and must not wait for
+    /// a client. The default does nothing.
+    fn closed(&self, _context: &ConnectionContext) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /// Runs one request other than `hello`.
     ///

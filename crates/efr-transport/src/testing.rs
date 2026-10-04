@@ -4,6 +4,7 @@
 use std::collections::VecDeque;
 use std::future::{Future, pending, ready};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -62,6 +63,34 @@ pub(crate) struct FakeDispatcher {
     handler: Handler,
     hello_error: Option<ErrorBody>,
     contexts: Mutex<Vec<ConnectionContext>>,
+    /// Handler futures that exist right now.
+    live: Arc<AtomicUsize>,
+    closed: Mutex<Vec<Closed>>,
+}
+
+/// One call of [`Dispatcher::closed`] on the fake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Closed {
+    /// The context it reported.
+    pub(crate) context: ConnectionContext,
+    /// How many handler futures still existed when it was called.
+    pub(crate) live_handlers: usize,
+}
+
+/// Counts one live handler future until it is dropped.
+struct LiveHandler(Arc<AtomicUsize>);
+
+impl LiveHandler {
+    fn new(live: &Arc<AtomicUsize>) -> Self {
+        live.fetch_add(1, Ordering::SeqCst);
+        LiveHandler(Arc::clone(live))
+    }
+}
+
+impl Drop for LiveHandler {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl FakeDispatcher {
@@ -74,6 +103,8 @@ impl FakeDispatcher {
             handler: Box::new(move |request| Box::pin(handler(request))),
             hello_error: None,
             contexts: Mutex::new(Vec::new()),
+            live: Arc::default(),
+            closed: Mutex::new(Vec::new()),
         })
     }
 
@@ -83,12 +114,19 @@ impl FakeDispatcher {
             handler: Box::new(|_| Box::pin(ready(Ok(())))),
             hello_error: Some(error),
             contexts: Mutex::new(Vec::new()),
+            live: Arc::default(),
+            closed: Mutex::new(Vec::new()),
         })
     }
 
     /// The context of every hello it answered or refused, in order.
     pub(crate) fn contexts(&self) -> Vec<ConnectionContext> {
         self.contexts.lock().unwrap().clone()
+    }
+
+    /// Every call of `closed`, in order.
+    pub(crate) fn closed_calls(&self) -> Vec<Closed> {
+        self.closed.lock().unwrap().clone()
     }
 }
 
@@ -106,7 +144,18 @@ impl Dispatcher for FakeDispatcher {
     }
 
     fn dispatch(&self, request: Request) -> impl Future<Output = Result<(), ErrorBody>> + Send {
-        (self.handler)(request)
+        let live = LiveHandler::new(&self.live);
+        let handler = (self.handler)(request);
+        async move {
+            let _live = live;
+            handler.await
+        }
+    }
+
+    fn closed(&self, context: &ConnectionContext) -> impl Future<Output = ()> + Send {
+        let live_handlers = self.live.load(Ordering::SeqCst);
+        self.closed.lock().unwrap().push(Closed { context: context.clone(), live_handlers });
+        ready(())
     }
 }
 

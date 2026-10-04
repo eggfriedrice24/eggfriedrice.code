@@ -6,8 +6,9 @@
 //! - Each connection checks `hello` and the protocol version before any method runs,
 //!   keeps a request-id table, cancels requests on a cancel frame, and cancels every
 //!   request still in flight when it closes.
-//! - [`Dispatcher`]: the trait `efr-daemon` implements to answer methods. A handler gets
-//!   a [`Request`] and answers through its [`Responder`].
+//! - [`Dispatcher`]: the trait `efr-daemon` implements to answer methods and to learn
+//!   when a connection closes. A handler gets a [`Request`] and answers through its
+//!   [`Responder`].
 //! - [`subscription`]: bounded per-subscriber queues of [`SUBSCRIBER_QUEUE_FRAMES`]
 //!   items; overflow closes that subscription with `overflow` and `last_seq`, and never
 //!   slows the producer.

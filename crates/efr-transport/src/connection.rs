@@ -16,8 +16,9 @@
 //!
 //! When the client closes its side, the stream breaks, or the daemon shuts down, every
 //! request still in flight is cancelled and its handler future dropped, so a dead
-//! client never pins a subscription. The writer then gets a short grace period, on the
-//! injected clock, to flush what is queued.
+//! client never pins a subscription. The dispatcher then hears of the close through
+//! [`Dispatcher::closed`], if it accepted a hello, and the writer gets a short grace
+//! period, on the injected clock, to flush what is queued.
 
 use std::collections::HashMap;
 use std::io;
@@ -141,6 +142,10 @@ struct Connection<S, D> {
     task_requests: HashMap<task::Id, RequestId>,
     /// Set by a successful hello.
     context: Option<ConnectionContext>,
+    /// The context of the last hello the dispatcher accepted, which `closed` reports.
+    /// It is set before the answer is sent, so a hello accepted on a connection that
+    /// breaks before the answer leaves is still reported.
+    accepted: Option<ConnectionContext>,
 }
 
 /// Whether the reader loop goes on after a frame.
@@ -171,6 +176,7 @@ where
             tasks: JoinSet::new(),
             task_requests: HashMap::new(),
             context: None,
+            accepted: None,
         }
     }
 
@@ -241,6 +247,7 @@ where
             Ok(result) => result,
             Err(body) => return self.send(ServerFrame::error(Some(id), body)).await,
         };
+        self.accepted = Some(context.clone());
         result.protocol = PROTOCOL_VERSION;
         let item = match ServerFrame::item(id, &result) {
             Ok(item) => item,
@@ -364,6 +371,9 @@ where
             {
                 tracing::error!("a request handler panicked while its connection closed");
             }
+        }
+        if let Some(context) = self.accepted.take() {
+            self.params.dispatcher.closed(&context).await;
         }
         drop(self.outbound);
         let grace = self.params.clock.timeout(CLOSE_GRACE, &mut self.writer).await;

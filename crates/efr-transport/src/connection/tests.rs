@@ -17,8 +17,8 @@ use tokio_util::sync::CancellationToken;
 use super::{ConnectionParams, RequestTable, run};
 use crate::subscriptions::{Offer, subscription};
 use crate::testing::{
-    FakeDispatcher, InstantClock, StoppedClock, TestClient, cancel_frame, drop_signal, hello_frame,
-    internal, list_frame, subscribe_frame,
+    Closed, FakeDispatcher, InstantClock, StoppedClock, TestClient, cancel_frame, drop_signal,
+    hello_frame, internal, list_frame, subscribe_frame,
 };
 use crate::{ConnId, ConnectionContext, PeerCred, Request};
 
@@ -342,6 +342,66 @@ async fn closing_the_client_side_cancels_every_request_in_flight() {
         assert_eq!(error_code(Some(frame)).1, ErrorCode::Cancelled);
     }
     running.task.await.unwrap();
+}
+
+fn context() -> ConnectionContext {
+    ConnectionContext::new(ConnId::new(7), Origin::Cli, PEER)
+}
+
+#[tokio::test]
+async fn the_dispatcher_hears_of_the_close_once_after_every_handler_is_gone() {
+    let (dispatcher, mut started, _dropped) = holding_streams();
+    let mut running = start(Arc::clone(&dispatcher));
+    running.client.hello().await;
+    running.client.send(&subscribe_frame(5)).await;
+    running.client.send(&subscribe_frame(6)).await;
+    started.recv().await.unwrap();
+    started.recv().await.unwrap();
+    assert_eq!(dispatcher.closed_calls(), []);
+
+    running.client.close_write().await;
+    running.task.await.unwrap();
+
+    assert_eq!(dispatcher.closed_calls(), [Closed { context: context(), live_handlers: 0 }]);
+}
+
+#[tokio::test]
+async fn shutdown_reports_the_close_too() {
+    let (dispatcher, mut started, _dropped) = holding_streams();
+    let mut running = start(Arc::clone(&dispatcher));
+    running.client.hello().await;
+    running.client.send(&subscribe_frame(5)).await;
+    started.recv().await.unwrap();
+
+    running.shutdown.cancel();
+    running.task.await.unwrap();
+
+    assert_eq!(dispatcher.closed_calls(), [Closed { context: context(), live_handlers: 0 }]);
+}
+
+#[tokio::test]
+async fn a_connection_without_an_accepted_hello_is_never_reported() {
+    let silent = answering();
+    let mut running = start(Arc::clone(&silent));
+    running.client.close_write().await;
+    running.task.await.unwrap();
+
+    let refusing = FakeDispatcher::refusing_hello(ErrorBody::new(ErrorCode::Forbidden, "no"));
+    let mut refused = start(Arc::clone(&refusing));
+    refused.client.send(&hello_frame(1, PROTOCOL_VERSION)).await;
+    assert_eq!(error_code(refused.client.recv().await).1, ErrorCode::Forbidden);
+    refused.client.close_write().await;
+    refused.task.await.unwrap();
+
+    let mismatched = answering();
+    let mut mismatch = start(Arc::clone(&mismatched));
+    mismatch.client.send(&hello_frame(1, PROTOCOL_VERSION + 1)).await;
+    mismatch.task.await.unwrap();
+
+    assert_eq!(silent.closed_calls(), []);
+    assert_eq!(refusing.closed_calls(), []);
+    assert_eq!(refusing.contexts().len(), 1, "the hello reached the dispatcher");
+    assert_eq!(mismatched.closed_calls(), []);
 }
 
 #[tokio::test]
