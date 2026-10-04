@@ -148,3 +148,6 @@ pub enum StdxError {
         source: io::Error,
     },
 }
+
+#[cfg(test)]
+mod tests;
