@@ -32,6 +32,9 @@
 //! approval_timeout_secs = 600      # absent: wait until answered
 //! update_interval_ms = 200
 //!
+//! [permissions]
+//! secret_paths = ["~/.config/rclone/rclone.conf"] # never read or written; ~/ or absolute
+//!
 //! [render]
 //! theme = "ansi"                   # read by efr; the daemon only accepts the key
 //! ```
@@ -185,6 +188,16 @@ pub struct ConversationSettings {
     pub update_interval_ms: u64,
 }
 
+/// Permission settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PermissionSettings {
+    /// Files and directories that count as secrets on top of the built-in ones, so the
+    /// model may never read or write them: absolute, or below the home directory as
+    /// `~/...`.
+    pub secret_paths: Vec<PathBuf>,
+}
+
 /// The effective configuration of the daemon.
 ///
 /// The fields are public so an in-process daemon (`efr-test-daemon`) can start from
@@ -213,6 +226,8 @@ pub struct Config {
     pub shell: ShellSettings,
     /// The conversation settings.
     pub conversation: ConversationSettings,
+    /// The permission settings.
+    pub permissions: PermissionSettings,
     /// `render.theme`, which belongs to `efr`.
     pub render_theme: Option<String>,
     sources: Sources,
@@ -262,6 +277,7 @@ impl Default for Config {
                 approval_timeout_secs: None,
                 update_interval_ms: 200,
             },
+            permissions: PermissionSettings::default(),
             render_theme: None,
             sources: Sources::default(),
         }
@@ -334,6 +350,11 @@ impl Config {
         let optional = |value: Option<&str>| value.map_or_else(|| "(unset)".to_owned(), text);
         let number =
             |value: Option<u64>| value.map_or_else(|| "(unset)".to_owned(), |n| n.to_string());
+        let paths = |paths: &[PathBuf]| {
+            let list: Vec<String> =
+                paths.iter().map(|path| text(&path.to_string_lossy())).collect();
+            format!("[{}]", list.join(", "))
+        };
         let models = self.openai.models.as_ref().map(|models| {
             let list: Vec<String> = models.iter().map(|model| text(model)).collect();
             format!("[{}]", list.join(", "))
@@ -362,6 +383,7 @@ impl Config {
             ("conversation.max_queued", self.conversation.max_queued.to_string()),
             ("conversation.approval_timeout_secs", number(self.conversation.approval_timeout_secs)),
             ("conversation.update_interval_ms", self.conversation.update_interval_ms.to_string()),
+            ("permissions.secret_paths", paths(&self.permissions.secret_paths)),
             ("render.theme", optional(self.render_theme.as_deref())),
         ]
     }
@@ -382,7 +404,7 @@ impl Config {
     }
 
     fn apply_file(&mut self, file: File) -> Result<(), DaemonError> {
-        let File { log, screen, model, openai, shell, conversation, render } = file;
+        let File { log, screen, model, openai, shell, conversation, permissions, render } = file;
         if let Some(log) = log {
             self.set_log(log, Source::File);
         }
@@ -475,6 +497,19 @@ impl Config {
             set("conversation.update_interval_ms");
             self.conversation.update_interval_ms = ms;
         }
+        if let Some(secret_paths) = permissions.secret_paths {
+            if let Some(path) =
+                secret_paths.iter().find(|path| !path.is_absolute() && !path.starts_with("~"))
+            {
+                return Err(DaemonError::InvalidConfig {
+                    key: "permissions.secret_paths",
+                    value: path.to_string_lossy().into_owned(),
+                    expected: "absolute paths or paths that start with ~/",
+                });
+            }
+            set("permissions.secret_paths");
+            self.permissions.secret_paths = secret_paths;
+        }
         if let Some(theme) = render.theme {
             set("render.theme");
             self.render_theme = Some(theme);
@@ -497,6 +532,8 @@ struct File {
     shell: ShellTable,
     #[serde(default)]
     conversation: ConversationTable,
+    #[serde(default)]
+    permissions: PermissionsTable,
     #[serde(default)]
     render: RenderTable,
 }
@@ -534,6 +571,12 @@ struct ConversationTable {
     max_queued: Option<usize>,
     approval_timeout_secs: Option<u64>,
     update_interval_ms: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PermissionsTable {
+    secret_paths: Option<Vec<PathBuf>>,
 }
 
 /// `efr`'s table: the daemon only accepts its key, so the shared file stays valid.

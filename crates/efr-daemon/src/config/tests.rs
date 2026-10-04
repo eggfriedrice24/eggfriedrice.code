@@ -56,6 +56,9 @@ fn the_file_sets_what_it_names() {
         approval_timeout_secs = 600
         update_interval_ms = 50
 
+        [permissions]
+        secret_paths = ["~/.config/rclone/rclone.conf", "/srv/vault"]
+
         [render]
         theme = "ansi"
     "#;
@@ -78,6 +81,10 @@ fn the_file_sets_what_it_names() {
     assert_eq!(config.conversation.max_queued, 4);
     assert_eq!(config.conversation.approval_timeout_secs, Some(600));
     assert_eq!(config.conversation.update_interval_ms, 50);
+    assert_eq!(
+        config.permissions.secret_paths,
+        [PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")]
+    );
     assert_eq!(config.render_theme.as_deref(), Some("ansi"));
     assert_eq!(config.source("model.name"), Source::File);
     assert_eq!(config.source("model.system_prompt"), Source::Default);
@@ -128,6 +135,7 @@ fn values_outside_their_set_are_refused_with_the_key() {
         ("screen = \"kitty\"\n", "screen"),
         ("[model]\nprovider = \"anthropic\"\n", "model.provider"),
         ("[shell]\nprogram = \"zsh\"\n", "shell.program"),
+        ("[permissions]\nsecret_paths = [\"vault\"]\n", "permissions.secret_paths"),
     ];
     for (text, key) in cases {
         let result = Config::resolve(path(), Some(text), &no_env(), &Flags::default());

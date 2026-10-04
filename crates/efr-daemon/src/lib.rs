@@ -43,7 +43,8 @@ mod tools;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
-    DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, ScreenChoice, ShellSettings, Source,
+    DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, PermissionSettings, ScreenChoice, ShellSettings,
+    Source,
 };
 pub use efr_conversation::HostInfo;
 // NOTE: the trait's vocabulary comes with it, so efr-test-daemon, whose allowlist has

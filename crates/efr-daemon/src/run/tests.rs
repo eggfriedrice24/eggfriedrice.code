@@ -6,7 +6,9 @@ use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 
 use crate::config::Config;
-use crate::run::{conversation_config, os_name};
+use efr_permissions::PathClass;
+
+use crate::run::{conversation_config, engine, os_name};
 
 #[test]
 fn the_os_name_is_the_pretty_name_then_the_name() {
@@ -19,6 +21,29 @@ fn the_os_name_is_the_pretty_name_then_the_name() {
     assert_eq!(os_name(bare).as_deref(), Some("Alpine"));
     assert_eq!(os_name("ID=x\n"), None);
     assert_eq!(os_name("PRETTY_NAME=\"\"\n"), None);
+}
+
+#[tokio::test]
+async fn the_secret_paths_of_the_config_classify_as_secrets() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    let home = efr_scope::Home::new(&home).unwrap();
+    let secret_paths = [PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")];
+
+    let engine = engine(
+        &home,
+        &home.path().join("secrets"),
+        &secret_paths,
+        &home.path().join("projects.toml"),
+    )
+    .await
+    .unwrap();
+
+    let scratch = home.path().join("scratch");
+    let class = |path: PathBuf| engine.locations().classify(&path, &scratch);
+    assert_eq!(class(home.path().join(".config/rclone/rclone.conf")), Some(PathClass::Secrets));
+    assert_eq!(class(PathBuf::from("/srv/vault/token")), Some(PathClass::Secrets));
+    assert_eq!(class(home.path().join(".config/rclone/other.conf")), Some(PathClass::UserConfig));
 }
 
 #[test]

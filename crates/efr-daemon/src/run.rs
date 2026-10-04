@@ -308,7 +308,9 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
-    let engine = Arc::new(engine(&home, &secret_root, &registry_path).await?);
+    let engine = Arc::new(
+        engine(&home, &secret_root, &config.permissions.secret_paths, &registry_path).await?,
+    );
     let (engine_sender, engine_receiver) = watch::channel(engine);
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
@@ -455,8 +457,14 @@ impl Daemon {
 }
 
 /// The permission engine: the home directory and its resolved form, the daemon's own
-/// secrets, and the registered projects.
-async fn engine(home: &Home, secrets: &Path, registry: &Path) -> Result<Engine, DaemonError> {
+/// secrets, the secret paths of the config (`~/` below the home directory), and the
+/// registered projects.
+async fn engine(
+    home: &Home,
+    secrets: &Path,
+    secret_paths: &[PathBuf],
+    registry: &Path,
+) -> Result<Engine, DaemonError> {
     let invalid = |source| DaemonError::Locations { source };
     let path = registry.to_path_buf();
     let projects = match tokio::task::spawn_blocking(move || Registry::load(&path)).await {
@@ -478,6 +486,13 @@ async fn engine(home: &Home, secrets: &Path, registry: &Path) -> Result<Engine, 
         }
     };
     locations = locations.with_secret_root(secrets).map_err(invalid)?;
+    for path in secret_paths {
+        let root = match path.strip_prefix("~") {
+            Ok(below) => home.path().join(below),
+            Err(_) => path.clone(),
+        };
+        locations = locations.with_secret_root(root).map_err(invalid)?;
+    }
     for project in projects.projects() {
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
