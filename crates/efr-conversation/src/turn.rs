@@ -39,7 +39,7 @@ use tracing::Instrument as _;
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
-use crate::history::{CachedTurn, Snapshot};
+use crate::history::{CachedTurn, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
 use crate::scratch::Scratch;
@@ -301,8 +301,10 @@ impl Turn {
         )))
     }
 
-    /// Records the terminal event and hands the turn's messages back.
-    async fn finish(self, ending: Ending) -> TurnEnd {
+    /// Records the terminal event and hands the turn's messages back. A turn that
+    /// stopped between a tool call and its result (a store error, say) leaves a call
+    /// without a result, which later turns could not send; it gets an error result.
+    async fn finish(mut self, ending: Ending) -> TurnEnd {
         let turn_id = self.turn_id();
         let event = match ending {
             Ending::Completed => {
@@ -315,6 +317,7 @@ impl Turn {
             tracing::error!(error = %error, "the end of the turn could not be recorded");
         }
         let provider = self.shared.deps.provider.id().clone();
+        close_open_calls(&mut self.transcript);
         let cached = (!self.transcript.is_empty())
             .then_some(CachedTurn { provider, messages: self.transcript });
         TurnEnd { turn_id, cached }

@@ -12,7 +12,7 @@ use efr_test_support::{TestClock, TestRng, TestStore};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{CachedTurn, HistoryLimits, Snapshot, rebuild};
+use super::{CachedTurn, HistoryLimits, Snapshot, UNFINISHED_CALL, close_open_calls, rebuild};
 
 fn turn(seed: u64) -> TurnId {
     TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
@@ -100,6 +100,73 @@ fn tool_calls_join_the_assistant_message_until_a_result_comes() {
             Message::assistant("Done."),
         ]
     );
+}
+
+fn unfinished(call_id: CallId) -> ContentBlock {
+    ContentBlock::ToolResult {
+        call_id: call_id.to_string(),
+        output: UNFINISHED_CALL.to_owned(),
+        is_error: true,
+    }
+}
+
+#[test]
+fn a_call_without_a_result_gets_an_error_result_after_its_message() {
+    let t = turn(2);
+    let (c1, c2) = (call(3), call(4));
+    let events = [
+        completed(t, 0, "Looking."),
+        started(t, c1, "read_file"),
+        finished(t, c1, "one"),
+        started(t, c2, "shell"),
+    ];
+    let refs: Vec<&Event> = events.iter().collect();
+
+    assert_eq!(
+        rebuild("look", &refs),
+        vec![
+            Message::user("look"),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Text { text: "Looking.".to_owned() },
+                    tool_call(c1, "read_file")
+                ]
+            ),
+            Message::new(Role::User, vec![tool_result(c1, "one")]),
+            Message::new(Role::Assistant, vec![tool_call(c2, "shell")]),
+            Message::new(Role::User, vec![unfinished(c2)]),
+        ]
+    );
+}
+
+#[test]
+fn open_calls_join_the_results_after_their_message_or_start_one() {
+    let (c1, c2, c3) = (call(3), call(4), call(5));
+    let mut messages = vec![
+        Message::user("go"),
+        Message::new(Role::Assistant, vec![tool_call(c1, "shell"), tool_call(c2, "shell")]),
+        Message::new(Role::User, vec![tool_result(c1, "one")]),
+        Message::new(Role::Assistant, vec![tool_call(c3, "read_file")]),
+        Message::user("faster"),
+    ];
+
+    close_open_calls(&mut messages);
+
+    assert_eq!(
+        messages,
+        vec![
+            Message::user("go"),
+            Message::new(Role::Assistant, vec![tool_call(c1, "shell"), tool_call(c2, "shell")]),
+            Message::new(Role::User, vec![tool_result(c1, "one"), unfinished(c2)]),
+            Message::new(Role::Assistant, vec![tool_call(c3, "read_file")]),
+            Message::new(Role::User, vec![unfinished(c3)]),
+            Message::user("faster"),
+        ]
+    );
+    let again = messages.clone();
+    close_open_calls(&mut messages);
+    assert_eq!(messages, again, "a closed transcript stays as it is");
 }
 
 #[test]
@@ -207,6 +274,43 @@ async fn only_finished_turns_other_than_the_current_one_count() {
     assert_eq!(
         history,
         vec![Message::user("first"), Message::assistant("One."), Message::user("second")]
+    );
+}
+
+#[tokio::test]
+async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
+    let (a, c) = (turn(2), call(3));
+    let store = store_with(vec![whole_turn(
+        a,
+        "first",
+        vec![
+            started(a, c, "write_file"),
+            Event::ApprovalRequested {
+                turn_id: a,
+                call_id: c,
+                summary: "write ~/.zshrc".to_owned(),
+                diff_preview: None,
+            },
+            Event::ApprovalExpired { turn_id: a, call_id: c },
+        ],
+        Event::TurnCancelled { turn_id: a },
+    )])
+    .await;
+
+    let history = snapshot(&store, HistoryLimits::default()).await.history(
+        turn(9),
+        &HashMap::new(),
+        &provider("replay"),
+        HistoryLimits::default(),
+    );
+
+    assert_eq!(
+        history,
+        vec![
+            Message::user("first"),
+            Message::new(Role::Assistant, vec![tool_call(c, "write_file")]),
+            Message::new(Role::User, vec![unfinished(c)]),
+        ]
     );
 }
 

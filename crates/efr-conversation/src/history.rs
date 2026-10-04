@@ -25,6 +25,12 @@ use efr_store::events;
 
 use crate::ConversationError;
 
+/// What the model reads for a tool call whose result was never recorded, as when the
+/// daemon stopped while the call ran or waited for approval.
+pub(crate) const UNFINISHED_CALL: &str = "The call did not finish: the turn ended before \
+                                          its result was recorded; it may or may not have \
+                                          run.";
+
 /// How much history a request carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -170,7 +176,8 @@ fn json_size(messages: &[Message]) -> usize {
 /// the assistant message before it unless a tool result came in between; results
 /// gather in a user message; steering is a user message of its own. Text that was
 /// streamed but never completed, as when the daemon stopped mid-answer, ends the turn
-/// as its last assistant message.
+/// as its last assistant message. A tool call without a recorded result gets an error
+/// result, see [`close_open_calls`].
 pub(crate) fn rebuild(prompt: &str, events: &[&Event]) -> Vec<Message> {
     let mut rebuilt = Rebuilt { messages: vec![Message::user(prompt)], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
@@ -207,7 +214,62 @@ pub(crate) fn rebuild(prompt: &str, events: &[&Event]) -> Vec<Message> {
     if let Some((_, text)) = streaming {
         rebuilt.assistant(ContentBlock::Text { text }, true);
     }
-    rebuilt.messages
+    let mut messages = rebuilt.messages;
+    close_open_calls(&mut messages);
+    messages
+}
+
+/// Gives every tool call in `messages` a result. A provider refuses a request whose
+/// tool call has no result (the Responses API answers "No tool output found for
+/// function call"), so one turn that stopped mid-call would break every later turn of
+/// its conversation. A call without a result gets an error result with
+/// [`UNFINISHED_CALL`], in the results message right after its assistant message, or
+/// in a new one there.
+pub(crate) fn close_open_calls(messages: &mut Vec<Message>) {
+    let answered: HashSet<String> = messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut at = 0;
+    while at < messages.len() {
+        let missing: Vec<ContentBlock> = match messages.get(at) {
+            Some(message) if message.role == Role::Assistant => message
+                .content
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::ToolCall { call_id, .. } if !answered.contains(call_id) => {
+                        Some(ContentBlock::ToolResult {
+                            call_id: call_id.clone(),
+                            output: UNFINISHED_CALL.to_owned(),
+                            is_error: true,
+                        })
+                    }
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        at += 1;
+        if missing.is_empty() {
+            continue;
+        }
+        match messages.get_mut(at) {
+            Some(next) if is_results(next) => next.content.extend(missing),
+            _ => messages.insert(at, Message::new(Role::User, missing)),
+        }
+        at += 1;
+    }
+}
+
+/// True for a user message that holds only tool results.
+fn is_results(message: &Message) -> bool {
+    message.role == Role::User
+        && !message.content.is_empty()
+        && message.content.iter().all(|block| matches!(block, ContentBlock::ToolResult { .. }))
 }
 
 /// A turn being rebuilt, with the message that the next block may join.
