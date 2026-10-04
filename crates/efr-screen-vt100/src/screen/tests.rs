@@ -1,5 +1,6 @@
 use efr_screen::row_text;
 use pretty_assertions::assert_eq;
+use proptest::prelude::*;
 
 use super::*;
 use crate::test_sink::{Call, TestSink};
@@ -109,6 +110,36 @@ fn a_one_column_screen_wraps_every_character() {
     assert_eq!(texts(&snapshot.rows), ["b", "c", "d"]);
     assert_eq!(texts(&snapshot.scrollback), ["a"]);
     assert_eq!(snapshot.cursor, Cursor { row: 2, col: 0, hidden: false });
+}
+
+#[test]
+fn a_vt100_panic_starts_the_screen_over_and_keeps_title_and_pwd() {
+    let mut screen =
+        fed(10, 2, 10, "\x1b]2;vim\x07\x1b]7;file://arch/srv\x07abcd\u{4e2d}".as_bytes());
+    // Narrowing cuts the wide character in half; vt100 0.16.2 then panics when
+    // anything prints over the half left in the last column.
+    screen.resize(5, 2, &mut TestSink::default());
+    let mut sink = TestSink::default();
+    screen.feed(b"\x07\x1b[1;5Hx", &mut sink);
+    assert_eq!(sink.take(), [Call::Bell]);
+    let snapshot = screen.snapshot(10);
+    assert_eq!(snapshot.size, size(5, 2));
+    assert_eq!(texts(&snapshot.rows), ["", ""]);
+    assert_eq!(snapshot.title.as_deref(), Some("vim"));
+    assert_eq!(screen.pwd(), Some("file://arch/srv"));
+
+    screen.feed(b"ok\r\n1\r\n2", &mut sink);
+    let snapshot = screen.snapshot(10);
+    assert_eq!(texts(&snapshot.rows), ["1", "2"]);
+    assert_eq!(texts(&snapshot.scrollback), ["ok"]);
+}
+
+#[test]
+fn a_wide_character_on_a_one_column_screen_starts_it_over() {
+    let mut screen = fed(1, 2, 0, "a\u{4e2d}".as_bytes());
+    assert_eq!(texts(&screen.snapshot(0).rows), ["", ""]);
+    screen.feed(b"b", &mut TestSink::default());
+    assert_eq!(texts(&screen.snapshot(0).rows), ["b", ""]);
 }
 
 #[test]
@@ -303,4 +334,101 @@ fn debug_shows_the_state_but_not_the_grid() {
     assert!(debug.contains("cols: 10, rows: 2"), "{debug}");
     assert!(debug.contains("Some(\"vim\")"), "{debug}");
     assert!(!debug.contains("secret"), "{debug}");
+}
+
+#[derive(Debug, Clone)]
+enum Step {
+    Feed(Vec<u8>),
+    Resize(u16, u16),
+    Snapshot(usize),
+}
+
+/// Pieces that, put together at random, reach vt100's edge cases: wraps, wide
+/// characters, combining marks, scroll regions, the alternate screen, inserting and
+/// deleting, invalid UTF-8 and cancelled sequences.
+const FRAGMENTS: &[&[u8]] = &[
+    b"\x1b",
+    b"[",
+    b"]",
+    b"?",
+    b";",
+    b"0",
+    b"1",
+    b"2",
+    b"5",
+    b"99",
+    b"65535",
+    b"A",
+    b"B",
+    b"C",
+    b"D",
+    b"G",
+    b"H",
+    b"J",
+    b"K",
+    b"L",
+    b"M",
+    b"P",
+    b"S",
+    b"T",
+    b"X",
+    b"@",
+    b"d",
+    b"m",
+    b"r",
+    b"h",
+    b"l",
+    b"c",
+    b"n",
+    b"7",
+    b"8",
+    b"1049",
+    b"\r",
+    b"\n",
+    b"\x08",
+    b"\t",
+    b"\x07",
+    b"\x18",
+    b"\xff",
+    b"a",
+    b"bc",
+    b" ",
+    "\u{4e2d}".as_bytes(),
+    "\u{301}".as_bytes(),
+    "\u{1f600}".as_bytes(),
+    b"\x1b\\",
+];
+
+fn step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        4 => proptest::collection::vec(proptest::sample::select(FRAGMENTS), 1..24)
+            .prop_map(|parts| Step::Feed(parts.concat())),
+        1 => (0..7_u16, 0..7_u16).prop_map(|(cols, rows)| Step::Resize(cols, rows)),
+        1 => (0..12_usize).prop_map(Step::Snapshot),
+    ]
+}
+
+proptest! {
+    #[test]
+    fn nothing_panics_out_of_the_screen(steps in proptest::collection::vec(step(), 1..32)) {
+        let mut screen = Vt100Screen::with_scrollback(size(4, 3), 8);
+        let mut sink = TestSink::default();
+        for step in steps {
+            match step {
+                Step::Feed(bytes) => screen.feed(&bytes, &mut sink),
+                Step::Resize(cols, rows) => screen.resize(cols, rows, &mut sink),
+                Step::Snapshot(rows) => {
+                    let snapshot = screen.snapshot(rows);
+                    let (cols, visible) = (snapshot.size.cols, snapshot.size.rows);
+                    prop_assert_eq!(snapshot.rows.len(), usize::from(visible));
+                    prop_assert!(snapshot.rows.iter().all(|row| row.cells.len() == usize::from(cols)));
+                    prop_assert!(snapshot.scrollback.len() <= rows);
+                    prop_assert!(snapshot.cursor.row < visible && snapshot.cursor.col < cols);
+                    prop_assert_eq!(screen.cursor(), snapshot.cursor);
+                    prop_assert_eq!(&screen.row(0), &snapshot.rows[0]);
+                }
+            }
+        }
+        prop_assert!(!sink.calls.iter().any(|call| matches!(call, Call::Reply(_))));
+    }
 }

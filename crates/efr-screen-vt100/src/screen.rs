@@ -1,6 +1,7 @@
 //! The [`Screen`] trait over the vt100 crate.
 
 use std::fmt;
+use std::panic::{self, AssertUnwindSafe};
 
 use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
 
@@ -30,11 +31,18 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 ///   one row, so a one-row screen runs on two rows of vt100 and shows the row the
 ///   cursor is on: text that arrives line by line looks as it would on one row, while
 ///   moving the cursor up or down, a no-op on a real single row, switches rows.
+/// - vt100 0.16.2 also panics on a few rare inputs (a wide character on a grid of one
+///   column, or printing over a wide character that a narrower resize cut at the
+///   right edge). The screen catches the panic, logs it and starts over blank with the
+///   same size, title and working directory, so a vt100 bug cannot end the screen
+///   actor; the rest of that chunk is lost.
 pub struct Vt100Screen {
     parser: vt100::Parser<Recorder>,
     /// The grid the owner asked for, at least 1 by 1. vt100's own grid may be taller;
     /// see [`grid_size`].
     size: Size,
+    /// The scrollback capacity, kept to rebuild the parser after a vt100 panic.
+    scrollback_rows: usize,
 }
 
 impl Vt100Screen {
@@ -47,7 +55,11 @@ impl Vt100Screen {
     /// off the top. With 0 it keeps none.
     pub fn with_scrollback(size: Size, scrollback_rows: usize) -> Self {
         let size = visible_size(size);
-        Vt100Screen { parser: parser(size, scrollback_rows, Recorder::default()), size }
+        Vt100Screen {
+            parser: parser(size, scrollback_rows, Recorder::default()),
+            size,
+            scrollback_rows,
+        }
     }
 
     /// The vt100 row shown as the top visible row. It is 0 unless vt100 holds more
@@ -94,6 +106,17 @@ impl Vt100Screen {
         screen.set_scrollback(0);
         scrollback
     }
+
+    /// Replaces a parser that panicked with a blank one; see [`Screen::feed`].
+    fn start_over(&mut self) {
+        tracing::warn!(
+            cols = self.size.cols,
+            rows = self.size.rows,
+            "vt100 panicked while parsing; the screen starts over blank"
+        );
+        let recorder = std::mem::take(self.parser.callbacks_mut());
+        self.parser = parser(self.size, self.scrollback_rows, recorder);
+    }
 }
 
 /// Builds [`Vt100Screen`]s for `ScreenActor::spawn` and the conformance suite. The
@@ -122,7 +145,14 @@ fn parser(size: Size, scrollback_rows: usize, recorder: Recorder) -> vt100::Pars
 
 impl Screen for Vt100Screen {
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
-        self.parser.process(bytes);
+        let parser = &mut self.parser;
+        // NOTE: a panic inside vt100 would otherwise end the screen actor, and the
+        // shell would lose its screen for good. AssertUnwindSafe holds because a
+        // parser that panicked is dropped unread; the recorder kept from it only
+        // appends whole values in callbacks that cannot panic.
+        if panic::catch_unwind(AssertUnwindSafe(|| parser.process(bytes))).is_err() {
+            self.start_over();
+        }
         self.parser.callbacks_mut().drain_into(sink);
     }
 

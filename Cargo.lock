@@ -799,6 +799,8 @@ version = "0.1.0"
 dependencies = [
  "efr-screen",
  "pretty_assertions",
+ "proptest",
+ "tracing",
  "vt100",
 ]
 

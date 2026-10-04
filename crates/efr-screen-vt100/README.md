@@ -54,6 +54,12 @@ larger without a resize:
   therefore runs on two rows of vt100 and shows the row the cursor is on, so text that
   arrives line by line looks as it would on a single row. Moving the cursor up or
   down, a no-op on a real single row, switches between the two.
+- A wide character on a grid of one column, and printing over the first half of a
+  wide character that a narrower resize cut at the right edge, index past the row.
+  `feed` catches the panic, logs a warning and starts over with a blank grid of the
+  same size, keeping the title and the working directory; the rest of that chunk is
+  lost. Without the guard the panic would end the screen actor and the shell would
+  lose its screen for good.
 
 A dimension of 0 becomes 1, because vt100 subtracts 1 from both when it builds or
 resizes a grid.
@@ -67,13 +73,16 @@ Tier 2.
 `efr-screen` only (the `Screen` and `ScreenSink` traits, and the wire types it
 re-exports from `efr-protocol`). `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `vt100` (the terminal emulator). The tests add
-`pretty_assertions` and `efr-screen`'s `conformance` feature.
+Third-party crates: `vt100` (the terminal emulator) and `tracing` (the warning when a
+vt100 panic is caught). The tests add `pretty_assertions`, `proptest` and
+`efr-screen`'s `conformance` feature.
 
 ## Invariant
 
 - A `Vt100Screen` reports exactly what vt100 renders, normalised by the actor like
   every backend. It never answers a query, so PTY replies come only from the ghostty
+  backend.
+- No input and no size makes `feed`, `resize` or `snapshot` panic out of the
   backend.
 - Shell marks are not this crate's business; the scanner in `efr-screen` owns them.
 
@@ -86,7 +95,9 @@ cargo nextest run -p efr-screen-vt100
 ```
 
 Unit tests cover the cell conversion, the recorder (titles, URLs, limits, order) and
-the screen (scrollback paging, the one-row view, the cursor at a pending wrap).
+the screen (scrollback paging, the one-row view, the panic guard, the cursor at a
+pending wrap). A proptest feeds random escape fragments between random resizes (sizes
+0 to 6) and snapshots, and checks that nothing panics out of the screen.
 
 `tests/conformance.rs` runs `efr_screen::conformance::run("vt100", factory)` over
 every fixture in `crates/efr-screen/fixtures/`. Its rendered screens are the

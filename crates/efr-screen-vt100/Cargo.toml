@@ -13,6 +13,7 @@ doctest = false
 
 [dependencies]
 efr-screen.workspace = true
+tracing.workspace = true
 vt100.workspace = true
 
 [dev-dependencies]
@@ -20,6 +21,7 @@ vt100.workspace = true
 # test builds turn on.
 efr-screen = { workspace = true, features = ["conformance"] }
 pretty_assertions.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true
