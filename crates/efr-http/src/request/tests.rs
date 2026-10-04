@@ -23,6 +23,16 @@ fn new_parses_the_url() {
 }
 
 #[test]
+fn a_post_is_idempotent_only_when_marked() {
+    assert!(!HttpRequest::post(URL).unwrap().is_idempotent());
+    assert!(HttpRequest::post(URL).unwrap().idempotent().is_idempotent());
+    assert!(!HttpRequest::new(Method::PATCH, URL).unwrap().is_idempotent());
+    for method in [Method::GET, Method::HEAD, Method::OPTIONS, Method::PUT, Method::DELETE] {
+        assert!(HttpRequest::new(method.clone(), URL).unwrap().is_idempotent(), "{method}");
+    }
+}
+
+#[test]
 fn new_rejects_a_relative_url_without_echoing_it() {
     let error = HttpRequest::get("/v1/models?api_key=sk-1").unwrap_err();
     assert!(matches!(error, HttpError::InvalidUrl { .. }), "{error:?}");

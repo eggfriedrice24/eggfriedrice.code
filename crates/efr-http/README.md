@@ -14,8 +14,12 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
 - `retry`: `RetryPolicy`, exponential backoff with equal jitter, `Retry-After` (as
   seconds or an HTTP date) and `retry-after-ms`. It sleeps on the injected
   `efr_stdx::time::Clock` and draws jitter from the injected `efr_stdx::rng::Rng`.
-  Only 408, 429, 500, 502, 503, 504, refused connections and timeouts before the
-  response are retried.
+  A request is sent again only when the server certainly did not act on it: no
+  connection could be made (DNS, TCP, TLS handshake, connect timeout), or the server
+  answered 408, 429 or 503. A timeout, a connection that broke after the request
+  went out, and 500, 502 or 504 are retried only for an idempotent request (`GET`,
+  `PUT`, `DELETE` and the like, or one marked `idempotent()`), so a `POST` to the
+  Responses API never runs twice.
 - `sse`: `SseDecoder` and `SseStream`, the WHATWG event stream rules over chunks that
   split anywhere (inside a line, a CRLF pair, a UTF-8 sequence or the byte order
   mark).
@@ -52,6 +56,8 @@ are re-exported, so callers need no direct dependency on `http`, `reqwest` or `h
   a token exchange is never recorded by accident.
 - Retries and the Unix-socket timeout wait on the injected clock, never on a real
   timer, so tests drive them without sleeping.
+- A request that is not idempotent is never sent a second time after it may have
+  reached the server.
 - The crate knows no vendor: endpoints, provider headers and event names belong to the
   provider crates.
 

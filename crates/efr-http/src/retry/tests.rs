@@ -117,19 +117,22 @@ fn retry_after_header(
 }
 
 #[rstest]
-#[case(408, true)]
-#[case(429, true)]
-#[case(500, true)]
-#[case(502, true)]
-#[case(503, true)]
-#[case(504, true)]
-#[case(200, false)]
-#[case(400, false)]
-#[case(401, false)]
-#[case(404, false)]
-#[case(501, false)]
-fn retryable_statuses(#[case] status: u16, #[case] expected: bool) {
-    assert_eq!(is_retryable_status(StatusCode::from_u16(status).unwrap()), expected);
+#[case(408, true, true)]
+#[case(429, true, true)]
+#[case(503, true, true)]
+#[case(500, false, true)]
+#[case(502, false, true)]
+#[case(504, false, true)]
+#[case(200, false, false)]
+#[case(400, false, false)]
+#[case(401, false, false)]
+#[case(404, false, false)]
+#[case(409, false, false)]
+#[case(501, false, false)]
+fn retryable_statuses(#[case] status: u16, #[case] any: bool, #[case] idempotent: bool) {
+    let status = StatusCode::from_u16(status).unwrap();
+    assert_eq!(is_retryable_status(status, false), any, "not idempotent");
+    assert_eq!(is_retryable_status(status, true), idempotent, "idempotent");
 }
 
 /// An attempt result for the loop tests, carrying its number and a fixed outcome.

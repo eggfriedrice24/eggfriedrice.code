@@ -7,6 +7,12 @@
 //!
 //! Only failures before a response body is read are retried: the operation returns a
 //! response or an error, and the loop never sees a half-read body.
+//!
+//! A request that is not idempotent, such as a `POST` to the Responses API, is sent
+//! again only when the server certainly did not act on it: no connection could be made,
+//! or the server answered 408, 429 or 503, which say that it did not handle the
+//! request. After a timeout, a broken connection or another 5xx the server may have
+//! acted, and a second copy could run the work twice.
 
 use std::future::Future;
 use std::time::Duration;
@@ -159,17 +165,21 @@ impl RetryPolicy {
     }
 }
 
-/// True for the statuses that mean "try again later": 408, 429, 500, 502, 503, 504.
-pub fn is_retryable_status(status: StatusCode) -> bool {
-    matches!(
-        status,
+/// True for the statuses after which the same request may be sent again.
+///
+/// 408, 429 and 503 say that the server did not handle the request, so they qualify
+/// for any request. 500, 502 and 504 come after the server, or a server behind a
+/// gateway, may have acted on it, so they qualify only for an `idempotent` request.
+pub fn is_retryable_status(status: StatusCode, idempotent: bool) -> bool {
+    match status {
         StatusCode::REQUEST_TIMEOUT
-            | StatusCode::TOO_MANY_REQUESTS
-            | StatusCode::INTERNAL_SERVER_ERROR
-            | StatusCode::BAD_GATEWAY
-            | StatusCode::SERVICE_UNAVAILABLE
-            | StatusCode::GATEWAY_TIMEOUT
-    )
+        | StatusCode::TOO_MANY_REQUESTS
+        | StatusCode::SERVICE_UNAVAILABLE => true,
+        StatusCode::INTERNAL_SERVER_ERROR
+        | StatusCode::BAD_GATEWAY
+        | StatusCode::GATEWAY_TIMEOUT => idempotent,
+        _ => false,
+    }
 }
 
 /// The wait a response asks for: `retry-after-ms` when present and valid, otherwise
@@ -188,19 +198,32 @@ pub fn retry_after(headers: &HeaderMap, now: Timestamp) -> Option<Duration> {
     Some(Duration::try_from(wait).unwrap_or(Duration::ZERO))
 }
 
-impl Retryable for HttpResponse {
+/// One attempt of an HTTP request, with what the policy needs to judge it: whether the
+/// request is idempotent. A response or an error alone cannot say whether a second copy
+/// of its request is safe, so neither implements [`Retryable`] by itself.
+#[derive(Debug)]
+pub(crate) struct HttpAttempt<T> {
+    pub(crate) value: T,
+    pub(crate) idempotent: bool,
+}
+
+impl Retryable for HttpAttempt<HttpResponse> {
     fn outcome(&self, now: Timestamp) -> Outcome {
-        if is_retryable_status(self.status()) {
-            Outcome::Transient { retry_after: retry_after(self.headers(), now) }
+        if is_retryable_status(self.value.status(), self.idempotent) {
+            Outcome::Transient { retry_after: retry_after(self.value.headers(), now) }
         } else {
             Outcome::Final
         }
     }
 }
 
-impl Retryable for HttpError {
+impl Retryable for HttpAttempt<HttpError> {
     fn outcome(&self, _now: Timestamp) -> Outcome {
-        if self.is_transient() { Outcome::Transient { retry_after: None } } else { Outcome::Final }
+        if self.value.is_retryable(self.idempotent) {
+            Outcome::Transient { retry_after: None }
+        } else {
+            Outcome::Final
+        }
     }
 }
 

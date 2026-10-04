@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -5,6 +7,8 @@ use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use secrecy::SecretString;
 use serde_json::json;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::TcpListener;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -158,13 +162,140 @@ async fn send_with_retry_does_not_retry_client_errors() {
 }
 
 #[tokio::test]
-async fn a_refused_connection_is_transient_and_retried() {
+async fn a_post_is_not_sent_again_after_a_server_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(500)).mount(&server).await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&url(&server, "/v1/responses")).unwrap();
+    let response = client.send_with_retry(&request, &policy(4)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(requests_seen(&server).await, 1, "the server may have acted on the first copy");
+    assert_eq!(clock.sleeps(), []);
+}
+
+#[tokio::test]
+async fn a_post_marked_idempotent_is_sent_again_after_a_server_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(502))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&url(&server, "/v1/responses")).unwrap().idempotent();
+    let response = client.send_with_retry(&request, &policy(4)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(requests_seen(&server).await, 2);
+    assert_eq!(clock.sleeps(), [Duration::from_secs(1)]);
+}
+
+#[tokio::test]
+async fn a_post_is_sent_again_when_the_server_says_it_did_not_handle_it() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after-ms", "250"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200)).mount(&server).await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&url(&server, "/v1/responses")).unwrap();
+    let response = client.send_with_retry(&request, &policy(3)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(clock.sleeps(), [Duration::from_millis(250)]);
+}
+
+/// A TCP server on the loopback that handles each connection with `serve` and counts
+/// the connections it accepted.
+async fn raw_server<F, Fut>(serve: F) -> (String, Arc<AtomicUsize>)
+where
+    F: Fn(tokio::net::TcpStream) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&accepted);
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            counter.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(serve(stream));
+        }
+    });
+    (address, accepted)
+}
+
+/// Reads one whole request whose body ends with `body`, then hangs up without an
+/// answer: the server got the request, the client never learns what it did.
+async fn read_then_hang_up(mut stream: tokio::net::TcpStream, body: &'static [u8]) {
+    let mut seen = Vec::new();
+    let mut buffer = [0; 1024];
+    while !seen.ends_with(body) {
+        match stream.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(read) => seen.extend_from_slice(&buffer[..read]),
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_post_is_not_sent_again_when_the_connection_drops_after_the_body() {
+    let (address, accepted) =
+        raw_server(|stream| read_then_hang_up(stream, br#"{"input":"hello"}"#)).await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&format!("http://{address}/v1/responses"))
+        .unwrap()
+        .json(&json!({"input": "hello"}))
+        .unwrap();
+    let error = client.send_with_retry(&request, &policy(4)).await.unwrap_err();
+    assert!(matches!(error, HttpError::Send { .. }), "{error:?}");
+    assert!(!error.is_transient());
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    assert_eq!(clock.sleeps(), []);
+}
+
+#[tokio::test]
+async fn an_idempotent_request_is_sent_again_when_the_connection_drops() {
+    let (address, accepted) =
+        raw_server(|stream| read_then_hang_up(stream, br#"{"input":"hello"}"#)).await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&format!("http://{address}/v1/responses"))
+        .unwrap()
+        .json(&json!({"input": "hello"}))
+        .unwrap()
+        .idempotent();
+    let error = client.send_with_retry(&request, &policy(2)).await.unwrap_err();
+    assert!(matches!(error, HttpError::Send { .. }), "{error:?}");
+    assert_eq!(accepted.load(Ordering::SeqCst), 2);
+    assert_eq!(clock.sleeps().len(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_tls_handshake_is_a_connect_error_and_a_post_is_retried() {
+    // Plain text where the client expects a TLS server hello: the handshake fails before
+    // any byte of the request is sent.
+    let (address, accepted) = raw_server(|mut stream| async move {
+        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\n").await;
+    })
+    .await;
+    let (client, clock) = client();
+    let request = HttpRequest::post(&format!("https://{address}/v1/responses")).unwrap();
+    let error = client.send_with_retry(&request, &policy(2)).await.unwrap_err();
+    assert!(matches!(error, HttpError::Connect { .. }), "{error:?}");
+    assert!(error.is_transient());
+    assert_eq!(accepted.load(Ordering::SeqCst), 2);
+    assert_eq!(clock.sleeps().len(), 1);
+}
+
+#[tokio::test]
+async fn a_refused_connection_is_transient_and_retried_even_for_a_post() {
     // Bind and release a port so that nothing listens on it.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
     let (client, clock) = client();
-    let request = HttpRequest::get(&format!("http://{address}/v1/models?api_key=sk-1")).unwrap();
+    let request = HttpRequest::post(&format!("http://{address}/v1/models?api_key=sk-1")).unwrap();
     let error = client.send_with_retry(&request, &policy(2)).await.unwrap_err();
     match &error {
         HttpError::Connect { url, .. } => {

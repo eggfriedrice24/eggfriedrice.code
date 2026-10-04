@@ -45,7 +45,9 @@ pub enum HttpError {
         source: reqwest::Error,
     },
 
-    /// No connection to the server could be made. Worth a retry.
+    /// No connection to the server could be made: DNS, the TCP connect, the TLS
+    /// handshake or the connect timeout failed. The request never reached the server,
+    /// so a retry is safe for any method.
     #[error("could not connect to {url}")]
     Connect {
         /// The redacted URL.
@@ -55,15 +57,17 @@ pub enum HttpError {
         source: reqwest::Error,
     },
 
-    /// The server did not answer within a client timeout. Worth a retry when it
-    /// happens before the response starts.
+    /// The exchange did not finish within the request's deadline or the read timeout.
+    /// The request may have reached the server, so only an idempotent request is sent
+    /// again.
     #[error("the request to {url} timed out")]
     Timeout {
         /// The redacted URL.
         url: String,
     },
 
-    /// The request failed after the connection was made, before a response arrived.
+    /// The request failed after the connection was made, before a response arrived. The
+    /// server may have received it, so only an idempotent request is sent again.
     #[error("the request to {url} failed")]
     Send {
         /// The redacted URL.
@@ -159,10 +163,19 @@ pub enum HttpError {
 }
 
 impl HttpError {
-    /// True for failures that may pass if the same request is sent again: no
-    /// connection, or a timeout before the response. The retry policy asks this.
+    /// True when the request certainly never reached the server, because no connection
+    /// could be made. Sending it again is safe whatever its method.
     pub fn is_transient(&self) -> bool {
-        matches!(self, HttpError::Connect { .. } | HttpError::Timeout { .. })
+        matches!(self, HttpError::Connect { .. })
+    }
+
+    /// True when sending the request again may pass and cannot do harm: always for a
+    /// [transient](HttpError::is_transient) failure, and for a timeout or a failure
+    /// after the connection was made only when the request is `idempotent`, because the
+    /// server may have received it and acted on it.
+    pub fn is_retryable(&self, idempotent: bool) -> bool {
+        self.is_transient()
+            || (idempotent && matches!(self, HttpError::Timeout { .. } | HttpError::Send { .. }))
     }
 }
 

@@ -27,6 +27,7 @@ pub struct HttpRequest {
     body: Bytes,
     timeout: Option<Duration>,
     recorded: bool,
+    idempotent: bool,
 }
 
 impl HttpRequest {
@@ -43,6 +44,7 @@ impl HttpRequest {
             body: Bytes::new(),
             timeout: None,
             recorded: false,
+            idempotent: false,
         })
     }
 
@@ -124,6 +126,23 @@ impl HttpRequest {
         self
     }
 
+    /// Marks the request idempotent: two copies of it have the same effect on the server
+    /// as one. [`HttpClient::send_with_retry`](crate::HttpClient::send_with_retry) then
+    /// sends it again after a failure that may have reached the server, such as a
+    /// timeout or a 502. A `POST` is never marked by default.
+    #[must_use]
+    pub fn idempotent(mut self) -> Self {
+        self.idempotent = true;
+        self
+    }
+
+    /// True when the request is marked [`idempotent`](HttpRequest::idempotent) or its
+    /// method is idempotent by RFC 9110 (`GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`,
+    /// `DELETE`).
+    pub fn is_idempotent(&self) -> bool {
+        self.idempotent || self.method.is_idempotent()
+    }
+
     /// The method.
     pub fn method(&self) -> &Method {
         &self.method
@@ -164,6 +183,7 @@ impl fmt::Debug for HttpRequest {
             .field("body_len", &self.body.len())
             .field("timeout", &self.timeout)
             .field("recorded", &self.recorded)
+            .field("idempotent", &self.idempotent)
             .finish()
     }
 }

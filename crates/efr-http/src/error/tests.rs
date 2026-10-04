@@ -7,15 +7,27 @@ use pretty_assertions::assert_eq;
 use super::HttpError;
 
 #[test]
-fn only_connection_failures_and_timeouts_are_transient() {
+fn a_timeout_is_not_transient_because_the_request_may_have_reached_the_server() {
     let url = || "https://api.openai.com/v1/responses".to_owned();
-    assert!(HttpError::Timeout { url: url() }.is_transient());
+    assert!(!HttpError::Timeout { url: url() }.is_transient());
     assert!(!HttpError::BodyTooLarge { url: url(), limit: 1 }.is_transient());
     assert!(!HttpError::SseEventTooLarge { limit: 1 }.is_transient());
     assert!(
         !HttpError::UnixTimedOut { socket: PathBuf::from("/s"), after: Duration::from_secs(1) }
             .is_transient()
     );
+}
+
+#[test]
+fn only_an_idempotent_request_is_retried_after_a_timeout() {
+    let timeout = HttpError::Timeout { url: "https://api.openai.com/v1/responses".to_owned() };
+    assert!(!timeout.is_retryable(false));
+    assert!(timeout.is_retryable(true));
+    for idempotent in [false, true] {
+        let too_large = HttpError::BodyTooLarge { url: "https://x.test/".to_owned(), limit: 1 };
+        assert!(!too_large.is_retryable(idempotent));
+        assert!(!HttpError::SseEventTooLarge { limit: 1 }.is_retryable(idempotent));
+    }
 }
 
 #[test]

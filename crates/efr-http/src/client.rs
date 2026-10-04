@@ -10,6 +10,7 @@ use efr_stdx::time::Clock;
 use futures::TryStreamExt as _;
 
 use crate::recorder::{ExchangeId, Record, Recorder, record_body};
+use crate::retry::HttpAttempt;
 use crate::{ByteStream, HttpError, HttpRequest, HttpResponse, RetryPolicy, redact};
 
 /// Settings for [`HttpClient::new`].
@@ -148,12 +149,27 @@ impl HttpClient {
 
     /// Sends `request` and sends it again while `policy` says so, waiting on the
     /// client's clock. Returns the last response or error.
+    ///
+    /// A request that is not [idempotent](HttpRequest::is_idempotent) is sent again
+    /// only when the server certainly did not act on it (see [`HttpError::is_retryable`]
+    /// and [`is_retryable_status`](crate::is_retryable_status)), so a `POST` never runs
+    /// twice because a timeout hid its answer.
     pub async fn send_with_retry(
         &self,
         request: &HttpRequest,
         policy: &RetryPolicy,
     ) -> Result<HttpResponse, HttpError> {
-        policy.run(&*self.clock, &*self.rng, |_attempt| self.send(request)).await
+        let idempotent = request.is_idempotent();
+        policy
+            .run(&*self.clock, &*self.rng, |_attempt| async move {
+                match self.send(request).await {
+                    Ok(value) => Ok(HttpAttempt { value, idempotent }),
+                    Err(value) => Err(HttpAttempt { value, idempotent }),
+                }
+            })
+            .await
+            .map(|attempt| attempt.value)
+            .map_err(|attempt| attempt.value)
     }
 }
 
@@ -169,12 +185,16 @@ impl fmt::Debug for HttpClient {
 
 /// Classifies a failure to get a response. The URL is dropped from the reqwest error
 /// because it is unredacted; `url` is the redacted copy.
+///
+/// A connect error comes first, even when it is the connect timeout, because only it
+/// proves that the request never left: a timeout of the whole exchange or of a read may
+/// fire after the body was sent.
 fn send_error(url: String, source: reqwest::Error) -> HttpError {
     let source = source.without_url();
-    if source.is_timeout() {
-        HttpError::Timeout { url }
-    } else if source.is_connect() {
+    if source.is_connect() {
         HttpError::Connect { url, source }
+    } else if source.is_timeout() {
+        HttpError::Timeout { url }
     } else {
         HttpError::Send { url, source }
     }
