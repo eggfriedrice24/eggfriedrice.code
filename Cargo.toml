@@ -111,6 +111,7 @@ walkdir = "2.5.0"
 # `efr-stdx.workspace = true`.
 efr-stdx = { path = "crates/efr-stdx" }
 efr-protocol = { path = "crates/efr-protocol" }
+efr-store = { path = "crates/efr-store" }
 efr-credentials = { path = "crates/efr-credentials" }
 efr-http = { path = "crates/efr-http" }
 
