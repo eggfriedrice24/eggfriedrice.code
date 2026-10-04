@@ -14,9 +14,11 @@ jiff.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+proptest.workspace = true
 rstest.workspace = true
 
 [lints]

@@ -19,6 +19,7 @@
 
 pub mod env;
 mod error;
+pub mod id;
 pub mod paths;
 pub mod rng;
 pub mod time;
