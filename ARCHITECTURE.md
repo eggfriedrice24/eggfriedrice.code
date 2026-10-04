@@ -46,7 +46,7 @@ shipped binary.
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
-| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer | `efr-tools`, `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
+| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method | every library crate above except `efr-client` and the test crates |

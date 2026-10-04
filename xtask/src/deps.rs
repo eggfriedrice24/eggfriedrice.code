@@ -50,15 +50,10 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     // Tier 3
     (
         "efr-conversation",
-        &[
-            "efr-tools",
-            "efr-provider",
-            "efr-permissions",
-            "efr-scope",
-            "efr-store",
-            "efr-protocol",
-            "efr-stdx",
-        ],
+        // No efr-tools edge: efr-tools depends on efr-shell, and efr-conversation ->
+        // efr-shell is forbidden through any chain. The conversation drives tools through
+        // its own Toolbox trait, which efr-daemon implements over the tool registry.
+        &["efr-provider", "efr-permissions", "efr-scope", "efr-store", "efr-protocol", "efr-stdx"],
     ),
     ("efr-transport", &["efr-protocol", "efr-stdx"]),
     ("efr-client", &["efr-protocol", "efr-stdx"]),
