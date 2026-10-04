@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use efr_permissions::Decision;
+use efr_permissions::{Decision, Subject};
 use efr_protocol::{ApprovalDecision, CallId, TurnId};
 use tokio::sync::oneshot;
 
@@ -87,10 +87,18 @@ impl Approvals {
 }
 
 /// The one line an approval request shows: the tool and what needs approval, such as
-/// `write_file: write /home/u/.zshrc (user config)`.
+/// `write_file: write /home/u/.zshrc (user config)`. A command line comes first even
+/// when only a path it reads needs approval, as for `rg TOKEN ~`, because the user
+/// approves the whole line.
 pub(crate) fn summary(tool: &str, decision: &Decision) -> String {
-    let subjects: Vec<String> =
+    let mut subjects: Vec<String> =
         decision.deciding().map(|reason| reason.subject.to_string()).collect();
+    let command = decision.reasons().iter().find(|reason| {
+        matches!(reason.subject, Subject::Command { .. }) && reason.effect != decision.effect()
+    });
+    if let Some(command) = command {
+        subjects.insert(0, command.subject.to_string());
+    }
     if subjects.is_empty() { tool.to_owned() } else { format!("{tool}: {}", subjects.join("; ")) }
 }
 

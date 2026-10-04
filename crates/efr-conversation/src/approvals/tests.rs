@@ -73,8 +73,18 @@ fn withdrawing_a_turn_takes_out_only_its_calls() {
 fn a_summary_names_the_tool_and_what_needs_approval() {
     let decision = decide(Requirements::none().with_write("/home/u/.zshrc"));
     assert_eq!(summary("write_file", &decision), "write_file: write /home/u/.zshrc (user config)");
-    let command = decide(Requirements::none().with_command("ls -l"));
-    assert_eq!(summary("shell", &command), "shell: run \"ls -l\"");
+    let command = decide(Requirements::none().with_command("rm -rf build"));
+    assert_eq!(summary("shell", &command), "shell: run \"rm -rf build\"");
+}
+
+#[test]
+fn a_summary_leads_with_the_command_line_when_only_a_path_needs_approval() {
+    let decision =
+        decide(Requirements::none().with_command("rg TOKEN ~").with_read_tree("/home/u"));
+    assert_eq!(
+        summary("shell", &decision),
+        "shell: run \"rg TOKEN ~\"; read all under /home/u (user data)"
+    );
 }
 
 #[test]
