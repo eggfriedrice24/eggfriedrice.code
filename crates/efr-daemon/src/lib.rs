@@ -19,14 +19,18 @@
 //! as the turn loop, permission decisions, SQL, terminal emulation or the wire format.
 
 mod config;
+mod connections;
+mod conversations;
 mod discovery;
 mod error;
 mod lock;
 mod providers;
 mod ptys;
+mod receipts;
 mod reconcile;
 mod screens;
 mod shells;
+mod state;
 mod tools;
 
 pub use config::{
