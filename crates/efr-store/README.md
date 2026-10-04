@@ -29,8 +29,10 @@ across a restart:
   paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
 - `receipts`: one receipt per command id. A duplicate command id returns the stored
   outcome, and a rejected command stays rejected.
-- `outbox`: durable side effects. Replay-safe rows survive a restart; process-bound
-  rows are cancelled at startup by `cancel_process_bound`.
+- `outbox`: durable side effects, enqueued with the batch that decides them and
+  claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
+  Replay-safe rows survive a restart; process-bound rows are cancelled at startup by
+  `WriterHandle::outbox_cancel_process_bound`.
 - `recording`: PTY recordings. Append-only segment files under
   `recordings/<pty_id>/<start_seq>.rec`, each chunk behind a 16-byte header with a
   timestamp, rotated at 8 MiB, indexed in `recording_segments`. Offsets are stream

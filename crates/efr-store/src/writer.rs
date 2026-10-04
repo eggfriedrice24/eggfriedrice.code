@@ -42,7 +42,7 @@ type Job = Box<dyn FnOnce(&mut WriterState) + Send + 'static>;
 /// What the writer thread owns.
 pub(crate) struct WriterState {
     pub(crate) conn: Connection,
-    pub(crate) clock: Arc<dyn Clock>,
+    clock: Arc<dyn Clock>,
     /// The sequence number of the newest committed event.
     last_seq: Seq,
     events: broadcast::Sender<Committed>,

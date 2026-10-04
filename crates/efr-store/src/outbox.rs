@@ -75,7 +75,7 @@ pub struct OutboxItem {
     pub claimed_at: Option<Timestamp>,
 }
 
-/// What [`cancel_process_bound`] changed.
+/// What [`crate::WriterHandle::outbox_cancel_process_bound`] changed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct OutboxReconciled {
