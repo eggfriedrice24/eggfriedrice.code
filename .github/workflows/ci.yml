@@ -164,8 +164,16 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
+      # The daemon half joins once efr-daemon exists (milestone 1, step 5), as in `just test-ghostty`.
       - if: steps.present.outputs.run == 'true'
-        run: cargo nextest run -p efr-screen-ghostty -p efr-daemon --features efr-daemon/screen-ghostty --profile ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d crates/efr-daemon ]]; then
+            cargo nextest run -p efr-screen-ghostty -p efr-daemon --features efr-daemon/screen-ghostty --profile ci
+          else
+            cargo nextest run -p efr-screen-ghostty --profile ci
+          fi
 
   shell:
     runs-on: ubuntu-latest
