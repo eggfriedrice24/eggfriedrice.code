@@ -23,12 +23,17 @@ mod discovery;
 mod error;
 mod lock;
 mod providers;
+mod ptys;
 mod reconcile;
+mod screens;
+mod shells;
 
 pub use config::{
     CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
     DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, ScreenChoice, ShellSettings, Source,
 };
+pub use efr_holder::PtyHolder;
 pub use efr_provider::Provider;
+pub use efr_shell::ScreenFactory;
 pub use error::DaemonError;
 pub use providers::{API, ProviderFactory, SUBSCRIPTION};
