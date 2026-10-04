@@ -26,7 +26,18 @@ Modules:
   platform's numbers.
 - `info`: `PtyInfo` and `ChildStatus`, what `list` reports. A PTY stays listed with
   its exit status until it is released.
-- `error`: `HolderError`, the crate's one error type.
+- `wire`: the holder socket protocol for milestone 5. `RequestFrame { id, request }`
+  and `ResponseFrame { id, response }`, framed with `efr_protocol::framing`; one
+  `HolderRequest` variant per trait method plus `hello` with
+  `HOLDER_PROTOCOL_VERSION`; `HolderResponse::fd_count` says how many descriptors
+  (the PTY master of a `spawned` answer) travel in the same `sendmsg`. Nothing at
+  milestone 1 sends these messages; they sit next to the trait so the two change
+  together.
+- `error`: `HolderError`, the crate's one error type. `HolderError::code` gives a
+  `HolderErrorCode` that is the same for a local holder and for one behind the socket,
+  so a caller treats a remote `not_found` like a local one. `WireError` carries the
+  code and a message across the socket, and a forwarded remote error is not wrapped a
+  second time.
 
 ## Tier
 
@@ -50,6 +61,9 @@ Third-party crates: `async-trait`, `serde` and `thiserror`.
   the same shell in the daemon and in `efr-ptyd`.
 - Environment values never reach a `Debug` string or an error, because the hidden
   shell's environment is copied from the user's and can hold tokens.
+- The trait and the wire form agree: every `PtyHolder` method has exactly one request
+  and one response shape, so `efr-ptyd` and a future `RemotePtyHolder` cannot drift
+  from the in-process holder.
 
 ## Tests
 
@@ -59,6 +73,7 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-holder
 ```
 
-The tests are decision tables for `SpawnSpec::validate`, JSON round trips, and the
-trait driven through `Arc<dyn PtyHolder>` with an in-memory holder whose "master" is
-one end of a pipe. They open no PTY, use no network, no real-time sleeps and no Zig.
+The tests are decision tables for `SpawnSpec::validate` and for the error codes,
+exact JSON shapes and round trips for every wire message, and the trait driven
+through `Arc<dyn PtyHolder>` with an in-memory holder whose "master" is one end of a
+pipe. They open no PTY, use no network, no real-time sleeps and no Zig.

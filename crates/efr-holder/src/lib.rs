@@ -6,8 +6,9 @@
 //! also resizes, signals ([`Signal`], [`SignalTarget`]), lists ([`PtyInfo`],
 //! [`ChildStatus`]) and releases the PTYs it holds. At milestone 1 the holder is
 //! `efr_pty::LocalPtyHolder` inside the daemon; at milestone 5 it is `efr-ptyd`, a
-//! separate service. `efr-shell` only ever sees `Arc<dyn PtyHolder>`, so that switch
-//! changes no caller.
+//! separate service reached over the holder socket, whose messages are
+//! [`RequestFrame`] and [`ResponseFrame`]. `efr-shell` only ever sees
+//! `Arc<dyn PtyHolder>`, so that switch changes no caller.
 //!
 //! A [`SpawnSpec`] says what to run: an absolute program, its arguments, an absolute
 //! working directory, the child's whole environment and the starting terminal size.
@@ -26,9 +27,14 @@ mod holder;
 mod info;
 mod signal;
 mod spec;
+mod wire;
 
 pub use error::HolderError;
 pub use holder::{PtyHandle, PtyHolder};
 pub use info::{ChildStatus, PtyInfo};
 pub use signal::{Signal, SignalTarget};
 pub use spec::SpawnSpec;
+pub use wire::{
+    HOLDER_PROTOCOL_VERSION, HolderErrorCode, HolderRequest, HolderResponse, RequestFrame,
+    ResponseFrame, WireError,
+};

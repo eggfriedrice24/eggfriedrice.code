@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use efr_protocol::{PtyId, Size};
 
-use crate::Signal;
+use crate::{HolderErrorCode, Signal};
 
 /// Every way a holder operation can fail.
 ///
@@ -124,6 +124,50 @@ pub enum HolderError {
         #[source]
         source: io::Error,
     },
+
+    /// The holder service speaks a different version of the holder socket protocol.
+    #[error("the holder service speaks protocol {theirs}, this build speaks {ours}")]
+    ProtocolMismatch {
+        /// This build's [`HOLDER_PROTOCOL_VERSION`](crate::HOLDER_PROTOCOL_VERSION).
+        ours: u32,
+        /// The version the other side sent.
+        theirs: u32,
+    },
+
+    /// The holder service answered with an error. Its kind is in `code`, so a caller
+    /// treats a remote `not_found` like a local [`HolderError::NotFound`] by matching on
+    /// [`HolderError::code`].
+    #[error("the holder service refused the request ({code}): {message}")]
+    Remote {
+        /// What kind of failure the service reported.
+        code: HolderErrorCode,
+        /// The service's own message for it.
+        message: String,
+    },
+}
+
+impl HolderError {
+    /// The kind of the failure, the same for a local holder and for one behind the
+    /// holder socket. It is also the code a holder service sends back on the wire.
+    pub fn code(&self) -> HolderErrorCode {
+        match self {
+            HolderError::ProgramNotAbsolute { .. }
+            | HolderError::CwdNotAbsolute { .. }
+            | HolderError::EmptySize { .. }
+            | HolderError::InvalidEnvName { .. }
+            | HolderError::NulInEnvValue { .. }
+            | HolderError::NulByte { .. } => HolderErrorCode::InvalidSpec,
+            HolderError::AlreadyExists { .. } => HolderErrorCode::AlreadyExists,
+            HolderError::NotFound { .. } => HolderErrorCode::NotFound,
+            HolderError::Exited { .. } => HolderErrorCode::Exited,
+            HolderError::Spawn { .. } => HolderErrorCode::SpawnFailed,
+            HolderError::Resize { .. }
+            | HolderError::Signal { .. }
+            | HolderError::Release { .. } => HolderErrorCode::Os,
+            HolderError::ProtocolMismatch { .. } => HolderErrorCode::ProtocolMismatch,
+            HolderError::Remote { code, .. } => *code,
+        }
+    }
 }
 
 #[cfg(test)]
