@@ -1,0 +1,12 @@
+{
+  "kind": "turn_failed",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "error": {
+    "code": "internal",
+    "message": "the provider stream ended early",
+    "data": {
+      "provider": "openai",
+      "status": 502
+    }
+  }
+}

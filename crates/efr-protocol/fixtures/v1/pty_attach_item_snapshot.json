@@ -1,0 +1,69 @@
+{
+  "kind": "snapshot",
+  "seq": 2048,
+  "snapshot": {
+    "size": {
+      "cols": 80,
+      "rows": 2
+    },
+    "cursor": {
+      "row": 1,
+      "col": 2
+    },
+    "rows": [
+      {
+        "cells": [
+          {
+            "text": "o",
+            "fg": {
+              "indexed": 2
+            },
+            "bg": {
+              "rgb": [
+                30,
+                30,
+                46
+              ]
+            },
+            "bold": true,
+            "italic": true,
+            "underline": true,
+            "inverse": true
+          },
+          {
+            "text": "k"
+          }
+        ],
+        "wrapped": true
+      },
+      {
+        "cells": [
+          {
+            "text": "$"
+          },
+          {
+            "text": " "
+          },
+          {
+            "text": "界",
+            "wide": true
+          },
+          {
+            "text": ""
+          }
+        ]
+      }
+    ],
+    "scrollback": [
+      {
+        "cells": [
+          {
+            "text": "$"
+          }
+        ]
+      }
+    ],
+    "title": "zsh",
+    "alternate_screen": true
+  }
+}

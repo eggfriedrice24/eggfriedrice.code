@@ -1,0 +1,17 @@
+{
+  "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+  "version": "0.1.0",
+  "protocol": 1,
+  "pid": 1234,
+  "started_at": "2026-10-03T08:00:00Z",
+  "screen_backend": "vt100",
+  "conversations": 2,
+  "shells": 1,
+  "providers": [
+    {
+      "provider": "openai",
+      "logged_in": true,
+      "expires_at": "2026-10-03T20:00:00Z"
+    }
+  ]
+}

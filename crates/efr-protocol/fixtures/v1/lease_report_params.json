@@ -1,0 +1,12 @@
+{
+  "method": "lease.report",
+  "params": {
+    "conversations": [
+      "019a9b1c-3d00-7a10-8b20-000000000001"
+    ],
+    "ptys": [
+      "019a9b1c-3d00-7a10-8b20-000000000005"
+    ],
+    "visible": true
+  }
+}

@@ -1,0 +1,12 @@
+[
+  "protocol_mismatch",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "busy",
+  "overflow",
+  "cancelled",
+  "invalid",
+  "internal"
+]

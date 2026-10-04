@@ -1,0 +1,8 @@
+{
+  "method": "conversation.history",
+  "params": {
+    "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+    "cursor": "h1:30",
+    "limit": 50
+  }
+}

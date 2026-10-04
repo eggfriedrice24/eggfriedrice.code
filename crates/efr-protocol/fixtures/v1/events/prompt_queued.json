@@ -1,0 +1,18 @@
+{
+  "kind": "prompt_queued",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "command_id": "019a9b1c-3d00-7a10-8b20-000000000003",
+  "text": "why is the disk full",
+  "origin": "shell",
+  "context": {
+    "pwd": "/var/log",
+    "oldpwd": "/home/me",
+    "tty": "/dev/pts/3",
+    "shell_pid": 4242,
+    "last_status": 1,
+    "last_command": "du -sh /var/log",
+    "shlvl": 1,
+    "ssh_connection": "192.0.2.10 51234 192.0.2.20 22",
+    "hostname": "desk"
+  }
+}

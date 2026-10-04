@@ -1,0 +1,7 @@
+{
+  "kind": "approval_requested",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "summary": "run `journalctl --vacuum-size=500M` as root",
+  "diff_preview": "--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n-#SystemMaxUse=\n+SystemMaxUse=500M\n"
+}

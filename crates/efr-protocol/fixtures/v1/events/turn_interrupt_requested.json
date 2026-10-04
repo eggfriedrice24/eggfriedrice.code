@@ -1,0 +1,5 @@
+{
+  "kind": "turn_interrupt_requested",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "origin": "cli"
+}

@@ -1,0 +1,4 @@
+{
+  "method": "admin.login_openai",
+  "params": {}
+}

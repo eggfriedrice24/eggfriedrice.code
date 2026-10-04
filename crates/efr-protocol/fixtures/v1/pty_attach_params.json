@@ -1,0 +1,8 @@
+{
+  "method": "pty.attach",
+  "params": {
+    "pty_id": "019a9b1c-3d00-7a10-8b20-000000000005",
+    "since_seq": 1024,
+    "scrollback_rows": 200
+  }
+}

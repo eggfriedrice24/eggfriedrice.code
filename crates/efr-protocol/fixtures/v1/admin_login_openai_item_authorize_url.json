@@ -1,0 +1,4 @@
+{
+  "kind": "authorize_url",
+  "url": "https://auth.openai.com/oauth/authorize?response_type=code&state=st4te"
+}

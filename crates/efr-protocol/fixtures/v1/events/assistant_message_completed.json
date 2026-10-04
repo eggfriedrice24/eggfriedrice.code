@@ -1,0 +1,6 @@
+{
+  "kind": "assistant_message_completed",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "index": 0,
+  "text": "The journal takes 3.1 GiB. `journalctl --vacuum-size=500M` frees most of it."
+}

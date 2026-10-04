@@ -1,0 +1,526 @@
+//! The samples behind the frozen fixtures in `fixtures/v1/`, and their canonical form.
+//!
+//! The fixture files are the contract that the phone repository reads, so they are
+//! plain JSON compared byte for byte (the README says why not `insta`). Each sample here
+//! must encode to exactly the bytes of its file, and each file must decode as its type
+//! and encode back to the same bytes; the tests are in `fixtures_check/tests.rs`.
+//! Samples set every optional member they can, so the files freeze every member's form.
+//! Objects built with `json!` list their keys in sorted order, so the files are the same
+//! whether or not serde_json's `preserve_order` feature is on.
+
+use std::str::FromStr;
+
+use jiff::Timestamp;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Map, json};
+
+use crate::{
+    AdminLoginOpenAi, AdminLoginOpenAiItem, AdminStatus, AdminStatusResult, ApprovalDecision,
+    ApprovalRespond, ApprovalRespondResult, Base64Bytes, CallId, Capabilities, Cell, ClientFrame,
+    Color, CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
+    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, LeaseReport,
+    LeaseReportResult, Method, Origin, PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend,
+    PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
+    PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, Seq,
+    ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSteer,
+    TurnSteerResult, Usage,
+};
+
+/// The directory of the frozen fixtures.
+pub(crate) const FIXTURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/v1");
+
+/// One frozen fixture: where it lives, what its file must hold, and how to read it back.
+pub(crate) struct Fixture {
+    /// The path under `fixtures/v1/`, with `/` separators.
+    pub(crate) path: String,
+    /// The canonical encoding of the sample: the exact bytes of the file.
+    pub(crate) json: String,
+    /// Decodes a file as the sample's type and encodes it again.
+    pub(crate) round_trip: fn(&str) -> Result<String, serde_json::Error>,
+}
+
+/// The canonical form of a fixture: pretty JSON with two-space indents and a final
+/// newline.
+pub(crate) fn canonical<T: Serialize + ?Sized>(value: &T) -> Result<String, serde_json::Error> {
+    let mut text = serde_json::to_string_pretty(value)?;
+    text.push('\n');
+    Ok(text)
+}
+
+fn round_trip<T: Serialize + DeserializeOwned>(text: &str) -> Result<String, serde_json::Error> {
+    let value: T = serde_json::from_str(text)?;
+    canonical(&value)
+}
+
+fn fixture<T: Serialize + DeserializeOwned>(path: impl Into<String>, sample: &T) -> Fixture {
+    let path = path.into();
+    let json =
+        canonical(sample).unwrap_or_else(|err| panic!("sample {path} does not encode: {err}"));
+    Fixture { path, json, round_trip: round_trip::<T> }
+}
+
+/// The file name stem of a method, such as `conversation_subscribe`.
+pub(crate) fn method_stem(method: &Method) -> String {
+    method.name().replace('.', "_")
+}
+
+/// The file of an event sample under `fixtures/v1/`.
+pub(crate) fn event_path(event: &Event) -> String {
+    match event {
+        Event::Unknown { .. } => "events/unknown.json".to_owned(),
+        known => format!("events/{}.json", known.kind()),
+    }
+}
+
+/// Every fixture, in a stable order.
+pub(crate) fn all() -> Vec<Fixture> {
+    let mut fixtures: Vec<Fixture> = method_samples()
+        .iter()
+        .map(|method| fixture(format!("{}_params.json", method_stem(method)), method))
+        .collect();
+    fixtures.extend(answer_fixtures());
+    fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
+    fixtures.extend(frame_fixtures());
+    fixtures.push(fixture("error_codes.json", &ErrorCode::ALL.to_vec()));
+    fixtures.push(fixture("scope_names.json", &ScopeName::ALL.to_vec()));
+    fixtures
+}
+
+fn parse<T: FromStr>(text: &str) -> T
+where
+    T::Err: std::fmt::Debug,
+{
+    text.parse().unwrap_or_else(|err| panic!("{text} does not parse: {err:?}"))
+}
+
+fn conversation_id() -> ConversationId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000001")
+}
+
+fn turn_id() -> TurnId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000002")
+}
+
+fn command_id() -> CommandId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000003")
+}
+
+fn call_id() -> CallId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000004")
+}
+
+fn pty_id() -> PtyId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000005")
+}
+
+fn device_id() -> DeviceId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000006")
+}
+
+fn daemon_id() -> DaemonId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000007")
+}
+
+fn project_id() -> ProjectId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000008")
+}
+
+fn at(text: &str) -> Timestamp {
+    parse(text)
+}
+
+fn shell_context() -> ShellContext {
+    ShellContext {
+        pwd: "/var/log".into(),
+        oldpwd: Some("/home/me".into()),
+        tty: Some("/dev/pts/3".into()),
+        shell_pid: Some(4242),
+        last_status: Some(1),
+        last_command: Some("du -sh /var/log".into()),
+        shlvl: Some(1),
+        ssh_connection: Some("192.0.2.10 51234 192.0.2.20 22".into()),
+        hostname: Some("desk".into()),
+    }
+}
+
+fn summary() -> ConversationSummary {
+    ConversationSummary {
+        id: conversation_id(),
+        title: Some("why is the disk full".into()),
+        status: ConversationStatus::Running,
+        created_at: at("2026-10-03T11:58:00Z"),
+        updated_at: at("2026-10-03T12:00:05.5Z"),
+        last_seq: Seq::new(42),
+        cwd: Some("/var/log".into()),
+        scope: Some(Scope::Machine),
+        tty: Some("/dev/pts/3".into()),
+    }
+}
+
+fn envelope(seq: u64, event: Event) -> EventEnvelope {
+    EventEnvelope {
+        seq: Seq::new(seq),
+        conversation_id: Some(conversation_id()),
+        at: at("2026-10-03T12:00:05Z"),
+        event,
+    }
+}
+
+fn message_updated() -> Event {
+    Event::AssistantMessageUpdated {
+        turn_id: turn_id(),
+        index: 0,
+        text: "The journal takes 3.1 GiB under /var/log/journal.".into(),
+    }
+}
+
+fn plain(text: &str) -> Cell {
+    Cell { text: text.into(), ..Cell::default() }
+}
+
+fn snapshot() -> ScreenSnapshot {
+    ScreenSnapshot {
+        size: Size { cols: 80, rows: 2 },
+        cursor: Cursor { row: 1, col: 2, hidden: false },
+        rows: vec![
+            RowCells {
+                cells: vec![
+                    Cell {
+                        text: "o".into(),
+                        fg: Some(Color::Indexed(2)),
+                        bg: Some(Color::Rgb([30, 30, 46])),
+                        bold: true,
+                        italic: true,
+                        underline: true,
+                        inverse: true,
+                        wide: false,
+                    },
+                    plain("k"),
+                ],
+                wrapped: true,
+            },
+            RowCells {
+                cells: vec![plain("$"), plain(" "), Cell { wide: true, ..plain("界") }, plain("")],
+                wrapped: false,
+            },
+        ],
+        scrollback: vec![RowCells { cells: vec![plain("$")], wrapped: false }],
+        title: Some("zsh".into()),
+        alternate_screen: true,
+    }
+}
+
+/// One params sample per method.
+pub(crate) fn method_samples() -> Vec<Method> {
+    vec![
+        Method::Hello(Hello {
+            protocol: PROTOCOL_VERSION,
+            origin: Origin::Shell,
+            client: Some("efr 0.1.0".into()),
+            capabilities: Capabilities {
+                admin: None,
+                screen_snapshots: Some(true),
+                extra: Default::default(),
+            },
+            tty: Some("/dev/pts/3".into()),
+            pid: Some(5150),
+            device_id: Some(device_id()),
+        }),
+        Method::ConversationsList(ConversationsList {
+            cursor: Some(PageCursor::new("c1:019a9b1c-3d00-7a10-8b20-000000000001")),
+            limit: Some(20),
+        }),
+        Method::ConversationSubscribe(ConversationSubscribe {
+            conversation_id: conversation_id(),
+            after_seq: Some(Seq::new(40)),
+        }),
+        Method::ConversationHistory(ConversationHistory {
+            conversation_id: conversation_id(),
+            cursor: Some(PageCursor::new("h1:30")),
+            limit: Some(50),
+        }),
+        Method::PromptSend(PromptSend {
+            command_id: command_id(),
+            conversation_id: Some(conversation_id()),
+            new_conversation: false,
+            text: "why is the disk full".into(),
+            context: Some(shell_context()),
+        }),
+        Method::TurnInterrupt(TurnInterrupt {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            turn_id: Some(turn_id()),
+        }),
+        Method::TurnSteer(TurnSteer {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            turn_id: Some(turn_id()),
+            text: "check the journal too".into(),
+        }),
+        Method::ApprovalRespond(ApprovalRespond {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            call_id: call_id(),
+            decision: ApprovalDecision::Allow,
+        }),
+        Method::PtyAttach(PtyAttach {
+            pty_id: pty_id(),
+            since_seq: Some(Seq::new(1024)),
+            scrollback_rows: Some(200),
+        }),
+        Method::PtyWrite(PtyWrite {
+            pty_id: pty_id(),
+            data: Base64Bytes::new(b"ls -la\r".to_vec()),
+        }),
+        Method::PtyResize(PtyResize { pty_id: pty_id(), size: Size { cols: 120, rows: 40 } }),
+        Method::LeaseReport(LeaseReport {
+            conversations: vec![conversation_id()],
+            ptys: vec![pty_id()],
+            visible: true,
+        }),
+        Method::AdminStatus(AdminStatus {}),
+        Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
+    ]
+}
+
+/// The result of every unary method and each item variant of every streaming method.
+fn answer_fixtures() -> Vec<Fixture> {
+    vec![
+        fixture(
+            "hello_result.json",
+            &HelloResult {
+                daemon_id: daemon_id(),
+                protocol: PROTOCOL_VERSION,
+                version: "0.1.0".into(),
+                capabilities: Capabilities {
+                    admin: Some(true),
+                    screen_snapshots: Some(true),
+                    extra: Default::default(),
+                },
+                paths: DaemonPaths {
+                    scratch_root: "/home/me/.local/share/efr/scratch".into(),
+                    data_dir: "/home/me/.local/share/efr".into(),
+                },
+                challenge: "3q2-7wAAAAAAAAAAAAAAAA".into(),
+            },
+        ),
+        fixture(
+            "conversations_list_result.json",
+            &ConversationsListResult {
+                conversations: vec![summary()],
+                next_cursor: Some(PageCursor::new("c1:019a9b1c-3d00-7a10-8b20-000000000001")),
+            },
+        ),
+        fixture(
+            "conversation_subscribe_item_event.json",
+            &ConversationSubscribeItem::Event(envelope(41, message_updated())),
+        ),
+        fixture(
+            "conversation_subscribe_item_snapshot.json",
+            &ConversationSubscribeItem::Snapshot(ConversationSnapshot {
+                conversation: summary(),
+                events: vec![envelope(42, message_updated())],
+                history_cursor: Some(PageCursor::new("h1:42")),
+                hwm: Seq::new(42),
+            }),
+        ),
+        fixture(
+            "conversation_history_result.json",
+            &ConversationHistoryResult {
+                events: vec![envelope(
+                    30,
+                    Event::TurnCompleted {
+                        turn_id: turn_id(),
+                        usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+                    },
+                )],
+                next_cursor: Some(PageCursor::new("h1:10")),
+            },
+        ),
+        fixture(
+            "prompt_send_result.json",
+            &PromptSendResult {
+                conversation_id: conversation_id(),
+                turn_id: turn_id(),
+                seq: Seq::new(43),
+                queued: false,
+            },
+        ),
+        fixture(
+            "turn_interrupt_result.json",
+            &TurnInterruptResult { turn_id: turn_id(), seq: Seq::new(44) },
+        ),
+        fixture(
+            "turn_steer_result.json",
+            &TurnSteerResult { turn_id: turn_id(), seq: Seq::new(45) },
+        ),
+        fixture("approval_respond_result.json", &ApprovalRespondResult { seq: Seq::new(46) }),
+        fixture(
+            "pty_attach_item_snapshot.json",
+            &PtyAttachItem::Snapshot { seq: Seq::new(2048), snapshot: snapshot() },
+        ),
+        fixture(
+            "pty_attach_item_output.json",
+            &PtyAttachItem::Output {
+                seq: Seq::new(2048),
+                data: Base64Bytes::new(b"\x1b[32mok\x1b[0m\r\n".to_vec()),
+            },
+        ),
+        fixture(
+            "pty_attach_item_resized.json",
+            &PtyAttachItem::Resized { seq: Seq::new(2060), size: Size { cols: 120, rows: 40 } },
+        ),
+        fixture("pty_write_result.json", &PtyWriteResult {}),
+        fixture("pty_resize_result.json", &PtyResizeResult { size: Size { cols: 120, rows: 40 } }),
+        fixture("lease_report_result.json", &LeaseReportResult { ttl_secs: 45 }),
+        fixture(
+            "admin_status_result.json",
+            &AdminStatusResult {
+                daemon_id: daemon_id(),
+                version: "0.1.0".into(),
+                protocol: PROTOCOL_VERSION,
+                pid: 1234,
+                started_at: at("2026-10-03T08:00:00Z"),
+                screen_backend: "vt100".into(),
+                conversations: 2,
+                shells: 1,
+                providers: vec![ProviderStatus {
+                    provider: "openai".into(),
+                    logged_in: true,
+                    expires_at: Some(at("2026-10-03T20:00:00Z")),
+                }],
+            },
+        ),
+        fixture(
+            "admin_login_openai_item_authorize_url.json",
+            &AdminLoginOpenAiItem::AuthorizeUrl {
+                url: "https://auth.openai.com/oauth/authorize?response_type=code&state=st4te"
+                    .into(),
+            },
+        ),
+        fixture(
+            "admin_login_openai_item_completed.json",
+            &AdminLoginOpenAiItem::Completed { provider: "openai".into() },
+        ),
+    ]
+}
+
+/// One sample per event kind, and one of a kind from the future.
+pub(crate) fn event_samples() -> Vec<Event> {
+    let mut future = Map::new();
+    future.insert("device_id".into(), json!(device_id()));
+    future.insert("label".into(), json!("phone"));
+    vec![
+        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/3".into()) },
+        Event::PromptQueued {
+            turn_id: turn_id(),
+            command_id: command_id(),
+            text: "why is the disk full".into(),
+            origin: Origin::Shell,
+            context: Some(shell_context()),
+        },
+        Event::PromptHeld { turn_id: turn_id() },
+        Event::TurnStarted {
+            turn_id: turn_id(),
+            cwd: "/var/log".into(),
+            scope: Scope::Path("/var/log".into()),
+        },
+        Event::ScopeChanged {
+            turn_id: turn_id(),
+            from: Scope::Machine,
+            to: Scope::Project(project_id()),
+        },
+        message_updated(),
+        Event::AssistantMessageCompleted {
+            turn_id: turn_id(),
+            index: 0,
+            text: "The journal takes 3.1 GiB. `journalctl --vacuum-size=500M` frees most of it."
+                .into(),
+        },
+        Event::ToolCallStarted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            tool: "shell".into(),
+            input: json!({ "command": "du -sh /var/log/*", "timeout_secs": 30 }),
+        },
+        Event::ToolCallOutputUpdated {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            tail: "3.1G\t/var/log/journal\n".into(),
+            bytes: 4096,
+        },
+        Event::ToolCallCompleted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            output: "3.1G\t/var/log/journal\n12K\t/var/log/pacman.log\n".into(),
+            truncated: false,
+            is_error: false,
+            exit_code: Some(0),
+        },
+        Event::ApprovalRequested {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            summary: "run `journalctl --vacuum-size=500M` as root".into(),
+            diff_preview: Some("--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n-#SystemMaxUse=\n+SystemMaxUse=500M\n".into()),
+        },
+        Event::ApprovalResolved {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            decision: ApprovalDecision::Deny,
+            origin: Origin::Phone,
+        },
+        Event::ApprovalExpired { turn_id: turn_id(), call_id: call_id() },
+        Event::TurnSteered { turn_id: turn_id(), text: "check the journal too".into() },
+        Event::TurnInterruptRequested { turn_id: turn_id(), origin: Origin::Cli },
+        Event::TurnInterrupted { turn_id: turn_id() },
+        Event::TurnCompleted {
+            turn_id: turn_id(),
+            usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+        },
+        Event::TurnFailed {
+            turn_id: turn_id(),
+            error: ErrorBody::new(ErrorCode::Internal, "the provider stream ended early")
+                .with_data(json!({ "provider": "openai", "status": 502 })),
+        },
+        Event::TurnCancelled { turn_id: turn_id() },
+        Event::ShellStarted { pty_id: pty_id(), cwd: "/home/me".into(), pid: Some(6060) },
+        Event::ShellExited { pty_id: pty_id(), exit_code: Some(0) },
+        Event::CwdChanged { pty_id: pty_id(), cwd: "/var/log".into(), host: Some("desk".into()) },
+        Event::LoginCompleted { provider: "openai".into() },
+        Event::Unknown { kind: "device_enrolled".into(), payload: future },
+    ]
+}
+
+/// One sample of every frame shape.
+fn frame_fixtures() -> Vec<Fixture> {
+    let id = RequestId::new(7);
+    let item = serde_json::to_value(LeaseReportResult { ttl_secs: 45 })
+        .unwrap_or_else(|err| panic!("the item sample does not encode: {err}"));
+    vec![
+        fixture(
+            "frames/client_request.json",
+            &ClientFrame::Request {
+                id,
+                method: Method::ConversationsList(ConversationsList::default()),
+            },
+        ),
+        fixture("frames/client_cancel.json", &ClientFrame::Cancel { id }),
+        fixture("frames/server_item.json", &ServerFrame::Item { id, item }),
+        fixture("frames/server_end.json", &ServerFrame::end(id)),
+        fixture(
+            "frames/server_error.json",
+            &ServerFrame::error(Some(id), ErrorBody::overflow(Seq::new(41))),
+        ),
+        fixture(
+            "frames/server_error_without_id.json",
+            &ServerFrame::error(None, ErrorBody::new(ErrorCode::Invalid, "the frame is not JSON")),
+        ),
+        fixture("frames/server_ack.json", &ServerFrame::Ack { id }),
+    ]
+}
+
+#[cfg(test)]
+mod tests;

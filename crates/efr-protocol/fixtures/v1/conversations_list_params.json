@@ -1,0 +1,7 @@
+{
+  "method": "conversations.list",
+  "params": {
+    "cursor": "c1:019a9b1c-3d00-7a10-8b20-000000000001",
+    "limit": 20
+  }
+}

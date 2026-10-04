@@ -1,0 +1,14 @@
+{
+  "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+  "protocol": 1,
+  "version": "0.1.0",
+  "capabilities": {
+    "admin": true,
+    "screen_snapshots": true
+  },
+  "paths": {
+    "scratch_root": "/home/me/.local/share/efr/scratch",
+    "data_dir": "/home/me/.local/share/efr"
+  },
+  "challenge": "3q2-7wAAAAAAAAAAAAAAAA"
+}

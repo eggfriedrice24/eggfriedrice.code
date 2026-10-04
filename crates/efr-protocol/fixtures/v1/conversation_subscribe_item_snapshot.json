@@ -1,0 +1,31 @@
+{
+  "kind": "snapshot",
+  "conversation": {
+    "id": "019a9b1c-3d00-7a10-8b20-000000000001",
+    "title": "why is the disk full",
+    "status": "running",
+    "created_at": "2026-10-03T11:58:00Z",
+    "updated_at": "2026-10-03T12:00:05.5Z",
+    "last_seq": 42,
+    "cwd": "/var/log",
+    "scope": {
+      "kind": "machine"
+    },
+    "tty": "/dev/pts/3"
+  },
+  "events": [
+    {
+      "seq": 42,
+      "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+      "at": "2026-10-03T12:00:05Z",
+      "event": {
+        "kind": "assistant_message_updated",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "index": 0,
+        "text": "The journal takes 3.1 GiB under /var/log/journal."
+      }
+    }
+  ],
+  "history_cursor": "h1:42",
+  "hwm": 42
+}

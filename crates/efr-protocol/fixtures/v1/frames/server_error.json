@@ -1,0 +1,10 @@
+{
+  "id": 7,
+  "error": {
+    "code": "overflow",
+    "message": "the subscriber fell behind; resume after seq 41",
+    "data": {
+      "last_seq": 41
+    }
+  }
+}

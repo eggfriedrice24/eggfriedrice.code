@@ -1,0 +1,10 @@
+{
+  "method": "pty.resize",
+  "params": {
+    "pty_id": "019a9b1c-3d00-7a10-8b20-000000000005",
+    "size": {
+      "cols": 120,
+      "rows": 40
+    }
+  }
+}

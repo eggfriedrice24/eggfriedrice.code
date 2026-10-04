@@ -1,0 +1,18 @@
+{
+  "events": [
+    {
+      "seq": 30,
+      "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+      "at": "2026-10-03T12:00:05Z",
+      "event": {
+        "kind": "turn_completed",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "usage": {
+          "input_tokens": 1200,
+          "output_tokens": 340
+        }
+      }
+    }
+  ],
+  "next_cursor": "h1:10"
+}

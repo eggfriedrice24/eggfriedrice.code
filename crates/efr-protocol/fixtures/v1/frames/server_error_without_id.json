@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "invalid",
+    "message": "the frame is not JSON"
+  }
+}

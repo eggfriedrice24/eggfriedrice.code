@@ -1,0 +1,14 @@
+{
+  "method": "hello",
+  "params": {
+    "protocol": 1,
+    "origin": "shell",
+    "client": "efr 0.1.0",
+    "capabilities": {
+      "screen_snapshots": true
+    },
+    "tty": "/dev/pts/3",
+    "pid": 5150,
+    "device_id": "019a9b1c-3d00-7a10-8b20-000000000006"
+  }
+}

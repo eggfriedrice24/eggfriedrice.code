@@ -18,6 +18,8 @@
 mod capabilities;
 mod error;
 mod event;
+#[cfg(test)]
+mod fixtures_check;
 mod frame;
 pub mod framing;
 mod ids;
