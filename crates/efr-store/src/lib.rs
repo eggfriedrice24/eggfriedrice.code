@@ -13,8 +13,8 @@
 //!
 //! `db` is a public module because its paths are the replacements that `clippy.toml`
 //! names for `rusqlite::Connection::open` and `open_in_memory`. The modules named after
-//! tables (`events` and the projections) are public too: they hold the read functions
-//! that run inside `Readers::with`, and their types.
+//! tables (`events`, the projections, `receipts`, `outbox`, `recording`) are public
+//! too: they hold the read functions that run inside `Readers::with`, and their types.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -30,6 +30,7 @@ pub mod outbox;
 mod projection;
 mod reader;
 pub mod receipts;
+pub mod recording;
 pub mod shells;
 mod sql;
 mod store;
