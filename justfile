@@ -118,16 +118,12 @@ deps:
 typos:
     typos
 
-# Accept snapshot changes and rewrite the frozen protocol fixtures.
+# Accept snapshot changes, rewrite the frozen protocol fixtures and the scenario fixtures.
 bless:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [[ ! -d crates/efr-protocol ]]; then
-        echo "bless: not available until milestone 1 lands (no snapshots or fixtures exist yet)"
-        exit 0
-    fi
     cargo insta accept
     cargo xtask fixtures --bless
+    # The scenario fixtures of efr-test-daemon: outbound records only; review the diff.
+    cargo nextest run -p efr-test-daemon --test bless --run-ignored only
 
 # Build the docs with warnings denied, then open them.
 doc:
