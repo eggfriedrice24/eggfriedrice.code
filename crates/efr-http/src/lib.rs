@@ -4,7 +4,7 @@
 //!   read timeouts, sending an `HttpRequest` and returning an `HttpResponse`.
 //! - `RetryPolicy`: exponential backoff with jitter and `Retry-After`, waiting on
 //!   the injected `efr_stdx::time::Clock` so tests never sleep.
-//! - `SseDecoder` and `SseStream`: server-sent events over a byte stream, for the
+//! - [`SseDecoder`] and [`SseStream`]: server-sent events over a byte stream, for the
 //!   streaming Responses API.
 //! - `UnixClient`: HTTP/1.1 over a Unix socket through hyper, for tailscaled's
 //!   LocalAPI at the phone milestone.
@@ -26,7 +26,9 @@
 
 mod error;
 pub mod redact;
+mod sse;
 
 pub use error::HttpError;
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
+pub use sse::{SseDecoder, SseEvent, SseStream};
 pub use url::Url;
