@@ -31,6 +31,7 @@
 //! max_queued = 16
 //! approval_timeout_secs = 600      # absent: wait until answered
 //! update_interval_ms = 200
+//! tty_idle_hours = 12              # a terminal's conversation ends after; 0 never
 //!
 //! [permissions]
 //! secret_paths = ["~/.config/rclone/rclone.conf"] # never read or written; ~/ or absolute
@@ -186,6 +187,9 @@ pub struct ConversationSettings {
     pub approval_timeout_secs: Option<u64>,
     /// The shortest time between two streamed text updates, in milliseconds.
     pub update_interval_ms: u64,
+    /// Hours without activity after which a terminal's next `,` line starts a new
+    /// conversation instead of continuing the old one; 0 continues it forever.
+    pub tty_idle_hours: u64,
 }
 
 /// Permission settings.
@@ -276,6 +280,7 @@ impl Default for Config {
                 max_queued: 16,
                 approval_timeout_secs: None,
                 update_interval_ms: 200,
+                tty_idle_hours: 12,
             },
             permissions: PermissionSettings::default(),
             render_theme: None,
@@ -383,6 +388,7 @@ impl Config {
             ("conversation.max_queued", self.conversation.max_queued.to_string()),
             ("conversation.approval_timeout_secs", number(self.conversation.approval_timeout_secs)),
             ("conversation.update_interval_ms", self.conversation.update_interval_ms.to_string()),
+            ("conversation.tty_idle_hours", self.conversation.tty_idle_hours.to_string()),
             ("permissions.secret_paths", paths(&self.permissions.secret_paths)),
             ("render.theme", optional(self.render_theme.as_deref())),
         ]
@@ -483,8 +489,12 @@ impl Config {
             set("shell.idle_minutes");
             self.shell.idle_minutes = minutes;
         }
-        let ConversationTable { max_queued, approval_timeout_secs, update_interval_ms } =
-            conversation;
+        let ConversationTable {
+            max_queued,
+            approval_timeout_secs,
+            update_interval_ms,
+            tty_idle_hours,
+        } = conversation;
         if let Some(max_queued) = max_queued {
             set("conversation.max_queued");
             self.conversation.max_queued = max_queued;
@@ -496,6 +506,10 @@ impl Config {
         if let Some(ms) = update_interval_ms {
             set("conversation.update_interval_ms");
             self.conversation.update_interval_ms = ms;
+        }
+        if let Some(hours) = tty_idle_hours {
+            set("conversation.tty_idle_hours");
+            self.conversation.tty_idle_hours = hours;
         }
         if let Some(secret_paths) = permissions.secret_paths {
             if let Some(path) =
@@ -571,6 +585,7 @@ struct ConversationTable {
     max_queued: Option<usize>,
     approval_timeout_secs: Option<u64>,
     update_interval_ms: Option<u64>,
+    tty_idle_hours: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]

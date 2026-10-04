@@ -5,7 +5,10 @@
 //! `,` line without a conversation id goes there, and `,new` starts a new one. The map
 //! mirrors the `tty` column of the conversations projection, which the store clears on
 //! the older conversation when a newer one takes the terminal, and is loaded from it at
-//! startup.
+//! startup. Each entry also keeps the pid of the shell that took the terminal, so a new
+//! terminal that the kernel gave the same `/dev/pts` number is told apart (see
+//! `methods/prompt_send.rs`); at startup it comes from the newest prompt of that
+//! terminal in the log.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -13,7 +16,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use efr_conversation::{
     ConversationActor, ConversationConfig, ConversationDeps, ConversationHandle, ConversationStart,
 };
-use efr_protocol::{ConversationId, Origin};
+use efr_protocol::{ConversationId, Event, Origin};
 use efr_store::Readers;
 
 use crate::DaemonError;
@@ -21,13 +24,25 @@ use crate::DaemonError;
 /// How many conversations one startup read asks for at a time.
 const PAGE: u32 = 256;
 
+/// How many of an active conversation's newest events the startup reads for the pid of
+/// the shell that last prompted from its terminal.
+const PID_EVENTS: u32 = 256;
+
+/// The active conversation of one terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ActiveTty {
+    pub(crate) conversation_id: ConversationId,
+    /// The pid of the shell that took the terminal, when it said.
+    pub(crate) shell_pid: Option<u32>,
+}
+
 /// The conversation actors and the terminals' active conversations.
 #[derive(Debug)]
 pub(crate) struct Conversations {
     config: ConversationConfig,
     deps: ConversationDeps,
     live: Mutex<HashMap<ConversationId, ConversationHandle>>,
-    ttys: Mutex<HashMap<String, ConversationId>>,
+    ttys: Mutex<HashMap<String, ActiveTty>>,
 }
 
 impl Conversations {
@@ -36,7 +51,7 @@ impl Conversations {
     pub(crate) fn new(
         config: ConversationConfig,
         deps: ConversationDeps,
-        ttys: HashMap<String, ConversationId>,
+        ttys: HashMap<String, ActiveTty>,
     ) -> Self {
         Conversations { config, deps, live: Mutex::default(), ttys: Mutex::new(ttys) }
     }
@@ -98,14 +113,29 @@ impl Conversations {
         }
     }
 
-    /// Makes `conversation_id` the active conversation of `tty`.
-    pub(crate) fn activate(&self, tty: &str, conversation_id: ConversationId) {
-        self.lock_ttys().insert(tty.to_owned(), conversation_id);
+    /// Makes `conversation_id` the active conversation of `tty`, taken by the shell
+    /// `shell_pid`.
+    pub(crate) fn activate(
+        &self,
+        tty: &str,
+        conversation_id: ConversationId,
+        shell_pid: Option<u32>,
+    ) {
+        self.lock_ttys().insert(tty.to_owned(), ActiveTty { conversation_id, shell_pid });
     }
 
     /// The active conversation of `tty`.
-    pub(crate) fn active(&self, tty: &str) -> Option<ConversationId> {
+    pub(crate) fn active(&self, tty: &str) -> Option<ActiveTty> {
         self.lock_ttys().get(tty).copied()
+    }
+
+    /// Records `shell_pid` as the shell of `tty` when its entry does not know one yet.
+    pub(crate) fn adopt(&self, tty: &str, shell_pid: u32) {
+        if let Some(active) = self.lock_ttys().get_mut(tty)
+            && active.shell_pid.is_none()
+        {
+            active.shell_pid = Some(shell_pid);
+        }
     }
 
     /// How many actors run.
@@ -129,29 +159,62 @@ impl Conversations {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn lock_ttys(&self) -> MutexGuard<'_, HashMap<String, ConversationId>> {
+    fn lock_ttys(&self) -> MutexGuard<'_, HashMap<String, ActiveTty>> {
         self.ttys.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-/// The active conversation of every terminal, from the conversations projection.
+/// The active conversation of every terminal, from the conversations projection, with
+/// the pid of the shell that last prompted from it.
 pub(crate) async fn load_ttys(
     readers: &Readers,
-) -> Result<HashMap<String, ConversationId>, DaemonError> {
-    let mut ttys = HashMap::new();
+) -> Result<HashMap<String, ActiveTty>, DaemonError> {
+    let mut ttys: HashMap<String, ActiveTty> = HashMap::new();
     let mut before = None;
     loop {
         let page =
             readers.with(move |conn| efr_store::conversations::list(conn, before, PAGE)).await?;
         let Some(last) = page.last() else {
-            return Ok(ttys);
+            break;
         };
         before = Some(last.last_seq);
         for summary in page {
             if let Some(tty) = summary.tty {
                 // The projection keeps at most one conversation per terminal.
-                ttys.entry(tty).or_insert(summary.id);
+                ttys.entry(tty)
+                    .or_insert(ActiveTty { conversation_id: summary.id, shell_pid: None });
             }
         }
     }
+    let ttys = readers
+        .with(move |conn| {
+            for (tty, active) in &mut ttys {
+                let newest = efr_store::events::read_conversation_before(
+                    conn,
+                    active.conversation_id,
+                    None,
+                    PID_EVENTS,
+                )?;
+                active.shell_pid = last_shell_pid(&newest, tty);
+            }
+            Ok(ttys)
+        })
+        .await?;
+    Ok(ttys)
+}
+
+/// The shell pid of the newest prompt from `tty` in `events`, oldest first.
+fn last_shell_pid(events: &[efr_protocol::EventEnvelope], tty: &str) -> Option<u32> {
+    events
+        .iter()
+        .rev()
+        .find_map(|envelope| match &envelope.event {
+            Event::PromptQueued { context: Some(context), .. }
+                if context.tty.as_deref().is_none_or(|from| from == tty) =>
+            {
+                Some(context.shell_pid)
+            }
+            _ => None,
+        })
+        .flatten()
 }

@@ -1,8 +1,12 @@
+use std::time::Duration;
+
 use efr_protocol::{CommandId, ConversationId, PromptSend, ShellContext};
+use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
-use crate::methods::prompt_send::{Target, target};
+use crate::conversations::ActiveTty;
+use crate::methods::prompt_send::{Target, continues, target};
 
 const TTY: &str = "/dev/pts/3";
 
@@ -92,4 +96,53 @@ fn an_empty_prompt_or_a_contradiction_is_refused() {
 
     assert!(matches!(target(&empty, None, none), Err(DaemonError::InvalidParams { .. })));
     assert!(matches!(target(&both, None, none), Err(DaemonError::InvalidParams { .. })));
+}
+
+fn at(text: &str) -> Timestamp {
+    text.parse().unwrap()
+}
+
+const NOW: &str = "2026-10-04T12:00:00Z";
+const TWELVE_HOURS: Option<Duration> = Some(Duration::from_secs(12 * 3600));
+
+fn taken_by(shell_pid: Option<u32>) -> ActiveTty {
+    ActiveTty { conversation_id: conversation(1), shell_pid }
+}
+
+#[test]
+fn the_shell_that_took_the_terminal_continues_its_conversation() {
+    let recent = Some(at("2026-10-04T11:00:00Z"));
+    let never = |_| panic!("the same shell needs no liveness check");
+
+    assert!(continues(taken_by(Some(41)), Some(41), recent, at(NOW), TWELVE_HOURS, never));
+    // A shell or a record that does not say its pid continues as before.
+    assert!(continues(taken_by(None), Some(41), recent, at(NOW), TWELVE_HOURS, never));
+    assert!(continues(taken_by(Some(41)), None, recent, at(NOW), TWELVE_HOURS, never));
+}
+
+#[test]
+fn a_new_shell_on_a_reused_terminal_starts_over_once_the_old_shell_is_gone() {
+    let recent = Some(at("2026-10-04T11:00:00Z"));
+
+    let gone = continues(taken_by(Some(41)), Some(77), recent, at(NOW), TWELVE_HOURS, |pid| {
+        assert_eq!(pid, 41);
+        false
+    });
+    // A nested shell in the same terminal: the first shell still runs.
+    let nested = continues(taken_by(Some(41)), Some(77), recent, at(NOW), TWELVE_HOURS, |_| true);
+
+    assert!(!gone);
+    assert!(nested);
+}
+
+#[test]
+fn an_idle_terminal_conversation_ends_after_the_configured_hours() {
+    let alive = |_| true;
+    let old = Some(at("2026-10-03T23:59:59Z"));
+    let young = Some(at("2026-10-04T00:00:01Z"));
+
+    assert!(!continues(taken_by(Some(41)), Some(41), old, at(NOW), TWELVE_HOURS, alive));
+    assert!(continues(taken_by(Some(41)), Some(41), young, at(NOW), TWELVE_HOURS, alive));
+    // 0 hours in the config: never idle.
+    assert!(continues(taken_by(Some(41)), Some(41), old, at(NOW), None, alive));
 }

@@ -54,7 +54,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `not_found`, `conflict`) is kept as a rejected receipt; a busy or failed one is not.
 - `prompt.send` routes to the named conversation, to a new one with `new_conversation`
   (`,new`), or to the active conversation of the prompt's terminal (the context's tty,
-  else the hello's), starting one when the terminal has none.
+  else the hello's), starting one when the terminal has none. The terminal's
+  conversation ends after `conversation.tty_idle_hours` (12 by default) without
+  activity, and when a prompt comes from another shell while the shell that took the
+  terminal has exited, so a new tab that reuses a closed tab's `/dev/pts` number
+  starts fresh.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue.

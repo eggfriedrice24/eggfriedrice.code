@@ -55,6 +55,7 @@ fn the_file_sets_what_it_names() {
         max_queued = 4
         approval_timeout_secs = 600
         update_interval_ms = 50
+        tty_idle_hours = 0
 
         [permissions]
         secret_paths = ["~/.config/rclone/rclone.conf", "/srv/vault"]
@@ -81,6 +82,7 @@ fn the_file_sets_what_it_names() {
     assert_eq!(config.conversation.max_queued, 4);
     assert_eq!(config.conversation.approval_timeout_secs, Some(600));
     assert_eq!(config.conversation.update_interval_ms, 50);
+    assert_eq!(config.conversation.tty_idle_hours, 0);
     assert_eq!(
         config.permissions.secret_paths,
         [PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")]

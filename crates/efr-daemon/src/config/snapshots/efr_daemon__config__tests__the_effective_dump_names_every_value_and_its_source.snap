@@ -20,5 +20,6 @@ shell.idle_minutes = 30  # file
 conversation.max_queued = 16  # default
 conversation.approval_timeout_secs = (unset)  # default
 conversation.update_interval_ms = 200  # default
+conversation.tty_idle_hours = 12  # default
 permissions.secret_paths = []  # default
 render.theme = "catppuccin-mocha"  # file

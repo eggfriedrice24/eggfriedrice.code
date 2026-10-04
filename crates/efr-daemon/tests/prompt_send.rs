@@ -134,3 +134,88 @@ async fn a_prompt_for_a_conversation_that_does_not_exist_is_not_found() {
     drop(client);
     daemon.stop().await.unwrap();
 }
+
+/// No process has this pid: the kernel's limit is far below it.
+const GONE: u32 = 4_000_000_000;
+
+/// Sends a prompt from `tty` by the shell `shell_pid` and waits until its turn ended,
+/// so the conversation's last activity is known.
+async fn send_from(
+    daemon: &TestDaemon,
+    client: &efr_test_daemon::Client,
+    n: u128,
+    tty: &str,
+    shell_pid: u32,
+) -> PromptSendResult {
+    let Method::PromptSend(mut params) = daemon.prompt(n, "hello", tty) else {
+        unreachable!("TestDaemon::prompt makes a prompt.send")
+    };
+    if let Some(context) = &mut params.context {
+        context.shell_pid = Some(shell_pid);
+    }
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let mut follow = daemon.follow(client, sent.conversation_id).await.unwrap();
+    efr_test_daemon::events_until(&mut follow, |event| {
+        matches!(event, Event::TurnFailed { turn_id, .. } | Event::TurnCompleted { turn_id, .. } if *turn_id == sent.turn_id)
+    })
+    .await
+    .unwrap();
+    sent
+}
+
+#[tokio::test]
+async fn a_reused_terminal_starts_over_only_once_its_old_shell_is_gone() {
+    let daemon = TestDaemon::start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let alive = std::process::id();
+
+    let first = send_from(&daemon, &client, 1, "/dev/pts/a", alive).await;
+    let nested = send_from(&daemon, &client, 2, "/dev/pts/a", GONE).await;
+    assert_eq!(nested.conversation_id, first.conversation_id, "the first shell still runs");
+
+    let closed = send_from(&daemon, &client, 3, "/dev/pts/b", GONE).await;
+    let reused = send_from(&daemon, &client, 4, "/dev/pts/b", alive).await;
+    assert_ne!(reused.conversation_id, closed.conversation_id, "a new tab on a closed tab's pts");
+    let again = send_from(&daemon, &client, 5, "/dev/pts/b", alive).await;
+    assert_eq!(again.conversation_id, reused.conversation_id, "the new tab keeps its own");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_shell_of_a_terminal_is_remembered_across_a_restart() {
+    let mut daemon = TestDaemon::builder().persistent().start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let closed = send_from(&daemon, &client, 1, TTY, GONE).await;
+    drop(client);
+
+    daemon.restart().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let reused = send_from(&daemon, &client, 2, TTY, std::process::id()).await;
+
+    assert_ne!(reused.conversation_id, closed.conversation_id);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_idle_terminal_starts_over_after_the_configured_hours() {
+    let daemon = TestDaemon::builder()
+        .config(|config| config.conversation.tty_idle_hours = 1)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let pid = std::process::id();
+
+    let first = send_from(&daemon, &client, 1, TTY, pid).await;
+    daemon.clock().advance(std::time::Duration::from_secs(50 * 60));
+    let second = send_from(&daemon, &client, 2, TTY, pid).await;
+    daemon.clock().advance(std::time::Duration::from_secs(61 * 60));
+    let third = send_from(&daemon, &client, 3, TTY, pid).await;
+
+    assert_eq!(second.conversation_id, first.conversation_id, "50 minutes is not idle");
+    assert_ne!(third.conversation_id, second.conversation_id, "61 minutes is");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
