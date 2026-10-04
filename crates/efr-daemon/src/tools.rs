@@ -8,11 +8,13 @@
 
 use std::error::Error;
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
 use efr_permissions::Requirements;
+use efr_protocol::ConversationId;
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
 use efr_shell::ShellSessions;
@@ -111,6 +113,11 @@ impl Toolbox for DaemonToolbox {
             Ok(result) => outcome(result),
             Err(error) => ToolOutcome::error(for_model(&error)),
         }
+    }
+
+    async fn shell_cwd(&self, conversation_id: ConversationId) -> Option<PathBuf> {
+        // NOTE: no shell is the common answer, and the turn then reads the log.
+        self.shells.state(conversation_id).await.ok().map(|state| state.cwd)
     }
 
     async fn cancel(&self, call: &CallContext) {

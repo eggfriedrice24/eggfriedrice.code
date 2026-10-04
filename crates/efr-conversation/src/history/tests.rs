@@ -427,3 +427,25 @@ async fn the_hidden_shell_s_directory_is_the_newest_report() {
     let empty = store_with(Vec::new()).await;
     assert_eq!(snapshot(&empty, HistoryLimits::default()).await.agent_cwd(), None);
 }
+
+#[tokio::test]
+async fn a_shell_that_exited_has_no_directory_until_the_next_one_starts() {
+    let pty = PtyId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(50)));
+    let next = PtyId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(51)));
+    let started =
+        |pty_id, cwd: &str| Event::ShellStarted { pty_id, cwd: PathBuf::from(cwd), pid: Some(1) };
+    let mut batches = vec![
+        vec![started(pty, "/home/u")],
+        vec![Event::CwdChanged { pty_id: pty, cwd: PathBuf::from("/etc"), host: None }],
+        vec![Event::ShellExited { pty_id: pty, exit_code: None }],
+    ];
+    let exited = store_with(batches.clone()).await;
+    assert_eq!(snapshot(&exited, HistoryLimits::default()).await.agent_cwd(), None);
+
+    batches.push(vec![started(next, "/srv")]);
+    let restarted = store_with(batches).await;
+    assert_eq!(
+        snapshot(&restarted, HistoryLimits::default()).await.agent_cwd(),
+        Some(PathBuf::from("/srv"))
+    );
+}

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use efr_permissions::{
@@ -542,6 +543,24 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
         ),
         Event::TurnStarted { turn_id: second.turn_id, cwd: elsewhere, scope: Scope::Machine }
     );
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_preamble_names_where_the_live_hidden_shell_is() {
+    let setup = Setup::new();
+    let mut state = setup.live_state(&setup.cwd, "where");
+    state.agent_cwd = Some(PathBuf::from("/var/log"));
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "where")])),
+        answer(&text_answer("There.")),
+    ];
+    let mut h = setup.start(records).await;
+    *h.toolbox.shell_cwd.lock().unwrap() = Some(PathBuf::from("/var/log"));
+
+    let sent = h.prompt("where").await;
+    h.wait_end(sent.turn_id).await;
+
     h.finish();
 }
 

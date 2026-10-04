@@ -101,13 +101,22 @@ impl Snapshot {
             .map_err(ConversationError::from_store)
     }
 
-    /// Where the conversation's hidden shell last said it was, from the newest
-    /// `shell_started` or `cwd_changed` event in the page.
+    /// Where the conversation's hidden shell is, from the newest shell event in the
+    /// page: the directory of a `shell_started` or `cwd_changed`, and nothing after a
+    /// `shell_exited`, because the next command starts a new shell in the user's
+    /// directory.
     pub(crate) fn agent_cwd(&self) -> Option<PathBuf> {
-        self.page.iter().rev().find_map(|envelope| match &envelope.event {
-            Event::CwdChanged { cwd, .. } | Event::ShellStarted { cwd, .. } => Some(cwd.clone()),
-            _ => None,
-        })
+        self.page
+            .iter()
+            .rev()
+            .find_map(|envelope| match &envelope.event {
+                Event::CwdChanged { cwd, .. } | Event::ShellStarted { cwd, .. } => {
+                    Some(Some(cwd.clone()))
+                }
+                Event::ShellExited { .. } => Some(None),
+                _ => None,
+            })
+            .flatten()
     }
 
     /// The earlier turns as messages, oldest first, within `limits`.

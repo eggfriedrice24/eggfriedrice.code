@@ -45,6 +45,14 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     /// goes to `out`. A failure is an error outcome, which the model reads.
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome;
 
+    /// Where the conversation's hidden shell is now, for the live-state preamble;
+    /// `None` when no shell runs or the toolbox cannot tell. The turn then reads it
+    /// from the event log, which a long conversation may have paged past. The default
+    /// cannot tell.
+    async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
+        None
+    }
+
     /// Stops the work of a call whose [`invoke`](Toolbox::invoke) future the turn
     /// dropped because the user interrupted it, such as a command still running in the
     /// hidden shell. The default does nothing.

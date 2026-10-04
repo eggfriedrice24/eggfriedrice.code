@@ -242,7 +242,11 @@ impl Turn {
             }
         };
 
-        let preamble = self.live_state(derivation.repo, snapshot.agent_cwd()).render();
+        let agent_cwd = match shared.deps.toolbox.shell_cwd(shared.conversation_id).await {
+            Some(cwd) => Some(cwd),
+            None => snapshot.agent_cwd(),
+        };
+        let preamble = self.live_state(derivation.repo, agent_cwd).render();
         let mut messages =
             snapshot.history(turn_id, cache, shared.deps.provider.id(), shared.config.history);
         messages.push(Message::new(

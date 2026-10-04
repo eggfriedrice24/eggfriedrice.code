@@ -52,6 +52,8 @@ pub(crate) struct FakeToolbox {
     invoked: Mutex<Vec<(String, Value)>>,
     cancelled: Mutex<Vec<CallId>>,
     pub(crate) hang_started: Notify,
+    /// What [`Toolbox::shell_cwd`] answers.
+    pub(crate) shell_cwd: Mutex<Option<PathBuf>>,
 }
 
 impl FakeToolbox {
@@ -110,6 +112,10 @@ impl Toolbox for FakeToolbox {
 
     async fn preview(&self, call: &ToolCall) -> Option<String> {
         (call.name == "write_file").then(|| format!("+{}", call.input["content"]))
+    }
+
+    async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
+        self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
