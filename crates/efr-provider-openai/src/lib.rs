@@ -12,6 +12,7 @@
 //! (`efr-conversation`), and composing providers from the config (`efr-daemon`).
 
 mod config;
+mod convert;
 mod error;
 mod models;
 
