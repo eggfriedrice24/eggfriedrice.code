@@ -1,6 +1,7 @@
 //! The one public error type of the crate.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::env::Var;
 
@@ -52,5 +53,13 @@ pub enum StdxError {
         value: String,
         /// What the value must be.
         expected: &'static str,
+    },
+
+    /// A [`Clock::timeout`](crate::time::Clock::timeout) reached its deadline before
+    /// the future finished.
+    #[error("the operation did not finish within {after:?}")]
+    TimedOut {
+        /// The duration that passed.
+        after: Duration,
     },
 }

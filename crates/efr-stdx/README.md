@@ -13,6 +13,8 @@ Modules:
 - `paths`: `Dirs { config, data, state, runtime }`, each `<XDG base>/efr` through
   `etcetera` unless an `EFR_*_DIR` variable replaces it, and the socket, `daemon.json`
   and lock file paths.
+- `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
+  caller of `SystemTime::now` and `tokio::time::sleep`.
 
 ## Tier
 
@@ -24,7 +26,7 @@ No workspace crate, ever. Every crate depends on this one, so an edge out of it 
 make a cycle or pull a heavy crate into every build. `xtask/src/deps.rs` holds the
 empty allowlist.
 
-Third-party crates: `etcetera`, `thiserror`.
+Third-party crates: `etcetera`, `jiff`, `thiserror`, `tokio`.
 
 ## Invariant
 
