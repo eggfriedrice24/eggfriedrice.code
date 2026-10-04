@@ -46,7 +46,11 @@ pub use config::{
     DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, ScreenChoice, ShellSettings, Source,
 };
 pub use efr_conversation::HostInfo;
-pub use efr_holder::PtyHolder;
+// NOTE: the trait's vocabulary comes with it, so efr-test-daemon, whose allowlist has
+// no efr-holder edge, can inject a holder of its own through `Deps::with_holder`.
+pub use efr_holder::{
+    ChildStatus, HolderError, PtyHandle, PtyHolder, PtyInfo, Signal, SignalTarget, SpawnSpec,
+};
 pub use efr_provider::Provider;
 pub use efr_shell::ScreenFactory;
 pub use error::DaemonError;

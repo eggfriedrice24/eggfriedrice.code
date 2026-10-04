@@ -11,7 +11,10 @@ The crate is a library with a thin binary: `main.rs` parses `--log`, `--screen` 
 `--print-config`, loads the config, sets up tracing and calls `run`. The library exists
 so that `efr-test-daemon` can run the real daemon in-process with injected `Deps`
 (directories, home, clock, generator, PTY holder, screen factory, provider factory, an
-in-memory database and isolated git).
+in-memory database and isolated git). It re-exports `PtyHolder` with the types its
+methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
+`SignalTarget`, `HolderError`), so a test holder implements the trait without an
+`efr-holder` edge of its own.
 
 ### Startup order
 
