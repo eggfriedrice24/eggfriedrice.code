@@ -1,0 +1,14 @@
+---
+source: crates/efr-conversation/src/preamble/tests.rs
+expression: state.render()
+---
+<live_state>
+The user's shell is in /srv/site/public.
+Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
+The user's last command exited with status 0.
+Git work tree: /srv/site, detached HEAD.
+Home: /home/u
+OS: Debian GNU/Linux 13
+The user's shell runs over SSH.
+$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
+</live_state>

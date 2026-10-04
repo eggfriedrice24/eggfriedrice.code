@@ -1,0 +1,14 @@
+---
+source: crates/efr-conversation/src/preamble/tests.rs
+expression: full().render()
+---
+<live_state>
+The user's shell is in /home/u/p/efr; the previous directory was /home/u.
+Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
+Your hidden shell is in /etc.
+The user's last command was `cargo test -p efr-store`; it exited with status 101.
+Git work tree: /home/u/p/efr, branch main.
+Home: /home/u
+Host: box (Arch Linux)
+$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
+</live_state>

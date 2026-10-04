@@ -10,6 +10,7 @@
 //! wire codes, and rendering.
 
 mod error;
+mod preamble;
 mod resolver;
 mod scratch;
 mod toolbox;
