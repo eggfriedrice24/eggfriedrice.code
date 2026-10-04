@@ -12,7 +12,10 @@
 #![warn(missing_docs)]
 
 mod error;
+mod link;
 mod options;
+mod style;
+mod wrap;
 
 pub use error::RenderError;
 pub use options::{ColourMode, RenderOptions, Theme};
