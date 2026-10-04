@@ -1002,6 +1002,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "efr-protocol",
+ "efr-scope",
+ "efr-shell",
+ "efr-stdx",
+ "efr-test-support",
+ "pretty_assertions",
+ "proptest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "efr-transport"
 version = "0.1.0"
 dependencies = [
