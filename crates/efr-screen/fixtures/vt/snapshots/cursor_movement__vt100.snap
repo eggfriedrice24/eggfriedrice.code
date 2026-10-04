@@ -1,0 +1,15 @@
+---
+source: crates/efr-screen/src/conformance.rs
+input_file: crates/efr-screen/fixtures/vt/cursor_movement.ndjson
+---
+case: cursor_movement
+size: 10x3
+cursor: row 1, col 9
+title: (none)
+rows:
+  0 |Y     !|
+  1 |  X      ?|
+  2 |        Z|
+title changes: []
+bells: 0
+replies: ""

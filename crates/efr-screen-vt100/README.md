@@ -58,7 +58,7 @@ Tier 2.
 re-exports from `efr-protocol`). `xtask/src/deps.rs` holds the allowlist.
 
 Third-party crates: `vt100` (the terminal emulator). The tests add
-`pretty_assertions`.
+`pretty_assertions` and `efr-screen`'s `conformance` feature.
 
 ## Invariant
 
@@ -76,5 +76,10 @@ cargo nextest run -p efr-screen-vt100
 ```
 
 Unit tests cover the cell conversion, the recorder (titles, URLs, limits, order) and
-the screen (scrollback paging, the cursor at a pending wrap). Nothing here needs Zig,
+the screen (scrollback paging, the cursor at a pending wrap).
+
+`tests/conformance.rs` runs `efr_screen::conformance::run("vt100", factory)` over
+every fixture in `crates/efr-screen/fixtures/`. Its rendered screens are the
+`*__vt100.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`; they match the
+fake backend's except for the replies vt100 does not give. Nothing here needs Zig,
 zsh, the network or real time.
