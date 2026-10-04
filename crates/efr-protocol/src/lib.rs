@@ -25,6 +25,8 @@ pub mod framing;
 mod ids;
 mod method;
 mod methods;
+#[cfg(feature = "schema")]
+pub mod schema;
 mod scope;
 mod screen;
 mod shell_context;
