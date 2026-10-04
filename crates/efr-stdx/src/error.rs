@@ -130,4 +130,21 @@ pub enum StdxError {
         #[source]
         source: io::Error,
     },
+
+    /// A thread name holds a NUL byte, which the operating system cannot store.
+    #[error("the thread name {name:?} holds a NUL byte")]
+    InvalidThreadName {
+        /// The name.
+        name: String,
+    },
+
+    /// The operating system refused to start a thread.
+    #[error("could not start the thread {name}")]
+    SpawnThread {
+        /// The name of the thread.
+        name: String,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
 }

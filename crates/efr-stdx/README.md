@@ -6,25 +6,28 @@ Small extensions of `std` that every efr crate may use. This crate is the one pl
 where the workspace touches ambient process state: the wall clock, timers, OS
 randomness, environment variables, child processes and the XDG directories.
 
-Modules:
+Modules, in the order of the milestone 1 file map:
 
-- `env`: typed access to the `EFR_*` variables below; the only reader of the process
-  environment.
 - `paths`: `Dirs { config, data, state, runtime }`, each `<XDG base>/efr` through
   `etcetera` unless an `EFR_*_DIR` variable replaces it, and the socket, `daemon.json`
   and lock file paths.
-- `process`: `command(program, cwd)`, the only constructor of a child process. It
-  sets the working directory and `PWD`, and removes the systemd variables of the
-  daemon's own unit.
 - `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
   caller of `SystemTime::now` and `tokio::time::sleep`.
 - `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
   operating system.
+- `process`: `command(program, cwd)`, the only constructor of a child process. It
+  sets the working directory and `PWD`, and removes the systemd variables of the
+  daemon's own unit.
 - `fs`: `write_atomic` (temporary file, flush, rename, flush the directory),
   `create_private` (a new file with mode 0600) and `claim_dir` (a non-recursive
   `mkdir` with mode 0700, where an existing entry means taken).
+- `env`: typed access to the `EFR_*` variables below; the only reader of the process
+  environment.
+- `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
 - `id`: `uuid_v7(clock, rng)`, a version 7 UUID whose time and random bits both come
   from the injected `Clock` and `Rng`.
+
+The error type of every module is `StdxError`.
 
 ## Tier
 
