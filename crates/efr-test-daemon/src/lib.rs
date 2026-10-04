@@ -22,6 +22,7 @@
 
 mod error;
 mod pty_script;
+mod replay;
 mod test_daemon;
 
 // NOTE: the client types are part of this crate's API (a test daemon hands out
@@ -31,6 +32,7 @@ pub use error::TestDaemonError;
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
 };
+pub use replay::{Bindings, Replay, SCENARIOS, Scenario, ScenarioSpec};
 pub use test_daemon::{
     API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME, OS, ReceivedRequest, ResponsesAnswer,
     ResponsesServer, SYSTEM_PROMPT, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until,
