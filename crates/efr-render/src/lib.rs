@@ -18,6 +18,7 @@ mod link;
 mod options;
 mod outline;
 mod style;
+mod table;
 mod wrap;
 
 pub use error::RenderError;
