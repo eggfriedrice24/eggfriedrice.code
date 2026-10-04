@@ -138,7 +138,7 @@ fn extra_locations_must_be_absolute() {
 }
 
 #[test]
-fn project_roots_are_kept_in_normal_form() {
+fn project_roots_are_kept_but_never_widen_from_home_or_above() {
     let app: ProjectId = "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap();
     let home: ProjectId = "0192f0c1-7a00-7000-8000-000000000002".parse().unwrap();
     let root: ProjectId = "0192f0c1-7a00-7000-8000-000000000003".parse().unwrap();
@@ -157,10 +157,11 @@ fn project_roots_are_kept_in_normal_form() {
         .with_project(elsewhere, "/srv/site")
         .unwrap();
     assert_eq!(locations.project_root(&home), Some(Path::new(HOME)));
-    assert_eq!(locations.project_root(&app), Some(Path::new("/home/u/p/app")));
-    assert_eq!(locations.project_root(&root), Some(Path::new("/")));
-    assert_eq!(locations.project_root(&above), Some(Path::new("/home")));
-    assert_eq!(locations.project_root(&elsewhere), Some(Path::new("/srv/site")));
+    assert_eq!(locations.widening_project_root(&app), Some(Path::new("/home/u/p/app")));
+    assert_eq!(locations.widening_project_root(&elsewhere), Some(Path::new("/srv/site")));
+    assert_eq!(locations.widening_project_root(&home), None);
+    assert_eq!(locations.widening_project_root(&root), None);
+    assert_eq!(locations.widening_project_root(&above), None);
 }
 
 #[rstest]

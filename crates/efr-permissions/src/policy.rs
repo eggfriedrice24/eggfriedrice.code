@@ -11,12 +11,12 @@
 //! ```
 
 use std::fmt;
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::path_class::normalize;
-use crate::{Effect, PathClass, PermissionsError};
+use crate::{Access, Effect, PathClass, PermissionsError, Subject};
 
 /// One rule: when a requirement matches `action` and `resource`, its effect is
 /// `effect`, unless a later rule matches too.
@@ -204,6 +204,20 @@ impl Policy {
         self.rules.push(rule);
         Ok(())
     }
+
+    /// The position and effect of the last rule that matches `subject`.
+    pub(crate) fn last_match(
+        &self,
+        subject: &Subject,
+        cx: &MatchContext<'_>,
+    ) -> Option<(usize, Effect)> {
+        self.rules
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, rule)| rule.matches(subject, cx))
+            .map(|(index, rule)| (index, rule.effect))
+    }
 }
 
 impl TryFrom<Vec<Rule>> for Policy {
@@ -217,6 +231,65 @@ impl TryFrom<Vec<Rule>> for Policy {
 impl From<Policy> for Vec<Rule> {
     fn from(policy: Policy) -> Self {
         policy.rules
+    }
+}
+
+/// What rule matching needs beyond the subject.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MatchContext<'a> {
+    /// The home directory, for `~` in `under` paths.
+    pub(crate) home: &'a Path,
+    /// The root of the turn's project, when it may widen permissions.
+    pub(crate) project_root: Option<&'a Path>,
+}
+
+impl Rule {
+    fn matches(&self, subject: &Subject, cx: &MatchContext<'_>) -> bool {
+        match subject {
+            Subject::Path { path, access, class: Some(class) } => {
+                let action = match access {
+                    Access::Read => Action::Read,
+                    Access::Write => Action::Write,
+                };
+                self.action_is(action) && self.matches_path(path, *class, cx)
+            }
+            Subject::Command { line } => {
+                self.action_is(Action::Execute)
+                    && match &self.resource {
+                        Resource::Any => true,
+                        Resource::Command(pattern) => pattern.matches(line),
+                        Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
+                    }
+            }
+            Subject::Network => self.action_is(Action::Network) && self.resource == Resource::Any,
+            // Relative paths, interactive calls and empty requirements are decided by
+            // the engine itself, never by a rule.
+            Subject::Path { class: None, .. } | Subject::Interactive | Subject::Nothing => false,
+        }
+    }
+
+    fn action_is(&self, action: Action) -> bool {
+        self.action == Action::Any || self.action == action
+    }
+
+    fn matches_path(&self, path: &Path, class: PathClass, cx: &MatchContext<'_>) -> bool {
+        match &self.resource {
+            Resource::Any => true,
+            Resource::Class(wanted) => *wanted == class,
+            Resource::Under(root) => {
+                expand(root, cx.home).is_some_and(|root| path.starts_with(root))
+            }
+            Resource::Project => cx.project_root.is_some_and(|root| path.starts_with(root)),
+            Resource::Command(_) => false,
+        }
+    }
+}
+
+/// An `under` path in normal form, with a leading `~` replaced by the home directory.
+fn expand(root: &Path, home: &Path) -> Option<PathBuf> {
+    match root.strip_prefix("~") {
+        Ok(rest) => normalize(&home.join(rest)),
+        Err(_) => normalize(root),
     }
 }
 

@@ -44,6 +44,13 @@ pub struct Decision {
 }
 
 impl Decision {
+    /// A decision from the reasons for every requirement. No reasons means a bug in the
+    /// engine, and the decision fails closed.
+    pub(crate) fn from_reasons(reasons: Vec<Reason>) -> Self {
+        let effect = reasons.iter().map(|reason| reason.effect).max().unwrap_or(Effect::Deny);
+        Decision { effect, reasons }
+    }
+
     /// What happens to the call.
     pub fn effect(&self) -> Effect {
         self.effect

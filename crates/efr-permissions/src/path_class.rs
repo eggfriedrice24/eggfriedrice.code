@@ -191,6 +191,15 @@ impl Locations {
         normalize(scratch).filter(|scratch| !self.home.starts_with(scratch))
     }
 
+    /// The root of the registered project `id`, when it may widen what a turn can do.
+    ///
+    /// NOTE: `~`, `/` and the directories above `~` are never treated as a project here,
+    /// even when the registry lists one of them: that would make every user file
+    /// writable without approval.
+    pub(crate) fn widening_project_root(&self, id: &ProjectId) -> Option<&Path> {
+        self.project_root(id).filter(|root| !self.home.starts_with(root))
+    }
+
     fn is_secret(&self, path: &Path) -> bool {
         HOME_SECRETS.iter().any(|secret| path.starts_with(self.home.join(secret)))
             || SYSTEM_SECRETS.iter().any(|secret| path.starts_with(secret))

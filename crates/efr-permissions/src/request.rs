@@ -12,7 +12,7 @@ use efr_protocol::{Origin, Scope};
 
 use crate::Policy;
 
-/// Everything that the engine looks at for one tool call.
+/// Everything that [`Engine::decide`](crate::Engine::decide) looks at for one tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionInput {
     /// What the call declared that it needs.

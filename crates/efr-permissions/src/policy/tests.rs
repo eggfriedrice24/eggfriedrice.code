@@ -1,9 +1,29 @@
+use std::path::{Path, PathBuf};
+
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde::{Deserialize, Serialize};
 
-use super::{Action, CommandPattern, Policy, Resource, Rule};
-use crate::{Effect, PathClass, PermissionsError};
+use super::{Action, CommandPattern, MatchContext, Policy, Resource, Rule};
+use crate::{Access, Effect, PathClass, PermissionsError, Subject};
+
+const HOME: &str = "/home/u";
+
+fn cx() -> MatchContext<'static> {
+    MatchContext { home: Path::new(HOME), project_root: Some(Path::new("/home/u/p/app")) }
+}
+
+fn write(path: &str, class: PathClass) -> Subject {
+    Subject::Path { path: PathBuf::from(path), access: Access::Write, class: Some(class) }
+}
+
+fn read(path: &str, class: PathClass) -> Subject {
+    Subject::Path { path: PathBuf::from(path), access: Access::Read, class: Some(class) }
+}
+
+fn command(line: &str) -> Subject {
+    Subject::Command { line: line.to_owned() }
+}
 
 #[test]
 fn the_defaults_pass_their_own_checks() {
@@ -12,11 +32,37 @@ fn the_defaults_pass_their_own_checks() {
 }
 
 #[test]
+fn the_last_matching_rule_wins() {
+    let allow_then_deny = Policy::new(vec![
+        Rule::new(Action::Write, Resource::Any, Effect::Allow),
+        Rule::new(Action::Write, Resource::Under("~/.config".into()), Effect::Deny),
+    ])
+    .unwrap();
+    let subject = write("/home/u/.config/a", PathClass::UserConfig);
+    assert_eq!(allow_then_deny.last_match(&subject, &cx()), Some((1, Effect::Deny)));
+
+    let deny_then_allow =
+        Policy::new(allow_then_deny.rules().iter().rev().cloned().collect()).unwrap();
+    assert_eq!(deny_then_allow.last_match(&subject, &cx()), Some((1, Effect::Allow)));
+
+    let other = write("/home/u/notes", PathClass::UserData);
+    assert_eq!(allow_then_deny.last_match(&other, &cx()), Some((0, Effect::Allow)));
+}
+
+#[test]
+fn an_empty_policy_matches_nothing() {
+    assert_eq!(Policy::empty().last_match(&read("/etc/hosts", PathClass::System), &cx()), None);
+}
+
+#[test]
 fn then_appends_later_rules_that_win() {
     let later = Policy::new(vec![Rule::new(Action::Read, Resource::Any, Effect::Deny)]).unwrap();
     let policy = Policy::defaults().then(later);
     assert_eq!(policy.rules().len(), 9);
-    assert_eq!(policy.rules()[8], Rule::new(Action::Read, Resource::Any, Effect::Deny));
+    assert_eq!(
+        policy.last_match(&read("/etc/hosts", PathClass::System), &cx()),
+        Some((8, Effect::Deny))
+    );
 }
 
 #[test]
@@ -28,7 +74,88 @@ fn push_checks_the_rule_at_its_position() {
         Err(PermissionsError::RulePathNotAbsolute { index: 8, path: "relative".into() })
     );
     policy.push(Rule::new(Action::Network, Resource::Any, Effect::Allow)).unwrap();
-    assert_eq!(policy.rules().len(), 9);
+    assert_eq!(policy.last_match(&Subject::Network, &cx()), Some((8, Effect::Allow)));
+}
+
+#[rstest]
+#[case::any_any(Action::Any, Resource::Any, true, true, true, true)]
+#[case::read_any(Action::Read, Resource::Any, true, false, false, false)]
+#[case::write_any(Action::Write, Resource::Any, false, true, false, false)]
+#[case::execute_any(Action::Execute, Resource::Any, false, false, true, false)]
+#[case::network_any(Action::Network, Resource::Any, false, false, false, true)]
+#[case::any_class(Action::Any, Resource::Class(PathClass::UserData), true, true, false, false)]
+#[case::any_under(Action::Any, Resource::Under("/home/u/p".into()), true, true, false, false)]
+#[case::any_project(Action::Any, Resource::Project, true, true, false, false)]
+#[case::any_command(
+    Action::Any,
+    Resource::Command(CommandPattern::new("ls")),
+    false,
+    false,
+    true,
+    false
+)]
+fn actions_and_resources_select_subjects(
+    #[case] action: Action,
+    #[case] resource: Resource,
+    #[case] reads: bool,
+    #[case] writes: bool,
+    #[case] runs: bool,
+    #[case] networks: bool,
+) {
+    let policy = Policy::new(vec![Rule::new(action, resource, Effect::Allow)]).unwrap();
+    let matched = |subject: Subject| policy.last_match(&subject, &cx()).is_some();
+    assert_eq!(matched(read("/home/u/p/app/a", PathClass::UserData)), reads);
+    assert_eq!(matched(write("/home/u/p/app/a", PathClass::UserData)), writes);
+    assert_eq!(matched(command("ls -la")), runs);
+    assert_eq!(matched(Subject::Network), networks);
+}
+
+#[test]
+fn engine_only_subjects_match_no_rule() {
+    let policy = Policy::new(vec![Rule::new(Action::Any, Resource::Any, Effect::Allow)]).unwrap();
+    let relative = Subject::Path { path: PathBuf::from("a"), access: Access::Read, class: None };
+    for subject in [relative, Subject::Interactive, Subject::Nothing] {
+        assert_eq!(policy.last_match(&subject, &cx()), None, "{subject:?}");
+    }
+}
+
+#[rstest]
+#[case::inside("/home/u/.config/nvim/init.lua", true)]
+#[case::the_root_itself("/home/u/.config/nvim", true)]
+#[case::sibling_prefix("/home/u/.config/nvim-old/init.lua", false)]
+#[case::parent("/home/u/.config", false)]
+fn under_matches_by_component(#[case] path: &str, #[case] expected: bool) {
+    for root in ["~/.config/nvim", "/home/u/.config/nvim", "/home/u/.config/./nvim/"] {
+        let policy = Policy::new(vec![Rule::new(
+            Action::Write,
+            Resource::Under(root.into()),
+            Effect::Allow,
+        )])
+        .unwrap();
+        let matched = policy.last_match(&write(path, PathClass::UserConfig), &cx()).is_some();
+        assert_eq!(matched, expected, "{root} against {path}");
+    }
+}
+
+#[test]
+fn a_bare_tilde_is_the_home_directory() {
+    let policy =
+        Policy::new(vec![Rule::new(Action::Write, Resource::Under("~".into()), Effect::Allow)])
+            .unwrap();
+    assert!(policy.last_match(&write("/home/u/a", PathClass::UserData), &cx()).is_some());
+    assert!(policy.last_match(&write("/etc/a", PathClass::System), &cx()).is_none());
+}
+
+#[test]
+fn project_matches_only_inside_the_widening_root() {
+    let policy =
+        Policy::new(vec![Rule::new(Action::Write, Resource::Project, Effect::Allow)]).unwrap();
+    let inside = write("/home/u/p/app/src/main.rs", PathClass::UserData);
+    let outside = write("/home/u/p/other/a", PathClass::UserData);
+    assert!(policy.last_match(&inside, &cx()).is_some());
+    assert!(policy.last_match(&outside, &cx()).is_none());
+    let no_project = MatchContext { home: Path::new(HOME), project_root: None };
+    assert!(policy.last_match(&inside, &no_project).is_none());
 }
 
 #[rstest]

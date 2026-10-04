@@ -4,7 +4,7 @@ use efr_protocol::Origin;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{Cause, Effect, Layer, Reason, Subject};
+use super::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::{Access, PathClass};
 
 fn reason(subject: Subject, effect: Effect, cause: Cause) -> Reason {
@@ -24,6 +24,21 @@ fn effects_order_from_least_to_most_strict() {
     assert!(Effect::Allow < Effect::Ask);
     assert!(Effect::Ask < Effect::Deny);
     assert_eq!([Effect::Ask, Effect::Deny, Effect::Allow].into_iter().max(), Some(Effect::Deny));
+}
+
+#[test]
+fn the_decision_is_the_strictest_reason() {
+    let allow = reason(Subject::Network, Effect::Allow, Cause::NoRequirements);
+    let ask = reason(Subject::Interactive, Effect::Ask, Cause::Interactive);
+    let decision = Decision::from_reasons(vec![allow.clone(), ask.clone()]);
+    assert_eq!(decision.effect(), Effect::Ask);
+    assert_eq!(decision.reasons(), [allow, ask.clone()]);
+    assert_eq!(decision.deciding().cloned().collect::<Vec<_>>(), [ask]);
+}
+
+#[test]
+fn a_decision_without_reasons_fails_closed() {
+    assert_eq!(Decision::from_reasons(Vec::new()).effect(), Effect::Deny);
 }
 
 #[rstest]
