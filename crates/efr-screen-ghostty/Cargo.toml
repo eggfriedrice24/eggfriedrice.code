@@ -1,0 +1,25 @@
+[package]
+name = "efr-screen-ghostty"
+description = "The libghostty-vt screen backend for efr: the only crate that links Zig output"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-screen.workspace = true
+libghostty-vt.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
