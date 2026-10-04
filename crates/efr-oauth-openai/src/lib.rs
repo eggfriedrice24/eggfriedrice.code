@@ -32,6 +32,7 @@
 mod authorize;
 mod config;
 mod error;
+mod pkce;
 #[cfg(test)]
 mod testing;
 
