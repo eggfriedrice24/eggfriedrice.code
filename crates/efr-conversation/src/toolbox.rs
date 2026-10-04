@@ -104,6 +104,9 @@ pub struct CallContext {
     /// The user's working directory when the prompt was sent: relative paths resolve
     /// against it, and a new hidden shell starts in it.
     pub cwd: PathBuf,
+    /// Where the conversation's hidden shell was when the call was judged, if one
+    /// runs: a relative path in a command resolves against it, not against `cwd`.
+    pub shell_cwd: Option<PathBuf>,
     /// The conversation's `$SCRATCH` directory.
     pub scratch: PathBuf,
     /// The turn's scope.
@@ -128,10 +131,18 @@ impl CallContext {
             turn_id,
             call_id,
             cwd: cwd.into(),
+            shell_cwd: None,
             scratch: scratch.into(),
             scope: Scope::Machine,
             origin: Origin::Shell,
         }
+    }
+
+    /// Sets where the conversation's hidden shell is.
+    #[must_use]
+    pub fn with_shell_cwd(mut self, shell_cwd: Option<PathBuf>) -> Self {
+        self.shell_cwd = shell_cwd;
+        self
     }
 
     /// Sets the turn's scope.

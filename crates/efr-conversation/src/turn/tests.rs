@@ -565,6 +565,40 @@ async fn the_preamble_names_where_the_live_hidden_shell_is() {
 }
 
 #[tokio::test]
+async fn the_check_point_judges_a_command_from_where_the_hidden_shell_is() {
+    let mut setup = Setup::new();
+    let rule =
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("make")), Effect::Allow);
+    setup.config.policy = Policy::new(vec![rule]).expect("policy");
+    let mut state = setup.live_state(&setup.cwd, "build");
+    state.agent_cwd = Some(PathBuf::from("/var/log"));
+    let input = json!({ "command": "make" });
+    let first = setup.prompt(&state, "build");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "done", false),
+        ])),
+        answer(&text_answer("Built.")),
+    ];
+    let cwd = setup.cwd.clone();
+    let mut h = setup.start(records).await;
+    *h.toolbox.shell_cwd.lock().unwrap() = Some(PathBuf::from("/var/log"));
+
+    let sent = h.prompt("build").await;
+    h.wait_end(sent.turn_id).await;
+
+    let judged = h.toolbox.judged();
+    assert_eq!(judged.len(), 1);
+    assert_eq!(judged[0].shell_cwd, Some(PathBuf::from("/var/log")));
+    assert_eq!(judged[0].cwd, cwd);
+    h.finish();
+}
+
+#[tokio::test]
 async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "first");
@@ -716,11 +750,12 @@ async fn text_updates_are_coalesced_on_the_clock() {
 #[tokio::test]
 async fn a_tool_s_output_updates_are_recorded_and_conversation_rules_allow_a_command() {
     let mut setup = Setup::new();
+    // `make` is not one of the read-only commands that the defaults allow.
     let rule =
-        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("ls")), Effect::Allow);
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("make")), Effect::Allow);
     setup.config.policy = Policy::new(vec![rule]).expect("policy");
     let state = setup.live_state(&setup.cwd, "list");
-    let input = json!({ "command": "ls" });
+    let input = json!({ "command": "make" });
     let first = setup.prompt(&state, "list");
     let records = vec![
         expect_request(request(vec![first.clone()])),

@@ -392,11 +392,15 @@ impl Turn {
                 input: call.input.clone(),
             }])
             .await?;
+            // NOTE: asked for every call, because the call before may have moved the
+            // hidden shell, and a command's relative paths run from where it is now.
+            let shell_cwd = self.shared.deps.toolbox.shell_cwd(self.shared.conversation_id).await;
             let context = CallContext {
                 conversation_id: self.shared.conversation_id,
                 turn_id,
                 call_id,
                 cwd: self.cwd.clone(),
+                shell_cwd,
                 scratch: self.scratch.clone(),
                 scope: self.scope.clone(),
                 origin: self.spec.origin,

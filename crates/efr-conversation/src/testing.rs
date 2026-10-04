@@ -54,6 +54,8 @@ pub(crate) struct FakeToolbox {
     pub(crate) hang_started: Notify,
     /// What [`Toolbox::shell_cwd`] answers.
     pub(crate) shell_cwd: Mutex<Option<PathBuf>>,
+    /// The context of every call that `requirements` was asked about.
+    judged: Mutex<Vec<CallContext>>,
 }
 
 impl FakeToolbox {
@@ -84,6 +86,11 @@ impl FakeToolbox {
     pub(crate) fn cancelled(&self) -> Vec<CallId> {
         self.cancelled.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
+
+    /// The context of every call that the check point judged, in order.
+    pub(crate) fn judged(&self) -> Vec<CallContext> {
+        self.judged.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
 }
 
 fn text_input(input: &Value, key: &str) -> Result<String, String> {
@@ -101,6 +108,7 @@ impl Toolbox for FakeToolbox {
     }
 
     fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
+        self.judged.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
         match call.name.as_str() {
             "read_file" => Ok(Requirements::none().with_read(text_input(&call.input, "path")?)),
             "write_file" => Ok(Requirements::none().with_write(text_input(&call.input, "path")?)),

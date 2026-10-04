@@ -80,9 +80,12 @@ by field:
 - `requirements`: build an `efr_tools::ToolContext` from the `CallContext` (plus the
   home, the clock and the write journal the daemon holds), call
   `ToolRegistry::requirements`, and copy `ToolRequirements` into
-  `efr_permissions::Requirements` (`paths` with `AccessMode::Read` or `Write` to
-  `with_read` or `with_write`, then `command`, `network`, `interactive`); a `ToolError`
-  becomes its `Display` text for the model;
+  `efr_permissions::Requirements` (`paths` with `AccessMode::Read`, `ReadTree` or
+  `Write` to `with_read`, `with_read_tree` or `with_write`, then `command`, `network`,
+  `interactive`); a `ToolError` becomes its `Display` text for the model. The turn
+  asks the toolbox's `shell_cwd` before each call and puts it in
+  `CallContext::shell_cwd`, so a command's relative paths are declared from where the
+  hidden shell is, which an earlier call may have moved;
 - `invoke`: `ToolRegistry::invoke` with the `OutputSink` passed through as the
   `ToolOutputSink`, and `ToolResult` copied into `ToolOutcome`; a `ToolError` becomes
   an error outcome;
