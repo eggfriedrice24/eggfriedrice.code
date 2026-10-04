@@ -101,6 +101,20 @@ fn new_takes_an_optional_prompt() {
 }
 
 #[test]
+fn history_takes_a_conversation_a_limit_and_a_cursor() {
+    let Command::History(args) = command(&["history"]) else { panic!("not history") };
+    assert_eq!((args.conversation, args.limit, args.cursor), (None, None, None));
+    let Command::History(args) =
+        command(&["history", "019a9b1c", "--limit", "5", "--cursor", "c1"])
+    else {
+        panic!("not history");
+    };
+    assert_eq!(args.conversation.as_deref(), Some("019a9b1c"));
+    assert_eq!(args.limit, Some(5));
+    assert_eq!(args.cursor.as_deref(), Some("c1"));
+}
+
+#[test]
 fn an_unknown_or_missing_command_is_a_usage_error() {
     assert_eq!(parse_error(&["frobnicate"]), ErrorKind::InvalidSubcommand);
     assert_eq!(parse_error(&[]), ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand);

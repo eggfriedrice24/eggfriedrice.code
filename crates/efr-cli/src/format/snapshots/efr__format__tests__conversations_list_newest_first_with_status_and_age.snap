@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/format/tests.rs
+expression: "conversations(&list, now())"
+---
+019a9b1c-3d00-7a10-8b20-000000000001  running              30s ago  fix the nginx config
+019a9b1c-3d00-7a10-8b20-000000000002  awaiting approval  1h 1m ago  tidy ~/.zshrc
+019a9b1c-3d00-7a10-8b20-000000000003  idle               2d 7h ago  (untitled)
+more: efr history --cursor c2

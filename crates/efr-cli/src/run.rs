@@ -5,7 +5,7 @@ use std::error::Error as _;
 use std::fmt::Write as _;
 
 use crate::cli::{Cli, Command};
-use crate::commands::{new, send};
+use crate::commands::{history, new, send};
 use crate::context::Context;
 use crate::error::{CliError, Exit};
 use crate::format;
@@ -29,6 +29,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
     let result = match command {
         Command::Send(args) => send::run(ctx, out, args).await,
         Command::New(args) => new::run(ctx, out, args).await,
+        Command::History(args) => history::run(ctx, out, args).await,
     };
     match result {
         Ok(()) => Exit::Success,

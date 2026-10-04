@@ -7,9 +7,11 @@
 //! cannot drive the terminal.
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 
-use efr_protocol::{ApprovalDecision, Origin};
+use efr_protocol::{ApprovalDecision, ConversationStatus, ConversationsListResult, Origin};
 use efr_render::{ColourMode, RenderOptions};
+use jiff::Timestamp;
 use serde_json::Value;
 
 /// Keys of a tool's input that best describe a call in one line, in order of
@@ -19,6 +21,8 @@ const DETAIL_KEYS: &[&str] = &["command", "cmd", "path", "file", "url", "query"]
 /// How one of the CLI's own lines looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tone {
+    /// Bold: the user's own prompt.
+    Bold,
     /// Dim: notes about the turn.
     Dim,
     /// Bold yellow, or bold without colour: something waits for the user.
@@ -28,7 +32,7 @@ pub(crate) enum Tone {
 impl Tone {
     fn sgr(self, colour: ColourMode) -> &'static str {
         match (self, colour) {
-            (Tone::Attention, ColourMode::None) => "1",
+            (Tone::Bold, _) | (Tone::Attention, ColourMode::None) => "1",
             (Tone::Dim, _) => "2",
             (Tone::Attention, _) => "1;33",
         }
@@ -38,6 +42,8 @@ impl Tone {
 /// The kinds of blocks a reply or a transcript is made of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Block {
+    /// The user's prompt.
+    Prompt,
     /// An assistant message.
     Message,
     /// A dim note: a tool call, an answer, the end of a turn.
@@ -168,6 +174,59 @@ pub(crate) fn origin(origin: Origin) -> &'static str {
         Origin::Phone => "the phone",
         _ => "another client",
     }
+}
+
+/// A conversation's status in the words of the listing.
+fn status_word(status: ConversationStatus) -> &'static str {
+    match status {
+        ConversationStatus::Idle => "idle",
+        ConversationStatus::Running => "running",
+        ConversationStatus::AwaitingApproval => "awaiting approval",
+        _ => "unknown",
+    }
+}
+
+/// How long ago `then` was at `now`, such as `5m ago`; `just now` under a second.
+pub(crate) fn ago(then: Timestamp, now: Timestamp) -> String {
+    let seconds = now.duration_since(then).as_secs();
+    if seconds < 1 {
+        return "just now".to_owned();
+    }
+    format!("{} ago", span(seconds.unsigned_abs()))
+}
+
+/// A duration in its two largest units: `45s`, `5m 3s`, `2h 5m`, `3d 4h`.
+fn span(seconds: u64) -> String {
+    let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
+    let secs = seconds % 60;
+    match (days, hours, minutes) {
+        (0, 0, 0) => format!("{secs}s"),
+        (0, 0, _) => format!("{minutes}m {secs}s"),
+        (0, _, _) => format!("{hours}h {minutes}m"),
+        _ => format!("{days}d {hours}h"),
+    }
+}
+
+/// `efr history` without a conversation: one line per conversation, newest first.
+pub(crate) fn conversations(list: &ConversationsListResult, now: Timestamp) -> String {
+    if list.conversations.is_empty() {
+        return "no conversations yet\n".to_owned();
+    }
+    let mut out = String::new();
+    for summary in &list.conversations {
+        let title = summary.title.as_deref().map_or_else(|| "(untitled)".to_owned(), one_line);
+        let _ = writeln!(
+            out,
+            "{}  {:<17}  {:>9}  {title}",
+            summary.id,
+            status_word(summary.status),
+            ago(summary.updated_at, now)
+        );
+    }
+    if let Some(cursor) = &list.next_cursor {
+        let _ = writeln!(out, "more: efr history --cursor {}", one_line(cursor.as_str()));
+    }
+    out
 }
 
 #[cfg(test)]

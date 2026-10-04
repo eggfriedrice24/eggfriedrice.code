@@ -35,6 +35,7 @@ fn bad_input_is_a_usage_error() {
         CliError::InvalidContext { source: invalid },
         CliError::EmptyPrompt,
         CliError::SteerNeedsConversation,
+        CliError::AmbiguousConversation { query: "019a".to_owned(), matches: 2 },
     ] {
         assert_eq!(error.exit(), Exit::Usage, "{error}");
     }
@@ -51,6 +52,7 @@ fn daemon_failures_exit_with_one() {
         CliError::TurnCancelled,
         CliError::SubscriptionEnded,
         CliError::NoActiveConversation { tty: "/dev/pts/3".to_owned() },
+        CliError::ConversationNotFound { query: "abcd".to_owned() },
     ] {
         assert_eq!(error.exit(), Exit::DaemonError, "{error}");
         assert_eq!(error.hint(), None);

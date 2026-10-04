@@ -35,6 +35,8 @@ pub(crate) enum Command {
     Send(SendArgs),
     /// Start a new conversation for this terminal, optionally with a first prompt.
     New(NewArgs),
+    /// List recent conversations, or show the events of one.
+    History(HistoryArgs),
 }
 
 /// The arguments of `efr send`.
@@ -107,6 +109,23 @@ impl FromStr for LastCommand {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Ok(LastCommand(text.to_owned()))
     }
+}
+
+/// The arguments of `efr history`.
+#[derive(Debug, Args)]
+pub(crate) struct HistoryArgs {
+    /// The conversation to show: its id, or the start of it. Without one, the recent
+    /// conversations are listed.
+    #[arg(value_name = "CONVERSATION")]
+    pub(crate) conversation: Option<String>,
+
+    /// The most conversations or events to show.
+    #[arg(long, value_name = "N")]
+    pub(crate) limit: Option<u32>,
+
+    /// Continue from a cursor that an earlier page printed.
+    #[arg(long, value_name = "CURSOR")]
+    pub(crate) cursor: Option<String>,
 }
 
 #[cfg(test)]

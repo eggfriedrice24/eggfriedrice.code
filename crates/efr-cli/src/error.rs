@@ -77,6 +77,14 @@ pub(crate) enum CliError {
     #[error("no conversation is active in {tty}")]
     NoActiveConversation { tty: String },
 
+    /// No conversation id starts with what the user typed.
+    #[error("no conversation matches {query:?}")]
+    ConversationNotFound { query: String },
+
+    /// More than one conversation id starts with what the user typed.
+    #[error("{query:?} matches {matches} conversations; type more of the id")]
+    AmbiguousConversation { query: String, matches: usize },
+
     /// The turn ended with an error from the daemon or the model provider.
     #[error("the turn failed with {}: {}", .body.code, .body.message)]
     TurnFailed { body: ErrorBody },
@@ -123,7 +131,8 @@ impl CliError {
             CliError::Client(ClientError::DaemonNotRunning { .. }) => Exit::NotRunning,
             CliError::InvalidContext { .. }
             | CliError::EmptyPrompt
-            | CliError::SteerNeedsConversation => Exit::Usage,
+            | CliError::SteerNeedsConversation
+            | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
             _ => Exit::DaemonError,
         }
