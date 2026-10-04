@@ -112,6 +112,12 @@ const HOME_SECRETS: &[&str] = &[
 /// Secret locations outside the home directory.
 const SYSTEM_SECRETS: &[&str] = &["/etc/shadow", "/etc/gshadow"];
 
+/// Entries of a process directory under `/proc` that expose its environment, its
+/// memory, its open files or its view of the file system. Reading through them would
+/// bypass every other class: `/proc/self/root/home/u/.ssh/id_ed25519` is the key, and
+/// `/proc/self/environ` holds the tokens that `env` would print.
+const PROC_SECRETS: &[&str] = &["environ", "root", "cwd", "fd", "map_files", "mem"];
+
 /// Dot entries of the home directory that hold data, not configuration.
 const HOME_DATA: &[&str] = &[".local/share", ".local/state", ".cache"];
 
@@ -311,6 +317,65 @@ impl Locations {
         HOME_SECRETS.iter().any(|secret| path.starts_with(self.home.join(secret)))
             || SYSTEM_SECRETS.iter().any(|secret| path.starts_with(secret))
             || self.secret_roots.iter().any(|root| path.starts_with(root))
+            || is_proc_secret(path)
+    }
+
+    /// The secrets strictly below `dir`, a path in normal form, so that a call which
+    /// reads everything below `dir` can be judged by them. Under `/proc` a process's
+    /// secret entries stand for every process.
+    pub(crate) fn secrets_below(&self, dir: &Path) -> Vec<PathBuf> {
+        let dir = self.rehome(dir);
+        let dir = dir.as_ref();
+        let mut below: Vec<PathBuf> = HOME_SECRETS
+            .iter()
+            .map(|secret| self.home.join(secret))
+            .chain(SYSTEM_SECRETS.iter().map(PathBuf::from))
+            .chain(self.secret_roots.iter().cloned())
+            .filter(|root| root.starts_with(dir) && root != dir)
+            .collect();
+        below.extend(proc_secret_below(dir));
+        below
+    }
+}
+
+/// True for the secret entries of a process or thread directory under `/proc`.
+fn is_proc_secret(path: &Path) -> bool {
+    let Ok(rest) = path.strip_prefix("/proc") else {
+        return false;
+    };
+    let names: Vec<&std::ffi::OsStr> = rest
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .collect();
+    let secret = |name: &std::ffi::OsStr| PROC_SECRETS.iter().any(|entry| name == *entry);
+    match names.as_slice() {
+        [_, entry, ..] if secret(entry) => true,
+        [_, task, _, entry, ..] => *task == "task" && secret(entry),
+        _ => false,
+    }
+}
+
+/// A secret entry of `/proc` below `dir` that a recursive read of `dir` would reach.
+fn proc_secret_below(dir: &Path) -> Option<PathBuf> {
+    if dir == Path::new("/") || dir == Path::new("/proc") {
+        return Some(PathBuf::from("/proc/self/environ"));
+    }
+    let rest = dir.strip_prefix("/proc").ok()?;
+    let names: Vec<String> = rest
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let is_process = |name: &str| {
+        name == "self" || name == "thread-self" || name.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    match names.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        [process] if is_process(process) => Some(dir.join("environ")),
+        [process, "task"] if is_process(process) => Some(dir.join("*").join("environ")),
+        [process, "task", _] if is_process(process) => Some(dir.join("environ")),
+        _ => None,
     }
 }
 

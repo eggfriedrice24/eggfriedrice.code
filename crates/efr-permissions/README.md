@@ -18,7 +18,7 @@ Modules:
   | UserConfig | `~/.config`, `~/.zshrc`, other dot entries in `~`, extra config roots | free | approval |
   | UserData | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, free inside the turn's registered project |
   | System | everything outside `~` | free | approval |
-  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, the daemon's `secrets/`, and the roots the config adds | denied | denied |
+  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc` (its tokens, and back doors to every other path), the daemon's `secrets/`, and the roots the config adds | denied | denied |
 
   Classification is lexical: `.` and `..` are resolved by name, nothing is read from
   the disk, and a relative path has no class. Tools resolve symbolic links before they
@@ -28,14 +28,33 @@ Modules:
   path, a scratch directory or a root under any form of `~` is classified as the same
   path under `~`. A root outside `~` whose resolved form differs is added in both
   forms.
-- `request`: `DecisionInput`, `Requirements` (paths with `Access`, a command line,
-  network, interactive) and `ConversationPolicy` (the conversation's `$SCRATCH` and its
-  own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
-  crates apart, so `turn.rs` copies one into the other.
+- `request`: `DecisionInput`, `Requirements` (paths with `Access`: `Read`, `ReadTree`
+  for a path read with everything below it, or `Write`; a command line; network;
+  interactive) and `ConversationPolicy` (the conversation's `$SCRATCH` and its own
+  rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
+  crates apart, so the daemon's toolbox copies one into the other.
+- `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,
+  `|` and newlines, reading quotes and backslashes as zsh does, and fails closed with a
+  `Construct` for anything a command rule cannot judge: a command, process or history
+  substitution, a parameter expansion, a group or brace expansion, a here-document, an
+  output redirection to anything but `/dev/null` (`2>&1` and `>/dev/null` are fine),
+  a background job, an assignment other than `LC_*`, `LANG`, `TZ` and a few more, a
+  pattern that could expand to an option (`*.rs`, but not `src/*.rs`), and builtins
+  such as `eval`, `exec`, `source`, `.`, `alias` and `export`. The lexer is an
+  allowlist: a character it does not know makes the line a construct.
 - `policy`: `Policy`, an ordered list of `Rule { action, resource, effect }` in which
-  the last match wins. `Policy::defaults()` is the table above as eight rules; the
-  daemon appends the user's configured rules with `then`. Rules deserialize from TOML
-  with unknown keys refused, and every rule is checked when a policy is built.
+  the last match wins. A `command` resource is a `CommandPattern`: the program, the
+  words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
+  words that must not appear (`forbid`: `--long` with its abbreviations, `-x` inside a
+  cluster, `-word` as `find` reads it, or a substring of an operand) and
+  `max_operands`. `Policy::defaults()` is the table above as eight rules followed by
+  the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
+  `systemctl status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without
+  `-exec` or `-delete` and more; `env` and `printenv` are left out because they print
+  tokens); `policy/defaults.md` is the same table for the docs, and a test keeps them
+  equal. The daemon appends the user's configured rules with `then`. Rules deserialize
+  from TOML with unknown keys refused, and every rule is checked when a policy is
+  built.
 - `decision`: `Effect` (`Allow < Ask < Deny`), `Decision` and `Reason`, whose `Display`
   is the one line that goes into a log, an approval summary or a denied tool result.
 - `engine`: `Engine::decide`.
@@ -56,7 +75,8 @@ Third-party crates: `serde` (rules in the configuration) and `thiserror`.
 
 The engine is a pure function: no file system, no git, no clock, no environment. Its
 decisions follow these rules, each covered by a decision table in
-`src/engine/tests.rs` and, where marked, a proptest property:
+`src/engine/tests.rs` or `src/engine/tests/commands.rs` and, where marked, a proptest
+property:
 
 - Secrets are denied by default, for reading and writing. Only the machine policy (the
   user's configuration) can open one, explicitly; a conversation's rules never loosen
@@ -77,12 +97,26 @@ decisions follow these rules, each covered by a decision table in
   nothing scratch.
 - A relative path, or a requirement that no rule matches, is denied (fail closed).
   Adding a requirement never loosens a decision (property).
-- A command pattern matches only a simple command line (plain words of
-  `[A-Za-z0-9-_./:,+@%=]`), so allowing `git status` never allows `git status; rm -rf ~`.
+- A command line is allowed only when every simple command in it is (property: no
+  operator joins an asked command to an allowed one), so allowing `git status` never
+  allows `git status; rm -rf ~`. A line that `command::analyze` cannot split matches
+  only the rules whose resource is `any`, which ask by default (property: no line with
+  a `$(` or backquote outside single quotes is allowed by the defaults).
+- `sudo`, `sudoedit`, `doas`, `su`, `pkexec` and `run0`, also behind a wrapper such as
+  `env` or inside a substitution, always need approval: no command pattern matches
+  them and an `allow` from a rule for every command line becomes `ask`.
+- A path read with everything below it (`ReadTree`, which the shell tool declares for
+  recursive searches, recursive listings and globs) needs approval when a secret that
+  no rule allows lies below it, so `rg TOKEN ~/.aws` asks although `rg` is allowed and
+  `~/.aws` is user config; naming a secret itself, as `cat ~/.ssh/id_ed25519` does, is
+  denied.
 
 What the engine cannot see, the caller owns: tools resolve symbolic links and relative
-paths before they declare them, and a pattern trusts that a program name means in the
-hidden shell what it says.
+paths before they declare them (the shell tool resolves its arguments lexically against
+the hidden shell's directory and cannot follow a link that an earlier approved command
+made), and a pattern trusts that a program name means in the hidden shell what it says:
+no alias or function of that name from the user's startup files, and no repository
+configuration that runs a program for `git status`.
 
 ## Tests
 

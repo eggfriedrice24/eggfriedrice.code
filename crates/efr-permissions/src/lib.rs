@@ -7,7 +7,9 @@
 //! - [`DecisionInput`]: the call's declared [`Requirements`], the turn's `Scope` and
 //!   `Origin`, and the [`ConversationPolicy`] (its `$SCRATCH` and its own rules).
 //! - [`Policy`]: an ordered list of [`Rule`]s, each an [`Action`], a [`Resource`] and
-//!   an [`Effect`]; the last rule that matches wins.
+//!   an [`Effect`]; the last rule that matches wins. [`Policy::defaults`] allows the
+//!   read-only commands, and a [`CommandPattern`] judges one simple command of a line
+//!   at a time; a line it cannot split is a [`Construct`] and asks by default.
 //! - [`Engine::decide`]: the [`Decision`], `Allow`, `Ask` or `Deny`, with a [`Reason`]
 //!   for every requirement.
 //!
@@ -24,6 +26,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod command;
 mod decision;
 mod engine;
 mod error;
@@ -31,6 +34,7 @@ mod path_class;
 mod policy;
 mod request;
 
+pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::Engine;
 pub use error::PermissionsError;

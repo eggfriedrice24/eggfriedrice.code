@@ -8,7 +8,10 @@
 //! ```toml
 //! { action = "write", resource = { under = "~/.config/nvim" }, effect = "allow" }
 //! { action = "execute", resource = { command = { program = "git", args = ["status"] } }, effect = "allow" }
+//! { action = "execute", resource = { command = { program = "find", forbid = ["-delete"] } }, effect = "allow" }
 //! ```
+
+mod defaults;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -16,8 +19,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::command::{self, is_plain_char};
 use crate::path_class::{normalize, rehome};
-use crate::{Access, Effect, PathClass, PermissionsError, Subject};
+use crate::{Access, Effect, PathClass, PermissionsError};
 
 /// One rule: when a requirement matches `action` and `resource`, its effect is
 /// `effect`, unless a later rule matches too.
@@ -45,7 +49,7 @@ impl Rule {
 pub enum Action {
     /// Every requirement.
     Any,
-    /// Reading a path.
+    /// Reading a path, or everything below it.
     Read,
     /// Writing a path.
     Write,
@@ -82,34 +86,68 @@ pub enum Resource {
     /// when the scope is not a registered project, or when that root is `~`, `/` or a
     /// directory above `~`.
     Project,
-    /// A command line that matches the pattern.
+    /// Every simple command that matches the pattern.
     Command(CommandPattern),
 }
 
-/// A command that a rule names: a program and the first arguments.
+/// A command that a rule names: a program, the words that must follow it, the words
+/// that must not appear, and how many operands it may have.
 ///
-/// A pattern matches only a simple command line: plain words of ASCII letters, digits
-/// and `-_./:,+@%=` separated by spaces or tabs. A line with any other character, such
-/// as `;`, `|`, `$`, a quote, a glob or a newline, never matches, because its first
-/// word does not say what runs; it falls through to the rules before. A pattern with
-/// no arguments matches every invocation of the program.
+/// A pattern judges one simple command at a time. The engine splits a line on `;`,
+/// `&&`, `||`, `|` and newlines, reading quotes as zsh does, and allows a line only
+/// when it allows every simple command in it. A line with a command substitution, a
+/// parameter expansion, a here-document, an output redirection to anything but
+/// `/dev/null`, a group, a background job, an assignment that could change what runs,
+/// or a builtin such as `eval` matches no pattern at all, and falls through to the
+/// rules for every command line. A program that runs commands as another user (`sudo`,
+/// `doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper
+/// such as `env`.
+///
+/// Words are compared after quotes are removed, so `git 'status'` is `git status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandPattern {
-    /// The first word of the line, such as `git`.
+    /// The first word of the simple command, such as `git`. A path such as `/bin/ls`
+    /// names a different program.
     pub program: String,
-    /// The words that must follow it, such as `["status"]`.
+    /// The words that must follow the program, in order, such as `["status"]`. A word
+    /// may list alternatives separated by `|`, as in `"status|diff|log"`, and an
+    /// alternative that ends in `*` matches every word that starts with what comes
+    /// before it, as `-Q*` matches `-Qi`. No words matches every invocation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// Words that must not appear anywhere after the program:
+    ///
+    /// - `--name` matches `--name`, `--name=value`, and every abbreviation of it down
+    ///   to `--n`, because GNU programs accept any unambiguous abbreviation;
+    /// - `-x`, one letter, matches every word that starts with one `-` and holds the
+    ///   letter, so `-o` also matches `-uo`;
+    /// - `-name`, several letters after one `-`, matches that word, the way `find`
+    ///   reads its predicates;
+    /// - an option that ends in `*` matches every word that starts with it;
+    /// - a word without a leading `-` matches every word without one that contains it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbid: Vec<String>,
+    /// The most operands after the words of `args`. An operand is `-`, a word that
+    /// does not start with `-`, or any word after `--`. A value given to an option as a
+    /// separate word counts too, so the limit errs towards asking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_operands: Option<usize>,
 }
 
 impl CommandPattern {
     /// A pattern that matches every invocation of `program`.
     pub fn new(program: impl Into<String>) -> Self {
-        CommandPattern { program: program.into(), args: Vec::new() }
+        CommandPattern {
+            program: program.into(),
+            args: Vec::new(),
+            forbid: Vec::new(),
+            max_operands: None,
+        }
     }
 
     /// Requires these words right after the program.
+    #[must_use]
     pub fn with_args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -119,17 +157,92 @@ impl CommandPattern {
         self
     }
 
-    /// True when `line` is a simple command line whose words start with the program
-    /// and then the arguments of this pattern.
+    /// Refuses a command that holds one of these words after the program.
+    #[must_use]
+    pub fn with_forbid<I, S>(mut self, forbid: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.forbid = forbid.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Refuses a command with more than `max` operands after the words of `args`.
+    #[must_use]
+    pub fn with_max_operands(mut self, max: usize) -> Self {
+        self.max_operands = Some(max);
+        self
+    }
+
+    /// True when `line` is one simple command that this pattern matches, and it does
+    /// not run as another user.
     pub fn matches(&self, line: &str) -> bool {
-        let Some(words) = simple_words(line) else {
+        match command::analyze(line).as_deref() {
+            Ok([only]) => command::privileged(only).is_none() && self.matches_words(&only.words),
+            Ok(_) | Err(_) => false,
+        }
+    }
+
+    /// True when the words of one simple command, program first, match this pattern.
+    pub(crate) fn matches_words(&self, words: &[String]) -> bool {
+        let Some((program, rest)) = words.split_first() else {
             return false;
         };
-        let mut pattern =
-            std::iter::once(self.program.as_str()).chain(self.args.iter().map(String::as_str));
-        let mut words = words.into_iter();
-        pattern.all(|expected| words.next() == Some(expected))
+        if *program != self.program || rest.len() < self.args.len() {
+            return false;
+        }
+        let prefix = self.args.iter().zip(rest).all(|(wanted, word)| {
+            wanted.split('|').any(|alternative| match alternative.strip_suffix('*') {
+                Some(start) => word.starts_with(start),
+                None => word == alternative,
+            })
+        });
+        if !prefix || rest.iter().any(|word| self.forbid.iter().any(|entry| forbids(entry, word))) {
+            return false;
+        }
+        self.max_operands.is_none_or(|max| operands(&rest[self.args.len()..]) <= max)
     }
+}
+
+/// True when the forbidden `entry` matches `word`, by the rules of
+/// [`CommandPattern::forbid`].
+fn forbids(entry: &str, word: &str) -> bool {
+    let (option, wild) = match entry.strip_suffix('*') {
+        Some(start) => (start, true),
+        None => (entry, false),
+    };
+    if option.starts_with("--") {
+        if !word.starts_with("--") || word == "--" {
+            return false;
+        }
+        let name = word.split_once('=').map_or(word, |(name, _)| name);
+        let abbreviation = name.len() > 2 && option.starts_with(name);
+        return name == option || abbreviation || (wild && name.starts_with(option));
+    }
+    if let Some(letters) = option.strip_prefix('-') {
+        let mut chars = letters.chars();
+        if let (Some(letter), None, false) = (chars.next(), chars.next(), wild) {
+            return word.starts_with('-') && !word.starts_with("--") && word[1..].contains(letter);
+        }
+        return if wild { word.starts_with(option) } else { word == option };
+    }
+    !word.starts_with('-') && word.contains(option)
+}
+
+/// How many of `words` are operands: `-`, a word without a leading `-`, or any word
+/// after `--`.
+fn operands(words: &[String]) -> usize {
+    let mut count = 0;
+    let mut after_options = false;
+    for word in words {
+        if after_options || word == "-" || !word.starts_with('-') {
+            count += 1;
+        } else if word == "--" {
+            after_options = true;
+        }
+    }
+    count
 }
 
 /// An ordered list of rules in which the last match wins.
@@ -145,8 +258,9 @@ pub struct Policy {
 impl Policy {
     /// A policy of the given rules, in order.
     ///
-    /// Fails on the first rule that names a relative path, a program or argument that
-    /// is not a plain word, or an action that its resource can never match.
+    /// Fails on the first rule that names a relative path, a program, argument or
+    /// forbidden word that is not a plain word, or an action that its resource can
+    /// never match.
     pub fn new(rules: Vec<Rule>) -> Result<Self, PermissionsError> {
         for (index, rule) in rules.iter().enumerate() {
             check(index, rule)?;
@@ -159,7 +273,8 @@ impl Policy {
         Policy::default()
     }
 
-    /// The built-in policy, the path-class table of the design:
+    /// The built-in policy: the path-class table of the design, then read-only
+    /// commands that run without approval.
     ///
     /// | # | Action | Resource | Effect |
     /// |---|---|---|---|
@@ -171,11 +286,23 @@ impl Policy {
     /// | 5 | write | class system | ask |
     /// | 6 | write | class scratch | allow |
     /// | 7 | any | class secrets | deny |
+    /// | 8 and on | execute | a read-only command below | allow |
     ///
-    /// So commands and network access need approval, reading is free outside secrets,
-    /// and only scratch and the user data of the turn's project are free to write.
+    /// So reading is free outside secrets, only scratch and the user data of the turn's
+    /// project are free to write, network access needs approval, and a command line
+    /// needs approval unless every simple command in it is one of these (`args` must
+    /// follow the program, `forbid` must not appear, `max` caps the operands):
+    ///
+    /// | # | Program | Args | Forbid | Max |
+    /// |---|---|---|---|---|
+    #[doc = include_str!("policy/defaults.md")]
+    ///
+    /// `env` and `printenv` are left out on purpose, because they print every variable,
+    /// tokens included. A read-only command still reads paths: the shell tool declares
+    /// the paths among its arguments, and the path rules above judge them, so
+    /// `cat ~/.ssh/id_ed25519` is denied although `cat` is allowed.
     pub fn defaults() -> Self {
-        let rules = vec![
+        let mut rules = vec![
             Rule::new(Action::Any, Resource::Any, Effect::Ask),
             Rule::new(Action::Read, Resource::Any, Effect::Allow),
             Rule::new(Action::Write, Resource::Class(PathClass::UserData), Effect::Ask),
@@ -185,6 +312,11 @@ impl Policy {
             Rule::new(Action::Write, Resource::Class(PathClass::Scratch), Effect::Allow),
             Rule::new(Action::Any, Resource::Class(PathClass::Secrets), Effect::Deny),
         ];
+        rules.extend(
+            defaults::read_only().into_iter().map(|pattern| {
+                Rule::new(Action::Execute, Resource::Command(pattern), Effect::Allow)
+            }),
+        );
         Policy { rules }
     }
 
@@ -206,17 +338,17 @@ impl Policy {
         Ok(())
     }
 
-    /// The position and effect of the last rule that matches `subject`.
+    /// The position and effect of the last rule that matches `target`.
     pub(crate) fn last_match(
         &self,
-        subject: &Subject,
+        target: &Target<'_>,
         cx: &MatchContext<'_>,
     ) -> Option<(usize, Effect)> {
         self.rules
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, rule)| rule.matches(subject, cx))
+            .find(|(_, rule)| rule.matches(target, cx))
             .map(|(index, rule)| (index, rule.effect))
     }
 }
@@ -235,7 +367,34 @@ impl From<Policy> for Vec<Rule> {
     }
 }
 
-/// What rule matching needs beyond the subject.
+/// What a rule is matched against: one path, one simple command, a command line that
+/// cannot be split, or network access.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Target<'a> {
+    /// A path in normal form, with its class.
+    Path {
+        /// The path.
+        path: &'a Path,
+        /// What the call does with it.
+        access: Access,
+        /// Its class.
+        class: PathClass,
+    },
+    /// One simple command of a line, program first, unquoted.
+    Command {
+        /// The words.
+        words: &'a [String],
+        /// True when it runs as another user, which no command pattern allows.
+        privileged: bool,
+    },
+    /// A line that cannot be split into simple commands: only the rules for every
+    /// command line match it.
+    Opaque,
+    /// Network access by the call itself.
+    Network,
+}
+
+/// What rule matching needs beyond the target.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MatchContext<'a> {
     /// The home directory, for `~` in `under` paths.
@@ -255,27 +414,25 @@ impl MatchContext<'_> {
 }
 
 impl Rule {
-    fn matches(&self, subject: &Subject, cx: &MatchContext<'_>) -> bool {
-        match subject {
-            Subject::Path { path, access, class: Some(class) } => {
+    fn matches(&self, target: &Target<'_>, cx: &MatchContext<'_>) -> bool {
+        match *target {
+            Target::Path { path, access, class } => {
                 let action = match access {
-                    Access::Read => Action::Read,
+                    Access::Read | Access::ReadTree => Action::Read,
                     Access::Write => Action::Write,
                 };
-                self.action_is(action) && self.matches_path(path, *class, cx)
+                self.action_is(action) && self.matches_path(path, class, cx)
             }
-            Subject::Command { line } => {
+            Target::Command { words, privileged } => {
                 self.action_is(Action::Execute)
                     && match &self.resource {
                         Resource::Any => true,
-                        Resource::Command(pattern) => pattern.matches(line),
+                        Resource::Command(pattern) => !privileged && pattern.matches_words(words),
                         Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
                     }
             }
-            Subject::Network => self.action_is(Action::Network) && self.resource == Resource::Any,
-            // Relative paths, interactive calls and empty requirements are decided by
-            // the engine itself, never by a rule.
-            Subject::Path { class: None, .. } | Subject::Interactive | Subject::Nothing => false,
+            Target::Opaque => self.action_is(Action::Execute) && self.resource == Resource::Any,
+            Target::Network => self.action_is(Action::Network) && self.resource == Resource::Any,
         }
     }
 
@@ -330,11 +487,14 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
                     program: pattern.program.clone(),
                 });
             }
-            if let Some(argument) = pattern.args.iter().find(|argument| !is_plain_word(argument)) {
+            if let Some(argument) = pattern.args.iter().find(|argument| !is_valid_arg(argument)) {
                 return Err(PermissionsError::RuleArgumentInvalid {
                     index,
                     argument: argument.clone(),
                 });
+            }
+            if let Some(word) = pattern.forbid.iter().find(|word| !is_valid_forbid(word)) {
+                return Err(PermissionsError::RuleForbidInvalid { index, word: word.clone() });
             }
         }
         Resource::Any | Resource::Class(_) | Resource::Project => {}
@@ -342,27 +502,25 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
     Ok(())
 }
 
-/// The words of a simple command line, or `None` when the line holds a character that
-/// the shell may treat specially, or no word at all.
-fn simple_words(line: &str) -> Option<Vec<&str>> {
-    if !line.chars().all(|c| c == ' ' || c == '\t' || is_plain_char(c)) {
-        return None;
-    }
-    let words: Vec<&str> = line.split([' ', '\t']).filter(|word| !word.is_empty()).collect();
-    if words.is_empty() { None } else { Some(words) }
-}
-
 fn is_plain_word(word: &str) -> bool {
     !word.is_empty() && word.chars().all(is_plain_char)
 }
 
-/// Characters that neither bash nor zsh treat specially inside a word. The list is an
-/// allowlist on purpose: a character that is missing makes a line fall back to the
-/// rules before, which is safe; a character wrongly present would let an allowed
-/// program smuggle in another command.
-fn is_plain_char(c: char) -> bool {
-    c.is_ascii_alphanumeric()
-        || matches!(c, '-' | '_' | '.' | '/' | ':' | ',' | '+' | '@' | '%' | '=')
+/// An `args` word: alternatives separated by `|`, each a plain word that may end in
+/// `*` after at least one character.
+fn is_valid_arg(word: &str) -> bool {
+    word.split('|')
+        .all(|alternative| is_plain_word(alternative.strip_suffix('*').unwrap_or(alternative)))
+}
+
+/// A `forbid` word: a plain word other than `-` and `--`; only an option may end in
+/// `*`.
+fn is_valid_forbid(word: &str) -> bool {
+    let (body, wild) = match word.strip_suffix('*') {
+        Some(body) => (body, true),
+        None => (word, false),
+    };
+    is_plain_word(body) && body != "-" && body != "--" && (!wild || body.starts_with('-'))
 }
 
 #[cfg(test)]

@@ -72,6 +72,24 @@ fn locations() -> Locations {
 #[case::gshadow("/etc/gshadow", PathClass::Secrets)]
 #[case::similar_name("/home/u/.sshx/config", PathClass::UserConfig)]
 #[case::similar_system_name("/etc/shadowsocks/config.json", PathClass::System)]
+// The parts of a process under /proc that reach its environment, memory, open files or
+// view of the file system are secrets; the rest of /proc is system.
+#[case::own_environment("/proc/self/environ", PathClass::Secrets)]
+#[case::thread_self_environment("/proc/thread-self/environ", PathClass::Secrets)]
+#[case::process_environment("/proc/1234/environ", PathClass::Secrets)]
+#[case::thread_environment("/proc/1234/task/1235/environ", PathClass::Secrets)]
+#[case::process_root("/proc/self/root/home/u/.ssh/id_ed25519", PathClass::Secrets)]
+#[case::process_cwd("/proc/1234/cwd/notes.txt", PathClass::Secrets)]
+#[case::process_fd("/proc/1234/fd/7", PathClass::Secrets)]
+#[case::process_fd_dir("/proc/1234/fd", PathClass::Secrets)]
+#[case::process_map_files("/proc/1234/map_files/7f00-7f01", PathClass::Secrets)]
+#[case::process_memory("/proc/1234/mem", PathClass::Secrets)]
+#[case::process_status("/proc/self/status", PathClass::System)]
+#[case::process_cmdline("/proc/1234/cmdline", PathClass::System)]
+#[case::process_fdinfo("/proc/1234/fdinfo/7", PathClass::System)]
+#[case::cpuinfo("/proc/cpuinfo", PathClass::System)]
+#[case::proc_itself("/proc", PathClass::System)]
+#[case::similar_proc("/procs/1/environ", PathClass::System)]
 fn classifies(#[case] path: &str, #[case] expected: PathClass) {
     assert_eq!(locations().classify(Path::new(path), Path::new(SCRATCH)), Some(expected));
 }
@@ -121,6 +139,76 @@ fn scratch_that_covers_home_makes_nothing_scratch(#[case] scratch: &str) {
 fn scratch_outside_home_is_scratch() {
     let scratch = Path::new("/tmp/efr-data/scratch/2026-10-04-a-00000000");
     assert_eq!(locations().classify(&scratch.join("out.txt"), scratch), Some(PathClass::Scratch));
+}
+
+#[rstest]
+#[case::home(HOME, &[
+    "/home/u/.ssh",
+    "/home/u/.gnupg",
+    "/home/u/.password-store",
+    "/home/u/.local/share/keyrings",
+    "/home/u/.netrc",
+    "/home/u/.aws/credentials",
+    "/home/u/.aws/sso/cache",
+    "/home/u/.azure",
+    "/home/u/.config/gcloud",
+    "/home/u/.docker/config.json",
+    "/home/u/.kube/config",
+    "/home/u/.codex/auth.json",
+    "/home/u/.git-credentials",
+    "/home/u/.config/gh/hosts.yml",
+    "/home/u/.npmrc",
+    "/home/u/.pypirc",
+    "/home/u/.cargo/credentials",
+    "/home/u/.cargo/credentials.toml",
+    "/home/u/.gem/credentials",
+    "/home/u/.vault-token",
+    "/home/u/.terraform.d/credentials.tfrc.json",
+    "/home/u/.local/share/efr/secrets",
+])]
+#[case::aws("/home/u/.aws", &["/home/u/.aws/credentials", "/home/u/.aws/sso/cache"])]
+#[case::config("/home/u/.config", &["/home/u/.config/gcloud", "/home/u/.config/gh/hosts.yml"])]
+#[case::local_share("/home/u/.local/share", &["/home/u/.local/share/keyrings", "/home/u/.local/share/efr/secrets"])]
+#[case::project("/home/u/p/app", &[])]
+#[case::a_secret_itself("/home/u/.ssh", &[])]
+#[case::etc("/etc", &["/etc/shadow", "/etc/gshadow"])]
+#[case::usr("/usr", &[])]
+#[case::proc("/proc", &["/proc/self/environ"])]
+#[case::process("/proc/1234", &["/proc/1234/environ"])]
+#[case::own_process("/proc/self", &["/proc/self/environ"])]
+#[case::process_tasks("/proc/1234/task", &["/proc/1234/task/*/environ"])]
+#[case::process_task("/proc/1234/task/1235", &["/proc/1234/task/1235/environ"])]
+#[case::proc_sys("/proc/sys", &[])]
+fn secrets_below(#[case] dir: &str, #[case] expected: &[&str]) {
+    let expected: Vec<PathBuf> = expected.iter().map(PathBuf::from).collect();
+    assert_eq!(locations().secrets_below(Path::new(dir)), expected);
+}
+
+#[test]
+fn secrets_below_root_hold_every_kind() {
+    let below = locations().secrets_below(Path::new("/"));
+    for secret in
+        ["/home/u/.ssh", "/etc/shadow", "/home/u/.local/share/efr/secrets", "/proc/self/environ"]
+    {
+        assert!(below.contains(&PathBuf::from(secret)), "{secret} in {below:?}");
+    }
+    for representative in &below {
+        assert_eq!(
+            locations().classify(representative, Path::new(SCRATCH)),
+            Some(PathClass::Secrets),
+            "{}",
+            representative.display()
+        );
+    }
+}
+
+#[test]
+fn secrets_below_a_linked_home_are_named_under_the_home() {
+    let locations = locations().with_home_alias("/var/home/u").unwrap();
+    assert_eq!(
+        locations.secrets_below(Path::new("/var/home/u/.aws")),
+        [PathBuf::from("/home/u/.aws/credentials"), PathBuf::from("/home/u/.aws/sso/cache")]
+    );
 }
 
 #[test]

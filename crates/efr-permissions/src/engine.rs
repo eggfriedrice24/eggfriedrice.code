@@ -1,11 +1,14 @@
 //! `Engine::decide`: requirements in, one decision out.
 
+use std::path::{Path, PathBuf};
+
 use efr_protocol::{Origin, Scope};
 
+use crate::command;
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::path_class::normalize;
-use crate::policy::MatchContext;
-use crate::{DecisionInput, Locations, PathAccess, PathClass, Policy};
+use crate::policy::{MatchContext, Target};
+use crate::{Access, DecisionInput, Locations, PathAccess, PathClass, Policy};
 
 /// The permission engine: the machine's [`Locations`] and the machine [`Policy`].
 ///
@@ -19,6 +22,16 @@ use crate::{DecisionInput, Locations, PathAccess, PathClass, Policy};
 /// 3. A turn from a remote origin (the phone, or any origin newer than this crate) needs
 ///    approval for everything outside `$SCRATCH`: an `Allow` becomes `Ask`. An
 ///    interactive call always needs approval.
+///
+/// A command line is judged one simple command at a time, and its effect is the
+/// strictest of theirs, so a line is allowed only when every simple command in it is.
+/// A line that cannot be split (a command substitution, an output redirection to a
+/// file, a builtin such as `eval`, see [`Construct`](crate::Construct)) is judged only
+/// by the rules for every command line, and a program that runs as another user needs
+/// at least approval whatever the rules say.
+///
+/// A path read with everything below it ([`Access::ReadTree`]) is judged like a read,
+/// and needs at least approval when a secret that no rule allows lies below it.
 ///
 /// A call that declares no requirement gets one reason, [`Subject::Nothing`]. It is
 /// allowed for the local origins (shell, CLI and proxy) and needs approval for any other,
@@ -66,11 +79,7 @@ impl Engine {
             home_aliases: self.locations.home_aliases(),
             project_root,
         };
-        let judge = |subject: Subject, class: Option<PathClass>| -> Reason {
-            let (effect, cause) = self.by_rules(&subject, class, input, &cx);
-            let (effect, cause) = clamp_remote(effect, cause, class, input.origin);
-            Reason { subject, effect, cause }
-        };
+        let judge = Judge { engine: self, input, cx };
 
         let requirements = &input.requirements;
         let mut reasons = Vec::new();
@@ -78,7 +87,7 @@ impl Engine {
             let reason = match normalize(path) {
                 Some(path) => {
                     let class = self.locations.classify_normal(&path, scratch.as_deref());
-                    judge(Subject::Path { path, access: *access, class: Some(class) }, Some(class))
+                    judge.path(path, *access, class)
                 }
                 None => Reason {
                     subject: Subject::Path { path: path.clone(), access: *access, class: None },
@@ -89,10 +98,12 @@ impl Engine {
             reasons.push(reason);
         }
         if let Some(line) = &requirements.command {
-            reasons.push(judge(Subject::Command { line: line.clone() }, None));
+            reasons.push(judge.command(line));
         }
         if requirements.network {
-            reasons.push(judge(Subject::Network, None));
+            let (effect, cause) = judge.by_rules(&Target::Network, None);
+            let (effect, cause) = clamp_remote(effect, cause, None, input.origin);
+            reasons.push(Reason { subject: Subject::Network, effect, cause });
         }
         if requirements.interactive {
             reasons.push(Reason {
@@ -108,21 +119,95 @@ impl Engine {
         }
         Decision::from_reasons(reasons)
     }
+}
+
+/// Everything one decision judges its requirements with.
+struct Judge<'a> {
+    engine: &'a Engine,
+    input: &'a DecisionInput,
+    cx: MatchContext<'a>,
+}
+
+impl Judge<'_> {
+    /// One path with its class: the rules, then the secrets below a tree, then the
+    /// origin.
+    fn path(&self, path: PathBuf, access: Access, class: PathClass) -> Reason {
+        let target = Target::Path { path: &path, access, class };
+        let (mut effect, mut cause) = self.by_rules(&target, Some(class));
+        if access == Access::ReadTree
+            && effect == Effect::Allow
+            && let Some(secret) = self.unopened_secret_below(&path)
+        {
+            effect = Effect::Ask;
+            cause = Cause::ReachesSecret { secret };
+        }
+        let (effect, cause) = clamp_remote(effect, cause, Some(class), self.input.origin);
+        Reason { subject: Subject::Path { path, access, class: Some(class) }, effect, cause }
+    }
+
+    /// The first secret below `dir` that the rules do not allow to read.
+    fn unopened_secret_below(&self, dir: &Path) -> Option<PathBuf> {
+        self.engine.locations.secrets_below(dir).into_iter().find(|secret| {
+            let target =
+                Target::Path { path: secret, access: Access::Read, class: PathClass::Secrets };
+            self.by_rules(&target, Some(PathClass::Secrets)).0 != Effect::Allow
+        })
+    }
+
+    /// One command line: each simple command by the rules, the strictest deciding.
+    fn command(&self, line: &str) -> Reason {
+        let (effect, cause) = match command::analyze(line) {
+            Ok(parts) => {
+                let several = parts.len() > 1;
+                let mut strictest: Option<(Effect, Cause)> = None;
+                for part in &parts {
+                    let privileged = command::privileged(part);
+                    let target =
+                        Target::Command { words: &part.words, privileged: privileged.is_some() };
+                    let (mut effect, mut cause) = self.by_rules(&target, None);
+                    match (privileged, cause) {
+                        (Some(program), _) if effect == Effect::Allow => {
+                            effect = Effect::Ask;
+                            cause = Cause::Privileged { program: program.to_owned() };
+                        }
+                        (_, Cause::Rule { layer, index }) if several => {
+                            cause = Cause::Part { layer, index, part: part.text() };
+                        }
+                        (_, other) => cause = other,
+                    }
+                    if strictest.as_ref().is_none_or(|(worst, _)| effect > *worst) {
+                        strictest = Some((effect, cause));
+                    }
+                }
+                // NOTE: `analyze` returns at least one part, and no parts would deny.
+                strictest.unwrap_or((Effect::Deny, Cause::NoRule))
+            }
+            Err(construct) => {
+                let (effect, cause) = self.by_rules(&Target::Opaque, None);
+                let cause = match cause {
+                    Cause::Rule { layer, index } => Cause::Opaque { construct, layer, index },
+                    other => other,
+                };
+                match command::privileged_anywhere(line) {
+                    Some(program) if effect == Effect::Allow => {
+                        (Effect::Ask, Cause::Privileged { program: program.to_owned() })
+                    }
+                    _ => (effect, cause),
+                }
+            }
+        };
+        let (effect, cause) = clamp_remote(effect, cause, None, self.input.origin);
+        Reason { subject: Subject::Command { line: line.to_owned() }, effect, cause }
+    }
 
     /// Steps 1 and 2: the machine policy, then the conversation's policy.
-    fn by_rules(
-        &self,
-        subject: &Subject,
-        class: Option<PathClass>,
-        input: &DecisionInput,
-        cx: &MatchContext<'_>,
-    ) -> (Effect, Cause) {
-        let machine = match self.policy.last_match(subject, cx) {
+    fn by_rules(&self, target: &Target<'_>, class: Option<PathClass>) -> (Effect, Cause) {
+        let machine = match self.engine.policy.last_match(target, &self.cx) {
             Some((index, effect)) => (effect, Cause::Rule { layer: Layer::Machine, index }),
             None => (Effect::Deny, Cause::NoRule),
         };
         let may_loosen = !matches!(class, Some(PathClass::Secrets | PathClass::System));
-        match input.conversation_policy.rules.last_match(subject, cx) {
+        match self.input.conversation_policy.rules.last_match(target, &self.cx) {
             Some((index, effect)) if may_loosen || effect >= machine.0 => {
                 (effect, Cause::Rule { layer: Layer::Conversation, index })
             }

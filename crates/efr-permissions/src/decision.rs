@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use efr_protocol::Origin;
 use serde::{Deserialize, Serialize};
 
-use crate::{Access, PathClass};
+use crate::{Access, Construct, PathClass};
 
 /// What happens to a tool call, ordered from the least to the most strict, so the
 /// strictest of several effects is their maximum.
@@ -116,6 +116,37 @@ pub enum Cause {
         /// The rule's position in that policy, counted from 0.
         index: usize,
     },
+    /// A rule matched one simple command of a command line with several, and that
+    /// command set the line's effect.
+    Part {
+        /// The policy that holds the rule.
+        layer: Layer,
+        /// The rule's position in that policy, counted from 0.
+        index: usize,
+        /// The simple command, its words joined by spaces.
+        part: String,
+    },
+    /// The command line holds something that no command rule can judge, so only a rule
+    /// for every command line matched it, and that rule decided.
+    Opaque {
+        /// What the line holds.
+        construct: Construct,
+        /// The policy that holds the rule.
+        layer: Layer,
+        /// The rule's position in that policy, counted from 0.
+        index: usize,
+    },
+    /// The command line runs a program as another user, which always needs approval.
+    Privileged {
+        /// The program, such as `sudo`.
+        program: String,
+    },
+    /// A rule allowed reading everything below the path, but a secret lies below it,
+    /// so the user must approve.
+    ReachesSecret {
+        /// The first secret below the path that no rule allows.
+        secret: PathBuf,
+    },
     /// No rule matched, so the engine refused.
     NoRule,
     /// The path is relative, so its class is unknown.
@@ -157,6 +188,20 @@ impl fmt::Display for Reason {
         write!(f, "{}: {}", self.subject, self.effect)?;
         match &self.cause {
             Cause::Rule { layer, index } => write!(f, ", by rule {index} of the {layer} policy"),
+            Cause::Part { layer, index, part } => {
+                write!(f, ", by rule {index} of the {layer} policy for {part:?}")
+            }
+            Cause::Opaque { construct, layer, index } => write!(
+                f,
+                ", by rule {index} of the {layer} policy, because the line holds {construct}, \
+                 which no command rule can judge"
+            ),
+            Cause::Privileged { program } => {
+                write!(f, ", because {program} runs commands as another user")
+            }
+            Cause::ReachesSecret { secret } => {
+                write!(f, ", because the secret {} lies below it", secret.display())
+            }
             Cause::NoRule => f.write_str(", because no rule matched"),
             Cause::NotAbsolute => f.write_str(", because the path is not absolute"),
             Cause::RemoteOrigin { origin } if self.subject == Subject::Nothing => write!(

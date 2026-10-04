@@ -1,5 +1,7 @@
 //! Decision tables: inputs as literals, one expected effect per row.
 
+mod commands;
+
 use std::path::PathBuf;
 
 use efr_protocol::{Origin, ProjectId, Scope};
@@ -138,8 +140,10 @@ fn scratch_file() -> String {
 // A path whose class is unknown is denied.
 #[case::relative_read(read("notes.txt"), Effect::Deny)]
 #[case::relative_write(write("../.zshrc"), Effect::Deny)]
-// Commands, network access and interactive calls need approval.
-#[case::command(Requirements::none().with_command("ls -la"), Effect::Ask)]
+// Read-only commands run; other commands, network access and interactive calls need
+// approval.
+#[case::read_only_command(Requirements::none().with_command("ls -la"), Effect::Allow)]
+#[case::command(Requirements::none().with_command("rm -rf build"), Effect::Ask)]
 #[case::network(Requirements::none().with_network(), Effect::Ask)]
 #[case::interactive(read(&scratch_file()).with_interactive(), Effect::Ask)]
 // A call that declares nothing runs for the shell; see `no_requirements_by_origin`.
@@ -361,7 +365,8 @@ fn every_requirement_gets_a_reason_and_the_strictest_decides() {
         .with_interactive();
     let decision = engine().decide(&input(requirements, Scope::Machine, Origin::Shell));
     let effects: Vec<_> = decision.reasons().iter().map(|reason| reason.effect).collect();
-    assert_eq!(effects, [Effect::Allow, Effect::Ask, Effect::Deny, Effect::Ask, Effect::Ask]);
+    // `cat` itself is allowed; the secret it would read is what denies the call.
+    assert_eq!(effects, [Effect::Allow, Effect::Ask, Effect::Deny, Effect::Allow, Effect::Ask]);
     assert_eq!(decision.effect(), Effect::Deny);
     let deciding: Vec<_> = decision.deciding().map(ToString::to_string).collect();
     assert_eq!(

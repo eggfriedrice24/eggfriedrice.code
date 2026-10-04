@@ -4,8 +4,8 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde::{Deserialize, Serialize};
 
-use super::{Action, CommandPattern, MatchContext, Policy, Resource, Rule};
-use crate::{Access, Effect, PathClass, PermissionsError, Subject};
+use super::{Action, CommandPattern, MatchContext, Policy, Resource, Rule, Target, defaults};
+use crate::{Access, Effect, PathClass, PermissionsError};
 
 const HOME: &str = "/home/u";
 
@@ -17,16 +17,16 @@ fn cx() -> MatchContext<'static> {
     }
 }
 
-fn write(path: &str, class: PathClass) -> Subject {
-    Subject::Path { path: PathBuf::from(path), access: Access::Write, class: Some(class) }
+fn write(path: &'static str, class: PathClass) -> Target<'static> {
+    Target::Path { path: Path::new(path), access: Access::Write, class }
 }
 
-fn read(path: &str, class: PathClass) -> Subject {
-    Subject::Path { path: PathBuf::from(path), access: Access::Read, class: Some(class) }
+fn read(path: &'static str, class: PathClass) -> Target<'static> {
+    Target::Path { path: Path::new(path), access: Access::Read, class }
 }
 
-fn command(line: &str) -> Subject {
-    Subject::Command { line: line.to_owned() }
+fn words(line: &str) -> Vec<String> {
+    line.split(' ').map(str::to_owned).collect()
 }
 
 #[test]
@@ -36,18 +36,60 @@ fn the_defaults_pass_their_own_checks() {
 }
 
 #[test]
+fn the_defaults_keep_the_path_table_first_and_add_only_command_allows() {
+    let defaults = Policy::defaults();
+    let rules = defaults.rules();
+    assert_eq!(rules[7], Rule::new(Action::Any, Resource::Class(PathClass::Secrets), Effect::Deny));
+    for rule in &rules[8..] {
+        assert_eq!(rule.action, Action::Execute, "{rule:?}");
+        assert_eq!(rule.effect, Effect::Allow, "{rule:?}");
+        assert!(matches!(rule.resource, Resource::Command(_)), "{rule:?}");
+    }
+}
+
+/// The rows of the read-only table, numbered from `first`, as `defaults.md` holds them.
+fn table(first: usize) -> String {
+    let code = |words: &[String]| {
+        let words: Vec<String> =
+            words.iter().map(|word| format!("`{}`", word.replace('|', "\\|"))).collect();
+        words.join(" ")
+    };
+    defaults::read_only()
+        .iter()
+        .enumerate()
+        .map(|(offset, pattern)| {
+            let max = pattern.max_operands.map(|max| max.to_string()).unwrap_or_default();
+            format!(
+                "| {} | `{}` | {} | {} | {} |\n",
+                first + offset,
+                pattern.program,
+                code(&pattern.args),
+                code(&pattern.forbid),
+                max
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_documented_table_is_the_data() {
+    let documented = include_str!("defaults.md");
+    assert_eq!(documented, table(8), "regenerate src/policy/defaults.md from the rows");
+}
+
+#[test]
 fn the_last_matching_rule_wins() {
     let allow_then_deny = Policy::new(vec![
         Rule::new(Action::Write, Resource::Any, Effect::Allow),
         Rule::new(Action::Write, Resource::Under("~/.config".into()), Effect::Deny),
     ])
     .unwrap();
-    let subject = write("/home/u/.config/a", PathClass::UserConfig);
-    assert_eq!(allow_then_deny.last_match(&subject, &cx()), Some((1, Effect::Deny)));
+    let target = write("/home/u/.config/a", PathClass::UserConfig);
+    assert_eq!(allow_then_deny.last_match(&target, &cx()), Some((1, Effect::Deny)));
 
     let deny_then_allow =
         Policy::new(allow_then_deny.rules().iter().rev().cloned().collect()).unwrap();
-    assert_eq!(deny_then_allow.last_match(&subject, &cx()), Some((1, Effect::Allow)));
+    assert_eq!(deny_then_allow.last_match(&target, &cx()), Some((1, Effect::Allow)));
 
     let other = write("/home/u/notes", PathClass::UserData);
     assert_eq!(allow_then_deny.last_match(&other, &cx()), Some((0, Effect::Allow)));
@@ -60,67 +102,93 @@ fn an_empty_policy_matches_nothing() {
 
 #[test]
 fn then_appends_later_rules_that_win() {
+    let count = Policy::defaults().rules().len();
     let later = Policy::new(vec![Rule::new(Action::Read, Resource::Any, Effect::Deny)]).unwrap();
     let policy = Policy::defaults().then(later);
-    assert_eq!(policy.rules().len(), 9);
+    assert_eq!(policy.rules().len(), count + 1);
     assert_eq!(
         policy.last_match(&read("/etc/hosts", PathClass::System), &cx()),
-        Some((8, Effect::Deny))
+        Some((count, Effect::Deny))
     );
 }
 
 #[test]
 fn push_checks_the_rule_at_its_position() {
     let mut policy = Policy::defaults();
+    let count = policy.rules().len();
     let bad = Rule::new(Action::Write, Resource::Under("relative".into()), Effect::Allow);
     assert_eq!(
         policy.push(bad),
-        Err(PermissionsError::RulePathNotAbsolute { index: 8, path: "relative".into() })
+        Err(PermissionsError::RulePathNotAbsolute { index: count, path: "relative".into() })
     );
     policy.push(Rule::new(Action::Network, Resource::Any, Effect::Allow)).unwrap();
-    assert_eq!(policy.last_match(&Subject::Network, &cx()), Some((8, Effect::Allow)));
+    assert_eq!(policy.last_match(&Target::Network, &cx()), Some((count, Effect::Allow)));
 }
 
 #[rstest]
-#[case::any_any(Action::Any, Resource::Any, true, true, true, true)]
-#[case::read_any(Action::Read, Resource::Any, true, false, false, false)]
-#[case::write_any(Action::Write, Resource::Any, false, true, false, false)]
-#[case::execute_any(Action::Execute, Resource::Any, false, false, true, false)]
-#[case::network_any(Action::Network, Resource::Any, false, false, false, true)]
-#[case::any_class(Action::Any, Resource::Class(PathClass::UserData), true, true, false, false)]
-#[case::any_under(Action::Any, Resource::Under("/home/u/p".into()), true, true, false, false)]
-#[case::any_project(Action::Any, Resource::Project, true, true, false, false)]
+#[case::any_any(Action::Any, Resource::Any, true, true, true, true, true)]
+#[case::read_any(Action::Read, Resource::Any, true, false, false, false, false)]
+#[case::write_any(Action::Write, Resource::Any, false, true, false, false, false)]
+#[case::execute_any(Action::Execute, Resource::Any, false, false, true, true, false)]
+#[case::network_any(Action::Network, Resource::Any, false, false, false, false, true)]
+#[case::any_class(
+    Action::Any,
+    Resource::Class(PathClass::UserData),
+    true,
+    true,
+    false,
+    false,
+    false
+)]
+#[case::any_under(Action::Any, Resource::Under("/home/u/p".into()), true, true, false, false, false)]
+#[case::any_project(Action::Any, Resource::Project, true, true, false, false, false)]
 #[case::any_command(
     Action::Any,
     Resource::Command(CommandPattern::new("ls")),
     false,
     false,
     true,
+    false,
     false
 )]
-fn actions_and_resources_select_subjects(
+fn actions_and_resources_select_targets(
     #[case] action: Action,
     #[case] resource: Resource,
     #[case] reads: bool,
     #[case] writes: bool,
     #[case] runs: bool,
+    #[case] runs_opaque: bool,
     #[case] networks: bool,
 ) {
     let policy = Policy::new(vec![Rule::new(action, resource, Effect::Allow)]).unwrap();
-    let matched = |subject: Subject| policy.last_match(&subject, &cx()).is_some();
+    let matched = |target: Target<'_>| policy.last_match(&target, &cx()).is_some();
+    let ls = words("ls -la");
     assert_eq!(matched(read("/home/u/p/app/a", PathClass::UserData)), reads);
+    let tree = Target::Path {
+        path: Path::new("/home/u/p/app"),
+        access: Access::ReadTree,
+        class: PathClass::UserData,
+    };
+    assert_eq!(matched(tree), reads);
     assert_eq!(matched(write("/home/u/p/app/a", PathClass::UserData)), writes);
-    assert_eq!(matched(command("ls -la")), runs);
-    assert_eq!(matched(Subject::Network), networks);
+    assert_eq!(matched(Target::Command { words: &ls, privileged: false }), runs);
+    assert_eq!(matched(Target::Opaque), runs_opaque);
+    assert_eq!(matched(Target::Network), networks);
 }
 
 #[test]
-fn engine_only_subjects_match_no_rule() {
-    let policy = Policy::new(vec![Rule::new(Action::Any, Resource::Any, Effect::Allow)]).unwrap();
-    let relative = Subject::Path { path: PathBuf::from("a"), access: Access::Read, class: None };
-    for subject in [relative, Subject::Interactive, Subject::Nothing] {
-        assert_eq!(policy.last_match(&subject, &cx()), None, "{subject:?}");
-    }
+fn a_privileged_command_matches_only_rules_for_every_command() {
+    let sudo = words("sudo ls");
+    let target = Target::Command { words: &sudo, privileged: true };
+    let pattern = Policy::new(vec![Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("sudo")),
+        Effect::Allow,
+    )])
+    .unwrap();
+    assert_eq!(pattern.last_match(&target, &cx()), None);
+    let any = Policy::new(vec![Rule::new(Action::Execute, Resource::Any, Effect::Ask)]).unwrap();
+    assert_eq!(any.last_match(&target, &cx()), Some((0, Effect::Ask)));
 }
 
 #[rstest]
@@ -128,7 +196,7 @@ fn engine_only_subjects_match_no_rule() {
 #[case::the_root_itself("/home/u/.config/nvim", true)]
 #[case::sibling_prefix("/home/u/.config/nvim-old/init.lua", false)]
 #[case::parent("/home/u/.config", false)]
-fn under_matches_by_component(#[case] path: &str, #[case] expected: bool) {
+fn under_matches_by_component(#[case] path: &'static str, #[case] expected: bool) {
     for root in ["~/.config/nvim", "/home/u/.config/nvim", "/home/u/.config/./nvim/"] {
         let policy = Policy::new(vec![Rule::new(
             Action::Write,
@@ -176,7 +244,7 @@ fn under_and_project_rules_match_both_forms_of_a_linked_home() {
         home_aliases: &aliases,
         project_root: Some(Path::new("/home/u/p/app")),
     };
-    let rule = |path: &str| policy.last_match(&write(path, PathClass::UserConfig), &cx);
+    let rule = |path: &'static str| policy.last_match(&write(path, PathClass::UserConfig), &cx);
     assert_eq!(rule("/home/u/.config/nvim/init.lua"), Some((0, Effect::Allow)));
     assert_eq!(rule("/var/home/u/.config/nvim/init.lua"), Some((0, Effect::Allow)));
     assert_eq!(rule("/var/home/u/.config/zsh/aliases.zsh"), Some((1, Effect::Allow)));
@@ -190,6 +258,11 @@ fn under_and_project_rules_match_both_forms_of_a_linked_home() {
 #[case::extra_args("ls", "ls -la /etc", &[], true)]
 #[case::tabs_and_spaces("git", " \tgit\t status ", &["status"], true)]
 #[case::args_prefix("git", "git status --short", &["status"], true)]
+#[case::quoted_words("git", "'git' \"status\"", &["status"], true)]
+#[case::quoted_spaces("ls", "ls 'a b'", &[], true)]
+#[case::tilde("ls", "ls ~ ~/p", &[], true)]
+#[case::null_redirect("ls", "ls 2>/dev/null", &[], true)]
+#[case::harmless_assignment("git", "LC_ALL=C git status", &["status"], true)]
 #[case::other_args("git", "git push", &["status"], false)]
 #[case::too_short("git", "git", &["status"], false)]
 #[case::similar_program("ls", "lsblk", &[], false)]
@@ -202,15 +275,14 @@ fn under_and_project_rules_match_both_forms_of_a_linked_home() {
 #[case::substitution("ls", "ls $(rm -rf x)", &[], false)]
 #[case::backticks("ls", "ls `rm -rf x`", &[], false)]
 #[case::variable("ls", "ls $HOME", &[], false)]
-#[case::tilde("ls", "ls ~", &[], false)]
-#[case::glob("ls", "ls *", &[], false)]
-#[case::quote("ls", "ls 'a b'", &[], false)]
+#[case::leading_glob("ls", "ls *", &[], false)]
 #[case::newline("ls", "ls\nrm -rf x", &[], false)]
 #[case::background("ls", "ls &", &[], false)]
 #[case::assignment_first("git", "GIT_PAGER=x git status", &[], false)]
 #[case::unicode("ls", "ls \u{e9}t\u{e9}", &[], false)]
+#[case::privileged("sudo", "sudo ls", &[], false)]
 #[case::empty("ls", "", &[], false)]
-fn command_patterns_match_simple_lines_only(
+fn command_patterns_match_one_plain_simple_command(
     #[case] program: &str,
     #[case] line: &str,
     #[case] args: &[&str],
@@ -218,6 +290,88 @@ fn command_patterns_match_simple_lines_only(
 ) {
     let pattern = CommandPattern::new(program).with_args(args.iter().copied());
     assert_eq!(pattern.matches(line), expected, "{line:?}");
+}
+
+#[rstest]
+#[case::first_alternative("git status", true)]
+#[case::last_alternative("git log -1", true)]
+#[case::not_an_alternative("git push", false)]
+#[case::alternatives_are_whole_words("git statuses", false)]
+fn args_may_list_alternatives(#[case] line: &str, #[case] expected: bool) {
+    let pattern = CommandPattern::new("git").with_args(["status|diff|log"]);
+    assert_eq!(pattern.matches_words(&words(line)), expected, "{line:?}");
+}
+
+#[rstest]
+#[case::bare("pacman -Q", true)]
+#[case::with_letters("pacman -Qi zsh", true)]
+#[case::long_form("pacman --query zsh", true)]
+#[case::other_operation("pacman -S zsh", false)]
+#[case::not_a_prefix("pacman -q", false)]
+fn an_alternative_may_end_in_a_wildcard(#[case] line: &str, #[case] expected: bool) {
+    let pattern = CommandPattern::new("pacman").with_args(["-Q*|--query"]);
+    assert_eq!(pattern.matches_words(&words(line)), expected, "{line:?}");
+}
+
+#[rstest]
+// A long option matches itself, its value form and its abbreviations.
+#[case::long("--output", "sort --output x", true)]
+#[case::long_value("--output", "sort --output=x", true)]
+#[case::long_abbreviation("--output", "sort --out=x", true)]
+#[case::long_one_letter("--output", "sort --o=x", true)]
+#[case::long_other("--output", "git log --oneline", false)]
+#[case::long_longer("--output", "sort --output-x", false)]
+#[case::end_of_options("--output", "sort -- x", false)]
+#[case::long_wildcard("--vacuum*", "journalctl --vacuum-size=1G", true)]
+#[case::long_wildcard_abbreviation("--vacuum*", "journalctl --vac", true)]
+#[case::long_wildcard_other("--vacuum*", "journalctl --verify", false)]
+// One letter after one dash matches inside a cluster of short options.
+#[case::short("-o", "sort -o x", true)]
+#[case::short_cluster("-o", "sort -uo x", true)]
+#[case::short_absent("-o", "sort -nr", false)]
+#[case::short_case("-R", "tree -r", false)]
+#[case::short_not_long("-o", "sort --zero-terminated", false)]
+#[case::short_not_operand("-o", "sort out", false)]
+// Several letters after one dash match that word, as find reads its predicates.
+#[case::predicate("-delete", "find . -delete", true)]
+#[case::predicate_other("-delete", "find . -depth", false)]
+#[case::predicate_wildcard("-fprint*", "find . -fprint0 x", true)]
+// A word without a dash matches operands that contain it.
+#[case::substring("env", "jq -n env", true)]
+#[case::substring_inside("ENV", "jq -n $ENV.TOKEN", true)]
+#[case::substring_absent("e", "ps aux", false)]
+#[case::substring_cluster("e", "ps axe", true)]
+#[case::substring_not_options("e", "ps -ef", false)]
+fn forbidden_words(#[case] entry: &str, #[case] line: &str, #[case] expected: bool) {
+    let words = words(line);
+    let pattern = CommandPattern::new(words[0].clone()).with_forbid([entry]);
+    assert_eq!(pattern.matches_words(&words), !expected, "{entry} against {line:?}");
+}
+
+#[test]
+fn forbidden_words_are_checked_in_the_args_too() {
+    let pattern = CommandPattern::new("pacman").with_args(["-S*"]).with_forbid(["-y"]);
+    assert!(pattern.matches_words(&words("pacman -Ss zsh")));
+    assert!(!pattern.matches_words(&words("pacman -Ssy zsh")));
+}
+
+#[rstest]
+#[case::none("uniq", 0, true)]
+#[case::one("uniq -c in.txt", 1, true)]
+#[case::two("uniq in.txt out.txt", 2, false)]
+#[case::stdin_dash("uniq - out.txt", 2, false)]
+#[case::after_double_dash("uniq -- -x out.txt", 2, false)]
+#[case::options_do_not_count("uniq -c -d -i", 0, true)]
+fn max_operands_counts_operands(#[case] line: &str, #[case] count: usize, #[case] expected: bool) {
+    let pattern = CommandPattern::new("uniq").with_max_operands(1);
+    assert_eq!(pattern.matches_words(&words(line)), expected, "{line:?} has {count}");
+}
+
+#[test]
+fn max_operands_counts_after_the_args() {
+    let pattern = CommandPattern::new("git").with_args(["remote"]).with_max_operands(0);
+    assert!(pattern.matches_words(&words("git remote -v")));
+    assert!(!pattern.matches_words(&words("git remote -v add origin x")));
 }
 
 #[rstest]
@@ -245,6 +399,10 @@ fn command_patterns_match_simple_lines_only(
     Rule::new(Action::Execute, Resource::Command(CommandPattern::new("=ls")), Effect::Allow),
     PermissionsError::RuleProgramInvalid { index: 0, program: "=ls".into() }
 )]
+#[case::program_with_alternatives(
+    Rule::new(Action::Execute, Resource::Command(CommandPattern::new("ls|rm")), Effect::Allow),
+    PermissionsError::RuleProgramInvalid { index: 0, program: "ls|rm".into() }
+)]
 #[case::argument_with_glob(
     Rule::new(
         Action::Execute,
@@ -252,6 +410,46 @@ fn command_patterns_match_simple_lines_only(
         Effect::Allow
     ),
     PermissionsError::RuleArgumentInvalid { index: 0, argument: "*".into() }
+)]
+#[case::argument_with_an_empty_alternative(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("git").with_args(["status|"])),
+        Effect::Allow
+    ),
+    PermissionsError::RuleArgumentInvalid { index: 0, argument: "status|".into() }
+)]
+#[case::argument_with_a_wildcard_inside(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("git").with_args(["st*tus"])),
+        Effect::Allow
+    ),
+    PermissionsError::RuleArgumentInvalid { index: 0, argument: "st*tus".into() }
+)]
+#[case::forbid_a_lone_dash(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("sort").with_forbid(["--"])),
+        Effect::Allow
+    ),
+    PermissionsError::RuleForbidInvalid { index: 0, word: "--".into() }
+)]
+#[case::forbid_a_wildcard_operand(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("jq").with_forbid(["env*"])),
+        Effect::Allow
+    ),
+    PermissionsError::RuleForbidInvalid { index: 0, word: "env*".into() }
+)]
+#[case::forbid_a_space(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("sort").with_forbid(["-o x"])),
+        Effect::Allow
+    ),
+    PermissionsError::RuleForbidInvalid { index: 0, word: "-o x".into() }
 )]
 #[case::execute_a_class(
     Rule::new(Action::Execute, Resource::Class(PathClass::System), Effect::Allow),
@@ -296,6 +494,7 @@ rules = [
     { action = "any", resource = { class = "user_data" }, effect = "deny" },
     { action = "write", resource = "project", effect = "ask" },
     { action = "network", resource = "any", effect = "allow" },
+    { action = "execute", resource = { command = { program = "find", forbid = ["-delete"], max_operands = 2 } }, effect = "allow" },
 ]
 "#;
     let config: Config = toml::from_str(text).unwrap();
@@ -309,6 +508,13 @@ rules = [
         Rule::new(Action::Any, Resource::Class(PathClass::UserData), Effect::Deny),
         Rule::new(Action::Write, Resource::Project, Effect::Ask),
         Rule::new(Action::Network, Resource::Any, Effect::Allow),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(
+                CommandPattern::new("find").with_forbid(["-delete"]).with_max_operands(2),
+            ),
+            Effect::Allow,
+        ),
     ])
     .unwrap();
     assert_eq!(config.rules, expected);
@@ -339,6 +545,9 @@ fn reading_checks_the_rules() {
 #[case::unknown_effect(r#"rules = [{ action = "read", resource = "any", effect = "maybe" }]"#)]
 #[case::unknown_class(
     r#"rules = [{ action = "read", resource = { class = "home" }, effect = "allow" }]"#
+)]
+#[case::negative_operands(
+    r#"rules = [{ action = "execute", resource = { command = { program = "ls", max_operands = -1 } }, effect = "allow" }]"#
 )]
 fn unknown_keys_and_values_are_refused(#[case] text: &str) {
     assert!(toml::from_str::<Config>(text).is_err());

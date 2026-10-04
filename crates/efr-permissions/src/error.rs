@@ -57,6 +57,16 @@ pub enum PermissionsError {
         argument: String,
     },
 
+    /// A rule's command pattern forbids a word that is not one plain word, or ends a
+    /// word that is not an option in `*`.
+    #[error("rule {index} forbids {word:?}, which is not one plain word or option")]
+    RuleForbidInvalid {
+        /// The position of the rule in its policy, counted from 0.
+        index: usize,
+        /// The forbidden word.
+        word: String,
+    },
+
     /// A rule pairs an action with a resource that no requirement can match, such as
     /// `execute` with a path class.
     #[error("rule {index} pairs the action {action} with a resource that it never matches")]

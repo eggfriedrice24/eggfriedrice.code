@@ -55,6 +55,13 @@ impl Requirements {
         self
     }
 
+    /// Adds a directory that the call reads with everything below it, such as the root
+    /// of a recursive search.
+    pub fn with_read_tree(mut self, path: impl Into<PathBuf>) -> Self {
+        self.paths.push(PathAccess { path: path.into(), access: Access::ReadTree });
+        self
+    }
+
     /// Adds a path that the call writes.
     pub fn with_write(mut self, path: impl Into<PathBuf>) -> Self {
         self.paths.push(PathAccess { path: path.into(), access: Access::Write });
@@ -100,6 +107,10 @@ pub struct PathAccess {
 pub enum Access {
     /// The call reads the path or lists the directory.
     Read,
+    /// The call reads the path and may read anything below it, as a recursive search,
+    /// a recursive listing or a glob does. A rule for reading matches it, and the
+    /// engine also asks when a secret lies below the path.
+    ReadTree,
     /// The call creates, changes or deletes the path.
     Write,
 }
@@ -108,6 +119,7 @@ impl fmt::Display for Access {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Access::Read => "read",
+            Access::ReadTree => "read all under",
             Access::Write => "write",
         })
     }
