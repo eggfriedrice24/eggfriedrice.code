@@ -28,7 +28,10 @@ across a restart:
 - `conversations`, `approvals`, `shells`: projections of the log for listing and
   paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
 - `receipts`: one receipt per command id. A duplicate command id returns the stored
-  outcome, and a rejected command stays rejected.
+  outcome, and a rejected command stays rejected. A receipt records the sequence
+  number of its batch's last event, or of the event that `NewReceipt::seq_of_event`
+  names, such as `prompt_queued` when `turn_started` follows it, so a retry gets the
+  number the first answer reported.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

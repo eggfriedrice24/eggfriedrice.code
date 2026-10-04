@@ -11,7 +11,7 @@
 //! cannot both commit: the later batch fails with [`StoreError::DuplicateCommand`],
 //! which carries the earlier receipt for the caller to answer with.
 
-use efr_protocol::{CommandId, ErrorBody, Seq};
+use efr_protocol::{CommandId, ErrorBody, EventEnvelope, Seq};
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 use serde_json::Value;
@@ -43,20 +43,24 @@ pub struct NewReceipt {
     command_id: CommandId,
     method: String,
     outcome: ReceiptOutcome,
+    /// The position of the event whose sequence number the receipt records, among the
+    /// batch's events; `None` for the last one.
+    seq_of_event: Option<usize>,
 }
 
 impl NewReceipt {
     /// A receipt for a command that ran with `result`.
     ///
     /// The receipt's `seq` is filled in at commit with the sequence number of the
-    /// batch's last event. A result that reports that number (such as
-    /// `PromptSendResult::seq`) is stored without it and completed from `seq` when it
-    /// is answered again.
+    /// batch's last event, or of the event that [`NewReceipt::seq_of_event`] names. A
+    /// result that reports that number (such as `PromptSendResult::seq`) is stored
+    /// without it and completed from `seq` when it is answered again.
     pub fn accepted(command_id: CommandId, method: impl Into<String>, result: Value) -> Self {
         NewReceipt {
             command_id,
             method: method.into(),
             outcome: ReceiptOutcome::Accepted { result },
+            seq_of_event: None,
         }
     }
 
@@ -66,12 +70,42 @@ impl NewReceipt {
             command_id,
             method: method.into(),
             outcome: ReceiptOutcome::Rejected { error },
+            seq_of_event: None,
         }
+    }
+
+    /// Records the sequence number of the batch's event at `index`, counted from 0 in
+    /// the order the events were added, instead of the last event's.
+    ///
+    /// A result reports one event, and other events may follow it in the same batch:
+    /// `prompt.send` on an idle conversation commits `prompt_queued` and then
+    /// `turn_started`, while `PromptSendResult::seq` is the number of `prompt_queued`.
+    /// Naming that event here makes a retry get the number the first answer had. The
+    /// batch fails, and writes nothing, with [`StoreError::ReceiptEventMissing`] when
+    /// it has no event at `index`.
+    pub fn seq_of_event(mut self, index: usize) -> Self {
+        self.seq_of_event = Some(index);
+        self
     }
 
     /// The command id the receipt is for.
     pub fn command_id(&self) -> CommandId {
         self.command_id
+    }
+
+    /// The sequence number to record, from the batch's committed events.
+    pub(crate) fn seq_in(&self, events: &[EventEnvelope]) -> Result<Option<Seq>, StoreError> {
+        let Some(index) = self.seq_of_event else {
+            return Ok(events.last().map(|envelope| envelope.seq));
+        };
+        match events.get(index) {
+            Some(envelope) => Ok(Some(envelope.seq)),
+            None => Err(StoreError::ReceiptEventMissing {
+                command_id: self.command_id,
+                index,
+                events: events.len(),
+            }),
+        }
     }
 }
 
@@ -85,8 +119,9 @@ pub struct Receipt {
     pub method: String,
     /// What happened.
     pub outcome: ReceiptOutcome,
-    /// The sequence number of the last event committed with the receipt; `None` when
-    /// its batch had no events.
+    /// The sequence number of the event the receipt records: the last event committed
+    /// with it, or the one that [`NewReceipt::seq_of_event`] named; `None` when its
+    /// batch had no events.
     pub seq: Option<Seq>,
     /// When the receipt was recorded.
     pub created_at: Timestamp,

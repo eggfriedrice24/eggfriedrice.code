@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::{ConversationId, PtyId, Seq};
+use efr_protocol::{CommandId, ConversationId, PtyId, Seq};
 use efr_stdx::StdxError;
 
 use crate::outbox::OutboxId;
@@ -168,6 +168,20 @@ pub enum StoreError {
     DuplicateCommand {
         /// The stored receipt.
         receipt: Box<Receipt>,
+    },
+
+    /// A receipt records the sequence number of an event that its batch does not have.
+    /// The batch wrote nothing.
+    #[error(
+        "the receipt of the command {command_id} names event {index} of a batch with {events} events"
+    )]
+    ReceiptEventMissing {
+        /// The command.
+        command_id: CommandId,
+        /// The position the receipt named, counted from 0.
+        index: usize,
+        /// How many events the batch had.
+        events: usize,
     },
 
     /// An event names a conversation that has no `conversation_created` event.

@@ -50,6 +50,72 @@ async fn an_accepted_receipt_keeps_the_result_and_the_last_event_seq() {
 }
 
 #[tokio::test]
+async fn a_receipt_can_record_an_event_that_is_not_the_last_and_a_retry_gets_it() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    let receipt = || {
+        NewReceipt::accepted(testing::command(1), "prompt.send", json!({ "queued": false }))
+            .seq_of_event(0)
+    };
+
+    // `prompt_queued` is what the result reports; `turn_started` follows it.
+    let committed = writer
+        .append(
+            Batch::new()
+                .event(id, testing::queued(1, "hello"))
+                .event(id, testing::started(1, "/"))
+                .receipt(receipt()),
+        )
+        .await
+        .unwrap();
+    let retry = writer
+        .append(Batch::new().event(id, testing::queued(2, "the retry")).receipt(receipt()))
+        .await
+        .unwrap_err();
+
+    let queued_seq = committed.events()[0].seq;
+    assert_eq!(queued_seq, Seq::new(2));
+    assert_eq!(committed.last_seq(), Seq::new(3));
+    assert_eq!(stored(&writer, testing::command(1)).await.unwrap().seq, Some(queued_seq));
+    let StoreError::DuplicateCommand { receipt } = retry else { panic!("{retry:?}") };
+    assert_eq!(receipt.seq, Some(queued_seq));
+}
+
+#[tokio::test]
+async fn a_receipt_that_names_a_missing_event_fails_the_batch() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+
+    let error = writer
+        .append(
+            Batch::new()
+                .event(id, testing::created(None))
+                .event(id, testing::queued(1, "a"))
+                .receipt(
+                    NewReceipt::accepted(testing::command(1), "prompt.send", json!({}))
+                        .seq_of_event(2),
+                ),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            StoreError::ReceiptEventMissing { command_id, index: 2, events: 2 }
+                if command_id == testing::command(1)
+        ),
+        "{error:?}"
+    );
+    assert_eq!(stored(&writer, testing::command(1)).await, None);
+    let log = on_writer(&writer, |conn| events::read_after(conn, Seq::ZERO, 10)).await.unwrap();
+    assert_eq!(log, [], "the batch's events were not written");
+    let next = writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    assert_eq!(next.first_seq(), Some(Seq::new(1)), "no sequence number was used up");
+}
+
+#[tokio::test]
 async fn a_receipt_without_events_has_no_seq() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
 

@@ -215,9 +215,8 @@ impl WriterState {
             projection::apply(&tx, &envelope)?;
             envelopes.push(envelope);
         }
-        let receipt_seq = envelopes.last().map(|envelope| envelope.seq);
         for receipt in &batch.receipts {
-            receipts::record(&tx, receipt, receipt_seq, at)?;
+            receipts::record(&tx, receipt, receipt.seq_in(&envelopes)?, at)?;
         }
         for item in &batch.outbox {
             outbox::enqueue(&tx, item, at)?;
