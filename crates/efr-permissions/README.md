@@ -48,15 +48,16 @@ Modules:
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
   words that must not appear (`forbid`: `--long` with its abbreviations, `-x` inside a
-  cluster, `-word` as `find` reads it, or a substring of an operand), `max_operands`,
-  and `under`, a directory the command must run in or below, which matches only while
-  the line's directory is known: before any `cd`, `pushd` or `popd` in it.
-  `Policy::defaults()` is the table above as eight rules followed by
-  the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
+  cluster, `-word` as `find` reads it, or a substring of an operand), `min_operands`
+  and `max_operands`, and `under`, a directory the command must run in or below, which
+  matches only while the line's directory is known: before any `cd`, `pushd` or `popd`
+  in it. `Policy::defaults()` is the table above as eight rules followed by the
+  read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
   `systemctl status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without
   `-exec` or `-delete` and more; `env` and `printenv` are left out because they print
-  tokens); `policy/defaults.md` is the same table for the docs, and a test keeps them
-  equal. The daemon appends the user's configured rules with `then`. Rules deserialize
+  tokens, and `systemctl show` must name a unit for the same reason);
+  `policy/defaults.md` is the same table for the docs, and tests keep it, the table in
+  `docs/permissions.md` and the data equal. The daemon appends the user's configured rules with `then`. Rules deserialize
   from TOML with unknown keys refused, and every rule is checked when a policy is
   built.
 - `decision`: `Effect` (`Allow < Ask < Deny`), `Decision` and `Reason`, whose `Display`
