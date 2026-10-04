@@ -49,6 +49,45 @@ pub enum TestSupportError {
         source: StdxError,
     },
 
+    /// A transcript file could not be read.
+    #[error("could not read the transcript {}", .path.display())]
+    ReadTranscript {
+        /// The file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A transcript file holds an invalid record.
+    #[error("the transcript {} is invalid", .path.display())]
+    InvalidTranscript {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong, with its line.
+        #[source]
+        source: Box<TestSupportError>,
+    },
+
+    /// A transcript line is not a JSON object with the record members.
+    #[error("line {line} of the transcript is not a valid record")]
+    RecordSyntax {
+        /// The line, from 1.
+        line: usize,
+        /// The JSON error, which names an unknown member or a member of the wrong type.
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// A transcript line breaks the rules of its record kind.
+    #[error("line {line} of the transcript is invalid: {problem}")]
+    InvalidRecord {
+        /// The line, from 1.
+        line: usize,
+        /// What is wrong.
+        problem: &'static str,
+    },
+
     /// A fixture was looked up from a source file that is not inside a crate on disk.
     #[error("could not find the crate that holds {}", .source_file.display())]
     NoCrateForSource {
