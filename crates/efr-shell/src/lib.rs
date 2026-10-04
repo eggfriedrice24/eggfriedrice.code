@@ -26,6 +26,8 @@
 
 mod capture;
 mod config;
+#[cfg(test)]
+mod e2e_zsh;
 mod env;
 mod error;
 mod integration;

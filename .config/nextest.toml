@@ -12,9 +12,9 @@ final-status-level = "slow"
 shell = { max-threads = 1 }
 
 # Tests that drive a real zsh share terminal state and run one at a time. nextest
-# 0.9.146 rejects a filter whose package() matches no workspace member, so this
-# override is enabled in the commit that adds efr-shell and efr-test-daemon:
-#
-# [[profile.default.overrides]]
-# filter = 'package(efr-shell) & test(/^e2e_/) | package(efr-test-daemon) & test(/^shell_/)'
-# test-group = "shell"
+# 0.9.146 rejects a filter whose package() matches no workspace member, so the
+# efr-test-daemon half (`| package(efr-test-daemon) & test(/^shell_/)`) joins this
+# filter in the commit that adds that crate.
+[[profile.default.overrides]]
+filter = 'package(efr-shell) & test(/^e2e_/)'
+test-group = "shell"

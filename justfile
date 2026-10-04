@@ -80,15 +80,12 @@ test-ghostty:
 test-shell:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d crates/efr-shell || ! -d crates/efr-test-daemon ]]; then
-        echo "test-shell: not available until milestone 1 lands (efr-shell does not exist yet)"
-        exit 0
-    fi
     if ! command -v zsh >/dev/null; then
         echo "test-shell: zsh is not installed; skipping"
         exit 0
     fi
-    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-test-daemon
+    # The efr-test-daemon half joins once that crate exists (milestone 1, step 5).
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell
 
 # Formatting, clippy, cargo-deny, tidy and the dependency rule.
 lint: fmt-check clippy deny tidy deps
