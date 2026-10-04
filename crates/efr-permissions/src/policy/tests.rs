@@ -184,7 +184,10 @@ fn actions_and_resources_select_targets(
     };
     assert_eq!(matched(tree), reads);
     assert_eq!(matched(write("/home/u/p/app/a", PathClass::UserData)), writes);
-    assert_eq!(matched(Target::Command { words: &ls, privileged: false, dir: None }), runs);
+    assert_eq!(
+        matched(Target::Command { words: &ls, pattern: false, privileged: false, dir: None }),
+        runs
+    );
     assert_eq!(matched(Target::Opaque), runs_opaque);
     assert_eq!(matched(Target::Network), networks);
 }
@@ -192,7 +195,7 @@ fn actions_and_resources_select_targets(
 #[test]
 fn a_privileged_command_matches_only_rules_for_every_command() {
     let sudo = words("sudo ls");
-    let target = Target::Command { words: &sudo, privileged: true, dir: None };
+    let target = Target::Command { words: &sudo, pattern: false, privileged: true, dir: None };
     let pattern = Policy::new(vec![Rule::new(
         Action::Execute,
         Resource::Command(CommandPattern::new("sudo")),
@@ -396,10 +399,15 @@ fn under_limits_a_command_to_a_directory(#[case] dir: &'static str, #[case] expe
     let aliases = [PathBuf::from("/var/home/u")];
     let cx = MatchContext { home: Path::new(HOME), home_aliases: &aliases, project_root: None };
     let cargo_test = words("cargo test");
-    let target =
-        Target::Command { words: &cargo_test, privileged: false, dir: Some(Path::new(dir)) };
+    let target = Target::Command {
+        words: &cargo_test,
+        pattern: false,
+        privileged: false,
+        dir: Some(Path::new(dir)),
+    };
     assert_eq!(policy.last_match(&target, &cx).is_some(), expected, "{dir}");
-    let unknown = Target::Command { words: &cargo_test, privileged: false, dir: None };
+    let unknown =
+        Target::Command { words: &cargo_test, pattern: false, privileged: false, dir: None };
     assert_eq!(policy.last_match(&unknown, &cx), None, "an unknown directory matches nothing");
 }
 
@@ -423,6 +431,30 @@ fn max_operands_counts_after_the_args() {
     let pattern = CommandPattern::new("git").with_args(["remote"]).with_max_operands(0);
     assert!(pattern.matches_words(&words("git remote -v")));
     assert!(!pattern.matches_words(&words("git remote -v add origin x")));
+}
+
+#[rstest]
+#[case::no_limits(CommandPattern::new("cat"), "cat src/*.rs", true)]
+#[case::dashed_forbid(CommandPattern::new("tail").with_forbid(["-f"]), "tail -n 5 x*", true)]
+#[case::option_wildcard(CommandPattern::new("pacman").with_args(["-Q*"]), "pacman -Qo x*", true)]
+#[case::options_bound(CommandPattern::new("ls").with_max_options(0), "ls ./x*", true)]
+// One pattern may become several operands, none at all, or a forbidden word.
+#[case::max_operands(CommandPattern::new("uniq").with_max_operands(1), "uniq in*", false)]
+#[case::min_operands(
+    CommandPattern::new("systemctl").with_args(["show"]).with_min_operands(1),
+    "systemctl show x*",
+    false
+)]
+#[case::word_forbid(CommandPattern::new("ps").with_forbid(["e"]), "ps ax?", false)]
+#[case::operand_wildcard(CommandPattern::new("git").with_args(["sta*"]), "git sta?", false)]
+#[case::without_a_pattern(CommandPattern::new("uniq").with_max_operands(1), "uniq in.txt", true)]
+#[case::quoted_pattern(CommandPattern::new("uniq").with_max_operands(1), "uniq 'in*'", true)]
+fn a_word_with_a_pattern_matches_no_rule_that_counts_or_forbids_operands(
+    #[case] pattern: CommandPattern,
+    #[case] line: &str,
+    #[case] expected: bool,
+) {
+    assert_eq!(pattern.matches(line), expected, "{line:?}");
 }
 
 #[rstest]

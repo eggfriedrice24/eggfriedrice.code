@@ -104,6 +104,11 @@ impl fmt::Display for Construct {
 pub(crate) struct SimpleCommand {
     /// The program first, then its arguments. Never empty.
     pub(crate) words: Vec<String>,
+    /// True when one of the words holds a pattern outside quotes, such as `src/*.rs`.
+    /// zsh replaces it with the names it matches: several words, a name the line does
+    /// not show, or none at all under `NULL_GLOB`. It never starts with `-`, because
+    /// the lexer refuses a pattern in a word that does.
+    pub(crate) pattern: bool,
 }
 
 impl SimpleCommand {
@@ -275,7 +280,13 @@ fn simple_command(words: Vec<Word>) -> Result<SimpleCommand, Construct> {
         }
         words.next();
     }
-    let words: Vec<String> = words.map(|word| word.text).collect();
+    let mut pattern = false;
+    let words: Vec<String> = words
+        .map(|word| {
+            pattern |= word.pattern;
+            word.text
+        })
+        .collect();
     let Some(program) = words.first() else {
         // Only assignments: they change the shell itself for every later command.
         return Err(Construct::Assignment);
@@ -283,7 +294,7 @@ fn simple_command(words: Vec<Word>) -> Result<SimpleCommand, Construct> {
     if BUILTINS.contains(&program.as_str()) {
         return Err(Construct::Builtin { program: program.clone() });
     }
-    Ok(SimpleCommand { words })
+    Ok(SimpleCommand { words, pattern })
 }
 
 /// Characters that neither bash nor zsh treat specially inside a word outside quotes.

@@ -22,6 +22,9 @@ pub(super) struct Word {
     pub(super) text: String,
     /// Where the first `=` is, when everything before it was outside quotes.
     equals: Option<usize>,
+    /// True when a pattern character stands outside quotes, so zsh may replace the
+    /// word with the file names it matches.
+    pub(super) pattern: bool,
 }
 
 impl Word {
@@ -187,6 +190,7 @@ impl Lexer {
         let mut text = String::new();
         let mut equals = None;
         let mut quoted = false;
+        let mut pattern = false;
         while let Some(c) = self.peek() {
             match c {
                 ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' => break,
@@ -265,6 +269,7 @@ impl Lexer {
                     if text.starts_with('-') {
                         return Err(Construct::Glob);
                     }
+                    pattern = true;
                     text.push(c);
                     self.at += 1;
                 }
@@ -275,7 +280,7 @@ impl Lexer {
                 c => return Err(Construct::Character { character: c }),
             }
         }
-        Ok(Word { text, equals })
+        Ok(Word { text, equals, pattern })
     }
 
     /// The rest of a single-quoted string, up to and past the closing quote.

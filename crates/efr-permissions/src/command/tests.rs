@@ -149,7 +149,28 @@ fn lines_that_do_not_split(#[case] line: &str, #[case] expected: Construct) {
 }
 
 fn command(words: &[&str]) -> SimpleCommand {
-    SimpleCommand { words: words.iter().map(|word| (*word).to_owned()).collect() }
+    SimpleCommand { words: words.iter().map(|word| (*word).to_owned()).collect(), pattern: false }
+}
+
+#[rstest]
+#[case::plain("cat src/main.rs", false)]
+#[case::star("cat src/*.rs", true)]
+#[case::question_mark("ps ax?", true)]
+#[case::bracket("ls x[ab]", true)]
+#[case::extended_glob("git diff HEAD~1 HEAD^", true)]
+#[case::quoted("find . -name '*.rs'", false)]
+#[case::double_quoted("rg \"a*b\" src", false)]
+#[case::escaped("ls x\\*", false)]
+#[case::assignment_value_only("LANG=C* ls", false)]
+fn a_pattern_outside_quotes_is_marked(#[case] line: &str, #[case] expected: bool) {
+    let commands = analyze(line).unwrap();
+    assert_eq!(commands[0].pattern, expected, "{line:?}");
+}
+
+#[test]
+fn each_simple_command_marks_its_own_patterns() {
+    let commands = analyze("ls ./*.rs; cat a").unwrap();
+    assert_eq!(commands.iter().map(|command| command.pattern).collect::<Vec<_>>(), [true, false]);
 }
 
 #[rstest]

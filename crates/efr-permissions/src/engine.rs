@@ -167,6 +167,7 @@ impl Judge<'_> {
                     let privileged = command::privileged(part);
                     let target = Target::Command {
                         words: &part.words,
+                        pattern: part.pattern,
                         privileged: privileged.is_some(),
                         dir,
                     };

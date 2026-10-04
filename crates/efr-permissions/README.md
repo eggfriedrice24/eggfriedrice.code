@@ -43,7 +43,10 @@ Modules:
   a background job, an assignment other than `LC_*`, `LANG`, `TZ` and a few more, a
   pattern that could expand to an option (`*.rs`, but not `src/*.rs`), and builtins
   such as `eval`, `exec`, `source`, `.`, `alias` and `export`. The lexer is an
-  allowlist: a character it does not know makes the line a construct.
+  allowlist: a character it does not know makes the line a construct. A simple command
+  with any other pattern outside quotes is marked, and matches only a command pattern
+  that counts no operands and forbids no word without a dash, because zsh may turn the
+  pattern into several words, none, or a forbidden one.
 - `policy`: `Policy`, an ordered list of `Rule { action, resource, effect }` in which
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the

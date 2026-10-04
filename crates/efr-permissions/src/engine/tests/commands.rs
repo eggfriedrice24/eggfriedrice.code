@@ -259,6 +259,14 @@ fn writes_and_runs_need_approval(#[case] line: &str) {
 #[case::harmless_assignment("LC_ALL=C sort names.txt", Effect::Allow)]
 #[case::leading_glob("cat *.rs", Effect::Ask)]
 #[case::plain_glob("cat ./*.rs", Effect::Allow)]
+#[case::glob_in_a_search("wc -l src/*.rs", Effect::Allow)]
+// A pattern may expand to several operands, to none, or to a forbidden word, so it
+// matches no row that counts operands or forbids a word without a dash.
+#[case::glob_names_an_output_file("uniq in*", Effect::Ask)]
+#[case::glob_may_name_no_unit("systemctl show x*", Effect::Ask)]
+#[case::glob_may_name_the_environment("ps ax?", Effect::Ask)]
+#[case::glob_may_set_the_host_name("hostname x*", Effect::Ask)]
+#[case::glob_may_name_a_jq_program("jq -n x*", Effect::Ask)]
 #[case::history("ls; !!", Effect::Ask)]
 #[case::background("ls &", Effect::Ask)]
 #[case::subshell("(ls)", Effect::Ask)]

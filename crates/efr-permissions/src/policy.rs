@@ -103,7 +103,10 @@ pub enum Resource {
 /// `doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper
 /// such as `env`.
 ///
-/// Words are compared after quotes are removed, so `git 'status'` is `git status`.
+/// Words are compared after quotes are removed, so `git 'status'` is `git status`. A
+/// command with a pattern outside quotes, such as `src/*.rs`, matches only a pattern
+/// that sets no operand bound, forbids no word without a dash and has no wildcard
+/// alternative without one, because zsh replaces the pattern with the names it matches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandPattern {
@@ -224,10 +227,38 @@ impl CommandPattern {
             Ok([only]) => {
                 self.under.is_none()
                     && command::privileged(only).is_none()
-                    && self.matches_words(&only.words)
+                    && self.matches_command(&only.words, only.pattern)
             }
             Ok(_) | Err(_) => false,
         }
+    }
+
+    /// True when one simple command matches this pattern: its words, program first,
+    /// and whether one of them holds a pattern outside quotes.
+    pub(crate) fn matches_command(&self, words: &[String], pattern: bool) -> bool {
+        self.matches_words(words) && (!pattern || self.takes_patterns())
+    }
+
+    /// True when a command whose words hold a pattern, such as `src/*.rs`, may match.
+    ///
+    /// NOTE: zsh replaces a pattern with the names it matches before the program runs,
+    /// so one word may become several operands, none at all (under `NULL_GLOB`), or a
+    /// forbidden word taken from a file name: `uniq in*` may name an output file, and
+    /// `ps ax?` may become `ps axe`. Only a pattern that counts no operands, forbids no
+    /// word without a dash and has no wildcard alternative without one can still judge
+    /// such a command. Options are safe: an expanded name starts with the plain
+    /// character that the word starts with, and the lexer refuses a pattern in a word
+    /// that starts with `-`.
+    fn takes_patterns(&self) -> bool {
+        let operand_wildcard = self
+            .args
+            .iter()
+            .flat_map(|arg| arg.split('|'))
+            .any(|alternative| alternative.ends_with('*') && !alternative.starts_with('-'));
+        self.max_operands.is_none()
+            && self.min_operands.is_none()
+            && !self.forbid.iter().any(|entry| !entry.starts_with('-'))
+            && !operand_wildcard
     }
 
     /// True when the words of one simple command, program first, match this pattern.
@@ -450,6 +481,8 @@ pub(crate) enum Target<'a> {
     Command {
         /// The words.
         words: &'a [String],
+        /// True when one of the words holds a pattern outside quotes.
+        pattern: bool,
         /// True when it runs as another user, which no command pattern allows.
         privileged: bool,
         /// The directory it runs in, in normal form, when it is known.
@@ -491,13 +524,13 @@ impl Rule {
                 };
                 self.action_is(action) && self.matches_path(path, class, cx)
             }
-            Target::Command { words, privileged, dir } => {
+            Target::Command { words, pattern: globbed, privileged, dir } => {
                 self.action_is(Action::Execute)
                     && match &self.resource {
                         Resource::Any => true,
                         Resource::Command(pattern) => {
                             !privileged
-                                && pattern.matches_words(words)
+                                && pattern.matches_command(words, globbed)
                                 && pattern.under.as_deref().is_none_or(|root| {
                                     dir.is_some_and(|dir| self.contains(root, dir, cx))
                                 })

@@ -176,7 +176,11 @@ rule 0 asks:
   shell for every later command;
 - a pattern that could expand to an option: a word that starts with `*`, `?` or `[`,
   or a word that starts with `-` and holds a pattern. `cat *.rs` asks; `cat ./*.rs`
-  is judged by its parts, and its glob reads everything below `.` (see below);
+  is judged by its parts, and its glob reads everything below `.` (see below). A
+  pattern elsewhere in a word matches only a row without `min`, `max` and `forbid`
+  words without a dash: zsh replaces it with the names it matches, so `uniq in*` may
+  name an output file, `systemctl show x*` may name no unit and `ps ax?` may become
+  `ps axe`. These ask;
 - a builtin that runs a string as commands or changes how later commands run: `eval`,
   `exec`, `source`, `.`, `alias`, `export`, `set`, `trap`, `builtin` and more;
 - an unclosed quote, a backslash at the end of the line, a control character, a
