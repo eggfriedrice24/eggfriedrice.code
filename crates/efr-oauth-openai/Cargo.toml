@@ -1,0 +1,46 @@
+[package]
+name = "efr-oauth-openai"
+description = "The ChatGPT subscription login for efr: PKCE, the loopback callback, token exchange and refresh, and OpenAiTokenSource"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+efr-credentials.workspace = true
+efr-http.workspace = true
+efr-provider.workspace = true
+efr-stdx.workspace = true
+http-body-util.workspace = true
+# The callback listener is a tiny HTTP/1.1 server; the workspace entry only enables the
+# client side.
+hyper = { workspace = true, features = ["server"] }
+hyper-util.workspace = true
+jiff.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+efr-test-support.workspace = true
+futures.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true
