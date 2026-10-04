@@ -29,9 +29,9 @@ Modules:
   path under `~`. A root outside `~` whose resolved form differs is added in both
   forms.
 - `request`: `DecisionInput`, `Requirements` (paths with `Access`: `Read`, `ReadTree`
-  for a path read with everything below it, or `Write`; a command line; network;
-  interactive) and `ConversationPolicy` (the conversation's `$SCRATCH` and its own
-  rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
+  for a path read with everything below it, or `Write`; a command line and the
+  directory it starts in; network; interactive) and `ConversationPolicy` (the
+  conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
   crates apart, so the daemon's toolbox copies one into the other.
 - `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,
   `|` and newlines, reading quotes and backslashes as zsh does, and fails closed with a
@@ -46,8 +46,10 @@ Modules:
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
   words that must not appear (`forbid`: `--long` with its abbreviations, `-x` inside a
-  cluster, `-word` as `find` reads it, or a substring of an operand) and
-  `max_operands`. `Policy::defaults()` is the table above as eight rules followed by
+  cluster, `-word` as `find` reads it, or a substring of an operand), `max_operands`,
+  and `under`, a directory the command must run in or below, which matches only while
+  the line's directory is known: before any `cd`, `pushd` or `popd` in it.
+  `Policy::defaults()` is the table above as eight rules followed by
   the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
   `systemctl status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without
   `-exec` or `-delete` and more; `env` and `printenv` are left out because they print

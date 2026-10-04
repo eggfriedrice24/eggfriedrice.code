@@ -41,7 +41,9 @@ The tools:
   the call targets a nested shell, and `network` when a program usually reaches the
   network (`curl`, package installs and syncs but not `pacman -Q` or `-Ss`, `git
   pull`); both are a heuristic over the program names, and the engine judges the
-  command line itself too. It also declares the paths the line names, so the path
+  command line itself too. It declares the directory the line starts in (the hidden
+  shell's, or the user's for a new shell), so a rule may allow a command in one
+  project only. It also declares the paths the line names, so the path
   rules judge what a freely allowed read-only command reads: `shell_tool/words.rs`
   splits the line (quotes read as zsh reads them, the commands inside `$(...)` and
   groups included) and never fails, `shell_tool/reads.rs` says which words of each

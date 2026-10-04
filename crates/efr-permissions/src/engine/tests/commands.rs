@@ -508,6 +508,44 @@ fn user_rules_win_over_the_defaults(
     assert_eq!(decision.effect(), expected, "{line:?}");
 }
 
+/// `cargo test` allowed in `~/p/app` only, as `docs/permissions.md` shows.
+fn cargo_test_in_app() -> Engine {
+    configured(vec![allow_command(
+        CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app"),
+    )])
+}
+
+#[rstest]
+#[case::in_the_project("cargo test", Some("/home/u/p/app"), Effect::Allow)]
+#[case::below_the_project("cargo test -p x", Some("/home/u/p/app/crates/x"), Effect::Allow)]
+#[case::other_project("cargo test", Some("/home/u/p/other"), Effect::Ask)]
+#[case::unknown_directory("cargo test", None, Effect::Ask)]
+#[case::relative_directory("cargo test", Some("p/app"), Effect::Ask)]
+#[case::after_a_cd("cd ../other && cargo test", Some("/home/u/p/app"), Effect::Ask)]
+#[case::a_later_cd_asks_for_itself("cargo test; cd ..", Some("/home/u/p/app"), Effect::Ask)]
+#[case::with_a_read_only_part("cargo test && git status", Some("/home/u/p/app"), Effect::Allow)]
+fn a_command_rule_may_name_the_directory_it_runs_in(
+    #[case] line: &str,
+    #[case] dir: Option<&str>,
+    #[case] expected: Effect,
+) {
+    let mut requirements = run(line);
+    requirements.command_dir = dir.map(Into::into);
+    let decision = cargo_test_in_app().decide(&input(requirements, Scope::Machine, Origin::Shell));
+    assert_eq!(decision.effect(), expected, "{line:?} in {dir:?}");
+}
+
+#[test]
+fn a_directory_rule_sees_through_no_cd_even_when_cd_is_allowed() {
+    let engine = configured(vec![
+        allow_command(CommandPattern::new("cd")),
+        allow_command(CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app")),
+    ]);
+    let requirements = run("cd /srv/elsewhere && cargo test").with_command_dir("/home/u/p/app");
+    let decision = engine.decide(&input(requirements, Scope::Machine, Origin::Shell));
+    assert_eq!(decision.effect(), Effect::Ask);
+}
+
 #[test]
 fn a_user_rule_is_named_by_its_place_after_the_defaults() {
     let engine = configured(vec![allow_command(CommandPattern::new("cargo").with_args(["test"]))]);

@@ -37,6 +37,9 @@ pub struct Requirements {
     pub paths: Vec<PathAccess>,
     /// The command line that the call runs in the hidden shell, as the model wrote it.
     pub command: Option<String>,
+    /// The directory the command line starts in: where the hidden shell is, or where a
+    /// new one starts. A command rule with `under` matches only when it is known.
+    pub command_dir: Option<PathBuf>,
     /// True when the call talks to the network itself.
     pub network: bool,
     /// True when the call may wait for input at the terminal, such as a `sudo` prompt.
@@ -71,6 +74,12 @@ impl Requirements {
     /// Sets the command line that the call runs.
     pub fn with_command(mut self, line: impl Into<String>) -> Self {
         self.command = Some(line.into());
+        self
+    }
+
+    /// Sets the directory the command line starts in.
+    pub fn with_command_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.command_dir = Some(dir.into());
         self
     }
 

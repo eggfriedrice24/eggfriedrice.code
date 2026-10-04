@@ -178,6 +178,7 @@ impl Tool for ShellTool {
         let declared = declare::declared(&line, ctx.command_dir(), ctx.home.path());
         let mut requirements = ToolRequirements::none()
             .with_command(input.command)
+            .with_command_dir(ctx.command_dir())
             .with_interactive(interactive)
             .with_network(network);
         for path in declared.reads {

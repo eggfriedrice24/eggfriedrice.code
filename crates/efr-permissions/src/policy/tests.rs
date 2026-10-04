@@ -171,7 +171,7 @@ fn actions_and_resources_select_targets(
     };
     assert_eq!(matched(tree), reads);
     assert_eq!(matched(write("/home/u/p/app/a", PathClass::UserData)), writes);
-    assert_eq!(matched(Target::Command { words: &ls, privileged: false }), runs);
+    assert_eq!(matched(Target::Command { words: &ls, privileged: false, dir: None }), runs);
     assert_eq!(matched(Target::Opaque), runs_opaque);
     assert_eq!(matched(Target::Network), networks);
 }
@@ -179,7 +179,7 @@ fn actions_and_resources_select_targets(
 #[test]
 fn a_privileged_command_matches_only_rules_for_every_command() {
     let sudo = words("sudo ls");
-    let target = Target::Command { words: &sudo, privileged: true };
+    let target = Target::Command { words: &sudo, privileged: true, dir: None };
     let pattern = Policy::new(vec![Rule::new(
         Action::Execute,
         Resource::Command(CommandPattern::new("sudo")),
@@ -367,6 +367,35 @@ fn max_operands_counts_operands(#[case] line: &str, #[case] count: usize, #[case
     assert_eq!(pattern.matches_words(&words(line)), expected, "{line:?} has {count}");
 }
 
+#[rstest]
+#[case::the_root("/home/u/p/app", true)]
+#[case::below("/home/u/p/app/crates/x", true)]
+#[case::linked_form("/var/home/u/p/app/src", true)]
+#[case::sibling_prefix("/home/u/p/application", false)]
+#[case::elsewhere("/home/u/p/other", false)]
+fn under_limits_a_command_to_a_directory(#[case] dir: &'static str, #[case] expected: bool) {
+    let policy = Policy::new(vec![Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app")),
+        Effect::Allow,
+    )])
+    .unwrap();
+    let aliases = [PathBuf::from("/var/home/u")];
+    let cx = MatchContext { home: Path::new(HOME), home_aliases: &aliases, project_root: None };
+    let cargo_test = words("cargo test");
+    let target =
+        Target::Command { words: &cargo_test, privileged: false, dir: Some(Path::new(dir)) };
+    assert_eq!(policy.last_match(&target, &cx).is_some(), expected, "{dir}");
+    let unknown = Target::Command { words: &cargo_test, privileged: false, dir: None };
+    assert_eq!(policy.last_match(&unknown, &cx), None, "an unknown directory matches nothing");
+}
+
+#[test]
+fn a_pattern_with_a_directory_matches_no_bare_line() {
+    let pattern = CommandPattern::new("cargo").with_under("/srv/app");
+    assert!(!pattern.matches("cargo test"));
+}
+
 #[test]
 fn max_operands_counts_after_the_args() {
     let pattern = CommandPattern::new("git").with_args(["remote"]).with_max_operands(0);
@@ -443,6 +472,14 @@ fn max_operands_counts_after_the_args() {
     ),
     PermissionsError::RuleForbidInvalid { index: 0, word: "env*".into() }
 )]
+#[case::relative_command_directory(
+    Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("cargo").with_under("p/app")),
+        Effect::Allow
+    ),
+    PermissionsError::RulePathNotAbsolute { index: 0, path: "p/app".into() }
+)]
 #[case::forbid_a_space(
     Rule::new(
         Action::Execute,
@@ -495,6 +532,7 @@ rules = [
     { action = "write", resource = "project", effect = "ask" },
     { action = "network", resource = "any", effect = "allow" },
     { action = "execute", resource = { command = { program = "find", forbid = ["-delete"], max_operands = 2 } }, effect = "allow" },
+    { action = "execute", resource = { command = { program = "cargo", args = ["test"], under = "~/p/app" } }, effect = "allow" },
 ]
 "#;
     let config: Config = toml::from_str(text).unwrap();
@@ -512,6 +550,13 @@ rules = [
             Action::Execute,
             Resource::Command(
                 CommandPattern::new("find").with_forbid(["-delete"]).with_max_operands(2),
+            ),
+            Effect::Allow,
+        ),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(
+                CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app"),
             ),
             Effect::Allow,
         ),

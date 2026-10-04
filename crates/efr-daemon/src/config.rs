@@ -667,6 +667,9 @@ fn resource(resource: &Resource) -> String {
     if let Some(max) = pattern.max_operands {
         fields.push(format!("max_operands = {max}"));
     }
+    if let Some(under) = &pattern.under {
+        fields.push(format!("under = {}", inline(&under.to_string_lossy())));
+    }
     format!("{{ command = {{ {} }} }}", fields.join(", "))
 }
 

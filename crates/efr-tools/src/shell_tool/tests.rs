@@ -35,6 +35,7 @@ fn it_declares_the_command_and_the_directory_it_lists() {
     let requirements =
         tool().requirements(&fixture.context(), &json!({"command": "ls -la"})).unwrap();
     assert_eq!(requirements.command.as_deref(), Some("ls -la"));
+    assert_eq!(requirements.command_dir, Some(fixture.cwd()));
     assert_eq!(requirements.paths, [read(fixture.cwd())]);
     assert!(!requirements.network && !requirements.interactive);
 }
@@ -59,6 +60,9 @@ fn a_secret_named_by_a_read_only_command_is_declared() {
 fn relative_paths_resolve_against_the_hidden_shell() {
     let fixture = Fixture::new();
     let context = fixture.context().with_shell_cwd(Some(fixture.home().join(".ssh")));
+    let requirements =
+        tool().requirements(&context, &json!({ "command": "cat id_ed25519" })).unwrap();
+    assert_eq!(requirements.command_dir, Some(fixture.home().join(".ssh")));
     assert_eq!(
         paths_in(&context, "cat id_ed25519"),
         [read(fixture.home().join(".ssh/id_ed25519"))]

@@ -98,7 +98,8 @@ impl Engine {
             reasons.push(reason);
         }
         if let Some(line) = &requirements.command {
-            reasons.push(judge.command(line));
+            let dir = requirements.command_dir.as_deref().and_then(normalize);
+            reasons.push(judge.command(line, dir.as_deref()));
         }
         if requirements.network {
             let (effect, cause) = judge.by_rules(&Target::Network, None);
@@ -154,16 +155,25 @@ impl Judge<'_> {
         })
     }
 
-    /// One command line: each simple command by the rules, the strictest deciding.
-    fn command(&self, line: &str) -> Reason {
+    /// One command line, starting in `dir` when it is known: each simple command by
+    /// the rules, the strictest deciding.
+    fn command(&self, line: &str, dir: Option<&Path>) -> Reason {
         let (effect, cause) = match command::analyze(line) {
             Ok(parts) => {
                 let several = parts.len() > 1;
                 let mut strictest: Option<(Effect, Cause)> = None;
+                let mut dir = dir;
                 for part in &parts {
                     let privileged = command::privileged(part);
-                    let target =
-                        Target::Command { words: &part.words, privileged: privileged.is_some() };
+                    let target = Target::Command {
+                        words: &part.words,
+                        privileged: privileged.is_some(),
+                        dir,
+                    };
+                    // NOTE: after a change of directory, where the rest runs is unknown.
+                    if command::changes_directory(part) {
+                        dir = None;
+                    }
                     let (mut effect, mut cause) = self.by_rules(&target, None);
                     match (privileged, cause) {
                         (Some(program), _) if effect == Effect::Allow => {

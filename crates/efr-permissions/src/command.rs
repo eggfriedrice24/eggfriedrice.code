@@ -244,6 +244,15 @@ pub(crate) fn privileged(command: &SimpleCommand) -> Option<&str> {
     None
 }
 
+/// True when `command` changes the shell's directory, so the commands after it may run
+/// elsewhere.
+pub(crate) fn changes_directory(command: &SimpleCommand) -> bool {
+    command
+        .words
+        .first()
+        .is_some_and(|program| matches!(base_name(program), "cd" | "pushd" | "popd" | "chdir"))
+}
+
 /// A privileged program named anywhere in a line that [`analyze`] could not split, by a
 /// coarse scan that would rather find one too many.
 pub(crate) fn privileged_anywhere(line: &str) -> Option<&'static str> {

@@ -133,6 +133,12 @@ pub struct CommandPattern {
     /// separate word counts too, so the limit errs towards asking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_operands: Option<usize>,
+    /// A directory the command must run in, or below: absolute or starting with `~`.
+    /// The directory is where the hidden shell is when the line starts; after a `cd`,
+    /// `pushd` or `popd` earlier in the line it is unknown, and the pattern matches
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub under: Option<PathBuf>,
 }
 
 impl CommandPattern {
@@ -143,6 +149,7 @@ impl CommandPattern {
             args: Vec::new(),
             forbid: Vec::new(),
             max_operands: None,
+            under: None,
         }
     }
 
@@ -175,11 +182,23 @@ impl CommandPattern {
         self
     }
 
+    /// Requires the command to run in `dir` or below it.
+    #[must_use]
+    pub fn with_under(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.under = Some(dir.into());
+        self
+    }
+
     /// True when `line` is one simple command that this pattern matches, and it does
-    /// not run as another user.
+    /// not run as another user. A pattern with [`under`](Self::under) matches no line
+    /// here, where the directory is unknown.
     pub fn matches(&self, line: &str) -> bool {
         match command::analyze(line).as_deref() {
-            Ok([only]) => command::privileged(only).is_none() && self.matches_words(&only.words),
+            Ok([only]) => {
+                self.under.is_none()
+                    && command::privileged(only).is_none()
+                    && self.matches_words(&only.words)
+            }
             Ok(_) | Err(_) => false,
         }
     }
@@ -386,6 +405,8 @@ pub(crate) enum Target<'a> {
         words: &'a [String],
         /// True when it runs as another user, which no command pattern allows.
         privileged: bool,
+        /// The directory it runs in, in normal form, when it is known.
+        dir: Option<&'a Path>,
     },
     /// A line that cannot be split into simple commands: only the rules for every
     /// command line match it.
@@ -423,11 +444,17 @@ impl Rule {
                 };
                 self.action_is(action) && self.matches_path(path, class, cx)
             }
-            Target::Command { words, privileged } => {
+            Target::Command { words, privileged, dir } => {
                 self.action_is(Action::Execute)
                     && match &self.resource {
                         Resource::Any => true,
-                        Resource::Command(pattern) => !privileged && pattern.matches_words(words),
+                        Resource::Command(pattern) => {
+                            !privileged
+                                && pattern.matches_words(words)
+                                && pattern.under.as_deref().is_none_or(|root| {
+                                    dir.is_some_and(|dir| self.contains(root, dir, cx))
+                                })
+                        }
                         Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
                     }
             }
@@ -440,12 +467,16 @@ impl Rule {
         self.action == Action::Any || self.action == action
     }
 
+    /// True when `path` is `root`, an `under` path, or below it, in any form of `~`.
+    fn contains(&self, root: &Path, path: &Path, cx: &MatchContext<'_>) -> bool {
+        expand(root, cx.home).is_some_and(|root| cx.rehome(path).starts_with(cx.rehome(&root)))
+    }
+
     fn matches_path(&self, path: &Path, class: PathClass, cx: &MatchContext<'_>) -> bool {
         match &self.resource {
             Resource::Any => true,
             Resource::Class(wanted) => *wanted == class,
-            Resource::Under(root) => expand(root, cx.home)
-                .is_some_and(|root| cx.rehome(path).starts_with(cx.rehome(&root))),
+            Resource::Under(root) => self.contains(root, path, cx),
             Resource::Project => {
                 cx.project_root.is_some_and(|root| cx.rehome(path).starts_with(root))
             }
@@ -475,8 +506,7 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
     }
     match &rule.resource {
         Resource::Under(path) => {
-            let home_relative = path.components().next() == Some(Component::Normal("~".as_ref()));
-            if !home_relative && normalize(path).is_none() {
+            if !is_rooted(path) {
                 return Err(PermissionsError::RulePathNotAbsolute { index, path: path.clone() });
             }
         }
@@ -496,10 +526,21 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
             if let Some(word) = pattern.forbid.iter().find(|word| !is_valid_forbid(word)) {
                 return Err(PermissionsError::RuleForbidInvalid { index, word: word.clone() });
             }
+            if let Some(path) = pattern.under.as_deref().filter(|path| !is_rooted(path)) {
+                return Err(PermissionsError::RulePathNotAbsolute {
+                    index,
+                    path: path.to_path_buf(),
+                });
+            }
         }
         Resource::Any | Resource::Class(_) | Resource::Project => {}
     }
     Ok(())
+}
+
+/// True for an `under` path: absolute, or starting with `~` for the home directory.
+fn is_rooted(path: &Path) -> bool {
+    path.components().next() == Some(Component::Normal("~".as_ref())) || normalize(path).is_some()
 }
 
 fn is_plain_word(word: &str) -> bool {

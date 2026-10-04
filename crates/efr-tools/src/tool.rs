@@ -122,6 +122,8 @@ pub struct ToolRequirements {
     pub paths: Vec<PathAccess>,
     /// The command line the call runs in the hidden shell.
     pub command: Option<String>,
+    /// The directory the command line starts in.
+    pub command_dir: Option<PathBuf>,
     /// True when the call talks to the network.
     pub network: bool,
     /// True when the call may wait for input at the terminal, such as a `sudo`
@@ -163,6 +165,13 @@ impl ToolRequirements {
         self
     }
 
+    /// Sets the directory the command line starts in.
+    #[must_use]
+    pub fn with_command_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.command_dir = Some(dir.into());
+        self
+    }
+
     /// Sets whether the call talks to the network.
     #[must_use]
     pub fn with_network(mut self, network: bool) -> Self {
@@ -183,6 +192,7 @@ impl fmt::Debug for ToolRequirements {
         f.debug_struct("ToolRequirements")
             .field("paths", &self.paths)
             .field("command", &self.command.as_ref().map(|command| CommandLength(command.len())))
+            .field("command_dir", &self.command_dir)
             .field("network", &self.network)
             .field("interactive", &self.interactive)
             .finish()

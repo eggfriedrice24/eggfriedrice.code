@@ -145,6 +145,9 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     if let Some(command) = declared.command {
         requirements = requirements.with_command(command);
     }
+    if let Some(dir) = declared.command_dir {
+        requirements = requirements.with_command_dir(dir);
+    }
     if declared.network {
         requirements = requirements.with_network();
     }

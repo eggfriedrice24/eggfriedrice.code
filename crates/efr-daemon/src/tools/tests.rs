@@ -173,6 +173,7 @@ fn every_declared_requirement_is_copied() {
         .with_read_tree("/var/log")
         .with_write("/tmp/out")
         .with_command("make")
+        .with_command_dir("/srv/app")
         .with_network(true)
         .with_interactive(true);
 
@@ -183,6 +184,7 @@ fn every_declared_requirement_is_copied() {
             .with_read_tree("/var/log")
             .with_write("/tmp/out")
             .with_command("make")
+            .with_command_dir("/srv/app")
             .with_network()
             .with_interactive()
     );
@@ -286,7 +288,7 @@ fn the_users_rules_come_after_the_built_in_ones() {
     let open_ssh_config =
         Rule::new(Action::Read, Resource::Under("~/.ssh/config".into()), Effect::Allow);
     let rules = vec![cargo_test, deny_cat, open_ssh_config];
-    let decide = |command: &str| shell_decision(command, None, rules.clone(), Origin::Shell);
+    let decide = |line: &str| shell_decision(line, None, rules.clone(), Origin::Shell);
 
     assert_eq!(decide("cargo test --workspace"), Effect::Allow);
     assert_eq!(decide("cargo build"), Effect::Ask);
@@ -298,6 +300,24 @@ fn the_users_rules_come_after_the_built_in_ones() {
         Effect::Ask,
         "the phone asks even when a rule allows"
     );
+}
+
+#[test]
+fn a_rule_may_allow_a_command_in_one_project_only() {
+    // `shell_decision` runs from `~/p/app` in a home of its own.
+    let rule = Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app")),
+        Effect::Allow,
+    );
+    let decide = |line: &str, shell_cwd: Option<&str>| {
+        shell_decision(line, shell_cwd, vec![rule.clone()], Origin::Shell)
+    };
+
+    assert_eq!(decide("cargo test", None), Effect::Allow, "the shell starts in ~/p/app");
+    assert_eq!(decide("cargo test", Some("p/app/crates/x")), Effect::Allow);
+    assert_eq!(decide("cargo test", Some("p/other")), Effect::Ask);
+    assert_eq!(decide("cd ../other && cargo test", None), Effect::Ask);
 }
 
 #[test]
