@@ -677,6 +677,9 @@ pub(crate) struct SessionHandle {
     /// The terminal size the shell's programs see, shared by every clone; a finished
     /// command's output is replayed at this width.
     pub(crate) size: Arc<Mutex<Size>>,
+    /// The trusted programs the shell's integration read when it started; `None` for a
+    /// shell without the integration, which removes no alias.
+    pub(crate) trusted: Option<Arc<[String]>>,
 }
 
 impl SessionHandle {

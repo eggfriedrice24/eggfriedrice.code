@@ -1005,6 +1005,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         terminal: Terminal::new(master, modes, 1000),
         life,
         size: Arc::new(Mutex::new(SIZE)),
+        trusted: None,
     };
     let (mut listener, mut heard) = listener(true);
     let sessions = harness.sessions.clone();
@@ -1096,4 +1097,107 @@ async fn a_stop_sends_no_signal_once_another_job_holds_the_terminal() {
     // A SIGINT now would reach a command that never waited, such as one that a precmd
     // hook after efr's runs.
     a_stop_after_the_job_left(|_| OTHER_JOB).await;
+}
+
+#[tokio::test]
+async fn new_trusted_programs_restart_an_idle_shell_in_its_directory_before_the_next_run() {
+    let harness = Harness::new(ZSH);
+    let (mut first, run) = typed(&harness, "cd /srv").await;
+    first.run(b"\x1b]7;kitty-shell-cwd://box/srv\x07", 0).await;
+    run.await.unwrap().unwrap();
+
+    harness.sessions.set_trusted_programs(vec!["ls".to_owned(), "git".to_owned()]);
+    let next = spawn_run(&harness.sessions, request("ls"));
+    let mut second = harness.holder.terminal(1).await;
+    second.prompt().await;
+    assert_eq!(second.typed_line().await, b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r");
+    second.run(b"a\r\n", 0).await;
+    assert_eq!(next.await.unwrap().unwrap().output, "a\n");
+
+    assert!(
+        harness.holder.signals().contains(&(first.pty_id, Signal::Hangup, SignalTarget::Child)),
+        "{:?}",
+        harness.holder.signals()
+    );
+    let spec = &harness.holder.specs()[1];
+    assert_eq!(spec.cwd, PathBuf::from("/srv"));
+    assert_eq!(spec.env["_EFR_HS_TRUSTED_PROGRAMS"], "ls git");
+    assert_eq!(harness.holder.specs()[0].env.get("_EFR_HS_TRUSTED_PROGRAMS"), None);
+}
+
+#[tokio::test]
+async fn the_same_trusted_programs_keep_the_running_shell() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run) = typed(&harness, "true").await;
+    terminal.run(b"", 0).await;
+    run.await.unwrap().unwrap();
+
+    harness.sessions.set_trusted_programs(Vec::new());
+    let next = spawn_run(&harness.sessions, request("true"));
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    terminal.run(b"", 0).await;
+    next.await.unwrap().unwrap();
+    assert_eq!(harness.holder.specs().len(), 1);
+    assert_eq!(harness.holder.signals(), []);
+}
+
+#[tokio::test]
+async fn a_shell_with_old_trusted_programs_and_a_running_command_refuses_the_next_run() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, first) = typed(&harness, "sleep 100").await;
+    terminal.print(b"\r\n\x1b]133;C\x07").await;
+    loop {
+        let state = harness.sessions.state(conversation(1)).await.unwrap();
+        if state.phase == Phase::Running {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    harness.sessions.set_trusted_programs(vec!["sleep".to_owned()]);
+    let second = spawn_run(&harness.sessions, request("true")).await.unwrap();
+
+    assert!(matches!(second, Err(ShellError::Busy { .. })), "{second:?}");
+    assert_eq!(harness.holder.signals(), [], "the running command is never killed");
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    terminal.prompt().await;
+    first.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_shell_without_the_integration_keeps_running_when_the_trusted_programs_change() {
+    let harness = Harness::new("/bin/bash");
+    let mut terminal = None;
+    for round in 0..2 {
+        let run = spawn_run(&harness.sessions, request("true"));
+        if terminal.is_none() {
+            terminal = Some(harness.holder.terminal(0).await);
+        }
+        let shell = terminal.as_mut().unwrap();
+        let token = sentinel_token(&shell.typed_line().await);
+        shell.print(format!("__efr_{token}_b\r\n__efr_{token}_e:0:/\r\n").as_bytes()).await;
+        run.await.unwrap().unwrap();
+        if round == 0 {
+            harness.sessions.set_trusted_programs(vec!["ls".to_owned()]);
+        }
+    }
+
+    assert_eq!(harness.holder.specs().len(), 1);
+    assert_eq!(harness.holder.signals(), []);
+}
+
+#[tokio::test]
+async fn a_new_start_applies_to_shells_spawned_after_it() {
+    let harness = Harness::new(ZSH);
+    harness.sessions.open(conversation(1), Path::new("/")).await.unwrap();
+
+    harness.sessions.set_start(Some(Path::new("/usr/bin/zsh-5.9")), false).unwrap();
+    harness.sessions.open(conversation(2), Path::new("/")).await.unwrap();
+
+    let specs = harness.holder.specs();
+    assert_eq!(specs[0].program, PathBuf::from(ZSH));
+    assert_eq!(specs[0].args, ["-l", "-i"]);
+    assert_eq!(specs[1].program, PathBuf::from("/usr/bin/zsh-5.9"));
+    assert_eq!(specs[1].args, ["-i"]);
+    assert!(specs[1].env.contains_key("ZDOTDIR"), "a zsh still gets the integration");
 }

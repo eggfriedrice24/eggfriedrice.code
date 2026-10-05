@@ -52,14 +52,24 @@ pub struct ShellSessions {
 type Slot = Arc<OnceCell<SessionHandle>>;
 
 struct Inner {
+    /// The config as given; [`Start`] holds the parts that change while shells run.
     config: ShellConfig,
     deps: ShellDeps,
-    program: PathBuf,
-    /// True when the program is a zsh, which gets the integration.
-    integration: bool,
+    start: Mutex<Arc<Start>>,
     installed: OnceCell<()>,
     sessions: Mutex<HashMap<ConversationId, Slot>>,
     next_run: AtomicU64,
+}
+
+/// How the next shell starts. The daemon changes it when its config reloads; a running
+/// shell keeps what it started with.
+#[derive(Debug)]
+struct Start {
+    program: PathBuf,
+    /// True when the program is a zsh, which gets the integration.
+    integration: bool,
+    login: bool,
+    trusted_programs: Arc<[String]>,
 }
 
 /// What [`ShellSessions::open`] found or started.
@@ -81,27 +91,69 @@ impl ShellSessions {
     /// `config.base_env`. Looking it up touches the file system, which is fine at
     /// startup.
     pub fn new(config: ShellConfig, deps: ShellDeps) -> Result<Self, ShellError> {
-        let program = match &config.program {
-            Some(program) => program.clone(),
-            None => {
-                let path = config.base_env.get("PATH").cloned().unwrap_or_default();
-                which::which_in(DEFAULT_PROGRAM, Some(path), "/").map_err(|source| {
-                    ShellError::ProgramNotFound { program: DEFAULT_PROGRAM.to_owned(), source }
-                })?
-            }
+        let program = find_program(&config, config.program.as_deref())?;
+        let start = Start {
+            integration: integration::supports(&program),
+            program,
+            login: config.login,
+            trusted_programs: config.trusted_programs.clone().into(),
         };
-        let integration = integration::supports(&program);
         Ok(ShellSessions {
             inner: Arc::new(Inner {
                 config,
                 deps,
-                program,
-                integration,
+                start: Mutex::new(Arc::new(start)),
                 installed: OnceCell::new(),
                 sessions: Mutex::new(HashMap::new()),
                 next_run: AtomicU64::new(0),
             }),
         })
+    }
+
+    /// Starts the shells spawned from now on with `program` (`None`: `zsh` on the
+    /// `PATH`) and `login`, as [`ShellConfig::program`] and [`ShellConfig::login`] say.
+    /// A running shell keeps what it started with. Fails, and changes nothing, when the
+    /// program cannot be found.
+    pub fn set_start(&self, program: Option<&Path>, login: bool) -> Result<(), ShellError> {
+        let program = find_program(&self.inner.config, program)?;
+        let mut start = self.start_lock();
+        *start = Arc::new(Start {
+            integration: integration::supports(&program),
+            program,
+            login,
+            trusted_programs: Arc::clone(&start.trusted_programs),
+        });
+        Ok(())
+    }
+
+    /// Sets the programs whose aliases and functions a zsh with the integration removes,
+    /// as [`ShellConfig::trusted_programs`] says.
+    ///
+    /// A zsh reads the set once, when it starts, so a running one with another set
+    /// would still run an alias of a newly trusted name. Its next
+    /// [`run_command`](Self::run_command) therefore restarts it first, in its current
+    /// directory; while a command still runs in it, the run fails with
+    /// [`ShellError::Busy`] instead, so no command ever runs with the old set.
+    pub fn set_trusted_programs(&self, programs: Vec<String>) {
+        let mut start = self.start_lock();
+        if *start.trusted_programs == *programs {
+            return;
+        }
+        *start = Arc::new(Start {
+            program: start.program.clone(),
+            integration: start.integration,
+            login: start.login,
+            trusted_programs: programs.into(),
+        });
+    }
+
+    fn start(&self) -> Arc<Start> {
+        Arc::clone(&self.start_lock())
+    }
+
+    fn start_lock(&self) -> MutexGuard<'_, Arc<Start>> {
+        // The value is replaced whole, so a poisoned lock still holds a usable one.
+        self.inner.start.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The conversation's shell, spawned in `start_dir` when it has none.
@@ -148,7 +200,27 @@ impl ShellSessions {
         progress: &mut dyn RunProgress,
     ) -> Result<CommandResult, ShellError> {
         let (session, _) = self.session(conversation, &request.start_dir).await?;
+        let session = self.current(session).await?;
         self.run_on(&session, request, progress).await
+    }
+
+    /// `session`, or a new shell in its directory when it started with trusted
+    /// programs other than the current ones (see
+    /// [`set_trusted_programs`](Self::set_trusted_programs)).
+    async fn current(&self, session: SessionHandle) -> Result<SessionHandle, ShellError> {
+        let conversation = session.conversation;
+        let trusted = Arc::clone(&self.start().trusted_programs);
+        if session.trusted.as_ref().is_none_or(|started| *started == trusted) {
+            return Ok(session);
+        }
+        let state = session.state().await?;
+        if state.is_busy() {
+            return Err(ShellError::Busy { conversation });
+        }
+        tracing::info!(%conversation, pty_id = %state.pty_id, "restarting an idle hidden shell for new trusted programs");
+        self.close(conversation).await?;
+        let (fresh, _) = self.session(conversation, &state.cwd).await?;
+        Ok(fresh)
     }
 
     /// The state of the conversation's shell.
@@ -315,23 +387,28 @@ impl ShellSessions {
         start_dir: &Path,
     ) -> Result<SessionHandle, ShellError> {
         let inner = &self.inner;
-        if inner.integration {
+        let start = self.start();
+        if start.integration {
             inner
                 .installed
                 .get_or_try_init(|| install(inner.config.integration_dir.clone()))
                 .await?;
         }
+        let mut config = inner.config.clone();
+        config.login = start.login;
+        config.trusted_programs = start.trusted_programs.to_vec();
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
-        let spec = SpawnSpec::new(pty_id, &inner.program, start_dir, inner.config.size)
-            .args(integration::args(inner.config.login))
-            .vars(env::shell_env(&inner.config, start_dir, inner.integration));
+        let spec = SpawnSpec::new(pty_id, &start.program, start_dir, config.size)
+            .args(integration::args(start.login))
+            .vars(env::shell_env(&config, start_dir, start.integration));
         let PtyHandle { master, child_pid, .. } = inner
             .deps
             .holder
             .spawn(spec)
             .await
             .map_err(|source| ShellError::Spawn { conversation, source })?;
-        match self.start(conversation, pty_id, child_pid, master, start_dir) {
+        let trusted = start.integration.then(|| Arc::clone(&start.trusted_programs));
+        match self.launch(conversation, pty_id, child_pid, master, start_dir, trusted) {
             Ok(session) => {
                 tracing::info!(%conversation, %pty_id, pid = child_pid, "hidden shell started");
                 inner.deps.observer.notice(ShellNotice::Started {
@@ -352,16 +429,19 @@ impl ShellSessions {
     }
 
     /// Starts the tasks of a spawned shell: the writer, the reader, the screen's reply
-    /// forwarder, the exit waiter and the actor.
-    fn start(
+    /// forwarder, the exit waiter and the actor. `trusted` is the set of trusted programs
+    /// a shell with the integration started with, `None` for a shell without it.
+    fn launch(
         &self,
         conversation: ConversationId,
         pty_id: PtyId,
         pid: u32,
         master: OwnedFd,
         cwd: &Path,
+        trusted: Option<Arc<[String]>>,
     ) -> Result<SessionHandle, ShellError> {
         let inner = &self.inner;
+        let integration = trusted.is_some();
         let deps = &inner.deps;
         let master =
             reader::master(master).map_err(|source| ShellError::Master { conversation, source })?;
@@ -390,7 +470,7 @@ impl ShellSessions {
             let status = holder.wait(pty_id).await.ok();
             let _ = waiter.send(Msg::Exited(status)).await;
         });
-        let state = ShellState::new(pty_id, pid, cwd.to_path_buf(), inner.integration);
+        let state = ShellState::new(pty_id, pid, cwd.to_path_buf(), integration);
         let actor = SessionActor {
             core: SessionCore::new(conversation, state, Arc::clone(&deps.observer)),
             clock: Arc::clone(&deps.clock),
@@ -400,7 +480,7 @@ impl ShellSessions {
             screen: screen.clone(),
             tasks,
             life,
-            startup: inner.integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
+            startup: integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
         Ok(SessionHandle {
@@ -413,6 +493,7 @@ impl ShellSessions {
             terminal,
             life: lives,
             size: Arc::new(Mutex::new(inner.config.size)),
+            trusted,
         })
     }
 
@@ -674,11 +755,27 @@ impl ShellSessions {
 
 impl fmt::Debug for ShellSessions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let start = self.start();
         f.debug_struct("ShellSessions")
-            .field("program", &self.inner.program)
-            .field("integration", &self.inner.integration)
+            .field("program", &start.program)
+            .field("integration", &start.integration)
+            .field("login", &start.login)
+            .field("trusted_programs", &start.trusted_programs)
             .field("shells", &self.lock().len())
             .finish_non_exhaustive()
+    }
+}
+
+/// `program`, or `zsh` on the `PATH` of the config's environment when it is `None`.
+fn find_program(config: &ShellConfig, program: Option<&Path>) -> Result<PathBuf, ShellError> {
+    match program {
+        Some(program) => Ok(program.to_path_buf()),
+        None => {
+            let path = config.base_env.get("PATH").cloned().unwrap_or_default();
+            which::which_in(DEFAULT_PROGRAM, Some(path), "/").map_err(|source| {
+                ShellError::ProgramNotFound { program: DEFAULT_PROGRAM.to_owned(), source }
+            })
+        }
     }
 }
 

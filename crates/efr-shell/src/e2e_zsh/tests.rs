@@ -225,6 +225,28 @@ async fn e2e_an_alias_or_function_named_like_a_trusted_program_is_dropped() {
 }
 
 #[tokio::test]
+async fn e2e_an_alias_named_like_a_newly_trusted_program_does_not_run() {
+    let test = "e2e_an_alias_named_like_a_newly_trusted_program_does_not_run";
+    let Some(zsh) = Zsh::start(test) else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshrc"), "alias ls='echo aliased'\n").unwrap();
+    let work = zsh.dir("work");
+    let before = zsh.run(&format!("cd {}; ls -d /", work.display())).await;
+    assert_eq!(before.output, "aliased -d /\n");
+    let first = zsh.sessions.state(zsh.conversation).await.unwrap().pty_id;
+
+    // A rules change trusts ls from now on, as a config reload does.
+    zsh.sessions.set_trusted_programs(vec!["ls".to_owned()]);
+    let after = zsh.run("ls -d /; pwd").await;
+
+    assert_eq!(after.output, format!("/\n{}\n", work.display()));
+    let state = zsh.sessions.state(zsh.conversation).await.unwrap();
+    assert_ne!(state.pty_id, first, "the shell restarted");
+    assert_eq!(state.cwd, work, "in the directory the old shell was in");
+}
+
+#[tokio::test]
 async fn e2e_the_integration_loads_when_the_users_zshenv_sets_no_unset() {
     let Some(zsh) = Zsh::start("e2e_the_integration_loads_when_the_users_zshenv_sets_no_unset")
     else {

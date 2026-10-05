@@ -25,6 +25,13 @@ prompts such as `sudo` stay visible.
   exit status. It reports `ShellNotice::{Started, CwdChanged, Exited}` to the
   `ShellObserver`, and learns that the shell ended from `PtyHolder::wait`; it then
   releases the PTY, and the conversation's next run spawns a new shell.
+- The daemon changes how shells start while they run, when its config reloads:
+  `set_start(program, login)` applies to shells spawned from then on, and
+  `set_trusted_programs(programs)` to the trusted programs. A zsh reads that set once,
+  when it starts, so a running one with another set would still run an alias of a
+  newly trusted name. Its next `run_command` therefore restarts it first, in its
+  current directory; while a command still runs in it, the run fails with
+  `ShellError::Busy` instead, so no command ever runs with the old set.
 
 `run_command(conversation, RunRequest, progress)` (also the `CommandRunner` trait that
 `efr-tools` drives):
