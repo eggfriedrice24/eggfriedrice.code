@@ -7,7 +7,7 @@ use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 use rustix::termios::{LocalModes, tcgetattr};
 use tokio::sync::mpsc;
 
-use super::{KeyReader, decision, start_on};
+use super::{KEY_QUEUE, KeyReader, decision, start_on};
 
 /// A pseudo-terminal pair: the master, which plays the person typing, and the slave,
 /// which plays the terminal on stdin.
@@ -101,4 +101,22 @@ async fn a_descriptor_that_is_not_a_terminal_ends_the_keys_at_once() {
     let mut reader = start_on(OwnedFd::from(read)).unwrap();
     assert_eq!(reader.next().await, None);
     reader.stop().await;
+}
+
+#[tokio::test]
+async fn stopping_a_reader_whose_queue_is_full_ends_and_restores_the_terminal() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let reader = start_on(slave).unwrap();
+    wait_for_key_mode(&probe);
+    // A paste longer than the queue, which nobody reads: the thread ends up blocked
+    // on a full queue.
+    rustix::io::write(&master, &[b'x'; 2 * KEY_QUEUE]).unwrap();
+    while reader.keys.len() < KEY_QUEUE {
+        tokio::task::yield_now().await;
+    }
+
+    reader.stop().await;
+    assert!(canonical(&probe), "the line mode is back");
+    assert!(echoes(&probe), "echo is back");
 }

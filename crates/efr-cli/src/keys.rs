@@ -78,10 +78,14 @@ impl KeyReader {
 
     /// Stops reading and waits until the terminal's settings are restored.
     pub(crate) async fn stop(self) {
-        self.stop.store(true, Ordering::Release);
+        let KeyReader { keys, stop, done } = self;
+        stop.store(true, Ordering::Release);
+        // NOTE: the queue goes first. A thread blocked on a full queue never looks at
+        // the stop flag again; a closed queue ends its send, and so its loop.
+        drop(keys);
         // The thread drops its end once it has restored the terminal; an error only
         // means it is gone.
-        let _ = self.done.await;
+        let _ = done.await;
     }
 }
 
