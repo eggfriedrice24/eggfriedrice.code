@@ -24,7 +24,13 @@ state and never writes the daemon's database or credentials.
 | `efr config set <key> <value>`, `efr config unset <key>` | `admin.config_reload` | one scalar or list key through `efr-config`'s writer: comments and layout stay, a link stays and its target is written, a value the daemon would refuse is never written; then a reload |
 | `efr config schema` | none | the JSON schema of `config.toml` |
 | `efr config reload` | `admin.config_reload` | applied, or the file's error (exit 1), and the keys that wait for a restart |
+| `efr project list` | `projects.list` | one line per registered project: its name (`-` for none) and its root; with none, the registry file and how to add one |
+| `efr project add [PATH] [--name NAME]` | `admin.project_add` | registers PATH (relative to the current directory; the daemon resolves links), or without PATH the git work tree that holds the current directory, else the directory, which may not be the home directory or `/`; the daemon writes `projects.toml` with its comments and reloads; a reload that fails is a warning on stderr, because the file is written |
+| `efr project remove PATH` | `admin.project_remove` | takes the project with that root out, the same way; a root that no project has exits 1 |
 | `efr paths [--json]` | `admin.status` when the daemon runs | each root with its source (`EFR_<ROOT>_DIR`, `EFR_HOME`, XDG, `/run/user`) and whether it exists, `config.toml`, the database, `secrets/` and the socket; then the daemon's roots, with a warning on stderr for each one that differs |
+
+`efr project` goes through the daemon, because `efr-scope` owns `projects.toml` and the
+CLI may not depend on it; without a daemon it exits 3 like the other daemon commands.
 
 A command that finds an error in a config file prints it and exits 1. Without a
 daemon, the commands that change the file say that it reads the file when it starts.

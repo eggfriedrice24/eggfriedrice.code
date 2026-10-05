@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/commands/project/tests.rs
+expression: text
+---
+project           /home/user/project
+-                 /etc/nixos
+site␛]52;c;aGk=␇  /srv/site

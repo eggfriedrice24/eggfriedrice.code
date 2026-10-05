@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/cli/tests.rs
+expression: add.render_help().to_string()
+---
+Register a project: PATH, or without one the git work tree that holds the current directory (else the directory itself)
+
+Usage: efr project add [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]  The project's root directory; relative to the current directory
+
+Options:
+      --name <NAME>  A name for the project; the last part of the root by default
+  -h, --help         Print help

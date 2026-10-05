@@ -61,6 +61,9 @@ pub(crate) enum Command {
     /// Show, check, edit and change config.toml.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// List, add and remove the projects that the permission modes trust.
+    #[command(subcommand)]
+    Project(ProjectCommand),
     /// Show where efr keeps its files, and where the daemon keeps them.
     Paths(PathsArgs),
 }
@@ -215,6 +218,29 @@ pub(crate) enum LoginCommand {
     /// Log in to the OpenAI subscription in a browser. The daemon runs the login; this
     /// prints the URL to open and waits for the browser to finish.
     Openai,
+}
+
+/// The `efr project` commands, which change projects.toml through the daemon.
+#[derive(Debug, Subcommand)]
+pub(crate) enum ProjectCommand {
+    /// List the registered projects with their roots.
+    List,
+    /// Register a project: PATH, or without one the git work tree that holds the
+    /// current directory (else the directory itself).
+    Add {
+        /// The project's root directory; relative to the current directory.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+        /// A name for the project; the last part of the root by default.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
+    /// Take the project with this root out of the registry.
+    Remove {
+        /// The project's root directory; relative to the current directory.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 /// The `efr config` commands.

@@ -1,5 +1,5 @@
 //! `efr`, the command-line relay to the efr daemon. The zsh plugin runs it for every
-//! `,` line; people run it for status, history, login, paths and `config.toml`.
+//! `,` line; people run it for status, history, login, paths, projects and `config.toml`.
 //!
 //! - `cli`: the command line (clap).
 //! - `run`: dispatch, exit codes and error messages; `commands/*`: one file per command.

@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 
 use efr_protocol::Mode;
 
-use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand, PathsArgs};
+use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand, PathsArgs, ProjectCommand};
 use crate::testing::{CONVERSATION, command, conversation};
 
 fn parse_error(args: &[&str]) -> ErrorKind {
@@ -219,6 +219,35 @@ fn settings_help_is_a_snapshot() {
     cli.build();
     let settings = cli.find_subcommand_mut("settings").unwrap();
     insta::assert_snapshot!(settings.render_help().to_string());
+}
+
+#[test]
+fn project_add_help_is_a_snapshot() {
+    let mut cli = Cli::command();
+    cli.build();
+    let project = cli.find_subcommand_mut("project").unwrap();
+    project.build();
+    let add = project.find_subcommand_mut("add").unwrap();
+    insta::assert_snapshot!(add.render_help().to_string());
+}
+
+#[test]
+fn project_paths_parse_and_remove_needs_one() {
+    let parse = |args: &[&str]| {
+        let mut argv = vec!["efr", "project"];
+        argv.extend_from_slice(args);
+        Cli::try_parse_from(argv).map(|cli| cli.command)
+    };
+    assert!(matches!(
+        parse(&["add"]),
+        Ok(Command::Project(ProjectCommand::Add { path: None, name: None }))
+    ));
+    assert!(matches!(
+        parse(&["add", "../x", "--name", "x"]),
+        Ok(Command::Project(ProjectCommand::Add { path: Some(_), name: Some(_) }))
+    ));
+    assert!(matches!(parse(&["list"]), Ok(Command::Project(ProjectCommand::List))));
+    assert!(parse(&["remove"]).is_err());
 }
 
 #[test]

@@ -110,6 +110,11 @@ pub(crate) enum CliError {
     #[error("the daemon marks no model as its default")]
     NoDefaultModel,
 
+    /// The current directory is unknown, so a relative path or the default project
+    /// cannot be found.
+    #[error("the current directory is unknown; name the directory with an absolute path")]
+    NoWorkingDirectory,
+
     /// There is no prompt text to send.
     #[error("the prompt is empty")]
     EmptyPrompt,
@@ -214,6 +219,7 @@ impl CliError {
             | CliError::EmptyPrompt
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
+            | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
             CliError::ConfigInvalid => Exit::Invalid,

@@ -207,3 +207,39 @@ async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() 
     assert_eq!(two.body["reasoning"]["effort"], reloaded.as_str(), "the reloaded effort");
     daemon.stop().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn project_add_list_and_remove_change_the_registry_through_the_daemon() {
+    let daemon = TestDaemon::start().await.unwrap();
+    let app = daemon.dirs().home().join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    let real = std::fs::canonicalize(&app).unwrap();
+    let registry = daemon.dirs().dirs().config().join("projects.toml");
+    let efr_with = |args: &[&str]| {
+        let mut command = efr(&daemon);
+        command.args(args);
+        command
+    };
+    let app_arg = app.to_str().unwrap();
+
+    let added = run(efr_with(&["project", "add", app_arg])).await;
+    assert!(added.status.success(), "{}", text(&added.stderr));
+    assert_eq!(text(&added.stdout), format!("registered the project app ({})\n", real.display()));
+    let file = std::fs::read_to_string(&registry).unwrap();
+    assert!(file.contains(&format!("root = \"{}\"", real.display())), "{file}");
+
+    let listed = run(efr_with(&["project", "list"])).await;
+    assert!(listed.status.success(), "{}", text(&listed.stderr));
+    assert_eq!(text(&listed.stdout), format!("app  {}\n", real.display()));
+
+    let again = run(efr_with(&["project", "add", app_arg])).await;
+    assert_eq!(again.status.code(), Some(1));
+    assert!(text(&again.stderr).contains("registered twice"), "{}", text(&again.stderr));
+
+    let removed = run(efr_with(&["project", "remove", app_arg])).await;
+    assert!(removed.status.success(), "{}", text(&removed.stderr));
+    assert_eq!(text(&removed.stdout), format!("removed the project app ({})\n", real.display()));
+    let empty = run(efr_with(&["project", "list"])).await;
+    assert!(text(&empty.stdout).starts_with("no project is registered"), "{}", text(&empty.stdout));
+    daemon.stop().await.unwrap();
+}
