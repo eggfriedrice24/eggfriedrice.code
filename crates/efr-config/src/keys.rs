@@ -103,14 +103,64 @@ pub fn json_schema() -> Json {
     schema
 }
 
+/// When a change of a key takes effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Applies {
+    /// The daemon applies it without a restart: to the next turn, prompt, tool call or
+    /// new shell.
+    Live,
+    /// The daemon applies it only after a restart: a key of [`RESTART_KEYS`].
+    Restart,
+    /// Only `efr` reads it, at its next run.
+    Client,
+}
+
+impl Applies {
+    /// When a change of `key` takes effect.
+    pub fn of(key: &str) -> Applies {
+        if RESTART_KEYS.contains(&key) {
+            Applies::Restart
+        } else if key.starts_with("render.") {
+            Applies::Client
+        } else {
+            Applies::Live
+        }
+    }
+
+    /// `live`, `restart` or `client`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Applies::Live => "live",
+            Applies::Restart => "restart",
+            Applies::Client => "client",
+        }
+    }
+}
+
 /// What `key` holds, or `None` when the file has no such key.
 pub fn kind(key: &str) -> Option<Kind> {
     let schema = json_schema();
-    let mut node = &schema;
-    for part in key.split('.') {
-        node = resolve(&schema, node).get("properties")?.get(part)?;
-    }
+    let node = property(&schema, key)?;
     kind_of(&schema, resolve(&schema, node))
+}
+
+/// The description of `key` in the JSON schema, the doc comment of its field, or `None`
+/// when the file has no such key.
+pub fn description(key: &str) -> Option<String> {
+    let schema = json_schema();
+    let node = property(&schema, key)?;
+    let text = node.get("description").or_else(|| resolve(&schema, node).get("description"));
+    text.and_then(Json::as_str).map(str::to_owned)
+}
+
+/// The schema node of the property `key`, a dotted key.
+fn property<'a>(schema: &'a Json, key: &str) -> Option<&'a Json> {
+    let mut node = schema;
+    for part in key.split('.') {
+        node = resolve(schema, node).get("properties")?.get(part)?;
+    }
+    Some(node)
 }
 
 /// The schema `node` points to with `$ref`, or `node` itself.

@@ -133,7 +133,15 @@ impl Settings {
     /// Records that `key` came from `source`, for a program that sets a field itself.
     pub fn set_source(&mut self, key: &str, source: Source) {
         self.sources.retain(|(known, _)| known != key);
-        self.sources.push((key.to_owned(), source));
+        // A key without an entry is a default, so equal settings compare equal.
+        if source != Source::Default {
+            self.sources.push((key.to_owned(), source));
+        }
+    }
+
+    /// Takes the source of every key from `other`.
+    pub(crate) fn copy_sources(&mut self, other: &Settings) {
+        self.sources.clone_from(&other.sources);
     }
 
     /// Sets `key` to `text`, the value of an environment variable or a flag, as the file

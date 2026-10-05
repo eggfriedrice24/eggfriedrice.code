@@ -88,7 +88,8 @@ fn unset(key: &str) -> &'static str {
     }
 }
 
-fn lookup<'a>(document: &'a DocumentMut, key: &str) -> Option<&'a Item> {
+/// The item of the dotted `key` in `document`, when it has one.
+pub(crate) fn lookup<'a>(document: &'a DocumentMut, key: &str) -> Option<&'a Item> {
     let mut item = document.as_item();
     for part in key.split('.') {
         item = item.get(part)?;
@@ -96,13 +97,27 @@ fn lookup<'a>(document: &'a DocumentMut, key: &str) -> Option<&'a Item> {
     Some(item)
 }
 
+/// `item` as one line of inline TOML, whole, so two values compare by their text.
+pub(crate) fn exact(item: &Item) -> String {
+    match as_value(item.clone()) {
+        Some(value) => inline(value),
+        None => "(unset)".to_owned(),
+    }
+}
+
+fn as_value(item: Item) -> Option<Value> {
+    match item {
+        Item::Value(value) => Some(value),
+        Item::Table(table) => Some(Value::InlineTable(table.into_inline_table())),
+        Item::ArrayOfTables(tables) => Some(Value::Array(tables.into_array())),
+        Item::None => None,
+    }
+}
+
 /// `item` as one line of inline TOML.
-fn show(item: &Item) -> String {
-    let value = match item.clone() {
-        Item::Value(value) => value,
-        Item::Table(table) => Value::InlineTable(table.into_inline_table()),
-        Item::ArrayOfTables(tables) => Value::Array(tables.into_array()),
-        Item::None => return "(unset)".to_owned(),
+pub(crate) fn show(item: &Item) -> String {
+    let Some(value) = as_value(item.clone()) else {
+        return "(unset)".to_owned();
     };
     if let Value::String(text) = &value {
         let text = text.value();

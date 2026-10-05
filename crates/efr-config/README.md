@@ -25,8 +25,19 @@ Modules:
   (one lowercase word; the daemon checks it against the model), numeric ranges,
   absolute paths, `~/` secret paths, http and https URLs, non-empty names.
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
-  what a key holds, from the JSON schema; `json_schema()`; `RESTART_KEYS`, the keys a
-  change applies to only after a restart.
+  what a key holds, and `description()`, its doc comment, both from the JSON schema;
+  `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
+  `Applies`, when a change of a key takes effect (live, restart, or in `efr` only).
+- `reload`: `Settings::reloaded`, the file read again laid over the running settings:
+  a restart key that changed keeps its running value and is listed in
+  `Reloaded::restart_needed`, and a key an environment variable or a flag set keeps
+  that value, because the override still wins over the file.
+- `file`: `FileState`, what is at the file's path (nothing, a file, or a symbolic link
+  and its resolved target) and the directories a watcher must watch for it.
+- `reference`: `reference()` and `schema_text()`, the text of `docs/config.md` (every
+  key, its default, when it applies and its description) and of
+  `docs/config.schema.json`. `cargo xtask config-docs` writes both; CI checks that they
+  are current.
 - `effective`: `Source` (default, file, `env VAR`, `flag --x`), `Entry`,
   `Settings::entries` and `Settings::effective`, the dump of `efrd --print-config`.
   The values come from serializing the typed settings, so a new key is listed without

@@ -7,9 +7,14 @@
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
 //!   an environment variable or a flag over a key.
 //! - [`Source`] and [`Entry`]: the effective view, every value with where it came from.
-//! - [`keys`], [`kind`] and [`json_schema`]: the keys, what each holds and the JSON
-//!   schema, all derived from the typed tables, so a new key is written once.
+//! - [`keys`], [`kind`], [`description`], [`Applies`] and [`json_schema`]: the keys,
+//!   what each holds, what it means, when a change applies and the JSON schema, all
+//!   derived from the typed tables, so a new key is written once.
 //! - [`EXAMPLE`]: `examples/config.toml`, every key with a comment.
+//! - [`reference`] and [`schema_text`]: `docs/config.md` and `docs/config.schema.json`.
+//! - [`Settings::reloaded`] and [`Reloaded`]: a file read again, laid over the running
+//!   settings, with the keys that need a restart.
+//! - [`FileState`]: what is at the file's path, a file, nothing, or a symbolic link.
 //! - [`ConfigFile`] and [`Edit`]: the format-preserving writer, which keeps comments and
 //!   layout, writes the file behind a symlink and refuses a file that changed since it
 //!   was read.
@@ -27,8 +32,11 @@
 mod effective;
 mod error;
 mod example;
+mod file;
 mod keys;
 mod location;
+mod reference;
+mod reload;
 mod settings;
 mod tables;
 mod validate;
@@ -37,7 +45,10 @@ mod writer;
 pub use effective::{Entry, Source};
 pub use error::{ConfigError, Location};
 pub use example::EXAMPLE;
-pub use keys::{Kind, RESTART_KEYS, SCHEMA_URL, json_schema, keys, kind};
+pub use file::FileState;
+pub use keys::{Applies, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema, keys, kind};
+pub use reference::{reference, schema_text};
+pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
