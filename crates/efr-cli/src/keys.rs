@@ -13,7 +13,9 @@
 //!
 //! Keys typed before the question appeared are discarded first: a stray key from
 //! earlier never answers it, and text typed earlier, such as a password typed blind
-//! while a command waited, is not left for the shell to read after `efr` exits.
+//! while a command waited, is not left for the shell to read after `efr` exits. A
+//! reader that read an answer line also discards what is still unread when it stops,
+//! before echo comes back, so the rest of a password never shows or reaches the shell.
 
 use std::fmt;
 use std::io;
@@ -59,6 +61,8 @@ pub(crate) trait Keys: Send + Sync + fmt::Debug {
 pub(crate) struct KeyReader {
     keys: mpsc::Receiver<u8>,
     stop: Arc<AtomicBool>,
+    /// Set before `stop`: input that is still unread goes when the terminal is restored.
+    discard: Arc<AtomicBool>,
     done: oneshot::Receiver<()>,
 }
 
@@ -68,7 +72,18 @@ impl KeyReader {
     pub(crate) fn from_channel(keys: mpsc::Receiver<u8>) -> KeyReader {
         let (finished, done) = oneshot::channel();
         drop(finished);
-        KeyReader { keys, stop: Arc::new(AtomicBool::new(false)), done }
+        KeyReader {
+            keys,
+            stop: Arc::new(AtomicBool::new(false)),
+            discard: Arc::new(AtomicBool::new(false)),
+            done,
+        }
+    }
+
+    /// The flag that [`stop_discarding`](Self::stop_discarding) sets, for tests.
+    #[cfg(test)]
+    pub(crate) fn discard_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.discard)
     }
 
     /// The next key; `None` once the source has ended.
@@ -76,9 +91,28 @@ impl KeyReader {
         self.keys.recv().await
     }
 
-    /// Stops reading and waits until the terminal's settings are restored.
+    /// Drops the keys that wait in the queue, so that a new question is answered only
+    /// by keys typed after it appeared, as a new reader's flush would do.
+    pub(crate) fn discard_queued(&mut self) {
+        while self.keys.try_recv().is_ok() {}
+    }
+
+    /// Stops reading and waits until the terminal's settings are restored; keys that
+    /// were typed and not read yet stay for whatever reads the terminal next.
     pub(crate) async fn stop(self) {
-        let KeyReader { keys, stop, done } = self;
+        self.finish().await;
+    }
+
+    /// Stops reading like [`stop`](Self::stop), but throws away input that is still
+    /// unread before echo comes back: the rest of a password typed for a command that
+    /// stopped reading must neither show nor reach the user's shell after `efr` exits.
+    pub(crate) async fn stop_discarding(self) {
+        self.discard.store(true, Ordering::Release);
+        self.finish().await;
+    }
+
+    async fn finish(self) {
+        let KeyReader { keys, stop, discard: _, done } = self;
         stop.store(true, Ordering::Release);
         // NOTE: the queue goes first. A thread blocked on a full queue never looks at
         // the stop flag again; a closed queue ends its send, and so its loop.
@@ -113,20 +147,28 @@ pub(crate) fn start_on(fd: OwnedFd) -> Result<KeyReader, CliError> {
     let (sender, keys) = mpsc::channel(KEY_QUEUE);
     let (finished, done) = oneshot::channel();
     let stop = Arc::new(AtomicBool::new(false));
+    let discard = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
+    let thread_discard = Arc::clone(&discard);
     efr_stdx::thread::spawn_named("efr-keys", THREAD_STACK, move || {
-        if let Err(error) = read_keys(&fd, &sender, &thread_stop) {
+        if let Err(error) = read_keys(&fd, &sender, &thread_stop, &thread_discard) {
             tracing::debug!(%error, "reading keys from the terminal failed");
         }
         drop(finished);
     })
     .map_err(|source| CliError::Terminal { source: io::Error::other(source) })?;
-    Ok(KeyReader { keys, stop, done })
+    Ok(KeyReader { keys, stop, discard, done })
 }
 
 /// Reads keys from `fd` in non-canonical mode until `stop` is set or the consumer is
-/// gone, then restores the terminal's settings.
-fn read_keys(fd: &OwnedFd, keys: &mpsc::Sender<u8>, stop: &AtomicBool) -> io::Result<()> {
+/// gone, then restores the terminal's settings, first throwing away unread input when
+/// `discard` is set.
+fn read_keys(
+    fd: &OwnedFd,
+    keys: &mpsc::Sender<u8>,
+    stop: &AtomicBool,
+    discard: &AtomicBool,
+) -> io::Result<()> {
     let saved = tcgetattr(fd)?;
     let mut keyed = saved.clone();
     keyed.local_modes.remove(LocalModes::ICANON | LocalModes::ECHO);
@@ -136,7 +178,7 @@ fn read_keys(fd: &OwnedFd, keys: &mpsc::Sender<u8>, stop: &AtomicBool) -> io::Re
     // after the question appeared.
     tcflush(fd, QueueSelector::IFlush)?;
     tcsetattr(fd, OptionalActions::Now, &keyed)?;
-    let _restore = Restore { fd: fd.as_fd(), saved };
+    let _restore = Restore { fd: fd.as_fd(), saved, discard };
     let mut byte = [0_u8; 1];
     while !stop.load(Ordering::Acquire) {
         match rustix::io::read(fd, &mut byte) {
@@ -158,10 +200,18 @@ fn read_keys(fd: &OwnedFd, keys: &mpsc::Sender<u8>, stop: &AtomicBool) -> io::Re
 struct Restore<'fd> {
     fd: std::os::fd::BorrowedFd<'fd>,
     saved: Termios,
+    discard: &'fd AtomicBool,
 }
 
 impl Drop for Restore<'_> {
     fn drop(&mut self) {
+        // NOTE: before the settings: once echo is back, a key that is still queued
+        // would show, and after `efr` exits the user's shell would read it.
+        if self.discard.load(Ordering::Acquire)
+            && let Err(error) = tcflush(self.fd, QueueSelector::IFlush)
+        {
+            tracing::warn!(%error, "unread input could not be discarded");
+        }
         if let Err(error) = tcsetattr(self.fd, OptionalActions::Now, &self.saved) {
             tracing::warn!(%error, "the terminal's settings could not be restored");
         }

@@ -120,3 +120,56 @@ async fn stopping_a_reader_whose_queue_is_full_ends_and_restores_the_terminal() 
     assert!(canonical(&probe), "the line mode is back");
     assert!(echoes(&probe), "echo is back");
 }
+
+/// What a line read from the terminal on `probe` after `master` ends it with Enter.
+fn next_line(master: &OwnedFd, probe: &OwnedFd) -> Vec<u8> {
+    rustix::io::write(master, b"\n").unwrap();
+    let mut line = [0_u8; 128];
+    let read = rustix::io::read(probe, &mut line).unwrap();
+    line[..read].to_vec()
+}
+
+/// A reader whose thread is blocked on a full queue, with keys still unread behind it.
+async fn full_reader(master: &OwnedFd, slave: OwnedFd, probe: &OwnedFd) -> KeyReader {
+    let reader = start_on(slave).unwrap();
+    wait_for_key_mode(probe);
+    rustix::io::write(master, &[b'x'; 2 * KEY_QUEUE]).unwrap();
+    while reader.keys.len() < KEY_QUEUE {
+        tokio::task::yield_now().await;
+    }
+    reader
+}
+
+#[tokio::test]
+async fn stopping_while_discarding_throws_away_the_unread_input() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let reader = full_reader(&master, slave, &probe).await;
+
+    reader.stop_discarding().await;
+    assert!(canonical(&probe) && echoes(&probe));
+    assert_eq!(next_line(&master, &probe), b"\n", "nothing typed before is left");
+}
+
+#[tokio::test]
+async fn a_plain_stop_leaves_the_unread_input_for_the_next_reader() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let reader = full_reader(&master, slave, &probe).await;
+
+    reader.stop().await;
+    let line = next_line(&master, &probe);
+    assert!(line.len() > 1 && line.starts_with(b"x"), "{line:?}");
+}
+
+#[tokio::test]
+async fn discarding_the_queue_drops_only_the_keys_that_wait_in_it() {
+    let (sender, keys) = mpsc::channel(4);
+    let mut reader = KeyReader::from_channel(keys);
+    sender.send(b'a').await.unwrap();
+    sender.send(b'b').await.unwrap();
+    reader.discard_queued();
+    sender.send(b'c').await.unwrap();
+    assert_eq!(reader.next().await, Some(b'c'));
+    reader.stop().await;
+}

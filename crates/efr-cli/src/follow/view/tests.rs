@@ -499,11 +499,31 @@ fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
     assert!(out.contains("answer sent"), "{out}");
     assert!(out.contains("it is not shown"), "the question stays for the next line: {out}");
 
+    // sudo may ask again after a wrong password, so keys stay quiet until the call
+    // completes.
     let step = view.event(&input(InputWait::None), SIZE, true);
-    assert!(step.settled);
+    assert!(!step.settled);
+    assert_eq!(step.ask, Some(Ask::Discard(call())));
     let out = readable(&step.out);
     assert!(!out.contains("type the answer"), "the question is gone: {out}");
     assert!(out.contains("[sudo] password for egg:"), "the tail stays: {out}");
+
+    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    view.event(&input(InputWait::None), SIZE, true);
+    let step = view.event(&call_completed(0), SIZE, true);
+    assert!(step.settled, "the keys stop with the call");
+    assert_eq!(step.ask, None);
+}
+
+#[test]
+fn a_visible_input_that_ends_settles_at_once() {
+    let mut view = terminal_view();
+    view.event(&tool_started("pacman -Syu"), SIZE, true);
+    view.event(&input(InputWait::Visible), SIZE, true);
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert!(step.settled);
+    assert_eq!(step.ask, None);
 }
 
 #[test]

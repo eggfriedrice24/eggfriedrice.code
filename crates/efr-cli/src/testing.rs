@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::future::{pending, ready};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -152,6 +152,8 @@ impl Keys for NoKeys {
 #[derive(Debug, Default)]
 pub(crate) struct ScriptedKeys {
     senders: Mutex<Vec<mpsc::Sender<u8>>>,
+    /// Each reader's flag that says it threw away unread input when it stopped.
+    discards: Mutex<Vec<Arc<AtomicBool>>>,
     started: Notify,
 }
 
@@ -188,6 +190,11 @@ impl ScriptedKeys {
     pub(crate) fn starts(&self) -> usize {
         self.senders.lock().unwrap().len()
     }
+
+    /// True when the newest reader was stopped with its unread input thrown away.
+    pub(crate) fn discarded(&self) -> bool {
+        self.discards.lock().unwrap().last().is_some_and(|flag| flag.load(Ordering::Acquire))
+    }
 }
 
 impl Keys for ScriptedKeys {
@@ -198,8 +205,10 @@ impl Keys for ScriptedKeys {
     fn start(&self) -> Result<KeyReader, CliError> {
         let (sender, keys) = mpsc::channel(8);
         self.senders.lock().unwrap().push(sender);
+        let reader = KeyReader::from_channel(keys);
+        self.discards.lock().unwrap().push(reader.discard_flag());
         self.started.notify_one();
-        Ok(KeyReader::from_channel(keys))
+        Ok(reader)
     }
 }
 

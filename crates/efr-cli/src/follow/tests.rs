@@ -509,14 +509,15 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
             tokio::task::yield_now().await;
         }
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
-        presser.stopped().await;
         conn.item(sub, &item(15, shell_completed(0))).await;
+        presser.stopped().await;
         conn.item(sub, &item(16, turn_completed())).await;
         conn.until_closed().await;
     })
     .await;
     result.unwrap();
     assert_eq!(keys.starts(), 1);
+    assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
     assert!(out.contains("it is not shown and the agent does not see it"), "{out}");
     assert!(out.contains("answer sent"), "{out}");
     // Not the answer, not a piece of it, in any frame or note.
@@ -608,4 +609,72 @@ async fn without_keys_a_hidden_wait_is_a_note_and_nobody_answers() {
          the command waits for hidden input, such as a password; efr cannot ask for it here\n\
          shell exited with 1\n"
     );
+}
+
+#[tokio::test]
+async fn keys_stay_quiet_between_two_hidden_asks_of_one_call() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo true"))).await;
+        conn.item(sub, &item(12, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
+        presser.type_bytes(b"wrong\r").await;
+        let (id, _) = input_respond(&mut conn).await;
+        conn.reply(id, &InputRespondResult {}).await;
+        while !seen.stdout().contains("answer sent") {
+            tokio::task::yield_now().await;
+        }
+        // sudo checks the password and says it was wrong: no wait for a while.
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(15, shell_output("Sorry, try again."))).await;
+        while !seen.stdout().contains("Sorry, try again.") {
+            tokio::task::yield_now().await;
+        }
+        // Typed while nothing is asked: read and thrown away, never echoed or sent.
+        presser.type_bytes(b"hunter2\r").await;
+        conn.item(sub, &item(16, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(17, input_changed(InputWait::Hidden))).await;
+        presser.type_bytes(b"right\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "right", "nothing from before the ask");
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(18, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(19, shell_completed(0))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(20, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1, "one reader, so echo never came back in between");
+    assert!(keys.discarded());
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter"), "{written}");
+        assert!(!written.contains("right"), "{written}");
+    }
+}
+
+#[tokio::test]
+async fn a_turn_that_ends_while_a_password_is_asked_throws_away_what_was_typed() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, _, _) = run_view(&env, &ctx, terminal_view(), |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo true"))).await;
+        conn.item(sub, &item(12, input_changed(InputWait::Hidden))).await;
+        presser.type_bytes(b"hunt").await;
+        let interrupted = Event::TurnInterrupted { turn_id: turn() };
+        conn.item(sub, &item(13, interrupted)).await;
+        presser.stopped().await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::TurnInterrupted)), "{result:?}");
+    assert!(keys.discarded(), "the half-typed password never reaches the shell");
 }

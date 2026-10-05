@@ -98,6 +98,11 @@ pub(crate) enum Ask {
     /// A line for the running call `call_id`, whose command waits for input. `hidden`
     /// when the terminal's echo is off: the answer must never show.
     Input { call_id: CallId, hidden: bool },
+    /// Nothing to answer now, but keep reading keys and throw them away until call
+    /// `call_id` completes. It asked for a hidden answer and may ask again, as `sudo`
+    /// does after a wrong password, and a password typed again meanwhile must neither
+    /// show nor stay queued for the user's shell.
+    Discard(CallId),
 }
 
 /// The tool call whose output is arriving now.
@@ -110,6 +115,9 @@ struct Running {
     wait: InputWait,
     /// The user is being asked for that input now.
     asking: bool,
+    /// It asked for a hidden answer and still runs: keys are read and thrown away
+    /// while it asks nothing.
+    guarding: bool,
     /// What the user typed so far, for a visible answer only.
     typed: String,
 }
@@ -121,8 +129,14 @@ impl Running {
             tail: String::new(),
             wait: InputWait::None,
             asking: false,
+            guarding: false,
             typed: String::new(),
         }
+    }
+
+    /// True while keys are read for it, to answer or to throw away.
+    fn reads_keys(&self) -> bool {
+        self.asking || self.guarding
     }
 
     /// The input asked for, if the user is asked for one now; true when hidden.
@@ -364,14 +378,23 @@ impl TurnView {
     ) -> Step {
         let approval_pending = self.asking.is_some();
         let (running, replaced) = self.running(call_id);
-        let settled = replaced || running.asking;
+        if running.asked() == Some(true) {
+            running.guarding = true;
+        }
+        let settled = replaced || running.reads_keys();
         running.wait = input;
         running.asking = false;
         running.typed.clear();
         let hidden = match input {
             InputWait::Hidden => true,
             InputWait::Visible => false,
-            // No wait, or one this build does not know: nothing to ask.
+            // No wait, or one this build does not know: nothing to ask, but a call that
+            // asked for a password keeps the keys quiet until it completes.
+            _ if running.guarding => {
+                let mut step = self.commit(String::new(), size);
+                step.ask = Some(Ask::Discard(call_id));
+                return step;
+            }
             _ => return Step { settled, ..self.commit(String::new(), size) },
         };
         if !can_ask {
@@ -408,17 +431,17 @@ impl TurnView {
         if let Some(running) = &self.running
             && running.call_id != call_id
         {
-            replaced = running.asking;
+            replaced = running.reads_keys();
             self.running = None;
         }
         (self.running.get_or_insert_with(|| Running::new(call_id)), replaced)
     }
 
-    /// Call `call_id` completed: its tail and any question for it go. True when it
-    /// was asking for input.
+    /// Call `call_id` completed: its tail and any question for it go. True when keys
+    /// were read for it.
     fn call_ended(&mut self, call_id: CallId) -> bool {
         match self.running.take() {
-            Some(running) if running.call_id == call_id => running.asking,
+            Some(running) if running.call_id == call_id => running.reads_keys(),
             other => {
                 self.running = other;
                 false
@@ -598,6 +621,7 @@ impl TurnView {
             // One question at a time: the approval's key reader replaces the input's.
             if let Some(running) = &mut self.running {
                 running.asking = false;
+                running.guarding = false;
                 running.typed.clear();
             }
             if !self.terminal() {
@@ -628,7 +652,7 @@ impl TurnView {
     }
 
     fn end(&mut self, end: TurnEnd, note: Option<&str>, size: Size) -> Step {
-        let input = self.running.as_ref().is_some_and(|running| running.asking);
+        let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some() || input;
         let mut step = self.close(size);
         if let Some(note) = note {

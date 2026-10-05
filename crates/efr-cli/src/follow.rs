@@ -70,8 +70,8 @@ pub(crate) async fn follow(
     };
     // NOTE: the terminal must be back in its normal mode before anything else is
     // written or the process exits, whichever way the loop ended.
-    if let Some((keys, _)) = follower.keys.take() {
-        keys.stop().await;
+    if let Some((keys, asking)) = follower.keys.take() {
+        stop(keys, &asking).await;
     }
     if let Err(error) = &result {
         let size = ctx.screen.size();
@@ -124,6 +124,18 @@ enum Asking {
     Approval(CallId),
     /// The input that a running call waits for, with a line.
     Input { call_id: CallId, hidden: bool, line: AnswerLine },
+    /// Nothing: the keys are thrown away until the call that asked for a hidden answer
+    /// completes.
+    Discard,
+}
+
+/// Stops `keys`. A reader that read an answer line throws away what is still unread,
+/// so the rest of a password neither shows nor reaches the user's shell.
+async fn stop(keys: KeyReader, asking: &Asking) {
+    match asking {
+        Asking::Approval(_) => keys.stop().await,
+        Asking::Input { .. } | Asking::Discard => keys.stop_discarding().await,
+    }
 }
 
 impl Follower<'_> {
@@ -260,22 +272,34 @@ impl Follower<'_> {
     /// Writes a step and starts or stops reading keys as it says.
     async fn apply(&mut self, step: Step, out: &mut Output) -> Result<Option<TurnEnd>, CliError> {
         write(out, &step)?;
-        let new_question = step.ask.is_some();
-        if (step.settled || step.end.is_some() || new_question)
-            && let Some((keys, _)) = self.keys.take()
-        {
-            keys.stop().await;
-        }
-        if let Some(ask) = step.ask {
-            let asking = match ask {
-                Ask::Approval(call_id) => Asking::Approval(call_id),
-                Ask::Input { call_id, hidden } => {
-                    Asking::Input { call_id, hidden, line: AnswerLine::new() }
+        match step.ask {
+            Some(ask) => {
+                let asking = match ask {
+                    Ask::Approval(call_id) => Asking::Approval(call_id),
+                    Ask::Input { call_id, hidden } => {
+                        Asking::Input { call_id, hidden, line: AnswerLine::new() }
+                    }
+                    Ask::Discard(_) => Asking::Discard,
+                };
+                let reader = match self.keys.take() {
+                    // NOTE: a reader that runs is kept, so echo never comes back between
+                    // two questions; the keys in its queue were typed before this one.
+                    Some((mut reader, _)) => {
+                        reader.discard_queued();
+                        reader
+                    }
+                    // Starting the reader discards typeahead, so nothing typed before
+                    // the question answers it or stays queued for the shell.
+                    None => self.ctx.keys.start()?,
+                };
+                self.keys = Some((reader, asking));
+            }
+            None if step.settled || step.end.is_some() => {
+                if let Some((keys, asking)) = self.keys.take() {
+                    stop(keys, &asking).await;
                 }
-            };
-            // Starting the reader discards typeahead, so nothing typed before the
-            // question answers it or stays queued for the shell.
-            self.keys = Some((self.ctx.keys.start()?, asking));
+            }
+            None => {}
         }
         Ok(step.end)
     }
@@ -291,10 +315,14 @@ impl Follower<'_> {
             return Ok(());
         };
         let Some(key) = key else {
-            reader.stop().await;
+            stop(reader, &asking).await;
             return Ok(());
         };
         match asking {
+            Asking::Discard => {
+                self.keys = Some((reader, Asking::Discard));
+                Ok(())
+            }
             Asking::Approval(call_id) => {
                 let Some(decision) = keys::decision(key) else {
                     self.keys = Some((reader, Asking::Approval(call_id)));
