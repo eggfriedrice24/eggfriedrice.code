@@ -23,6 +23,7 @@ shell.program = (unset)  # default
 shell.login = true  # default
 shell.idle_minutes = 5  # file
 shell.sudo_cache = "keep"  # default
+shell.interactive_timeout_minutes = 60  # default
 conversation.max_queued = 16  # default
 conversation.approval_timeout_secs = (unset)  # default
 conversation.update_interval_ms = 200  # default

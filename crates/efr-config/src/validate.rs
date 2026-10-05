@@ -78,6 +78,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         return Err(invalid("shell.program", path_text(program), "an absolute path"));
     }
     within("shell.idle_minutes", shell.idle_minutes, 0..=525_600, "between 0 and 525600 (a year)")?;
+    within(
+        "shell.interactive_timeout_minutes",
+        shell.interactive_timeout_minutes,
+        1..=1_440,
+        "between 1 and 1440 (a day)",
+    )?;
 
     let queued = u64::try_from(conversation.max_queued).unwrap_or(u64::MAX);
     within("conversation.max_queued", queued, 1..=1024, "between 1 and 1024")?;

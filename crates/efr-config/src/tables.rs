@@ -199,11 +199,22 @@ pub struct ShellSettings {
     /// forget sudo's and doas's credentials after each call, before anything else runs
     /// there. Read at each call.
     pub sudo_cache: SudoCache,
+    /// The longest a command that you approved because it may wait for input at the
+    /// terminal (`sudo`, `ssh`) runs before its call answers the model, in minutes,
+    /// while a terminal that can type answers follows the conversation; the model's own
+    /// timeout holds without one. Read at each call.
+    pub interactive_timeout_minutes: u64,
 }
 
 impl Default for ShellSettings {
     fn default() -> Self {
-        ShellSettings { program: None, login: true, idle_minutes: 60, sudo_cache: SudoCache::Keep }
+        ShellSettings {
+            program: None,
+            login: true,
+            idle_minutes: 60,
+            sudo_cache: SudoCache::Keep,
+            interactive_timeout_minutes: 60,
+        }
     }
 }
 

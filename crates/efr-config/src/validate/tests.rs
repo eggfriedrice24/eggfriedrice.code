@@ -37,3 +37,23 @@ fn a_secret_path_below_home_must_start_with_the_tilde_component() {
     assert_eq!(invalid.key, "permissions.secret_paths");
     assert_eq!(invalid.value, "\"~vault\"");
 }
+
+#[test]
+fn the_interactive_timeout_is_between_a_minute_and_a_day() {
+    let with = |minutes: u64| {
+        let mut settings = Settings::default();
+        settings.shell.interactive_timeout_minutes = minutes;
+        check(&settings)
+    };
+    assert_eq!(Settings::default().shell.interactive_timeout_minutes, 60);
+    for minutes in [1, 60, 1_440] {
+        assert_eq!(with(minutes), Ok(()), "{minutes}");
+    }
+    for minutes in [0, 1_441] {
+        assert_eq!(
+            with(minutes).map_err(|invalid| invalid.key),
+            Err("shell.interactive_timeout_minutes"),
+            "{minutes}"
+        );
+    }
+}

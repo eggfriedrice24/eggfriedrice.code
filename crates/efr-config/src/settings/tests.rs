@@ -30,6 +30,7 @@ fn without_a_file_every_value_is_the_default() {
     assert!(settings.shell.login);
     assert_eq!(settings.shell.idle_minutes, 60);
     assert_eq!(settings.shell.sudo_cache, SudoCache::Keep);
+    assert_eq!(settings.shell.interactive_timeout_minutes, 60);
     assert_eq!(settings.conversation.max_queued, 16);
     assert_eq!(settings.source("log"), Source::Default);
     assert_eq!(settings.path, PathBuf::from(PATH));
@@ -66,6 +67,7 @@ fn the_file_sets_what_it_names() {
         login = false
         idle_minutes = 0
         sudo_cache = "per_call"
+        interactive_timeout_minutes = 15
 
         [conversation]
         max_queued = 4
@@ -99,6 +101,7 @@ fn the_file_sets_what_it_names() {
     assert!(!settings.shell.login);
     assert_eq!(settings.shell.idle_minutes, 0);
     assert_eq!(settings.shell.sudo_cache, SudoCache::PerCall);
+    assert_eq!(settings.shell.interactive_timeout_minutes, 15);
     assert_eq!(settings.conversation.max_queued, 4);
     assert_eq!(settings.conversation.approval_timeout_secs, Some(600));
     assert_eq!(settings.conversation.update_interval_ms, 50);

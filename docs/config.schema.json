@@ -460,6 +460,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "interactive_timeout_minutes": {
+          "default": 60,
+          "description": "The longest a command that you approved because it may wait for input at the\nterminal (`sudo`, `ssh`) runs before its call answers the model, in minutes,\nwhile a terminal that can type answers follows the conversation; the model's own\ntimeout holds without one. Read at each call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "login": {
           "default": true,
           "description": "Start the hidden shell as a login shell.",
@@ -557,6 +564,7 @@
       "$ref": "#/$defs/ShellSettings",
       "default": {
         "idle_minutes": 60,
+        "interactive_timeout_minutes": 60,
         "login": true,
         "sudo_cache": "keep"
       },
