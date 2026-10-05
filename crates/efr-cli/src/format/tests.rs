@@ -133,6 +133,17 @@ fn status_lists_one_fact_per_line() {
 }
 
 #[test]
+fn status_shows_times_to_the_second() {
+    let nanos = SignedDuration::from_nanos(143_411_554);
+    let mut result = status_result();
+    result.started_at = before(2 * 3_600 + 60) + nanos;
+    result.providers[0].expires_at = Some(after(52 * 60) + nanos);
+    let text = status(&result, Path::new("/s"), now());
+    assert!(text.contains("started        2026-10-04T09:59:00Z (2h 0m ago)\n"), "{text}");
+    assert!(text.contains("token expires 2026-10-04T12:52:00Z (in 52m 0s)\n"), "{text}");
+}
+
+#[test]
 fn status_without_providers_says_so() {
     let result = AdminStatusResult { providers: Vec::new(), ..status_result() };
     let text = status(&result, Path::new("/s"), now());
@@ -163,7 +174,8 @@ fn conversations_list_newest_first_with_status_and_age() {
         conversations: vec![
             summary(1, ConversationStatus::Running, Some("fix the nginx config"), 30),
             summary(2, ConversationStatus::AwaitingApproval, Some("tidy\n~/.zshrc"), 3_700),
-            summary(3, ConversationStatus::Idle, None, 200_000),
+            summary(3, ConversationStatus::Idle, Some("rotate the logs"), 758),
+            summary(4, ConversationStatus::Idle, None, 200_000),
         ],
         next_cursor: Some(PageCursor::new("c2")),
     };

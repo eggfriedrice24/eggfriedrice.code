@@ -232,7 +232,8 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         ),
     );
     row("daemon id", &status.daemon_id.to_string());
-    row("started", &format!("{} ({})", status.started_at, ago(status.started_at, now)));
+    // Whole seconds: the nanoseconds of a start time say nothing to a person.
+    row("started", &format!("{:.0} ({})", status.started_at, ago(status.started_at, now)));
     row("socket", &one_line(&socket.display().to_string()));
     row("screen", &one_line(&status.screen_backend));
     row("conversations", &status.conversations.to_string());
@@ -245,7 +246,7 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
             (false, _) => "not logged in".to_owned(),
             (true, None) => "logged in".to_owned(),
             (true, Some(expires)) => {
-                format!("logged in, token expires {expires} ({})", until(expires, now))
+                format!("logged in, token expires {expires:.0} ({})", until(expires, now))
             }
         };
         row("provider", &format!("{}: {state}", one_line(&provider.provider)));
@@ -261,9 +262,11 @@ pub(crate) fn conversations(list: &ConversationsListResult, now: Timestamp) -> S
     let mut out = String::new();
     for summary in &list.conversations {
         let title = summary.title.as_deref().map_or_else(|| "(untitled)".to_owned(), one_line);
+        // The age is at most 11 characters wide (`59m 59s ago`, `23h 59m ago`), so the
+        // titles start in one column.
         let _ = writeln!(
             out,
-            "{}  {:<17}  {:>9}  {title}",
+            "{}  {:<17}  {:>11}  {title}",
             summary.id,
             status_word(summary.status),
             ago(summary.updated_at, now)
