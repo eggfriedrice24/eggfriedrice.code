@@ -224,9 +224,12 @@ below a directory asks when a secret lies below it, unless a rule allows that se
 `rg TOKEN ~/.aws` asks, because `~/.aws/credentials` lies below `~/.aws`. Naming a
 secret denies the call without asking you, unless one of your rules opens it.
 
-What the text cannot show, the engine cannot judge. The shell tool resolves paths
-lexically, so it cannot follow a symbolic link that an earlier approved command made.
-A rule trusts that a program name means what it says: an alias or a function of the
+What the text cannot show, the engine cannot judge. The daemon also declares what each
+path reaches through a symbolic link, so `cat notes`, where `notes` links to
+`~/.ssh/id_ed25519`, is denied like `cat ~/.ssh/id_ed25519`, and a recursive search
+whose root is a link is judged by its target too. It does not see a link that a glob
+expands to, a link below the root of a recursive search that the program follows
+(`rg -L`, `grep -R`, `find -L`), or a link that the same line creates. A rule trusts that a program name means what it says: an alias or a function of the
 same name in your startup files changes what runs, and so can configuration that a
 repository already has for `git`, or includes from its work tree. A script or a build
 reads files that the line does not name.

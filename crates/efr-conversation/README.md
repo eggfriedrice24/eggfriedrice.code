@@ -80,7 +80,9 @@ by field:
   `efr_provider::ToolDefinition`;
 - `requirements`: build an `efr_tools::ToolContext` from the `CallContext` (plus the
   home, the clock and the write journal the daemon holds), call
-  `ToolRegistry::requirements`, and copy `ToolRequirements` into
+  `ToolRegistry::requirements`, add what each path reaches through a symbolic link
+  (`ToolRequirements::with_real_paths`, on the blocking pool), and copy
+  `ToolRequirements` into
   `efr_permissions::Requirements` (`paths` with `AccessMode::Read`, `ReadTree` or
   `Write` to `with_read`, `with_read_tree` or `with_write`, then `command`, `network`,
   `interactive`); a `ToolError` becomes its `Display` text for the model. The turn

@@ -204,6 +204,47 @@ async fn a_shell_call_resolves_relative_paths_where_the_hidden_shell_is() {
     assert_eq!(requirements.paths, Requirements::none().with_read("/var/log/notes.txt").paths);
 }
 
+#[tokio::test]
+async fn a_shell_call_through_a_link_into_the_secrets_declares_and_meets_the_secret() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    let cwd = home.join("p/app");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir(home.join(".ssh")).unwrap();
+    std::fs::write(home.join(".ssh/id_ed25519"), "key").unwrap();
+    std::os::unix::fs::symlink(home.join(".ssh/id_ed25519"), cwd.join("notes")).unwrap();
+    std::os::unix::fs::symlink(home.join(".ssh"), cwd.join("keys")).unwrap();
+    let toolbox = toolbox(&home);
+    let engine =
+        Engine::new(Locations::new(&home).unwrap(), Config::default().permissions.policy());
+
+    let cat = call("shell", json!({"command": "cat notes"}), &cwd);
+    let requirements = toolbox.requirements(&cat).await.unwrap();
+    assert_eq!(
+        requirements.paths,
+        Requirements::none()
+            .with_read(cwd.join("notes"))
+            .with_read(home.join(".ssh/id_ed25519"))
+            .paths
+    );
+
+    for (command, expected) in [
+        ("cat notes", Effect::Deny),
+        ("rg TOKEN keys", Effect::Deny),
+        ("ls keys/", Effect::Deny),
+        ("cat README.md", Effect::Allow),
+    ] {
+        let shell_call = call("shell", json!({ "command": command }), &cwd);
+        let input = DecisionInput {
+            requirements: toolbox.requirements(&shell_call).await.unwrap(),
+            scope: Scope::Machine,
+            origin: Origin::Shell,
+            conversation_policy: ConversationPolicy::new(home.join(".local/share/efr/scratch/x")),
+        };
+        assert_eq!(engine.decide(&input).effect(), expected, "{command:?}");
+    }
+}
+
 /// What the check point decides for a shell call with `command`, from the shell in
 /// `~/p/app` (or the hidden shell's `shell_cwd` below the home directory), with the
 /// built-in rules followed by `rules`, as the daemon composes them.

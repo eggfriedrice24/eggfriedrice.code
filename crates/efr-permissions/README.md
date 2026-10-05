@@ -24,9 +24,9 @@ Modules:
 
   `with_sealed_root` adds a secret root that no rule opens, which the daemon uses for
   its own `secrets/`. Classification is lexical: `.` and `..` are resolved by name,
-  nothing is read from the disk, and a relative path has no class. Tools resolve symbolic links before they
-  declare a path, so when `/home` links to `/var/home` a tool declares
-  `/var/home/u/.ssh/id_ed25519`. The daemon therefore builds `Locations` from
+  nothing is read from the disk, and a relative path has no class. Symbolic links may
+  be resolved before a path is declared, so when `/home` links to `/var/home` a call
+  may declare `/var/home/u/.ssh/id_ed25519`. The daemon therefore builds `Locations` from
   `efr_scope::Home::path()` and adds `Home::canonical()` with `with_home_alias`; a
   path, a scratch directory or a root under any form of `~` is classified as the same
   path under `~`. A root outside `~` whose resolved form differs is added in both
@@ -124,10 +124,12 @@ property:
   `~/.aws` is user config; naming a secret itself, as `cat ~/.ssh/id_ed25519` does, is
   denied.
 
-What the engine cannot see, the caller owns: tools resolve symbolic links and relative
-paths before they declare them (the shell tool resolves its arguments lexically against
-the hidden shell's directory and cannot follow a link that an earlier approved command
-made), and a pattern trusts that a program name means in the hidden shell what it says:
+What the engine cannot see, the caller owns: tools resolve relative paths before they
+declare them, and the daemon adds what each declared path reaches through a symbolic
+link (`ToolRequirements::with_real_paths`), so the shell tool's `cat notes`, where
+`notes` links into `~/.ssh`, also declares the key. A link that a glob expands to, or
+one below the root of a recursive search that the program follows, is not seen. A
+pattern trusts that a program name means in the hidden shell what it says:
 no alias or function of that name from the user's startup files, and no repository
 configuration that runs a program for `git status`. A `.git` is user config, so the
 model cannot write one without approval; configuration that a repository already has,

@@ -96,10 +96,23 @@ impl Toolbox for DaemonToolbox {
 
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         let context = self.context(&call.context);
-        self.registry
+        let declared = self
+            .registry
             .requirements(&call.name, &context, &call.input)
-            .map(permission_requirements)
-            .map_err(|error| for_model(&error))
+            .map_err(|error| for_model(&error))?;
+        // NOTE: a tool declares paths as written. What one reaches through a symbolic
+        // link is read from the disk here, on the blocking pool, so the engine judges
+        // `cat notes`, where `notes` links into `~/.ssh`, as a read of the key too.
+        let home = self.home.clone();
+        match tokio::task::spawn_blocking(move || declared.with_real_paths(&home)).await {
+            Ok(declared) => Ok(permission_requirements(declared)),
+            Err(error) => {
+                tracing::warn!(error = %error, "the paths of a tool call could not be resolved");
+                Err("efr could not check where the paths of this call lead on disk, so it did \
+                     not run; try again"
+                    .to_owned())
+            }
+        }
     }
 
     async fn preview(&self, call: &ToolCall) -> Option<String> {
