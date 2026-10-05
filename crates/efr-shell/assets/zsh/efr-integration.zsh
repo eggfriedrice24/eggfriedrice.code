@@ -113,17 +113,33 @@ _efr_hs_install() {
 }
 
 # Empties the line and leaves the line editor in insert mode, so the paste that
-# follows is the whole command line, even for a vi user left in command mode.
+# follows is the whole command line, even for a vi user left in command mode. efr
+# types this key before every command, so the aliases are checked right before the
+# line is read, after any plugin that loads while the prompt waits.
 _efr_hs_clear_line() {
   BUFFER=
   CURSOR=0
   [[ $KEYMAP == vicmd ]] && builtin zle vi-insert
+  _efr_hs_plain_words
+  return 0
+}
+
+# A command line that the permission engine allowed must run as written. A global
+# alias (`alias -g L='| less'`, as oh-my-zsh's common-aliases defines) expands any
+# word of a line into pipes or other programs, and a suffix alias (`alias -s txt=vim`)
+# runs a program for a word that only names a file, so the hidden shell keeps neither.
+_efr_hs_plain_words() {
+  builtin emulate -L zsh
+  builtin zmodload zsh/parameter
+  (( ${#galiases} )) && builtin unalias -- ${(k)galiases}
+  (( ${#saliases} )) && builtin unalias -s -- ${(k)saliases}
   return 0
 }
 
 # No `emulate -L` here: it would make the option changes below local to this function.
 _efr_hs_init() {
   _efr_hs_install
+  _efr_hs_plain_words
 
   # See _efr_hs_precmd: the PROMPT_SP mark moves from before the precmd hooks to after D.
   if [[ -o prompt_sp && -o prompt_cr ]]; then

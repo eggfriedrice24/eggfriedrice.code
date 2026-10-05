@@ -192,6 +192,18 @@ async fn e2e_a_pattern_that_matches_nothing_never_vanishes() {
     assert_eq!(result.output, "off\n");
 }
 
+#[tokio::test]
+async fn e2e_global_and_suffix_aliases_from_the_users_zshrc_are_dropped() {
+    let Some(zsh) = Zsh::start("e2e_global_and_suffix_aliases_from_the_users_zshrc_are_dropped")
+    else {
+        return;
+    };
+    let zshrc = "alias -g L='| tr a-z A-Z'\nalias -s txt=cat\nalias greet='echo hi'\n";
+    std::fs::write(zsh.home().join(".zshrc"), zshrc).unwrap();
+    let result = zsh.run("echo hello L; print -r -- ${#galiases} ${#saliases}; greet").await;
+    assert_eq!(result.output, "hello L\n0 0\nhi\n");
+}
+
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
 fn plugin() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")

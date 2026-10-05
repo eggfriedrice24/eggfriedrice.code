@@ -131,9 +131,11 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   efr keeps its own recording), no pager (the four pager variables are set to `cat`
   again, because a `.zshrc` often exports `PAGER=less`), no `NULL_GLOB` or
   `CSH_NULL_GLOB` (the permission engine counts a pattern that matches nothing as one
-  word, so it must not vanish), and zsh's `PROMPT_SP` mark
-  is printed after `D` instead of before the precmd hooks, so it never counts as
-  output.
+  word, so it must not vanish), no global or suffix aliases (removed after the
+  startup files and again by the key efr types before each command, because they
+  change what a line that the permission engine allowed runs), and zsh's
+  `PROMPT_SP` mark is printed after `D` instead of before the precmd hooks, so it
+  never counts as output.
 
 ## Tier
 
