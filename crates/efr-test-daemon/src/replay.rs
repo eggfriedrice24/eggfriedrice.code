@@ -636,7 +636,11 @@ impl Replay {
         let Some(conversation_id) = self.conversation else {
             return Ok(());
         };
-        let params = ConversationSubscribe { conversation_id, after_seq: Some(self.last_seq) };
+        let params = ConversationSubscribe {
+            conversation_id,
+            after_seq: Some(self.last_seq),
+            answers_input: false,
+        };
         self.pending.clear();
         self.subscription = Some(self.client.stream(Method::ConversationSubscribe(params)).await?);
         Ok(())

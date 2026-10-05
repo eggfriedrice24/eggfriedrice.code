@@ -237,6 +237,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
         Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id: conversation_id(),
             after_seq: Some(Seq::new(40)),
+            answers_input: true,
         }),
         Method::ConversationHistory(ConversationHistory {
             conversation_id: conversation_id(),

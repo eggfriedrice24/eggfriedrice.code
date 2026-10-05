@@ -30,7 +30,11 @@ fn every_method() -> Vec<Method> {
             device_id: None,
         }),
         Method::ConversationsList(ConversationsList::default()),
-        Method::ConversationSubscribe(ConversationSubscribe { conversation_id, after_seq: None }),
+        Method::ConversationSubscribe(ConversationSubscribe {
+            conversation_id,
+            after_seq: None,
+            answers_input: false,
+        }),
         Method::ConversationHistory(ConversationHistory {
             conversation_id,
             cursor: None,

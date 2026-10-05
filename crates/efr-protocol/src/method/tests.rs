@@ -58,6 +58,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: conversation(),
                 after_seq: None,
+                answers_input: false,
             }),
             "conversation.subscribe",
             ScopeName::Read,

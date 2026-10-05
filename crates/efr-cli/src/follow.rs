@@ -197,6 +197,7 @@ impl Follower<'_> {
         let method = Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id: self.target.conversation,
             after_seq: Some(self.last_seen),
+            answers_input: false,
         });
         Ok(self.client.stream(method).await?)
     }

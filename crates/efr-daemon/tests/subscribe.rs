@@ -36,6 +36,7 @@ async fn subscribe_resume_after_seq() {
         .stream::<ConversationSubscribeItem>(Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id,
             after_seq: Some(after),
+            answers_input: false,
         }))
         .await
         .unwrap();
@@ -70,7 +71,7 @@ async fn subscribe_gap_too_large_snapshot() {
         let mut stream = replay
             .client()
             .stream::<ConversationSubscribeItem>(Method::ConversationSubscribe(
-                ConversationSubscribe { conversation_id, after_seq },
+                ConversationSubscribe { conversation_id, after_seq, answers_input: false },
             ))
             .await
             .unwrap();
@@ -110,6 +111,7 @@ async fn a_small_gap_is_replayed_event_by_event() {
         .stream::<ConversationSubscribeItem>(Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id,
             after_seq: Some(log[2].seq),
+            answers_input: false,
         }))
         .await
         .unwrap();

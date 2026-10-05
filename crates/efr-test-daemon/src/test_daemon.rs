@@ -471,7 +471,11 @@ impl TestDaemon {
         client: &Client,
         conversation_id: ConversationId,
     ) -> Result<ItemStream<ConversationSubscribeItem>, TestDaemonError> {
-        let params = ConversationSubscribe { conversation_id, after_seq: Some(Seq::ZERO) };
+        let params = ConversationSubscribe {
+            conversation_id,
+            after_seq: Some(Seq::ZERO),
+            answers_input: false,
+        };
         Ok(client.stream(Method::ConversationSubscribe(params)).await?)
     }
 

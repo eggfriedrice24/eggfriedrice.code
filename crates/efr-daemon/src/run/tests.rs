@@ -195,6 +195,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         let mut answer = None;
@@ -281,6 +282,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         while let Some(item) = client.next(stream).await.unwrap() {
@@ -331,6 +333,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         while let Some(item) = watcher.next(stream).await.unwrap() {
@@ -372,6 +375,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         let mut completed = None;
@@ -483,6 +487,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         let mut pty = None;
@@ -579,6 +584,7 @@ mod daemon {
             .send(Method::ConversationSubscribe(ConversationSubscribe {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
+                answers_input: false,
             }))
             .await;
         let mut asked = false;

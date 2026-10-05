@@ -1,7 +1,9 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::{Base64Bytes, PageCursor};
+use crate::{Base64Bytes, ConversationId, ConversationSubscribe, PageCursor, Seq};
+
+const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 
 #[test]
 fn bytes_are_written_as_standard_base64_with_padding() {
@@ -42,4 +44,35 @@ fn a_page_cursor_is_a_plain_string() {
     assert_eq!(cursor.as_str(), "c:41");
     let back: PageCursor = serde_json::from_value(json!("c:41")).unwrap();
     assert_eq!(back, cursor);
+}
+
+#[test]
+fn a_subscribe_from_before_answers_input_still_parses_as_one_that_cannot_answer() {
+    // The params of conversation.subscribe as clients sent them before answers_input.
+    let old = r#"{"conversation_id":"019a9b1c-3d00-7a10-8b20-000000000001","after_seq":40}"#;
+    let params: ConversationSubscribe = serde_json::from_str(old).unwrap();
+    assert_eq!(params.conversation_id, CONVERSATION.parse::<ConversationId>().unwrap());
+    assert_eq!(params.after_seq, Some(Seq::new(40)));
+    assert!(!params.answers_input);
+}
+
+#[test]
+fn answers_input_is_written_only_when_true() {
+    let mut params = ConversationSubscribe {
+        conversation_id: CONVERSATION.parse().unwrap(),
+        after_seq: None,
+        answers_input: false,
+    };
+    assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
+    params.answers_input = true;
+    let value = serde_json::to_value(&params).unwrap();
+    assert_eq!(value, json!({ "conversation_id": CONVERSATION, "answers_input": true }));
+    let back: ConversationSubscribe = serde_json::from_value(value).unwrap();
+    assert_eq!(back, params);
+}
+
+#[test]
+fn answers_input_must_be_a_boolean() {
+    let params = json!({ "conversation_id": CONVERSATION, "answers_input": "yes" });
+    assert!(serde_json::from_value::<ConversationSubscribe>(params).is_err());
 }

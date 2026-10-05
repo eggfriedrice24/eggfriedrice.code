@@ -23,6 +23,7 @@ fn stream() -> Method {
     Method::ConversationSubscribe(ConversationSubscribe {
         conversation_id: "019a9b1c-3d00-7a10-8b20-000000000001".parse::<ConversationId>().unwrap(),
         after_seq: None,
+        answers_input: false,
     })
 }
 

@@ -209,6 +209,7 @@ pub(crate) fn subscribe_frame(id: u64) -> ClientFrame {
                 .parse::<ConversationId>()
                 .unwrap(),
             after_seq: None,
+            answers_input: false,
         }),
     }
 }

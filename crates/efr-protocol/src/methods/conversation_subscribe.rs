@@ -19,6 +19,12 @@ pub struct ConversationSubscribe {
     /// The largest sequence number the client has already seen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_seq: Option<Seq>,
+    /// True when a person at this client can type answers to a running command that
+    /// waits for input, with `input.respond`. The daemon stops a command that waits for
+    /// hidden input, such as a password, when no live subscription of its conversation
+    /// can answer. Absent means false, so an older client counts as one that cannot.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub answers_input: bool,
 }
 
 /// One item of a `conversation.subscribe` stream.
