@@ -179,15 +179,22 @@ impl Tool for ShellTool {
             "Run a command line in this conversation's own hidden zsh. The shell lives \
              as long as the conversation: cd, exported variables and aliases carry over \
              between calls, and it has the user's environment and startup files. It \
-             starts in the user's working directory. The user does not see this shell. \
-             The answer has the output, the exit code and the directory after the \
-             command. A command still running at the timeout keeps running, and the next \
-             call waits for it to end. When a command waits for input (a sudo password, \
-             a [Y/n] question), the user can answer it in their terminal while they \
-             follow the turn: an answer to a question shows in the output, a password \
-             never does. A command that waits for a password while nobody follows the \
-             turn is stopped at once. Set nested_shell when the command must go to a \
-             shell you started inside this one, such as sudo -i or ssh.",
+             starts in the user's working directory. The user does not see this shell, \
+             and nobody can use a full-screen program in it: no editor works there, so \
+             give a command its text yourself (git commit -m) or use write_file. The \
+             answer has the output, the exit code and the directory after the command. A \
+             command still running at the timeout keeps running, and the next call waits \
+             for it to end. When a command waits for input (a sudo password, a [Y/n] \
+             question), the user can answer it in their terminal while they follow the \
+             turn. On a plain terminal an answer to a question shows in the output and a \
+             password never does; behind a program that runs another one on a terminal of \
+             its own (sudo, ssh, docker exec), the program on that inner terminal decides \
+             whether an answer is shown. A call that the user approved because it may \
+             wait for input keeps running past timeout_seconds while the user follows the \
+             turn, up to their interactive limit (60 minutes unless they changed it). A \
+             command that waits for a password while nobody follows the turn is stopped \
+             at once. Set nested_shell when the command must go to a shell you started \
+             inside this one, such as sudo -i or ssh.",
         )
     }
 

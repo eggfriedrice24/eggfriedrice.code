@@ -364,6 +364,9 @@ fn the_description_promises_no_screen_the_user_cannot_see() {
     assert!(description.contains("while they follow the turn"), "{description}");
     assert!(description.contains("a password never does"), "{description}");
     assert!(description.contains("stopped at once"), "{description}");
+    assert!(description.contains("the program on that inner terminal decides"), "{description}");
+    assert!(description.contains("up to their interactive limit"), "{description}");
+    assert!(description.contains("no editor works there"), "{description}");
 }
 
 #[tokio::test]
