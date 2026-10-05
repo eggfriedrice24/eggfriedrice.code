@@ -82,6 +82,16 @@ path in the error, because the permission engine judged the path as written: a
 second call with the real path is judged on its own. A home reached through a link
 (`/home` to `/var/home`) is not refused, since the engine knows both forms of it.
 
+A shell command cannot be refused that way, because `/bin`, `/etc/resolv.conf` and
+many other paths are links. `ToolRequirements::with_real_paths` adds, after each
+declared path that reaches the file system through a link, the path it reaches with
+the same access, so `cat notes`, where `notes` links to `~/.ssh/id_ed25519`, is judged
+as a read of the key too, and a recursive search whose root is a link is judged by its
+target as well. It is the one step that reads the file system (it blocks; the daemon
+runs it on the blocking pool before the engine decides). A link that a glob expands
+to, or one below the root of a recursive search that the program follows, is not
+seen.
+
 ## Tier
 
 Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.

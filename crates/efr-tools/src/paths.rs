@@ -5,7 +5,10 @@
 //! named `~/scratch/notes` could reach `~/.ssh` through a symbolic link. A file tool
 //! therefore works only on a path whose real form is the one the engine judged; for
 //! any other it fails and names the real path, and a second call with that path is
-//! judged on its own.
+//! judged on its own. A shell command cannot be held to that, because `/bin`,
+//! `/etc/resolv.conf` and many more are links, so
+//! [`ToolRequirements::with_real_paths`](crate::ToolRequirements::with_real_paths)
+//! declares the real form beside the written one and the engine judges both.
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -54,6 +57,30 @@ pub(crate) fn normalize(path: &Path) -> PathBuf {
 /// one exception, because the engine knows both forms of it. It blocks; async callers
 /// run it in `spawn_blocking`.
 pub(crate) fn check_real(home: &Home, declared: &Path) -> Result<(), ToolError> {
+    match reached(declared) {
+        Ok(Some(real)) if !same_place(home, declared, &real) => {
+            Err(ToolError::ThroughSymlink { path: declared.to_path_buf(), real })
+        }
+        Ok(_) => Ok(()),
+        Err(source) => Err(ToolError::Read { path: declared.to_path_buf(), source }),
+    }
+}
+
+/// The path that `declared`, an absolute path, reaches through a symbolic link: `None`
+/// when it reaches itself, when only the form of the home directory differs, or when
+/// the file system cannot tell (a directory that cannot be searched, a loop of
+/// links), which the shell running as the same user cannot get through either. It
+/// blocks; async callers run it in `spawn_blocking`.
+pub(crate) fn real_form(home: &Home, declared: &Path) -> Option<PathBuf> {
+    match reached(declared) {
+        Ok(Some(real)) if !same_place(home, declared, &real) => Some(real),
+        Ok(_) | Err(_) => None,
+    }
+}
+
+/// What `declared` reaches: the part of it that exists, with symbolic links resolved,
+/// plus the part that does not exist yet. `Ok(None)` when no part of it exists.
+fn reached(declared: &Path) -> io::Result<Option<PathBuf>> {
     let mut existing = declared;
     let mut missing = Vec::new();
     let resolved = loop {
@@ -61,27 +88,28 @@ pub(crate) fn check_real(home: &Home, declared: &Path) -> Result<(), ToolError> 
             Ok(resolved) => break resolved,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
-                    return Ok(());
+                    return Ok(None);
                 };
                 missing.push(name);
                 existing = parent;
             }
-            Err(source) => return Err(ToolError::Read { path: declared.to_path_buf(), source }),
+            Err(error) => return Err(error),
         }
     };
     let mut real = resolved;
     for name in missing.iter().rev() {
         real.push(name);
     }
-    if real == declared {
-        return Ok(());
-    }
-    if let Ok(below_home) = declared.strip_prefix(home.path())
-        && home.canonical().join(below_home) == real
-    {
-        return Ok(());
-    }
-    Err(ToolError::ThroughSymlink { path: declared.to_path_buf(), real })
+    Ok(Some(real))
+}
+
+/// True when `real` is `declared`, or `declared` with the home directory in its
+/// resolved form.
+fn same_place(home: &Home, declared: &Path, real: &Path) -> bool {
+    real == declared
+        || declared
+            .strip_prefix(home.path())
+            .is_ok_and(|below_home| home.canonical().join(below_home) == real)
 }
 
 #[cfg(test)]

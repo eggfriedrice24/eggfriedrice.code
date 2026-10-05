@@ -4,11 +4,12 @@ use std::fmt;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use efr_scope::Home;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::{ToolContext, ToolError};
+use crate::{ToolContext, ToolError, paths};
 
 /// One tool the model can call.
 ///
@@ -26,7 +27,9 @@ pub trait Tool: Send + Sync + fmt::Debug {
 
     /// What a call with `input` needs: every path with its access mode, the command
     /// line it runs, and whether it talks to the network or may wait for input. Pure:
-    /// it resolves paths lexically against the context and touches no file.
+    /// it resolves paths lexically against the context and touches no file; the caller
+    /// adds what they reach through symbolic links with
+    /// [`ToolRequirements::with_real_paths`].
     fn requirements(&self, ctx: &ToolContext, input: &Value)
     -> Result<ToolRequirements, ToolError>;
 
@@ -155,6 +158,33 @@ impl ToolRequirements {
     #[must_use]
     pub fn with_write(mut self, path: impl Into<PathBuf>) -> Self {
         self.paths.push(PathAccess { path: path.into(), mode: AccessMode::Write });
+        self
+    }
+
+    /// Adds, after each declared path that reaches the file system through a symbolic
+    /// link, the path it reaches, with the same access, so the permission engine judges
+    /// both: `cat notes` where `notes` links to `~/.ssh/id_ed25519` also declares the
+    /// key, and the root of a recursive search that is a link also declares its target.
+    /// A home reached through a link is not added, because the engine knows both forms
+    /// of it, and nothing is added for a path the file system cannot resolve.
+    ///
+    /// The paths come from [`Tool::requirements`] lexically, so this is the one step
+    /// that reads the file system. It blocks; async callers run it in `spawn_blocking`.
+    #[must_use]
+    pub fn with_real_paths(mut self, home: &Home) -> Self {
+        let mut paths: Vec<PathAccess> = Vec::with_capacity(self.paths.len());
+        for access in self.paths {
+            let real =
+                if access.path.is_absolute() { paths::real_form(home, &access.path) } else { None };
+            let mode = access.mode;
+            paths.push(access);
+            if let Some(real) = real
+                && !paths.iter().any(|known| known.path == real && known.mode == mode)
+            {
+                paths.push(PathAccess { path: real, mode });
+            }
+        }
+        self.paths = paths;
         self
     }
 
