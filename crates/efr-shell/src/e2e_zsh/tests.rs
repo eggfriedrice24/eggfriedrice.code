@@ -48,10 +48,19 @@ impl Zsh {
     /// Yields until the screen shows `text`. The screen is fed right after the session,
     /// so this rarely loops.
     async fn screen_shows(&self, text: &str) {
+        self.screen_has(|row| row.contains(text)).await;
+    }
+
+    /// Yields until a row of the screen starts with `text`.
+    async fn screen_row_starts(&self, text: &str) {
+        self.screen_has(|row| row.starts_with(text)).await;
+    }
+
+    async fn screen_has(&self, row_matches: impl Fn(&str) -> bool) {
         let screen = self.sessions.screen(self.conversation).unwrap();
         loop {
             let capture = screen.snapshot(0).await.unwrap();
-            if capture.snapshot.rows.iter().any(|row| efr_screen::row_text(row).contains(text)) {
+            if capture.snapshot.rows.iter().any(|row| row_matches(&efr_screen::row_text(row))) {
                 return;
             }
             tokio::task::yield_now().await;
@@ -386,15 +395,24 @@ impl Zsh {
         can_answer: bool,
         text: &str,
     ) -> (JoinHandle<Result<CommandResult, ShellError>>, Heard) {
-        let (mut listener, mut heard) = listener(can_answer);
+        let (run, mut heard) = self.start_for_call(self.request(command), can_answer);
+        heard.output(text).await;
+        (run, heard)
+    }
+
+    /// Starts `request` for [`CALL`] with a listener that says `can_answer`.
+    fn start_for_call(
+        &self,
+        request: RunRequest,
+        can_answer: bool,
+    ) -> (JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+        let (mut listener, heard) = listener(can_answer);
         let sessions = self.sessions.clone();
         let conversation = self.conversation;
-        let request =
-            self.request(command).with_call(call()).with_timeout(Duration::from_secs(600));
+        let request = request.with_call(call()).with_timeout(Duration::from_secs(600));
         let run = tokio::spawn(async move {
             sessions.run_command(conversation, request, &mut listener).await
         });
-        heard.output(text).await;
         (run, heard)
     }
 
@@ -534,6 +552,82 @@ async fn e2e_a_question_behind_a_relay_in_raw_mode_waits_for_visible_input_and_t
     assert_eq!(result.exit_code, Some(0));
     assert!(result.output.contains("got=y"), "{:?}", result.output);
     assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+impl Zsh {
+    /// Lets `looks` looks pass and checks that the run reported no wait, so that an
+    /// answer for it is refused; then ends the shell at the prompt with `exit`.
+    async fn no_wait_until_exit(
+        &self,
+        run: JoinHandle<Result<CommandResult, ShellError>>,
+        heard: &Heard,
+        looks: usize,
+    ) -> CommandResult {
+        for _ in 0..looks {
+            self.one_look().await;
+        }
+        assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+        let answer = SecretText::new("echo answered");
+        let refused = self.sessions.answer(self.conversation, call(), &answer, false).await;
+        assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+        self.sessions.write(self.conversation, Bytes::from_static(b"exit\r")).await.unwrap();
+        let result = run.await.unwrap().unwrap();
+        assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+        assert!(!result.output.contains("answered"), "{:?}", result.output);
+        result
+    }
+}
+
+#[tokio::test]
+async fn e2e_a_shell_behind_a_relay_reports_no_visible_wait_at_its_prompt() {
+    let Some(zsh) = Zsh::start("e2e_a_shell_behind_a_relay_reports_no_visible_wait_at_its_prompt")
+    else {
+        return;
+    };
+    // The relayed shell's prompt sits after text on a quiet raw terminal, as a question
+    // behind a relay does.
+    let (run, heard) = zsh.run_waiting("script -q -c sh /dev/null", true, "$ ").await;
+    let result = zsh.no_wait_until_exit(run, &heard, 6).await;
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn e2e_a_sentinel_run_reports_a_hidden_wait_but_not_a_nested_shell_prompt() {
+    let Some(zsh) =
+        Zsh::start("e2e_a_sentinel_run_reports_a_hidden_wait_but_not_a_nested_shell_prompt")
+    else {
+        return;
+    };
+    let bash = zsh.run_until_shown(zsh.request("bash --norc --noprofile"), "bash-").await;
+    assert!(bash.interactive(), "{bash:?}");
+
+    // A password prompt in the nested shell is still answered.
+    let (run, mut heard) =
+        zsh.start_for_call(zsh.request(GETPASS).with_mode(RunMode::Sentinel), true);
+    // A sentinel run holds back the end of its output until it cannot be the start of
+    // its end marker, so a short prompt shows on the screen first.
+    zsh.screen_row_starts("pw:").await;
+    zsh.look_until(&mut heard, &[InputWait::Hidden]).await;
+    zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("hunter2"), true).await.unwrap();
+    let read = run.await.unwrap().unwrap();
+    assert_eq!(read.delimiter, Delimiter::Sentinel);
+    assert!(read.output.contains("len=7"), "{:?}", read.output);
+    assert!(!read.output.contains("hunter2"), "{:?}", read.output);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+
+    // A shell named through a variable, which the reading of the command line does not
+    // follow: only the sentinel run's own rule keeps its prompt from being offered.
+    let request = zsh.request("shell=sh; $shell").with_mode(RunMode::Sentinel);
+    let (run, heard) = zsh.start_for_call(request, true);
+    zsh.screen_row_starts("sh-").await;
+    let result = zsh.no_wait_until_exit(run, &heard, 6).await;
+    assert_eq!(result.delimiter, Delimiter::Sentinel);
+    assert_eq!(result.exit_code, Some(0));
+
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"exit\r")).await.unwrap();
+    let back = zsh.run("echo back").await;
+    assert_eq!(back.output, "back\n");
 }
 
 #[tokio::test]

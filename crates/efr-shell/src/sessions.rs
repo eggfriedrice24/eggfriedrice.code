@@ -18,7 +18,7 @@ use efr_stdx::StdxError;
 use efr_stdx::time::{Clock as _, Sleep};
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
-use crate::input::{self, InputWatch, Look, Quiet};
+use crate::input::{self, InputWatch, Look, Offer, Quiet};
 use crate::modes::Terminal;
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
@@ -507,6 +507,7 @@ impl ShellSessions {
         let id = self.inner.next_run.fetch_add(1, Ordering::Relaxed);
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
+        let offer = Offer::of(request.mode, &request.command);
         let order = RunOrder {
             id,
             command: request.command,
@@ -552,7 +553,8 @@ impl ShellSessions {
                 },
                 () = &mut deadline => break,
                 () = until(&mut look) => {
-                    let stop = match self.look_for_input(session, id, &mut watch, progress).await {
+                    let looked = self.look_for_input(session, id, offer, &mut watch, progress).await;
+                    let stop = match looked {
                         Ok(stop) => stop,
                         // The actor went away while the run's reply was still open; a wait
                         // reported before must still end with `None`.
@@ -626,6 +628,7 @@ impl ShellSessions {
         &self,
         session: &SessionHandle,
         id: u64,
+        offer: Offer,
         watch: &mut InputWatch,
         progress: &mut dyn RunProgress,
     ) -> Result<bool, ShellError> {
@@ -637,7 +640,7 @@ impl ShellSessions {
         };
         let config = &self.inner.config;
         let quiet = Quiet { hidden: config.quiet_period, visible: config.visible_input_quiet };
-        let wait = match input::look(&probe, self.inner.deps.clock.now(), quiet) {
+        let wait = match input::look(&probe, self.inner.deps.clock.now(), quiet, offer) {
             Look::Settled(wait) => wait,
             // A screen that failed only loses the guess; the command goes on.
             Look::ReadScreen => match session.screen.snapshot(0).await {

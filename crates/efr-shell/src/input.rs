@@ -15,6 +15,15 @@
 //! - [`InputWait::None`] otherwise, and when the modes cannot be read. A full-screen
 //!   program on the alternate screen is judged only at the run's timeout, as before.
 //!
+//! What a run may report depends on the run ([`Offer`]). A prompt that reads command
+//! lines (a shell's `$ `, a REPL's `>>> `) looks like a visible question, and an answer
+//! there would run as a command line, so two kinds of run report hidden waits only. A
+//! sentinel run ([`RunMode::Sentinel`]) types into a shell started inside the hidden
+//! one, whose prompt comes back after each command. A run whose command line starts an
+//! interactive shell or a REPL (`nested_shell.rs`) leaves one at its prompt. A shell's
+//! or a REPL's prompt is never a getpass-style read, so the password prompt of `sudo
+//! -i`, `ssh` or `su`, or of a command in a nested shell, is still reported.
+//!
 //! A wait belongs to the job that was in the terminal's foreground at the look that
 //! reported it, by its process group, and an answer reaches only that job. An answer
 //! resets the wait to `None` for one look, so the same prompt asked again (`Sorry, try
@@ -32,9 +41,9 @@ use std::time::Duration;
 use efr_protocol::{InputRespond, InputWait, ScreenSnapshot};
 use jiff::Timestamp;
 
-use crate::ShellError;
 use crate::modes::{InputModes, Job};
 use crate::run::cursor_after_text;
+use crate::{RunMode, ShellError, nested_shell};
 
 /// Refuses an answer that is not one line of at most [`InputRespond::MAX_TEXT_BYTES`]
 /// bytes. The reason never quotes the text, which can be a password.
@@ -110,6 +119,27 @@ pub(crate) struct Quiet {
     pub(crate) visible: Duration,
 }
 
+/// Which waits a run reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Offer {
+    /// Hidden and visible waits.
+    All,
+    /// Hidden waits only: the run leaves a shell or a REPL at its prompt, which looks
+    /// like a visible question.
+    Hidden,
+}
+
+impl Offer {
+    /// The waits that a run in `mode` of `command` reports.
+    pub(crate) fn of(mode: RunMode, command: &str) -> Self {
+        match mode {
+            RunMode::Sentinel => Offer::Hidden,
+            RunMode::Auto if nested_shell::starts_shell(command) => Offer::Hidden,
+            RunMode::Auto => Offer::All,
+        }
+    }
+}
+
 /// What a look found before the screen is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Look {
@@ -118,9 +148,10 @@ pub(crate) enum Look {
     ReadScreen,
 }
 
-/// Judges a probe at `now`. The screen is read only when the output is quiet and the
-/// modes are not a getpass-style read's.
-pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet) -> Look {
+/// Judges a probe at `now` for a run that reports the waits in `offer`. The screen is
+/// read only when the output is quiet, the modes are not a getpass-style read's and the
+/// run reports visible waits.
+pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet, offer: Offer) -> Look {
     let Some(Job { modes, .. }) = probe.job.filter(|_| probe.running) else {
         return Look::Settled(InputWait::None);
     };
@@ -138,7 +169,7 @@ pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet) -> Look {
             InputWait::None
         });
     }
-    if quiet_for(quiet.visible) {
+    if offer == Offer::All && quiet_for(quiet.visible) {
         return Look::ReadScreen;
     }
     Look::Settled(InputWait::None)

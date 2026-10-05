@@ -36,6 +36,7 @@ mod error;
 mod input;
 mod integration;
 mod modes;
+mod nested_shell;
 mod reader;
 mod recording_sink;
 mod replay;

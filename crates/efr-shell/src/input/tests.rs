@@ -5,10 +5,11 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{
-    InputWatch, Look, Probe, Quiet, check_answer, check_job, check_modes, look, visible_prompt,
+    InputWatch, Look, Offer, Probe, Quiet, check_answer, check_job, check_modes, look,
+    visible_prompt,
 };
-use crate::ShellError;
 use crate::modes::{InputModes, Job};
+use crate::{RunMode, ShellError};
 
 const START: Timestamp = Timestamp::constant(1_791_115_200, 0);
 
@@ -38,14 +39,14 @@ const ECHOING_RAW: InputModes = InputModes { echo: true, canonical: false };
 
 #[test]
 fn echo_off_with_line_input_is_hidden_once_the_output_is_quiet() {
-    assert_eq!(look(&probe(HIDDEN), at(999), QUIET), Look::Settled(InputWait::None));
-    assert_eq!(look(&probe(HIDDEN), at(1000), QUIET), Look::Settled(InputWait::Hidden));
+    assert_eq!(look(&probe(HIDDEN), at(999), QUIET, Offer::All), Look::Settled(InputWait::None));
+    assert_eq!(look(&probe(HIDDEN), at(1000), QUIET, Offer::All), Look::Settled(InputWait::Hidden));
 }
 
 #[test]
 fn a_cooked_terminal_reads_the_screen_only_after_the_visible_quiet() {
-    assert_eq!(look(&probe(COOKED), at(2999), QUIET), Look::Settled(InputWait::None));
-    assert_eq!(look(&probe(COOKED), at(3000), QUIET), Look::ReadScreen);
+    assert_eq!(look(&probe(COOKED), at(2999), QUIET, Offer::All), Look::Settled(InputWait::None));
+    assert_eq!(look(&probe(COOKED), at(3000), QUIET, Offer::All), Look::ReadScreen);
 }
 
 #[test]
@@ -53,22 +54,48 @@ fn a_raw_terminal_reads_the_screen_after_the_visible_quiet_too() {
     // A relay such as sudo's own terminal leaves the hidden shell's terminal raw while
     // the program behind it asks a question.
     for modes in [RAW, ECHOING_RAW] {
-        assert_eq!(look(&probe(modes), at(2999), QUIET), Look::Settled(InputWait::None));
-        assert_eq!(look(&probe(modes), at(3000), QUIET), Look::ReadScreen);
+        assert_eq!(
+            look(&probe(modes), at(2999), QUIET, Offer::All),
+            Look::Settled(InputWait::None)
+        );
+        assert_eq!(look(&probe(modes), at(3000), QUIET, Offer::All), Look::ReadScreen);
     }
+}
+
+#[test]
+fn a_run_that_leaves_a_prompt_for_command_lines_reports_hidden_waits_only() {
+    assert_eq!(
+        look(&probe(HIDDEN), at(1000), QUIET, Offer::Hidden),
+        Look::Settled(InputWait::Hidden)
+    );
+    for modes in [COOKED, RAW, ECHOING_RAW] {
+        assert_eq!(
+            look(&probe(modes), at(60_000), QUIET, Offer::Hidden),
+            Look::Settled(InputWait::None)
+        );
+    }
+}
+
+#[test]
+fn what_a_run_offers_follows_its_mode_and_its_command_line() {
+    assert_eq!(Offer::of(RunMode::Auto, "sudo pacman -Syu"), Offer::All);
+    assert_eq!(Offer::of(RunMode::Auto, "sudo -i"), Offer::Hidden);
+    assert_eq!(Offer::of(RunMode::Auto, "script -q -c sh /dev/null"), Offer::Hidden);
+    assert_eq!(Offer::of(RunMode::Auto, "python3"), Offer::Hidden);
+    assert_eq!(Offer::of(RunMode::Sentinel, "pacman -Syu"), Offer::Hidden);
 }
 
 #[test]
 fn nothing_waits_before_the_command_runs_or_without_modes() {
     let before = Probe { running: false, ..probe(HIDDEN) };
-    assert_eq!(look(&before, at(60_000), QUIET), Look::Settled(InputWait::None));
+    assert_eq!(look(&before, at(60_000), QUIET, Offer::All), Look::Settled(InputWait::None));
     let unknown = Probe { job: None, ..probe(HIDDEN) };
-    assert_eq!(look(&unknown, at(60_000), QUIET), Look::Settled(InputWait::None));
+    assert_eq!(look(&unknown, at(60_000), QUIET, Offer::All), Look::Settled(InputWait::None));
 }
 
 #[test]
 fn a_clock_that_went_back_is_not_quiet() {
-    assert_eq!(look(&probe(HIDDEN), at(-5000), QUIET), Look::Settled(InputWait::None));
+    assert_eq!(look(&probe(HIDDEN), at(-5000), QUIET, Offer::All), Look::Settled(InputWait::None));
 }
 
 fn row(text: &str) -> RowCells {
