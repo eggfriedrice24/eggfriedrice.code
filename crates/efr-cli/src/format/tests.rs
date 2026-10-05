@@ -123,6 +123,8 @@ fn status_result() -> AdminStatusResult {
             },
             ProviderStatus { provider: "anthropic".to_owned(), logged_in: false, expires_at: None },
         ],
+        roots: None,
+        config: None,
     }
 }
 

@@ -48,3 +48,10 @@ No protocol version has shipped yet.
   (`message`, optional `line`, `column` and dotted `key`) and the `restart_needed` keys,
   absent when empty. New fixtures `admin_config_reload_params.json` and
   `admin_config_reload_result.json`.
+- Before version 1 ships: the `admin.status` result gains an optional `roots` object
+  (`config`, `data`, `state` and `runtime`, each a `path` and a `source`:
+  `dir_variable`, `efr_home`, `xdg` or `run_user`) and an optional `config` object (the
+  `path` of `config.toml`, whether it `exists`, an optional `symlink_target`, the
+  optional `reload_error` of the last reload in the form of the `admin.config_reload`
+  error, and the `restart_needed` keys, absent when empty). Absent means not reported,
+  as from an earlier daemon. The `admin_status_result.json` fixture now sets both.

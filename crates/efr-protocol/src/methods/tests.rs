@@ -2,9 +2,10 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReloadResult, Base64Bytes, ConfigFileError, ConversationId, ConversationSubscribe,
-    EffectiveSettings, InputRespond, Mode, ModelInfo, ModelSource, ModelsListResult,
-    OverriddenSettings, PageCursor, PromptSend, PromptSendResult, Seq, TurnSettings,
+    AdminConfigReloadResult, AdminStatusResult, Base64Bytes, ConfigFileError, ConfigStatus,
+    ConversationId, ConversationSubscribe, EffectiveSettings, InputRespond, Mode, ModelInfo,
+    ModelSource, ModelsListResult, OverriddenSettings, PageCursor, PromptSend, PromptSendResult,
+    RootSource, Seq, TurnSettings,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -231,4 +232,54 @@ fn a_config_error_without_a_place_is_only_its_message() {
 #[test]
 fn a_reload_result_needs_its_applied_flag() {
     assert!(serde_json::from_value::<AdminConfigReloadResult>(json!({})).is_err());
+}
+
+#[test]
+fn a_status_from_before_roots_and_config_parses_without_them() {
+    let old = json!({
+        "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+        "version": "0.1.0",
+        "protocol": 1,
+        "pid": 1234,
+        "started_at": "2026-10-03T08:00:00Z",
+        "screen_backend": "vt100",
+        "conversations": 2,
+        "shells": 1,
+        "providers": [],
+    });
+    let status: AdminStatusResult = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(status.roots, None);
+    assert_eq!(status.config, None);
+    assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+}
+
+#[test]
+fn root_sources_are_snake_case_names_on_the_wire() {
+    let names: Vec<_> =
+        [RootSource::DirVariable, RootSource::EfrHome, RootSource::Xdg, RootSource::RunUser]
+            .iter()
+            .map(|source| serde_json::to_value(source).unwrap())
+            .collect();
+    assert_eq!(names, [json!("dir_variable"), json!("efr_home"), json!("xdg"), json!("run_user")]);
+}
+
+#[test]
+fn a_missing_plain_config_file_is_its_path_and_a_false_exists() {
+    let config = ConfigStatus {
+        path: "/home/me/.config/efr/config.toml".into(),
+        exists: false,
+        symlink_target: None,
+        reload_error: None,
+        restart_needed: Vec::new(),
+    };
+    let value = serde_json::to_value(&config).unwrap();
+    assert_eq!(value, json!({ "path": "/home/me/.config/efr/config.toml", "exists": false }));
+    let back: ConfigStatus = serde_json::from_value(value).unwrap();
+    assert_eq!(back, config);
+}
+
+#[test]
+fn a_config_status_needs_its_path_and_exists_flag() {
+    assert!(serde_json::from_value::<ConfigStatus>(json!({ "exists": true })).is_err());
+    assert!(serde_json::from_value::<ConfigStatus>(json!({ "path": "/c/config.toml" })).is_err());
 }

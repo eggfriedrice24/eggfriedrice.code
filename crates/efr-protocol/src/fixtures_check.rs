@@ -19,17 +19,17 @@ use crate::{
     AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
     AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     Base64Bytes, CallId, Capabilities, Cell, ClientFrame, Color, CommandId, ConfigFileError,
-    ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSnapshot,
-    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
-    ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths, DeviceId,
-    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult,
-    InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Mode,
-    ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
+    ConfigStatus, ConversationHistory, ConversationHistoryResult, ConversationId,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
+    DaemonRoots, DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello,
+    HelloResult, InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult,
+    Method, Mode, ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
     PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
     PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult,
-    RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, Usage,
+    RequestId, RootDir, RootSource, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq,
+    ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -165,6 +165,17 @@ fn effective_settings() -> EffectiveSettings {
         model: "gpt-5.4".into(),
         effort: Some("high".into()),
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
+    }
+}
+
+/// Each root from another source, so `admin_status_result.json` freezes every
+/// [`RootSource`].
+pub(crate) fn daemon_roots() -> DaemonRoots {
+    DaemonRoots {
+        config: RootDir { path: "/home/me/.config/efr".into(), source: RootSource::Xdg },
+        data: RootDir { path: "/home/me/efr/data".into(), source: RootSource::EfrHome },
+        state: RootDir { path: "/var/tmp/efr-state".into(), source: RootSource::DirVariable },
+        runtime: RootDir { path: "/run/user/1000/efr".into(), source: RootSource::RunUser },
     }
 }
 
@@ -439,6 +450,14 @@ fn answer_fixtures() -> Vec<Fixture> {
                     logged_in: true,
                     expires_at: Some(at("2026-10-03T20:00:00Z")),
                 }],
+                roots: Some(daemon_roots()),
+                config: Some(ConfigStatus {
+                    path: "/home/me/.config/efr/config.toml".into(),
+                    exists: true,
+                    symlink_target: Some("/home/me/dotfiles/efr/config.toml".into()),
+                    reload_error: Some(config_file_error()),
+                    restart_needed: vec!["screen".into()],
+                }),
             },
         ),
         fixture(

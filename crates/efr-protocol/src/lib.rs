@@ -44,7 +44,9 @@ pub use ids::{
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
-pub use methods::admin_status::{AdminStatus, AdminStatusResult, ProviderStatus};
+pub use methods::admin_status::{
+    AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
+};
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_subscribe::{

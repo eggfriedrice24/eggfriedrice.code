@@ -23,6 +23,8 @@ fn result() -> AdminStatusResult {
             logged_in: false,
             expires_at: None,
         }],
+        roots: None,
+        config: None,
     }
 }
 

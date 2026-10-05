@@ -81,7 +81,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 - `models.list` is a stub for now: it answers `internal` until the verified model list
   and its handler land.
 - `admin.config_reload` is a stub for now: it answers `internal` until live reload
-  lands; the daemon reads the config once, at start.
+  lands; the daemon reads the config once, at start. `admin.status` leaves out its
+  `roots` and `config` until then.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
   while that call's command runs, a wait of it was reported, the job that waited (by

@@ -5,10 +5,10 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FIXTURES_DIR, all, event_path, event_samples, input_wait_samples, method_samples, method_stem,
-    models_list_sample,
+    FIXTURES_DIR, all, daemon_roots, event_path, event_samples, input_wait_samples, method_samples,
+    method_stem, models_list_sample,
 };
-use crate::{Event, InputWait, Method, Mode, ModelSource};
+use crate::{Event, InputWait, Method, Mode, ModelSource, RootSource};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -124,6 +124,18 @@ fn model_source_index(source: ModelSource) -> usize {
 
 const MODEL_SOURCE_COUNT: usize = 2;
 
+/// The position of a root source in the enum, for the same purpose as `method_index`.
+fn root_source_index(source: RootSource) -> usize {
+    match source {
+        RootSource::DirVariable => 0,
+        RootSource::EfrHome => 1,
+        RootSource::Xdg => 2,
+        RootSource::RunUser => 3,
+    }
+}
+
+const ROOT_SOURCE_COUNT: usize = 4;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -219,6 +231,16 @@ fn every_model_source_has_a_sample() {
     let covered: BTreeSet<usize> =
         models_list_sample().models.iter().map(|model| model_source_index(model.source)).collect();
     assert_eq!(covered, (0..MODEL_SOURCE_COUNT).collect());
+}
+
+#[test]
+fn every_root_source_has_a_sample() {
+    let roots = daemon_roots();
+    let covered: BTreeSet<usize> = [roots.config, roots.data, roots.state, roots.runtime]
+        .into_iter()
+        .map(|root| root_source_index(root.source))
+        .collect();
+    assert_eq!(covered, (0..ROOT_SOURCE_COUNT).collect());
 }
 
 #[test]

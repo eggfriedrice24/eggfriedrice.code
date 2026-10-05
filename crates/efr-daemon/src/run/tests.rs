@@ -707,6 +707,25 @@ mod daemon {
     }
 
     #[tokio::test]
+    async fn the_status_leaves_out_the_roots_and_the_config_until_they_are_reported() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let daemon = serve(&dirs, &clock).await;
+        let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
+
+        let status: serde_json::Value =
+            client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+        assert_eq!(status.get("roots"), None, "{status}");
+        assert_eq!(status.get("config"), None, "{status}");
+        let status: AdminStatusResult = serde_json::from_value(status).unwrap();
+        assert_eq!((status.roots, status.config), (None, None));
+
+        drop(client);
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn a_second_daemon_on_the_same_data_is_refused() {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();

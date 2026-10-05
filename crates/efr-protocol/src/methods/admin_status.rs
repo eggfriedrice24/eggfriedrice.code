@@ -1,10 +1,13 @@
-//! `admin.status`: the daemon's health, for `efr status`.
+//! `admin.status`: the daemon's health, for `efr status`, and where it keeps its files
+//! and reads its config, for `efr paths` and `efr config show`.
+
+use std::path::PathBuf;
 
 use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::DaemonId;
+use crate::{ConfigFileError, DaemonId};
 
 /// The params of `admin.status`, an admin method (Unix socket only). It takes none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -31,6 +34,15 @@ pub struct AdminStatusResult {
     pub shells: u32,
     /// The configured model providers.
     pub providers: Vec<ProviderStatus>,
+    /// The daemon's four root directories and where each came from, so a client can
+    /// warn when its own differ. Absent when the daemon does not report them, as before
+    /// `efr paths`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roots: Option<DaemonRoots>,
+    /// The config file that the daemon reads and the state of its last reload. Absent
+    /// when the daemon does not report it, as before live reload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<ConfigStatus>,
 }
 
 /// The state of one model provider.
@@ -43,4 +55,63 @@ pub struct ProviderStatus {
     /// When the current access token expires, for a provider with refreshable tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<Timestamp>,
+}
+
+/// The daemon's four root directories.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonRoots {
+    /// The config root, which holds `config.toml` and `projects.toml`.
+    pub config: RootDir,
+    /// The data root: the database, recordings, scratch directories and secrets.
+    pub data: RootDir,
+    /// The state root: the logs.
+    pub state: RootDir,
+    /// The runtime root: the socket and `daemon.json`.
+    pub runtime: RootDir,
+}
+
+/// One root directory and where its path came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RootDir {
+    /// The directory.
+    pub path: PathBuf,
+    /// Where the path came from.
+    pub source: RootSource,
+}
+
+/// Where a root directory's path came from, in the order the daemon looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RootSource {
+    /// The root's own variable, such as `EFR_DATA_DIR`.
+    DirVariable,
+    /// A directory below `EFR_HOME`, such as `$EFR_HOME/data`.
+    EfrHome,
+    /// The XDG base directory, such as `$XDG_DATA_HOME/efr`.
+    Xdg,
+    /// `/run/user/<uid>/efr`, for the runtime root when `XDG_RUNTIME_DIR` is unset.
+    RunUser,
+}
+
+/// The config file that the daemon reads, and the state of its last reload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConfigStatus {
+    /// `config.toml` in the daemon's config root.
+    pub path: PathBuf,
+    /// True when `path` names a file, directly or through a symlink. A missing file is
+    /// an empty config: every value is its default.
+    pub exists: bool,
+    /// The file that `path` points to when it is a symlink, as an absolute path, also
+    /// when that file is missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symlink_target: Option<PathBuf>,
+    /// What was wrong with the file at the last reload, which kept the old settings.
+    /// Absent once the file loads again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reload_error: Option<ConfigFileError>,
+    /// The dotted keys whose new values in the file apply only after efrd restarts,
+    /// such as `screen`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restart_needed: Vec<String>,
 }

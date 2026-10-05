@@ -25,6 +25,7 @@ Where things are:
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage` |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
+| `src/methods.rs` | the types that several methods share: `PageCursor`, `Base64Bytes`, `ConfigFileError` |
 | `src/methods/*.rs` | one file per method: its params, and its result or stream item |
 | `src/secret_text.rs` | `SecretText`, typed text such as a password: a plain string on the wire, redacted in `Debug`; its own buffer and each clone's are zeroed on drop, copies made outside it are not |
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |

@@ -22,6 +22,9 @@ pub(crate) async fn handle(
         conversations: count(state.conversations.count()),
         shells: count(state.ptys.count()),
         providers: state.providers.status().await,
+        // NOTE: left out until the roots know their sources and the config reloads.
+        roots: None,
+        config: None,
     };
     responder.item(&result).await?;
     Ok(())

@@ -211,6 +211,8 @@ fn status_prints_the_daemons_health() {
                 conversations: 1,
                 shells: 1,
                 providers: Vec::new(),
+                roots: None,
+                config: None,
             },
         );
         conn.drain();

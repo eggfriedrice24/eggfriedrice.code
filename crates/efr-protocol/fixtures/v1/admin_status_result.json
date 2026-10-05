@@ -13,5 +13,37 @@
       "logged_in": true,
       "expires_at": "2026-10-03T20:00:00Z"
     }
-  ]
+  ],
+  "roots": {
+    "config": {
+      "path": "/home/me/.config/efr",
+      "source": "xdg"
+    },
+    "data": {
+      "path": "/home/me/efr/data",
+      "source": "efr_home"
+    },
+    "state": {
+      "path": "/var/tmp/efr-state",
+      "source": "dir_variable"
+    },
+    "runtime": {
+      "path": "/run/user/1000/efr",
+      "source": "run_user"
+    }
+  },
+  "config": {
+    "path": "/home/me/.config/efr/config.toml",
+    "exists": true,
+    "symlink_target": "/home/me/dotfiles/efr/config.toml",
+    "reload_error": {
+      "message": "unknown variant `maybe`, expected one of `allow`, `ask`, `deny`",
+      "line": 42,
+      "column": 10,
+      "key": "permissions.rules[2].effect"
+    },
+    "restart_needed": [
+      "screen"
+    ]
+  }
 }
