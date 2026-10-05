@@ -313,10 +313,30 @@ _efr_precmd() {
 
 # --- wiring -----------------------------------------------------------------------
 
-# Re-sourcing must not wrap our own widget, which would recurse.
-if (( ! ${+widgets[_efr_orig_accept_line]} )); then
-  zle -A accept-line _efr_orig_accept_line
-fi
+# Calls the builtin accept-line through its dot name, which no plugin can rebind.
+_efr_builtin_accept_line() {
+  zle .accept-line
+}
+
+# Saves the accept-line that was there before, so _efr_accept_line can call it. A user
+# widget (another plugin's) is aliased. The builtin is NOT aliased: an alias of a
+# builtin has type "builtin", and plugins such as zsh-autosuggestions rebind every
+# builtin widget to a wrapper that calls `zle .<name>`, which exists only for real
+# builtins, so Enter would fail with "No such widget". A user widget that calls
+# `zle .accept-line` is wrapped correctly. Re-sourcing must not wrap our own widget
+# (that would recurse), but it repairs an alias left by an older version.
+case ${widgets[_efr_orig_accept_line]-} in
+  '')
+    if [[ ${widgets[accept-line]} == user:* ]]; then
+      zle -A accept-line _efr_orig_accept_line
+    else
+      zle -N _efr_orig_accept_line _efr_builtin_accept_line
+    fi
+    ;;
+  builtin)
+    zle -N _efr_orig_accept_line _efr_builtin_accept_line
+    ;;
+esac
 zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
 # Ctrl+Space sends NUL (^@) in common terminals.
