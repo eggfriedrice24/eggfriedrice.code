@@ -8,8 +8,10 @@ the daemon and the daemon's answers back into frames:
 - `unix_listener`: `UnixListener`, the socket at `$XDG_RUNTIME_DIR/efr/daemon.sock`.
   It is bound inside a fresh staging directory of mode 0700 next to its path, set to
   mode 0600 there and renamed into place, so no other user can reach it while it has
-  the umask's mode. A missing socket directory is created with
-  mode 0700. Every accepted peer's uid, from `SO_PEERCRED`, must be the daemon's own.
+  the umask's mode. The staged socket is `.s<pid>/s`, never longer than
+  `daemon.sock`, so any socket path that fits the 107 bytes of a socket address binds;
+  a longer path fails with `PathTooLong`, which names it, before anything is created.
+  A missing socket directory is created with mode 0700. Every accepted peer's uid, from `SO_PEERCRED`, must be the daemon's own.
   A stale socket is replaced; a socket that answers is never taken over. `serve` runs
   one task per connection and, on shutdown, cancels everything and removes the file.
 - `connection`: the per-connection loop. It owns the request-id table: every request

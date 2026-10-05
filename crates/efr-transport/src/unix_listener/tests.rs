@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use efr_protocol::{RequestId, ServerFrame};
+use efr_stdx::paths::MAX_SOCKET_PATH;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tokio::io::AsyncReadExt as _;
@@ -45,7 +46,7 @@ async fn the_socket_is_restricted_inside_a_private_directory_before_it_gets_its_
     let path = dir.path().join("daemon.sock");
     let staging = staging_dir(&path);
     assert_eq!(staging.parent(), Some(dir.path()), "the rename stays in one directory");
-    let (_listener, temp) = stage(&staging, &path).unwrap();
+    let (_listener, temp) = stage(&staging).unwrap();
     assert_eq!(temp.parent(), Some(staging.as_path()));
     assert_eq!(mode(&staging), 0o700, "only the owner can reach the staged socket");
     assert_eq!(mode(&temp), 0o600);
@@ -70,7 +71,7 @@ async fn a_staging_directory_left_by_a_crash_is_replaced() {
     let staging = staging_dir(&path);
     fs::create_dir(&staging).unwrap();
     fs::set_permissions(&staging, fs::Permissions::from_mode(0o777)).unwrap();
-    drop(std::os::unix::net::UnixListener::bind(staging.join("daemon.sock")).unwrap());
+    drop(std::os::unix::net::UnixListener::bind(staging.join("s")).unwrap());
     let listener = UnixListener::bind(&path).await.unwrap();
     assert!(!staging.exists());
     let _client = UnixStream::connect(&path).await.unwrap();
@@ -84,12 +85,74 @@ async fn a_staging_directory_with_foreign_content_is_left_alone() {
     let staging = staging_dir(&path);
     fs::create_dir(&staging).unwrap();
     fs::write(staging.join("notes.txt"), b"precious").unwrap();
-    fs::write(staging.join("daemon.sock"), b"not a socket").unwrap();
+    fs::write(staging.join("s"), b"not a socket").unwrap();
     let error = UnixListener::bind(&path).await.unwrap_err();
     assert!(matches!(error, TransportError::Inspect { path: ref p, .. } if *p == staging));
     assert_eq!(fs::read(staging.join("notes.txt")).unwrap(), b"precious");
-    assert_eq!(fs::read(staging.join("daemon.sock")).unwrap(), b"not a socket");
+    assert_eq!(fs::read(staging.join("s")).unwrap(), b"not a socket");
     assert!(!path.exists());
+}
+
+/// A directory below `root` whose `daemon.sock` path is exactly `length` bytes.
+fn dir_for_socket_length(root: &Path, length: usize) -> std::path::PathBuf {
+    let fixed = root.as_os_str().len() + "/".len() + "/daemon.sock".len();
+    root.join("d".repeat(length - fixed))
+}
+
+#[tokio::test]
+async fn a_socket_path_of_the_longest_length_binds_through_its_staging_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let path = dir_for_socket_length(root.path(), MAX_SOCKET_PATH).join("daemon.sock");
+    assert_eq!(path.as_os_str().len(), MAX_SOCKET_PATH);
+
+    let listener = UnixListener::bind(&path).await.unwrap();
+
+    assert_eq!(mode(&path), 0o600);
+    let _client = UnixStream::connect(&path).await.unwrap();
+    assert!(listener.accept().await.is_ok());
+    assert!(!staging_dir(&path).exists());
+}
+
+#[test]
+fn the_staged_socket_is_never_longer_than_a_daemon_socket() {
+    let path = Path::new("/run/user/1000/efr/daemon.sock");
+    let staged = staging_dir(path).join("s");
+    // The longest pid has seven digits, the one of this process may have fewer.
+    let longest = staged.as_os_str().len() + 7 - std::process::id().to_string().len();
+    assert!(longest <= path.as_os_str().len(), "{} for {}", staged.display(), path.display());
+}
+
+#[tokio::test]
+async fn a_socket_path_too_long_for_a_socket_fails_with_its_path_and_creates_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = dir_for_socket_length(root.path(), MAX_SOCKET_PATH + 1);
+    let path = dir.join("daemon.sock");
+
+    let error = UnixListener::bind(&path).await.unwrap_err();
+
+    assert!(matches!(&error, TransportError::PathTooLong { path: p } if *p == path), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "the socket path {} is {} bytes, more than the 107 a Unix socket holds",
+            path.display(),
+            MAX_SOCKET_PATH + 1
+        )
+    );
+    assert!(!dir.exists(), "nothing is created for a path that cannot work");
+}
+
+#[tokio::test]
+async fn sockets_in_one_directory_bind_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths: Vec<_> = (0..8).map(|n| dir.path().join(format!("{n}.sock"))).collect();
+
+    let bound = futures::future::join_all(paths.iter().map(UnixListener::bind)).await;
+
+    for (path, listener) in paths.iter().zip(&bound) {
+        assert!(listener.is_ok(), "{}: {listener:?}", path.display());
+        assert_eq!(mode(path), 0o600);
+    }
 }
 
 #[tokio::test]

@@ -718,4 +718,28 @@ mod daemon {
         assert!(cause.contains(&deep.join("daemon.sock").display().to_string()), "{cause}");
         assert!(!dirs.dirs().data().join("daemon.lock").exists(), "nothing else happened");
     }
+
+    #[tokio::test]
+    async fn a_runtime_root_whose_socket_path_just_fits_serves() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let fixed = dirs.root().as_os_str().len() + "/".len() + "/daemon.sock".len();
+        let deep = dirs.root().join("r".repeat(efr_stdx::paths::MAX_SOCKET_PATH - fixed));
+        let roots = efr_stdx::paths::Dirs::new(
+            dirs.dirs().config(),
+            dirs.dirs().data(),
+            dirs.dirs().state(),
+            &deep,
+        )
+        .unwrap();
+        let mut deps = deps(&dirs, &clock);
+        deps.dirs = roots;
+
+        let daemon = crate::testing::serve_with(crate::Settings::default(), deps).await;
+
+        assert_eq!(daemon.socket.as_os_str().len(), efr_stdx::paths::MAX_SOCKET_PATH);
+        let (client, _) = RawClient::hello(&daemon.socket, None).await;
+        drop(client);
+        daemon.stop().await;
+    }
 }

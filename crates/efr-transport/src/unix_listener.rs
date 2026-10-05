@@ -18,10 +18,11 @@ use std::os::unix::fs::{
     DirBuilderExt as _, FileTypeExt as _, MetadataExt as _, PermissionsExt as _,
 };
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use efr_stdx::paths::MAX_SOCKET_PATH;
 use efr_stdx::time::Clock;
 use nix::sys::socket::{getsockopt, sockopt};
 use tokio::net::UnixStream;
@@ -41,6 +42,9 @@ const DIR_MODE: u32 = 0o700;
 /// How long the accept loop waits after a failed accept, such as when the process is
 /// out of file descriptors, before it tries again.
 const ACCEPT_RETRY: Duration = Duration::from_millis(100);
+
+/// Held while a socket is staged; see [`staging_dir`].
+static STAGING: Mutex<()> = Mutex::new(());
 
 /// A connection that passed the uid check.
 #[derive(Debug)]
@@ -83,6 +87,7 @@ impl UnixListener {
         path: PathBuf,
         allowed_uid: u32,
     ) -> Result<Self, TransportError> {
+        check_length(&path)?;
         let dir = parent_dir(&path);
         if !dir.exists() {
             DirBuilder::new()
@@ -93,8 +98,13 @@ impl UnixListener {
         }
         check_existing(&path).await?;
         let staging = staging_dir(&path);
-        let staged = bind_staged(&staging, &path);
-        let cleaned = remove_staging(&staging, &path);
+        let (staged, cleaned) = {
+            // NOTE: the staging name is the same for every socket of this process in a
+            // directory, so two binds there must not stage at once. No await happens
+            // while the guard lives.
+            let _staging = STAGING.lock().unwrap_or_else(PoisonError::into_inner);
+            (bind_staged(&staging, &path), remove_staging(&staging))
+        };
         let inner = staged?;
         if let Err(source) = cleaned {
             // The socket is in place; a staging directory left behind is removed by the
@@ -255,6 +265,15 @@ async fn check_existing(path: &Path) -> Result<(), TransportError> {
     }
 }
 
+/// Refuses a socket path longer than a socket address holds, before anything is
+/// created, so the error names the path rather than the kernel's `EINVAL`.
+fn check_length(path: &Path) -> Result<(), TransportError> {
+    if path.as_os_str().len() > MAX_SOCKET_PATH {
+        return Err(TransportError::PathTooLong { path: path.to_path_buf() });
+    }
+    Ok(())
+}
+
 /// The directory that holds `path`; a bare file name lives in the current directory.
 fn parent_dir(path: &Path) -> &Path {
     path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
@@ -263,18 +282,22 @@ fn parent_dir(path: &Path) -> &Path {
 /// A hidden directory next to `path`, unique to this process, in which the socket is
 /// bound before it is restricted and renamed into place. It is in the same directory as
 /// `path`, so the rename never crosses a file system.
-fn staging_dir(path: &Path) -> PathBuf {
-    parent_dir(path).join(format!(".{}.{}.tmp", file_name(path), std::process::id()))
+///
+/// The name is short because the staged socket's path must fit a socket address too:
+/// `.s<pid>/s` is at most 12 bytes past the directory (a pid has at most 7 digits), no
+/// more than `daemon.sock` adds, so a runtime directory whose socket path fits never
+/// fails on the staging path.
+pub(crate) fn staging_dir(path: &Path) -> PathBuf {
+    parent_dir(path).join(format!(".s{}", std::process::id()))
 }
 
-fn file_name(path: &Path) -> String {
-    path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
-}
+/// The staged socket's name inside the staging directory.
+const STAGED_NAME: &str = "s";
 
 /// Binds a socket for `path` inside a new `staging` directory of mode 0700, restricts it
 /// to 0600 and renames it to `path`. Until the rename, only the owner can reach it.
 fn bind_staged(staging: &Path, path: &Path) -> Result<tokio::net::UnixListener, TransportError> {
-    let (inner, temp) = stage(staging, path)?;
+    let (inner, temp) = stage(staging)?;
     fs::rename(&temp, path).map_err(|source| TransportError::Rename {
         from: temp,
         to: path.to_path_buf(),
@@ -285,18 +308,16 @@ fn bind_staged(staging: &Path, path: &Path) -> Result<tokio::net::UnixListener, 
 
 /// The first half of [`bind_staged`]: the private directory and the restricted socket in
 /// it, not yet renamed. Returns the listener and the socket's temporary path.
-fn stage(
-    staging: &Path,
-    path: &Path,
-) -> Result<(tokio::net::UnixListener, PathBuf), TransportError> {
-    remove_staging(staging, path)
+fn stage(staging: &Path) -> Result<(tokio::net::UnixListener, PathBuf), TransportError> {
+    let temp = staging.join(STAGED_NAME);
+    check_length(&temp)?;
+    remove_staging(staging)
         .map_err(|source| TransportError::Inspect { path: staging.to_path_buf(), source })?;
     let create_error = |source| TransportError::CreateDir { path: staging.to_path_buf(), source };
     // The umask can only take bits away from 0700, so the directory is never wider; the
     // mode is set again in case the umask took the owner's bits too.
     DirBuilder::new().mode(DIR_MODE).create(staging).map_err(create_error)?;
     fs::set_permissions(staging, Permissions::from_mode(DIR_MODE)).map_err(create_error)?;
-    let temp = staging.join(file_name(path));
     let inner = tokio::net::UnixListener::bind(&temp)
         .map_err(|source| TransportError::Bind { path: temp.clone(), source })?;
     fs::set_permissions(&temp, Permissions::from_mode(SOCKET_MODE))
@@ -307,14 +328,14 @@ fn stage(
 /// Removes a staging directory and the socket in it, as a crash of a process with the
 /// same pid may have left them. Anything else in it makes the removal fail, so a
 /// directory that efr did not create is never emptied.
-fn remove_staging(staging: &Path, path: &Path) -> io::Result<()> {
+fn remove_staging(staging: &Path) -> io::Result<()> {
     match fs::symlink_metadata(staging) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
         Ok(metadata) if !metadata.is_dir() => return fs::remove_file(staging),
         Ok(_) => {}
     }
-    let socket = staging.join(file_name(path));
+    let socket = staging.join(STAGED_NAME);
     match fs::symlink_metadata(&socket) {
         Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(&socket)?,
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),

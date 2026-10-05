@@ -13,6 +13,19 @@ use efr_protocol::{ProtocolError, RequestId, Seq};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum TransportError {
+    /// The socket path is longer than a Unix socket address holds, so nothing can be
+    /// bound there.
+    #[error(
+        "the socket path {} is {} bytes, more than the {} a Unix socket holds",
+        .path.display(),
+        .path.as_os_str().len(),
+        efr_stdx::paths::MAX_SOCKET_PATH
+    )]
+    PathTooLong {
+        /// The path.
+        path: PathBuf,
+    },
+
     /// The directory that holds the socket could not be created.
     #[error("could not create the socket directory {}", .path.display())]
     CreateDir {
