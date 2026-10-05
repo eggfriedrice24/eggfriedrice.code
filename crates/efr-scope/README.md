@@ -22,6 +22,12 @@ Modules:
   `$XDG_CONFIG_HOME/efr/projects.toml` (`[[project]]` tables with `id`, `root` and an
   optional `name`; unknown keys refused). Read with `load` (a missing file is an empty
   registry), changed with `register` and `remove`, written atomically with `save`.
+  `RegistryEdit` (`registry/edit.rs`) changes the file for `efr project add` and
+  `remove`, which the daemon runs: it reads and checks the whole file first and never
+  changes one with an error, edits the TOML document in place so every comment and the
+  layout stay, writes the file behind a symbolic link (a link to nothing is refused),
+  and writes nothing when the file changed since it was read. A new file starts with a
+  comment that says what it is.
 - `git`: `Git::discover`, guarded discovery. git runs in the working directory through
   `efr_stdx::process::command` with `GIT_CEILING_DIRECTORIES=$HOME:/`, without
   `GIT_DIR`, `GIT_WORK_TREE` and the other variables that redirect it or inject
@@ -45,7 +51,8 @@ Tier 1.
 `efr-protocol` (`Scope`, `ProjectId`) and `efr-stdx` (the process constructor, the
 clock for git timeouts, atomic writes). `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `serde` and `toml` (the registry file), `thiserror`, and `tokio`
+Third-party crates: `serde` and `toml` (the registry file), `toml_edit` (changes of the
+file that keep its comments), `thiserror`, and `tokio`
 for the type of the git command that `efr-stdx` builds and for `spawn_blocking`.
 
 ## Invariant

@@ -4,7 +4,8 @@
 //! - [`derive()`]: `Project` when the directory is inside a root that the user
 //!   registered, `Path` when it is inside a git work tree, and `Machine` for `$HOME`,
 //!   `/` and everything else. `$HOME` and `/` are never a project unless registered.
-//! - [`Registry`]: the explicit project registry, `$XDG_CONFIG_HOME/efr/projects.toml`.
+//! - [`Registry`]: the explicit project registry, `$XDG_CONFIG_HOME/efr/projects.toml`,
+//!   and [`RegistryEdit`], the changes of that file that keep its comments.
 //! - [`Git`]: guarded git discovery with `GIT_CEILING_DIRECTORIES`, so a dotfiles
 //!   `~/.git` never turns every directory under `$HOME` into one repository.
 //! - [`detect_dotfiles`]: the dotfiles layouts that make `$HOME` a work tree (a
@@ -35,4 +36,4 @@ pub use dotfiles::{Dotfiles, detect_dotfiles};
 pub use error::ScopeError;
 pub use git::{DEFAULT_GIT_TIMEOUT, Discovery, Git, Repo};
 pub use home::Home;
-pub use registry::{Project, REGISTRY_FILE, Registry, RegistryProblem};
+pub use registry::{Project, REGISTRY_FILE, Registry, RegistryEdit, RegistryProblem};

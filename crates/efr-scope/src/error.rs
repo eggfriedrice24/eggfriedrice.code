@@ -67,6 +67,32 @@ pub enum ScopeError {
         problem: RegistryProblem,
     },
 
+    /// The registry file is a symbolic link to a file that does not exist, so a change
+    /// would not know where to write.
+    #[error("the project registry {} is a link to {}, which does not exist", .path.display(), .target.display())]
+    DanglingRegistryLink {
+        /// The registry file.
+        path: PathBuf,
+        /// What the link names.
+        target: PathBuf,
+    },
+
+    /// The registry file lists its projects in a shape that a change cannot edit in
+    /// place, so it is left as it is.
+    #[error("the project registry {} cannot be changed in place; edit it by hand", .path.display())]
+    RegistryShape {
+        /// The registry file.
+        path: PathBuf,
+    },
+
+    /// The registry file changed between the read for a change and its write, so
+    /// nothing was written.
+    #[error("the project registry {} changed while it was being changed; try again", .path.display())]
+    RegistryChanged {
+        /// The file that was to be written.
+        path: PathBuf,
+    },
+
     /// The registry could not be written as TOML.
     #[error("could not serialize the project registry")]
     SerializeRegistry {

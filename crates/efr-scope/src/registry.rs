@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use crate::ScopeError;
 use crate::home::normalize;
 
+mod edit;
+
+pub use edit::RegistryEdit;
+
 /// The registry's file name inside the efr config directory.
 pub const REGISTRY_FILE: &str = "projects.toml";
 
