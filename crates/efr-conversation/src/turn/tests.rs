@@ -868,7 +868,8 @@ async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
     // what it writes (here nothing is declared), while cautious asks for it.
     let mut setup = Setup::new();
     setup.config.mode = Mode::Auto;
-    let state = setup.live_state(&setup.cwd, "clean up");
+    let mut state = setup.live_state(&setup.cwd, "clean up");
+    state.mode = Mode::Auto;
     let input = json!({ "command": "rm build.log" });
     let first = setup.prompt(&state, "clean up");
     let records = vec![
