@@ -73,7 +73,9 @@ The tools:
   tries again. A busy shell, a
   shell that did not reach its prompt, a shell that exited and a command that cannot
   be typed are error results with advice for the model; other shell failures are
-  `ToolError::Shell`.
+  `ToolError::Shell`. The advice is only what is true: nothing clears a busy shell from
+  a turn (an interrupt reaches the shell only for a call in flight), so the model is
+  told to tell the user, and that a new conversation gets a fresh shell.
 - `ReadFileTool` (`read_file`) reads a text file, whole or a range of lines (`offset`
   from 1, `limit`). It declares the path for reading and refuses a file over 16 MiB, a
   binary file (a NUL byte in the first 8 KiB) and anything that is not a regular file.

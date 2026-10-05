@@ -329,7 +329,7 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
     let fixture = Fixture::new();
     let conversation = ids().conversation_id;
     for (error, needle) in [
-        (ShellError::Busy { conversation }, "busy"),
+        (ShellError::Busy { conversation }, "nobody can clear it from here now"),
         (ShellError::NotReady { conversation }, "nested_shell"),
         (ShellError::Exited { conversation, status: None }, "new shell"),
         (ShellError::InvalidCommand { reason: "it is empty" }, "it is empty"),
@@ -340,6 +340,8 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
         assert!(result.is_error);
         assert!(result.output.contains(needle), "{}", result.output);
         assert!(!result.output.contains("screen"), "{}", result.output);
+        // An interrupt never reaches a shell that no call runs in.
+        assert!(!result.output.contains("interrupt"), "{}", result.output);
     }
 }
 

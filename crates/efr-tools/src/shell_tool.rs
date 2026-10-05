@@ -228,10 +228,12 @@ impl Tool for ShellTool {
         let mut progress = Relay { out };
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {
             Ok(result) => Ok(self.render(&result, timeout)),
+            // NOTE: nothing clears a busy shell from here: an interrupt reaches the shell
+            // only for a call in flight, and this one never started.
             Err(ShellError::Busy { .. }) => Ok(ToolResult::error(
-                "The shell is busy: another command of this conversation is still running, \
-                 or an unfinished command line waits in it. Try again once it has ended; if \
-                 it does not end, tell the user, who can stop it by interrupting the turn.",
+                "The shell is busy: an unfinished command line or another run holds it, and \
+                 nobody can clear it from here now. The command was not run. Tell the user; \
+                 a new conversation (,new in their terminal) gets a fresh shell.",
             )),
             Err(ShellError::NotReady { .. }) => Ok(ToolResult::error(format!(
                 "The shell did not reach its prompt within {}s, so the command was not run: \
