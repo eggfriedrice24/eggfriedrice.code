@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use efr_config::{FileState, Settings};
 use efr_protocol::ProjectId;
-use efr_test_support::{TestClock, TestDirs};
+use efr_test_support::{TestClock, TestDirs, Wait};
 use pretty_assertions::assert_eq;
 use rustix::fs::inotify::ReadFlags;
 use tokio::sync::watch;
@@ -189,30 +189,29 @@ async fn reading_the_file_never_reloads_it() {
 /// Moves the clock past each quiet time the watcher starts until the settings change.
 async fn until_reloaded(clock: &TestClock, settings: &mut watch::Receiver<Arc<Settings>>) {
     let mut seen = 0;
-    for _ in 0..1_000_000 {
-        if settings.has_changed().unwrap() {
-            settings.borrow_and_update();
-            return;
-        }
-        let quiet = clock.requested_sleeps().iter().filter(|sleep| **sleep == DEBOUNCE).count();
-        if quiet > seen {
-            seen = quiet;
-            clock.advance(DEBOUNCE);
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("the watcher never reloaded");
+    Wait::new("a reload by the watcher")
+        .until(|| {
+            if settings.has_changed().unwrap() {
+                settings.borrow_and_update();
+                return true;
+            }
+            let quiet = quiet_times(clock);
+            if quiet > seen {
+                seen = quiet;
+                clock.advance(DEBOUNCE);
+            }
+            false
+        })
+        .await
+        .unwrap();
 }
 
 /// Waits, without moving the clock, until the settings pass `test`.
 async fn until(settings: &mut watch::Receiver<Arc<Settings>>, test: impl Fn(&Settings) -> bool) {
-    for _ in 0..1_000_000 {
-        if test(&settings.borrow_and_update()) {
-            return;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("the settings never passed the test");
+    Wait::new("settings that pass the test")
+        .until(|| test(&settings.borrow_and_update()))
+        .await
+        .unwrap();
 }
 
 /// How many quiet times the watcher has started.
@@ -327,20 +326,15 @@ async fn a_project_registered_while_the_daemon_runs_reaches_the_engine() {
     save_by_rename(&dirs.dirs().config().join("projects.toml"), &registry);
     // NOTE: the reload at the watcher's start may read the registry too; only an event
     // of the registry starts a quiet time.
-    for _ in 0..1_000_000 {
-        if quiet_times(&clock) > 0 {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(quiet_times(&clock) > 0, "the registry's change started no reload");
+    Wait::new("a quiet time started by the registry's change")
+        .until(|| quiet_times(&clock) > 0)
+        .await
+        .unwrap();
     clock.advance(DEBOUNCE);
-    for _ in 0..1_000_000 {
-        if engine.borrow().locations().project_root(&id).is_some() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
+    Wait::new("the project in the engine")
+        .until(|| engine.borrow().locations().project_root(&id).is_some())
+        .await
+        .unwrap();
 
     assert_eq!(engine.borrow().locations().project_root(&id), Some(root.as_path()));
     daemon.stop().await;
