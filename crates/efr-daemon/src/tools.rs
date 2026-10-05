@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use efr_config::{Settings, SudoCache};
 use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
 use efr_permissions::Requirements;
 use efr_protocol::{ConversationId, InputWait};
@@ -29,6 +30,7 @@ use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
     ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
 };
+use tokio::sync::watch;
 
 use crate::DaemonError;
 use crate::connections::Connections;
@@ -57,6 +59,8 @@ pub(crate) struct DaemonToolbox {
     journal: Arc<dyn WriteJournal>,
     /// The live subscriptions, which say whether a person can answer a waiting command.
     connections: Arc<Connections>,
+    /// The daemon's settings; each call reads `shell.sudo_cache` from the latest.
+    settings: watch::Receiver<Arc<Settings>>,
 }
 
 impl DaemonToolbox {
@@ -66,8 +70,17 @@ impl DaemonToolbox {
         home: Home,
         clock: Arc<dyn Clock>,
         connections: Arc<Connections>,
+        settings: watch::Receiver<Arc<Settings>>,
     ) -> Self {
-        DaemonToolbox { registry, shells, home, clock, journal: Arc::new(LogJournal), connections }
+        DaemonToolbox {
+            registry,
+            shells,
+            home,
+            clock,
+            journal: Arc::new(LogJournal),
+            connections,
+            settings,
+        }
     }
 
     fn context(&self, call: &CallContext) -> ToolContext {
@@ -87,6 +100,13 @@ impl DaemonToolbox {
         .with_scope(call.scope.clone())
         .with_origin(call.origin)
         .with_shell_cwd(call.shell_cwd.clone())
+        .with_forget_credentials(self.forgets_credentials())
+    }
+
+    /// True when the latest settings make the hidden shell forget sudo's credentials
+    /// after each call, read at each call so a change reaches the next one.
+    fn forgets_credentials(&self) -> bool {
+        self.settings.borrow().shell.sudo_cache == SudoCache::PerCall
     }
 }
 

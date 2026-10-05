@@ -36,6 +36,11 @@ pub struct RunRequest {
     /// reaches the command while it runs (see
     /// [`ShellSessions::answer`](crate::ShellSessions::answer)).
     pub call: Option<CallId>,
+    /// Make the shell forget sudo's and doas's cached credentials when the command
+    /// ends, before anything else runs there (`shell.sudo_cache = "per_call"`). It
+    /// takes effect for a run delimited by marks: the integration's key runs
+    /// `sudo -k` and `doas -L` without printing anything.
+    pub forget_credentials: bool,
 }
 
 impl RunRequest {
@@ -53,6 +58,7 @@ impl RunRequest {
             mode: RunMode::Auto,
             output_limit: Self::DEFAULT_OUTPUT_LIMIT,
             call: None,
+            forget_credentials: false,
         }
     }
 
@@ -81,6 +87,14 @@ impl RunRequest {
     #[must_use]
     pub fn with_call(mut self, call: CallId) -> Self {
         self.call = Some(call);
+        self
+    }
+
+    /// Sets whether the shell forgets the cached sudo and doas credentials when the
+    /// command ends.
+    #[must_use]
+    pub fn with_forget_credentials(mut self, forget: bool) -> Self {
+        self.forget_credentials = forget;
         self
     }
 }
@@ -308,6 +322,12 @@ impl Progress {
 /// typed at the attached screen and never sent cannot join the command.
 pub(crate) const CLEAR_LINE: &[u8] = b"\x1b[efr-clear~";
 
+/// The key the integration binds to a widget that makes the shell forget the cached
+/// sudo and doas credentials (`sudo -k`, `doas -L`) without printing anything. It is
+/// typed at the prompt after the run's end, before the next line, so nothing runs in
+/// between.
+pub(crate) const FORGET_CREDENTIALS: &[u8] = b"\x1b[efr-forget~";
+
 /// The bytes that type `command` at a zsh prompt: the clear key, one bracketed paste,
 /// so newlines and tabs are inserted rather than acted on, then Enter.
 pub(crate) fn marked_line(command: &str) -> Result<Bytes, ShellError> {
@@ -381,6 +401,8 @@ pub(crate) struct MarkRun {
     /// A continuation prompt started before `C`: the line was unfinished.
     unfinished: bool,
     cancelled: bool,
+    /// Type [`FORGET_CREDENTIALS`] when the run ends.
+    forget_credentials: bool,
 }
 
 impl MarkRun {
@@ -393,7 +415,19 @@ impl MarkRun {
             before: Capture::new(BEFORE_LIMIT),
             unfinished: false,
             cancelled: false,
+            forget_credentials: false,
         }
+    }
+
+    /// The same run, typing [`FORGET_CREDENTIALS`] when it ends when `forget` is set.
+    pub(crate) fn forgetting(mut self, forget: bool) -> Self {
+        self.forget_credentials = forget;
+        self
+    }
+
+    /// True when the shell must forget the cached credentials once the run ends.
+    pub(crate) fn forgets_credentials(&self) -> bool {
+        self.forget_credentials
     }
 
     /// Takes stream bytes that lie between marks. Returns true when they were output.

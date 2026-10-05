@@ -85,9 +85,9 @@
 # idle_minutes = 60
 
 # keep leaves sudo's credential cache to sudo (5 minutes by default); per_call makes
-# the hidden shell forget the credentials after each call that ran sudo or doas. Every
-# sudo call asks for approval with either value. Read but not applied yet: sudo keeps
-# its own cache.
+# the hidden shell forget sudo's and doas's credentials after each call, so the next
+# sudo asks for the password again. Every sudo call asks for approval with either
+# value.
 # sudo_cache = "keep"
 
 [conversation]

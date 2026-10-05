@@ -186,10 +186,13 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   terminal or follow the turn while it retries. With one, the
   command waits until it ends or its timeout passes. A visible wait (a `[Y/n]`
   question) never stops a command.
-- `sudo` keeps its own credential cache on the hidden shell's terminal (about five
-  minutes by default), so a second `sudo` soon after an answered one may not ask again.
-  efr does not clear it; a later setting will control that. Every command with `sudo`
-  still needs the user's approval.
+- `shell.sudo_cache` decides what happens to sudo's credential cache on the hidden
+  shell's terminal, read from the latest settings at each call (`tools.rs` sets
+  `ToolContext::forget_credentials`). `keep`, the default, leaves it to sudo (about
+  five minutes), so a second `sudo` soon after an answered one may not ask again.
+  `per_call` makes the hidden shell forget the credentials (`sudo -k`, `doas -L`) after
+  each call, before anything else runs there, so the next `sudo` asks for the password
+  again. Every command with `sudo` still needs the user's approval with either value.
 
 ### Notices
 

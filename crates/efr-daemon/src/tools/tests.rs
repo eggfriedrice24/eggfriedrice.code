@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use efr_config::Settings;
+use efr_config::{Settings, SudoCache};
 use efr_conversation::{CallContext, ToolCall, Toolbox as _};
 use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyId, PtyInfo, Signal, SignalTarget, Size,
@@ -57,6 +57,14 @@ impl PtyHolder for NoHolder {
 }
 
 fn toolbox(home: &Path) -> DaemonToolbox {
+    toolbox_with(home, Settings::default()).0
+}
+
+fn toolbox_with(
+    home: &Path,
+    settings: Settings,
+) -> (DaemonToolbox, tokio::sync::watch::Sender<Arc<Settings>>) {
+    let (sender, receiver) = tokio::sync::watch::channel(Arc::new(settings));
     let clock = TestClock::new();
     let mut config = ShellConfig::new(home.join("zsh"), BTreeMap::new());
     config.program = Some(PathBuf::from("/bin/sh"));
@@ -68,13 +76,31 @@ fn toolbox(home: &Path) -> DaemonToolbox {
     );
     let shells = ShellSessions::new(config, deps).unwrap();
     let registry = registry(&shells).unwrap();
-    DaemonToolbox::new(
+    let toolbox = DaemonToolbox::new(
         registry,
         shells,
         Home::new(home).unwrap(),
         clock.shared(),
         Arc::new(Connections::default()),
-    )
+        receiver,
+    );
+    (toolbox, sender)
+}
+
+#[test]
+fn each_call_reads_the_sudo_cache_from_the_latest_settings() {
+    let home = tempfile::tempdir().unwrap();
+    let (toolbox, settings) = toolbox_with(home.path(), Settings::default());
+    let call = call("shell", json!({"command": "sudo true"}), home.path());
+
+    let kept = toolbox.context(&call.context).forget_credentials;
+    let mut per_call = Settings::default();
+    per_call.shell.sudo_cache = SudoCache::PerCall;
+    settings.send_replace(Arc::new(per_call));
+    let forgotten = toolbox.context(&call.context).forget_credentials;
+
+    assert!(!kept, "keep leaves the cache to sudo");
+    assert!(forgotten, "per_call reaches the next call");
 }
 
 fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {

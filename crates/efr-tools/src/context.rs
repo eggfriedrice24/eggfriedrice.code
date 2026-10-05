@@ -46,6 +46,9 @@ pub struct ToolContext {
     pub clock: Arc<dyn Clock>,
     /// Where a tool that changes a file records the original first.
     pub journal: Arc<dyn WriteJournal>,
+    /// Make the hidden shell forget sudo's and doas's cached credentials when a
+    /// command of this call ends (`shell.sudo_cache = "per_call"`).
+    pub forget_credentials: bool,
 }
 
 impl ToolContext {
@@ -70,6 +73,7 @@ impl ToolContext {
             home,
             clock,
             journal,
+            forget_credentials: false,
         }
     }
 
@@ -84,6 +88,14 @@ impl ToolContext {
     #[must_use]
     pub fn with_origin(mut self, origin: Origin) -> Self {
         self.origin = origin;
+        self
+    }
+
+    /// Sets whether the hidden shell forgets the cached sudo and doas credentials when
+    /// a command of this call ends.
+    #[must_use]
+    pub fn with_forget_credentials(mut self, forget: bool) -> Self {
+        self.forget_credentials = forget;
         self
     }
 

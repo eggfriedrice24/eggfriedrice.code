@@ -150,8 +150,16 @@ and `D`, or the two sentinels):
   because the wait stays `Hidden`), so an answer typed for the first prompt in that
   time goes to the second.
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
-  minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
-  clears it (no `sudo -k`); a later setting will control that.
+  minutes), so a `sudo` soon after an answered one may not ask again, unless the run
+  asks to forget it (`RunRequest::forget_credentials`, the daemon's
+  `shell.sudo_cache = "per_call"`). Then, once the run's `D` mark came, the session
+  types the key `\e[efr-forget~` at the next prompt's `B`, ahead of any line; the
+  integration binds it to a widget that runs `sudo -k` and `doas -L` (each when it is
+  on the `PATH`) with every stream redirected, so nothing reaches the screen, the
+  recording or a tool result. The key waits for `B` because before the line editor
+  reads, the terminal is in cooked mode and would echo it. A run that was left at its
+  timeout (sudo at its password prompt) still forgets when it ends. Only a run
+  delimited by marks forgets: a sentinel run has no integration to bind the key.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:

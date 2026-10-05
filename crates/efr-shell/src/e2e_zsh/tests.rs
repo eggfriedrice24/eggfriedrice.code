@@ -617,3 +617,69 @@ async fn e2e_an_answer_while_a_later_precmd_hook_holds_the_terminal_never_runs()
     assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
     assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
 }
+
+/// A directory with a fake `sudo` that appends its arguments to `sudo.log` next to it
+/// and prints `sudo ran` unless it is asked to forget (`-k`).
+fn fake_sudo() -> (tempfile::TempDir, PathBuf) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = tempfile::tempdir().unwrap();
+    let log = bin.path().join("sudo.log");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n[ \"$1\" = -k ] || echo 'sudo ran'\n",
+        log.display()
+    );
+    let sudo = bin.path().join("sudo");
+    std::fs::write(&sudo, script).unwrap();
+    std::fs::set_permissions(&sudo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (bin, log)
+}
+
+/// The shell with `bin` first on its `PATH`.
+fn with_bin(test: &str, bin: &Path) -> Option<Zsh> {
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    Zsh::start_with(test, |config| {
+        config.base_env.insert("PATH".to_owned(), path);
+    })
+}
+
+#[tokio::test]
+async fn e2e_per_call_makes_the_shell_forget_sudos_credentials_after_each_call() {
+    let test = "e2e_per_call_makes_the_shell_forget_sudos_credentials_after_each_call";
+    let (bin, log) = fake_sudo();
+    let Some(zsh) = with_bin(test, bin.path()) else {
+        return;
+    };
+    let forget = |command: &str| zsh.request(command).with_forget_credentials(true);
+
+    let first = zsh
+        .sessions
+        .run_command(zsh.conversation, forget("sudo true"), &mut NoProgress)
+        .await
+        .unwrap();
+    // The forget key goes out right after the first call's end, so the shell runs
+    // `sudo -k` before it reads this line.
+    let read_log = forget(&format!("cat '{}'", log.display()));
+    let second =
+        zsh.sessions.run_command(zsh.conversation, read_log, &mut NoProgress).await.unwrap();
+
+    assert_eq!(first.output, "sudo ran\n");
+    assert_eq!(second.output, "true\n-k\n", "sudo -k ran between the two calls");
+    let recording = zsh.recording().await;
+    assert!(!recording.contains("efr-forget"), "{recording:?}");
+    assert_eq!(recording.matches("-k").count(), 1, "only cat shows it: {recording:?}");
+}
+
+#[tokio::test]
+async fn e2e_keep_leaves_sudos_credentials_to_sudo() {
+    let test = "e2e_keep_leaves_sudos_credentials_to_sudo";
+    let (bin, log) = fake_sudo();
+    let Some(zsh) = with_bin(test, bin.path()) else {
+        return;
+    };
+
+    let first = zsh.run("sudo true").await;
+    let second = zsh.run(&format!("cat '{}'", log.display())).await;
+
+    assert_eq!(first.output, "sudo ran\n");
+    assert_eq!(second.output, "true\n", "nothing asked sudo to forget");
+}

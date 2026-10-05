@@ -414,6 +414,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         home.clone(),
         Arc::clone(&clock),
         Arc::clone(&connections),
+        settings_receiver.clone(),
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };

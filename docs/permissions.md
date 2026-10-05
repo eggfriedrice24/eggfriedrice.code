@@ -380,6 +380,19 @@ rule 0 asks:
 matches them, also behind a wrapper such as `env` or `nice`. If a rule for every
 command line allows them, the engine still asks.
 
+What happens to the password after an approved `sudo` is `[shell] sudo_cache`:
+
+- `keep` (the default): sudo keeps its own credential cache for the hidden shell's
+  terminal, 5 minutes unless `timestamp_timeout` in sudoers says otherwise, so a
+  second `sudo` in that time runs without the password. It still asks for approval.
+- `per_call`: after each shell call, before anything else runs in that hidden shell,
+  efr makes it forget the credentials (`sudo -k`, and `doas -L` when doas exists), so
+  the next `sudo` asks for the password again. Nothing of this shows on the screen or
+  in the output. It happens after every call, not only after a line that names sudo,
+  because a script or a function can run sudo too.
+
+With either value, every call that runs `sudo` asks for your approval first.
+
 ## Which paths a command reads
 
 A read-only command still reads files, and the path rules judge what it reads. The

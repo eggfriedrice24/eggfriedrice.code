@@ -513,6 +513,7 @@ impl ShellSessions {
             mode: request.mode,
             output_limit: request.output_limit,
             call: request.call,
+            forget_credentials: request.forget_credentials,
             token: sentinel::token(&*deps.rng),
             reply,
             progress: publish,

@@ -131,10 +131,12 @@ _efr_hs_install() {
   # bound to send-break: unlike Ctrl+C, a key waits in the input until the line
   # editor reads it, while a SIGINT that arrives during zle-line-init is lost.
   builtin zle -N _efr_hs_clear_line
+  builtin zle -N _efr_hs_forget_credentials
   builtin zle -A .bracketed-paste _efr_hs_bracketed_paste
   builtin local keymap
   for keymap in emacs viins vicmd; do
     builtin bindkey -M $keymap $'\e[efr-clear~' _efr_hs_clear_line
+    builtin bindkey -M $keymap $'\e[efr-forget~' _efr_hs_forget_credentials
     builtin bindkey -M $keymap $'\e[200~' _efr_hs_bracketed_paste
     builtin bindkey -M $keymap $'\e[efr-cancel~' send-break
   done
@@ -149,6 +151,18 @@ _efr_hs_clear_line() {
   CURSOR=0
   [[ $KEYMAP == vicmd ]] && builtin zle vi-insert
   _efr_hs_plain_words
+  return 0
+}
+
+# With shell.sudo_cache = "per_call", efr types this key right after each command's D
+# mark, so the line editor runs it before the next line: sudo and doas forget the
+# credentials they cached for this terminal, and the next sudo asks for the password
+# again. It is a key and not a command line so that nothing reaches the screen, the
+# recording or a tool result, and nothing it prints is shown.
+_efr_hs_forget_credentials() {
+  builtin emulate -L zsh
+  (( ${+commands[sudo]} )) && command sudo -k </dev/null >/dev/null 2>&1
+  (( ${+commands[doas]} )) && command doas -L </dev/null >/dev/null 2>&1
   return 0
 }
 

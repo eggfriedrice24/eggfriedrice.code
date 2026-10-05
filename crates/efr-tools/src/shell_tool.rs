@@ -240,7 +240,8 @@ impl Tool for ShellTool {
         let request = RunRequest::new(input.command, ctx.cwd.clone())
             .with_timeout(timeout)
             .with_mode(mode)
-            .with_call(ctx.ids.call_id);
+            .with_call(ctx.ids.call_id)
+            .with_forget_credentials(ctx.forget_credentials);
         let mut progress = Relay { out };
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {
             Ok(result) => Ok(self.render(&result, timeout)),

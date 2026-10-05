@@ -32,6 +32,7 @@ fn order(id: u64, command: &str, mode: RunMode) -> (RunOrder, Answer, watch::Rec
         mode,
         output_limit: 1024,
         call: Some(call_id(id)),
+        forget_credentials: false,
         token: "0123456789abcdef".to_owned(),
         reply,
         progress,
@@ -63,6 +64,58 @@ fn a_run_at_a_ready_prompt_is_typed_at_once() {
     let (order, _answer, _) = order(1, "ls", RunMode::Auto);
     let writes = core.submit(order);
     assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
+}
+
+#[test]
+fn a_run_that_forgets_credentials_types_the_forget_key_at_the_next_prompt() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+
+    let ended = feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% ");
+    assert!(answer.try_recv().unwrap().is_ok(), "the run is answered at its end");
+    let (second, _second_answer, _) = order(2, "ls", RunMode::Auto);
+    assert!(core.submit(second).is_empty(), "the next line waits for the prompt");
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;B\x07");
+
+    assert!(ended.is_empty(), "nothing is typed before the line editor reads");
+    assert_eq!(
+        at_prompt,
+        [b"\x1b[efr-forget~".to_vec(), b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()],
+        "the forget key goes first"
+    );
+}
+
+#[test]
+fn a_run_that_keeps_credentials_types_nothing_after_its_end() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (first, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+
+    assert!(feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07").is_empty());
+}
+
+#[test]
+fn a_run_left_running_still_forgets_credentials_when_it_ends() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07[sudo] password: ");
+    assert!(matches!(core.detach(1), Detached::Running { .. }));
+
+    let writes = feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
+
+    assert_eq!(writes, [b"\x1b[efr-forget~".to_vec()]);
 }
 
 #[test]

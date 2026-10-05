@@ -23,7 +23,9 @@ The tools the model calls, and the registry that offers them.
   how much is left out.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
-  the home directory (`efr_scope::Home`), the clock and the write journal.
+  the home directory (`efr_scope::Home`), the clock, the write journal and
+  `forget_credentials`, which the shell tool passes on to the run so the hidden shell
+  forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`).
 - `ToolResult`: the output the model sees, the truncation flag, the error flag and the
   exit code; `ToolOutputSink` hears a call's output while it runs, each change of
   whether its command waits for input (`input_changed`, ignored by default), and is

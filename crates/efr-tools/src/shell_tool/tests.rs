@@ -168,7 +168,20 @@ async fn a_finished_command_reports_output_exit_code_and_directory() {
     assert_eq!(request.timeout, RunRequest::DEFAULT_TIMEOUT);
     assert_eq!(request.mode, RunMode::Auto);
     assert_eq!(request.call, Some(ids().call_id), "answers reach this call's command");
+    assert!(!request.forget_credentials, "sudo keeps its cache unless the call says");
     assert_eq!(runner.requests.lock().unwrap()[0].0, ids().conversation_id);
+}
+
+#[tokio::test]
+async fn a_call_that_forgets_credentials_asks_the_shell_to() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/tmp")));
+    let tool = ShellTool::new(runner.clone());
+    let context = fixture.context().with_forget_credentials(true);
+
+    tool.invoke(context, json!({"command": "sudo true"}), &mut NoOutput).await.unwrap();
+
+    assert!(runner.last_request().forget_credentials);
 }
 
 #[tokio::test]

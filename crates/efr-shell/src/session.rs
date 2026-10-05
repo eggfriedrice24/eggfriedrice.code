@@ -23,7 +23,9 @@ use tokio::task::JoinHandle;
 use crate::capture::Kept;
 use crate::input::{self, Probe};
 use crate::modes::Terminal;
-use crate::run::{Delimiter, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line};
+use crate::run::{
+    Delimiter, FORGET_CREDENTIALS, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line,
+};
 use crate::sentinel::{SentinelRun, sentinel_line};
 use crate::{Phase, ShellError, ShellNotice, ShellObserver, ShellState};
 
@@ -71,6 +73,9 @@ pub(crate) struct RunOrder {
     pub(crate) output_limit: usize,
     /// The tool call that runs the command, whose answers may reach it.
     pub(crate) call: Option<CallId>,
+    /// Make the shell forget the cached sudo and doas credentials when a marked run
+    /// ends.
+    pub(crate) forget_credentials: bool,
     /// The sentinel token, drawn by the caller from the injected generator.
     pub(crate) token: String,
     pub(crate) reply: oneshot::Sender<Result<RunEnd, ShellError>>,
@@ -180,6 +185,9 @@ pub(crate) struct SessionCore {
     /// would leave the phase at `Ready` and the next line would be typed ahead into
     /// the running one.
     orphan: Option<Machine>,
+    /// A run that forgets credentials has ended: type [`FORGET_CREDENTIALS`] at the
+    /// next ready prompt.
+    forget_pending: bool,
     observer: Arc<dyn ShellObserver>,
 }
 
@@ -198,6 +206,7 @@ impl SessionCore {
             active: None,
             queued: None,
             orphan: None,
+            forget_pending: false,
             observer,
         }
     }
@@ -389,7 +398,10 @@ impl SessionCore {
         let (line, machine) = match delimiter {
             Delimiter::Marks => (
                 marked_line(&order.command),
-                Machine::Marks(MarkRun::new(self.next(), order.output_limit)),
+                Machine::Marks(
+                    MarkRun::new(self.next(), order.output_limit)
+                        .forgetting(order.forget_credentials),
+                ),
             ),
             Delimiter::Sentinel => (
                 sentinel_line(&order.command, &order.token),
@@ -464,11 +476,24 @@ impl SessionCore {
         if self.state.apply(&mark.kind) {
             self.notice_cwd();
         }
+        // NOTE: the forget key waits for the next prompt's `B`: before the line editor
+        // reads, the terminal is in cooked mode and would echo the key onto the screen.
+        // It still goes out before a queued line, which is typed after the marks of
+        // this chunk, and before any later run, which is typed only at a ready prompt.
+        if self.forget_pending && self.state.phase == Phase::Ready {
+            self.forget_pending = false;
+            writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+        }
         if let Some(Machine::Marks(orphan)) = &mut self.orphan {
             match orphan.on_mark(mark) {
                 MarkStep::Continue => {}
                 MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
-                MarkStep::Ended(_) => self.orphan = None,
+                MarkStep::Ended(_) => {
+                    // A command left running at its timeout, such as sudo at its password
+                    // prompt, may have authenticated by the time it ends.
+                    self.forget_pending |= orphan.forgets_credentials();
+                    self.orphan = None;
+                }
             }
         }
         let Some(active) = &mut self.active else {
@@ -478,11 +503,15 @@ impl SessionCore {
             return;
         };
         let step = run.on_mark(mark);
+        let forget = run.forgets_credentials();
         active.note_start();
         match step {
             MarkStep::Continue => {}
             MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
-            MarkStep::Ended(output) => self.finish(output),
+            MarkStep::Ended(output) => {
+                self.forget_pending |= forget;
+                self.finish(output);
+            }
         }
     }
 

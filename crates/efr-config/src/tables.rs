@@ -82,8 +82,8 @@ pub enum SudoCache {
     /// sudo's own cache stays, for as long as sudoers keeps it (5 minutes by default).
     #[default]
     Keep,
-    /// The hidden shell forgets the credentials after each call, so the next sudo asks
-    /// for the password again.
+    /// The hidden shell forgets the credentials after each call (`sudo -k`, `doas -L`),
+    /// so the next sudo asks for the password again.
     PerCall,
 }
 
@@ -196,9 +196,8 @@ pub struct ShellSettings {
     /// shell is closed; 0 keeps idle shells.
     pub idle_minutes: u64,
     /// `keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell
-    /// forget the credentials after each call that ran sudo or doas.
-    ///
-    /// NOTE: read and validated, but not applied yet: sudo keeps its own cache.
+    /// forget sudo's and doas's credentials after each call, before anything else runs
+    /// there. Read at each call.
     pub sudo_cache: SudoCache,
 }
 

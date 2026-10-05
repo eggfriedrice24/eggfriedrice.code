@@ -46,6 +46,9 @@ fn the_script_binds_the_keys_the_session_types() {
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-clear~' _efr_hs_clear_line"));
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[200~' _efr_hs_bracketed_paste"));
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-cancel~' send-break"));
+    assert!(
+        INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-forget~' _efr_hs_forget_credentials")
+    );
 }
 
 /// The user's .zshrc may load efr.plugin.zsh, whose functions are named `_efr_*`; a
