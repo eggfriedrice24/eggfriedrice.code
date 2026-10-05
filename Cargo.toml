@@ -59,6 +59,7 @@ jiff = { version = "0.2.37", default-features = false, features = ["std", "serde
 etcetera = "0.11.0"
 
 # Operating system
+# "fs" also holds inotify, which the config watcher of efr-daemon reads.
 rustix = { version = "1.1.5", default-features = false, features = ["std", "pty", "termios", "process", "fs"] }
 nix = { version = "0.31.3", default-features = false, features = ["process", "signal", "socket", "term", "fs", "user"] }
 libc = { version = "0.2.190", default-features = false, features = ["std"] }
@@ -89,8 +90,6 @@ memchr = { version = "2.8.3", default-features = false, features = ["std"] }
 indexmap = { version = "2.14.2", default-features = false, features = ["std"] }
 strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
 which = "8.0.6"
-# The config file watcher of live reload (efr-daemon/src/reload/watcher.rs).
-notify = { version = "8.2.0", default-features = false }
 # READY=1 and STOPPING=1 for the Type=notify user unit (efr-daemon/src/run.rs).
 sd-notify = "0.5.0"
 

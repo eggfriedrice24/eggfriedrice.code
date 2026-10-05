@@ -144,9 +144,9 @@ pub enum DaemonError {
     Watch {
         /// The directory.
         path: PathBuf,
-        /// The error from the watcher.
+        /// The error from inotify.
         #[source]
-        source: notify::Error,
+        source: io::Error,
     },
     /// A tracing filter in `EnvFilter` syntax does not parse.
     #[error("the log filter {filter:?} is not valid")]
