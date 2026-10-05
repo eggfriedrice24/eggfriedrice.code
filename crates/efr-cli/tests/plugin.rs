@@ -188,6 +188,15 @@ while zpty -r user chunk; do print -rn -- "$chunk"; done
 /// line ended by Enter and the last followed by `exit`, and returns what the terminal
 /// showed.
 fn type_lines(home: &Home, lines: &[&str]) -> String {
+    type_lines_with(home, &[], lines)
+}
+
+/// The environment of a terminal in a UTF-8 locale, where the sticky indicator is the
+/// robot. The other tests run in the C locale.
+const UTF8: &[(&str, &str)] = &[("LANG", "C.UTF-8")];
+
+/// As [`type_lines`], with the variables `env` added to the shell's environment.
+fn type_lines_with(home: &Home, env: &[(&str, &str)], lines: &[&str]) -> String {
     let mut keys = format!("source {}\r", plugin().display());
     for line in lines {
         keys.push_str(line);
@@ -196,7 +205,13 @@ fn type_lines(home: &Home, lines: &[&str]) -> String {
     // `!exit` is never read unless sticky mode wrongly stayed on and sent `exit` to the
     // agent; then it ends the shell instead of leaving the test waiting.
     keys.push_str("exit\r!exit\r");
-    let output = home.zsh().env("EFR_KEYS", keys).args(["-f", "-c", DRIVER]).output().unwrap();
+    let output = home
+        .zsh()
+        .envs(env.iter().copied())
+        .env("EFR_KEYS", keys)
+        .args(["-f", "-c", DRIVER])
+        .output()
+        .unwrap();
     let screen = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "the driver failed: {stderr}\n{screen}");
@@ -512,6 +527,84 @@ fn e2e_sticky_mode_shows_its_indicator_without_changing_the_prompt() {
     // to the typed text: ZLE writes a key, steps back and writes it again with colour.
     assert!(screen.contains("efr> "), "{screen}");
     assert!(home.calls().is_empty(), "{:?}", home.calls());
+}
+
+#[test]
+fn e2e_in_sticky_mode_a_prompt_line_starts_with_the_robot_instead_of_a_comma() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let prompt = "what's up? *glob* ; | > x";
+    let screen = type_lines_with(
+        &home,
+        UTF8,
+        &["<C-Space>", prompt, "!fc -ln -1 > history.txt", "<C-Space>"],
+    );
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some(prompt.to_owned())]);
+    assert!(!home.path().join("x").exists(), "the prompt ran as shell syntax");
+    // History keeps the line that ran, which the screen showed all along: the robot
+    // stood before the typed text and stays there, and no comma is ever drawn.
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), format!("🤖 {prompt}"));
+    assert!(screen.contains('🤖'), "{screen}");
+    assert!(!screen.contains(", what"), "{screen}");
+}
+
+#[test]
+fn e2e_a_robot_line_from_history_goes_to_the_agent_outside_sticky_mode() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(&home, UTF8, &["🤖 sent again; from history"]);
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some("sent again; from history".to_owned())]);
+}
+
+#[test]
+fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        alias taken=true
+        for indicator in '🤖 ' 'ai  ' 'efr> ' 'ls ' 'if ' 'taken ' '-x ' 'a b ' ', '; do
+          EFR_STICKY_INDICATOR=$indicator
+          if _efr_sticky_word; then efr word "$REPLY"; else efr none; fi
+        done
+    "#);
+    let words: Vec<String> = calls.iter().map(|call| call.args.join(" ")).collect();
+    assert_eq!(
+        words,
+        ["word 🤖", "word ai", "none", "none", "none", "none", "none", "none", "none"]
+    );
+}
+
+#[test]
+fn e2e_sticky_mode_leaves_continuation_lines_and_vared_alone() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            "<C-Space>",
+            "!for x in a b",
+            "do print -r -- $x >> loop.txt; done",
+            "!vared -c answer",
+            "typed into vared",
+            r#"!print -r -- "$answer" > answer.txt"#,
+            "<C-Space>",
+        ],
+    );
+    assert!(home.calls().is_empty(), "{:?}", home.calls());
+    let read = |name: &str| std::fs::read_to_string(home.path().join(name)).unwrap();
+    assert_eq!(read("loop.txt"), "a\nb\n");
+    assert_eq!(read("answer.txt"), "typed into vared\n");
 }
 
 #[test]
