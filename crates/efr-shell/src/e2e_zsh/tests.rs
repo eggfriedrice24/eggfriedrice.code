@@ -512,6 +512,30 @@ async fn e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output()
     assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
 }
 
+/// A question asked behind a relay. util-linux `script` puts the hidden shell's terminal
+/// in raw mode and runs the program on a terminal of its own, as `sudo` does with
+/// `use_pty` (its default), so the modes that the look reads are the relay's, not the
+/// program's.
+const RELAYED_QUESTION: &str = r#"script -q -c "sh -c 'printf \"ok? [Y/n] \"; IFS= read -r a; printf \"got=%s\n\" \"\$a\"'" /dev/null"#;
+
+#[tokio::test]
+async fn e2e_a_question_behind_a_relay_in_raw_mode_waits_for_visible_input_and_takes_an_answer() {
+    let Some(zsh) = Zsh::start(
+        "e2e_a_question_behind_a_relay_in_raw_mode_waits_for_visible_input_and_takes_an_answer",
+    ) else {
+        return;
+    };
+    let (run, mut heard) = zsh.run_waiting(RELAYED_QUESTION, true, "ok? [Y/n] ").await;
+    zsh.look_until(&mut heard, &[InputWait::Visible]).await;
+
+    zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("y"), false).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(0));
+    assert!(result.output.contains("got=y"), "{:?}", result.output);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
 #[tokio::test]
 async fn e2e_a_read_that_the_shell_runs_itself_is_neither_offered_nor_answered() {
     let Some(zsh) =
