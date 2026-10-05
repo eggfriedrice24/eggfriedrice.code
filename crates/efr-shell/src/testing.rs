@@ -371,10 +371,21 @@ impl Screen for AnsweringScreen {
     }
 }
 
-/// Keeps every recorded chunk.
+/// Keeps every recorded chunk, and can hold one back as a slow store would.
 #[derive(Debug, Default)]
 pub(crate) struct Recorded {
     chunks: Mutex<Vec<(PtyId, Seq, Bytes)>>,
+    gate: watch::Sender<Gate>,
+}
+
+/// Whether [`Recorded`] holds a chunk back.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum Gate {
+    #[default]
+    Open,
+    /// The next chunk that contains these bytes is held.
+    Armed(Vec<u8>),
+    Holding,
 }
 
 impl Recorded {
@@ -389,12 +400,40 @@ impl Recorded {
         }
         stream
     }
+
+    /// Holds the next chunk that contains `bytes` until [`release`](Self::release). The
+    /// reader waits for the recording, so the session's actor does not see that chunk
+    /// either, as with a store that is slow right then.
+    pub(crate) fn hold_at(&self, bytes: &[u8]) {
+        self.gate.send_replace(Gate::Armed(bytes.to_vec()));
+    }
+
+    /// Waits until a chunk is held.
+    pub(crate) async fn holding(&self) {
+        self.gate.subscribe().wait_for(|gate| *gate == Gate::Holding).await.unwrap();
+    }
+
+    /// Lets a held chunk go on, and holds no other.
+    pub(crate) fn release(&self) {
+        self.gate.send_replace(Gate::Open);
+    }
 }
 
 #[async_trait]
 impl RecordingSink for Recorded {
     async fn record(&self, pty_id: PtyId, start: Seq, bytes: Bytes) {
-        self.chunks.lock().unwrap().push((pty_id, start, bytes));
+        self.chunks.lock().unwrap().push((pty_id, start, bytes.clone()));
+        let hold = self.gate.send_if_modified(|gate| match gate {
+            Gate::Armed(wanted) if bytes.windows(wanted.len()).any(|part| part == wanted) => {
+                *gate = Gate::Holding;
+                true
+            }
+            _ => false,
+        });
+        if hold {
+            let mut gate = self.gate.subscribe();
+            let _ = gate.wait_for(|gate| *gate != Gate::Holding).await;
+        }
     }
 }
 

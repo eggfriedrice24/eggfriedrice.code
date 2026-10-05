@@ -540,3 +540,58 @@ async fn e2e_hidden_input_that_nobody_can_answer_is_interrupted() {
     let after = zsh.run("echo after").await;
     assert_eq!(after.output, "after\n");
 }
+
+/// Yields until `path` exists, for at most ten seconds of real time.
+async fn exists(path: &Path) {
+    let start = std::time::Instant::now();
+    while !path.exists() {
+        assert!(start.elapsed() < Duration::from_secs(10), "{} never appeared", path.display());
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn e2e_an_answer_while_a_later_precmd_hook_holds_the_terminal_never_runs() {
+    let Some(zsh) =
+        Zsh::start("e2e_an_answer_while_a_later_precmd_hook_holds_the_terminal_never_runs")
+    else {
+        return;
+    };
+    let dir = zsh.dir("hook");
+    let (holding, release, leak) = (dir.join("holding"), dir.join("release"), dir.join("leak"));
+    // A hook that the user's .zshrc adds after efr's, as a prompt plugin does. Once the
+    // command line arms it, it runs an external command, which takes the terminal in a
+    // process group of its own and in cooked mode, until the test lets it go.
+    let zshrc = format!(
+        "efr_test_hook() {{\n  (( ${{+efr_test_armed}} )) || return 0\n  unset efr_test_armed\n  \
+         sh -c ': > \"{}\"; until [ -e \"{}\" ]; do sleep 0.01; done'\n}}\n\
+         precmd_functions+=(efr_test_hook)\n",
+        holding.display(),
+        release.display()
+    );
+    std::fs::write(zsh.home().join(".zshrc"), zshrc).unwrap();
+    let command =
+        r#"sh -c 'printf "name? "; IFS= read -r n; printf "hi %s\n" "$n"'; efr_test_armed=1"#;
+    let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
+    zsh.look_until(&mut heard, &[InputWait::Visible]).await;
+
+    // The user answers at the attached screen and the program ends. The chunk with `D`
+    // is held on its way to the session, as a slow store holds the reader, while the
+    // hook's command holds the terminal.
+    zsh.recorded.hold_at(b"\x1b]133;D");
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"bob\r")).await.unwrap();
+    zsh.recorded.holding().await;
+    exists(&holding).await;
+    let answer = SecretText::new(format!("touch '{}'", leak.display()));
+    let refused = zsh.sessions.answer(zsh.conversation, call(), &answer, false).await;
+
+    std::fs::write(&release, "").unwrap();
+    zsh.recorded.release();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.exit_code, Some(0));
+    // The line editor has read whatever reached the terminal once a later run ends.
+    zsh.run("true").await;
+    assert!(!leak.exists(), "the answer ran as a command line");
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
