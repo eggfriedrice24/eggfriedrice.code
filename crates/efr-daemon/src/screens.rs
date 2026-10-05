@@ -51,8 +51,9 @@ pub(crate) fn choose(choice: ScreenChoice) -> ScreenBackend {
 #[cfg(feature = "screen-ghostty")]
 fn select(choice: ScreenChoice) -> ScreenBackend {
     match choice {
-        ScreenChoice::Vt100 => ScreenBackend::Vt100,
         ScreenChoice::Auto | ScreenChoice::Ghostty => ScreenBackend::Ghostty,
+        // NOTE: `ScreenChoice` is non-exhaustive; vt100 is the backend every build has.
+        ScreenChoice::Vt100 | _ => ScreenBackend::Vt100,
     }
 }
 
