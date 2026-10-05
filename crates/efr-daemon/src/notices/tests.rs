@@ -31,7 +31,7 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
     let completed = Event::TurnCompleted { turn_id: turn(), usage: None };
     let failed = Event::TurnFailed {
         turn_id: turn(),
-        error: ErrorBody::new(ErrorCode::Unauthorized, "log in with efr login openai"),
+        error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
     };
     let approval = Event::ApprovalRequested {
         turn_id: turn(),
@@ -46,12 +46,41 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
     );
     assert_eq!(
         line(&failed, Some("fix nginx")).as_deref(),
-        Some("efr: turn failed: fix nginx: log in with efr login openai")
+        Some("efr: turn failed: fix nginx: the provider stream broke")
     );
     assert_eq!(
         line(&approval, None).as_deref(),
         Some("efr: approval waiting: a conversation: write /etc/hosts")
     );
+}
+
+#[test]
+fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
+    let failed = Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(ErrorCode::Unauthorized, "no provider credentials are stored"),
+    };
+
+    assert_eq!(
+        line(&failed, Some("fix nginx")).as_deref(),
+        Some(
+            "efr: turn failed: fix nginx: no provider credentials are stored; run efr login openai"
+        )
+    );
+}
+
+#[test]
+fn the_login_hint_survives_a_long_title() {
+    let failed = Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(ErrorCode::Unauthorized, "the token was refused"),
+    };
+    let title = "x".repeat(400);
+
+    let text = line(&failed, Some(&title)).unwrap();
+
+    assert_eq!(text.chars().count(), 200);
+    assert!(text.ends_with("...; run efr login openai"), "{text}");
 }
 
 #[test]

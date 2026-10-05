@@ -13,7 +13,7 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, Event, EventEnvelope};
+use efr_protocol::{ConversationId, ErrorCode, Event, EventEnvelope};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
@@ -37,11 +37,23 @@ pub(crate) fn file_name(tty: &str) -> Option<String> {
     (!name.is_empty() && name != "." && name != ".." && name.chars().all(allowed)).then_some(name)
 }
 
+/// The next step after a turn failed for want of usable credentials. The provider's
+/// message says what is wrong, not what to do, and a terminal that shows only the
+/// notice has no other place to learn it.
+const LOGIN_HINT: &str = "; run efr login openai";
+
 /// The notice for `event` of a conversation titled `title`, if the event deserves one.
 pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
     let title = title.filter(|title| !title.trim().is_empty()).unwrap_or("a conversation");
     let text = match event {
         Event::TurnCompleted { .. } => format!("efr: turn finished: {title}"),
+        Event::TurnFailed { error, .. } if error.code == ErrorCode::Unauthorized => {
+            // NOTE: the hint goes on after the cut, so a long title cannot push it out.
+            let text = format!("efr: turn failed: {title}: {}", error.message);
+            let mut line = one_line(&text, MAX_CHARS - LOGIN_HINT.chars().count());
+            line.push_str(LOGIN_HINT);
+            return Some(line);
+        }
         Event::TurnFailed { error, .. } => {
             format!("efr: turn failed: {title}: {}", error.message)
         }
@@ -50,16 +62,16 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
         }
         _ => return None,
     };
-    Some(one_line(&text))
+    Some(one_line(&text, MAX_CHARS))
 }
 
-/// `text` without control characters, cut to [`MAX_CHARS`] with `...` at the cut.
-fn one_line(text: &str) -> String {
+/// `text` without control characters, cut to `max` characters with `...` at the cut.
+pub(crate) fn one_line(text: &str, max: usize) -> String {
     let clean = text.chars().map(|c| if c.is_control() { ' ' } else { c });
-    if text.chars().count() <= MAX_CHARS {
+    if text.chars().count() <= max {
         return clean.collect();
     }
-    let mut line: String = clean.take(MAX_CHARS - 3).collect();
+    let mut line: String = clean.take(max.saturating_sub(3)).collect();
     line.push_str("...");
     line
 }
