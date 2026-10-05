@@ -46,13 +46,25 @@ The daemon starts one hidden zsh for each conversation, and that zsh reads your 
 - While a command runs, its last output line shows below the reply. When the command waits for an answer, type it and press Enter. A password is not shown, and the agent sees it only if the program that asked for it prints it: the prompt text comes from the command, so check which command asks before you answer. A `[Y/n]` answer is shown, and the agent sees it in the output. If nobody follows the turn in a terminal, the daemon stops a command that waits for a password. As in any terminal, sudo remembers the password for a few minutes in that hidden shell; each sudo call still asks for your approval, and a later setting will control this. Attaching to the hidden shell, for full-screen programs, comes later.
 - When a turn ends or an approval waits in a terminal that does not follow it, the next prompt there shows one line about it.
 
-The plugin hands the context, the last command and the prompt to `efr` in its environment, never in its arguments, because any user on the machine can read a command line. The same commands work by hand: `efr send <prompt>`, `efr new <prompt>`, `efr send --steer <text>`, `efr status`, `efr history [conversation]`, `efr login openai` and `efr config show`. `efr --help` lists the flags.
+The plugin hands the context, the last command and the prompt to `efr` in its environment, never in its arguments, because any user on the machine can read a command line. The same commands work by hand: `efr send <prompt>`, `efr new <prompt>`, `efr send --steer <text>`, `efr status`, `efr history [conversation]`, `efr login openai`, `efr paths` and the `efr config` commands below. `efr --help` lists the flags.
+
+## Settings
+
+All settings are in one optional file, `config.toml` in the config root (`~/.config/efr/config.toml` by default). A missing file means every default; an unknown key is an error, so a typo never does nothing silently. [`docs/config.md`](docs/config.md) lists every key with its default and when a change applies, and `docs/config.schema.json` is its JSON schema for editors.
+
+- `efr config edit` opens the file in `$VISUAL` or `$EDITOR` (`vi` otherwise). A missing file starts as the commented example, which names every key. When you save, `efr` checks the file and offers to edit it again if it has an error.
+- `efr config set model.name gpt-5.4` and `efr config unset model.name` change one key and keep your comments and layout.
+- `efr config check [path]` checks a file and names the line, the column and the key of an error. `efr config show` prints every setting with where it comes from, and the file that the daemon reads.
+- The daemon reloads the file when it changes, on `efr config reload` and on `systemctl --user reload efrd`. A running turn keeps its settings; the next one uses the new ones. A file with an error changes nothing: the old settings stay, `efr status` shows the error, and the next prompt in each terminal shows one line about it. A few keys (`screen`, `model.provider`, `openai.originator` and the two base URLs) apply only after `systemctl --user restart efrd`, and `efr config reload` says so.
+- The file holds no secrets, so it can live in a dotfiles repository: make `~/.config/efr/config.toml` a symbolic link to it. The daemon also watches the file behind the link, and `efr config set` writes that file and keeps the link.
+
+Where efr keeps its files: each root is its own variable (`EFR_CONFIG_DIR`, `EFR_DATA_DIR`, `EFR_STATE_DIR`, `EFR_RUNTIME_DIR`), else a directory below `EFR_HOME` (`config/`, `data/`, `state/` and `runtime/`), else the XDG directory (`~/.config/efr`, `~/.local/share/efr`, `~/.local/state/efr`, `$XDG_RUNTIME_DIR/efr`, or `/run/user/<uid>/efr` when `XDG_RUNTIME_DIR` is unset). `efr paths` shows each root, where it came from and whether it exists, and the files in them. When the daemon uses other roots than your shell, for example because only the shell sets `EFR_HOME`, `efr paths` warns: give the daemon the same variable with `systemctl --user edit efrd`. Below `EFR_HOME` the socket lives on disk; if its path is longer than a socket allows (107 bytes), the daemon does not start and says to set `EFR_RUNTIME_DIR` to a shorter directory.
 
 ## First use
 
 - Without a login, the first prompt fails as `unauthorized`, and `efr` says to run `efr login openai`.
 - Without a daemon, `efr` exits with 3 and says to run `systemctl --user start efrd`.
-- Which client name and models the ChatGPT backend accepts from efr is known only after the first real request. When it refuses the model, `efr` says so and names the line to change: `name` under `[model]` in `~/.config/efr/config.toml`. When it refuses the client, the error shows the backend's message; `originator` under `[openai]` changes the name that efr sends (`efr` by default). The daemon reads the file at start, so run `systemctl --user restart efrd` after a change. `efrd --print-config` shows every setting and where it comes from.
+- Which client name and models the ChatGPT backend accepts from efr is known only after the first real request. When it refuses the model, `efr` says so and names the line to change: `name` under `[model]` in `~/.config/efr/config.toml` (`efr config set model.name <model>`), which the next turn uses without a restart. When it refuses the client, the error shows the backend's message; `originator` under `[openai]` changes the name that efr sends (`efr` by default), and that key needs `systemctl --user restart efrd`. `efr config show` and `efrd --print-config` show every setting and where it comes from.
 - To try efr without installing it, `just run` starts a daemon in the foreground with throwaway directories. In the shell that you test from, export the `EFR_RUNTIME_DIR` that it prints and put `target/debug` on `PATH` after `cargo build -p efr-cli`; the plugin then shows that daemon's notices too.
 
 ## Repository map
@@ -61,7 +73,7 @@ The plugin hands the context, the last command and the prompt to `efr` in its en
 |---|---|
 | `ARCHITECTURE.md` | The crate map, the dependency rule and the threading model |
 | `CONVENTIONS.md` | How code in this repository is written |
-| `docs/` | Protocol, storage, permissions, the ghostty pin and the decision records |
+| `docs/` | Protocol, storage, permissions, the config reference and schema (generated by `cargo xtask config-docs`), the ghostty pin and the decision records |
 | `crates/` | The Rust workspace, one crate for each bounded context |
 | `shell/zsh/` | The zsh plugin |
 | `systemd/` | The user unit for the daemon |
