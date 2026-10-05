@@ -466,7 +466,16 @@ impl ShellSessions {
                 },
                 () = &mut deadline => break,
                 () = until(&mut look) => {
-                    if self.look_for_input(session, id, &mut watch, progress).await? {
+                    let stop = match self.look_for_input(session, id, &mut watch, progress).await {
+                        Ok(stop) => stop,
+                        // The actor went away while the run's reply was still open; a wait
+                        // reported before must still end with `None`.
+                        Err(error) => {
+                            end_watch(&mut watch, progress);
+                            return Err(error);
+                        }
+                    };
+                    if stop {
                         let result =
                             self.stop_unanswered(session, id, &mut guard, &mut answer).await;
                         end_watch(&mut watch, progress);

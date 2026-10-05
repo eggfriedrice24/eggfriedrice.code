@@ -2,20 +2,23 @@
 //! socketpair and drives time with a manual clock, so nothing waits on real time.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
 use efr_holder::{ChildStatus, Signal, SignalTarget, Size};
 use efr_protocol::{CallId, ConversationId, InputWait, SecretText};
 use pretty_assertions::assert_eq;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{CommandRunner, ShellSessions, replay_name, screen_name};
+use crate::input::Probe;
+use crate::session::{Life, Msg, SessionHandle};
 use crate::testing::{
-    AnsweringScreens, CountingScreens, FakeTerminal, Harness, Heard, conversation, listener,
+    AnsweringScreens, CountingScreens, FakeTerminal, Harness, Heard, SIZE, Vt100Screens,
+    conversation, listener,
 };
 use crate::{
     CommandResult, Completion, Delimiter, InputModes, NoProgress, OutputUpdate, Phase, RunMode,
@@ -438,7 +441,7 @@ async fn the_spawn_spec_has_the_shim_the_arguments_and_the_start_directory() {
     assert_eq!(spec.program, PathBuf::from(ZSH));
     assert_eq!(spec.args, ["-l", "-i"]);
     assert_eq!(spec.cwd, PathBuf::from("/etc/nixos"));
-    assert_eq!(spec.size, crate::testing::SIZE);
+    assert_eq!(spec.size, SIZE);
     let zdotdir = harness.dir.path().join("zsh");
     assert_eq!(spec.env["ZDOTDIR"], zdotdir.to_string_lossy());
     assert_eq!(spec.env["PWD"], "/etc/nixos");
@@ -624,7 +627,7 @@ fn a_missing_zsh_is_an_error() {
     let clock = efr_test_support::TestClock::new();
     let deps = crate::ShellDeps::new(
         crate::testing::FakeHolder::new(),
-        Arc::new(crate::testing::Vt100Screens),
+        Arc::new(Vt100Screens),
         clock.shared(),
         Arc::new(efr_test_support::TestRng::new(1)),
     );
@@ -936,4 +939,52 @@ async fn nothing_is_asked_or_typed_while_the_shell_itself_holds_the_terminal() {
     assert_eq!(terminal.typed_line().await, b"ok\r");
     terminal.print(b"\r\n\x1b]133;D;0\x07").await;
     run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
+    // The test plays the session's actor, so its inbox can close while the run's reply
+    // is still open, as when the actor ends between two looks.
+    let harness = Harness::new(ZSH);
+    let (inbox, mut messages) = mpsc::channel(8);
+    let (writer, _writes) = mpsc::channel(8);
+    let (_life, life) = watch::channel(Life::Running);
+    let (screen, _events) = Vt100Screens.spawn("screen-test", SIZE).unwrap();
+    let session = SessionHandle {
+        conversation: conversation(1),
+        pty_id: "01920000-0000-7000-8000-0000000000aa".parse().unwrap(),
+        pid: 1000,
+        screen,
+        inbox,
+        writer,
+        life,
+        size: Arc::new(Mutex::new(SIZE)),
+    };
+    let (mut listener, mut heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = request("sudo true").with_timeout(Duration::from_secs(600));
+    let run = tokio::spawn(async move { sessions.run_on(&session, request, &mut listener).await });
+    let Some(Msg::Run(order)) = messages.recv().await else {
+        panic!("the run was not handed to the actor");
+    };
+    order.progress.send_modify(|progress| progress.started = true);
+
+    // The deadline and the first look.
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(1));
+    let Some(Msg::Probe { id, reply }) = messages.recv().await else {
+        panic!("the run did not look");
+    };
+    assert_eq!(id, order.id);
+    let probe = Probe { running: true, last_output: None, modes: Some(HIDDEN), answers: 0 };
+    reply.send(Some(probe)).unwrap();
+    heard.inputs(&[InputWait::Hidden]).await;
+
+    drop(messages);
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(1));
+    let error = run.await.unwrap().unwrap_err();
+    assert!(matches!(error, ShellError::Exited { .. }), "{error:?}");
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+    drop(order);
 }
