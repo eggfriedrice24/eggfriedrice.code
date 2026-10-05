@@ -30,6 +30,20 @@ fn tests_rs_in_module_directory_is_clean() {
 }
 
 #[test]
+fn a_second_integration_test_binary_fails() {
+    assert_eq!(check_path("crates/efr-daemon/tests/hello.rs").len(), 1);
+    assert_eq!(check_path("crates/efr-daemon/tests/smoke/main.rs").len(), 1);
+}
+
+#[test]
+fn modules_of_the_one_integration_test_binary_are_clean() {
+    assert!(check_path("crates/efr-daemon/tests/it/main.rs").is_empty());
+    assert!(check_path("crates/efr-daemon/tests/it/hello.rs").is_empty());
+    assert!(check_path("crates/efr-daemon/tests/it/hello/cases.rs").is_empty());
+    assert!(check_path("crates/efr-cli/tests/it/snapshots/it__smoke__help.snap").is_empty());
+}
+
+#[test]
 fn inline_test_module_fails() {
     let found = rules("crates/efr-stdx/src/fs.rs", "#[cfg(test)]\nmod  tests {\n}\n");
     assert_eq!(found.len(), 1);

@@ -16,6 +16,10 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 - Binaries keep `main.rs` to argument parsing, tracing setup and a call into `run.rs`. Everything in a bin crate is `pub(crate)`.
 - A crate's README states: purpose, the tier, allowed dependencies, the invariant it protects, how to run its tests without the rest of the workspace.
 
+## Tests
+
+- One integration test binary per crate: `tests/it/main.rs` declares one module per area (`tests/it/hello.rs`, `tests/it/smoke.rs`) and holds the `#![cfg(test)]` line; insta snapshots of those modules live in `tests/it/snapshots/` (tidy). Cargo makes a binary of every `tests/*.rs`, and each one links the crate and all its dependencies again: eleven files in efr-daemon were eleven binaries of about 320 MB that each held the whole daemon. One binary links once, and nextest still runs every test in a process of its own. A test is named `<crate>::it <module>::<test>`; `cargo nextest run -p efr-daemon -E 'test(/^hello::/)'` runs one module.
+
 ## Naming
 
 | Thing | Rule | Example |

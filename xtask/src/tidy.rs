@@ -88,7 +88,25 @@ pub(crate) fn check_path(path: &str) -> Vec<Violation> {
     if file_name.ends_with("_tests.rs") {
         found.push(violation(path, None, "unit tests live in foo/tests.rs, not foo_tests.rs"));
     }
+    if is_extra_test_binary(path) {
+        found.push(violation(
+            path,
+            None,
+            "one integration test binary per crate: a module of tests/it/main.rs",
+        ));
+    }
     found
+}
+
+/// Cargo makes a test binary of every `tests/*.rs` and `tests/*/main.rs`, and each one
+/// links the crate and all its dependencies again, so a crate keeps one, `tests/it/`.
+fn is_extra_test_binary(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        ["crates", _, "tests", file] => file.ends_with(".rs"),
+        ["crates", _, "tests", dir, "main.rs"] => *dir != "it",
+        _ => false,
+    }
 }
 
 /// Rules over a text file's contents. `fast` keeps only the rules the pre-commit hook
