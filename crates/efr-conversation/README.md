@@ -58,7 +58,8 @@ request:
 
 1. the system prompt (the static rules, `ConversationConfig::system_prompt`);
 2. bounded history (`HistoryLimits`: 50 turns, 4096 events, 512 KiB of message JSON),
-   each earlier turn rebuilt from its events;
+   each earlier turn from the actor's cache or the saved turn messages, else rebuilt
+   from its events;
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
