@@ -3,7 +3,7 @@ source: crates/efr-cli/src/commands/config/tests.rs
 expression: "effective(&ctx, &discovered)"
 ---
 # The settings efr uses and where each one comes from.
-# The daemon's own settings are not shown; efrd reads them itself.
+# The daemon's own settings are not shown; efrd --print-config shows them.
 
 [render]
 theme = "gruvbox-dark"  # /c/efr/config.toml

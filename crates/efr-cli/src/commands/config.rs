@@ -36,7 +36,7 @@ pub(crate) async fn run(
 pub(crate) fn effective(ctx: &Context, discovered: &Result<Discovered, ClientError>) -> String {
     let mut lines = Lines::default();
     lines.comment("The settings efr uses and where each one comes from.");
-    lines.comment("The daemon's own settings are not shown; efrd reads them itself.");
+    lines.comment("The daemon's own settings are not shown; efrd --print-config shows them.");
 
     lines.table("render");
     let theme_source = match &ctx.settings.theme_source {
