@@ -362,3 +362,40 @@ async fn a_retargeted_config_link_is_write_sealed_after_the_reload() {
     assert_ne!(write(&daemon, &old), Effect::Deny, "the old target is a file like any other");
     daemon.stop().await;
 }
+
+#[tokio::test]
+async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+    let mut context = ShellContext::new(dirs.home().to_path_buf());
+    context.tty = Some(TTY.to_owned());
+    let mut next = 0;
+    let mut send = async |mode: Option<Mode>| -> PromptSendResult {
+        next += 1;
+        let settings = TurnSettings { mode, ..TurnSettings::default() };
+        terminal
+            .call(Method::PromptSend(PromptSend {
+                command_id: CommandId::from_uuid(uuid::Uuid::from_u128(next)),
+                conversation_id: None,
+                new_conversation: false,
+                text: "hi".to_owned(),
+                context: Some(context.clone()),
+                last_command: None,
+                settings,
+            }))
+            .await
+            .unwrap()
+    };
+
+    std::fs::write(config_file(&dirs), "[permissions]\nmode = \"auto\"\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let reloaded = send(None).await.settings.unwrap();
+    let own = send(Some(Mode::Manual)).await.settings.unwrap();
+
+    assert_eq!((reloaded.mode, reloaded.overridden.mode), (Mode::Auto, false));
+    assert_eq!((own.mode, own.overridden.mode), (Mode::Manual, true));
+    drop(terminal);
+    daemon.stop().await;
+}
