@@ -394,8 +394,12 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
-    let engine_parts =
-        EngineParts { home: home.clone(), secrets: secret_root, registry: registry_path.clone() };
+    let engine_parts = EngineParts {
+        home: home.clone(),
+        secrets: secret_root,
+        registry: registry_path.clone(),
+        config: dirs.config().to_path_buf(),
+    };
     let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
     // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`

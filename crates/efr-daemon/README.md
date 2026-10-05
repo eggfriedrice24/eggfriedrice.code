@@ -40,12 +40,15 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    held, running shells recorded as exited, process-bound outbox items cancelled.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
    tool registry (`tools.rs`), the permission engine and the conversation registry.
-   The engine is built in one place, `engine.rs`, from the settings and the project
-   registry. It holds one machine policy for each permission
+   The engine is built in one place, `engine.rs`, from the settings, the project
+   registry and the config directory. It holds one machine policy for each permission
    mode, `Policy::base(mode)` followed by the user's rules, so a user rule wins where
    both match; the user's rules are the machine policy and not a conversation's,
    because only the machine policy may open a secret or a system path. Each turn passes
-   its mode (today `permissions.mode`, through `LiveSettings`). The hidden shells trust the programs of
+   its mode (today `permissions.mode`, through `LiveSettings`). The config directory,
+   its resolved form and what each symbolic link in it reaches (`protected_config`,
+   such as a `config.toml` in a dotfiles repository) are write-sealed: no tool writes
+   them in any mode, whatever the rules say. The hidden shells trust the programs of
    the `auto` policy, which names those of every mode.
    `State` holds the settings in a `watch` of `Arc<Settings>` and the engine in
    another: the conversations read the settings through `settings.rs` (`LiveSettings`)

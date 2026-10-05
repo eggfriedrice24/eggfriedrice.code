@@ -253,6 +253,61 @@ async fn a_shell_call_through_a_link_into_the_secrets_declares_and_meets_the_sec
     }
 }
 
+#[tokio::test]
+async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    let cwd = home.join("p/app");
+    let config = home.join(".config/efr");
+    let dotfiles = home.join("dotfiles/efr");
+    for dir in [&cwd, &config, &dotfiles] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(dotfiles.join("config.toml"), "").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.toml"), config.join("config.toml")).unwrap();
+    std::os::unix::fs::symlink(&config, cwd.join("cfg")).unwrap();
+    let toolbox = toolbox(&home);
+    let engine = crate::engine::build(
+        &Home::new(&home).unwrap(),
+        &home.join(".local/share/efr/secrets"),
+        &crate::engine::protected_config(&config),
+        &Settings::default(),
+        &efr_scope::Registry::empty(),
+    )
+    .unwrap();
+
+    for (command, expected) in [
+        ("cp notes ~/.config/efr/config.toml", Effect::Deny),
+        ("ln -sf ~/p/app/x ~/.config/efr/config.toml", Effect::Deny),
+        ("rm ~/dotfiles/efr/config.toml", Effect::Deny),
+        ("mv x ~/.config/efr/projects.toml", Effect::Deny),
+        ("echo x > ~/.config/efr/config.toml", Effect::Deny),
+        // Through the link in the project, and through the link in the config.
+        ("echo x > cfg/config.toml", Effect::Deny),
+        ("tee cfg/new.toml", Effect::Deny),
+        // Reading stays free.
+        ("cat ~/.config/efr/config.toml", Effect::Allow),
+        ("cat cfg/config.toml", Effect::Allow),
+    ] {
+        let shell_call = call("shell", json!({ "command": command }), &cwd);
+        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+            let input = DecisionInput {
+                requirements: toolbox.requirements(&shell_call).await.unwrap(),
+                scope: Scope::Machine,
+                origin: Origin::Shell,
+                mode,
+                conversation_policy: ConversationPolicy::new(home.join("scratch")),
+            };
+            let effect = engine.decide(&input).effect();
+            let expected = match (expected, mode) {
+                (Effect::Allow, Mode::Manual) => Effect::Ask,
+                _ => expected,
+            };
+            assert_eq!(effect, expected, "{command:?} in {mode}");
+        }
+    }
+}
+
 /// What the check point decides for a shell call with `command`, from the shell in
 /// `~/p/app` (or the hidden shell's `shell_cwd` below the home directory), with the
 /// built-in rules followed by `rules`, as the daemon composes them.

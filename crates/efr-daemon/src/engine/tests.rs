@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use efr_config::Settings;
 use efr_permissions::{
@@ -9,13 +9,14 @@ use efr_protocol::{Mode, Origin, ProjectId, Scope};
 use efr_scope::{Home, Registry};
 use pretty_assertions::assert_eq;
 
-use crate::engine::{EngineParts, build, load_registry};
+use crate::engine::{EngineParts, build, load_registry, protected_config};
 
 fn parts(home: &Home, secrets: PathBuf) -> EngineParts {
     EngineParts {
         home: home.clone(),
         secrets,
         registry: home.path().join(".config/efr/projects.toml"),
+        config: home.path().join(".config/efr"),
     }
 }
 
@@ -105,7 +106,7 @@ async fn a_registered_project_is_writable_and_a_missing_registry_registers_none(
 
     let projects = load_registry(&registry_path).await;
     let engine =
-        build(&home, &home.path().join("secrets"), &Settings::default(), &projects).unwrap();
+        build(&home, &home.path().join("secrets"), &[], &Settings::default(), &projects).unwrap();
 
     let input = DecisionInput {
         requirements: Requirements::none().with_write(app.join("src/main.rs")),
@@ -115,4 +116,75 @@ async fn a_registered_project_is_writable_and_a_missing_registry_registers_none(
         conversation_policy: ConversationPolicy::new(home.path().join("scratch")),
     };
     assert_eq!(engine.decide(&input).effect(), Effect::Allow);
+}
+
+#[test]
+fn the_protected_config_is_the_directory_and_what_its_links_reach() {
+    let (_root, home) = home();
+    let config = home.path().join(".config/efr");
+    let dotfiles = home.path().join("dotfiles/efr");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::create_dir_all(&dotfiles).unwrap();
+    std::fs::write(dotfiles.join("config.toml"), "").unwrap();
+    std::fs::write(config.join("projects.toml"), "").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.toml"), config.join("config.toml")).unwrap();
+    std::os::unix::fs::symlink("../../dotfiles/efr/themes", config.join("themes")).unwrap();
+
+    let mut protected = protected_config(&config);
+
+    assert_eq!(protected[0], config, "the directory comes first");
+    protected.sort();
+    let mut expected = vec![
+        config.clone(),
+        dotfiles.join("config.toml"),
+        // A link whose target is missing: a write through it creates the target.
+        config.join("../../dotfiles/efr/themes"),
+    ];
+    expected.sort();
+    assert_eq!(protected, expected, "a plain file such as projects.toml is in the directory");
+}
+
+#[test]
+fn a_linked_config_directory_is_protected_in_both_forms_and_a_missing_one_alone() {
+    let (_root, home) = home();
+    let real = home.path().join("dotfiles/efr");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::create_dir_all(home.path().join(".config")).unwrap();
+    let config = home.path().join(".config/efr");
+    std::os::unix::fs::symlink(&real, &config).unwrap();
+
+    assert_eq!(protected_config(&config), [config.clone(), real]);
+    let missing = home.path().join(".config/other");
+    assert_eq!(protected_config(&missing), [missing]);
+}
+
+#[tokio::test]
+async fn no_tool_writes_the_config_or_the_file_behind_its_link_in_any_mode() {
+    let (_root, home) = home();
+    let config = home.path().join(".config/efr");
+    let dotfiles = home.path().join("dotfiles/efr");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::create_dir_all(&dotfiles).unwrap();
+    std::fs::write(dotfiles.join("config.toml"), "").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.toml"), config.join("config.toml")).unwrap();
+    // A rule of the user's that would open all of `~` for writing does not open it.
+    let mut settings = Settings::default();
+    settings.permissions.rules =
+        Policy::new(vec![Rule::new(Action::Write, Resource::Under("~".into()), Effect::Allow)])
+            .unwrap();
+
+    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+
+    let write = |path: &Path| Requirements::none().with_write(path);
+    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        for path in
+            [config.join("config.toml"), config.join("projects.toml"), dotfiles.join("config.toml")]
+        {
+            assert_eq!(decide(&engine, &home, mode, write(&path)), Effect::Deny, "{path:?}");
+        }
+        let other = home.path().join("dotfiles/zshrc");
+        assert_eq!(decide(&engine, &home, mode, write(&other)), Effect::Allow, "{mode}");
+    }
+    let read = Requirements::none().with_read(config.join("config.toml"));
+    assert_eq!(decide(&engine, &home, Mode::Cautious, read), Effect::Allow);
 }
