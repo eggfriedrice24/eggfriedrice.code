@@ -56,12 +56,6 @@ impl fmt::Debug for AnswerLine {
     }
 }
 
-impl Default for AnswerLine {
-    fn default() -> Self {
-        AnswerLine::new()
-    }
-}
-
 impl AnswerLine {
     /// An empty line.
     pub(crate) fn new() -> AnswerLine {
