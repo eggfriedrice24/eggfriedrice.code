@@ -20,17 +20,20 @@ use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon, events_
 use pretty_assertions::assert_eq;
 
 /// A fake `efr` that records each call under `$EFR_ARGS.<n>`: its command line from
-/// `/proc`, NUL-separated, then the three variables the plugin hands over, each
-/// prefixed `set:` or `unset:`. The record file is written last, because its existence
-/// numbers the calls. It exits with `$FAKE_EXIT` (0 when unset).
+/// `/proc`, NUL-separated, then the variables the plugin hands over, each prefixed
+/// `set:` or `unset:`. It prints `$EFR_ARGS.out.<first argument>` when that file exists,
+/// such as `args.out.settings` for `efr settings`. The record file is written last,
+/// because its existence numbers the calls. It exits with `$FAKE_EXIT` (0 when unset).
 const FAKE_EFR: &str = r#"#!/bin/sh
 n=0
 while [ -e "$EFR_ARGS.$n" ]; do n=$((n + 1)); done
 record="$EFR_ARGS.$n"
 cat /proc/$$/cmdline > "$record.cmdline"
-if [ -n "${EFR_CONTEXT+x}" ]; then printf 'set:%s' "$EFR_CONTEXT"; else printf unset:; fi > "$record.EFR_CONTEXT"
-if [ -n "${EFR_LAST_COMMAND+x}" ]; then printf 'set:%s' "$EFR_LAST_COMMAND"; else printf unset:; fi > "$record.EFR_LAST_COMMAND"
-if [ -n "${EFR_PROMPT+x}" ]; then printf 'set:%s' "$EFR_PROMPT"; else printf unset:; fi > "$record.EFR_PROMPT"
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT; do
+  eval "isset=\${$var+x} value=\${$var-}"
+  if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
+done
+if [ -f "$EFR_ARGS.out.$1" ]; then cat "$EFR_ARGS.out.$1"; fi
 : > "$record"
 exit "${FAKE_EXIT:-0}"
 "#;
@@ -45,6 +48,10 @@ struct Call {
     context: Option<String>,
     last_command: Option<String>,
     prompt: Option<String>,
+    /// The terminal's turn settings, as the plugin handed them over.
+    mode: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
 }
 
 impl Call {
@@ -69,6 +76,9 @@ impl Call {
             context: var("EFR_CONTEXT"),
             last_command: var("EFR_LAST_COMMAND"),
             prompt: var("EFR_PROMPT"),
+            mode: var("EFR_MODE"),
+            model: var("EFR_MODEL"),
+            effort: var("EFR_EFFORT"),
         }
     }
 
@@ -87,6 +97,12 @@ impl Call {
     /// The last command, where an empty variable means none, as `efr` reads it.
     fn last_command(&self) -> Option<&str> {
         self.last_command.as_deref().filter(|line| !line.is_empty())
+    }
+
+    /// The mode, model and effort as `efr` reads them: an empty variable is none.
+    fn settings(&self) -> [Option<&str>; 3] {
+        [&self.mode, &self.model, &self.effort]
+            .map(|value| value.as_deref().filter(|value| !value.is_empty()))
     }
 }
 
@@ -174,7 +190,7 @@ fn run(script: &str) -> Vec<Call> {
 /// NUL byte that Ctrl+Space sends; the driver prints what the terminal showed.
 const DRIVER: &str = r#"
 zmodload zsh/zpty || exit 90
-zpty user 'TERM=xterm zsh -f -i'
+zpty user "TERM=${EFR_TEST_TERM:-xterm} zsh -f -i"
 # ZLE turns bracketed paste on once it reads keys in raw mode; keys typed earlier
 # would meet a terminal that still edits lines itself.
 zpty -r user screen $'*\e\\[\\?2004h*' || exit 91
@@ -837,4 +853,332 @@ async fn e2e_the_prompt_shows_the_notice_that_the_daemon_wrote() {
     assert!(!file.exists(), "the plugin removed the notice it showed");
     drop((follow, client));
     daemon.stop().await.unwrap();
+}
+
+impl Home {
+    /// Makes the fake `efr` print `text` when its first argument is `command`.
+    fn output(&self, command: &str, text: &str) {
+        std::fs::write(format!("{}.out.{command}", self.records().display()), text).unwrap();
+    }
+}
+
+/// What the fake `efr settings` prints: the lines of a terminal without settings of
+/// its own, as the real one prints them.
+const SETTINGS: &str = "\
+mode = cautious  # default; choices: manual, cautious, auto
+model = gpt-5.5  # the daemon's default; choices: gpt-5.5, gpt-5.4, my-model
+effort = medium  # the default of gpt-5.5; choices: low, medium, high
+";
+
+/// As [`run_in`], with the variables `env` in the shell's environment when the plugin
+/// is sourced; returns stdout and the exit status of the script.
+fn run_with(home: &Home, env: &[(&str, &str)], script: &str) -> (String, Option<i32>) {
+    let full = format!("source {}\n{script}\n", plugin().display());
+    let output =
+        home.zsh().envs(env.iter().copied()).args(["-f", "-i", "-c", &full]).output().unwrap();
+    (String::from_utf8(output.stdout).unwrap(), output.status.code())
+}
+
+/// The arguments of each call, as plain strings.
+fn args(calls: &[Call]) -> Vec<Vec<&str>> {
+    calls.iter().map(|call| call.args.iter().map(String::as_str).collect()).collect()
+}
+
+#[test]
+fn e2e_the_terminals_settings_reach_its_prompts_and_new_conversations() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // EFR_MODE and EFR_MODEL give the first values when the plugin is sourced.
+    let env = [("EFR_MODE", "auto"), ("EFR_MODEL", "gpt-5.4")];
+    run_with(
+        &home,
+        &env,
+        r#"
+        , one
+        ,effort high
+        , two
+        ,new three
+        ,! steer
+        ,mode default
+        ,model default
+        , four
+        "#,
+    );
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [
+            vec!["send"],
+            vec!["settings", "--effort=high"],
+            vec!["send"],
+            vec!["new"],
+            vec!["send", "--steer"],
+            vec!["settings"],
+            vec!["settings"],
+            vec!["send"],
+        ]
+    );
+    let settings: Vec<[Option<&str>; 3]> = calls.iter().map(Call::settings).collect();
+    assert_eq!(
+        settings,
+        [
+            [Some("auto"), Some("gpt-5.4"), None],
+            // The check of a new value carries the terminal's other values.
+            [Some("auto"), Some("gpt-5.4"), None],
+            [Some("auto"), Some("gpt-5.4"), Some("high")],
+            // A new conversation in this terminal keeps the terminal's choice.
+            [Some("auto"), Some("gpt-5.4"), Some("high")],
+            // A steer joins a running turn, which keeps its settings.
+            [None, None, None],
+            [None, Some("gpt-5.4"), Some("high")],
+            [None, None, Some("high")],
+            [None, None, Some("high")],
+        ]
+    );
+    // An empty variable hides the values that the shell itself exported.
+    assert_eq!(calls[4].mode.as_deref(), Some(""));
+    assert_eq!(calls[7].model.as_deref(), Some(""));
+}
+
+#[test]
+fn e2e_a_value_that_efr_settings_refuses_is_not_kept() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let (_, status) = run_with(
+        &home,
+        &[],
+        r#"
+        ,mode auto
+        FAKE_EXIT=2 ,model gpt-9
+        efr status $?
+        FAKE_EXIT=2 ,effort --help
+        , hi
+        "#,
+    );
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [
+            vec!["settings", "--mode=auto"],
+            vec!["settings", "--model=gpt-9"],
+            vec!["status", "2"],
+            // A value that looks like a flag still reaches efr as the value to check.
+            vec!["settings", "--effort=--help"],
+            vec!["send"],
+        ]
+    );
+    assert_eq!(calls[4].settings(), [Some("auto"), None, None]);
+}
+
+#[test]
+fn e2e_a_bare_setting_shows_its_line_in_the_terminals_words() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    home.output(
+        "settings",
+        &SETTINGS
+            .replace("mode = cautious  # default", "mode = auto  # EFR_MODE")
+            .replace("model = gpt-5.5  # the daemon's default", "model = gpt-5.4  # --model"),
+    );
+    let (stdout, _) = run_with(
+        &home,
+        &[("EFR_MODE", "auto")],
+        r#"
+        ,mode
+        ,model gpt-5.4
+        ,effort
+        "#,
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        [
+            "mode = auto  # this terminal (,mode); choices: manual, cautious, auto",
+            "model = gpt-5.4  # this terminal (,model); choices: gpt-5.5, gpt-5.4, my-model",
+            "effort = medium  # the default of gpt-5.5; choices: low, medium, high",
+        ]
+    );
+}
+
+#[test]
+fn e2e_a_setting_takes_one_value() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let (_, status) = run_with(&home, &[], ",mode auto cautious || efr status $?");
+    assert_eq!(status, Some(0));
+    assert_eq!(args(&home.calls()), [vec!["status", "2"]]);
+}
+
+#[test]
+fn e2e_setting_lines_stay_as_typed_and_are_not_the_last_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[
+            ",mode auto",
+            "fc -ln -1 > history.txt",
+            "false",
+            ",model default",
+            ",effort",
+            ", why did it fail",
+        ],
+    );
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), ",mode auto");
+    let calls = home.calls();
+    let prompt = calls.last().unwrap();
+    assert_eq!(prompt.args, ["send"]);
+    assert_eq!(prompt.last_command(), Some("false"));
+    assert_eq!(prompt.last_status(), 1);
+    assert_eq!(prompt.settings(), [Some("auto"), None, None]);
+}
+
+/// A widget on Ctrl+X Ctrl+R that records what the line shows while it is typed, with
+/// the plugin's highlights after a `|`, and a line-finish hook that records what the
+/// line shows once Enter accepted it.
+const RECORD_LINES: [&str; 2] = [
+    r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:,:)${(@M)region_highlight:#*memo=efr*}}" >> typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#,
+    r#"_fin() { print -r -- "$PREDISPLAY$BUFFER" >> finished.txt; }; zle -N _fin; add-zle-hook-widget line-finish _fin"#,
+];
+
+#[test]
+fn e2e_in_sticky_mode_the_settings_stand_before_the_robot_and_stay_on_enter() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // A terminal with 256 colours, where zsh draws the grey of the tag.
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
+    type_lines_with(
+        &home,
+        &env,
+        &[
+            RECORD_LINES[0],
+            RECORD_LINES[1],
+            ",mode auto",
+            ",model gpt-5.4",
+            "<C-Space>",
+            "what changed?\u{18}\u{12}",
+            ",mode default",
+            ",model default",
+            "and now\u{18}\u{12}",
+            "!fc -ln -4 > history.txt",
+            "<C-Space>",
+        ],
+    );
+    let read = |name: &str| std::fs::read_to_string(home.path().join(name)).unwrap();
+    // The tag is dim and the robot keeps its own style after it; once the terminal has
+    // no settings of its own, only the robot is left. zle gives the end of a highlight
+    // back in its own units, so only where each one starts and its style count.
+    let typed: Vec<(String, Vec<(String, String)>)> = read("typed.txt")
+        .lines()
+        .map(|line| {
+            let (shown, highlights) = line.rsplit_once('|').unwrap();
+            let highlights = highlights
+                .split(',')
+                .map(|entry| {
+                    let words: Vec<&str> = entry.split(' ').collect();
+                    assert_eq!(words.len(), 4, "{entry}");
+                    assert_eq!(words[3], "memo=efr");
+                    (words[0].to_owned(), words[2].to_owned())
+                })
+                .collect();
+            (shown.to_owned(), highlights)
+        })
+        .collect();
+    let entry = |start: &str, style: &str| (start.to_owned(), style.to_owned());
+    assert_eq!(
+        typed,
+        [
+            (
+                "auto gpt-5.4 🤖 what changed?".to_owned(),
+                vec![entry("P0", "fg=8"), entry("P13", "fg=magenta")]
+            ),
+            ("🤖 and now".to_owned(), vec![entry("P0", "fg=magenta")]),
+        ]
+    );
+    // Enter changed nothing on the screen: the robot became the first word of the line
+    // and the tag stayed before it.
+    let finished = read("finished.txt");
+    assert!(finished.lines().any(|line| line == "auto gpt-5.4 🤖 what changed?"), "{finished}");
+    assert!(finished.lines().any(|line| line == "🤖 and now"), "{finished}");
+    // History keeps the lines that ran, without the tag.
+    assert_eq!(
+        read("history.txt").lines().collect::<Vec<_>>(),
+        ["🤖 what changed?", ",mode default", ",model default", "🤖 and now"]
+    );
+    let calls = home.calls();
+    let prompts: Vec<(Option<&str>, [Option<&str>; 3])> = calls
+        .iter()
+        .filter(|call| call.args == ["send"])
+        .map(|call| (call.prompt.as_deref(), call.settings()))
+        .collect();
+    assert_eq!(
+        prompts,
+        [
+            (Some("what changed?"), [Some("auto"), Some("gpt-5.4"), None]),
+            (Some("and now"), [None, None, None]),
+        ]
+    );
+}
+
+#[test]
+fn the_plugin_completes_every_mode_that_efr_knows() {
+    let plugin = std::fs::read_to_string(plugin()).unwrap();
+    let names: Vec<&str> = plugin
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("compadd -- default manual"))
+        .map(|rest| std::iter::once("manual").chain(rest.split_whitespace()).collect())
+        .unwrap();
+    let known: Vec<&str> = efr_protocol::Mode::ALL.iter().map(|mode| mode.as_str()).collect();
+    assert_eq!(names, known);
+}
+
+#[test]
+fn e2e_completion_offers_the_modes_the_models_and_the_models_efforts() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    home.output("models", "gpt-5.5\ngpt-5.4\nmy-model\n");
+    home.output("settings", SETTINGS);
+    type_lines(
+        &home,
+        &[
+            // compinit runs after the plugin, as in many a .zshrc: the completions are
+            // registered at the next prompt.
+            "autoload -Uz compinit; compinit -u -D",
+            ",mode au\t",
+            ",model my\t",
+            ",model gpt-5.4\t",
+            ",effort hi\t",
+        ],
+    );
+    let calls = home.calls();
+    let args = args(&calls);
+    let checks: Vec<&Vec<&str>> =
+        args.iter().filter(|args| args.len() == 2 && args[0] == "settings").collect();
+    assert_eq!(
+        checks,
+        [
+            &vec!["settings", "--mode=auto"],
+            &vec!["settings", "--model=my-model"],
+            &vec!["settings", "--model=gpt-5.4"],
+            &vec!["settings", "--effort=high"],
+        ]
+    );
+    // The model ids are read once and kept for a minute.
+    let lists: Vec<&Vec<&str>> = args.iter().filter(|args| args[0] == "models").collect();
+    assert_eq!(lists, [&vec!["models", "--names"]], "{args:?}");
 }

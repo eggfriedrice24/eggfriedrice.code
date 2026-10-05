@@ -5,10 +5,16 @@
 #   ,new [prompt]  start a new conversation for this terminal; without a prompt,
 #                  the next `,` line starts it
 #   ,! <text>      steer the running turn instead of queueing
+#   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious
+#                  or auto; without a value, show it with its source and the
+#                  choices; `default` lets the config decide again
+#   ,model [id]    the same for the model (`efr models` lists them)
+#   ,effort [e]    the same for the reasoning effort
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above); a robot stands before the typed text while it
-#                  is on (shown with PREDISPLAY, so the prompt itself never changes)
+#                  is on (shown with PREDISPLAY, so the prompt itself never changes),
+#                  after a dim tag with the terminal's own settings, such as `auto `
 #   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
 #                  an alias of `,`, so the screen and history keep the line that ran,
 #                  and the line still goes to the agent when history recalls it
@@ -27,7 +33,8 @@
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND and the prompt as
 # EFR_PROMPT. Any local user can read a command line in /proc/<pid>/cmdline, while
-# /proc/<pid>/environ is readable only by this user.
+# /proc/<pid>/environ is readable only by this user. The terminal's turn settings go
+# the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
 #
 # Written from scratch for this project (MIT); it is not derived from any terminal's
 # shell integration.
@@ -39,9 +46,25 @@
 
 zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
+zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
 autoload -Uz add-zsh-hook
 
 typeset -g _efr_sticky=0
+# This terminal's turn settings, which every `,` and `,new` prompt hands to efr: the
+# permission mode, the model and the reasoning effort. Empty means that the daemon's
+# config decides. They start from EFR_MODE, EFR_MODEL and EFR_EFFORT; re-sourcing keeps
+# what the terminal chose since.
+(( ${+_efr_turn_mode} )) || typeset -g _efr_turn_mode=${EFR_MODE-}
+(( ${+_efr_turn_model} )) || typeset -g _efr_turn_model=${EFR_MODEL-}
+(( ${+_efr_turn_effort} )) || typeset -g _efr_turn_effort=${EFR_EFFORT-}
+# The model ids for completion and when they were read, so a burst of Tab presses runs
+# `efr models` once a minute at most.
+typeset -ga _efr_model_names
+typeset -gi _efr_model_names_at
+# 1 once the completions are registered with compinit's compdef.
+typeset -gi _efr_completion_ready
+# 1 while the line being accepted is a prompt that sticky mode sends to the agent.
+typeset -gi _efr_prompt_line
 # The last shell command line and its exit status, for the next `,` line, and the line
 # that is running now. Declared without values so that re-sourcing keeps them.
 typeset -g _efr_last_command _efr_last_command_status _efr_running
@@ -64,6 +87,9 @@ else
   : ${EFR_STICKY_INDICATOR:='efr> '}
 fi
 : ${EFR_STICKY_STYLE:='fg=magenta'}
+# The region_highlight style of the tag with the terminal's settings before the robot.
+# zsh has no dim attribute; colour 8 is the grey that most themes use for it.
+: ${EFR_TAG_STYLE:='fg=8'}
 # What the sticky word (see _efr_sticky_word) expands to. The backslash keeps zsh from
 # expanding the `,` alias inside it again, which would leave a second `#` among the
 # words of a quoted prompt.
@@ -192,16 +218,41 @@ _efr_rewrite_line() {
 }
 
 # Runs efr with the arguments after the first three, and hands it the context JSON $1,
-# the last command line $2 and the prompt $3 in its environment. The last command
-# travels on its own, never inside the context: it can hold a secret, and the daemon
-# keeps the context in its event log. Prefix assignments set the variables for this
-# one command, so they never stay in the shell, and an empty one hides a value that
-# the shell may have exported.
+# the last command line $2, the prompt $3 and the terminal's turn settings in its
+# environment. The last command travels on its own, never inside the context: it can
+# hold a secret, and the daemon keeps the context in its event log. Prefix assignments
+# set the variables for this one command, so they never stay in the shell, and an
+# empty one hides a value that the shell may have exported.
 _efr_call() {
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   local context=$1 last_command=$2 text=$3
   shift 3
-  EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text efr "$@"
+  EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text \
+    EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
+    efr "$@"
+}
+
+# Runs `efr settings` with the terminal's turn settings and the arguments "$@", such as
+# `--mode=auto` for a value to check, and sets reply to the lines it printed. Returns
+# efr's status; efr itself says on stderr what is wrong and lists the choices.
+_efr_settings() {
+  emulate -L zsh
+  local out code
+  out=$(EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
+    efr settings "$@")
+  code=$?
+  reply=(${(f)out})
+  return $code
+}
+
+# Sets REPLY to the tag of the terminal's own turn settings, such as `auto gpt-5.4 `:
+# each value that is set, then a blank. Empty when the config decides all of them.
+_efr_tag() {
+  emulate -L zsh
+  # Unquoted, an empty value leaves no word.
+  local -a set=($_efr_turn_mode $_efr_turn_model $_efr_turn_effort)
+  REPLY=${(j: :)set}
+  [[ -z $REPLY ]] || REPLY+=' '
 }
 
 # Sets REPLY to the prompt text of a plugin command called with the arguments "$@".
@@ -297,23 +348,98 @@ function ,! {
     return 2
   fi
   _efr_context_json $last_status
+  # A running turn keeps its settings, so a steer hands none over. The locals hide the
+  # terminal's values from _efr_call, which sees them through zsh's dynamic scope.
+  local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
   _efr_call "$REPLY" '' "$text" send --steer
+}
+
+# --- turn settings ----------------------------------------------------------------
+
+function ,mode {
+  _efr_turn_setting mode "$@"
+}
+
+function ,model {
+  _efr_turn_setting model "$@"
+}
+
+function ,effort {
+  _efr_turn_setting effort "$@"
+}
+
+# The commands `,mode`, `,model` and `,effort`: $1 names the setting, and the word
+# after it is the value. Without a value, prints the setting that a prompt from this
+# terminal gets now, with its source and the choices. `default` clears the terminal's
+# value, so the config decides again. Any other value is kept only when `efr settings`
+# accepts it together with the terminal's other values; otherwise efr says why and
+# lists the choices, and nothing changes.
+_efr_turn_setting() {
+  emulate -L zsh
+  local name=$1 var=_efr_turn_$1
+  shift
+  _efr_available || { _efr_missing; return 127 }
+  if (( $# > 1 )); then
+    print -u2 -- "usage: ,$name [<$name>|default]"
+    return 2
+  fi
+  local value=$1
+  local -a reply
+  if [[ $value == default ]]; then
+    typeset -g -- "$var="
+    _efr_settings || return
+  elif [[ -n $value ]]; then
+    # One word with `=`, so a value that starts with `-` stays a value for efr.
+    _efr_settings "--$name=$value" || return
+    typeset -g -- "$var=$value"
+  else
+    _efr_settings || return
+  fi
+  _efr_print_setting $name
+}
+
+# Prints the line of the setting $1 from reply, the output of `efr settings`. A value
+# that this terminal set reached efr as a flag or a variable; the line says so in the
+# terminal's words instead.
+_efr_print_setting() {
+  emulate -L zsh
+  local name=$1 line
+  for line in $reply; do
+    [[ $line == "$name = "* ]] || continue
+    if [[ -n ${(P)${:-_efr_turn_$name}} ]]; then
+      line=${line/"  # --$name"/"  # this terminal (,$name)"}
+      line=${line/"  # EFR_${(U)name}"/"  # this terminal (,$name)"}
+    fi
+    print -r -- "$line"
+  done
 }
 
 # --- sticky agent mode ------------------------------------------------------------
 
-# Shows the indicator before the typed text while sticky mode is on, and hides it
-# when sticky mode is off or $1 is `hide`. PREDISPLAY is not part of the buffer and
-# leaves PROMPT alone, so it works with any prompt theme, including one whose prompt
-# starts with a newline. Only a command line gets it, never a continuation line or a
-# value that vared edits. Runs from the line-init hook, on every toggle and when a
-# line is accepted.
+# Shows the indicator before the typed text while sticky mode is on, after the dim tag
+# of the terminal's own turn settings (see _efr_tag). With $1 `tag` only the tag stays,
+# for a prompt line whose first word takes the indicator's place; with `hide`, or with
+# sticky mode off, nothing shows. PREDISPLAY is not part of the buffer and leaves
+# PROMPT alone, so it works with any prompt theme, including one whose prompt starts
+# with a newline, and history never sees it. Only a command line gets it, never a
+# continuation line or a value that vared edits. Runs from the line-init hook, on
+# every toggle and when a line is accepted.
 _efr_show_indicator() {
-  local style="P0 ${#EFR_STICKY_INDICATOR} $EFR_STICKY_STYLE"
-  region_highlight=(${region_highlight:#$style})
+  # NOTE: zle gives region_highlight back with other offsets than it was given, so the
+  # plugin's own entries are found by their memo, not by their text.
+  region_highlight=(${region_highlight:#*memo=efr*})
+  local -a mine
   if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
-    PREDISPLAY=$EFR_STICKY_INDICATOR
-    region_highlight+=($style)
+    local REPLY tag
+    _efr_tag
+    tag=$REPLY
+    PREDISPLAY=$tag
+    [[ -n $tag ]] && mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
+    if [[ $1 != tag ]]; then
+      PREDISPLAY+=$EFR_STICKY_INDICATOR
+      mine+=("P${#tag} $(( ${#tag} + ${#EFR_STICKY_INDICATOR} )) $EFR_STICKY_STYLE memo=efr")
+    fi
+    region_highlight+=($mine)
   else
     PREDISPLAY=''
   fi
@@ -349,10 +475,12 @@ _efr_is_toggle_line() {
 # escape hatch for one shell command), or is empty. Such a prompt line gets the
 # indicator's own text in front, so the line looks on the screen as it did while it
 # was typed; when the indicator is no sticky word, it gets `, ` instead. Nothing else
-# changes. Outside sticky mode every line runs as typed.
+# changes. Outside sticky mode every line runs as typed. Sets _efr_prompt_line to 1 for
+# a prompt line and to 0 for any other.
 _efr_line_to_run() {
   emulate -L zsh -o extended_glob
   local line=$1
+  _efr_prompt_line=0
   if (( ! _efr_sticky )) || _efr_is_plugin_line "$line"; then
     REPLY=$line
   elif [[ $line == '!'* ]]; then
@@ -362,8 +490,10 @@ _efr_line_to_run() {
   elif _efr_sticky_word; then
     local gap=${EFR_STICKY_INDICATOR#"$REPLY"}
     REPLY="$REPLY${gap:- }$line"
+    _efr_prompt_line=1
   else
     REPLY=", $line"
+    _efr_prompt_line=1
   fi
 }
 
@@ -404,9 +534,9 @@ _efr_accept_line() {
     _efr_line_to_run "$BUFFER"
     [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
     # The line that runs takes the indicator's place on the screen: a prompt line
-    # starts with the sticky word where the indicator stood, so nothing moves, and a
-    # `!` line shows the command that runs.
-    _efr_show_indicator hide
+    # starts with the sticky word where the indicator stood, after the tag that stays,
+    # so nothing moves, and a `!` line shows the command that runs.
+    if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
     _efr_alias_sticky_word
   fi
   if _efr_stash_line "$BUFFER"; then
@@ -472,6 +602,50 @@ _efr_precmd() {
   _efr_stash_set=0
   _efr_remember_command $exit_status
   _efr_print_notices
+  _efr_register_completion
+}
+
+# --- completion -------------------------------------------------------------------
+
+# The arguments of `,mode`, `,model` and `,effort`: `default` and the names that efr
+# accepts. Only the first argument completes.
+_efr_complete_mode() {
+  (( CURRENT == 2 )) || return 1
+  compadd -- default manual cautious auto
+}
+
+_efr_complete_model() {
+  (( CURRENT == 2 )) || return 1
+  _efr_load_model_names
+  compadd -- default $_efr_model_names
+}
+
+# The efforts that the terminal's model takes, from the choices `efr settings` lists.
+_efr_complete_effort() {
+  (( CURRENT == 2 )) || return 1
+  local -a reply efforts
+  local line
+  _efr_settings 2>/dev/null
+  line=${(M)reply:#effort = *}
+  [[ $line == *'; choices: '* ]] && efforts=(${(s:, :)${line##*; choices: }})
+  compadd -- default $efforts
+}
+
+# Reads the model ids with `efr models --names`, at most once a minute.
+_efr_load_model_names() {
+  (( ${#_efr_model_names} && EPOCHSECONDS - _efr_model_names_at < 60 )) && return 0
+  _efr_model_names=(${(f)"$(efr models --names 2>/dev/null)"})
+  _efr_model_names_at=$EPOCHSECONDS
+}
+
+# Registers the completions once compinit has defined compdef. A plugin is often
+# sourced before compinit runs, so precmd tries again until it can.
+_efr_register_completion() {
+  (( _efr_completion_ready || ! $+functions[compdef] )) && return 0
+  compdef _efr_complete_mode ,mode
+  compdef _efr_complete_model ,model
+  compdef _efr_complete_effort ,effort
+  _efr_completion_ready=1
 }
 
 # --- wiring -----------------------------------------------------------------------
@@ -516,5 +690,6 @@ bindkey -M emacs '^@' _efr_toggle_sticky
 bindkey -M viins '^@' _efr_toggle_sticky
 add-zsh-hook precmd _efr_precmd
 add-zsh-hook preexec _efr_preexec
+_efr_register_completion
 
 _efr_available || print -u2 -- "efr.plugin.zsh: efr is not on PATH; the , commands stay inactive until it is installed"
