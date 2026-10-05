@@ -1,9 +1,9 @@
 use std::os::unix::fs::PermissionsExt as _;
 
-use efr_protocol::{CallId, ErrorBody, ErrorCode, Event, TurnId};
+use efr_protocol::{CallId, ConversationId, ErrorBody, ErrorCode, Event, TurnId};
 use pretty_assertions::assert_eq;
 
-use crate::notices::{append, file_name, line};
+use crate::notices::{append, file_name, line, not_run};
 
 fn turn() -> TurnId {
     TurnId::from_uuid(uuid::Uuid::from_u128(1))
@@ -140,4 +140,16 @@ fn a_tty_without_a_safe_name_writes_nothing() {
 
     assert_eq!(append(&root.path().join("notices"), "..", "efr: x").unwrap(), None);
     assert!(!root.path().join("notices").exists());
+}
+
+#[test]
+fn a_prompt_that_did_not_run_is_named_by_its_conversation_and_never_quoted() {
+    let conversation: ConversationId = "0192f0c1-7a00-7000-8000-000000000003".parse().unwrap();
+    assert_eq!(
+        not_run(conversation, 1),
+        format!(
+            "efr restarted; a queued prompt did not run; see it with efr history {conversation} and send it again"
+        )
+    );
+    assert!(not_run(conversation, 3).starts_with("efr restarted; 3 queued prompts did not run;"));
 }

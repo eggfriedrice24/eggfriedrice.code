@@ -43,10 +43,13 @@ async fn restart_reconcile_inflight_turn() {
     let started = events.iter().filter(|e| e.event.kind() == "turn_started").count();
     assert_eq!(started, 1, "the queued prompt does not start by itself");
     let notice = replay.daemon().dirs().dirs().runtime().join("notices").join("pts-efr-test");
+    let conversation = events.last().and_then(|envelope| envelope.conversation_id).unwrap();
     assert_eq!(
         std::fs::read_to_string(&notice).unwrap(),
-        "efr restarted; your queued prompt was not run: and then this; send it again\n",
-        "the terminal is told at its next prompt"
+        format!(
+            "efr restarted; a queued prompt did not run; see it with efr history {conversation} and send it again\n"
+        ),
+        "the terminal is told at its next prompt, without the prompt's text"
     );
     let list: ConversationsListResult = replay
         .client()

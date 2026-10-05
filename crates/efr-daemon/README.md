@@ -39,8 +39,10 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
 3. The store: the backup copy in `backups/`, the forward-only migrations.
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    (and prompts an earlier daemon held) recorded as not run with `turn_cancelled` and
-   a notice to their terminal ("efr restarted; your queued prompt was not run: ...;
-   send it again"), running shells recorded as exited, process-bound outbox items
+   one notice per conversation to its terminal ("efr restarted; a queued prompt did not
+   run; see it with efr history <id> and send it again"). The notice never quotes a
+   prompt: after a reboot the terminal name may belong to another terminal by now.
+   Running shells recorded as exited, process-bound outbox items
    cancelled. A prompt never runs by surprise after a restart.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
    tool registry and the settings tool (`tools.rs`), the permission engine and the

@@ -67,16 +67,24 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
     Some(one_line(&text, MAX_CHARS))
 }
 
-/// How much of a prompt that did not run its notice quotes, in characters: enough to
-/// recognise it, short enough for one line.
-const PROMPT_CHARS: usize = 60;
-
-/// The notice for a prompt that waited when the daemon stopped and was recorded as not
-/// run at the next start.
-pub(crate) fn not_run(prompt: &str) -> String {
-    let clean: String = prompt.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    let quoted: String = clean.trim().chars().take(PROMPT_CHARS).collect();
-    let text = format!("efr restarted; your queued prompt was not run: {quoted}; send it again");
+/// The notice for the `count` prompts of `conversation` that waited when the daemon
+/// stopped and were recorded as not run at the next start.
+///
+/// NOTE: it names the conversation, never the prompts' text. It goes to the terminal
+/// name that the conversation recorded last, and after a restart, a reboot above all,
+/// that name may belong to another terminal of the user by now, one that may be
+/// shared; a prompt can hold a pasted secret. `efr history` shows the prompts to whoever
+/// asks for them.
+pub(crate) fn not_run(conversation: ConversationId, count: usize) -> String {
+    let text = if count == 1 {
+        format!(
+            "efr restarted; a queued prompt did not run; see it with efr history {conversation} and send it again"
+        )
+    } else {
+        format!(
+            "efr restarted; {count} queued prompts did not run; see them with efr history {conversation} and send them again"
+        )
+    };
     one_line(&text, MAX_CHARS)
 }
 

@@ -107,7 +107,7 @@ fn not_run(turn: &Turn) -> bool {
 }
 
 /// Settles everything the last daemon left in flight, and writes a notice under
-/// `notices_dir` for each prompt that did not run. Runs once, before any actor starts
+/// `notices_dir` for each conversation with prompts that did not run. Runs once, before any actor starts
 /// and before the socket opens.
 pub(crate) async fn reconcile(
     readers: &Readers,
@@ -172,12 +172,15 @@ pub(crate) async fn reconcile(
     done.outbox_requeued = outbox.requeued;
     // NOTE: written after the commit, so a notice never names a prompt that the log
     // still shows as waiting.
-    let not_run: Vec<(String, String)> = turns
-        .iter()
-        .filter(|turn| not_run(turn))
-        .filter_map(|turn| {
-            let tty = ttys.get(&turn.conversation_id)?;
-            Some((tty.clone(), notices::not_run(&turn.prompt)))
+    let mut counts: BTreeMap<ConversationId, usize> = BTreeMap::new();
+    for turn in turns.iter().filter(|turn| not_run(turn)) {
+        *counts.entry(turn.conversation_id).or_default() += 1;
+    }
+    let not_run: Vec<(String, String)> = counts
+        .into_iter()
+        .filter_map(|(conversation_id, count)| {
+            let tty = ttys.get(&conversation_id)?;
+            Some((tty.clone(), notices::not_run(conversation_id, count)))
         })
         .collect();
     let dir = notices_dir.to_path_buf();

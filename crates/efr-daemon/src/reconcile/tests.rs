@@ -269,14 +269,15 @@ async fn a_waiting_prompt_is_recorded_as_not_run_and_its_terminal_told_to_send_i
         "a prompt that an earlier daemon held is settled too"
     );
     let text = std::fs::read_to_string(notices.path().join("pts-7")).unwrap();
-    let quoted = format!("deploy the {}", "x".repeat(49));
+    // One line for the conversation, which names it and not the prompts: the terminal
+    // name may belong to another terminal by now.
     assert_eq!(
         text,
         format!(
-            "efr restarted; your queued prompt was not run: prompt 3; send it again\n\
-             efr restarted; your queued prompt was not run: {quoted}; send it again\n"
+            "efr restarted; 2 queued prompts did not run; see them with efr history {tty} and send them again\n"
         )
     );
+    assert!(!text.contains("deploy") && !text.contains("prompt 3"), "{text}");
     store.close().await;
 }
 
