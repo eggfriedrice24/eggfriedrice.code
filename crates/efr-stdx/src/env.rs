@@ -23,7 +23,7 @@ pub enum Var {
     /// `EFR_SCREEN`: the screen backend, `vt100` or `ghostty`.
     Screen,
     /// `EFR_HOME`: an absolute path below which every root lives, in `config/`, `data/`,
-    /// `state/` and `runtime/`; each root's own variable wins over it. Not read yet.
+    /// `state/` and `runtime/`; each root's own variable wins over it.
     Home,
     /// `EFR_CONFIG_DIR`: an absolute path that replaces `$XDG_CONFIG_HOME/efr`.
     ConfigDir,

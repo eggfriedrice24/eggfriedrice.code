@@ -12,6 +12,8 @@ publish = false
 etcetera.workspace = true
 jiff.workspace = true
 rand.workspace = true
+# getuid, for the /run/user/<uid> fallback of the runtime root.
+rustix.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true

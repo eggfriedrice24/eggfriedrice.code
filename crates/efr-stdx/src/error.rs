@@ -18,9 +18,24 @@ pub enum StdxError {
     #[error("the home directory could not be found")]
     HomeNotFound,
 
-    /// `XDG_RUNTIME_DIR` is unset and `EFR_RUNTIME_DIR` does not replace it.
-    #[error("XDG_RUNTIME_DIR is not set and EFR_RUNTIME_DIR does not replace it")]
+    /// `XDG_RUNTIME_DIR` is unset, `/run/user/<uid>` is not a usable directory, and
+    /// neither `EFR_RUNTIME_DIR` nor `EFR_HOME` replaces them.
+    #[error(
+        "XDG_RUNTIME_DIR is not set, /run/user/<uid> is not usable, and neither EFR_RUNTIME_DIR nor EFR_HOME replaces them"
+    )]
     RuntimeDirUnset,
+
+    /// The daemon's socket path is longer than a Unix socket address holds.
+    #[error(
+        "the socket path {} is {} bytes, more than the {} a Unix socket holds",
+        .path.display(),
+        .path.as_os_str().len(),
+        crate::paths::MAX_SOCKET_PATH
+    )]
+    SocketPathTooLong {
+        /// The socket path.
+        path: PathBuf,
+    },
 
     /// A path that must be absolute is relative.
     #[error("{} is not an absolute path", .path.display())]

@@ -8,9 +8,14 @@ randomness, environment variables, child processes and the XDG directories.
 
 Modules, in the order of the milestone 1 file map:
 
-- `paths`: `Dirs { config, data, state, runtime }`, each `<XDG base>/efr` through
-  `etcetera` unless an `EFR_*_DIR` variable replaces it, and the socket, `daemon.json`
-  and lock file paths.
+- `paths`: `Dirs { config, data, state, runtime }` and the socket, `daemon.json` and
+  lock file paths. Each root is its `EFR_*_DIR` variable, else `$EFR_HOME/<root>`,
+  else `<XDG base>/efr` through `etcetera`; the runtime root falls back to
+  `/run/user/<uid>/efr` when `XDG_RUNTIME_DIR` is unset and that directory is the
+  user's own with mode 0700. `Dirs::resolve_with_sources` also says where each root
+  came from (`RootSource`), for `efr paths` and `admin.status`.
+  `Dirs::checked_socket_path` refuses a socket path longer than the 107 bytes a Unix
+  socket holds.
 - `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
   caller of `SystemTime::now` and `tokio::time::sleep`.
 - `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
@@ -39,7 +44,8 @@ No workspace crate, ever. Every crate depends on this one, so an edge out of it 
 make a cycle or pull a heavy crate into every build. `xtask/src/deps.rs` holds the
 empty allowlist.
 
-Third-party crates: `etcetera`, `jiff`, `rand`, `thiserror`, `tokio`, `uuid`.
+Third-party crates: `etcetera`, `jiff`, `rand`, `rustix` (the user id, for the
+`/run/user/<uid>` fallback), `thiserror`, `tokio`, `uuid`.
 
 ## Invariant
 
@@ -59,7 +65,7 @@ table names the same set. An empty value counts as unset.
 |---|---|
 | `EFR_LOG` | The tracing filter for `efrd` and `efr`, in `EnvFilter` syntax. |
 | `EFR_SCREEN` | The screen backend: `vt100` or `ghostty`. |
-| `EFR_HOME` | An absolute path below which every root lives, in `config/`, `data/`, `state/` and `runtime/`. Each root's own variable wins over it. Not read yet. |
+| `EFR_HOME` | An absolute path below which every root lives, in `config/`, `data/`, `state/` and `runtime/`. Each root's own variable wins over it. |
 | `EFR_CONFIG_DIR` | An absolute path that replaces `$XDG_CONFIG_HOME/efr`. |
 | `EFR_DATA_DIR` | An absolute path that replaces `$XDG_DATA_HOME/efr`. |
 | `EFR_STATE_DIR` | An absolute path that replaces `$XDG_STATE_HOME/efr`. |
