@@ -37,6 +37,13 @@ turns.
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only
   then records `turn_interrupted`.
+- An approval's summary names the tool and what needs approval, the command line
+  first. When some simple commands of a line of several ask, a second line names them,
+  such as `asks for: hostnamectl, systemctl --failed`: each by its program and at most
+  three words after it, cut at a long word or at a word with a quote, a space or
+  another character outside letters, digits and `._/:@%+,-`, and with the value of
+  `--option=value` left out, so a token on the line is not repeated there. Every other
+  line break of the summary is escaped, so a path cannot pass for that line.
 - `respond_approval` records `approval_resolved` and hands the decision to the parked
   turn. The store refuses an answer to a call that is not pending, so of two racing
   answers only one commits. A parked call that can no longer be answered (the turn was

@@ -356,7 +356,11 @@ A command rule judges one simple command at a time. The engine splits a line on 
 `&&`, `||`, `|`, `|&` and newlines. It reads single quotes, double quotes and
 backslashes as zsh reads them, so `rg 'a|b' src` is one command. It allows a line only
 when it allows every simple command in it: `git status && git push` asks for
-`git push`. The reason names the part that asks.
+`git push`. The reason names the part that asks, and the approval question names
+every part that asks on a line of its own, such as
+`asks for: hostnamectl, systemctl --failed`. It shows each part by its program and a
+few words after it, without long words, quoted text or the value of `--option=value`,
+so a token on the line does not show twice.
 
 The engine cannot see through some constructs. A line that holds one of them matches
 no command rule. Only a rule whose resource is `any` can decide it, and the built-in
