@@ -7,7 +7,7 @@ use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{AnswerKind, Ask, Step, TurnEnd, TurnView, last_line};
+use super::{AnswerKind, Ask, ECHO_PREFIX, Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
 use crate::testing::{call, readable, turn};
 
@@ -858,20 +858,39 @@ fn a_silent_call_offers_ctrl_backslash_on_one_dim_line_until_it_prints() {
 }
 
 #[test]
-fn ctrl_backslash_asks_for_a_shown_manual_line_and_one_answer_ends_it() {
+fn ctrl_backslash_asks_for_a_manual_line_that_is_not_shown_and_one_answer_ends_it() {
     let (mut view, size) = silent_shell();
     view.silent(call(), size);
     let step = view.manual(call(), size);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
     let shown = readable(&step.out);
-    assert!(shown.contains("the agent sees it if the program shows it"), "{shown}");
+    assert!(shown.contains("your typing is not shown here"), "{shown}");
     assert!(!shown.contains(HINT), "{shown}");
-    assert!(readable(&view.typed("yes", size).out).contains("> yes"));
+    assert!(!shown.contains(ECHO_PREFIX), "{shown}");
+    assert_eq!(view.typed("yes", size), Step::default(), "nothing typed is shown");
     assert_eq!(view.manual_offer(), None);
 
     let step = view.answer_sent(size);
     assert!(step.settled, "the keys stop after a manual answer");
     assert!(view.silence().is_some(), "the silence starts again");
+}
+
+#[test]
+fn a_manual_line_under_a_password_prompt_echoes_nothing() {
+    // A prompt behind a relay in a raw-mode terminal reports no wait, so only a manual
+    // line can answer it; the password must not show.
+    let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&shell_started(), size, true);
+    view.event(&output("[sudo] password for u:"), size, true);
+    view.silent(call(), size);
+    let step = view.manual(call(), size);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
+    assert!(!step.err.contains(ECHO_PREFIX), "{:?}", step.err);
+    assert!(!AnswerKind::Manual.shown());
+    assert_eq!(view.typed("hunter2", size), Step::default());
+    let sent = view.answer_sent(size);
+    assert!(!sent.err.contains("hunter2"), "{:?}", sent.err);
 }
 
 #[test]

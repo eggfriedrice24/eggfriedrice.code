@@ -899,7 +899,7 @@ async fn ctrl_backslash_after_a_silence_types_a_manual_answer() {
     .await;
     result.unwrap();
     assert_eq!(keys.starts(), 1);
-    assert!(out.contains("> yes"), "the manual answer shows as it is typed: {out}");
+    assert!(!out.contains("yes"), "the manual answer is not shown as it is typed: {out}");
     assert_eq!(quit.armed(), 0, "the key is let go when the turn ends");
 }
 

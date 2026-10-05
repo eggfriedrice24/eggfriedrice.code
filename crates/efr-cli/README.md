@@ -167,9 +167,14 @@ while a shell call of the followed turn runs, reports no wait, no key is read fo
 and keys can be read here, ten seconds without output (`follow::SILENCE`, timed on the
 injected clock from the call's last output, wait or answer) bring one dim line: "no
 output for 10 s; press `Ctrl+\` to type an input for the command". Only while that line
-is shown does `efr` take SIGQUIT (`quit.rs`): `Ctrl+\` opens an answer line, shown as it
-is typed under the visible note, which goes with `input.respond` `manual: true`; after
-one answer the keys stop and the silence starts again. Output, a wait or an approval
+is shown does `efr` take SIGQUIT (`quit.rs`): `Ctrl+\` opens an answer line, which goes
+with `input.respond` `manual: true`; after one answer the keys stop and the silence
+starts again. The line is never shown as it is typed: no prompt was reported, so
+nothing tells whether the command asks for a password (behind `ssh`, a remote `sudo`
+prompt reports no wait), and the program's own echo still shows in its output tail.
+Only a call whose `tool_call_started` carries `manual_input` offers the line; the
+daemon leaves it off for a call whose command types into a shell that reads command
+lines, where a manual answer would run as a command line. Output, a wait or an approval
 takes the line away. Any other SIGQUIT keeps its default meaning: tokio's handler
 stays installed once the key was first offered, so the listener does the default
 action itself (`signal_hook::low_level::emulate_default_handler`), and `efr` ends by
@@ -237,9 +242,9 @@ and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventio
 - Text from the daemon or the model cannot drive the terminal: markdown goes through
   `efr-render`, and everything else the CLI prints passes through `format::one_line` or
   `format::lines`, which turn control characters into visible stand-ins.
-- A hidden answer, and one whose prompt looks secret, is never written to stdout or
-  stderr, never logged and never handed to the view; it leaves the process only inside
-  `input.respond`.
+- A hidden answer, one whose prompt looks secret, and a manual one are never written
+  to stdout or stderr, never logged and never handed to the view; they leave the
+  process only inside `input.respond`.
 - No key is read while a command is merely silent: only `Ctrl+\`, while the view offers
   it, opens an answer line; other SIGQUITs end `efr` as they would without a handler.
 - The last command line never reaches the shell context, and so never an event.

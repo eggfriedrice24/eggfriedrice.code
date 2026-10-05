@@ -28,8 +28,10 @@
 //! command lines), reports no wait and has printed nothing for a while gets one dim line
 //! that offers `Ctrl+\` ([`TurnView::silence`], [`TurnView::silent`]). The view reads no
 //! key for it: text typed meanwhile stays typeahead for the user's shell. Only `Ctrl+\`
-//! opens an answer line ([`TurnView::manual`]), which is shown as it is typed and goes as
-//! a manual answer.
+//! opens an answer line ([`TurnView::manual`]), which goes as a manual answer. That line
+//! is never shown as it is typed: nothing reported a prompt, so nothing tells whether
+//! the command asks for a password, and the program's own echo still shows in its
+//! output.
 
 use std::collections::{HashMap, HashSet};
 
@@ -70,6 +72,10 @@ const SECRET_INPUT: &str = "this looks like a password prompt behind another pro
 /// The line under a call that has printed nothing for a while and reports no wait;
 /// the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
 const SILENCE_HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+
+/// The line under a manual answer, which is not shown: no prompt was reported, so it
+/// may be a password. The program's own echo, if any, shows in the output.
+const MANUAL_INPUT: &str = "type the input and press Enter; your typing is not shown here, and the agent sees it only if the program shows it";
 
 /// The note when a command waits for hidden input and no key can be read here.
 const HIDDEN_INPUT_ELSEWHERE: &str =
@@ -125,15 +131,15 @@ pub(crate) enum AnswerKind {
     /// A visible wait whose prompt looks like a password prompt behind a relay: not
     /// shown, but sent as a visible answer, the kind the daemon reported.
     Masked,
-    /// A line the user asked for with `Ctrl+\` while the command reported no wait: shown
-    /// as it is typed, sent as a visible, manual answer.
+    /// A line the user asked for with `Ctrl+\` while the command reported no wait: not
+    /// shown, because it may be a password, and sent as a visible, manual answer.
     Manual,
 }
 
 impl AnswerKind {
     /// True when what is typed is shown as it is typed.
     pub(crate) fn shown(self) -> bool {
-        matches!(self, AnswerKind::Visible | AnswerKind::Manual)
+        self == AnswerKind::Visible
     }
 
     /// True when the answer goes as a hidden one.
@@ -156,8 +162,9 @@ impl AnswerKind {
     fn line(self) -> &'static str {
         match self {
             AnswerKind::Hidden => HIDDEN_INPUT,
-            AnswerKind::Visible | AnswerKind::Manual => VISIBLE_INPUT,
+            AnswerKind::Visible => VISIBLE_INPUT,
             AnswerKind::Masked => SECRET_INPUT,
+            AnswerKind::Manual => MANUAL_INPUT,
         }
     }
 }
@@ -520,7 +527,7 @@ impl TurnView {
     }
 
     /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
-    /// line that is shown as it is typed and goes as a manual answer.
+    /// line that is not shown as it is typed and goes as a manual answer.
     pub(crate) fn manual(&mut self, call_id: CallId, size: Size) -> Step {
         if self.manual_offer() != Some(call_id) {
             return Step::default();
