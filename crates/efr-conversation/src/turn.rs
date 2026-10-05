@@ -26,14 +26,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect};
 use efr_protocol::{
-    ApprovalDecision, CallId, ConversationId, ErrorBody, ErrorCode, Event, Origin, Scope,
-    ShellContext, TurnId,
+    ApprovalDecision, CallId, ConversationId, ErrorBody, ErrorCode, Event, InputWait, Origin,
+    Scope, ShellContext, TurnId,
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
 use efr_store::{Batch, Committed};
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tracing::Instrument as _;
 
 use self::coalesce::{Coalescer, sleep_or_pending};
@@ -51,6 +51,10 @@ use crate::{
 
 /// The longest output tail in a `tool_call_output_updated` event, in bytes.
 const TAIL_MAX: usize = 4096;
+
+/// How many changes of a call's input wait may wait for the turn to record them. A
+/// command changes it at most once a second, and the turn records each at once.
+const INPUT_CAPACITY: usize = 64;
 
 /// What the model reads for a call that did not run because the user interrupted the
 /// turn.
@@ -532,7 +536,8 @@ impl Turn {
         Ok(())
     }
 
-    /// Runs an authorized call, recording its output as it grows. `None` when the user
+    /// Runs an authorized call, recording its output as it grows and each change of
+    /// whether it waits for input, in the order they happened. `None` when the user
     /// interrupted it: the call's future is dropped and the toolbox asked to stop it.
     async fn invoke(&mut self, call: ToolCall) -> Result<Option<ToolOutcome>, ConversationError> {
         let toolbox: Arc<dyn Toolbox> = Arc::clone(&self.shared.deps.toolbox);
@@ -540,7 +545,8 @@ impl Turn {
         let interrupt = self.control.interrupt.clone();
         let context = call.context.clone();
         let (sender, mut output) = watch::channel(None);
-        let mut sink = WatchSink { sender };
+        let (inputs, mut waits) = mpsc::channel(INPUT_CAPACITY);
+        let mut sink = WatchSink { sender, inputs };
         let mut updates = Coalescer::new(self.shared.config.update_interval);
         let mut invoked = Box::pin(toolbox.invoke(call, &mut sink));
         let outcome = loop {
@@ -549,6 +555,14 @@ impl Turn {
                 biased;
                 () = interrupt.raised() => break None,
                 outcome = &mut invoked => break Some(outcome),
+                Some(wait) = waits.recv() => {
+                    // The sender lives in `sink`, which outlives this loop, so the
+                    // channel never closes here.
+                    if output.has_changed().unwrap_or(false) {
+                        updates.flushed(clock.now());
+                    }
+                    self.record_input(&context, &mut output, wait).await?;
+                }
                 changed = output.changed() => {
                     // The sender lives in `sink`, which outlives this loop.
                     if changed.is_ok() && updates.offer(clock.now()) {
@@ -562,8 +576,15 @@ impl Turn {
             }
         };
         drop(invoked);
-        if outcome.is_none() {
-            toolbox.cancel(&context).await;
+        match outcome {
+            // A change the tool made just before it returned is still recorded, before
+            // the call's completion.
+            Some(_) => {
+                while let Ok(wait) = waits.try_recv() {
+                    self.record_input(&context, &mut output, wait).await?;
+                }
+            }
+            None => toolbox.cancel(&context).await,
         }
         Ok(outcome)
     }
@@ -573,17 +594,46 @@ impl Turn {
         context: &CallContext,
         output: &mut watch::Receiver<Option<(String, u64)>>,
     ) -> Result<(), ConversationError> {
-        let latest = output.borrow_and_update().clone();
-        if let Some((tail, bytes)) = latest {
-            self.record(vec![Event::ToolCallOutputUpdated {
-                turn_id: self.turn_id(),
-                call_id: context.call_id,
-                tail,
-                bytes,
-            }])
-            .await?;
+        if let Some(event) = self.output_event(context, output) {
+            self.record(vec![event]).await?;
         }
         Ok(())
+    }
+
+    /// Records a change of the call's input wait, after the output that came before it
+    /// when that was not recorded yet, so a client sees the prompt before it asks.
+    async fn record_input(
+        &self,
+        context: &CallContext,
+        output: &mut watch::Receiver<Option<(String, u64)>>,
+        input: InputWait,
+    ) -> Result<(), ConversationError> {
+        let mut events = Vec::with_capacity(2);
+        if output.has_changed().unwrap_or(false) {
+            events.extend(self.output_event(context, output));
+        }
+        events.push(Event::ToolCallInputChanged {
+            turn_id: self.turn_id(),
+            call_id: context.call_id,
+            input,
+        });
+        self.record(events).await?;
+        Ok(())
+    }
+
+    /// The newest output as an event, marked as seen.
+    fn output_event(
+        &self,
+        context: &CallContext,
+        output: &mut watch::Receiver<Option<(String, u64)>>,
+    ) -> Option<Event> {
+        let (tail, bytes) = output.borrow_and_update().clone()?;
+        Some(Event::ToolCallOutputUpdated {
+            turn_id: self.turn_id(),
+            call_id: context.call_id,
+            tail,
+            bytes,
+        })
     }
 
     /// Appends `events` of this conversation in one batch.
@@ -658,15 +708,26 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
     }
 }
 
-/// Hands a tool's output updates to the turn; only the newest matters, because each
-/// update carries the whole tail.
+/// Hands a tool's output updates to the turn, where only the newest matters, because
+/// each update carries the whole tail; and every change of its input wait, which all
+/// matter.
 struct WatchSink {
     sender: watch::Sender<Option<(String, u64)>>,
+    inputs: mpsc::Sender<InputWait>,
 }
 
 impl OutputSink for WatchSink {
     fn update(&mut self, tail: &str, bytes: u64) {
         self.sender.send_replace(Some((bounded_tail(tail), bytes)));
+    }
+
+    fn input_changed(&mut self, wait: InputWait) {
+        // NOTE: the turn records each change as it comes, so the queue is full only if
+        // the turn stopped reading; a lost change then matters to no one, and the
+        // call's completion ends any wait.
+        if self.inputs.try_send(wait).is_err() {
+            tracing::warn!("a change of a tool call's input wait was dropped");
+        }
     }
 }
 

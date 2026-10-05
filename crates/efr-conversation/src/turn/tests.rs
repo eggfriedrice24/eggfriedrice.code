@@ -6,7 +6,8 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{
-    ApprovalDecision, ErrorCode, Event, Origin, ProjectId, Scope, TurnInterrupt, TurnSteer, Usage,
+    ApprovalDecision, ErrorCode, Event, InputWait, Origin, ProjectId, Scope, TurnInterrupt,
+    TurnSteer, Usage,
 };
 use efr_provider::{Message, ProviderEvent, StopReason, TokenUsage};
 use efr_scope::{Basis, Derivation, Repo};
@@ -787,6 +788,73 @@ async fn a_tool_s_output_updates_are_recorded_and_conversation_rules_allow_a_com
         find(&events, |e| matches!(e, Event::ToolCallCompleted { .. })),
         Event::ToolCallCompleted { exit_code: Some(0), is_error: false, .. }
     ));
+    h.finish();
+}
+
+#[tokio::test]
+async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion() {
+    let mut setup = Setup::new();
+    let rule = Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("ask-password")),
+        Effect::Allow,
+    );
+    setup.config.policy = Policy::new(vec![rule]).expect("policy");
+    let state = setup.live_state(&setup.cwd, "log in");
+    let input = json!({ "command": "ask-password" });
+    let first = setup.prompt(&state, "log in");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "pw: \nok\n", false),
+        ])),
+        answer(&text_answer("Logged in.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("log in").await;
+    h.wait_end(sent.turn_id).await;
+
+    let call_id = h.call_ids().await[0];
+    let turn_id = sent.turn_id;
+    let steps: Vec<Event> = h
+        .events()
+        .await
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Event::ToolCallOutputUpdated { .. }
+                    | Event::ToolCallInputChanged { .. }
+                    | Event::ToolCallCompleted { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            Event::ToolCallOutputUpdated { turn_id, call_id, tail: "pw: ".to_owned(), bytes: 4 },
+            Event::ToolCallInputChanged { turn_id, call_id, input: InputWait::Hidden },
+            Event::ToolCallOutputUpdated {
+                turn_id,
+                call_id,
+                tail: "pw: \nok\n".to_owned(),
+                bytes: 8
+            },
+            Event::ToolCallInputChanged { turn_id, call_id, input: InputWait::None },
+            Event::ToolCallCompleted {
+                turn_id,
+                call_id,
+                output: "pw: \nok\n".to_owned(),
+                truncated: false,
+                is_error: false,
+                exit_code: Some(0),
+            },
+        ]
+    );
     h.finish();
 }
 

@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CallId, CommandId, ConversationId, Event, EventEnvelope,
-    Origin, ProjectId, PromptSend, PromptSendResult, Seq, ShellContext, TurnId,
+    InputWait, Origin, ProjectId, PromptSend, PromptSendResult, Seq, ShellContext, TurnId,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -45,7 +45,9 @@ pub(crate) const OS: &str = "TestOS";
 /// - `read_file {path}` reads a path and answers `contents of <path>`;
 /// - `write_file {path, content}` writes a path and answers `written <path>`;
 /// - `shell {command}` runs a command, reports `partial` as output, yields, then
-///   answers `done` with exit code 0;
+///   answers `done` with exit code 0; the command `ask-password` instead prints a
+///   prompt, waits for hidden input, takes an answer and prints `ok`, yielding between
+///   the steps;
 /// - `hang {}` declares nothing, signals [`FakeToolbox::hang_started`] and never ends.
 #[derive(Debug, Default)]
 pub(crate) struct FakeToolbox {
@@ -135,6 +137,15 @@ impl Toolbox for FakeToolbox {
         match call.name.as_str() {
             "read_file" => ToolOutcome::ok(format!("contents of {path}")),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
+            "shell" if call.input["command"] == "ask-password" => {
+                out.update("pw: ", 4);
+                tokio::task::yield_now().await;
+                out.input_changed(InputWait::Hidden);
+                tokio::task::yield_now().await;
+                out.update("pw: \nok\n", 8);
+                out.input_changed(InputWait::None);
+                ToolOutcome::ok("pw: \nok\n").with_exit_code(Some(0))
+            }
             "shell" => {
                 out.update("partial", 7);
                 // NOTE: a real command takes time; yielding lets the turn see the update

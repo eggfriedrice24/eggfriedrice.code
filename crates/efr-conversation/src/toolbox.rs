@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use efr_permissions::Requirements;
-use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
+use efr_protocol::{CallId, ConversationId, InputWait, Origin, Scope, TurnId};
 use efr_provider::ToolDefinition;
 use serde_json::Value;
 
@@ -203,10 +203,15 @@ impl ToolOutcome {
 }
 
 /// Hears a call's output while it runs; the turn turns it into coalesced
-/// `tool_call_output_updated` events.
+/// `tool_call_output_updated` events, and each change of whether the call's command
+/// waits for input into a `tool_call_input_changed` event.
 pub trait OutputSink: Send {
     /// The end of the output so far and the size of all of it in bytes.
     fn update(&mut self, tail: &str, bytes: u64);
+
+    /// The call's command started or stopped waiting for input. Each change is
+    /// recorded, none is coalesced. Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait) {}
 }
 
 impl<F: FnMut(&str, u64) + Send> OutputSink for F {

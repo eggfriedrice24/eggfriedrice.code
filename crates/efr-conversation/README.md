@@ -48,8 +48,13 @@ offset, then `assistant_message_completed` with the whole text. Earlier turns ar
 rebuilt from the newest events without `tool_call_output_updated`, so a long command's
 progress cannot push them out of the page. Every tool call is recorded
 with `tool_call_started`, judged at the check point, run when allowed or approved
-(with coalesced `tool_call_output_updated` events), and answered with
-`tool_call_completed`, until the model answers without a tool call. The turn ends with
+(with coalesced `tool_call_output_updated` events, and a `tool_call_input_changed`
+event for every change of whether the call's command waits for input, which
+`OutputSink::input_changed` reports: never coalesced, and recorded after the output
+that came before it, in the same batch when that output was still held back), and
+answered with `tool_call_completed`, until the model answers without a tool call. A
+change that the tool reports just before it returns is still recorded before the
+completion. The turn ends with
 `turn_completed` (with the summed usage), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
@@ -91,8 +96,9 @@ by field:
   `CallContext::shell_cwd`, so a command's relative paths are declared from where the
   hidden shell is, which an earlier call may have moved;
 - `invoke`: `ToolRegistry::invoke` with the `OutputSink` passed through as the
-  `ToolOutputSink`, and `ToolResult` copied into `ToolOutcome`; a `ToolError` becomes
-  an error outcome;
+  `ToolOutputSink` (output and input waits; the daemon itself answers whether a person
+  can answer hidden input), and `ToolResult` copied into `ToolOutcome`; a `ToolError`
+  becomes an error outcome;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
   interrupted command does not keep running in the hidden shell;
 - `preview`: the diff of a `write_file` call, once the tools offer one.
