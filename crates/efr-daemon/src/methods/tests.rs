@@ -1,9 +1,10 @@
 use efr_protocol::{
-    AdminConfigReload, AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond,
-    Base64Bytes, CallId, Capabilities, CommandId, ConversationHistory, ConversationId,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList,
-    Origin, PROTOCOL_VERSION, PageCursor, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite,
-    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
+    ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
+    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
+    InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
+    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Seq,
+    Size, TurnInterrupt, TurnSteer,
 };
 use pretty_assertions::assert_eq;
 
@@ -74,6 +75,13 @@ fn every_method() -> Vec<Method> {
         }),
         Method::LeaseReport(LeaseReport::default()),
         Method::ModelsList(ModelsList::default()),
+        Method::ProjectsList(ProjectsList::default()),
+        Method::AdminProjectAdd(AdminProjectAdd {
+            path: "/p/app".into(),
+            name: None,
+            git_root: false,
+        }),
+        Method::AdminProjectRemove(AdminProjectRemove { path: "/p/app".into() }),
         Method::AdminStatus(AdminStatus::default()),
         Method::AdminConfigReload(AdminConfigReload::default()),
         Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
@@ -83,7 +91,7 @@ fn every_method() -> Vec<Method> {
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 17, "one request per method");
+    assert_eq!(methods.len(), 20, "one request per method");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -111,6 +119,9 @@ fn the_scope_table_is_the_designed_one() {
             ("input.respond", ScopeName::Terminal),
             ("lease.report", ScopeName::Read),
             ("models.list", ScopeName::Read),
+            ("projects.list", ScopeName::Read),
+            ("admin.project_add", ScopeName::Admin),
+            ("admin.project_remove", ScopeName::Admin),
             ("admin.status", ScopeName::Admin),
             ("admin.config_reload", ScopeName::Admin),
             ("admin.login_openai", ScopeName::Admin),

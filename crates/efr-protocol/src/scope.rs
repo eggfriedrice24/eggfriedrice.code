@@ -61,7 +61,7 @@ pub enum Origin {
 /// | `operate` | send prompts, interrupt, steer | yes |
 /// | `approve` | answer approvals | yes |
 /// | `terminal` | attach to, write to and resize a PTY | no, an explicit opt-in |
-/// | `admin` | status, login, config reload, and later enrollment and settings | never; Unix socket only |
+/// | `admin` | status, login, config reload, the project registry, and later enrollment and settings | never; Unix socket only |
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]

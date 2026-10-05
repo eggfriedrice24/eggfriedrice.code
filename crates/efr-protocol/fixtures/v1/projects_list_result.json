@@ -1,0 +1,14 @@
+{
+  "file": "/home/me/.config/efr/projects.toml",
+  "projects": [
+    {
+      "id": "019a9b1c-3d00-7a10-8b20-000000000008",
+      "root": "/home/me/p/app",
+      "name": "app"
+    },
+    {
+      "id": "019a9b1c-3d00-7a10-8b20-00000000000e",
+      "root": "/etc/nixos"
+    }
+  ]
+}

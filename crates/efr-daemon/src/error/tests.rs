@@ -70,6 +70,9 @@ fn request_errors_map_to_the_code_a_client_acts_on() {
             DaemonError::InvalidAnswer { reason: "it is longer than input.respond allows" },
             ErrorCode::Invalid,
         ),
+        (DaemonError::ProjectRootMissing { path: PathBuf::from("/p/app") }, ErrorCode::Invalid),
+        (DaemonError::ProjectRootTooWide { root: PathBuf::from("/home/u") }, ErrorCode::Invalid),
+        (DaemonError::ProjectNotRegistered { path: PathBuf::from("/p/app") }, ErrorCode::NotFound),
     ];
     for (error, expected) in cases {
         let message = error.to_string();
@@ -207,6 +210,44 @@ fn shell_and_login_errors_map_to_their_codes() {
         ErrorCode::Cancelled
     );
     assert_eq!(code(login(OAuthError::MissingCode)), ErrorCode::Internal);
+}
+
+#[test]
+fn a_failed_change_of_the_registry_says_what_failed_in_the_words_of_efr_scope() {
+    use efr_scope::{RegistryProblem, ScopeError};
+
+    let cases = [
+        (
+            ScopeError::InvalidProject {
+                problem: RegistryProblem::DuplicateRoot { root: PathBuf::from("/p/app") },
+            },
+            ErrorCode::Conflict,
+        ),
+        (
+            ScopeError::RegistryChanged { path: PathBuf::from("/c/projects.toml") },
+            ErrorCode::Conflict,
+        ),
+        (
+            ScopeError::InvalidProject {
+                problem: RegistryProblem::RootNotAbsolute { root: PathBuf::from("p") },
+            },
+            ErrorCode::Invalid,
+        ),
+        (
+            ScopeError::DanglingRegistryLink {
+                path: PathBuf::from("/c/projects.toml"),
+                target: PathBuf::from("/d/gone.toml"),
+            },
+            ErrorCode::Invalid,
+        ),
+        (ScopeError::GitTimedOut { after: Duration::from_secs(5) }, ErrorCode::Internal),
+    ];
+    for (source, expected) in cases {
+        let message = source.to_string();
+        let body = frame(DaemonError::Registry { source }).error;
+        assert_eq!(body.code, expected, "{message}");
+        assert_eq!(body.message, message);
+    }
 }
 
 #[test]

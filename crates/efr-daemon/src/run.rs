@@ -427,7 +427,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
-    let resolver = GitScopeResolver::new(home.clone(), git).with_registry(registry_path);
+    let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
         None => tokio::task::spawn_blocking(host_info).await.unwrap_or_default(),
@@ -455,6 +455,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings: settings_sender,
         engine: engine_sender,
         engine_parts,
+        git,
+        registry_writes: Arc::default(),
         log,
         reloads,
         roots,

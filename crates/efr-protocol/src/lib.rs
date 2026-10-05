@@ -44,6 +44,8 @@ pub use ids::{
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
+pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
+pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
 pub use methods::admin_status::{
     AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
 };
@@ -61,6 +63,7 @@ pub use methods::lease_report::{LeaseReport, LeaseReportResult};
 pub use methods::models_list::{
     EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList, ModelsListResult, is_effort_word,
 };
+pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};

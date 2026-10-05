@@ -1,10 +1,11 @@
 //! What every method handler and background task of a running daemon shares.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use efr_config::Settings;
 use efr_permissions::Engine;
 use efr_protocol::{DaemonId, DaemonRoots};
+use efr_scope::Git;
 use efr_shell::ShellSessions;
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
@@ -38,6 +39,12 @@ pub(crate) struct State {
     pub(crate) engine: watch::Sender<Arc<Engine>>,
     /// What the engine is built from besides the settings.
     pub(crate) engine_parts: EngineParts,
+    /// How the daemon runs git, for the root of a project that `admin.project_add`
+    /// finds from a directory.
+    pub(crate) git: Git,
+    /// Held while a client's change of the project registry reads and writes the file,
+    /// so two changes never overwrite each other.
+    pub(crate) registry_writes: Arc<Mutex<()>>,
     /// The running log filter, which a reload replaces; `None` when the caller set up
     /// tracing itself, as a test does.
     pub(crate) log: Option<LogFilter>,

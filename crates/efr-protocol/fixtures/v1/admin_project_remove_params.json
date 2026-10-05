@@ -1,0 +1,6 @@
+{
+  "method": "admin.project_remove",
+  "params": {
+    "path": "/home/me/p/app"
+  }
+}

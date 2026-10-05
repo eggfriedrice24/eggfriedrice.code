@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize, Serializer};
 
 pub(crate) mod admin_config_reload;
 pub(crate) mod admin_login_openai;
+pub(crate) mod admin_project_add;
+pub(crate) mod admin_project_remove;
 pub(crate) mod admin_status;
 pub(crate) mod approval_respond;
 pub(crate) mod conversation_history;
@@ -25,6 +27,7 @@ pub(crate) mod hello;
 pub(crate) mod input_respond;
 pub(crate) mod lease_report;
 pub(crate) mod models_list;
+pub(crate) mod projects_list;
 pub(crate) mod prompt_send;
 pub(crate) mod pty_attach;
 pub(crate) mod pty_resize;

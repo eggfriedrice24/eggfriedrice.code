@@ -4,11 +4,12 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond,
-    Base64Bytes, CallId, Capabilities, CommandId, ConversationHistory, ConversationId,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList,
-    Origin, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size,
-    TurnInterrupt, TurnSettings, TurnSteer,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
+    ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
+    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
+    InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList, PromptSend, PtyAttach,
+    PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings,
+    TurnSteer,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -169,6 +170,25 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             false,
         ),
         (Method::ModelsList(ModelsList::default()), "models.list", ScopeName::Read, false, false),
+        (Method::ProjectsList(ProjectsList {}), "projects.list", ScopeName::Read, false, false),
+        (
+            Method::AdminProjectAdd(AdminProjectAdd {
+                path: "/p/app".into(),
+                name: None,
+                git_root: false,
+            }),
+            "admin.project_add",
+            ScopeName::Admin,
+            false,
+            false,
+        ),
+        (
+            Method::AdminProjectRemove(AdminProjectRemove { path: "/p/app".into() }),
+            "admin.project_remove",
+            ScopeName::Admin,
+            false,
+            false,
+        ),
         (Method::AdminStatus(AdminStatus {}), "admin.status", ScopeName::Admin, false, false),
         (
             Method::AdminConfigReload(AdminConfigReload {}),

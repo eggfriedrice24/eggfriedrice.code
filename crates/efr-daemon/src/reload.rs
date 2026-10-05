@@ -1,8 +1,9 @@
 //! Live reload: reading `config.toml` again while the daemon runs, and applying it.
 //!
-//! Four triggers call [`reload`]: `admin.config_reload` (`efr config reload`), `SIGHUP`
-//! (`systemctl --user reload efrd`), the file watcher ([`watcher`]) and the settings
-//! tool after it wrote the file (`tools/settings_tool.rs`). A reload parses
+//! These triggers call [`reload`]: `admin.config_reload` (`efr config reload`), `SIGHUP`
+//! (`systemctl --user reload efrd`), the file watcher ([`watcher`]), the settings tool
+//! after it wrote the file (`tools/settings_tool.rs`), and `admin.project_add` and
+//! `admin.project_remove` after they wrote the project registry. A reload parses
 //! and checks the whole file with `efr-config`. A file with an error changes nothing:
 //! the old settings stay, the error is kept for `admin.status`, and each terminal with a
 //! recent conversation gets a notice. A valid file is laid over the running settings

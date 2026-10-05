@@ -84,3 +84,15 @@ No protocol version has shipped yet.
   fixtures `events/tool_call_input_changed.json` (now a `visible` wait that looks
   secret) and `input_respond_params.json` (now a manual visible answer) set the new
   flags.
+- Before version 1 ships: the project registry. New wire type `project_info` (`id`,
+  `root` and an optional `name`). New method `projects.list` (scope `read`, no params)
+  whose result carries the registry `file` and its `projects`. New methods
+  `admin.project_add` (scope `admin`; params `path`, an optional `name` and a
+  `git_root` flag, false when absent) and `admin.project_remove` (scope `admin`; params
+  `path`), whose results carry the `project`, the `file` that was written and the
+  `reload` that followed, in the form of the `admin.config_reload` result. A broken
+  file or project is `invalid`, a second registration or a file that changed during the
+  write is `conflict`, and a root that no project has is `not_found`. New fixtures
+  `projects_list_params.json`, `projects_list_result.json`,
+  `admin_project_add_params.json`, `admin_project_add_result.json`,
+  `admin_project_remove_params.json` and `admin_project_remove_result.json`.

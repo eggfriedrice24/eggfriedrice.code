@@ -19,7 +19,7 @@ use efr_protocol::{
 };
 use efr_provider::ProviderError;
 use efr_provider_openai::OpenAiError;
-use efr_scope::ScopeError;
+use efr_scope::{RegistryProblem, ScopeError};
 use efr_screen::ScreenError;
 use efr_shell::ShellError;
 use efr_stdx::StdxError;
@@ -277,6 +277,35 @@ pub enum DaemonError {
     /// `hello` reached the dispatcher, which the transport never lets happen.
     #[error("hello was already sent on this connection")]
     HelloRepeated,
+    /// The project registry could not be read or changed for a client.
+    #[error("the project registry could not be read or changed")]
+    Registry {
+        /// The error from `efr-scope`, which names the file and what is wrong.
+        #[source]
+        source: ScopeError,
+    },
+    /// A project to register is not a directory.
+    #[error("{} is not a directory", .path.display())]
+    ProjectRootMissing {
+        /// The path that was given.
+        path: PathBuf,
+    },
+    /// The root found for a project is the home directory, `/` or a directory above
+    /// the home directory, which only an explicit path may register.
+    #[error(
+        "{} is the home directory, / or above the home directory; name it to register it as a project",
+        .root.display()
+    )]
+    ProjectRootTooWide {
+        /// The root.
+        root: PathBuf,
+    },
+    /// No registered project has the root that was given.
+    #[error("no project has the root {}", .path.display())]
+    ProjectNotRegistered {
+        /// The root that was given.
+        path: PathBuf,
+    },
     /// The params break a rule that their type cannot express.
     #[error("the request is invalid: {reason}")]
     InvalidParams {
@@ -362,7 +391,11 @@ impl DaemonError {
             }
             DaemonError::InvalidParams { .. }
             | DaemonError::InvalidCursor { .. }
-            | DaemonError::InvalidAnswer { .. } => ErrorCode::Invalid,
+            | DaemonError::InvalidAnswer { .. }
+            | DaemonError::ProjectRootMissing { .. }
+            | DaemonError::ProjectRootTooWide { .. } => ErrorCode::Invalid,
+            DaemonError::ProjectNotRegistered { .. } => ErrorCode::NotFound,
+            DaemonError::Registry { source } => registry_code(source),
             DaemonError::ConversationNotFound { .. }
             | DaemonError::ApprovalNotPending { .. }
             | DaemonError::PtyNotFound { .. }
@@ -419,6 +452,18 @@ impl DaemonError {
                     // it never carries a secret or a source's text.
                     DaemonError::Conversation { source } => source.to_string(),
                     DaemonError::Login { source } => source.to_string(),
+                    // NOTE: the registry holds paths and names, no secret, and the
+                    // parser's message says what to fix in the file.
+                    DaemonError::Registry {
+                        source: ScopeError::ParseRegistry { path, source },
+                    } => {
+                        format!(
+                            "could not parse the project registry {}: {}",
+                            path.display(),
+                            source.message()
+                        )
+                    }
+                    DaemonError::Registry { source } => source.to_string(),
                     other => other.to_string(),
                 };
                 let body = ErrorBody::new(code, message);
@@ -433,6 +478,24 @@ impl DaemonError {
                 }
             }
         }
+    }
+}
+
+/// The wire code of a failed change of the project registry: a broken file or project
+/// is the client's to fix, a race is a conflict, the rest is the daemon's.
+fn registry_code(source: &ScopeError) -> ErrorCode {
+    match source {
+        ScopeError::InvalidProject {
+            problem: RegistryProblem::DuplicateRoot { .. } | RegistryProblem::DuplicateId { .. },
+        }
+        | ScopeError::RegistryChanged { .. } => ErrorCode::Conflict,
+        ScopeError::InvalidProject { .. }
+        | ScopeError::NotAbsolute { .. }
+        | ScopeError::ParseRegistry { .. }
+        | ScopeError::InvalidRegistry { .. }
+        | ScopeError::RegistryShape { .. }
+        | ScopeError::DanglingRegistryLink { .. } => ErrorCode::Invalid,
+        _ => ErrorCode::Internal,
     }
 }
 

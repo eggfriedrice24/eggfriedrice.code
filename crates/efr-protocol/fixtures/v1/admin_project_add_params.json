@@ -1,0 +1,8 @@
+{
+  "method": "admin.project_add",
+  "params": {
+    "path": "/home/me/p/app/src",
+    "name": "app",
+    "git_root": true
+  }
+}

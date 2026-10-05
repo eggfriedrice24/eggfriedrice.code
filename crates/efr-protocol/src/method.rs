@@ -4,10 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminStatus, ApprovalRespond, CommandId,
-    ConversationHistory, ConversationSubscribe, ConversationsList, Hello, InputRespond,
-    LeaseReport, ModelsList, PromptSend, PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt,
-    TurnSteer,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
+    ApprovalRespond, CommandId, ConversationHistory, ConversationSubscribe, ConversationsList,
+    Hello, InputRespond, LeaseReport, ModelsList, ProjectsList, PromptSend, PtyAttach, PtyResize,
+    PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -65,6 +65,15 @@ pub enum Method {
     /// `models.list`: the models that a prompt may name, with their efforts.
     #[serde(rename = "models.list")]
     ModelsList(ModelsList),
+    /// `projects.list`: the registered projects.
+    #[serde(rename = "projects.list")]
+    ProjectsList(ProjectsList),
+    /// `admin.project_add`: register a project (Unix socket only).
+    #[serde(rename = "admin.project_add")]
+    AdminProjectAdd(AdminProjectAdd),
+    /// `admin.project_remove`: take a project out of the registry (Unix socket only).
+    #[serde(rename = "admin.project_remove")]
+    AdminProjectRemove(AdminProjectRemove),
     /// `admin.status`: the daemon's health (Unix socket only).
     #[serde(rename = "admin.status")]
     AdminStatus(AdminStatus),
@@ -96,6 +105,9 @@ impl Method {
             Method::InputRespond(_) => "input.respond",
             Method::LeaseReport(_) => "lease.report",
             Method::ModelsList(_) => "models.list",
+            Method::ProjectsList(_) => "projects.list",
+            Method::AdminProjectAdd(_) => "admin.project_add",
+            Method::AdminProjectRemove(_) => "admin.project_remove",
             Method::AdminStatus(_) => "admin.status",
             Method::AdminConfigReload(_) => "admin.config_reload",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
@@ -121,6 +133,9 @@ impl Method {
             | Method::InputRespond(_)
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
+            | Method::ProjectsList(_)
+            | Method::AdminProjectAdd(_)
+            | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
             | Method::AdminLoginOpenAi(_) => None,
@@ -146,6 +161,9 @@ impl Method {
             | Method::InputRespond(_)
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
+            | Method::ProjectsList(_)
+            | Method::AdminProjectAdd(_)
+            | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_) => false,
         }
@@ -155,8 +173,9 @@ impl Method {
 impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
-    /// `hello`, `lease.report` and `models.list` need only `read`, which every
-    /// connection holds.
+    /// `hello`, `lease.report`, `models.list` and `projects.list` need only `read`,
+    /// which every connection holds. Adding or removing a project changes what the
+    /// `auto` mode trusts, so it needs `admin`, which a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
@@ -164,7 +183,8 @@ impl ScopeName {
             | Method::ConversationSubscribe(_)
             | Method::ConversationHistory(_)
             | Method::LeaseReport(_)
-            | Method::ModelsList(_) => ScopeName::Read,
+            | Method::ModelsList(_)
+            | Method::ProjectsList(_) => ScopeName::Read,
             Method::PromptSend(_) | Method::TurnInterrupt(_) | Method::TurnSteer(_) => {
                 ScopeName::Operate
             }
@@ -174,9 +194,11 @@ impl ScopeName {
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
             | Method::InputRespond(_) => ScopeName::Terminal,
-            Method::AdminStatus(_) | Method::AdminConfigReload(_) | Method::AdminLoginOpenAi(_) => {
-                ScopeName::Admin
-            }
+            Method::AdminProjectAdd(_)
+            | Method::AdminProjectRemove(_)
+            | Method::AdminStatus(_)
+            | Method::AdminConfigReload(_)
+            | Method::AdminLoginOpenAi(_) => ScopeName::Admin,
         }
     }
 }

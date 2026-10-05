@@ -51,13 +51,16 @@ fn method_index(method: &Method) -> usize {
         Method::InputRespond(_) => 11,
         Method::LeaseReport(_) => 12,
         Method::ModelsList(_) => 13,
-        Method::AdminStatus(_) => 14,
-        Method::AdminConfigReload(_) => 15,
-        Method::AdminLoginOpenAi(_) => 16,
+        Method::ProjectsList(_) => 14,
+        Method::AdminProjectAdd(_) => 15,
+        Method::AdminProjectRemove(_) => 16,
+        Method::AdminStatus(_) => 17,
+        Method::AdminConfigReload(_) => 18,
+        Method::AdminLoginOpenAi(_) => 19,
     }
 }
 
-const METHOD_COUNT: usize = 17;
+const METHOD_COUNT: usize = 20;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

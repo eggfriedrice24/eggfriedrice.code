@@ -75,8 +75,9 @@ closed, `daemon.json` is removed, the database is closed, and the lock is releas
 
 ### Live reload
 
-`reload.rs` reads `config.toml` again while the daemon runs. Four triggers ask its one
-task for a reload: `admin.config_reload` (`efr config reload`), SIGHUP
+`reload.rs` reads `config.toml` again while the daemon runs. These triggers ask its one
+task for a reload: `admin.config_reload` (`efr config reload`), `admin.project_add` and
+`admin.project_remove` after their write, SIGHUP
 (`systemctl --user reload efrd`, through `ExecReload` in the unit), the file watcher,
 and the settings tool after it wrote the file. The watcher (`reload/watcher.rs`) is the daemon's own, on inotify through
 rustix's safe API and tokio's `AsyncFd` (non-blocking, close-on-exec; efrd runs on
@@ -193,6 +194,21 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   hold, with the default model marked.
 - `admin.config_reload` reloads at once and answers with the outcome: applied, or the
   file's error with the old settings kept, and the keys that wait for a restart.
+- `projects.list`, `admin.project_add` and `admin.project_remove` (`projects.rs`) read
+  and change the project registry for `efr project`, because the CLI may not depend on
+  `efr-scope`. A change runs one at a time, through `efr_scope::RegistryEdit`: it keeps
+  the file's comments and its link, changes no file with an error, and plans again when
+  the file changed under it. `admin.project_add` registers a directory with links
+  resolved; with `git_root`, the root of the git work tree that holds it (guarded
+  discovery, so a dotfiles `~/.git` never counts), else the directory, and then it
+  refuses the home directory, `/` and the directories above the home directory, which
+  only an explicit path registers. `admin.project_remove` matches the root as given and
+  with links resolved. Both reload after the write, so the engine trusts the new set of
+  projects from the next tool call on, and answer with that reload's outcome; when
+  `config.toml` has an error, the project counts for the engine from the next reload
+  that succeeds. A broken file or project is `invalid`, a second registration and a
+  race are `conflict`, an unknown root is `not_found`. The model can reach these
+  methods only by running `efr` in its shell, which no built-in rule allows.
 - `admin.status` reports the four roots with where each came from (its own variable,
   `EFR_HOME`, XDG, or `/run/user/<uid>`), and the config file: its path, whether it
   exists, a symbolic link's target, the last reload's error and `restart_needed`.

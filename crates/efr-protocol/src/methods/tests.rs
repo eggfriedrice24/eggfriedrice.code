@@ -2,10 +2,10 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReloadResult, AdminStatusResult, Base64Bytes, ConfigFileError, ConfigStatus,
-    ConversationId, ConversationSubscribe, EffectiveSettings, InputRespond, Mode, ModelInfo,
-    ModelSource, ModelsListResult, OverriddenSettings, PageCursor, PromptSend, PromptSendResult,
-    RootSource, Seq, TurnSettings,
+    AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
+    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe, EffectiveSettings,
+    InputRespond, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
+    ProjectInfo, PromptSend, PromptSendResult, RootSource, Seq, TurnSettings,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -282,4 +282,32 @@ fn a_missing_plain_config_file_is_its_path_and_a_false_exists() {
 fn a_config_status_needs_its_path_and_exists_flag() {
     assert!(serde_json::from_value::<ConfigStatus>(json!({ "exists": true })).is_err());
     assert!(serde_json::from_value::<ConfigStatus>(json!({ "path": "/c/config.toml" })).is_err());
+}
+
+#[test]
+fn a_project_add_without_a_name_registers_the_path_itself() {
+    let params: AdminProjectAdd = serde_json::from_value(json!({ "path": "/p/app" })).unwrap();
+    assert_eq!(params, AdminProjectAdd { path: "/p/app".into(), name: None, git_root: false });
+    assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "path": "/p/app" }));
+}
+
+#[test]
+fn a_project_add_and_remove_need_a_path() {
+    assert!(serde_json::from_value::<AdminProjectAdd>(json!({ "git_root": true })).is_err());
+    assert!(serde_json::from_value::<AdminProjectRemove>(json!({})).is_err());
+}
+
+#[test]
+fn a_project_without_a_name_is_its_id_and_root() {
+    let project = ProjectInfo {
+        id: "019a9b1c-3d00-7a10-8b20-000000000008".parse().unwrap(),
+        root: "/etc/nixos".into(),
+        name: None,
+    };
+    let value = serde_json::to_value(&project).unwrap();
+    assert_eq!(
+        value,
+        json!({ "id": "019a9b1c-3d00-7a10-8b20-000000000008", "root": "/etc/nixos" })
+    );
+    assert_eq!(serde_json::from_value::<ProjectInfo>(value).unwrap(), project);
 }

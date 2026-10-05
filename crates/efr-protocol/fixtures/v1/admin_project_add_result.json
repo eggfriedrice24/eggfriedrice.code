@@ -1,0 +1,20 @@
+{
+  "project": {
+    "id": "019a9b1c-3d00-7a10-8b20-000000000008",
+    "root": "/home/me/p/app",
+    "name": "app"
+  },
+  "file": "/home/me/dotfiles/efr/projects.toml",
+  "reload": {
+    "applied": false,
+    "error": {
+      "message": "unknown variant `maybe`, expected one of `allow`, `ask`, `deny`",
+      "line": 42,
+      "column": 10,
+      "key": "permissions.rules[2].effect"
+    },
+    "restart_needed": [
+      "screen"
+    ]
+  }
+}

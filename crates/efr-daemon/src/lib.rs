@@ -28,6 +28,7 @@ mod gc;
 mod lock;
 mod methods;
 mod notices;
+mod projects;
 mod providers;
 mod ptys;
 mod receipts;

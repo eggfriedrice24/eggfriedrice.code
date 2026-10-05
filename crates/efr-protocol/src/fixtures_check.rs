@@ -17,6 +17,7 @@ use serde_json::{Map, json};
 
 use crate::{
     AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
+    AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     Base64Bytes, CallId, Capabilities, Cell, ClientFrame, Color, CommandId, ConfigFileError,
     ConfigStatus, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -25,11 +26,11 @@ use crate::{
     DaemonRoots, DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello,
     HelloResult, InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult,
     Method, Mode, ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
-    PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult,
-    RequestId, RootDir, RootSource, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq,
-    ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
-    TurnSteer, TurnSteerResult, Usage,
+    PROTOCOL_VERSION, PageCursor, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
+    PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, RootDir, RootSource, RowCells, Scope,
+    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -336,6 +337,13 @@ pub(crate) fn method_samples() -> Vec<Method> {
             visible: true,
         }),
         Method::ModelsList(ModelsList {}),
+        Method::ProjectsList(ProjectsList {}),
+        Method::AdminProjectAdd(AdminProjectAdd {
+            path: "/home/me/p/app/src".into(),
+            name: Some("app".into()),
+            git_root: true,
+        }),
+        Method::AdminProjectRemove(AdminProjectRemove { path: "/home/me/p/app".into() }),
         Method::AdminStatus(AdminStatus {}),
         Method::AdminConfigReload(AdminConfigReload {}),
         Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
@@ -436,6 +444,40 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture("lease_report_result.json", &LeaseReportResult { ttl_secs: 45 }),
         fixture("models_list_result.json", &models_list_sample()),
         fixture(
+            "projects_list_result.json",
+            &ProjectsListResult {
+                file: "/home/me/.config/efr/projects.toml".into(),
+                projects: vec![
+                    project_info(),
+                    ProjectInfo { id: other_project_id(), root: "/etc/nixos".into(), name: None },
+                ],
+            },
+        ),
+        fixture(
+            "admin_project_add_result.json",
+            &AdminProjectAddResult {
+                project: project_info(),
+                file: "/home/me/dotfiles/efr/projects.toml".into(),
+                reload: AdminConfigReloadResult {
+                    applied: false,
+                    error: Some(config_file_error()),
+                    restart_needed: vec!["screen".into()],
+                },
+            },
+        ),
+        fixture(
+            "admin_project_remove_result.json",
+            &AdminProjectRemoveResult {
+                project: project_info(),
+                file: "/home/me/.config/efr/projects.toml".into(),
+                reload: AdminConfigReloadResult {
+                    applied: true,
+                    error: None,
+                    restart_needed: Vec::new(),
+                },
+            },
+        ),
+        fixture(
             "admin_status_result.json",
             &AdminStatusResult {
                 daemon_id: daemon_id(),
@@ -481,6 +523,16 @@ fn answer_fixtures() -> Vec<Fixture> {
             &AdminLoginOpenAiItem::Completed { provider: "openai".into() },
         ),
     ]
+}
+
+/// A registered project with every member set.
+fn project_info() -> ProjectInfo {
+    ProjectInfo { id: project_id(), root: "/home/me/p/app".into(), name: Some("app".into()) }
+}
+
+/// A second project id, for a list of two.
+fn other_project_id() -> ProjectId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000e")
 }
 
 /// A built-in default model with efforts and a model from the config, so the result
