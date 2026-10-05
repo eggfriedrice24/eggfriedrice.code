@@ -345,7 +345,16 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-shell
 EFR_TEST_ZSH=1 cargo nextest run -p efr-shell   # also the e2e_ tests over a real zsh
 just test-shell                                  # the same, with zsh installed
+just test-shell-ubuntu                           # CI's shell job in an Ubuntu container
 ```
+
+The startup files of the system still run in the `e2e_` tests, and they differ between
+distributions: Ubuntu's `/etc/zsh/zshrc` binds keys, defines `zle-line-init` and calls
+`compinit`. `just test-shell-ubuntu` runs CI's shell job in an Ubuntu 24.04 container
+(`.github/ubuntu-shell.Dockerfile`) set up like GitHub's runner, with zsh from apt and
+`/usr/share` writable by everyone, so these tests can be checked there before a push.
+It needs Docker and keeps its cargo registry and target directory in `efr-ci/` under
+`$XDG_CACHE_HOME` (`~/.cache` when unset).
 
 The unit tests drive the manager over a fake holder whose PTY is a socketpair: the
 test plays the shell with scripted bytes, sets the terminal modes through a fake

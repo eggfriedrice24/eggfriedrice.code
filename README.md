@@ -84,7 +84,7 @@ Where efr keeps its files: each root is its own variable (`EFR_CONFIG_DIR`, `EFR
 
 ## Building
 
-Rust 1.99 is pinned in `rust-toolchain.toml`; rustup installs it. `cargo build` and `cargo test` work without Zig. Only the ghostty screen backend needs Zig 0.16.0, and only release builds enable it, `just install` among them. `just` lists the development recipes. `just test-shell` runs the tests that drive a real zsh.
+Rust 1.99 is pinned in `rust-toolchain.toml`; rustup installs it. `cargo build` and `cargo test` work without Zig. Only the ghostty screen backend needs Zig 0.16.0, and only release builds enable it, `just install` among them. `just` lists the development recipes. `just test-shell` runs the tests that drive a real zsh, and `just test-shell-ubuntu` runs them as CI's shell job does, in an Ubuntu 24.04 container set up like GitHub's runner (it needs Docker). `just lint` also runs CI's `cargo hack` check of every feature combination without Zig.
 
 ## Licence
 

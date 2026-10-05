@@ -80,6 +80,36 @@ test-shell:
     # tests over a TestDaemon need for a real zsh.
     EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon
 
+# CI's shell job in an Ubuntu 24.04 container set up like GitHub's runner (needs Docker).
+test-shell-ubuntu:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v docker >/dev/null; then
+        echo "test-shell-ubuntu: docker is not installed" >&2
+        exit 1
+    fi
+    toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
+    nextest="$(sed -nE 's/.*tool: cargo-nextest@([0-9.]+).*/\1/p' .github/workflows/ci.yml | head -n1)"
+    image=efr-shell-ubuntu
+    echo "test-shell-ubuntu: building $image (Rust $toolchain, cargo-nextest $nextest)"
+    docker build -t "$image" --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
+        --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
+        - < .github/ubuntu-shell.Dockerfile
+    # The registry and the target directory stay on the host between runs; the target
+    # directory is apart from target/, because the container links against another libc.
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
+    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
+    echo "test-shell-ubuntu: running the shell job's tests, cached in $cache"
+    docker run --rm --init \
+        -v "$PWD:/home/runner/work/efr" \
+        -v "$cache/registry:/home/runner/.cargo/registry" \
+        -v "$cache/git:/home/runner/.cargo/git" \
+        -v "$cache/target:/home/runner/target" \
+        -e CARGO_TARGET_DIR=/home/runner/target \
+        -e CARGO_TERM_COLOR=always -e INSTA_UPDATE=no -e EFR_TEST_ZSH=1 \
+        -w /home/runner/work/efr "$image" \
+        cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
+
 # Formatting, clippy, cargo-deny, tidy, the dependency rule and every feature combination.
 lint: fmt-check clippy deny tidy deps hack
 

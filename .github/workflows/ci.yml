@@ -204,6 +204,7 @@ jobs:
           tool: cargo-nextest@0.9.146
       # efr-daemon is selected so its own tests build it with local-pty, which the
       # shell_ tests over a TestDaemon need for a real zsh; as in `just test-shell`.
+      # `just test-shell-ubuntu` runs this job in a container set up like this runner.
       - if: steps.present.outputs.run == 'true'
         run: cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
         env:
