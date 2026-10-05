@@ -24,7 +24,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{CONFIG_FILE, ConfigError, FileState, Reloaded, Settings};
-use efr_protocol::{AdminConfigReloadResult, ConfigFileError, ConfigStatus};
+use efr_protocol::{AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode};
 use jiff::SignedDuration;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -221,7 +221,9 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     };
     if let Some(engine) = engine {
         state.engine.send_replace(Arc::new(engine));
-        state.shells.set_trusted_programs(shells::trusted_programs(&settings.permissions.policy()));
+        // NOTE: the auto policy names the programs of every mode, as at the start.
+        let auto = settings.permissions.policy(Mode::Auto);
+        state.shells.set_trusted_programs(shells::trusted_programs(&auto));
     }
     let shell = &settings.shell;
     if (shell.program.as_ref(), shell.login)
