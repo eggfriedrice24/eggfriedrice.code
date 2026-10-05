@@ -210,7 +210,10 @@ impl CliError {
     /// The exit code for this failure.
     pub(crate) fn exit(&self) -> Exit {
         match self {
-            CliError::Client(ClientError::DaemonNotRunning { .. }) => Exit::NotRunning,
+            // NOTE: no daemon can listen on a socket path that long, and nothing was sent.
+            CliError::Client(
+                ClientError::DaemonNotRunning { .. } | ClientError::SocketPathTooLong { .. },
+            ) => Exit::NotRunning,
             CliError::InvalidContext { .. }
             | CliError::UnknownMode { .. }
             | CliError::UnknownModel { .. }
@@ -234,6 +237,9 @@ impl CliError {
             CliError::Client(ClientError::DaemonNotRunning { .. }) => Some(
                 "start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one",
             ),
+            CliError::Client(ClientError::SocketPathTooLong { .. }) => {
+                Some("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory")
+            }
             CliError::Client(
                 ClientError::ConnectTimedOut { .. } | ClientError::HelloTimedOut { .. },
             ) => Some("the daemon is not answering; its log: journalctl --user -u efrd"),

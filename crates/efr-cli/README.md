@@ -195,14 +195,16 @@ Ctrl+C closes the connection. What arrived stays on the screen.
 
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
 interrupted elsewhere, the connection broke, or a config file has an error; 2 a usage
-error; 3 no daemon listens; 130 Ctrl+C.
+error; 3 no daemon listens, also because the socket path is longer than a socket
+address holds; 130 Ctrl+C.
 
 A failure that a first run meets gets a second line with the command that fixes it:
 no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
 turn that fails as `unauthorized` because the provider has no usable credentials
 (`efr login openai`), a turn that fails as `invalid` because the provider does not
 serve the model (`name` under `[model]` in the daemon's `config.toml`, then a restart),
-a daemon that does not answer (`journalctl --user -u efrd`), a missing
+a daemon that does not answer (`journalctl --user -u efrd`), a socket path too long
+for a socket address (a shorter `EFR_RUNTIME_DIR` or `EFR_HOME`), a missing
 `XDG_RUNTIME_DIR` or `HOME` (`EFR_HOME` replaces both), and `efr` and `efrd` from
 different builds.
 `efr status` adds the login line on stderr when no provider is logged in.

@@ -31,6 +31,14 @@ fn a_missing_daemon_exits_with_three_and_a_hint() {
 }
 
 #[test]
+fn a_socket_path_too_long_exits_with_three_and_names_the_variables() {
+    let socket = PathBuf::from(format!("/tmp/{}/daemon.sock", "x".repeat(120)));
+    let error = CliError::Client(ClientError::SocketPathTooLong { socket });
+    assert_eq!(error.exit(), Exit::NotRunning);
+    assert_eq!(error.hint(), Some("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory"));
+}
+
+#[test]
 fn a_turn_without_usable_credentials_hints_at_the_login() {
     let body =
         ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
