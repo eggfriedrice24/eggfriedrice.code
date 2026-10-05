@@ -151,3 +151,15 @@ fn a_denial_names_each_refused_path_with_its_class() {
         "{text}"
     );
 }
+
+#[test]
+fn a_summary_names_the_parts_that_ask_of_a_line_that_may_wait_for_input() {
+    let line = "uptime; sudo systemctl restart nginx";
+    let decision = decide(Requirements::none().with_command(line).with_interactive());
+    assert_eq!(
+        summary("shell", &decision),
+        format!(
+            "shell: run {line:?}; input at the terminal\nasks for: sudo systemctl restart nginx"
+        )
+    );
+}
