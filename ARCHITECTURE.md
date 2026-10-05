@@ -125,9 +125,10 @@ dependencies of its own, or a second binary needs it.
   permission engine in another. A reader takes the latest value when its unit of work
   starts and keeps it: a turn when it starts, a prompt when it arrives, a tool call for
   the engine. A running turn never changes its settings. One reload task
-  (`efr-daemon/src/reload.rs`) sends new values: the file watcher, SIGHUP and
-  `admin.config_reload` ask it, so reloads never interleave. A file with an error
-  changes nothing, and the keys that need a restart keep their running values.
+  (`efr-daemon/src/reload.rs`) sends new values: the file watcher (the daemon's own,
+  on inotify through rustix), SIGHUP and `admin.config_reload` ask it, so reloads
+  never interleave. A file with an error changes nothing, and the keys that need a
+  restart keep their running values.
 - Every fan-out has a bounded queue per consumer. Overflow closes that consumer with
   `Overflow { last_seq }`; it never slows the producer.
 

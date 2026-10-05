@@ -65,11 +65,17 @@ closed, `daemon.json` is removed, the database is closed, and the lock is releas
 `reload.rs` reads `config.toml` again while the daemon runs. Three triggers ask its one
 task for a reload: `admin.config_reload` (`efr config reload`), SIGHUP
 (`systemctl --user reload efrd`, through `ExecReload` in the unit) and the file
-watcher. The watcher (`notify`) watches the config root and, when `config.toml` is a
-symbolic link, the directory of its resolved target; it resolves the link again after
-each reload, and a burst of events becomes one reload after 200 ms of quiet on the
-injected clock. Saves by rename, a removed file (no file: the defaults) and a file
-created again all reload.
+watcher. The watcher (`reload/watcher.rs`) is the daemon's own, on inotify through
+rustix's safe API and tokio's `AsyncFd` (non-blocking, close-on-exec; efrd runs on
+Linux only). It watches the config root and, when `config.toml` is a symbolic link,
+the directory of its resolved target, and asks only for creates, closes after a write,
+deletes and moves, so a read of the file never wakes it. It resolves the link again
+before each reload, so a link pointed elsewhere moves the watch, and a missing
+directory is watched through the nearest one above it that exists. A burst of events
+becomes one reload after 200 ms of quiet on the injected clock. Saves by rename (vim,
+nvim), writes in place, a removed file (no file: the defaults), a file created again
+and a retargeted link all reload. When the kernel's queue overflows or a watched
+directory is removed or moved, the watches are armed again and the file reloads once.
 
 A reload checks the whole file with `efr-config`. A file with an error changes nothing:
 the old settings stay, the error (with its line, column and key) is kept for
@@ -243,7 +249,9 @@ values, an insta snapshot of the effective dump; the file's own checks are teste
 reconciliation against the real store in memory, the idle collector's rule, live
 reload (applied files, refused files with their place, restart keys, the engine sent on
 a rules change, the notices, the status, SIGHUP, and the watcher on real inotify events
-with saves by rename, a removed and recreated file and a symlinked file), the PTY
+with saves by rename and in place, a removed and recreated file, a symlinked file, a
+retargeted link, a removed and recreated target directory and a forced queue
+overflow), the PTY
 fan-out with overflow, the connection table, notices, the lock, `daemon.json`, the
 providers, the tool adapter and its answer to who can answer hidden input. The tests
 in `run/tests.rs` start the real daemon
