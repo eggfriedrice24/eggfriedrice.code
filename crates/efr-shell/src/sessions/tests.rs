@@ -11,6 +11,7 @@ use bytes::Bytes;
 use efr_holder::{ChildStatus, Signal, SignalTarget, Size};
 use efr_protocol::{CallId, ConversationId, InputWait, SecretText};
 use efr_stdx::time::Clock as _;
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -57,16 +58,21 @@ async fn typed(
     (terminal, run)
 }
 
-/// Yields until the screen shows `text`, without waiting on any clock.
+/// Waits until the screen shows `text`, without moving any clock.
 async fn screen_shows(sessions: &ShellSessions, conversation: ConversationId, text: &str) {
     let screen = sessions.screen(conversation).unwrap();
-    loop {
-        let capture = screen.snapshot(0).await.unwrap();
-        if capture.snapshot.rows.iter().any(|row| efr_screen::row_text(row).contains(text)) {
-            return;
-        }
-        tokio::task::yield_now().await;
-    }
+    Wait::new(&format!("{text:?} on the screen"))
+        .until_some_async(async || {
+            let capture = screen.snapshot(0).await.unwrap();
+            capture
+                .snapshot
+                .rows
+                .iter()
+                .any(|row| efr_screen::row_text(row).contains(text))
+                .then_some(())
+        })
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -445,11 +451,12 @@ async fn following(
     (terminal, updates, run)
 }
 
-/// Yields until the run has asked for a sleep of `duration`, without real time.
+/// Waits until the run has asked for a sleep of `duration`, without moving the clock.
 async fn slept(harness: &Harness, duration: Duration) {
-    while !harness.clock.requested_sleeps().contains(&duration) {
-        tokio::task::yield_now().await;
-    }
+    Wait::new(&format!("a sleep of {duration:?}"))
+        .until(|| harness.clock.requested_sleeps().contains(&duration))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1284,13 +1291,13 @@ async fn a_shell_with_old_trusted_programs_and_a_running_command_refuses_the_nex
     let harness = Harness::new(ZSH);
     let (mut terminal, first) = typed(&harness, "sleep 100").await;
     terminal.print(b"\r\n\x1b]133;C\x07").await;
-    loop {
-        let state = harness.sessions.state(conversation(1)).await.unwrap();
-        if state.phase == Phase::Running {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
+    Wait::new("the running command")
+        .until_some_async(async || {
+            let state = harness.sessions.state(conversation(1)).await.unwrap();
+            (state.phase == Phase::Running).then_some(())
+        })
+        .await
+        .unwrap();
 
     harness.sessions.set_trusted_programs(vec!["sleep".to_owned()]);
     let second = spawn_run(&harness.sessions, request("true")).await.unwrap();

@@ -5,6 +5,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use efr_holder::ChildStatus;
 use efr_protocol::{CallId, InputWait, SecretText};
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -59,13 +60,14 @@ impl Zsh {
 
     async fn screen_has(&self, row_matches: impl Fn(&str) -> bool) {
         let screen = self.sessions.screen(self.conversation).unwrap();
-        loop {
-            let capture = screen.snapshot(0).await.unwrap();
-            if capture.snapshot.rows.iter().any(|row| row_matches(&efr_screen::row_text(row))) {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
+        Wait::new("a row on the screen")
+            .until_some_async(async || {
+                let capture = screen.snapshot(0).await.unwrap();
+                let rows = &capture.snapshot.rows;
+                rows.iter().any(|row| row_matches(&efr_screen::row_text(row))).then_some(())
+            })
+            .await
+            .unwrap();
     }
 }
 
@@ -345,15 +347,14 @@ async fn e2e_compinit_never_waits_for_an_answer_about_an_insecure_directory() {
 
     // Without a run, nothing waits for the first prompt, so a question shows up here
     // instead of as a run that never ends.
-    let start = std::time::Instant::now();
-    let shown = loop {
-        let shown = String::from_utf8_lossy(&zsh.recorded.stream(info.pty_id)).into_owned();
-        if shown.contains("\x1b]133;A") || shown.contains("insecure") {
-            break shown;
-        }
-        assert!(start.elapsed() < Duration::from_secs(10), "no prompt came: {shown:?}");
-        tokio::task::yield_now().await;
-    };
+    let mut shown = String::new();
+    let came = Wait::new("the first prompt or a question")
+        .until(|| {
+            shown = String::from_utf8_lossy(&zsh.recorded.stream(info.pty_id)).into_owned();
+            shown.contains("\x1b]133;A") || shown.contains("insecure")
+        })
+        .await;
+    assert!(came.is_ok(), "no prompt came: {shown:?}");
     assert!(!shown.contains("insecure"), "compinit asked: {shown:?}");
 
     // The completion system is loaded, without the directory, as after the answer y.
@@ -552,9 +553,13 @@ async fn e2e_input_left_over_when_a_command_ends_never_runs() {
         tokio::spawn(
             async move { sessions.run_command(conversation, request, &mut NoProgress).await },
         );
-    while zsh.sessions.state(zsh.conversation).await.unwrap().phase != Phase::Running {
-        tokio::task::yield_now().await;
-    }
+    Wait::new("the running command")
+        .until_some_async(async || {
+            let state = zsh.sessions.state(zsh.conversation).await.unwrap();
+            (state.phase == Phase::Running).then_some(())
+        })
+        .await
+        .unwrap();
     // What an answer written just after a password prompt gave up would leave behind.
     zsh.sessions.write(zsh.conversation, Bytes::from_static(b"touch leak\r")).await.unwrap();
     let slept = run.await.unwrap().unwrap();
@@ -759,16 +764,24 @@ async fn e2e_hidden_input_that_nobody_can_answer_is_interrupted() {
     };
     let (run, heard) = zsh.run_waiting(GETPASS, false, "pw: ").await;
     // The run stops at the first look that sees the hidden read, so it never sleeps
-    // until another one.
-    for _ in 0..30 {
-        if run.is_finished() {
-            break;
-        }
-        zsh.clock.advance(Duration::from_secs(1));
-        for _ in 0..100 {
-            tokio::task::yield_now().await;
-        }
-    }
+    // until another one. A look is a second on the clock, moved each time the run
+    // asks for another sleep.
+    let mut asked = zsh.clock.requested_sleeps().len();
+    zsh.clock.advance(Duration::from_secs(1));
+    Wait::new("the end of the run")
+        .until(|| {
+            if run.is_finished() {
+                return true;
+            }
+            let now = zsh.clock.requested_sleeps().len();
+            if now > asked {
+                asked = now;
+                zsh.clock.advance(Duration::from_secs(1));
+            }
+            false
+        })
+        .await
+        .unwrap();
     let result = run.await.unwrap().unwrap();
     assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
     assert_eq!(result.completion, Completion::Unanswered);
@@ -779,13 +792,9 @@ async fn e2e_hidden_input_that_nobody_can_answer_is_interrupted() {
     assert_eq!(after.output, "after\n");
 }
 
-/// Yields until `path` exists, for at most ten seconds of real time.
+/// Waits until `path` exists.
 async fn exists(path: &Path) {
-    let start = std::time::Instant::now();
-    while !path.exists() {
-        assert!(start.elapsed() < Duration::from_secs(10), "{} never appeared", path.display());
-        tokio::task::yield_now().await;
-    }
+    Wait::new(&path.display().to_string()).until(|| path.exists()).await.unwrap();
 }
 
 #[tokio::test]
