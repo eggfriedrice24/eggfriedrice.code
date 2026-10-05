@@ -11,8 +11,7 @@
 //! instead of reaching the backend.
 
 use efr_protocol::{
-    EffectiveSettings, ErrorBody, ErrorCode, Mode, ModelInfo, Origin, OverriddenSettings,
-    TurnSettings,
+    EffectiveSettings, ErrorBody, ErrorCode, ModelInfo, Origin, OverriddenSettings, TurnSettings,
 };
 use serde_json::{Value, json};
 
@@ -22,14 +21,15 @@ use crate::{ConversationConfig, ConversationError};
 const EFFORT_MAX_LEN: usize = 32;
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
-/// `config`. A turn from a remote origin runs with at most [`Mode::Cautious`].
+/// `config`. A turn from a remote origin runs with at most `cautious`
+/// ([`efr_permissions::effective_mode`]).
 pub(crate) fn resolve(
     asked: &TurnSettings,
     config: &ConversationConfig,
     origin: Origin,
 ) -> Result<EffectiveSettings, ConversationError> {
-    let mode = asked.mode.unwrap_or(config.mode);
-    let mode = if is_local(origin) { mode } else { mode.min(Mode::Cautious) };
+    // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
+    let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
     let info = check_model(&model, asked.model.is_none(), &config.models)?;
     let effort = asked.effort.clone().or_else(|| config.effort.clone());
@@ -120,13 +120,6 @@ pub(crate) fn failure(error: &ConversationError) -> ErrorBody {
         }
         _ => body,
     }
-}
-
-/// Origins on this machine, as the permission engine counts them. Anything else,
-/// including an origin added to the protocol after this crate was written, is remote,
-/// so its mode is capped.
-fn is_local(origin: Origin) -> bool {
-    matches!(origin, Origin::Shell | Origin::Cli | Origin::Proxy)
 }
 
 #[cfg(test)]
