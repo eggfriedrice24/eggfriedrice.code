@@ -210,8 +210,9 @@ screen handle, the mark scanner, `row_text`), `efr-protocol` (ids, `Seq`, the sc
 snapshot types) and `efr-stdx` (`Clock`, `Rng`, UUIDv7 ids, atomic writes, the
 scrubbed variable list). `xtask/src/deps.rs` holds the allowlist.
 
-Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fcntl`
-for `O_NONBLOCK`, `tcgetattr` for the input modes, `writev` for an answer), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
+Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fcntl` for
+`O_NONBLOCK`, `tcgetattr` and `tcgetpgrp` for the input modes and the foreground group,
+`writev` for an answer), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
 timestamps), `async-trait`, `thiserror` and `tracing`.
 
 Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests (vt100 also
