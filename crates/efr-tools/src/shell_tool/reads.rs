@@ -10,8 +10,12 @@
 //! with no path they read the working directory; their options are parsed by table,
 //! and an option the table does not know makes the reading fail closed: every operand
 //! is a path and the working directory is read too.
+//!
+//! The writer programs (`rm`, `mkdir`, `cp`, `mv` and more, see [`writes`](super::writes))
+//! write their operands instead, and so do `git rm`, `git mv` and `git worktree add`.
 
 use super::words::{Word, is_assignment};
+use super::writes;
 
 /// How much of a path a command reads, the lesser first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,11 +39,13 @@ pub(super) struct Named {
     pub(super) depth: Depth,
 }
 
-/// What one simple command reads.
+/// What one simple command reads, and what it writes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Reads {
-    /// The paths it names.
+    /// The paths it names and reads.
     pub(super) named: Vec<Named>,
+    /// The paths it names and writes: creates, changes, moves or deletes.
+    pub(super) writes: Vec<Named>,
     /// How much of the working directory it reads without naming it, if any.
     pub(super) cwd: Option<Depth>,
 }
@@ -411,6 +417,14 @@ pub(super) fn reads(words: &[Word]) -> Reads {
     if WRAPPERS.contains(&name) {
         return wrapped(args);
     }
+    if let Some(reads) = writes::writer(name, args) {
+        return reads;
+    }
+    if name == "git"
+        && let Some(reads) = git(args)
+    {
+        return reads;
+    }
     if name == "find" {
         return find(args);
     }
@@ -427,8 +441,22 @@ pub(super) fn reads(words: &[Word]) -> Reads {
     }
 }
 
+/// `git rm`, `git mv` and `git worktree add`, which delete, move or create paths in the
+/// work tree: every word after the subcommand that `generic` would read, written
+/// instead. `None` for any other git command, whose words are read.
+fn git(args: &[Word]) -> Option<Reads> {
+    let words: Vec<&str> = args.iter().map(|word| word.text.as_str()).collect();
+    let after = match words.as_slice() {
+        ["rm" | "mv", ..] => &args[1..],
+        ["worktree", "add", ..] => &args[2..],
+        _ => return None,
+    };
+    let Reads { named, .. } = generic(after);
+    Some(Reads { named: Vec::new(), writes: named, cwd: None })
+}
+
 /// Every operand, and every option value that looks like a path, read alone.
-fn generic(args: &[Word]) -> Reads {
+pub(super) fn generic(args: &[Word]) -> Reads {
     let mut named = Vec::new();
     let mut after_options = false;
     for word in args {
@@ -454,7 +482,7 @@ fn generic(args: &[Word]) -> Reads {
             named.push(value);
         }
     }
-    Reads { named, cwd: None }
+    Reads { named, writes: Vec::new(), cwd: None }
 }
 
 /// A wrapper such as `sudo` or `timeout`: every word as a path, and the program it
@@ -470,6 +498,7 @@ fn wrapped(args: &[Word]) -> Reads {
     if let Some(at) = inner {
         let inner = self::reads(&args[at..]);
         reads.named.extend(inner.named);
+        reads.writes.extend(inner.writes);
         reads.cwd = reads.cwd.max(inner.cwd);
     }
     reads
@@ -506,7 +535,7 @@ fn find(args: &[Word]) -> Reads {
         }
     }
     let cwd = named.is_empty().then_some(Depth::Tree);
-    Reads { named, cwd }
+    Reads { named, writes: Vec::new(), cwd }
 }
 
 impl Reader {
@@ -624,13 +653,13 @@ impl Reader {
         named.extend(values);
         let reads_cwd = self.cwd && (depth == Depth::Tree || !self.pattern_first);
         let cwd = (reads_cwd && (!certain || paths.is_empty())).then_some(depth);
-        Reads { named, cwd }
+        Reads { named, writes: Vec::new(), cwd }
     }
 }
 
 /// The path in an option such as `--file=x` or `-f/x`: the text after `=`, or from the
 /// first `/` on.
-fn option_value(word: &Word) -> Option<Named> {
+pub(super) fn option_value(word: &Word) -> Option<Named> {
     let text = word.text.as_str();
     let value = match text.split_once('=') {
         Some((_, value)) => value,
@@ -651,7 +680,7 @@ fn named_value(value: &str) -> Named {
     }
 }
 
-fn from_word(word: &Word, depth: Depth) -> Named {
+pub(super) fn from_word(word: &Word, depth: Depth) -> Named {
     Named { text: word.text.clone(), tilde: word.tilde, pattern: word.pattern, depth }
 }
 

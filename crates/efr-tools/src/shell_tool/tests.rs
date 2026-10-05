@@ -57,6 +57,28 @@ fn a_secret_named_by_a_read_only_command_is_declared() {
     );
 }
 
+fn written(path: impl Into<std::path::PathBuf>) -> PathAccess {
+    PathAccess { path: path.into(), mode: AccessMode::Write }
+}
+
+#[test]
+fn the_operands_of_writer_programs_are_declared_as_writes() {
+    let fixture = Fixture::new();
+    let context = fixture.context();
+    let home = fixture.home();
+    assert_eq!(paths_in(&context, "rm -rf ~/.ssh/x"), [written(home.join(".ssh/x"))]);
+    assert_eq!(
+        paths_in(&context, "cp notes.txt ~/.config/efr/config.toml"),
+        [read(fixture.cwd().join("notes.txt")), written(home.join(".config/efr/config.toml"))]
+    );
+    assert_eq!(
+        paths_in(&context, "mv src ~/x"),
+        [written(fixture.cwd().join("src")), written(home.join("x"))]
+    );
+    assert_eq!(paths_in(&context, "rm -rf .."), [written(fixture.cwd().parent().unwrap())]);
+    assert_eq!(paths_in(&context, "mkdir -p src/x"), [written(fixture.cwd().join("src/x"))]);
+}
+
 #[test]
 fn relative_paths_resolve_against_the_hidden_shell() {
     let fixture = Fixture::new();
@@ -99,6 +121,14 @@ fn downloads_and_remote_git_need_the_network() {
     assert!(!requirements(json!({"command": "pacman -Ss ripgrep"})).network);
     assert!(!requirements(json!({"command": "pacman -Si ripgrep"})).network);
     assert!(!requirements(json!({"command": "pacman -R zsh"})).network);
+    // Installing packages reaches the network; running the project's scripts does not
+    // declare it.
+    assert!(requirements(json!({"command": "npm ci"})).network);
+    assert!(requirements(json!({"command": "pnpm install"})).network);
+    assert!(requirements(json!({"command": "yarn"})).network);
+    assert!(!requirements(json!({"command": "npm test"})).network);
+    assert!(!requirements(json!({"command": "npm run build"})).network);
+    assert!(!requirements(json!({"command": "yarn lint"})).network);
 }
 
 #[test]

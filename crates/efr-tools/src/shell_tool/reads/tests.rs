@@ -8,7 +8,7 @@ use crate::shell_tool::words::split;
 /// working directory's depth.
 fn of(line: &str) -> (Vec<String>, Option<Depth>) {
     let line = split(line);
-    let Reads { named, cwd } = reads(line.commands[0].program_and_args());
+    let Reads { named, cwd, .. } = reads(line.commands[0].program_and_args());
     let named = named
         .iter()
         .map(|named| {

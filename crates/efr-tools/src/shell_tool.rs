@@ -4,6 +4,7 @@
 mod declare;
 mod reads;
 mod words;
+mod writes;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,9 +55,11 @@ struct ShellInput {
 /// directory: every operand of every program as a read (so `cat ~/.ssh/id_ed25519`
 /// meets the secrets rule although `cat` may run freely), recursive searches, listings
 /// and globs as reads of everything below their directory, the working directory of a
-/// search that names no path, and output redirections as writes. What the text cannot
-/// show, such as the files a script opens, it cannot declare; the engine asks for a
-/// line it cannot read.
+/// search that names no path, and output redirections and the operands of the writer
+/// programs (`rm`, `rmdir`, `mkdir`, `touch`, `mv`, `cp`, `ln`, `chmod`, `truncate`,
+/// `tee`, and `git rm`, `git mv` and `git worktree add`) as writes. What the text
+/// cannot show, such as the files a script or a build writes, it cannot declare; the
+/// engine asks for a line it cannot read.
 #[derive(Debug, Clone)]
 pub struct ShellTool {
     runner: Arc<dyn CommandRunner>,
@@ -336,8 +339,19 @@ fn programs_of(line: &words::Line) -> Vec<(String, Vec<String>)> {
     programs
 }
 
+/// The subcommands of `npm`, `pnpm` and `yarn` that run the project's own scripts
+/// instead of fetching packages.
+const NODE_LOCAL: &[&str] = &["run", "run-script", "test", "build", "lint", "start"];
+
 /// True when `program` with `args` usually reaches the network.
 fn reaches_network(program: &str, args: &[String]) -> bool {
+    // NOTE: a script may reach the network as a build or a test may; the permission
+    // modes judge running it, and only installing packages declares the network.
+    if matches!(program, "npm" | "pnpm" | "yarn")
+        && args.first().is_some_and(|first| NODE_LOCAL.contains(&first.as_str()))
+    {
+        return false;
+    }
     if program != "pacman" {
         return NETWORK.contains(&program);
     }

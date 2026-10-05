@@ -21,7 +21,8 @@ pub(super) struct Declared {
     pub(super) reads: Vec<PathBuf>,
     /// Paths read with everything below them.
     pub(super) trees: Vec<PathBuf>,
-    /// Paths written by an output redirection.
+    /// Paths written by an output redirection or by a writer program, such as the
+    /// operands of `rm` and the target of `cp`.
     pub(super) writes: Vec<PathBuf>,
 }
 
@@ -47,6 +48,9 @@ pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
                 let reads = reads::reads(words);
                 for named in &reads.named {
                     walk.declare(named, Access::Read);
+                }
+                for named in &reads.writes {
+                    walk.declare(named, Access::Write);
                 }
                 if let Some(depth) = reads.cwd {
                     walk.declare(

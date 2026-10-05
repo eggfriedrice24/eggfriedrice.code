@@ -42,8 +42,8 @@ The tools:
   starts in the user's working directory. It declares the command line, `interactive`
   when a program of the line may wait for input (`sudo`, `ssh`, an editor, a pager) or
   the call targets a nested shell, and `network` when a program usually reaches the
-  network (`curl`, package installs and syncs but not `pacman -Q` or `-Ss`, `git
-  pull`); both are a heuristic over the program names, and the engine judges the
+  network (`curl`, package installs and syncs but not `pacman -Q` or `-Ss`, nor the
+  scripts of `npm run`, `npm test` and the like, `git pull`); both are a heuristic over the program names, and the engine judges the
   command line itself too. It declares the directory the line starts in (the hidden
   shell's, or the user's for a new shell), so a rule may allow a command in one
   project only. It also declares the paths the line names, so the path
@@ -53,12 +53,19 @@ The tools:
   program are paths (every operand and every path-like option value; nothing for
   `echo`, `printf`, `basename` and the like; everything below the paths of `rg`, `grep
   -r`, `find`, `du`, `tree`, `ls -R` and `diff`, and the working directory when such a
-  search names no path, with an unknown option failing closed), and
-  `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
+  search names no path, with an unknown option failing closed),
+  `shell_tool/writes.rs` says which words of a writer program it writes (every
+  operand of `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`;
+  the last operand or the `-t` directory of `cp`; the link of `ln`; every operand when
+  the text cannot show which one `-t` takes), `reads.rs` does the same for `git rm`,
+  `git mv` and `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
   `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows
   `cd` within the line, turns a glob into everything below its fixed directory and an
   output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is
-  denied, and `rg TOKEN ~/.aws` declares `~/.aws` with everything below and asks.
+  denied, `rg TOKEN ~/.aws` declares `~/.aws` with everything below and asks, and
+  `cp x ~/.config/efr/config.toml` declares a write of efr's config, which every mode
+  denies. The engine's `auto` mode lets a writer program run because its writes are
+  declared: the path rules decide them.
   What the text cannot show, such as the files a script opens, it cannot declare. The
   answer
   ends with `[exit code N, cwd DIR]`; a command still running at the timeout gets the

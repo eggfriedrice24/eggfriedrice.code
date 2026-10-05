@@ -34,7 +34,14 @@ fn declare(line: &str) -> Declared {
 #[case::output("echo x >> ~/.zshrc", &[], &[], &["/home/u/.zshrc"])]
 #[case::null("ls > /dev/null", &["/home/u/p/app"], &[], &[])]
 #[case::inside_substitution("echo $(cat ~/.ssh/id_rsa)", &["/home/u/.ssh/id_rsa"], &[], &[])]
-#[case::every_program("cp ~/.ssh/id_rsa /tmp/k", &["/home/u/.ssh/id_rsa", "/tmp/k"], &[], &[])]
+#[case::every_program("diff ~/.ssh/id_rsa /tmp/k", &[], &["/home/u/.ssh/id_rsa", "/tmp/k"], &[])]
+// Writer programs write their operands; cp reads its sources.
+#[case::cp("cp ~/.ssh/id_rsa /tmp/k", &["/home/u/.ssh/id_rsa"], &[], &["/tmp/k"])]
+#[case::rm_parent("rm -rf ..", &[], &[], &["/home/u/p"])]
+#[case::mv_out("mv src ~/x", &[], &[], &["/home/u/p/app/src", "/home/u/x"])]
+#[case::glob_write("rm src/*.o", &[], &[], &["/home/u/p/app/src"])]
+#[case::write_after_lost_cd("cd - && rm x", &[], &[], &["/"])]
+#[case::git_rm("git rm -r src", &[], &[], &["/home/u/p/app/src"])]
 #[case::echo_names_nothing("echo ~/.ssh/id_rsa", &[], &[], &[])]
 #[case::home_variable("cat $HOME/.ssh/id_rsa", &["/home/u/.ssh/id_rsa"], &[], &[])]
 fn declares(
