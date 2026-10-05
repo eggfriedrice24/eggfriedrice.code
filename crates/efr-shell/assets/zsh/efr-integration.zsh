@@ -79,8 +79,13 @@ _efr_hs_precmd() {
 # command never read: an answer that efr wrote for a password prompt just as sudo gave
 # up, or keys typed at the attached screen. The line editor would otherwise read it as
 # the next command line, so `hunter2` and Enter would run as a command, show on the
-# screen and land in the recording. It runs before D, and efr types the next command
-# only after it has seen D, so nothing that efr types is lost here.
+# screen and land in the recording. It runs before D. efr types a marked (Auto) command
+# only at a ready prompt, after it has seen D, so none is lost here. A sentinel run is
+# the exception: efr types it at once, without waiting for D (it is meant for a shell
+# started inside this one, or for a shell whose marks have not come yet), so a sentinel
+# line that arrives as a command ends is thrown away here. Meant for a nested shell
+# that just ended, it must not run in this one; its run gets no end marker and waits
+# for its timeout.
 _efr_hs_drain() {
   builtin emulate -L zsh
   builtin local junk

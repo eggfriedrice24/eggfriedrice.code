@@ -192,15 +192,17 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   that the permission engine allowed runs), and zsh's
   `PROMPT_SP` mark is printed after `D` instead of before the precmd hooks, so it
   never counts as output.
-- When a command ends, the precmd hook throws away input that reached the terminal
-  and that the command never read (`builtin read -s -t 0 -k 1` until nothing is left),
+- When a command ends, the precmd hook throws away input that reached the terminal and
+  that the command never read (`builtin read -s -t 0 -k 1` until nothing is left),
   before it prints `D`. Without it, an answer written just as `sudo` gave up, or keys
   typed at the attached screen, would be read by the line editor as the next command
   line: `hunter2` and Enter would run, show on the screen, land in the recording and
-  reach the model. The drain cannot eat a command efr types: an `Auto` run is typed only
-  at a ready prompt (after `B`, which comes after `D`), a run left at its timeout holds
-  the next one until its `D`, and a sentinel run typed into a nested shell that just
-  ended is meant for that shell and is rightly dropped.
+  reach the model. The drain cannot eat a marked command efr types: an `Auto` run is
+  typed only at a ready prompt (after `B`, which comes after `D`), and a run left at its
+  timeout holds the next one until its `D`. A sentinel run is typed at once, without
+  waiting for `D`, so a sentinel line that arrives as a command ends is drained: one
+  typed into a nested shell that just ended was meant for that shell and is rightly
+  dropped, and its run waits for its timeout without an end marker.
 
 ## Tier
 
