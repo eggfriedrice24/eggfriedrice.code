@@ -250,13 +250,17 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
             None
         }
     };
-    if let Some(engine) = engine {
-        state.engine.send_replace(Arc::new(engine));
-    }
+    // NOTE: the shells get the new trusted programs before the engine that trusts them,
+    // so no call that only the new engine allows reaches a shell that still keeps an
+    // alias of such a program. A shell that restarts early under the old engine is
+    // harmless.
     if rules_changed {
         // NOTE: the auto policy names the programs of every mode, as at the start.
         let auto = settings.permissions.policy(Mode::Auto);
         state.shells.set_trusted_programs(shells::trusted_programs(&auto));
+    }
+    if let Some(engine) = engine {
+        state.engine.send_replace(Arc::new(engine));
     }
     let shell = &settings.shell;
     if (shell.program.as_ref(), shell.login)
