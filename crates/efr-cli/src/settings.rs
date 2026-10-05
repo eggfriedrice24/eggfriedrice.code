@@ -1,4 +1,6 @@
-//! The client's settings from `config.toml`: the `[render]` table.
+//! The client's settings from `config.toml`: the `[render]` table, and the turn
+//! defaults that `efr settings` shows (`permissions.mode`, `model.name`,
+//! `model.effort`).
 //!
 //! `efr-config` reads and checks the whole file with the one schema that `efrd` uses
 //! too, unknown keys refused, so a file the daemon would refuse is refused here as
@@ -16,6 +18,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use efr_config::{CONFIG_FILE, ConfigError};
+use efr_protocol::Mode;
 use efr_render::Theme;
 
 /// The client's settings and where they came from.
@@ -25,8 +28,25 @@ pub(crate) struct Settings {
     pub(crate) theme: Theme,
     /// Where `theme` came from.
     pub(crate) theme_source: Source,
+    /// The turn defaults that the file sets.
+    pub(crate) turn: TurnDefaults,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
+}
+
+/// The defaults of a turn's settings that `config.toml` sets; `None` for each one it
+/// leaves out. The daemon reads its own copy of the file, so these are what a prompt
+/// gets only when both read the same config root.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct TurnDefaults {
+    /// The file, when it was read and is valid.
+    pub(crate) path: Option<PathBuf>,
+    /// `permissions.mode`.
+    pub(crate) mode: Option<Mode>,
+    /// `model.name`.
+    pub(crate) model: Option<String>,
+    /// `model.effort`.
+    pub(crate) effort: Option<String>,
 }
 
 /// Where a setting came from.
@@ -141,6 +161,13 @@ impl Settings {
             }
         };
         let mut settings = Settings::default();
+        let from_file = |key: &str| file.source(key) == efr_config::Source::File;
+        settings.turn = TurnDefaults {
+            path: Some(path.to_path_buf()),
+            mode: from_file("permissions.mode").then_some(file.permissions.mode),
+            model: file.model.name.clone(),
+            effort: file.model.effort.clone(),
+        };
         if let Some(name) = file.render.theme {
             match Theme::from_name(&name) {
                 Ok(theme) => {

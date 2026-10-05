@@ -1,4 +1,4 @@
-use efr_protocol::{Event, Method, Origin, PromptSendResult, Seq};
+use efr_protocol::{Event, Method, Mode, Origin, PromptSendResult, Seq, TurnSettings};
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
@@ -103,4 +103,35 @@ async fn new_without_a_prompt_is_a_usage_error_and_sends_nothing() {
     assert_eq!(captured.stdout(), "");
     assert!(captured.stderr().contains("efr new needs the first prompt"), "{}", captured.stderr());
     assert!(captured.stderr().contains("a bare ,new"), "{}", captured.stderr());
+}
+
+#[tokio::test]
+async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [(Var::Mode, "auto"), (Var::Model, "gpt-5.4"), (Var::Prompt, "start fresh")];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
+        conn.reply(id, &sent()).await;
+        let (sub, _) = conn.request().await;
+        conn.item(sub, &item(6, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.until_closed().await;
+        params
+    };
+    let line = command(&["new", "--effort", "high"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert!(params.new_conversation);
+    assert_eq!(
+        params.settings,
+        TurnSettings {
+            mode: Some(Mode::Auto),
+            model: Some("gpt-5.4".to_owned()),
+            effort: Some("high".to_owned()),
+        }
+    );
 }

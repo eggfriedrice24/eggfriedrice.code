@@ -10,6 +10,7 @@ use crate::commands::send::{self, Handover, Prompt};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::output::Output;
+use crate::turn_settings::Asked;
 
 pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &NewArgs) -> Result<(), CliError> {
     let handover = Handover::read(
@@ -22,7 +23,14 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &NewArgs) -> Resu
     if text.trim().is_empty() {
         return Err(CliError::NewWithoutPrompt);
     }
-    let prompt = Prompt { conversation: None, new_conversation: true, text, context, last_command };
+    let prompt = Prompt {
+        conversation: None,
+        new_conversation: true,
+        text,
+        context,
+        last_command,
+        settings: Asked::read(ctx, &args.settings)?.to_wire(),
+    };
     send::send(ctx, out, origin, prompt).await
 }
 

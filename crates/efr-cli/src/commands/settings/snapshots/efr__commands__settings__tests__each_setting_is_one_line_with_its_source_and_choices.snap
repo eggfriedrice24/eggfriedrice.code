@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/commands/settings/tests.rs
+expression: show(&lines)
+---
+mode = cautious  # default; choices: manual, cautious, auto
+model = gpt-5.4  # --model; choices: gpt-5.5, gpt-5.4, my-model
+effort = (unset)  # none is sent; the backend chooses for gpt-5.4; choices: low, medium, high

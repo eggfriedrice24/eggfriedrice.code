@@ -3,12 +3,13 @@ use std::sync::Arc;
 
 use efr_protocol::{
     ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
-    ErrorBody, ErrorCode, Event, Method, Origin, PageCursor, PromptSendResult, Seq,
-    TurnSteerResult,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, Method, Mode, Origin, OverriddenSettings,
+    PageCursor, PromptSendResult, Seq, TurnSettings, TurnSteerResult,
 };
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
+use super::overrides;
 use crate::context::Context;
 use crate::error::Exit;
 use crate::run;
@@ -505,4 +506,169 @@ async fn steer_without_a_tty_or_a_conversation_is_a_usage_error() {
     let (mut out, _captured) = capture();
     let exit = run::run(&command(&["send", "--steer", "--", "x"]), &ctx, &mut out).await;
     assert_eq!(exit, Exit::Usage);
+}
+
+#[tokio::test]
+async fn the_turn_settings_come_from_the_flags_over_the_variables() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [(Var::Mode, "manual"), (Var::Model, "gpt-5.5"), (Var::Effort, "low")];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let line = command(&["send", "--mode", "auto", "--effort", "high", "--", "hi"]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "ok").await
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        params.settings,
+        TurnSettings {
+            mode: Some(Mode::Auto),
+            model: Some("gpt-5.5".to_owned()),
+            effort: Some("high".to_owned()),
+        }
+    );
+}
+
+#[tokio::test]
+async fn without_flags_or_variables_the_prompt_asks_for_no_settings() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "ok").await
+    };
+    let line = command(&["send", "--", "hi"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(params.settings, TurnSettings::default());
+}
+
+#[tokio::test]
+async fn an_unknown_mode_variable_sends_nothing() {
+    let env = TestEnv::new();
+    let ctx = Context { env: Env::fixed([(Var::Mode, "fast")]), ..env.context() };
+    let (mut out, captured) = capture();
+    // No daemon listens: the command must fail before it connects.
+    let exit = run::run(&command(&["send", "--", "hi"]), &ctx, &mut out).await;
+    assert_eq!(exit, Exit::Usage);
+    let stderr = captured.stderr();
+    assert!(stderr.starts_with("efr: EFR_MODE names the mode \"fast\""), "{stderr}");
+}
+
+#[test]
+fn a_steer_takes_no_settings_flags() {
+    for flag in ["--mode=auto", "--model=gpt-5.5", "--effort=high"] {
+        let argv = ["efr", "send", "--steer", flag, "--", "x"];
+        let error = <crate::cli::Cli as clap::Parser>::try_parse_from(argv).unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict, "{flag}");
+    }
+}
+
+#[tokio::test]
+async fn a_steer_ignores_the_settings_variables() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    // A running turn keeps its settings, so a terminal's choice does not matter here,
+    // not even an invalid one.
+    let vars = [(Var::Context, CONTEXT), (Var::Prompt, "faster"), (Var::Mode, "fast")];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let line = command(&["send", "--steer", "--conversation", CONVERSATION]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::TurnSteer(_)), "{}", method.name());
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.until_closed().await;
+    };
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+}
+
+fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
+    EffectiveSettings {
+        mode: Mode::Auto,
+        model: "gpt-5.4".to_owned(),
+        effort: Some("high".to_owned()),
+        overridden,
+    }
+}
+
+#[test]
+fn the_note_names_only_the_overridden_values() {
+    assert_eq!(overrides(&effective(OverriddenSettings::default())), None);
+    let all = OverriddenSettings { mode: true, model: true, effort: true };
+    assert_eq!(
+        overrides(&effective(all)).as_deref(),
+        Some("mode auto, model gpt-5.4, effort high")
+    );
+    let model = OverriddenSettings { model: true, ..OverriddenSettings::default() };
+    assert_eq!(overrides(&effective(model)).as_deref(), Some("model gpt-5.4"));
+    let effort = OverriddenSettings { effort: true, ..OverriddenSettings::default() };
+    let none_sent = EffectiveSettings { effort: None, ..effective(effort) };
+    assert_eq!(overrides(&none_sent).as_deref(), Some("effort default"));
+}
+
+#[tokio::test]
+async fn overridden_settings_are_the_first_line_of_the_reply() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let line = command(&["send", "--mode", "auto", "--model", "gpt-5.4", "--", "next"]);
+    let overridden =
+        OverriddenSettings { mode: true, model: true, ..OverriddenSettings::default() };
+    let result = PromptSendResult { settings: Some(effective(overridden)), ..sent(true) };
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &result).await;
+        // Nothing arrives before the notes: they come from the prompt.send result.
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationHistory(_)), "{}", method.name());
+        conn.reply(id, &ConversationHistoryResult::default()).await;
+        let (sub, _) = conn.request().await;
+        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.until_closed().await;
+    };
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(captured.stderr(), "mode auto, model gpt-5.4\nqueued behind the running turn\n");
+}
+
+#[tokio::test]
+async fn on_a_terminal_the_settings_note_is_dim() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = Context {
+        term: terminal_facts(),
+        screen: Arc::new(FixedScreen(Size { cols: 40, rows: 12 })),
+        ..env.context()
+    };
+    let (mut out, captured) = capture();
+    let line = command(&["send", "--effort", "high", "--", "plan?"]);
+    let overridden = OverriddenSettings { effort: true, ..OverriddenSettings::default() };
+    let result = PromptSendResult { settings: Some(effective(overridden)), ..sent(false) };
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &result).await;
+        let (sub, _) = conn.request().await;
+        let done = Event::AssistantMessageCompleted {
+            turn_id: turn(),
+            index: 0,
+            text: "Restart nginx.".to_owned(),
+        };
+        conn.item(sub, &item(11, done)).await;
+        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.until_closed().await;
+    };
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    insta::assert_snapshot!(readable(&captured.stdout()));
 }

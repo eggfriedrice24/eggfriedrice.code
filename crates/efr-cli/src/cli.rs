@@ -11,14 +11,19 @@
 //!
 //! The flags `--context-json` and `--last-command` and the prompt words do the same by
 //! hand, and each wins over its variable.
+//!
+//! The plugin also hands over the terminal's turn settings, as `EFR_MODE`, `EFR_MODEL`
+//! and `EFR_EFFORT`, to `efr send`, `efr new` and `efr settings`. `--mode`, `--model`
+//! and `--effort` do the same by hand and win over the variables.
 
 use std::convert::Infallible;
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use clap::builder::{PossibleValuesParser, TypedValueParser as _};
 use clap::{Args, Parser, Subcommand};
-use efr_protocol::ConversationId;
+use efr_protocol::{ConversationId, Mode};
 
 /// The parsed command line.
 #[derive(Debug, Parser)]
@@ -27,7 +32,7 @@ use efr_protocol::ConversationId;
     version,
     about = "Talk to the efr daemon: send prompts, follow replies, check status",
     long_about = None,
-    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new` and `,! <text>`."
+    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new` and `,! <text>`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -45,6 +50,11 @@ pub(crate) enum Command {
     Status,
     /// List recent conversations, or show the events of one.
     History(HistoryArgs),
+    /// Show the mode, model and effort that a prompt would use, with where each comes
+    /// from.
+    Settings(TurnSettingsArgs),
+    /// List the models that a prompt may name.
+    Models(ModelsArgs),
     /// Log in to a model provider.
     #[command(subcommand)]
     Login(LoginCommand),
@@ -66,8 +76,9 @@ pub(crate) struct PathsArgs {
 /// The arguments of `efr send`.
 #[derive(Debug, Args)]
 pub(crate) struct SendArgs {
-    /// Add the text to the running turn instead of queueing a new prompt.
-    #[arg(long)]
+    /// Add the text to the running turn instead of queueing a new prompt. A running
+    /// turn keeps its settings, so a steer takes none.
+    #[arg(long, conflicts_with_all = ["mode", "model", "effort"])]
     pub(crate) steer: bool,
 
     /// The user's shell as the zsh plugin observed it, as a JSON object [env:
@@ -83,6 +94,9 @@ pub(crate) struct SendArgs {
     /// Send to this conversation instead of the terminal's active one.
     #[arg(long, value_name = "ID")]
     pub(crate) conversation: Option<ConversationId>,
+
+    #[command(flatten)]
+    pub(crate) settings: TurnSettingsArgs,
 
     /// The prompt; the words are joined with spaces [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "PROMPT")]
@@ -102,10 +116,43 @@ pub(crate) struct NewArgs {
     #[arg(long, value_name = "TEXT")]
     pub(crate) last_command: Option<LastCommand>,
 
+    #[command(flatten)]
+    pub(crate) settings: TurnSettingsArgs,
+
     /// The first prompt of the new conversation; the words are joined with spaces
     /// [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "PROMPT")]
     pub(crate) prompt: Vec<String>,
+}
+
+/// The turn settings that a prompt asks for. Each one left out comes from its
+/// variable, and without that from the daemon's config.
+#[derive(Debug, Clone, Default, Args)]
+pub(crate) struct TurnSettingsArgs {
+    /// The permission mode of the turn [env: EFR_MODE]
+    #[arg(long, value_name = "MODE", value_parser = mode_parser())]
+    pub(crate) mode: Option<Mode>,
+
+    /// The model of the turn, one that `efr models` lists [env: EFR_MODEL]
+    #[arg(long, value_name = "MODEL")]
+    pub(crate) model: Option<String>,
+
+    /// The reasoning effort of the turn, one that the model takes [env: EFR_EFFORT]
+    #[arg(long, value_name = "EFFORT")]
+    pub(crate) effort: Option<String>,
+}
+
+/// Reads a mode by its wire name, and lists the names in the help and in the error.
+fn mode_parser() -> impl clap::builder::TypedValueParser<Value = Mode> {
+    PossibleValuesParser::new(Mode::ALL.map(Mode::as_str)).try_map(|name| name.parse::<Mode>())
+}
+
+/// The arguments of `efr models`.
+#[derive(Debug, Args)]
+pub(crate) struct ModelsArgs {
+    /// Print only the model ids, one per line, for completion.
+    #[arg(long)]
+    pub(crate) names: bool,
 }
 
 /// A command line from the user's shell, as `--last-command` or `EFR_LAST_COMMAND`

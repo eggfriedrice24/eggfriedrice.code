@@ -17,8 +17,8 @@ use std::time::Duration;
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
     CallId, Capabilities, ClientFrame, ConversationId, ConversationSubscribeItem, DaemonPaths,
-    ErrorBody, Event, EventEnvelope, Hello, HelloResult, Method, PROTOCOL_VERSION, RequestId, Seq,
-    ServerFrame, TurnId,
+    ErrorBody, Event, EventEnvelope, Hello, HelloResult, Method, ModelInfo, ModelSource,
+    ModelsListResult, PROTOCOL_VERSION, RequestId, Seq, ServerFrame, TurnId,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
@@ -82,6 +82,38 @@ pub(crate) fn item(seq: u64, event: Event) -> ConversationSubscribeItem {
 
 pub(crate) fn envelope(seq: u64, event: Event) -> EventEnvelope {
     EventEnvelope { seq: Seq::new(seq), conversation_id: Some(conversation()), at: now(), event }
+}
+
+/// A model list as the daemon sends it: a built-in default with a default effort, a
+/// built-in model without one, and a model from `[openai] models` whose efforts efr
+/// does not know.
+pub(crate) fn models() -> ModelsListResult {
+    let efforts = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+    ModelsListResult {
+        models: vec![
+            ModelInfo {
+                id: "gpt-5.5".to_owned(),
+                efforts: efforts(&["low", "medium", "high", "xhigh"]),
+                default_effort: Some("medium".to_owned()),
+                default: true,
+                source: ModelSource::Builtin,
+            },
+            ModelInfo {
+                id: "gpt-5.4".to_owned(),
+                efforts: efforts(&["low", "medium", "high"]),
+                default_effort: None,
+                default: false,
+                source: ModelSource::Builtin,
+            },
+            ModelInfo {
+                id: "my-model".to_owned(),
+                efforts: Vec::new(),
+                default_effort: None,
+                default: false,
+                source: ModelSource::Config,
+            },
+        ],
+    }
 }
 
 /// A clock whose sleeps never finish, so no timeout fires.
@@ -444,6 +476,17 @@ impl Conn {
     pub(crate) async fn reply<T: Serialize>(&mut self, id: RequestId, value: &T) {
         self.item(id, value).await;
         self.end(id).await;
+    }
+
+    /// Answers the next request, which must be `models.list`, with `list`.
+    pub(crate) async fn answer_models(&mut self, list: &ModelsListResult) {
+        let (id, method) = self.request().await;
+        assert!(
+            matches!(method, Method::ModelsList(_)),
+            "expected models.list, got {}",
+            method.name()
+        );
+        self.reply(id, list).await;
     }
 
     pub(crate) async fn fail(&mut self, id: RequestId, body: ErrorBody) {

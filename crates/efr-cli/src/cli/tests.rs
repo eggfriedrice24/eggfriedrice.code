@@ -2,6 +2,8 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory as _, Parser as _};
 use pretty_assertions::assert_eq;
 
+use efr_protocol::Mode;
+
 use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand, PathsArgs};
 use crate::testing::{CONVERSATION, command, conversation};
 
@@ -162,6 +164,50 @@ fn the_config_commands_and_paths_parse() {
     ));
     assert!(matches!(command(&["paths", "--json"]), Command::Paths(PathsArgs { json: true })));
     assert_eq!(parse_error(&["config", "set", "model.name"]), ErrorKind::MissingRequiredArgument);
+}
+
+#[test]
+fn send_and_new_take_the_turn_settings() {
+    let Command::Send(args) =
+        command(&["send", "--mode", "auto", "--model", "gpt-5.4", "--effort", "high", "--", "x"])
+    else {
+        panic!("not send");
+    };
+    assert_eq!(args.settings.mode, Some(Mode::Auto));
+    assert_eq!(args.settings.model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(args.settings.effort.as_deref(), Some("high"));
+    let Command::New(args) = command(&["new", "--mode", "manual", "--", "x"]) else {
+        panic!("not new");
+    };
+    assert_eq!(args.settings.mode, Some(Mode::Manual));
+}
+
+#[test]
+fn every_mode_parses_and_an_unknown_one_is_a_usage_error() {
+    for mode in Mode::ALL {
+        let Command::Settings(args) = command(&["settings", "--mode", mode.as_str()]) else {
+            panic!("not settings");
+        };
+        assert_eq!(args.mode, Some(mode));
+    }
+    assert_eq!(parse_error(&["settings", "--mode", "fast"]), ErrorKind::InvalidValue);
+    assert_eq!(parse_error(&["send", "--mode", "default", "--", "x"]), ErrorKind::InvalidValue);
+}
+
+#[test]
+fn models_takes_names() {
+    let Command::Models(args) = command(&["models"]) else { panic!("not models") };
+    assert!(!args.names);
+    let Command::Models(args) = command(&["models", "--names"]) else { panic!("not models") };
+    assert!(args.names);
+}
+
+#[test]
+fn settings_help_is_a_snapshot() {
+    let mut cli = Cli::command();
+    cli.build();
+    let settings = cli.find_subcommand_mut("settings").unwrap();
+    insta::assert_snapshot!(settings.render_help().to_string());
 }
 
 #[test]

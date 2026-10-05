@@ -1,0 +1,13 @@
+---
+source: crates/efr-cli/src/cli/tests.rs
+expression: settings.render_help().to_string()
+---
+Show the mode, model and effort that a prompt would use, with where each comes from
+
+Usage: efr settings [OPTIONS]
+
+Options:
+      --mode <MODE>      The permission mode of the turn [env: EFR_MODE] [possible values: manual, cautious, auto]
+      --model <MODEL>    The model of the turn, one that `efr models` lists [env: EFR_MODEL]
+      --effort <EFFORT>  The reasoning effort of the turn, one that the model takes [env: EFR_EFFORT]
+  -h, --help             Print help

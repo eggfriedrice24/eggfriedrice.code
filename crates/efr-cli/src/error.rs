@@ -4,8 +4,11 @@ use std::io;
 
 use efr_client::ClientError;
 use efr_config::ConfigError;
-use efr_protocol::{ErrorBody, ErrorCode};
+use efr_protocol::{ErrorBody, ErrorCode, Mode};
 use efr_stdx::StdxError;
+use efr_stdx::env::Var;
+
+use crate::turn_settings::SettingSource;
 
 /// The next step when the model provider has no usable credentials.
 pub(crate) const LOGIN_HINT: &str = "log in with: efr login openai";
@@ -84,6 +87,23 @@ pub(crate) enum CliError {
         #[source]
         source: serde_json::Error,
     },
+
+    /// `EFR_MODE` names no mode. A flag with no mode is clap's usage error.
+    #[error("{} names the mode {value:?}, which does not exist; choose one of: {}", .input.name(), Mode::ALL.map(Mode::as_str).join(", "))]
+    UnknownMode { input: Var, value: String },
+
+    /// The daemon's model list has no model with this id.
+    #[error("the daemon has no model {model:?} ({from}); choose one of: {}", .choices.join(", "))]
+    UnknownModel { model: String, from: SettingSource, choices: Vec<String> },
+
+    /// The model does not take the effort.
+    #[error("{model} does not take the effort {effort:?} ({from}); choose one of: {}", .choices.join(", "))]
+    UnknownEffort { model: String, effort: String, from: SettingSource, choices: Vec<String> },
+
+    /// The daemon's model list marks no model as the default, so a prompt that names
+    /// none has no model.
+    #[error("the daemon marks no model as its default")]
+    NoDefaultModel,
 
     /// There is no prompt text to send.
     #[error("the prompt is empty")]
@@ -182,6 +202,9 @@ impl CliError {
         match self {
             CliError::Client(ClientError::DaemonNotRunning { .. }) => Exit::NotRunning,
             CliError::InvalidContext { .. }
+            | CliError::UnknownMode { .. }
+            | CliError::UnknownModel { .. }
+            | CliError::UnknownEffort { .. }
             | CliError::EmptyPrompt
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation

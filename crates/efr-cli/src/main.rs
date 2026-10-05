@@ -8,8 +8,9 @@
 //! - `keys`: the key thread, for one-key answers to approvals and for answer lines;
 //!   `answer`: the line typed for a command that waits for input; `terminal`: the
 //!   terminal facts and size.
-//! - `context`: what every command runs with; `settings`: the `[render]` table of
-//!   `config.toml` and the checks of `efr config`; `format`: the CLI's own lines;
+//! - `context`: what every command runs with; `settings`: the `[render]` table and the
+//!   turn defaults of `config.toml`, and the checks of `efr config`; `turn_settings`:
+//!   the mode, model and effort a command asks for; `format`: the CLI's own lines;
 //!   `output`: the only writer.
 //!
 //! Allowed dependencies: `efr-client`, `efr-config`, `efr-render`, `efr-protocol` and
@@ -36,6 +37,7 @@ mod settings;
 mod terminal;
 #[cfg(test)]
 mod testing;
+mod turn_settings;
 
 use std::process::ExitCode;
 

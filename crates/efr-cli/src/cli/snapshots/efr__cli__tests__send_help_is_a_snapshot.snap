@@ -10,8 +10,11 @@ Arguments:
   [PROMPT]...  The prompt; the words are joined with spaces [env: EFR_PROMPT]
 
 Options:
-      --steer                Add the text to the running turn instead of queueing a new prompt
+      --steer                Add the text to the running turn instead of queueing a new prompt. A running turn keeps its settings, so a steer takes none
       --context-json <JSON>  The user's shell as the zsh plugin observed it, as a JSON object [env: EFR_CONTEXT]
       --last-command <TEXT>  The last command line of the user's shell, for the turn's context only; it is never stored [env: EFR_LAST_COMMAND]
       --conversation <ID>    Send to this conversation instead of the terminal's active one
+      --mode <MODE>          The permission mode of the turn [env: EFR_MODE] [possible values: manual, cautious, auto]
+      --model <MODEL>        The model of the turn, one that `efr models` lists [env: EFR_MODEL]
+      --effort <EFFORT>      The reasoning effort of the turn, one that the model takes [env: EFR_EFFORT]
   -h, --help                 Print help

@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/commands/send/tests.rs
+expression: readable(&captured.stdout())
+---
+\e[?2026h\e[2meffort high\e[0m
+\e[?2026l\e[?2026h
+Restart nginx.
+\e[?2026l

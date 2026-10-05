@@ -9,8 +9,8 @@
 
 use efr_client::Client;
 use efr_protocol::{
-    ConversationId, ConversationsList, ConversationsListResult, Method, Origin, PromptSend,
-    PromptSendResult, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
+    ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
+    PromptSend, PromptSendResult, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
 };
 use efr_render::render_trace;
 use efr_stdx::env::Var;
@@ -21,6 +21,7 @@ use crate::error::CliError;
 use crate::follow::{self, Target, TurnView};
 use crate::live::effective_width;
 use crate::output::Output;
+use crate::turn_settings::Asked;
 
 /// Conversations asked for per page while looking for the terminal's active one.
 const PAGE: u32 = 100;
@@ -35,6 +36,8 @@ pub(crate) struct Prompt {
     pub(crate) text: String,
     pub(crate) context: ShellContext,
     pub(crate) last_command: Option<LastCommand>,
+    /// The turn settings that the prompt asks for.
+    pub(crate) settings: TurnSettings,
 }
 
 /// The parts of a prompt that the zsh plugin hands over, each from its argument or,
@@ -97,6 +100,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         text,
         context,
         last_command,
+        settings: Asked::read(ctx, &args.settings)?.to_wire(),
     };
     send(ctx, out, origin, prompt).await
 }
@@ -113,6 +117,13 @@ pub(crate) async fn send(
     let size = ctx.screen.size();
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
     let mut view = TurnView::new(result.turn_id, options);
+    // NOTE: the note comes from the prompt.send result, so it is the reply's first line
+    // even before the first event arrives.
+    if let Some(note) = result.settings.as_ref().and_then(overrides) {
+        let step = view.note(&note, size);
+        out.err(&step.err);
+        out.out(&step.out)?;
+    }
     if result.queued {
         view.queue();
         let step = view.note("queued behind the running turn", size);
@@ -137,10 +148,26 @@ pub(crate) async fn send_prompt(
         text: prompt.text,
         context: Some(prompt.context),
         last_command: prompt.last_command.map(LastCommand::into_string),
-        // NOTE: no flag or variable sets turn settings yet, so the config decides.
-        settings: TurnSettings::default(),
+        settings: prompt.settings,
     });
     Ok(client.call(method).await?)
+}
+
+/// The values of `settings` that the prompt set, such as `mode auto, model gpt-5.4`;
+/// `None` when the config gave every one.
+pub(crate) fn overrides(settings: &EffectiveSettings) -> Option<String> {
+    let EffectiveSettings { mode, model, effort, overridden } = settings;
+    let mut parts = Vec::new();
+    if overridden.mode {
+        parts.push(format!("mode {mode}"));
+    }
+    if overridden.model {
+        parts.push(format!("model {model}"));
+    }
+    if overridden.effort {
+        parts.push(format!("effort {}", effort.as_deref().unwrap_or("default")));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 /// Adds `text` to the running turn of the conversation, or of the terminal's active
