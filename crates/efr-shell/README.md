@@ -82,21 +82,22 @@ and `D`, or the two sentinels):
   `Completion::Unanswered` with the output so far at once; the next run waits for the
   prompt. A visible wait never stops a command: it is a guess, and a slow command whose
   last line is unfinished looks the same.
-- `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the
-  tool call that `RunRequest::call` named. The text is one line of at most 1024 bytes
-  without control characters (U+0000 to U+001F, U+007F), else `InvalidAnswer`; the
-  session's actor checks that this call's command runs now (`NoCall` when nothing runs,
-  `NotWaiting` for another call, a run left at its timeout, or a command not yet
-  started), reads the foreground group and the modes and refuses while the shell's own
-  group holds the terminal, unless canonical input is on and, for a hidden answer,
-  unless echo is off (`NotWaiting`), then writes the text and `\r` in one `writev` on
-  the master. Nothing awaits between the check and the write. The group check matters
+- `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the tool
+  call that `RunRequest::call` named. The text is one line of at most 1024 bytes without
+  control characters (U+0000 to U+001F, U+007F), else `InvalidAnswer`; the session's
+  actor checks that this call's command runs now (`NoCall` when no call's command runs:
+  nothing was typed, or the run was left at its timeout and its command goes on without
+  a call; `NotWaiting` when another call's command runs or this call's command has not
+  started yet), reads the foreground group and the modes, refuses (`NotWaiting`) while
+  the shell's own group holds the terminal, when canonical input is off, and for a
+  hidden answer when echo is on, then writes the text and `\r` in one `writev` on the
+  master. Nothing awaits between the check and the write. The group check matters
   because zsh takes the terminal back when the job ends and runs its precmd hooks in
-  cooked mode, before `D` reaches the session: canonical input alone would let an
-  answer through there, to be read by the line editor. An answer counts as activity:
-  the next look reports `None`, so a prompt that is asked again (`Sorry, try again.`)
-  is a new change. The text is a `SecretText` throughout: no error, `Debug` output or
-  log carries it, and a hidden answer never reaches the output or the recording.
+  cooked mode, before `D` reaches the session: canonical input alone would let an answer
+  through there, to be read by the line editor. An answer counts as activity: the next
+  look reports `None`, so a prompt that is asked again (`Sorry, try again.`) is a new
+  change. The text is a `SecretText` throughout: no error, `Debug` output or log carries
+  it, and a hidden answer never reaches the output or the recording.
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
   minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
   clears it (no `sudo -k`); a later setting will control that.

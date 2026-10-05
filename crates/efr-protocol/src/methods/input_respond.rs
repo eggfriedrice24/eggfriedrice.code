@@ -10,10 +10,12 @@ use crate::{CallId, ConversationId, SecretText};
 /// whose last `tool_call_input_changed` event said that it waits for input.
 ///
 /// The daemon writes `text` and then a carriage return to the call's PTY, but only while
-/// that call's command still runs, and with `hidden` only while the PTY also has echo
-/// off. Otherwise it answers `conflict` and writes nothing. It answers `not_found` for an
-/// unknown conversation or a call that does not run, and `invalid` for a text that is not
-/// one line.
+/// that call's command runs and reads a line, and with `hidden` only while the PTY also
+/// has echo off. It answers `not_found` for an unknown conversation or when no call's
+/// command runs in it (the call's command ended, or was left at its timeout and goes on
+/// without a call), `conflict` when another call's command runs or the call's command
+/// does not wait for that input, and `invalid` for a text that is not one line. Then it
+/// writes nothing.
 ///
 /// There is no command id: like `pty.write`, an answer is never retried, so the daemon
 /// keeps no receipt, which would also store the text. `Debug` never shows the text.
