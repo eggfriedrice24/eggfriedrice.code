@@ -23,3 +23,8 @@ No protocol version has shipped yet.
 - Before version 1 ships: `assistant_message_updated` carries `offset` and `delta`, the
   text added since the previous update, instead of `text`, the whole message so far,
   which made the event log grow with the square of an answer's length.
+- Before version 1 ships: answers to a running command that waits for input. New event
+  kind `tool_call_input_changed` with `input` (`none`, `visible` or `hidden`), new
+  method `input.respond` (scope `terminal`, no command id) whose `text` is a plain
+  string, and a new optional `answers_input` flag on `conversation.subscribe`, false
+  when absent. The `conversation_subscribe_params.json` fixture now sets it.
