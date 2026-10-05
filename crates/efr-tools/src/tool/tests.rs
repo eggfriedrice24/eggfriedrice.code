@@ -7,7 +7,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{AccessMode, PathAccess, ToolRequirements, ToolResult, ToolSpec, parse_input};
+use super::{
+    AccessMode, NoOutput, PathAccess, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
+    parse_input,
+};
 use crate::ToolError;
 use crate::testing::Fixture;
 
@@ -157,4 +160,16 @@ fn a_path_named_twice_is_added_once() {
         requirements.paths,
         [access(&key, AccessMode::Read), access(fixture.cwd().join("notes"), AccessMode::Read)]
     );
+}
+
+#[test]
+fn a_sink_ignores_input_waits_and_lets_hidden_input_wait_unless_it_says_otherwise() {
+    let mut seen = Vec::new();
+    let mut closure = |tail: &str, bytes: u64| seen.push((tail.to_owned(), bytes));
+    closure.input_changed(efr_protocol::InputWait::Hidden);
+    assert!(closure.can_answer_hidden());
+    let mut none = NoOutput;
+    none.input_changed(efr_protocol::InputWait::Visible);
+    assert!(none.can_answer_hidden());
+    assert!(seen.is_empty());
 }

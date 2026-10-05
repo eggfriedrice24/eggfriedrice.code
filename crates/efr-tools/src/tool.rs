@@ -4,6 +4,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use efr_protocol::InputWait;
 use efr_scope::Home;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -285,11 +286,24 @@ impl ToolResult {
     }
 }
 
-/// Hears a call's output while it runs; the conversation turns it into coalesced
-/// `ToolCallOutputUpdated` events.
+/// Hears a call's output while it runs, and whether its command waits for input; the
+/// conversation turns them into coalesced `ToolCallOutputUpdated` events and
+/// `ToolCallInputChanged` events.
 pub trait ToolOutputSink: Send {
     /// The end of the output so far and the size of all of it in bytes.
     fn update(&mut self, tail: &str, bytes: u64);
+
+    /// The call's command started or stopped waiting for input; each change comes
+    /// once. Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait) {}
+
+    /// Whether a person can answer hidden input, such as a password, for this call
+    /// now. Asked when the command starts to wait for hidden input and again while it
+    /// waits; `false` stops the command. True by default, which lets it wait until it
+    /// ends or the call's timeout passes.
+    fn can_answer_hidden(&mut self) -> bool {
+        true
+    }
 }
 
 impl<F: FnMut(&str, u64) + Send> ToolOutputSink for F {

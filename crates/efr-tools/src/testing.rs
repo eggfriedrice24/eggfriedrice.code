@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use efr_protocol::ConversationId;
+use efr_protocol::{ConversationId, InputWait};
 use efr_scope::Home;
 use efr_shell::{CommandResult, CommandRunner, OutputUpdate, RunProgress, RunRequest, ShellError};
 use efr_test_support::TestClock;
@@ -64,12 +64,15 @@ impl Fixture {
 }
 
 /// A shell that answers every run with the next scripted outcome, reports scripted
-/// progress first, and remembers the requests.
+/// progress and input waits first, and remembers the requests and what the listener
+/// said when it was asked whether someone can answer hidden input.
 #[derive(Debug, Default)]
 pub(crate) struct FakeRunner {
     outcomes: Mutex<Vec<Result<CommandResult, ShellError>>>,
     pub(crate) requests: Mutex<Vec<(ConversationId, RunRequest)>>,
     pub(crate) progress: Vec<OutputUpdate>,
+    pub(crate) inputs: Vec<InputWait>,
+    pub(crate) answerable: Mutex<Vec<bool>>,
 }
 
 impl FakeRunner {
@@ -81,6 +84,14 @@ impl FakeRunner {
         Arc::new(FakeRunner {
             outcomes: Mutex::new(vec![Ok(outcome)]),
             progress,
+            ..FakeRunner::default()
+        })
+    }
+
+    pub(crate) fn with_inputs(outcome: CommandResult, inputs: Vec<InputWait>) -> Arc<Self> {
+        Arc::new(FakeRunner {
+            outcomes: Mutex::new(vec![Ok(outcome)]),
+            inputs,
             ..FakeRunner::default()
         })
     }
@@ -101,6 +112,13 @@ impl CommandRunner for FakeRunner {
         self.requests.lock().unwrap().push((conversation, request));
         for update in &self.progress {
             progress.update(update);
+        }
+        for wait in &self.inputs {
+            progress.input_changed(*wait);
+            if *wait == InputWait::Hidden {
+                let answerable = progress.can_answer_hidden();
+                self.answerable.lock().unwrap().push(answerable);
+            }
         }
         self.outcomes.lock().unwrap().remove(0)
     }

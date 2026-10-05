@@ -25,7 +25,10 @@ The tools the model calls, and the registry that offers them.
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
   the home directory (`efr_scope::Home`), the clock and the write journal.
 - `ToolResult`: the output the model sees, the truncation flag, the error flag and the
-  exit code; `ToolOutputSink` hears a call's output while it runs.
+  exit code; `ToolOutputSink` hears a call's output while it runs, each change of
+  whether its command waits for input (`input_changed`, ignored by default), and is
+  asked whether a person can answer hidden input now (`can_answer_hidden`, true by
+  default; the daemon answers it).
 - `truncate_middle`: the head and the tail of a long output with a
   `[... N bytes omitted ...]` line between them, cut on character boundaries and near
   line ends; `DEFAULT_OUTPUT_LIMIT` is 32 KiB.
@@ -59,7 +62,15 @@ The tools:
   What the text cannot show, such as the files a script opens, it cannot declare. The
   answer
   ends with `[exit code N, cwd DIR]`; a command still running at the timeout gets the
-  screen's last lines and a note that the next call waits for it. A busy shell, a
+  screen's last lines and a note that the next call waits for it. The run names the
+  call (`RunRequest::call`), so only answers for this call reach its command, and the
+  tool passes the run's input waits and the question who can answer to its
+  `ToolOutputSink`. The texts the model reads never promise a screen: the user does
+  not see the hidden shell, and can answer a waiting command in their terminal only
+  while they follow the turn. A command that waited for hidden input that nobody could
+  answer (`Completion::Unanswered`) is an error result that says efr interrupted it and
+  that the user should run it in their own terminal or follow the turn while the model
+  tries again. A busy shell, a
   shell that did not reach its prompt, a shell that exited and a command that cannot
   be typed are error results with advice for the model; other shell failures are
   `ToolError::Shell`.

@@ -1,12 +1,13 @@
 use std::time::Duration;
 
+use efr_protocol::InputWait;
 use efr_shell::{CommandResult, Completion, OutputUpdate, RunMode, RunRequest, ShellError};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{ShellTool, networked_git, programs};
 use crate::testing::{FakeRunner, Fixture, ids};
-use crate::{AccessMode, NoOutput, PathAccess, Tool as _, ToolContext, ToolError};
+use crate::{AccessMode, NoOutput, PathAccess, Tool as _, ToolContext, ToolError, ToolOutputSink};
 
 fn tool() -> ShellTool {
     ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))))
@@ -136,6 +137,7 @@ async fn a_finished_command_reports_output_exit_code_and_directory() {
     assert_eq!(request.start_dir, fixture.cwd());
     assert_eq!(request.timeout, RunRequest::DEFAULT_TIMEOUT);
     assert_eq!(request.mode, RunMode::Auto);
+    assert_eq!(request.call, Some(ids().call_id), "answers reach this call's command");
     assert_eq!(runner.requests.lock().unwrap()[0].0, ids().conversation_id);
 }
 
@@ -171,11 +173,78 @@ async fn a_command_waiting_for_input_shows_the_screen() {
         .unwrap();
     assert!(!result.is_error);
     assert!(
-        result.output.starts_with("[still running after 5s and waiting for input;"),
+        result.output.starts_with("[still running after 5s and waiting for input."),
         "{}",
         result.output
     );
+    assert!(result.output.contains("only while they follow the turn"), "{}", result.output);
+    assert!(result.output.contains("the next call waits for it"), "{}", result.output);
+    assert!(!result.output.contains("shell's screen"), "{}", result.output);
     assert!(result.output.ends_with("[sudo] password for u:"), "{}", result.output);
+}
+
+#[tokio::test]
+async fn a_password_nobody_could_answer_is_an_error_that_says_what_to_do() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(None, "[sudo] password for u: ", "/home/u")
+        .with_completion(Completion::Unanswered);
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result = tool
+        .invoke(fixture.context(), json!({"command": "sudo pacman -Syu"}), &mut NoOutput)
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert_eq!(result.exit_code, None);
+    assert!(result.output.starts_with("[sudo] password for u: \n[stopped:"), "{}", result.output);
+    for needle in [
+        "hidden input, such as a password",
+        "no user could answer it at a terminal",
+        "efr interrupted it",
+        "run the command in their own terminal",
+        "follow this turn in their terminal while you try again",
+    ] {
+        assert!(result.output.contains(needle), "{needle}: {}", result.output);
+    }
+}
+
+#[tokio::test]
+async fn input_waits_and_the_question_who_can_answer_reach_the_output_sink() {
+    #[derive(Default)]
+    struct Sink {
+        inputs: Vec<InputWait>,
+        asked: usize,
+    }
+    impl ToolOutputSink for Sink {
+        fn update(&mut self, _tail: &str, _bytes: u64) {}
+        fn input_changed(&mut self, wait: InputWait) {
+            self.inputs.push(wait);
+        }
+        fn can_answer_hidden(&mut self) -> bool {
+            self.asked += 1;
+            false
+        }
+    }
+    let fixture = Fixture::new();
+    let runner = FakeRunner::with_inputs(
+        CommandResult::finished(Some(0), "", "/"),
+        vec![InputWait::Visible, InputWait::Hidden, InputWait::None],
+    );
+    let tool = ShellTool::new(runner.clone());
+    let mut sink = Sink::default();
+    tool.invoke(fixture.context(), json!({"command": "sudo true"}), &mut sink).await.unwrap();
+    assert_eq!(sink.inputs, [InputWait::Visible, InputWait::Hidden, InputWait::None]);
+    assert_eq!(sink.asked, 1);
+    assert_eq!(*runner.answerable.lock().unwrap(), [false]);
+}
+
+#[test]
+fn the_description_promises_no_screen_the_user_cannot_see() {
+    let description = tool().spec().description;
+    assert!(!description.contains("shell's screen"), "{description}");
+    assert!(description.contains("The user does not see this shell"), "{description}");
+    assert!(description.contains("while they follow the turn"), "{description}");
+    assert!(description.contains("a password never does"), "{description}");
+    assert!(description.contains("stopped at once"), "{description}");
 }
 
 #[tokio::test]
@@ -270,6 +339,7 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
             tool.invoke(fixture.context(), json!({"command": "x"}), &mut NoOutput).await.unwrap();
         assert!(result.is_error);
         assert!(result.output.contains(needle), "{}", result.output);
+        assert!(!result.output.contains("screen"), "{}", result.output);
     }
 }
 

@@ -9,8 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use efr_protocol::InputWait;
 use efr_shell::{
-    CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunRequest, ShellError,
+    CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunProgress, RunRequest,
+    ShellError,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -39,7 +41,8 @@ struct ShellInput {
 
 /// Runs a command line in the conversation's hidden zsh: one long-lived interactive
 /// shell with the user's environment and startup files, whose working directory and
-/// variables carry over from call to call, and whose screen the user can watch.
+/// variables carry over from call to call. The user does not see its screen; a person
+/// who follows the turn can answer a command that waits for input.
 ///
 /// It declares the command line, `interactive` for commands that may wait for input
 /// at the terminal (`sudo`, `ssh`, an editor, or any nested shell) and `network` for
@@ -116,12 +119,22 @@ impl ShellTool {
             }
             Completion::Interactive => {
                 text.push_str(&format!(
-                    "[still running after {seconds}s and waiting for input; the user can \
-                     answer on the shell's screen, and the next call waits for the command \
+                    "[still running after {seconds}s and waiting for input. The user can \
+                     answer it in their terminal only while they follow the turn, and nobody \
+                     did in time. The command keeps running, and the next call waits for it \
                      to end. cwd {cwd}. The screen ends with:]\n"
                 ));
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
+            }
+            Completion::Unanswered => {
+                text.push_str(&format!(
+                    "[stopped: the command asked for hidden input, such as a password, and no \
+                     user could answer it at a terminal, so efr interrupted it. Ask the user \
+                     to run the command in their own terminal, or to follow this turn in \
+                     their terminal while you try again. cwd {cwd}]"
+                ));
+                true
             }
             _ => {
                 text.push_str(&format!(
@@ -147,12 +160,15 @@ impl Tool for ShellTool {
             "Run a command line in this conversation's own hidden zsh. The shell lives \
              as long as the conversation: cd, exported variables and aliases carry over \
              between calls, and it has the user's environment and startup files. It \
-             starts in the user's working directory. The answer has the output, the exit \
-             code and the directory after the command. A command still running at the \
-             timeout keeps running: when it waits for input (a sudo password, a [Y/n] \
-             question) the user can answer on the shell's screen, and the next call \
-             waits for it to end. Set nested_shell when the command must go to a shell \
-             you started inside this one, such as sudo -i or ssh.",
+             starts in the user's working directory. The user does not see this shell. \
+             The answer has the output, the exit code and the directory after the \
+             command. A command still running at the timeout keeps running, and the next \
+             call waits for it to end. When a command waits for input (a sudo password, \
+             a [Y/n] question), the user can answer it in their terminal while they \
+             follow the turn: an answer to a question shows in the output, a password \
+             never does. A command that waits for a password while nobody follows the \
+             turn is stopped at once. Set nested_shell when the command must go to a \
+             shell you started inside this one, such as sudo -i or ssh.",
         )
     }
 
@@ -205,15 +221,17 @@ impl Tool for ShellTool {
             .map_or(self.default_timeout, Duration::from_secs)
             .min(self.max_timeout);
         let mode = if input.nested_shell { RunMode::Sentinel } else { RunMode::Auto };
-        let request =
-            RunRequest::new(input.command, ctx.cwd.clone()).with_timeout(timeout).with_mode(mode);
-        let mut progress = |update: &OutputUpdate| out.update(&update.tail, update.bytes);
+        let request = RunRequest::new(input.command, ctx.cwd.clone())
+            .with_timeout(timeout)
+            .with_mode(mode)
+            .with_call(ctx.ids.call_id);
+        let mut progress = Relay { out };
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {
             Ok(result) => Ok(self.render(&result, timeout)),
             Err(ShellError::Busy { .. }) => Ok(ToolResult::error(
-                "The shell is busy: another command of this conversation is running, or an \
-                 unfinished command line waits for input on the shell's screen. Wait for it, \
-                 or ask the user to finish or cancel it there.",
+                "The shell is busy: another command of this conversation is still running, \
+                 or an unfinished command line waits in it. Try again once it has ended; if \
+                 it does not end, tell the user, who can stop it by interrupting the turn.",
             )),
             Err(ShellError::NotReady { .. }) => Ok(ToolResult::error(format!(
                 "The shell did not reach its prompt within {}s, so the command was not run: \
@@ -231,6 +249,25 @@ impl Tool for ShellTool {
             ))),
             Err(source) => Err(ToolError::Shell { source }),
         }
+    }
+}
+
+/// Passes what a run hears on to the call's output sink.
+struct Relay<'a> {
+    out: &'a mut dyn ToolOutputSink,
+}
+
+impl RunProgress for Relay<'_> {
+    fn update(&mut self, update: &OutputUpdate) {
+        self.out.update(&update.tail, update.bytes);
+    }
+
+    fn input_changed(&mut self, wait: InputWait) {
+        self.out.input_changed(wait);
+    }
+
+    fn can_answer_hidden(&mut self) -> bool {
+        self.out.can_answer_hidden()
     }
 }
 
