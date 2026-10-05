@@ -6,6 +6,11 @@
 //! to tool definitions, tool requirements to permission requirements, results to
 //! outcomes. It never decides a permission; the conversation's check point does.
 //!
+//! Next to the registry it offers the settings tool ([`SettingsTool`], in
+//! `tools/settings_tool.rs`), which needs `efr-config` and the daemon's settings and so
+//! cannot live in `efr-tools`. Its changes declare a settings change, which the engine
+//! always asks about.
+//!
 //! It also decides who can answer a command that waits for hidden input, such as a
 //! password: a call's sink says yes while the conversation has a live subscription
 //! with `answers_input` (see `connections.rs`), so a command that asks for a password
@@ -35,6 +40,10 @@ use tokio::sync::watch;
 use crate::DaemonError;
 use crate::connections::Connections;
 
+mod settings_tool;
+
+pub(crate) use settings_tool::SettingsTool;
+
 /// The registry of milestone 1: the shell, `read_file` and `write_file`.
 pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonError> {
     let mut registry = ToolRegistry::new();
@@ -49,10 +58,12 @@ pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonErr
     Ok(registry)
 }
 
-/// The registry as a conversation's `Toolbox`.
+/// The registry and the settings tool as a conversation's `Toolbox`.
 #[derive(Debug)]
 pub(crate) struct DaemonToolbox {
     registry: ToolRegistry,
+    /// The settings tool, offered after the registry's tools.
+    settings_tool: SettingsTool,
     shells: ShellSessions,
     home: Home,
     clock: Arc<dyn Clock>,
@@ -71,9 +82,11 @@ impl DaemonToolbox {
         clock: Arc<dyn Clock>,
         connections: Arc<Connections>,
         settings: watch::Receiver<Arc<Settings>>,
+        settings_tool: SettingsTool,
     ) -> Self {
         DaemonToolbox {
             registry,
+            settings_tool,
             shells,
             home,
             clock,
@@ -113,7 +126,8 @@ impl DaemonToolbox {
 #[async_trait]
 impl Toolbox for DaemonToolbox {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        self.registry
+        let mut definitions: Vec<ToolDefinition> = self
+            .registry
             .specs()
             .into_iter()
             .map(|spec| ToolDefinition {
@@ -121,10 +135,15 @@ impl Toolbox for DaemonToolbox {
                 description: spec.description,
                 input_schema: spec.input_schema,
             })
-            .collect()
+            .collect();
+        definitions.push(SettingsTool::definition());
+        definitions
     }
 
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
+        if call.name == settings_tool::NAME {
+            return self.settings_tool.requirements(call).await;
+        }
         let context = self.context(&call.context);
         let declared = self
             .registry
@@ -146,11 +165,17 @@ impl Toolbox for DaemonToolbox {
     }
 
     async fn preview(&self, call: &ToolCall) -> Option<String> {
+        if call.name == settings_tool::NAME {
+            return self.settings_tool.preview(call).await;
+        }
         let context = self.context(&call.context);
         self.registry.preview(&call.name, &context, &call.input).await
     }
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
+        if call.name == settings_tool::NAME {
+            return self.settings_tool.invoke(call).await;
+        }
         let context = self.context(&call.context);
         let mut sink = CallSink {
             out,

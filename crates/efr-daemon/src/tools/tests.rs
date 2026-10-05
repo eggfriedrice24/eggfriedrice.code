@@ -22,8 +22,11 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::connections::Connections;
+use crate::reload::Reloads;
 use crate::screens::ScreenBackend;
-use crate::tools::{DaemonToolbox, for_model, outcome, permission_requirements, registry};
+use crate::tools::{
+    DaemonToolbox, SettingsTool, for_model, outcome, permission_requirements, registry,
+};
 
 /// A holder that never starts a shell; these tests never run a command.
 #[derive(Debug)]
@@ -76,6 +79,11 @@ fn toolbox_with(
     );
     let shells = ShellSessions::new(config, deps).unwrap();
     let registry = registry(&shells).unwrap();
+    let engine = Engine::with_defaults(Locations::new(home).unwrap());
+    let (_, engine) = tokio::sync::watch::channel(Arc::new(engine));
+    let (reloads, _) = Reloads::new();
+    let settings_tool =
+        SettingsTool::new(&home.join(".config").join("efr"), receiver.clone(), engine, reloads);
     let toolbox = DaemonToolbox::new(
         registry,
         shells,
@@ -83,6 +91,7 @@ fn toolbox_with(
         clock.shared(),
         Arc::new(Connections::default()),
         receiver,
+        settings_tool,
     );
     (toolbox, sender)
 }
@@ -116,12 +125,12 @@ fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {
 }
 
 #[test]
-fn the_model_is_offered_the_shell_and_the_two_file_tools() {
+fn the_model_is_offered_the_shell_the_two_file_tools_and_the_settings() {
     let home = tempfile::tempdir().unwrap();
     let definitions = toolbox(home.path()).definitions();
 
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, ["shell", "read_file", "write_file"]);
+    assert_eq!(names, ["shell", "read_file", "write_file", "settings"]);
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
 }
 
@@ -335,6 +344,75 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
                 _ => expected,
             };
             assert_eq!(effect, expected, "{command:?} in {mode}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_settings_tool_asks_while_write_file_and_the_shell_stay_denied_on_the_same_file() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    let config = home.join(".config/efr");
+    let dotfiles = home.join("dotfiles/efr");
+    for dir in [&config, &dotfiles] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(dotfiles.join("config.toml"), "[model]\nname = \"gpt-5.5\"\n").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.toml"), config.join("config.toml")).unwrap();
+    let toolbox = toolbox(&home);
+    // NOTE: a user rule that allows every write changes none of the three answers.
+    let mut settings = Settings::default();
+    settings.permissions.rules =
+        efr_permissions::Policy::new(vec![Rule::new(Action::Write, Resource::Any, Effect::Allow)])
+            .unwrap();
+    let engine = crate::engine::build(
+        &Home::new(&home).unwrap(),
+        &home.join(".local/share/efr/secrets"),
+        &crate::engine::protected_config(&config),
+        &settings,
+        &efr_scope::Registry::empty(),
+    )
+    .unwrap();
+    let calls = [
+        (
+            call("write_file", json!({"path": "~/.config/efr/config.toml", "content": "x"}), &home),
+            Effect::Deny,
+        ),
+        (
+            call(
+                "write_file",
+                json!({"path": "~/dotfiles/efr/config.toml", "content": "x"}),
+                &home,
+            ),
+            Effect::Deny,
+        ),
+        (
+            call("shell", json!({"command": "echo x > ~/.config/efr/config.toml"}), &home),
+            Effect::Deny,
+        ),
+        (call("shell", json!({"command": "cp x ~/dotfiles/efr/config.toml"}), &home), Effect::Deny),
+        (
+            call(
+                "settings",
+                json!({"operation": "set", "key": "model.name", "value": "gpt-6-sol"}),
+                &home,
+            ),
+            Effect::Ask,
+        ),
+    ];
+
+    for (tool_call, expected) in &calls {
+        let requirements = toolbox.requirements(tool_call).await.unwrap();
+        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+            let input = DecisionInput {
+                requirements: requirements.clone(),
+                scope: Scope::Machine,
+                origin: Origin::Shell,
+                mode,
+                conversation_policy: ConversationPolicy::new(home.join("scratch")),
+            };
+            let effect = engine.decide(&input).effect();
+            assert_eq!(effect, *expected, "{} {} in {mode}", tool_call.name, tool_call.input);
         }
     }
 }

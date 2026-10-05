@@ -40,7 +40,8 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    held, running shells recorded as exited, process-bound outbox items cancelled.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
-   tool registry (`tools.rs`), the permission engine and the conversation registry.
+   tool registry and the settings tool (`tools.rs`), the permission engine and the
+   conversation registry.
    The engine is built in one place, `engine.rs`, from the settings, the project
    registry and the config directory. It holds one machine policy for each permission
    mode, `Policy::base(mode)` followed by the user's rules, so a user rule wins where
@@ -71,10 +72,10 @@ closed, `daemon.json` is removed, the database is closed, and the lock is releas
 
 ### Live reload
 
-`reload.rs` reads `config.toml` again while the daemon runs. Three triggers ask its one
+`reload.rs` reads `config.toml` again while the daemon runs. Four triggers ask its one
 task for a reload: `admin.config_reload` (`efr config reload`), SIGHUP
-(`systemctl --user reload efrd`, through `ExecReload` in the unit) and the file
-watcher. The watcher (`reload/watcher.rs`) is the daemon's own, on inotify through
+(`systemctl --user reload efrd`, through `ExecReload` in the unit), the file watcher,
+and the settings tool after it wrote the file. The watcher (`reload/watcher.rs`) is the daemon's own, on inotify through
 rustix's safe API and tokio's `AsyncFd` (non-blocking, close-on-exec; efrd runs on
 Linux only). It watches the config root and, when `config.toml` is a symbolic link,
 the directory of its resolved target, and asks only for creates, closes after a write,
@@ -111,6 +112,40 @@ the appliers take the new values:
   filter is an error of the file.
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
+
+### The settings tool
+
+`tools/settings_tool.rs` is the model's way to efr's own settings. It lives here and not
+in `efr-tools`, because it needs `efr-config` and the daemon's settings, and
+`efr-config` reaches `efr-permissions`, which `efr-tools` must never reach. The toolbox
+offers it after the registry's tools, as `settings`.
+
+- `read` lists the file (a file, missing or a link), the last reload's error,
+  `restart_needed`, every key with its value, source and when a change applies, the
+  rules with their numbers and the models with their efforts. It declares nothing, so
+  it runs without a question for a local turn.
+- `set`, `unset`, `add_rule` and `remove_rule` are planned with `efr-config`'s writer
+  against the file as it is (the example when there is none), and the whole new file
+  is checked like a load; the default model must be in the model list and the default
+  effort one that model takes. A rule that names secrets (`Engine::names_secrets`) is
+  refused, to add and to remove. A change that fails any of this goes back to the
+  model, and nobody is asked.
+- A valid change declares a `SettingsChange` (a summary and whether it loosens
+  permissions: a new allow rule, a removed deny or ask rule, a mode toward `auto`,
+  `per_call` to `keep`, a removed secret path). The engine asks about it in every mode
+  and whatever the rules say, and denies it for a remote turn. The approval shows the
+  unified diff of the file (`efr_tools::unified_diff`, as for `write_file`; for a new
+  file, the diff from the example), headed by "This change loosens permissions." when
+  it does.
+- The answer runs the plan again and writes only when the file and the new text are
+  what the user saw; otherwise nothing is written and the model is told to call the
+  tool again, which plans against the new file and asks again. The writer compares the
+  file's hash once more right before it writes, and keeps a link and the comments.
+  Then the tool asks the reload task to reload, so the change applies from the next
+  turn (rules from the next tool call), and its result says when it applies and
+  whether a restart is needed.
+- The tool never declares the file as a path: config protection still denies every
+  tool's write to it, `write_file` and the shell included.
 
 ### Methods
 

@@ -156,6 +156,60 @@ impl ProviderFactory for RunsOneCommandFactory {
     }
 }
 
+/// A model that asks for one call of the tool `name` with `arguments`, then answers
+/// `done` once its result is back, turn after turn.
+#[derive(Debug)]
+pub(crate) struct CallsOneTool {
+    id: ProviderId,
+    name: String,
+    arguments: Value,
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl Provider for CallsOneTool {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let events = if call.is_multiple_of(2) {
+            let call_id = format!("call_{call}");
+            vec![
+                Ok(ProviderEvent::ToolCallStart {
+                    call_id: call_id.clone(),
+                    name: self.name.clone(),
+                }),
+                Ok(ProviderEvent::ToolCallEnd { call_id, arguments: self.arguments.to_string() }),
+                Ok(ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None }),
+            ]
+        } else {
+            vec![
+                Ok(ProviderEvent::TextDelta { text: "done".to_owned() }),
+                Ok(ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None }),
+            ]
+        };
+        Ok(Box::pin(futures::stream::iter(events)))
+    }
+}
+
+/// Builds [`CallsOneTool`] for any provider id: the tool's name and its arguments.
+#[derive(Debug)]
+pub(crate) struct CallsOneToolFactory(pub(crate) String, pub(crate) Value);
+
+impl ProviderFactory for CallsOneToolFactory {
+    fn provider(&self, _id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
+        let id = ProviderId::new("test").map_err(|source| DaemonError::Provider { source })?;
+        Ok(Arc::new(CallsOneTool {
+            id,
+            name: self.0.clone(),
+            arguments: self.1.clone(),
+            calls: AtomicUsize::new(0),
+        }))
+    }
+}
+
 /// A holder that never starts a shell.
 #[derive(Debug)]
 pub(crate) struct NoHolder;
@@ -257,10 +311,19 @@ impl RawClient {
 
     /// Connects and says hello as the shell plugin of `tty`.
     pub(crate) async fn hello(socket: &Path, tty: Option<&str>) -> (Self, HelloResult) {
+        RawClient::hello_as(socket, tty, Origin::Shell).await
+    }
+
+    /// Connects and says hello from `origin`.
+    pub(crate) async fn hello_as(
+        socket: &Path,
+        tty: Option<&str>,
+        origin: Origin,
+    ) -> (Self, HelloResult) {
         let mut client = RawClient::connect(socket).await;
         let hello = Method::Hello(Hello {
             protocol: PROTOCOL_VERSION,
-            origin: Origin::Shell,
+            origin,
             client: Some("efr-daemon tests".to_owned()),
             capabilities: Capabilities::default(),
             tty: tty.map(str::to_owned),

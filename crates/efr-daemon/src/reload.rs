@@ -1,7 +1,8 @@
 //! Live reload: reading `config.toml` again while the daemon runs, and applying it.
 //!
-//! Three triggers call [`reload`]: `admin.config_reload` (`efr config reload`), `SIGHUP`
-//! (`systemctl --user reload efrd`) and the file watcher ([`watcher`]). A reload parses
+//! Four triggers call [`reload`]: `admin.config_reload` (`efr config reload`), `SIGHUP`
+//! (`systemctl --user reload efrd`), the file watcher ([`watcher`]) and the settings
+//! tool after it wrote the file (`tools/settings_tool.rs`). A reload parses
 //! and checks the whole file with `efr-config`. A file with an error changes nothing:
 //! the old settings stay, the error is kept for `admin.status`, and each terminal with a
 //! recent conversation gets a notice. A valid file is laid over the running settings
@@ -50,11 +51,21 @@ pub(crate) struct Request {
     reply: oneshot::Sender<AdminConfigReloadResult>,
 }
 
+#[cfg(test)]
+impl Request {
+    /// Answers the request with `result`, as the reload task would.
+    pub(crate) fn answer(self, result: AdminConfigReloadResult) {
+        // A trigger that stopped waiting needs no answer.
+        let _ = self.reply.send(result);
+    }
+}
+
 /// The way to the reload task, and what the last reload left, for `admin.status`.
-#[derive(Debug)]
+/// Cheap to clone; clones share both, so the settings tool asks the same task.
+#[derive(Debug, Clone)]
 pub(crate) struct Reloads {
     requests: mpsc::Sender<Request>,
-    last: Mutex<Outcome>,
+    last: Arc<Mutex<Outcome>>,
 }
 
 /// The state of the last reload.
@@ -70,11 +81,24 @@ impl Reloads {
     /// The reloads and the requests that [`serve`] answers.
     pub(crate) fn new() -> (Self, mpsc::Receiver<Request>) {
         let (requests, received) = mpsc::channel(REQUESTS);
-        (Reloads { requests, last: Mutex::default() }, received)
+        (Reloads { requests, last: Arc::default() }, received)
     }
 
     pub(crate) fn last(&self) -> Outcome {
         self.lock().clone()
+    }
+
+    /// Asks the reload task to read the config file again and apply it, and returns
+    /// how that went. Fails only when the task has stopped, as it does when the daemon
+    /// drains.
+    pub(crate) async fn request(
+        &self,
+        trigger: &'static str,
+    ) -> Result<AdminConfigReloadResult, DaemonError> {
+        let (reply, answer) = oneshot::channel();
+        let stopped = || DaemonError::ReloadStopped;
+        self.requests.send(Request { trigger, reply }).await.map_err(|_| stopped())?;
+        answer.await.map_err(|_| stopped())
     }
 
     fn lock(&self) -> MutexGuard<'_, Outcome> {
@@ -113,10 +137,7 @@ pub(crate) async fn reload(
     state: &State,
     trigger: &'static str,
 ) -> Result<AdminConfigReloadResult, DaemonError> {
-    let (reply, answer) = oneshot::channel();
-    let stopped = || DaemonError::ReloadStopped;
-    state.reloads.requests.send(Request { trigger, reply }).await.map_err(|_| stopped())?;
-    answer.await.map_err(|_| stopped())
+    state.reloads.request(trigger).await
 }
 
 /// Answers reload requests one at a time, until `stop`.

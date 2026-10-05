@@ -50,7 +50,7 @@ use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
-use crate::tools::{self, DaemonToolbox};
+use crate::tools::{self, DaemonToolbox, SettingsTool};
 use crate::{DaemonError, gc, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
@@ -408,6 +408,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // change of the mode alone needs no new engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
+    let (reloads, reload_requests) = Reloads::new();
+    let settings_tool = SettingsTool::new(
+        dirs.config(),
+        settings_receiver.clone(),
+        engine_receiver.clone(),
+        reloads.clone(),
+    );
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
         shells.clone(),
@@ -415,6 +422,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Arc::clone(&clock),
         Arc::clone(&connections),
         settings_receiver.clone(),
+        settings_tool,
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
@@ -442,7 +450,6 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let roots = roots(&dirs, root_sources);
-    let (reloads, reload_requests) = Reloads::new();
     let state = Arc::new(State {
         settings: settings_sender,
         engine: engine_sender,

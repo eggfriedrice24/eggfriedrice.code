@@ -60,6 +60,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+# The settings tool builds the values it sets and shows a rule as one line of TOML.
+toml_edit.workspace = true
 tracing.workspace = true
 tracing-journald.workspace = true
 tracing-subscriber.workspace = true
