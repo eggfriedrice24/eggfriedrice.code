@@ -57,10 +57,11 @@ Modules:
   fails with `ConfigError::Changed` and the caller plans the change again. The new
   text is checked like a load before anything is written.
 
-One setting is read and checked here but not applied yet: `shell.sudo_cache` (sudo
-keeps its own cache). `permissions.mode` is the mode of a turn whose prompt names none;
+`permissions.mode` is the mode of a turn whose prompt names none;
 `PermissionSettings::policy(mode)` is that mode's built-in policy followed by the
-user's rules.
+user's rules. `model.name` and `model.effort` are checked here for their form only: the
+model list belongs to the provider, so the daemon checks them against it, with a
+warning at start and an `invalid` error for a turn that uses them.
 `render.theme` is checked for a non-empty name only: the theme list lives in
 `efr-render`, which this crate may not depend on, so `efr` checks the name.
 
