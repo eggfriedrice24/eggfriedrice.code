@@ -339,3 +339,30 @@ async fn e2e_exit_ends_the_shell() {
     assert_ne!(state.pty_id, info.pty_id);
     assert_eq!(state.cwd, PathBuf::from(zsh.start_dir()));
 }
+
+#[tokio::test]
+async fn e2e_input_left_over_when_a_command_ends_never_runs() {
+    let Some(zsh) = Zsh::start("e2e_input_left_over_when_a_command_ends_never_runs") else {
+        return;
+    };
+    let dir = zsh.dir("work");
+    zsh.sessions.open(zsh.conversation, zsh.start_dir()).await.unwrap();
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let request = zsh.request(&format!("cd '{}' && sleep 1", dir.display()));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation, request, &mut NoProgress).await },
+        );
+    while zsh.sessions.state(zsh.conversation).await.unwrap().phase != Phase::Running {
+        tokio::task::yield_now().await;
+    }
+    // What an answer written just after a password prompt gave up would leave behind.
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"touch leak\r")).await.unwrap();
+    let slept = run.await.unwrap().unwrap();
+    assert_eq!(slept.exit_code, Some(0));
+
+    let listed = zsh.run("ls -A").await;
+    assert_eq!(listed.output, "", "the leftover line never ran");
+    assert!(!dir.join("leak").exists());
+}

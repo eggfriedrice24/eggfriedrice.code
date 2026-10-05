@@ -34,6 +34,14 @@ fn the_script_puts_its_precmd_hook_first_and_its_preexec_hook_last() {
 }
 
 #[test]
+fn input_left_over_by_a_command_is_thrown_away_before_its_end_mark() {
+    let drain = INTEGRATION.find("    _efr_hs_drain\n").expect("precmd drains the input");
+    let end = INTEGRATION.find(r#"$'\e]133;D;'"${st}"$'\a'"#).unwrap();
+    assert!(drain < end, "the drain runs before D");
+    assert!(INTEGRATION.contains("while builtin read -s -t 0 -k 1 junk 2>/dev/null; do :; done"));
+}
+
+#[test]
 fn the_script_binds_the_keys_the_session_types() {
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[efr-clear~' _efr_hs_clear_line"));
     assert!(INTEGRATION.contains(r"bindkey -M $keymap $'\e[200~' _efr_hs_bracketed_paste"));

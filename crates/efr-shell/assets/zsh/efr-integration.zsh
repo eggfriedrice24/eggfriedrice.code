@@ -57,6 +57,7 @@ _efr_hs_precmd() {
   builtin zle && return 0
   _efr_hs_report_pwd
   if (( _efr_hs_state == 2 )); then
+    _efr_hs_drain
     builtin print -rn -- $'\e]133;D;'"${st}"$'\a'
   elif (( _efr_hs_state == 1 )); then
     builtin print -rn -- $'\e]133;D\a'
@@ -72,6 +73,19 @@ _efr_hs_precmd() {
   # Hooks that plugins add later go to the end; this hook must stay last so that no
   # other hook's output counts as the next command's.
   preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)
+}
+
+# Throws away input that reached the terminal while a command ran and that the
+# command never read: an answer that efr wrote for a password prompt just as sudo gave
+# up, or keys typed at the attached screen. The line editor would otherwise read it as
+# the next command line, so `hunter2` and Enter would run as a command, show on the
+# screen and land in the recording. It runs before D, and efr types the next command
+# only after it has seen D, so nothing that efr types is lost here.
+_efr_hs_drain() {
+  builtin emulate -L zsh
+  builtin local junk
+  while builtin read -s -t 0 -k 1 junk 2>/dev/null; do :; done
+  return 0
 }
 
 _efr_hs_preexec() {
