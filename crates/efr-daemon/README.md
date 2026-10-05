@@ -84,7 +84,9 @@ before each reload, so a link pointed elsewhere moves the watch, and a missing
 directory is watched through the nearest one above it that exists. A burst of events
 becomes one reload after 200 ms of quiet on the injected clock. Saves by rename (vim,
 nvim), writes in place, a removed file (no file: the defaults), a file created again
-and a retargeted link all reload. When the kernel's queue overflows or a watched
+and a retargeted link all reload. A change of the project registry `projects.toml` in
+the config root reloads too, so the engine knows a project from the turn that first
+finds it in the registry on. When the kernel's queue overflows or a watched
 directory is removed or moved, the watches are armed again and the file reloads once.
 
 A reload checks the whole file with `efr-config`. A file with an error changes nothing:

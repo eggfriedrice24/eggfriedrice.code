@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use efr_config::{FileState, Settings};
+use efr_protocol::ProjectId;
 use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
 use rustix::fs::inotify::ReadFlags;
@@ -49,7 +50,7 @@ fn linked() -> (tempfile::TempDir, Watched) {
 }
 
 #[test]
-fn only_events_that_name_the_file_or_its_target_concern_it() {
+fn only_events_that_name_the_file_its_target_or_the_registry_concern_it() {
     let (_dir, mut watched) = linked();
 
     assert!(watched.concerns(&event(1, ReadFlags::MOVED_TO, "config.toml")));
@@ -57,7 +58,8 @@ fn only_events_that_name_the_file_or_its_target_concern_it() {
     assert!(watched.concerns(&event(2, ReadFlags::CREATE, "efr.toml")));
     assert!(watched.concerns(&event(2, ReadFlags::DELETE, "efr.toml")));
     assert!(watched.concerns(&event(1, ReadFlags::MOVED_FROM, "config.toml")));
-    assert!(!watched.concerns(&event(1, ReadFlags::CREATE, "projects.toml")));
+    assert!(watched.concerns(&event(1, ReadFlags::MOVED_TO, "projects.toml")), "the registry");
+    assert!(!watched.concerns(&event(1, ReadFlags::CREATE, "notes.toml")));
     assert!(!watched.concerns(&event(1, ReadFlags::CREATE, ".config.toml.swp")));
     assert!(!watched.concerns(&event(7, ReadFlags::CREATE, "config.toml")), "a removed watch");
     assert!(!watched.stale);
@@ -308,6 +310,39 @@ async fn an_edit_of_the_target_of_a_symlinked_file_reloads() {
     assert!(
         std::fs::symlink_metadata(dirs.dirs().config().join("config.toml")).unwrap().is_symlink()
     );
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn a_project_registered_while_the_daemon_runs_reaches_the_engine() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_config_watch()).await;
+    let engine = daemon.engine.subscribe();
+    let id: ProjectId = "0192f0c1-7a00-7000-8000-0000000000aa".parse().unwrap();
+    let root = dirs.home().join("p/app");
+    std::fs::create_dir_all(&root).unwrap();
+
+    let registry = format!("[[project]]\nid = \"{id}\"\nroot = \"{}\"\n", root.display());
+    save_by_rename(&dirs.dirs().config().join("projects.toml"), &registry);
+    // NOTE: the reload at the watcher's start may read the registry too; only an event
+    // of the registry starts a quiet time.
+    for _ in 0..1_000_000 {
+        if quiet_times(&clock) > 0 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(quiet_times(&clock) > 0, "the registry's change started no reload");
+    clock.advance(DEBOUNCE);
+    for _ in 0..1_000_000 {
+        if engine.borrow().locations().project_root(&id).is_some() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    assert_eq!(engine.borrow().locations().project_root(&id), Some(root.as_path()));
     daemon.stop().await;
 }
 

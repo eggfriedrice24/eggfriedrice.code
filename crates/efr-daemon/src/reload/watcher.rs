@@ -1,4 +1,5 @@
-//! The config file watcher: reloads when `config.toml` changes.
+//! The config file watcher: reloads when `config.toml` or the project registry
+//! `projects.toml` changes.
 //!
 //! It watches the config root and, when `config.toml` is a symbolic link, the directory
 //! of the file the link resolves to, so an edit in a dotfiles repository reloads too.
@@ -25,6 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::{CONFIG_FILE, FileState};
+use efr_scope::REGISTRY_FILE;
 use rustix::fs::inotify::ReadFlags;
 use tokio_util::sync::CancellationToken;
 
@@ -158,13 +160,20 @@ impl Watched {
     }
 }
 
-/// The file names that are the config file: the link's own and its target's.
+/// The file names that change what a reload applies: the config file's own, its
+/// link target's, and the project registry's.
+///
+/// NOTE: a turn's scope reads the registry at each turn, but the engine reads it only
+/// at a reload. Without one, a project registered while the daemon runs is a project
+/// to the scope and not to the engine, and `auto` asks for every write in it.
 pub(crate) fn names(file: &FileState) -> BTreeSet<OsString> {
-    [Some(&file.path), file.symlink_target.as_ref()]
+    let mut names: BTreeSet<OsString> = [Some(&file.path), file.symlink_target.as_ref()]
         .into_iter()
         .flatten()
         .filter_map(|path| path.file_name().map(ToOwned::to_owned))
-        .collect()
+        .collect();
+    names.insert(REGISTRY_FILE.into());
+    names
 }
 
 /// The inotify instance that watches the config file's directories, and what it
