@@ -21,11 +21,19 @@ every mode.
 | `auto` | Everything that `cautious` allows, plus the curated list of the `auto` table: the writer programs, the project's build, test, format and lint tools, and local git. |
 
 `permissions.mode` in `config.toml` sets the mode of a turn when the prompt names none.
-A turn keeps its mode until it ends. `auto` runs the project's own build and test
-code without a question: `cargo test`, `npm test` and `make` run whatever the
-project's code, its build scripts and its git hooks do. Choose it only in projects
-whose code you trust. `auto` never allows general network access; see "The auto
-table".
+A turn keeps its mode until it ends. `auto` runs the build and test code of the
+directory without a question: `cargo test`, `npm test` and `make` run whatever the
+code, its build scripts and its git hooks do. That code is not only the project's own.
+The model writes freely in the project and in `$SCRATCH`, so in `auto` it can write a
+`Makefile`, a `build.rs` or a `package.json` script and then run it with `make`,
+`cargo build` or `npm run`, all without a question, also in a turn with no registered
+project (in `$SCRATCH`). Such code runs with your rights and with full network access:
+it can send your files out, and it can write `config.toml`, which the daemon reloads
+without a question. So the engine's limits, config protection and the approval of the
+settings tool do not hold against a model that follows injected instructions (from a
+web page, a file or a command's output) in `auto`. Choose `auto` only for work where
+you accept that. The commands that `auto` itself allows never reach the network
+outside the package rows; see "The auto table".
 
 A turn from the phone runs with at most `cautious`: `auto` there counts as
 `cautious`, and the engine asks for everything outside `$SCRATCH` anyway.
@@ -482,9 +490,11 @@ that could write them could give itself any permission.
 - Reading it is free in `cautious` and `auto`; it holds no secrets.
 
 Config protection judges what a call declares. A build or a test that `auto` runs
-runs the project's own code, and that code can write any file you can, efr's config
-included. This is one more reason to choose `auto` only in projects whose code you
-trust.
+runs the code of the directory, which the model may have written itself in the same
+turn, and that code can write any file you can, efr's config included. The daemon
+reloads a changed `config.toml` without a question, so such code can change the
+permissions of the next turn. This is one more reason to choose `auto` only for work
+where you accept that the model runs code of its own.
 
 You change the file yourself, in your editor or with `efr config`, or you approve a
 change of the settings tool. The daemon reads the links in the directory each time it

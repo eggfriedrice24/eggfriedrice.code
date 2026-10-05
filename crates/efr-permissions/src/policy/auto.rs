@@ -7,14 +7,17 @@
 //!   turn's project or `$SCRATCH` is free, a write to the project's root, above it or
 //!   anywhere else asks, and a secret or efr's config is denied.
 //! - The project's build, test, format and lint tools, only while the hidden shell is
-//!   in the project or `$SCRATCH`. They run the project's own code. Options that point
-//!   them at another directory, another config or another package registry are
-//!   forbidden.
+//!   in the project or `$SCRATCH`. They run the code of that directory, which the
+//!   model may have written itself, because it writes freely in both places. That
+//!   code runs with network access and can write efr's config, which the daemon
+//!   reloads without a question, so `auto` trusts the model's own code as well as the
+//!   project's. Options that point the tools at another directory, another config or
+//!   another package registry are forbidden.
 //! - Local git in the project or `$SCRATCH`, and `git fetch` and `git pull` from a
 //!   remote that the repository names.
 //!
 //! Only the rows that fetch the packages a project declares, and `git fetch` and
-//! `git pull`, allow network access: a URL or an upload is how a model that follows
+//! `git pull`, declare network access (what the code they run does is not declared): a URL or an upload is how a model that follows
 //! injected instructions would send data out. Everything else asks: `git push`, a
 //! system package manager, `curl`, a script, and every line the engine cannot read.
 //!

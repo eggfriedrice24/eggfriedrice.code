@@ -123,7 +123,10 @@ proptest property:
 - The `auto` mode never allows general network access: a call's network access is
   allowed only when every simple command of its line may reach the network by a
   `network` rule, or runs by a built-in row alone, so a user's rule that lets `curl`
-  run does not let `cargo fetch; curl ...` reach the network.
+  run does not let `cargo fetch; curl ...` reach the network. This judges the
+  declared line only: a build or test row runs the code of its directory, which the
+  model may have written itself, and that code can reach the network and write
+  efr's config, which the daemon reloads.
 - A write of the project's root itself is not a project write, so it asks.
 
 - Secrets are denied by default, for reading and writing. Only the machine policy (the
