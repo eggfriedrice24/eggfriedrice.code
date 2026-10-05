@@ -47,13 +47,14 @@ fn method_index(method: &Method) -> usize {
         Method::PtyAttach(_) => 8,
         Method::PtyWrite(_) => 9,
         Method::PtyResize(_) => 10,
-        Method::LeaseReport(_) => 11,
-        Method::AdminStatus(_) => 12,
-        Method::AdminLoginOpenAi(_) => 13,
+        Method::InputRespond(_) => 11,
+        Method::LeaseReport(_) => 12,
+        Method::AdminStatus(_) => 13,
+        Method::AdminLoginOpenAi(_) => 14,
     }
 }
 
-const METHOD_COUNT: usize = 14;
+const METHOD_COUNT: usize = 15;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

@@ -30,6 +30,7 @@ mod conversation_history;
 mod conversation_subscribe;
 mod conversations_list;
 mod hello;
+mod input_respond;
 mod lease_report;
 mod prompt_send;
 mod pty_attach;
@@ -72,6 +73,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::PtyAttach(_) => ScopeName::Terminal,
         Method::PtyWrite(_) => ScopeName::Terminal,
         Method::PtyResize(_) => ScopeName::Terminal,
+        Method::InputRespond(_) => ScopeName::Terminal,
         Method::AdminStatus(_) => ScopeName::Admin,
         Method::AdminLoginOpenAi(_) => ScopeName::Admin,
     }
@@ -179,6 +181,9 @@ impl Dispatcher for Methods {
                 }
                 Method::PtyWrite(params) => pty_write::handle(state, params, &responder).await,
                 Method::PtyResize(params) => pty_resize::handle(state, params, &responder).await,
+                Method::InputRespond(params) => {
+                    input_respond::handle(state, params, &responder).await
+                }
                 Method::LeaseReport(params) => {
                     lease_report::handle(state, &context, params, &responder).await
                 }

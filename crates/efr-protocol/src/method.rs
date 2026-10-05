@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminLoginOpenAi, AdminStatus, ApprovalRespond, CommandId, ConversationHistory,
-    ConversationSubscribe, ConversationsList, Hello, LeaseReport, PromptSend, PtyAttach, PtyResize,
-    PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
+    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, PromptSend,
+    PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -54,6 +54,10 @@ pub enum Method {
     /// `pty.resize`: change a PTY's size.
     #[serde(rename = "pty.resize")]
     PtyResize(PtyResize),
+    /// `input.respond`: send the line that the user typed to a running tool call that
+    /// waits for input.
+    #[serde(rename = "input.respond")]
+    InputRespond(InputRespond),
     /// `lease.report`: say what the client is watching.
     #[serde(rename = "lease.report")]
     LeaseReport(LeaseReport),
@@ -82,6 +86,7 @@ impl Method {
             Method::PtyAttach(_) => "pty.attach",
             Method::PtyWrite(_) => "pty.write",
             Method::PtyResize(_) => "pty.resize",
+            Method::InputRespond(_) => "input.respond",
             Method::LeaseReport(_) => "lease.report",
             Method::AdminStatus(_) => "admin.status",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
@@ -89,8 +94,8 @@ impl Method {
     }
 
     /// The command id of a write, which the daemon keeps a receipt for so that a retry
-    /// returns the first result. `None` for reads and for PTY input, which is not
-    /// retried.
+    /// returns the first result. `None` for reads and for PTY input and answers, which
+    /// are not retried.
     pub const fn command_id(&self) -> Option<CommandId> {
         match self {
             Method::PromptSend(params) => Some(params.command_id),
@@ -104,6 +109,7 @@ impl Method {
             | Method::PtyAttach(_)
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
+            | Method::InputRespond(_)
             | Method::LeaseReport(_)
             | Method::AdminStatus(_)
             | Method::AdminLoginOpenAi(_) => None,
@@ -126,6 +132,7 @@ impl Method {
             | Method::ApprovalRespond(_)
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
+            | Method::InputRespond(_)
             | Method::LeaseReport(_)
             | Method::AdminStatus(_) => false,
         }
@@ -147,9 +154,11 @@ impl ScopeName {
                 ScopeName::Operate
             }
             Method::ApprovalRespond(_) => ScopeName::Approve,
-            Method::PtyAttach(_) | Method::PtyWrite(_) | Method::PtyResize(_) => {
-                ScopeName::Terminal
-            }
+            // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.
+            Method::PtyAttach(_)
+            | Method::PtyWrite(_)
+            | Method::PtyResize(_)
+            | Method::InputRespond(_) => ScopeName::Terminal,
             Method::AdminStatus(_) | Method::AdminLoginOpenAi(_) => ScopeName::Admin,
         }
     }

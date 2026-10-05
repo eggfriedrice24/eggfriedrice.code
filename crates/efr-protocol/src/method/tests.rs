@@ -6,8 +6,8 @@ use serde_json::json;
 use crate::{
     AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId,
     Capabilities, CommandId, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, LeaseReport, Method, Origin, PromptSend, PtyAttach, PtyId, PtyResize,
-    PtyWrite, ScopeName, Size, TurnInterrupt, TurnSteer,
+    ConversationsList, Hello, InputRespond, LeaseReport, Method, Origin, PromptSend, PtyAttach,
+    PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size, TurnInterrupt, TurnSteer,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -142,6 +142,18 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
         (
             Method::PtyResize(PtyResize { pty_id: pty(), size: Size { cols: 80, rows: 24 } }),
             "pty.resize",
+            ScopeName::Terminal,
+            false,
+            false,
+        ),
+        (
+            Method::InputRespond(InputRespond {
+                conversation_id: conversation(),
+                call_id: CallId::from_str(CALL).unwrap(),
+                text: SecretText::new("y"),
+                hidden: false,
+            }),
+            "input.respond",
             ScopeName::Terminal,
             false,
             false,

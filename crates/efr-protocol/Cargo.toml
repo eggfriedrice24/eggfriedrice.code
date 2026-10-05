@@ -25,6 +25,9 @@ serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+# Clears SecretText when it is dropped. It has no dependencies, so the crate stays free
+# of a runtime.
+zeroize.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

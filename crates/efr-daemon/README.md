@@ -75,6 +75,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   size without rows or columns and clamps a huge one.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed` and makes the running provider forget its cached token.
+- `input.respond` is a stub for now: it answers `internal` and writes nothing, until the
+  handler that types a waiting command's answer into its PTY lands.
 
 ### Notices
 

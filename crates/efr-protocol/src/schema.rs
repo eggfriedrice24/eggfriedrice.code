@@ -12,10 +12,10 @@ use crate::{
     AdminLoginOpenAi, AdminLoginOpenAiItem, AdminStatus, AdminStatusResult, ApprovalRespond,
     ApprovalRespondResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
     ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
-    Event, EventEnvelope, Hello, HelloResult, LeaseReport, LeaseReportResult, PROTOCOL_VERSION,
-    PromptSend, PromptSendResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, RequestId, ScopeName, TurnInterrupt, TurnInterruptResult, TurnSteer,
-    TurnSteerResult,
+    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
+    LeaseReportResult, PROTOCOL_VERSION, PromptSend, PromptSendResult, PtyAttach, PtyAttachItem,
+    PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, ScopeName, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -58,6 +58,11 @@ pub fn document() -> Value {
         stream::<PtyAttach, PtyAttachItem>(&mut generator, "pty.attach", ScopeName::Terminal),
         unary::<PtyWrite, PtyWriteResult>(&mut generator, "pty.write", ScopeName::Terminal),
         unary::<PtyResize, PtyResizeResult>(&mut generator, "pty.resize", ScopeName::Terminal),
+        unary::<InputRespond, InputRespondResult>(
+            &mut generator,
+            "input.respond",
+            ScopeName::Terminal,
+        ),
         unary::<LeaseReport, LeaseReportResult>(&mut generator, "lease.report", ScopeName::Read),
         unary::<AdminStatus, AdminStatusResult>(&mut generator, "admin.status", ScopeName::Admin),
         stream::<AdminLoginOpenAi, AdminLoginOpenAiItem>(

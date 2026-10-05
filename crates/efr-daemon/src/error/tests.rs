@@ -54,6 +54,7 @@ fn request_errors_map_to_the_code_a_client_acts_on() {
         ),
         (DaemonError::AlreadyRunning { path: PathBuf::from("/d/daemon.lock") }, ErrorCode::Busy),
         (DaemonError::TaskPanicked { task: "x" }, ErrorCode::Internal),
+        (DaemonError::NotWired { method: "input.respond" }, ErrorCode::Internal),
     ];
     for (error, expected) in cases {
         let message = error.to_string();

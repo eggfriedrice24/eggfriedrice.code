@@ -29,6 +29,7 @@ mod methods;
 pub mod schema;
 mod scope;
 mod screen;
+mod secret_text;
 mod shell_context;
 mod version;
 
@@ -51,6 +52,7 @@ pub use methods::conversations_list::{
     ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
 };
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
+pub use methods::input_respond::{InputRespond, InputRespondResult};
 pub use methods::lease_report::{LeaseReport, LeaseReportResult};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
@@ -61,5 +63,6 @@ pub use methods::turn_steer::{TurnSteer, TurnSteerResult};
 pub use methods::{Base64Bytes, PageCursor};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
+pub use secret_text::SecretText;
 pub use shell_context::ShellContext;
 pub use version::PROTOCOL_VERSION;

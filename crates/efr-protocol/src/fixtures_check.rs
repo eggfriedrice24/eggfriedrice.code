@@ -21,12 +21,13 @@ use crate::{
     Color, CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, InputWait,
-    LeaseReport, LeaseReportResult, Method, Origin, PROTOCOL_VERSION, PageCursor, ProjectId,
-    PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName,
-    ScreenSnapshot, Seq, ServerFrame, ShellContext, Size, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult, Usage,
+    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, InputRespond,
+    InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Origin,
+    PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
+    PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult,
+    RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
+    Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -279,6 +280,12 @@ pub(crate) fn method_samples() -> Vec<Method> {
             data: Base64Bytes::new(b"ls -la\r".to_vec()),
         }),
         Method::PtyResize(PtyResize { pty_id: pty_id(), size: Size { cols: 120, rows: 40 } }),
+        Method::InputRespond(InputRespond {
+            conversation_id: conversation_id(),
+            call_id: call_id(),
+            text: SecretText::new("hunter2"),
+            hidden: true,
+        }),
         Method::LeaseReport(LeaseReport {
             conversations: vec![conversation_id()],
             ptys: vec![pty_id()],
@@ -378,6 +385,7 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture("pty_write_result.json", &PtyWriteResult {}),
         fixture("pty_resize_result.json", &PtyResizeResult { size: Size { cols: 120, rows: 40 } }),
+        fixture("input_respond_result.json", &InputRespondResult {}),
         fixture("lease_report_result.json", &LeaseReportResult { ttl_secs: 45 }),
         fixture(
             "admin_status_result.json",

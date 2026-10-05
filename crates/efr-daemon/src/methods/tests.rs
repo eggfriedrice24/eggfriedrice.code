@@ -1,9 +1,9 @@
 use efr_protocol::{
     AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId,
     Capabilities, CommandId, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, LeaseReport, Method, Origin, PROTOCOL_VERSION, PageCursor,
-    PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, Seq, Size, TurnInterrupt,
-    TurnSteer,
+    ConversationsList, Hello, InputRespond, LeaseReport, Method, Origin, PROTOCOL_VERSION,
+    PageCursor, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Seq,
+    Size, TurnInterrupt, TurnSteer,
 };
 use pretty_assertions::assert_eq;
 
@@ -64,6 +64,12 @@ fn every_method() -> Vec<Method> {
         Method::PtyAttach(PtyAttach { pty_id, since_seq: None, scrollback_rows: None }),
         Method::PtyWrite(PtyWrite { pty_id, data: Base64Bytes::new(b"ls\r".to_vec()) }),
         Method::PtyResize(PtyResize { pty_id, size: Size { cols: 80, rows: 24 } }),
+        Method::InputRespond(InputRespond {
+            conversation_id,
+            call_id: CallId::from_uuid(id(4)),
+            text: SecretText::new("y"),
+            hidden: false,
+        }),
         Method::LeaseReport(LeaseReport::default()),
         Method::AdminStatus(AdminStatus::default()),
         Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
@@ -73,7 +79,7 @@ fn every_method() -> Vec<Method> {
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 14, "one request per method");
+    assert_eq!(methods.len(), 15, "one request per method");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -98,6 +104,7 @@ fn the_scope_table_is_the_designed_one() {
             ("pty.attach", ScopeName::Terminal),
             ("pty.write", ScopeName::Terminal),
             ("pty.resize", ScopeName::Terminal),
+            ("input.respond", ScopeName::Terminal),
             ("lease.report", ScopeName::Read),
             ("admin.status", ScopeName::Admin),
             ("admin.login_openai", ScopeName::Admin),
