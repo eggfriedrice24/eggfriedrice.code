@@ -160,6 +160,50 @@ fn without_a_default_model_and_without_a_model_asked_for_it_fails() {
 }
 
 #[test]
+fn an_empty_model_list_takes_any_model_as_the_daemon_does() {
+    // The daemon's list is empty for `openai-api` without `[openai] models`.
+    let bare = resolve(&Asked::default(), &TurnDefaults::default(), &[]).unwrap();
+    assert_eq!(
+        values(&bare),
+        [
+            ("mode", Some("cautious".to_owned()), SettingSource::Default),
+            ("model", None, SettingSource::DaemonDefault),
+            (
+                "effort",
+                None,
+                SettingSource::Backend { model: "the daemon's default model".to_owned() }
+            ),
+        ]
+    );
+    assert!(show(&bare).contains("model = (the daemon's default)  # the daemon's default\n"));
+
+    let from_file = resolve(
+        &Asked { effort: given("high", SettingSource::Flag("--effort")), ..Asked::default() },
+        &defaults(Some(Mode::Auto), Some("gpt-7"), None),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        values(&from_file),
+        [
+            ("mode", Some("auto".to_owned()), file()),
+            ("model", Some("gpt-7".to_owned()), file()),
+            ("effort", Some("high".to_owned()), SettingSource::Flag("--effort")),
+        ]
+    );
+    assert!(from_file.iter().all(|line| line.key == "mode" || line.choices.is_empty()));
+
+    let asked = Asked { model: given("o9", SettingSource::Flag("--model")), ..Asked::default() };
+    let lines = resolve(&asked, &TurnDefaults::default(), &[]).unwrap();
+    assert_eq!(lines[1].value.as_deref(), Some("o9"));
+    let blank = Asked { model: given(" ", SettingSource::Flag("--model")), ..Asked::default() };
+    assert!(matches!(
+        resolve(&blank, &TurnDefaults::default(), &[]),
+        Err(CliError::UnknownModel { .. })
+    ));
+}
+
+#[test]
 fn each_setting_is_one_line_with_its_source_and_choices() {
     let lines = resolve(
         &Asked { model: given("gpt-5.4", SettingSource::Flag("--model")), ..Asked::default() },
