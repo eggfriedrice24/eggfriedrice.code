@@ -47,7 +47,13 @@ async fn ctrl_backslash_counts_only_while_a_wait_lives_and_otherwise_keeps_its_d
         .await
         .unwrap();
 
-    // A key from before a wait does not resolve it; the next one does.
+    // A key from before a wait does not resolve it; the next one does. The earlier key
+    // came while another wait lived, so it counted and moved the count of presses.
+    let mut first = quit.wait();
+    assert!((&mut first).now_or_never().is_none());
+    press();
+    first.await;
+    settle().await;
     let mut wait = quit.wait();
     assert!((&mut wait).now_or_never().is_none());
     settle().await;
