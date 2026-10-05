@@ -1301,6 +1301,9 @@ fn runtime_roots(home: &Home, env: &[(&str, &str)], unset: &[&str]) -> [Option<S
     [plugin, efr]
 }
 
+/// Variables to set, by name.
+type Vars<'a> = &'a [(&'a str, &'a str)];
+
 #[test]
 fn e2e_efr_paths_and_the_plugin_find_the_same_runtime_root() {
     if !zsh_tests_enabled() {
@@ -1312,7 +1315,7 @@ fn e2e_efr_paths_and_the_plugin_find_the_same_runtime_root() {
     // NOTE: every environment names a runtime root below the temporary home, or none,
     // so `efr paths` never asks a daemon outside it. The /run/user fallback is left to
     // the unit tests of both sides, which point it at a temporary tree.
-    let cases: [(&[(&str, &str)], &[&str], Option<String>); 7] = [
+    let cases: [(Vars<'_>, &[&str], Option<String>); 7] = [
         (&[], &[], Some(path("efr"))),
         (&[("EFR_HOME", &efr_home)], &[], Some(format!("{efr_home}/runtime"))),
         (&[("EFR_HOME", &efr_home)], &["XDG_RUNTIME_DIR"], Some(format!("{efr_home}/runtime"))),
