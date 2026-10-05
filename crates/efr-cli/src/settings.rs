@@ -1,9 +1,10 @@
 //! The client's settings from `config.toml`: the `[render]` table.
 //!
-//! The daemon owns `config.toml` and validates all of it (`efr-daemon/src/config.rs`,
-//! with unknown fields denied). The CLI reads only the table it needs and ignores the
-//! rest, so a key it does not know is the daemon's business, not an error here. A
-//! file it cannot use costs a warning, never a failed prompt: the defaults apply.
+//! `efr-config` reads and checks the whole file with the one schema that `efrd` uses
+//! too, unknown keys refused, so a file the daemon would refuse is refused here as
+//! well. A file the client cannot use costs a warning, never a failed prompt: the
+//! defaults apply. The theme's name is checked here, because the themes live in
+//! `efr-render`.
 //!
 //! ```toml
 //! [render]
@@ -14,11 +15,8 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use efr_config::{CONFIG_FILE, ConfigError};
 use efr_render::Theme;
-use serde::Deserialize;
-
-/// The file name under the config root.
-pub(crate) const CONFIG_FILE: &str = "config.toml";
 
 /// The client's settings and where they came from.
 #[derive(Debug, Default)]
@@ -46,8 +44,8 @@ pub(crate) enum Source {
 pub(crate) enum Warning {
     /// The file exists but could not be read.
     Unreadable { path: PathBuf, source: io::Error },
-    /// The file is not valid TOML, or `[render]` has the wrong shape.
-    Invalid { path: PathBuf, source: Box<toml::de::Error> },
+    /// The file is not valid TOML, has an unknown key, or a value `efr-config` refuses.
+    Invalid { path: PathBuf, source: Box<ConfigError> },
     /// `render.theme` names no embedded theme.
     UnknownTheme { path: PathBuf, name: String },
 }
@@ -59,8 +57,13 @@ impl fmt::Display for Warning {
                 write!(f, "{} could not be read: {source}", path.display())
             }
             Warning::Invalid { path, source } => {
-                let reason = source.message();
-                write!(f, "{} is not valid: {reason}", path.display())
+                write!(f, "{} is not valid: {}", path.display(), reason(source))?;
+                match (source.location(), source.key()) {
+                    (Some(at), Some(key)) => write!(f, " ({key}, {at})"),
+                    (Some(at), None) => write!(f, " ({at})"),
+                    (None, Some(key)) => write!(f, " ({key})"),
+                    (None, None) => Ok(()),
+                }
             }
             Warning::UnknownTheme { path, name } => {
                 write!(f, "{} names the theme {name:?}, which does not exist", path.display())
@@ -69,16 +72,26 @@ impl fmt::Display for Warning {
     }
 }
 
-/// The part of `config.toml` that the CLI reads. Other tables are ignored.
-#[derive(Debug, Default, Deserialize)]
-struct File {
-    #[serde(default)]
-    render: RenderTable,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct RenderTable {
-    theme: Option<String>,
+/// What is wrong, without the path that the warning already names.
+fn reason(error: &ConfigError) -> String {
+    match error {
+        // NOTE: the parser's Display quotes the file with a caret under the error; the
+        // place follows the reason instead.
+        ConfigError::Parse { source, .. } => source.message().to_owned(),
+        ConfigError::Invalid { key, value, expected, .. } => {
+            format!("{key} = {value} is not {expected}")
+        }
+        other => {
+            let mut text = other.to_string();
+            let mut source = std::error::Error::source(other);
+            while let Some(cause) = source {
+                text.push_str(": ");
+                text.push_str(&cause.to_string());
+                source = cause.source();
+            }
+            text
+        }
+    }
 }
 
 impl Settings {
@@ -97,7 +110,7 @@ impl Settings {
 
     /// The settings in `text`, the contents of the file at `path`.
     pub(crate) fn parse(path: &Path, text: &str) -> Settings {
-        let file: File = match toml::from_str(text) {
+        let file = match efr_config::Settings::parse(path, Some(text)) {
             Ok(file) => file,
             Err(source) => {
                 let path = path.to_path_buf();

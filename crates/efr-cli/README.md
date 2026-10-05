@@ -57,8 +57,9 @@ Replies:
   theme = "catppuccin-mocha"   # any name efr_render::Theme::from_name accepts
   ```
 
-  The daemon validates the whole file; the CLI reads only `[render]` and warns, without
-  failing, when it cannot use it.
+  `efr-config` reads and checks the whole file with the schema the daemon uses, unknown
+  keys refused; the CLI uses only `[render]` and warns, without failing, when the file
+  is not valid or names a theme `efr-render` does not have. The defaults apply then.
 
 Approvals show inline. When stdin is a terminal, `y` allows and `n` denies with one key:
 a named thread puts the terminal into non-canonical mode without echo, discards keys
@@ -133,14 +134,14 @@ Tier 4: a binary.
 
 ## Allowed dependencies
 
-`efr-client` (the protocol client), `efr-render` (markdown to ANSI), `efr-protocol`
-(the wire types) and `efr-stdx` (paths, `Clock`, `Rng`, `EFR_*` variables, named
+`efr-client` (the protocol client), `efr-config` (`config.toml`), `efr-render`
+(markdown to ANSI), `efr-protocol` (the wire types) and `efr-stdx` (paths, `Clock`, `Rng`, `EFR_*` variables, named
 threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 `efr-transport`, not even in tests: the fake daemon of the tests speaks
 `efr_protocol::framing` directly.
 
-Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (the
-`[render]` table), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
+Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (strings
+in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
 (row counting), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
 line).
 

@@ -3,7 +3,9 @@ use std::path::Path;
 use efr_render::Theme;
 use pretty_assertions::assert_eq;
 
-use super::{CONFIG_FILE, Settings, Source, Warning};
+use efr_config::CONFIG_FILE;
+
+use super::{Settings, Source, Warning};
 
 const PATH: &str = "/home/user/.config/efr/config.toml";
 
@@ -13,10 +15,34 @@ fn parse(text: &str) -> Settings {
 
 #[test]
 fn without_a_render_table_the_defaults_apply() {
-    let settings = parse("[providers.openai]\nmodel = \"gpt-5\"\n");
+    let settings = parse("[model]\nname = \"gpt-5\"\n");
     assert_eq!(settings.theme, Theme::ANSI);
     assert_eq!(settings.theme_source, Source::Default);
     assert!(settings.warnings.is_empty());
+}
+
+#[test]
+fn a_key_the_daemon_would_refuse_warns_and_keeps_the_defaults() {
+    let settings = parse("[render]\ntheme = \"nord\"\n[providers.openai]\nmodel = \"gpt-5\"\n");
+    assert_eq!(settings.theme, Theme::ANSI, "the theme of a refused file is not used");
+    let [warning] = settings.warnings.as_slice() else { panic!("one warning expected") };
+    assert!(matches!(warning, Warning::Invalid { .. }));
+    let text = warning.to_string();
+    assert!(text.starts_with(&format!("{PATH} is not valid: ")), "{text}");
+    assert!(text.ends_with("(providers.openai, line 3, column 2)"), "{text}");
+}
+
+#[test]
+fn a_value_out_of_range_names_its_key_and_place() {
+    let settings = parse("[conversation]\nmax_queued = 0\n");
+    let [warning] = settings.warnings.as_slice() else { panic!("one warning expected") };
+    assert_eq!(
+        warning.to_string(),
+        format!(
+            "{PATH} is not valid: conversation.max_queued = 0 is not between 1 and 1024 \
+             (conversation.max_queued, line 2, column 14)"
+        )
+    );
 }
 
 #[test]

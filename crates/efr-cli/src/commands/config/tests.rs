@@ -33,7 +33,7 @@ fn overrides_name_where_they_come_from() {
     let env = TestEnv::new();
     let settings = Settings::parse(
         Path::new("/c/efr/config.toml"),
-        "[render]\ntheme = \"gruvbox-dark\"\n[daemon]\nanything = 1\n",
+        "[render]\ntheme = \"gruvbox-dark\"\n[shell]\nidle_minutes = 5\n",
     );
     let ctx = Context {
         dirs: fixed_dirs(),

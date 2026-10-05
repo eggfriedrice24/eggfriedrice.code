@@ -699,6 +699,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "efr-client",
+ "efr-config",
  "efr-protocol",
  "efr-render",
  "efr-stdx",
