@@ -23,6 +23,8 @@ use efr_test_daemon::{
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 
+use crate::support::zsh_enabled;
+
 /// A program that reads a password as getpass does: echo off, one line, echo on. It
 /// prints how long the line was, never the line.
 const GETPASS: &str =
@@ -34,15 +36,6 @@ const SILENT_READ: &str = r#"sh -c 'printf "ready\n"; IFS= read -r a; printf "go
 
 /// The password the user types: nothing may hold it but the program that reads it.
 const SECRET: &str = "hunter2-efr-secret";
-
-#[expect(clippy::print_stderr, reason = "a skipped test says why, as atuin's e2e tests do")]
-fn zsh_enabled(test: &str) -> bool {
-    let on = efr_stdx::env::flag(efr_stdx::env::Var::TestZsh).unwrap_or(false);
-    if !on {
-        eprintln!("skipping {test}: set EFR_TEST_ZSH=1 to run the tests that drive a real zsh");
-    }
-    on
-}
 
 /// Everything every span and event of this process logs, at every level.
 fn logs() -> Arc<Mutex<Vec<u8>>> {

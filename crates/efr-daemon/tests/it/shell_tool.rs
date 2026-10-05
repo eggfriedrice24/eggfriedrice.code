@@ -17,6 +17,8 @@ use efr_test_daemon::{Replay, TTY, TestDaemon, command_id, events_until};
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 
+use crate::support::zsh_enabled;
+
 /// The `tool_call_completed` events of `replay`'s conversation: exit code, error flag
 /// and output.
 async fn completed_calls(replay: &Replay) -> Vec<(Option<i32>, bool, String)> {
@@ -116,15 +118,6 @@ impl Provider for RunsOneCommand {
         };
         Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
     }
-}
-
-#[expect(clippy::print_stderr, reason = "a skipped test says why, as atuin's e2e tests do")]
-fn zsh_enabled(test: &str) -> bool {
-    let on = efr_stdx::env::flag(efr_stdx::env::Var::TestZsh).unwrap_or(false);
-    if !on {
-        eprintln!("skipping {test}: set EFR_TEST_ZSH=1 to run the tests that drive a real zsh");
-    }
-    on
 }
 
 #[tokio::test]

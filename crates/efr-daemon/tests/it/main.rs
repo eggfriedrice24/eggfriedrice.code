@@ -19,3 +19,4 @@ mod receipts;
 mod reconcile;
 mod shell_tool;
 mod subscribe;
+mod support;
