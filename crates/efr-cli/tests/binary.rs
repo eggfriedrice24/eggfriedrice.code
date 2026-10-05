@@ -20,8 +20,9 @@ use assert_cmd::Command;
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
     AdminStatusResult, Capabilities, ClientFrame, ConversationSubscribeItem, DaemonPaths,
-    ErrorBody, ErrorCode, Event, EventEnvelope, HelloResult, Method, PROTOCOL_VERSION,
-    PromptSendResult, RequestId, Seq, ServerFrame,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, HelloResult, Method, Mode,
+    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PROTOCOL_VERSION,
+    PromptSendResult, RequestId, Seq, ServerFrame, TurnSettings,
 };
 use serde::Serialize;
 
@@ -292,6 +293,129 @@ fn the_plugins_variables_carry_the_prompt_without_arguments() {
     daemon.join().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     assert_eq!(stdout_of(&output), "Use **sccache**.\n");
+}
+
+#[test]
+fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
+    let roots = Roots::new();
+    let daemon = roots.serve(|conn| {
+        let (id, method) = conn.request();
+        let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
+        assert_eq!(
+            params.settings,
+            TurnSettings {
+                mode: Some(Mode::Auto),
+                model: Some("gpt-5.4".to_owned()),
+                effort: Some("high".to_owned()),
+            }
+        );
+        let turn_id = TURN.parse().unwrap();
+        let settings = EffectiveSettings {
+            mode: Mode::Auto,
+            model: "gpt-5.4".to_owned(),
+            effort: Some("high".to_owned()),
+            overridden: OverriddenSettings { mode: true, model: true, effort: false },
+        };
+        conn.reply(
+            id,
+            &PromptSendResult {
+                conversation_id: CONVERSATION.parse().unwrap(),
+                turn_id,
+                seq: Seq::new(3),
+                queued: false,
+                settings: Some(settings),
+            },
+        );
+        let (sub, _) = conn.request();
+        let text = "Done.".to_owned();
+        conn.item(sub, &event(4, Event::AssistantMessageCompleted { turn_id, index: 0, text }));
+        conn.item(sub, &event(5, Event::TurnCompleted { turn_id, usage: None }));
+        conn.drain();
+    });
+    let output = roots
+        .efr()
+        .arg("send")
+        .env("EFR_PROMPT", "tidy up")
+        .env("EFR_MODE", "auto")
+        .env("EFR_MODEL", "gpt-5.4")
+        .args(["--effort", "high"])
+        .output()
+        .unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(stdout_of(&output), "Done.\n");
+    // The effort came from the config in the daemon's view, so the note leaves it out.
+    assert_eq!(stderr_of(&output), "mode auto, model gpt-5.4\n");
+}
+
+#[test]
+fn an_unknown_mode_in_the_variable_exits_two_before_any_connection() {
+    let roots = Roots::new();
+    // No daemon listens: a connection would exit with three.
+    let output = roots.efr().arg("send").env("EFR_PROMPT", "hi").env("EFR_MODE", "yolo").output();
+    let output = output.unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr_of(&output),
+        "efr: EFR_MODE names the mode \"yolo\", which does not exist; choose one of: manual, \
+         cautious, auto\n"
+    );
+}
+
+/// A daemon that answers `models.list` with a default model and one other.
+fn listing_models(roots: &Roots) -> JoinHandle<()> {
+    roots.serve(|conn| {
+        let (id, method) = conn.request();
+        assert!(matches!(method, Method::ModelsList(_)), "{}", method.name());
+        let model = |id: &str, default| ModelInfo {
+            id: id.to_owned(),
+            efforts: vec!["low".to_owned(), "medium".to_owned(), "high".to_owned()],
+            default_effort: Some("medium".to_owned()),
+            default,
+            source: ModelSource::Builtin,
+        };
+        conn.reply(
+            id,
+            &ModelsListResult { models: vec![model("gpt-5.5", true), model("gpt-5.4", false)] },
+        );
+        conn.drain();
+    })
+}
+
+#[test]
+fn settings_reads_the_config_file_and_the_variables() {
+    let roots = Roots::new();
+    let config = roots.path("config").join("config.toml");
+    std::fs::write(&config, "[permissions]\nmode = \"manual\"\n[model]\neffort = \"low\"\n")
+        .unwrap();
+    let daemon = listing_models(&roots);
+    let output = roots.efr().arg("settings").env("EFR_MODEL", "gpt-5.4").output().unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(
+        stdout_of(&output),
+        format!(
+            "mode = manual  # {path}; choices: manual, cautious, auto\n\
+             model = gpt-5.4  # EFR_MODEL; choices: gpt-5.5, gpt-5.4\n\
+             effort = low  # {path}; choices: low, medium, high\n",
+            path = config.display()
+        )
+    );
+}
+
+#[test]
+fn settings_refuses_an_effort_the_model_does_not_take_with_two() {
+    let roots = Roots::new();
+    let daemon = listing_models(&roots);
+    let output = roots.efr().args(["settings", "--effort=max"]).output().unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout_of(&output), "");
+    assert_eq!(
+        stderr_of(&output),
+        "efr: gpt-5.5 does not take the effort \"max\" (--effort); choose one of: low, medium, \
+         high\n"
+    );
 }
 
 #[test]

@@ -195,6 +195,17 @@ fn every_mode_parses_and_an_unknown_one_is_a_usage_error() {
 }
 
 #[test]
+fn a_value_after_an_equals_sign_may_start_with_a_dash() {
+    // The plugin checks a typed value as one `--model=<value>` word, so that a value
+    // such as `--help` reaches the check instead of being read as a flag.
+    let Command::Settings(args) = command(&["settings", "--model=--help", "--effort=-x"]) else {
+        panic!("not settings");
+    };
+    assert_eq!(args.model.as_deref(), Some("--help"));
+    assert_eq!(args.effort.as_deref(), Some("-x"));
+}
+
+#[test]
 fn models_takes_names() {
     let Command::Models(args) = command(&["models"]) else { panic!("not models") };
     assert!(!args.names);
