@@ -66,3 +66,9 @@ No protocol version has shipped yet.
 - Before version 1 ships: the daemon answers `admin.config_reload` (it reloads at once and
   reports the outcome), and the `admin.status` result now always carries `roots` and
   `config`. No wire type changed.
+- Before version 1 ships: a restart no longer holds queued prompts. At the next start
+  the daemon records each prompt that waited, and each one an earlier daemon held, as
+  not run with `turn_cancelled` (no `turn_started` before it), and writes a notice to
+  its terminal that names it and says to send it again; nothing runs it later.
+  `prompt_held` stays in the protocol for older logs, and no daemon writes it any more.
+  No wire type changed.

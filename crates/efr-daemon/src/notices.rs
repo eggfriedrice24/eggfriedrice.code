@@ -65,6 +65,19 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
     Some(one_line(&text, MAX_CHARS))
 }
 
+/// How much of a prompt that did not run its notice quotes, in characters: enough to
+/// recognise it, short enough for one line.
+const PROMPT_CHARS: usize = 60;
+
+/// The notice for a prompt that waited when the daemon stopped and was recorded as not
+/// run at the next start.
+pub(crate) fn not_run(prompt: &str) -> String {
+    let clean: String = prompt.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let quoted: String = clean.trim().chars().take(PROMPT_CHARS).collect();
+    let text = format!("efr restarted; your queued prompt was not run: {quoted}; send it again");
+    one_line(&text, MAX_CHARS)
+}
+
 /// `text` without control characters, cut to `max` characters with `...` at the cut.
 pub(crate) fn one_line(text: &str, max: usize) -> String {
     let clean = text.chars().map(|c| if c.is_control() { ' ' } else { c });

@@ -9,7 +9,11 @@
 //! - a tool call of that turn without a result gets an error result
 //!   (`tool_call_completed`), so the log answers every call it started, as a provider
 //!   requires of the history;
-//! - a queued prompt is held (`prompt_held`) until the user confirms it;
+//! - a queued prompt is recorded as not run (`turn_cancelled` without a
+//!   `turn_started`), and its terminal gets a notice that names it and says to send it
+//!   again: running it by surprise, maybe hours later in another directory, would be
+//!   worse than asking. A prompt that an earlier daemon held (`prompt_held`) is settled
+//!   the same way;
 //! - a hidden shell that was running is recorded as exited (`shell_exited`): shells are
 //!   children of the daemon at milestone 1 and end with it;
 //! - process-bound outbox items are cancelled, and claimed replay-safe items return to
@@ -17,9 +21,10 @@
 //!
 //! [`plan`] decides the events from the projections without touching the store, so the
 //! table is testable on its own; [`reconcile`] reads, plans and writes one batch per
-//! conversation.
+//! conversation, then the notices.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 
 use efr_protocol::{CallId, ConversationId, Event, EventEnvelope, TurnId};
 use efr_store::approvals::PendingApproval;
@@ -27,7 +32,7 @@ use efr_store::conversations::{Turn, TurnStatus};
 use efr_store::shells::Shell;
 use efr_store::{Batch, Readers, WriterHandle};
 
-use crate::DaemonError;
+use crate::{DaemonError, notices};
 
 /// What the model reads for a call that was running or waiting for approval when the
 /// daemon stopped.
@@ -44,7 +49,7 @@ pub(crate) struct Reconciled {
     pub(crate) turns_cancelled: usize,
     pub(crate) approvals_expired: usize,
     pub(crate) calls_closed: usize,
-    pub(crate) prompts_held: usize,
+    pub(crate) prompts_not_run: usize,
     pub(crate) shells_exited: usize,
     pub(crate) outbox_cancelled: u64,
     pub(crate) outbox_requeued: u64,
@@ -52,7 +57,8 @@ pub(crate) struct Reconciled {
 
 /// The events that settle what was in flight, per conversation, in log order: expired
 /// approvals first, then the results of the calls in `open_calls` (the calls of each
-/// running turn without a result), then the cancelled turn, then the held prompts.
+/// running turn without a result), then the cancelled turn, then the prompts that did
+/// not run.
 pub(crate) fn plan(
     turns: &[Turn],
     approvals: &[PendingApproval],
@@ -80,11 +86,11 @@ pub(crate) fn plan(
         }
         settled.push(Event::TurnCancelled { turn_id: turn.id });
     }
-    for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Queued) {
+    for turn in turns.iter().filter(|turn| not_run(turn)) {
         events
             .entry(turn.conversation_id)
             .or_default()
-            .push(Event::PromptHeld { turn_id: turn.id });
+            .push(Event::TurnCancelled { turn_id: turn.id });
     }
     for shell in shells {
         events
@@ -95,13 +101,20 @@ pub(crate) fn plan(
     events
 }
 
-/// Settles everything the last daemon left in flight. Runs once, before any actor
-/// starts and before the socket opens.
+/// True for a turn that waited when the daemon stopped: it never ran and never will.
+fn not_run(turn: &Turn) -> bool {
+    matches!(turn.status, TurnStatus::Queued | TurnStatus::Held)
+}
+
+/// Settles everything the last daemon left in flight, and writes a notice under
+/// `notices_dir` for each prompt that did not run. Runs once, before any actor starts
+/// and before the socket opens.
 pub(crate) async fn reconcile(
     readers: &Readers,
     writer: &WriterHandle,
+    notices_dir: &Path,
 ) -> Result<Reconciled, DaemonError> {
-    let (turns, approvals, open_calls, shells) = readers
+    let (turns, approvals, open_calls, shells, ttys) = readers
         .with(|conn| {
             let turns = efr_store::conversations::unfinished_turns(conn)?;
             let mut open = HashMap::new();
@@ -123,11 +136,20 @@ pub(crate) async fn reconcile(
                 }
                 open.insert(turn.id, calls);
             }
+            let mut ttys = HashMap::new();
+            for turn in turns.iter().filter(|turn| not_run(turn)) {
+                if let Some(summary) = efr_store::conversations::get(conn, turn.conversation_id)?
+                    && let Some(tty) = summary.tty
+                {
+                    ttys.insert(turn.conversation_id, tty);
+                }
+            }
             Ok((
                 turns,
                 efr_store::approvals::pending(conn, None)?,
                 open,
                 efr_store::shells::running(conn)?,
+                ttys,
             ))
         })
         .await?;
@@ -135,7 +157,7 @@ pub(crate) async fn reconcile(
         turns_cancelled: turns.iter().filter(|turn| turn.status == TurnStatus::Running).count(),
         approvals_expired: approvals.len(),
         calls_closed: open_calls.values().map(Vec::len).sum(),
-        prompts_held: turns.iter().filter(|turn| turn.status == TurnStatus::Queued).count(),
+        prompts_not_run: turns.iter().filter(|turn| not_run(turn)).count(),
         shells_exited: shells.len(),
         ..Reconciled::default()
     };
@@ -148,6 +170,28 @@ pub(crate) async fn reconcile(
     let outbox = writer.outbox_cancel_process_bound().await?;
     done.outbox_cancelled = outbox.cancelled;
     done.outbox_requeued = outbox.requeued;
+    // NOTE: written after the commit, so a notice never names a prompt that the log
+    // still shows as waiting.
+    let not_run: Vec<(String, String)> = turns
+        .iter()
+        .filter(|turn| not_run(turn))
+        .filter_map(|turn| {
+            let tty = ttys.get(&turn.conversation_id)?;
+            Some((tty.clone(), notices::not_run(&turn.prompt)))
+        })
+        .collect();
+    let dir = notices_dir.to_path_buf();
+    let written = tokio::task::spawn_blocking(move || {
+        for (tty, line) in not_run {
+            if let Err(error) = notices::append(&dir, &tty, &line) {
+                tracing::warn!(error = %error, "the notice of a prompt that did not run could not be written");
+            }
+        }
+    })
+    .await;
+    if written.is_err() {
+        tracing::warn!("writing the notices of prompts that did not run panicked");
+    }
     Ok(done)
 }
 

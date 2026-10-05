@@ -72,8 +72,10 @@ pub enum Event {
         settings: TurnSettings,
     },
 
-    /// A queued prompt is held after a daemon restart until the user confirms it. Nothing
-    /// continues on its own after a restart.
+    /// A queued prompt was held after a daemon restart. Only logs from earlier daemons
+    /// hold it: a daemon now records a waiting prompt as not run with
+    /// [`Event::TurnCancelled`] at the next start, and the one after that settles a held
+    /// prompt the same way.
     PromptHeld {
         /// The turn of the held prompt.
         turn_id: TurnId,
@@ -257,7 +259,10 @@ pub enum Event {
         error: ErrorBody,
     },
 
-    /// A turn that was running when the daemon stopped was cancelled at the next start.
+    /// A turn that was running or waiting when the daemon stopped was cancelled at the
+    /// next start. Without a [`Event::TurnStarted`] before it, the turn never ran: its
+    /// prompt was queued, and the user is told to send it again. Nothing continues on
+    /// its own after a restart.
     TurnCancelled {
         /// The turn.
         turn_id: TurnId,

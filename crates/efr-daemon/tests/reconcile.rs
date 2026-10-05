@@ -41,11 +41,17 @@ async fn restart_reconcile_inflight_turn() {
         .collect();
     assert_eq!(
         tail,
-        [("turn_cancelled".to_owned(), first), ("prompt_held".to_owned(), second.clone())],
-        "the running turn is cancelled and the queued prompt held, in that order"
+        [("turn_cancelled".to_owned(), first), ("turn_cancelled".to_owned(), second.clone())],
+        "the running turn is cancelled and the queued prompt recorded as not run, in that order"
     );
     let started = events.iter().filter(|e| e.event.kind() == "turn_started").count();
-    assert_eq!(started, 1, "the held prompt does not start by itself");
+    assert_eq!(started, 1, "the queued prompt does not start by itself");
+    let notice = replay.daemon().dirs().dirs().runtime().join("notices").join("pts-efr-test");
+    assert_eq!(
+        std::fs::read_to_string(&notice).unwrap(),
+        "efr restarted; your queued prompt was not run: and then this; send it again\n",
+        "the terminal is told at its next prompt"
+    );
     let list: ConversationsListResult = replay
         .client()
         .call(Method::ConversationsList(ConversationsList::default()))

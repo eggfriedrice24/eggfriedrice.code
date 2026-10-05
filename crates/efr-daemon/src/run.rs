@@ -343,7 +343,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     }
     let writer = store.writer().clone();
     let readers = store.readers().clone();
-    let reconciled = reconcile::reconcile(&readers, &writer).await?;
+    let notices_dir = dirs.runtime().join(notices::NOTICES_DIR);
+    let reconciled = reconcile::reconcile(&readers, &writer, &notices_dir).await?;
     tracing::info!(?reconciled, "reconciled");
 
     let ptys = Arc::new(Ptys::default());

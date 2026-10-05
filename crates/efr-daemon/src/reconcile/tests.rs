@@ -124,7 +124,9 @@ fn after(events: Vec<EventEnvelope>, hwm: Seq) -> Vec<(Option<ConversationId>, E
 async fn a_restart_settles_every_kind_of_work_in_flight() {
     let Scene { store, busy, t1, t2, call, pty, hwm } = scene().await;
 
-    let done = reconcile(store.readers(), store.writer()).await.unwrap();
+    let notices = tempfile::tempdir().unwrap();
+
+    let done = reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
 
     assert_eq!(
         done,
@@ -132,7 +134,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
             turns_cancelled: 1,
             approvals_expired: 1,
             calls_closed: 1,
-            prompts_held: 1,
+            prompts_not_run: 1,
             shells_exited: 1,
             outbox_cancelled: 1,
             outbox_requeued: 0,
@@ -154,7 +156,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
                 }
             ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),
-            (Some(busy), Event::PromptHeld { turn_id: t2 }),
+            (Some(busy), Event::TurnCancelled { turn_id: t2 }),
             (Some(busy), Event::ShellExited { pty_id: pty, exit_code: None }),
         ]
     );
@@ -169,22 +171,25 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
         })
         .await
         .unwrap();
-    assert_eq!(
-        turns.iter().map(|turn| (turn.id, turn.status)).collect::<Vec<_>>(),
-        [(t2, TurnStatus::Held)]
-    );
+    assert!(turns.is_empty(), "nothing waits to run: {turns:?}");
     assert!(approvals.is_empty());
     assert!(shells.is_empty());
+    assert_eq!(
+        std::fs::read_dir(notices.path()).unwrap().count(),
+        0,
+        "a conversation without a terminal gets no notice"
+    );
     store.close().await;
 }
 
 #[tokio::test]
 async fn a_second_restart_finds_nothing_left_to_settle() {
     let Scene { store, .. } = scene().await;
-    reconcile(store.readers(), store.writer()).await.unwrap();
+    let notices = tempfile::tempdir().unwrap();
+    reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
     let hwm = store.writer().append(Batch::new()).await.unwrap().last_seq();
 
-    let done = reconcile(store.readers(), store.writer()).await.unwrap();
+    let done = reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
 
     assert_eq!(done, Reconciled::default());
     assert_eq!(after(store.events().await.unwrap(), hwm), []);
@@ -192,9 +197,10 @@ async fn a_second_restart_finds_nothing_left_to_settle() {
 }
 
 #[tokio::test]
-async fn the_plan_leaves_finished_and_held_turns_alone() {
+async fn the_plan_leaves_finished_turns_alone() {
     let Scene { store, busy, .. } = scene().await;
-    reconcile(store.readers(), store.writer()).await.unwrap();
+    let notices = tempfile::tempdir().unwrap();
+    reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
     let (turns, approvals, shells) = store
         .readers()
         .with(move |conn| {
@@ -207,7 +213,84 @@ async fn the_plan_leaves_finished_and_held_turns_alone() {
         .await
         .unwrap();
 
-    assert_eq!(turns.len(), 2, "the cancelled turn and the held one");
+    assert_eq!(turns.len(), 2, "the cancelled turn and the prompt that did not run");
+    assert!(turns.iter().all(|turn| turn.status == TurnStatus::Cancelled), "{turns:?}");
     assert!(plan(&turns, &approvals, &HashMap::new(), &shells).is_empty());
+    store.close().await;
+}
+
+/// A terminal's conversation with a running turn, a prompt queued behind it, and a
+/// prompt that an earlier daemon held.
+async fn terminal_scene() -> (TestStore, ConversationId, [TurnId; 3], Seq) {
+    let store = TestStore::open(TestClock::new().shared()).await.unwrap();
+    let tty = ConversationId::from_uuid(id(3));
+    let (running, waiting, held) =
+        (TurnId::from_uuid(id(41)), TurnId::from_uuid(id(42)), TurnId::from_uuid(id(43)));
+    let long = format!("deploy\nthe {} now", "x".repeat(80));
+    let created =
+        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/7".to_owned()) };
+    let batch = Batch::new()
+        .event(tty, created)
+        .event(tty, queued(held, 3))
+        .event(tty, Event::PromptHeld { turn_id: held })
+        .event(tty, queued(running, 1))
+        .event(tty, started(running))
+        .event(
+            tty,
+            Event::PromptQueued {
+                turn_id: waiting,
+                command_id: CommandId::from_uuid(id(150)),
+                text: long,
+                origin: Origin::Shell,
+                context: None,
+                settings: efr_protocol::TurnSettings::default(),
+            },
+        );
+    let hwm = store.writer().append(batch).await.unwrap().last_seq();
+    (store, tty, [running, waiting, held], hwm)
+}
+
+#[tokio::test]
+async fn a_waiting_prompt_is_recorded_as_not_run_and_its_terminal_told_to_send_it_again() {
+    let (store, tty, [running, waiting, held], hwm) = terminal_scene().await;
+    let notices = tempfile::tempdir().unwrap();
+
+    let done = reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
+
+    assert_eq!((done.turns_cancelled, done.prompts_not_run), (1, 2));
+    assert_eq!(
+        after(store.events().await.unwrap(), hwm),
+        [
+            (Some(tty), Event::TurnCancelled { turn_id: running }),
+            (Some(tty), Event::TurnCancelled { turn_id: held }),
+            (Some(tty), Event::TurnCancelled { turn_id: waiting }),
+        ],
+        "a prompt that an earlier daemon held is settled too"
+    );
+    let text = std::fs::read_to_string(notices.path().join("pts-7")).unwrap();
+    let quoted = format!("deploy the {}", "x".repeat(49));
+    assert_eq!(
+        text,
+        format!(
+            "efr restarted; your queued prompt was not run: prompt 3; send it again\n\
+             efr restarted; your queued prompt was not run: {quoted}; send it again\n"
+        )
+    );
+    store.close().await;
+}
+
+#[tokio::test]
+async fn a_prompt_that_did_not_run_is_reported_once_and_never_starts() {
+    let (store, _, _, _) = terminal_scene().await;
+    let notices = tempfile::tempdir().unwrap();
+    reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
+    let before = std::fs::read_to_string(notices.path().join("pts-7")).unwrap();
+
+    let again = reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
+
+    assert_eq!(again, Reconciled::default());
+    let turns = store.readers().with(efr_store::conversations::unfinished_turns).await.unwrap();
+    assert!(turns.is_empty(), "{turns:?}");
+    assert_eq!(std::fs::read_to_string(notices.path().join("pts-7")).unwrap(), before);
     store.close().await;
 }

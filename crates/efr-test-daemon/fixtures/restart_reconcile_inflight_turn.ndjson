@@ -6,5 +6,5 @@
 {"dir":"emit_inbound","kind":"client_frame","body":{"id":2,"method":"prompt.send","params":{"command_id":"0192f0c1-7a00-7000-8000-000000000002","context":{"pwd":"<CWD>","tty":"/dev/pts/efr-test"},"text":"and then this"}}}
 {"dir":"expect_outbound","kind":"event","body":{"command_id":"0192f0c1-7a00-7000-8000-000000000002","context":{"pwd":"<CWD>","tty":"/dev/pts/efr-test"},"kind":"prompt_queued","origin":"shell","text":"and then this","turn_id":"<turn:2>"}}
 {"dir":"expect_outbound","kind":"event","body":{"kind":"turn_cancelled","turn_id":"<turn:1>"}}
-{"dir":"expect_outbound","kind":"event","body":{"kind":"prompt_held","turn_id":"<turn:2>"}}
+{"dir":"expect_outbound","kind":"event","body":{"kind":"turn_cancelled","turn_id":"<turn:2>"}}
 {"dir":"emit_inbound","kind":"provider_sse","body":"data: {\"kind\":\"text_delta\",\"data\":{\"text\":\"never sent\"}}\n\ndata: {\"kind\":\"done\",\"data\":{\"stop_reason\":\"end_turn\"}}\n\n"}

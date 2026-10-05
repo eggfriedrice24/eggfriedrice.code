@@ -26,7 +26,8 @@ const TITLE_CHARS: usize = 80;
 pub enum TurnStatus {
     /// Waiting behind another turn.
     Queued,
-    /// Queued when the daemon restarted; it waits until the user confirms it.
+    /// Held by an earlier daemon at a restart (`prompt_held`). No daemon holds a
+    /// prompt any more; the next start records a held one as not run.
     Held,
     /// Running.
     Running,

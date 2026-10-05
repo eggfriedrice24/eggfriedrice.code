@@ -24,7 +24,7 @@ turns.
   `model`, `effort`) and checks them against the model list
   (`ConversationConfig::models`; an empty list takes any model): a model outside the
   list, or an effort the model does not take, is `InvalidSetting` with the choices,
-  and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a held
+  and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a queued
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
   the choices when they no longer fit, and records them on `turn_started`. A turn

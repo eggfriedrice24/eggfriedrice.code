@@ -150,8 +150,9 @@ stops. `efrd` starts in this order (the roots come from `EFR_<ROOT>_DIR`, else
 3. Copy the database to `backups/efr.sqlite.<user_version>`, then run the forward-only
    migrations.
 4. Reconcile: mark in-flight turns cancelled, expire pending approvals as not
-   resumable, hold queued prompts until the user confirms, cancel process-bound
-   outbox rows. Nothing continues automatically.
+   resumable, record queued prompts as not run (`turn_cancelled`) with a notice to
+   their terminal to send them again, cancel process-bound outbox rows. Nothing
+   continues automatically.
 5. Start the store writer, providers, the tool registry and the shell sessions.
 6. Open the Unix socket (0600) and write `daemon.json` for discovery.
 7. Send `READY=1` to systemd.
