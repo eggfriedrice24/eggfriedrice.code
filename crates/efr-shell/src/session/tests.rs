@@ -119,6 +119,44 @@ fn a_run_left_running_still_forgets_credentials_when_it_ends() {
 }
 
 #[test]
+fn a_sentinel_run_that_forgets_credentials_types_the_forget_key_at_the_next_prompt() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Sentinel);
+    first.forget_credentials = true;
+    core.submit(first);
+
+    let ended = feed(
+        &mut core,
+        &mut at,
+        b"\r\n\x1b]133;C\x07__efr_0123456789abcdef_b\r\n\r\n__efr_0123456789abcdef_e:0:/home/u\r\n",
+    );
+    assert!(answer.try_recv().unwrap().is_ok(), "the run is answered at its end marker");
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
+
+    assert!(ended.is_empty(), "nothing is typed before the line editor reads");
+    assert_eq!(at_prompt, [b"\x1b[efr-forget~".to_vec()]);
+}
+
+#[test]
+fn a_sentinel_run_left_running_still_forgets_credentials_when_it_ends() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, _answer, _) = order(1, "sudo true", RunMode::Sentinel);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07__efr_0123456789abcdef_b\r\n[sudo] password: ");
+    assert!(matches!(core.detach(1), Detached::Running { .. }));
+
+    feed(&mut core, &mut at, b"\r\n__efr_0123456789abcdef_e:0:/home/u\r\n");
+    let writes = feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
+
+    assert_eq!(writes, [b"\x1b[efr-forget~".to_vec()]);
+}
+
+#[test]
 fn a_run_before_the_prompt_is_typed_when_it_comes() {
     let (mut core, _) = core(true);
     let mut at = 0;

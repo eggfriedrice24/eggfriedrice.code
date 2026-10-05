@@ -230,7 +230,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   five minutes), so a second `sudo` soon after an answered one may not ask again.
   `per_call` makes the hidden shell forget the credentials (`sudo -k`, `doas -L`) after
   each call, before anything else runs there, so the next `sudo` asks for the password
-  again. Every command with `sudo` still needs the user's approval with either value.
+  again. It needs the zsh integration: a hidden shell without it keeps the cache, and
+  a call inside a nested shell forgets only when that shell exits. Every command with `sudo` still needs the user's approval with either value.
 
 ### Notices
 

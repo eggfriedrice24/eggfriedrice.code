@@ -105,6 +105,9 @@ pub(crate) struct SentinelRun {
     captured_end: Seq,
     /// The offset where the output ended, once the end marker was found.
     output_end: Option<Seq>,
+    /// Type [`FORGET_CREDENTIALS`](crate::run::FORGET_CREDENTIALS) at the outer zsh's
+    /// next prompt once the run ends.
+    forget_credentials: bool,
 }
 
 impl SentinelRun {
@@ -119,7 +122,20 @@ impl SentinelRun {
             output_start: None,
             captured_end: Seq::ZERO,
             output_end: None,
+            forget_credentials: false,
         }
+    }
+
+    /// The same run, making the shell forget the cached credentials when it ends when
+    /// `forget` is set.
+    pub(crate) fn forgetting(mut self, forget: bool) -> Self {
+        self.forget_credentials = forget;
+        self
+    }
+
+    /// True when the shell must forget the cached credentials once the run ends.
+    pub(crate) fn forgets_credentials(&self) -> bool {
+        self.forget_credentials
     }
 
     pub(crate) fn capture(&self) -> &Capture {

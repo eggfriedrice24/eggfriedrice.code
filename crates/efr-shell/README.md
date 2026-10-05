@@ -158,8 +158,12 @@ and `D`, or the two sentinels):
   on the `PATH`) with every stream redirected, so nothing reaches the screen, the
   recording or a tool result. The key waits for `B` because before the line editor
   reads, the terminal is in cooked mode and would echo it. A run that was left at its
-  timeout (sudo at its password prompt) still forgets when it ends. Only a run
-  delimited by marks forgets: a sentinel run has no integration to bind the key.
+  timeout (sudo at its password prompt) still forgets when it ends. A run delimited
+  by sentinels (a nested shell) forgets at the outer zsh's next `B` too: right after
+  its end marker when it was typed at that prompt, and only when the nested shell
+  exits when it was typed into one. A shell without the integration (not a zsh, or
+  the integration did not load) has no binding and no marks, so it keeps the cache;
+  the session logs a warning once when such a shell gets a run that should forget.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:

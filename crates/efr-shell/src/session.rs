@@ -73,8 +73,7 @@ pub(crate) struct RunOrder {
     pub(crate) output_limit: usize,
     /// The tool call that runs the command, whose answers may reach it.
     pub(crate) call: Option<CallId>,
-    /// Make the shell forget the cached sudo and doas credentials when a marked run
-    /// ends.
+    /// Make the shell forget the cached sudo and doas credentials when the run ends.
     pub(crate) forget_credentials: bool,
     /// The sentinel token, drawn by the caller from the injected generator.
     pub(crate) token: String,
@@ -188,6 +187,8 @@ pub(crate) struct SessionCore {
     /// A run that forgets credentials has ended: type [`FORGET_CREDENTIALS`] at the
     /// next ready prompt.
     forget_pending: bool,
+    /// The warning that this shell cannot forget credentials was logged.
+    forget_warned: bool,
     observer: Arc<dyn ShellObserver>,
 }
 
@@ -207,6 +208,7 @@ impl SessionCore {
             queued: None,
             orphan: None,
             forget_pending: false,
+            forget_warned: false,
             observer,
         }
     }
@@ -395,6 +397,15 @@ impl SessionCore {
     }
 
     fn start(&mut self, order: RunOrder, delimiter: Delimiter) -> Vec<Bytes> {
+        // NOTE: only the integration binds the forget key, and only its prompt marks
+        // say when to type it, so a shell without it keeps sudo's cache.
+        if order.forget_credentials && !self.state.integration && !self.forget_warned {
+            self.forget_warned = true;
+            tracing::warn!(
+                conversation = %self.conversation,
+                "this hidden shell has no efr integration, so it keeps sudo's cached credentials although shell.sudo_cache is per_call"
+            );
+        }
         let (line, machine) = match delimiter {
             Delimiter::Marks => (
                 marked_line(&order.command),
@@ -405,7 +416,10 @@ impl SessionCore {
             ),
             Delimiter::Sentinel => (
                 sentinel_line(&order.command, &order.token),
-                Machine::Sentinel(SentinelRun::new(&order.token, order.output_limit)),
+                Machine::Sentinel(
+                    SentinelRun::new(&order.token, order.output_limit)
+                        .forgetting(order.forget_credentials),
+                ),
             ),
         };
         match line {
@@ -450,6 +464,7 @@ impl SessionCore {
         if let Some(Machine::Sentinel(orphan)) = &mut self.orphan
             && orphan.on_bytes(at, bytes).0.is_some()
         {
+            self.forget_pending |= orphan.forgets_credentials();
             self.orphan = None;
         }
         let Some(active) = &mut self.active else {
@@ -468,6 +483,13 @@ impl SessionCore {
             active.progress.send_replace(Progress::of(capture, active.started));
         }
         if let Some(output) = ended {
+            // NOTE: the key goes out at the outer zsh's next prompt: right away for a
+            // line typed at that prompt, and when a nested shell exits for a line typed
+            // into it. A shell without the integration shows no prompt mark, so it
+            // never gets the key, which it has no binding for.
+            if let Machine::Sentinel(run) = &active.machine {
+                self.forget_pending |= run.forgets_credentials();
+            }
             self.finish(output);
         }
     }

@@ -399,7 +399,11 @@ What happens to the password after an approved `sudo` is `[shell] sudo_cache`:
   efr makes it forget the credentials (`sudo -k`, and `doas -L` when doas exists), so
   the next `sudo` asks for the password again. Nothing of this shows on the screen or
   in the output. It happens after every call, not only after a line that names sudo,
-  because a script or a function can run sudo too.
+  because a script or a function can run sudo too. It needs efr's zsh integration in
+  the hidden shell: a `shell.program` that is not a zsh, or a zsh whose integration
+  did not load, keeps sudo's cache (the daemon logs a warning). A call that runs in a
+  nested shell (`nested_shell`, such as a command inside `bash` or `ssh`) forgets
+  only when that nested shell exits back to the hidden zsh.
 
 With either value, every call that runs `sudo` asks for your approval first.
 
