@@ -57,19 +57,39 @@ impl fmt::Display for Warning {
                 write!(f, "{} could not be read: {source}", path.display())
             }
             Warning::Invalid { path, source } => {
-                write!(f, "{} is not valid: {}", path.display(), reason(source))?;
-                match (source.location(), source.key()) {
-                    (Some(at), Some(key)) => write!(f, " ({key}, {at})"),
-                    (Some(at), None) => write!(f, " ({at})"),
-                    (None, Some(key)) => write!(f, " ({key})"),
-                    (None, None) => Ok(()),
-                }
+                write!(f, "{} is not valid: {}", path.display(), describe(source))
             }
             Warning::UnknownTheme { path, name } => {
                 write!(f, "{} names the theme {name:?}, which does not exist", path.display())
             }
         }
     }
+}
+
+/// What is wrong in `error` on one line, with its key and place when it has them, such
+/// as `unknown field ... (shell.idle_minuets, line 2, column 1)`.
+pub(crate) fn describe(error: &ConfigError) -> String {
+    let mut text = reason(error);
+    match (error.location(), error.key()) {
+        (Some(at), Some(key)) => text.push_str(&format!(" ({key}, {at})")),
+        (Some(at), None) => text.push_str(&format!(" ({at})")),
+        (None, Some(key)) => text.push_str(&format!(" ({key})")),
+        (None, None) => {}
+    }
+    crate::format::one_line(&text)
+}
+
+/// Why `text`, the contents of the config file `path` (`None`: no file), cannot be
+/// used, as `efrd` and `efr` see it: the daemon's checks, then the theme's name.
+pub(crate) fn problem(path: &Path, text: Option<&str>) -> Option<String> {
+    let settings = match efr_config::Settings::parse(path, text) {
+        Ok(settings) => settings,
+        Err(error) => return Some(describe(&error)),
+    };
+    let name = settings.render.theme?;
+    Theme::from_name(&name)
+        .is_err()
+        .then(|| format!("render.theme names the theme {name:?}, which does not exist"))
 }
 
 /// What is wrong, without the path that the warning already names.

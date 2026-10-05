@@ -11,7 +11,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AdminStatusResult, ApprovalDecision, ConversationStatus, ConversationsListResult, Origin,
+    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError,
+    ConversationStatus, ConversationsListResult, Origin,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::Timestamp;
@@ -250,6 +251,65 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
             }
         };
         row("provider", &format!("{}: {state}", one_line(&provider.provider)));
+    }
+    if let Some(config) = &status.config {
+        let file = match (&config.symlink_target, config.exists) {
+            (Some(target), _) => format!("{} -> {}", config.path.display(), target.display()),
+            (None, true) => config.path.display().to_string(),
+            (None, false) => format!("{} (absent)", config.path.display()),
+        };
+        row("config", &one_line(&file));
+        if let Some(error) = &config.reload_error {
+            row("config error", &config_error(error));
+        }
+        if !config.restart_needed.is_empty() {
+            row("restart needed", &one_line(&config.restart_needed.join(", ")));
+        }
+    }
+    out
+}
+
+/// A config file's error as one line: the message, then its key and place.
+pub(crate) fn config_error(error: &ConfigFileError) -> String {
+    let place = config_error_place(error);
+    if place.is_empty() {
+        one_line(&error.message)
+    } else {
+        one_line(&format!("{} ({place})", error.message))
+    }
+}
+
+/// The key and the place of a config file's error, such as `shell.login, line 3,
+/// column 1`, or nothing when it has neither.
+pub(crate) fn config_error_place(error: &ConfigFileError) -> String {
+    let mut parts = Vec::new();
+    if let Some(key) = &error.key {
+        parts.push(key.clone());
+    }
+    match (error.line, error.column) {
+        (Some(line), Some(column)) => parts.push(format!("line {line}, column {column}")),
+        (Some(line), None) => parts.push(format!("line {line}")),
+        _ => {}
+    }
+    parts.join(", ")
+}
+
+/// The outcome of a reload, for `efr config reload` and the commands that change the
+/// file.
+pub(crate) fn reloaded(result: &AdminConfigReloadResult) -> String {
+    let mut out = match (&result.error, result.applied) {
+        (_, true) => "config.toml reloaded; new turns use it\n".to_owned(),
+        (Some(error), false) => {
+            format!("config.toml has an error; the old settings stay: {}\n", config_error(error))
+        }
+        (None, false) => "config.toml was not applied; the old settings stay\n".to_owned(),
+    };
+    if !result.restart_needed.is_empty() {
+        let _ = writeln!(
+            out,
+            "restart efrd to apply: {} (systemctl --user restart efrd)",
+            one_line(&result.restart_needed.join(", "))
+        );
     }
     out
 }

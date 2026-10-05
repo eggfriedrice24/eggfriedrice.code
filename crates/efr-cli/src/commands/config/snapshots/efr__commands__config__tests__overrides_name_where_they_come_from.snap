@@ -1,26 +1,49 @@
 ---
 source: crates/efr-cli/src/commands/config/tests.rs
-expression: "effective(&ctx, &discovered)"
+expression: "effective(&ctx, &view)"
 ---
-# The settings efr uses and where each one comes from.
-# The daemon's own settings are not shown; efrd --print-config shows them.
+# /c/efr/config.toml (absent; every value is its default)
+# Every key of config.toml with where its value comes from. efrd applies
+# EFR_LOG, EFR_SCREEN and its flags on top; efrd --print-config shows them.
+log = "info"  # default
+screen = "auto"  # default
+model.provider = "openai-subscription"  # default
+model.name = (unset)  # default
+model.effort = (unset)  # default
+model.system_prompt = <810 bytes>  # default
+model.max_output_tokens = (unset)  # default
+openai.originator = "efr"  # default
+openai.models = (built in)  # default
+openai.subscription_base_url = (unset)  # default
+openai.api_base_url = (unset)  # default
+permissions.mode = "cautious"  # default
+permissions.secret_paths = []  # default
+permissions.rules = []  # default
+shell.program = (unset)  # default
+shell.login = true  # default
+shell.idle_minutes = 5  # file
+shell.sudo_cache = "keep"  # default
+conversation.max_queued = 16  # default
+conversation.approval_timeout_secs = (unset)  # default
+conversation.update_interval_ms = 200  # default
+conversation.tty_idle_hours = 12  # default
+render.theme = "gruvbox-dark"  # file
 
-[render]
+[efr]
 theme = "gruvbox-dark"  # /c/efr/config.toml
 colour = "truecolor"  # COLORTERM
 formatted = true  # stdout is a terminal
+open_browser = true  # EFR_OPEN_BROWSER
+log = "debug"  # EFR_LOG
 
 [paths]
-config = "/c/efr"  # XDG base directory
-data = "/d/efr"  # EFR_DATA_DIR
-state = "/s/efr"  # XDG base directory
-runtime = "/run/user/1000/efr"  # XDG base directory
+config = "/c/efr"  # EFR_HOME
+data = "/d/efr"  # EFR_HOME
+state = "/s/efr"  # EFR_HOME
+runtime = "/run/user/1000/efr"  # EFR_HOME
 
 [daemon]
 socket = "/tmp/elsewhere/daemon.sock"  # daemon.json
-
-[login]
-open_browser = true  # EFR_OPEN_BROWSER
-
-[log]
-filter = "debug"  # EFR_LOG
+config = "/c/efr/config.toml"  # admin.status
+reload_error = "the config file is not valid: unknown field `idle_minuets`"  # shell.idle_minuets, line 4, column 1
+restart_needed = ["screen"]  # restart efrd to apply

@@ -72,8 +72,16 @@ fn a_daemon_that_does_not_answer_points_at_its_log() {
 fn missing_directories_say_which_variable_to_set() {
     let runtime = CliError::Dirs { source: efr_stdx::StdxError::RuntimeDirUnset };
     assert!(runtime.hint().unwrap().contains("EFR_RUNTIME_DIR"));
+    assert!(runtime.hint().unwrap().contains("EFR_HOME"));
     let home = CliError::Dirs { source: efr_stdx::StdxError::HomeNotFound };
-    assert_eq!(home.hint(), Some("set HOME"));
+    assert_eq!(home.hint(), Some("set HOME, or EFR_HOME"));
+}
+
+#[test]
+fn a_config_error_was_printed_by_its_command_and_exits_with_1() {
+    assert!(CliError::ConfigInvalid.is_silent());
+    assert_eq!(CliError::ConfigInvalid.exit(), Exit::Invalid);
+    assert_eq!(Exit::Invalid.code(), 1);
 }
 
 #[test]

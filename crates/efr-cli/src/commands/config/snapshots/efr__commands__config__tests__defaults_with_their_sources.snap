@@ -1,26 +1,47 @@
 ---
 source: crates/efr-cli/src/commands/config/tests.rs
-expression: "effective(&ctx, &default_socket())"
+expression: "effective(&ctx, &view(\"\", not_running()))"
 ---
-# The settings efr uses and where each one comes from.
-# The daemon's own settings are not shown; efrd --print-config shows them.
+# /c/efr/config.toml (absent; every value is its default)
+# Every key of config.toml with where its value comes from. efrd applies
+# EFR_LOG, EFR_SCREEN and its flags on top; efrd --print-config shows them.
+log = "info"  # default
+screen = "auto"  # default
+model.provider = "openai-subscription"  # default
+model.name = (unset)  # default
+model.effort = (unset)  # default
+model.system_prompt = <810 bytes>  # default
+model.max_output_tokens = (unset)  # default
+openai.originator = "efr"  # default
+openai.models = (built in)  # default
+openai.subscription_base_url = (unset)  # default
+openai.api_base_url = (unset)  # default
+permissions.mode = "cautious"  # default
+permissions.secret_paths = []  # default
+permissions.rules = []  # default
+shell.program = (unset)  # default
+shell.login = true  # default
+shell.idle_minutes = 60  # default
+shell.sudo_cache = "keep"  # default
+conversation.max_queued = 16  # default
+conversation.approval_timeout_secs = (unset)  # default
+conversation.update_interval_ms = 200  # default
+conversation.tty_idle_hours = 12  # default
+render.theme = (unset)  # default
 
-[render]
+[efr]
 theme = "ansi"  # default
 colour = "16"  # default; COLORTERM does not say truecolor
 formatted = true  # stdout is a terminal
+open_browser = false  # default
+log = "warn"  # default
 
 [paths]
-config = "/c/efr"  # XDG base directory
-data = "/d/efr"  # XDG base directory
-state = "/s/efr"  # XDG base directory
-runtime = "/run/user/1000/efr"  # XDG base directory
+config = "/c/efr"  # XDG
+data = "/d/efr"  # XDG
+state = "/s/efr"  # XDG
+runtime = "/run/user/1000/efr"  # XDG
 
 [daemon]
 socket = "/run/user/1000/efr/daemon.sock"  # default; no daemon.json
-
-[login]
-open_browser = false  # default
-
-[log]
-filter = "warn"  # default
+# the daemon is not running

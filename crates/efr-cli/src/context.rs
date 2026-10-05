@@ -15,7 +15,7 @@ use std::sync::Arc;
 use efr_client::{Client, ConnectOptions, Discovered};
 use efr_protocol::{CommandId, Origin};
 use efr_stdx::env::{Env, Var};
-use efr_stdx::paths::Dirs;
+use efr_stdx::paths::{Dirs, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 
@@ -77,7 +77,11 @@ impl Browser for XdgOpen {
 #[derive(Debug)]
 pub(crate) struct Context {
     pub(crate) dirs: Dirs,
+    /// Where each root in `dirs` came from.
+    pub(crate) sources: RootSources,
     pub(crate) env: Env,
+    /// The editor of `efr config edit`: `$VISUAL`, else `$EDITOR`; `None` uses `vi`.
+    pub(crate) editor: Option<String>,
     pub(crate) term: TermFacts,
     pub(crate) settings: Settings,
     pub(crate) clock: Arc<dyn Clock>,
@@ -95,13 +99,23 @@ pub(crate) struct Context {
 impl Context {
     /// The context of this process.
     pub(crate) async fn from_process(term: TermFacts) -> Result<Context, CliError> {
-        let dirs = Dirs::resolve().map_err(|source| CliError::Dirs { source })?;
+        let (dirs, sources) =
+            Dirs::resolve_with_sources().map_err(|source| CliError::Dirs { source })?;
         let settings = Settings::load(dirs.config()).await;
         let rng = SystemRng::new().map_err(|source| CliError::Random { source })?;
         let keys = TtyKeys { available: term.stdin_tty };
+        // NOTE: VISUAL and EDITOR are POSIX conventions, not efr settings, so they are
+        // read here and not through efr_stdx::env::Var.
+        let editor = ["VISUAL", "EDITOR"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .filter_map(|value| value.into_string().ok())
+            .find(|value| !value.trim().is_empty());
         Ok(Context {
             dirs,
+            sources,
             env: Env::process(),
+            editor,
             settings,
             clock: Arc::new(SystemClock),
             rng: Arc::new(rng),

@@ -1,4 +1,9 @@
-use efr_protocol::{AdminStatusResult, ErrorBody, ErrorCode, Method, Origin, ProviderStatus};
+use std::path::PathBuf;
+
+use efr_protocol::{
+    AdminStatusResult, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, Method, Origin,
+    ProviderStatus,
+};
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 
@@ -76,6 +81,47 @@ async fn a_logged_in_provider_needs_no_login_hint() {
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     assert_eq!(captured.stderr(), "");
+}
+
+#[tokio::test]
+async fn status_shows_the_config_file_its_reload_error_and_the_keys_that_wait_for_a_restart() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.config = Some(ConfigStatus {
+        path: PathBuf::from("/c/efr/config.toml"),
+        exists: true,
+        symlink_target: Some(PathBuf::from("/home/u/dotfiles/efr/config.toml")),
+        reload_error: Some(ConfigFileError {
+            message: "unknown field `idle_minuets`".to_owned(),
+            line: Some(3),
+            column: Some(1),
+            key: Some("shell.idle_minuets".to_owned()),
+        }),
+        restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+    });
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let stdout = captured.stdout();
+    assert!(
+        stdout.ends_with(
+            "\
+config         /c/efr/config.toml -> /home/u/dotfiles/efr/config.toml
+config error   unknown field `idle_minuets` (shell.idle_minuets, line 3, column 1)
+restart needed screen, model.provider
+"
+        ),
+        "{stdout}"
+    );
 }
 
 #[tokio::test]

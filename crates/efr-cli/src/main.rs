@@ -1,5 +1,5 @@
 //! `efr`, the command-line relay to the efr daemon. The zsh plugin runs it for every
-//! `,` line; people run it for status, history, login and settings.
+//! `,` line; people run it for status, history, login, paths and `config.toml`.
 //!
 //! - `cli`: the command line (clap).
 //! - `run`: dispatch, exit codes and error messages; `commands/*`: one file per command.
@@ -9,9 +9,11 @@
 //!   `answer`: the line typed for a command that waits for input; `terminal`: the
 //!   terminal facts and size.
 //! - `context`: what every command runs with; `settings`: the `[render]` table of
-//!   `config.toml`; `format`: the CLI's own lines; `output`: the only writer.
+//!   `config.toml` and the checks of `efr config`; `format`: the CLI's own lines;
+//!   `output`: the only writer.
 //!
-//! Allowed dependencies: `efr-client`, `efr-render`, `efr-protocol` and `efr-stdx`.
+//! Allowed dependencies: `efr-client`, `efr-config`, `efr-render`, `efr-protocol` and
+//! `efr-stdx`.
 //! What does not belong here: business logic (the daemon decides; this relays), any
 //! write to the daemon's database or credentials, and the server side of the protocol
 //! (`efr-transport`).

@@ -3,6 +3,7 @@
 use std::io;
 
 use efr_client::ClientError;
+use efr_config::ConfigError;
 use efr_protocol::{ErrorBody, ErrorCode};
 use efr_stdx::StdxError;
 
@@ -20,6 +21,9 @@ pub(crate) enum Exit {
     Success,
     /// 1: the daemon failed the request, the turn failed, or the connection broke.
     DaemonError,
+    /// 1: a config file has an error (`efr config check`, `edit`, `set`, `unset`), or
+    /// the daemon refused one on `efr config reload`.
+    Invalid,
     /// 2: the command line or its input is wrong.
     Usage,
     /// 3: no daemon listens on the socket.
@@ -33,7 +37,7 @@ impl Exit {
     pub(crate) const fn code(self) -> u8 {
         match self {
             Exit::Success => 0,
-            Exit::DaemonError => 1,
+            Exit::DaemonError | Exit::Invalid => 1,
             Exit::Usage => 2,
             Exit::NotRunning => 3,
             Exit::Interrupted => 130,
@@ -146,6 +150,30 @@ pub(crate) enum CliError {
         #[source]
         source: io::Error,
     },
+
+    /// A config file has an error, which the command has already printed with its
+    /// place.
+    #[error("the config file has an error")]
+    ConfigInvalid,
+
+    /// The config file could not be read, created or written.
+    #[error("config.toml could not be changed")]
+    ConfigFile {
+        #[source]
+        source: Box<ConfigError>,
+    },
+
+    /// The editor of `efr config edit` could not be started.
+    #[error("the editor {editor:?} could not be started")]
+    Editor {
+        editor: String,
+        #[source]
+        source: io::Error,
+    },
+
+    /// The editor of `efr config edit` failed, so the file is not checked.
+    #[error("the editor {editor:?} exited with {status}")]
+    EditorFailed { editor: String, status: std::process::ExitStatus },
 }
 
 impl CliError {
@@ -159,6 +187,7 @@ impl CliError {
             | CliError::SteerNeedsConversation
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
+            CliError::ConfigInvalid => Exit::Invalid,
             _ => Exit::DaemonError,
         }
     }
@@ -176,10 +205,10 @@ impl CliError {
             CliError::Client(ClientError::ProtocolMismatch { .. }) => {
                 Some("efr and efrd come from different builds; install both from one build")
             }
-            CliError::Dirs { source: StdxError::RuntimeDirUnset } => {
-                Some("a systemd login sets XDG_RUNTIME_DIR; without one, set EFR_RUNTIME_DIR")
-            }
-            CliError::Dirs { source: StdxError::HomeNotFound } => Some("set HOME"),
+            CliError::Dirs { source: StdxError::RuntimeDirUnset } => Some(
+                "a systemd login sets XDG_RUNTIME_DIR; without one, set EFR_HOME or EFR_RUNTIME_DIR",
+            ),
+            CliError::Dirs { source: StdxError::HomeNotFound } => Some("set HOME, or EFR_HOME"),
             // A turn fails as unauthorized when the provider has no usable credentials.
             CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
                 Some(LOGIN_HINT)
@@ -203,7 +232,7 @@ impl CliError {
     pub(crate) fn is_silent(&self) -> bool {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
-            CliError::Interrupted => true,
+            CliError::Interrupted | CliError::ConfigInvalid => true,
             _ => false,
         }
     }

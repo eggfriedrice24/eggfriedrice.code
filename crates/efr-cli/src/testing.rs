@@ -21,7 +21,7 @@ use efr_protocol::{
     ServerFrame, TurnId,
 };
 use efr_stdx::env::{Env, Var};
-use efr_stdx::paths::Dirs;
+use efr_stdx::paths::{Dirs, RootSource, RootSources};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
@@ -330,7 +330,9 @@ impl TestEnv {
     pub(crate) fn context(&self) -> Context {
         Context {
             dirs: self.dirs.clone(),
+            sources: RootSources::all(RootSource::Xdg),
             env: Env::fixed(Vec::<(Var, String)>::new()),
+            editor: None,
             term: TermFacts::default(),
             settings: Settings::default(),
             clock: Arc::new(StoppedClock),

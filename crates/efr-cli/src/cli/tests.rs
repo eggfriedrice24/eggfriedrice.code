@@ -2,7 +2,7 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory as _, Parser as _};
 use pretty_assertions::assert_eq;
 
-use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand};
+use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand, PathsArgs};
 use crate::testing::{CONVERSATION, command, conversation};
 
 fn parse_error(args: &[&str]) -> ErrorKind {
@@ -135,6 +135,33 @@ fn login_takes_a_known_provider() {
 fn status_and_config_show_parse() {
     assert!(matches!(command(&["status"]), Command::Status));
     assert!(matches!(command(&["config", "show"]), Command::Config(ConfigCommand::Show)));
+}
+
+#[test]
+fn the_config_commands_and_paths_parse() {
+    assert!(matches!(
+        command(&["config", "check"]),
+        Command::Config(ConfigCommand::Check { path: None })
+    ));
+    assert!(matches!(
+        command(&["config", "check", "/tmp/x.toml"]),
+        Command::Config(ConfigCommand::Check { path: Some(_) })
+    ));
+    assert!(matches!(command(&["config", "edit"]), Command::Config(ConfigCommand::Edit)));
+    assert!(matches!(command(&["config", "schema"]), Command::Config(ConfigCommand::Schema)));
+    assert!(matches!(command(&["config", "reload"]), Command::Config(ConfigCommand::Reload)));
+    match command(&["config", "set", "conversation.max_queued", "-1"]) {
+        Command::Config(ConfigCommand::Set { key, value }) => {
+            assert_eq!((key.as_str(), value.as_str()), ("conversation.max_queued", "-1"));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        command(&["config", "unset", "model.name"]),
+        Command::Config(ConfigCommand::Unset { .. })
+    ));
+    assert!(matches!(command(&["paths", "--json"]), Command::Paths(PathsArgs { json: true })));
+    assert_eq!(parse_error(&["config", "set", "model.name"]), ErrorKind::MissingRequiredArgument);
 }
 
 #[test]

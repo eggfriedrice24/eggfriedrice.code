@@ -13,10 +13,19 @@ state and never writes the daemon's database or credentials.
 | `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
 | `efr new [--context-json <json>] [--last-command <text>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
-| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in |
+| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error and the keys that wait for a restart |
 | `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
-| `efr config show` | none | the client's effective settings with the source of each, as TOML |
+| `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
+| `efr config check [path]` | none | the file checked with the daemon's schema and the theme names; an error names its line, column and key; exit 0 or 1 |
+| `efr config edit` | `admin.config_reload` | creates a missing file from the commented example (never through a link to nothing), runs `$VISUAL`, else `$EDITOR`, else `vi` (through `sh`, so an editor with arguments works), checks the file, offers to edit again on an error when stdin is a terminal, then asks the daemon to reload |
+| `efr config set <key> <value>`, `efr config unset <key>` | `admin.config_reload` | one scalar or list key through `efr-config`'s writer: comments and layout stay, a link stays and its target is written, a value the daemon would refuse is never written; then a reload |
+| `efr config schema` | none | the JSON schema of `config.toml` |
+| `efr config reload` | `admin.config_reload` | applied, or the file's error (exit 1), and the keys that wait for a restart |
+| `efr paths [--json]` | `admin.status` when the daemon runs | each root with its source (`EFR_<ROOT>_DIR`, `EFR_HOME`, XDG, `/run/user`) and whether it exists, `config.toml`, the database, `secrets/` and the socket; then the daemon's roots, with a warning on stderr for each one that differs |
+
+A command that finds an error in a config file prints it and exits 1. Without a
+daemon, the commands that change the file say that it reads the file when it starts.
 
 The zsh plugin runs a bare `efr send`, `efr send --steer` or `efr new` and hands the
 shell context, the last command line and the prompt over in the environment:
@@ -113,8 +122,8 @@ behind another turn cannot be taken back yet, and the CLI says so. During a logi
 Ctrl+C closes the connection. What arrived stays on the screen.
 
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
-interrupted elsewhere, or the connection broke; 2 a usage error; 3 no daemon listens;
-130 Ctrl+C.
+interrupted elsewhere, the connection broke, or a config file has an error; 2 a usage
+error; 3 no daemon listens; 130 Ctrl+C.
 
 A failure that a first run meets gets a second line with the command that fixes it:
 no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
@@ -122,7 +131,8 @@ turn that fails as `unauthorized` because the provider has no usable credentials
 (`efr login openai`), a turn that fails as `invalid` because the provider does not
 serve the model (`name` under `[model]` in the daemon's `config.toml`, then a restart),
 a daemon that does not answer (`journalctl --user -u efrd`), a missing
-`XDG_RUNTIME_DIR` or `HOME`, and `efr` and `efrd` from different builds.
+`XDG_RUNTIME_DIR` or `HOME` (`EFR_HOME` replaces both), and `efr` and `efrd` from
+different builds.
 `efr status` adds the login line on stderr when no provider is logged in.
 
 Logs go to stderr, filtered by `EFR_LOG` (default `warn`, because stderr shares the
@@ -145,8 +155,9 @@ in the output of `efr config show`), `jiff`, `rustix` (window size, termios, tty
 (row counting), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
 line).
 
-`NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`:
-they are terminal conventions that `efr_stdx::env::Var` does not name.
+`NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`,
+and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventions that
+`efr_stdx::env::Var` does not name.
 
 ## Invariant
 

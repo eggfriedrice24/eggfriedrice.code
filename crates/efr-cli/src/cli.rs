@@ -14,6 +14,7 @@
 
 use std::convert::Infallible;
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Args, Parser, Subcommand};
@@ -47,9 +48,19 @@ pub(crate) enum Command {
     /// Log in to a model provider.
     #[command(subcommand)]
     Login(LoginCommand),
-    /// Show settings.
+    /// Show, check, edit and change config.toml.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Show where efr keeps its files, and where the daemon keeps them.
+    Paths(PathsArgs),
+}
+
+/// The arguments of `efr paths`.
+#[derive(Debug, Args)]
+pub(crate) struct PathsArgs {
+    /// Print the same facts as JSON.
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 /// The arguments of `efr send`.
@@ -162,8 +173,36 @@ pub(crate) enum LoginCommand {
 /// The `efr config` commands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum ConfigCommand {
-    /// Print the effective client settings and where each one comes from.
+    /// Print every setting with where it comes from, then what the daemon reads.
     Show,
+    /// Check a config file; errors name the line, the column and the key.
+    Check {
+        /// The file to check; config.toml in the config root by default.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+    /// Open config.toml in $VISUAL or $EDITOR (vi by default), check it, then reload it.
+    Edit,
+    /// Print the JSON schema of config.toml.
+    Schema,
+    /// Ask the daemon to read config.toml again now.
+    Reload,
+    /// Set one key, such as model.name, keeping the file's comments and layout.
+    Set {
+        /// The dotted key, such as model.name or conversation.max_queued.
+        #[arg(value_name = "KEY")]
+        key: String,
+        /// The value: text, a number, true or false, or a list as words separated by
+        /// commas.
+        #[arg(value_name = "VALUE", allow_hyphen_values = true)]
+        value: String,
+    },
+    /// Remove one key, so its default applies again.
+    Unset {
+        /// The dotted key.
+        #[arg(value_name = "KEY")]
+        key: String,
+    },
 }
 
 #[cfg(test)]
