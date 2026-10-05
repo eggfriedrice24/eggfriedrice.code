@@ -26,7 +26,10 @@ pub(crate) async fn handle(
         .answer(conversation_id, call_id, &text, hidden)
         .await
         .map_err(|error| refused(error, conversation_id, call_id))?;
-    tracing::info!(bytes = text.expose_secret().len(), "an answer was typed for a waiting command");
+    tracing::debug!(
+        bytes = text.expose_secret().len(),
+        "an answer was typed for a waiting command"
+    );
     responder.item(&InputRespondResult {}).await?;
     Ok(())
 }
