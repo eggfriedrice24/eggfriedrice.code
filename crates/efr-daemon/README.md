@@ -270,8 +270,9 @@ and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
 `serde`, `serde_json`, `jiff`, `nix` (`flock`), `base64` (the hello
-challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `notify`
-8.2.0 (the config file watcher), `tracing`, `tracing-subscriber` (with its reload
+challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `rustix`
+(inotify, for the config file watcher), `toml_edit` (the values that the settings tool
+sets and the one-line text of a rule), `tracing`, `tracing-subscriber` (with its reload
 layer for the log filter), `tracing-journald`, `thiserror`, and `anyhow` in `main.rs`
 only.
 
