@@ -557,6 +557,45 @@ async fn a_visible_answer_is_echoed_and_sent_as_typed() {
 }
 
 #[tokio::test]
+async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a_hidden_one_is_not()
+{
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, raw_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
+        conn.item(sub, &item(12, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
+        presser.type_bytes(b"hunter2\r").await;
+        let (id, _) = input_respond(&mut conn).await;
+        conn.reply(id, &InputRespondResult {}).await;
+        while !seen.stderr().contains("answer sent") {
+            tokio::task::yield_now().await;
+        }
+        conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
+        conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
+        while !seen.stderr().ends_with("> ") {
+            tokio::task::yield_now().await;
+        }
+        presser.type_bytes(b"yo\x7fes\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "yes");
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(16, shell_completed(0))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(17, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(out, "");
+    assert!(err.contains("> yo\u{8} \u{8}es\nanswer sent\n"), "{err:?}");
+    assert!(!err.contains("hunter") && !err.contains("ter2"), "{err:?}");
+}
+
+#[tokio::test]
 async fn an_answer_the_daemon_refuses_is_a_note_and_completion_stops_the_keys() {
     let env = TestEnv::new();
     let keys = Arc::new(ScriptedKeys::default());

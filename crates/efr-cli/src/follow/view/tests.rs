@@ -596,6 +596,29 @@ fn a_raw_view_asks_on_stderr() {
 }
 
 #[test]
+fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
+    let mut view = raw_view();
+    view.event(&output("Proceed? [Y/n] "), SIZE, true);
+    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: false }));
+    assert_eq!(step.out, "");
+    assert_eq!(step.err, "Proceed? [Y/n]\ntype the answer and press Enter; the agent sees it\n> ");
+    assert_eq!(view.typed("y", SIZE).err, "y");
+    assert_eq!(view.typed("ye", SIZE).err, "e");
+    assert_eq!(view.typed("y", SIZE).err, "\u{8} \u{8}");
+    // A wide character takes two columns, and Ctrl+U erases every column.
+    assert_eq!(view.typed("y\u{6f22}", SIZE).err, "\u{6f22}");
+    assert_eq!(view.typed("", SIZE).err, "\u{8} \u{8}".repeat(3));
+    view.typed("n", SIZE);
+    let sent = view.answer_sent(SIZE);
+    assert_eq!((sent.out.as_str(), sent.err.as_str()), ("", "\nanswer sent\n"));
+    // Another answer to the same question starts a line of its own.
+    assert_eq!(view.typed("y", SIZE).err, "> y");
+    // And a line left unsent ends before anything that comes after the view.
+    assert_eq!(view.event(&turn_completed(), SIZE, true).err, "\n");
+}
+
+#[test]
 fn an_input_does_not_ask_over_a_pending_approval() {
     let mut view = terminal_view();
     view.event(&approval(None), SIZE, true);

@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 
 use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, InputWait, Origin, TurnId};
 use efr_render::{RenderOptions, Renderer, render, render_trace};
+use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::{self, Block, Spacing, Tone};
 use crate::live::{LiveZone, Measured, effective_width};
@@ -191,6 +192,9 @@ pub(crate) struct TurnView {
     refused: HashSet<CallId>,
     /// The tool call that runs, once its output or an input wait arrived.
     running: Option<Running>,
+    /// When stdout is not a terminal: stderr's last line is the echo of a visible answer
+    /// (`> ` and what is typed), without its newline.
+    echo_line: bool,
 }
 
 impl TurnView {
@@ -211,6 +215,7 @@ impl TurnView {
             blocking: HashSet::new(),
             refused: HashSet::new(),
             running: None,
+            echo_line: false,
         }
     }
 
@@ -372,7 +377,8 @@ impl TurnView {
     fn note_after(&mut self, before: String, text: &str, size: Size) -> Step {
         let options = self.options_at(size);
         if !self.terminal() {
-            return Step { out: before, err: render_trace(text, &options), ..Step::default() };
+            let err = self.raw_err(render_trace(text, &options));
+            return Step { out: before, err, ..Step::default() };
         }
         let mut committed = before;
         committed.push_str(self.spacing.before(Block::Note));
@@ -437,6 +443,12 @@ impl TurnView {
             }
             err.push_str(input_line(hidden));
             err.push('\n');
+            let mut err = self.raw_err(err);
+            // A visible answer is echoed on the next line as it is typed.
+            if !hidden {
+                err.push_str(ECHO_PREFIX);
+                self.echo_line = true;
+            }
             Step { err, ..Step::default() }
         };
         step.ask = Some(Ask::Input { call_id, hidden });
@@ -468,19 +480,33 @@ impl TurnView {
         }
     }
 
-    /// What the user typed so far for a visible answer, echoed below the prompt. A
-    /// hidden answer is never passed here, and text passed while no visible answer is
-    /// asked for is dropped.
+    /// What the user typed so far for a visible answer, echoed below the prompt: in the
+    /// live zone on a terminal, otherwise on stderr after `> `, where a removed
+    /// character is erased with Backspace. A hidden answer is never passed here, and
+    /// text passed while no visible answer is asked for is dropped.
     pub(crate) fn typed(&mut self, text: &str, size: Size) -> Step {
         let terminal = self.terminal();
+        let echo_line = self.echo_line;
         let Some(running) = &mut self.running else {
             return Step::default();
         };
-        if !terminal || running.asked() != Some(false) {
+        if running.asked() != Some(false) {
             return Step::default();
         }
+        if terminal {
+            text.clone_into(&mut running.typed);
+            return self.commit(String::new(), size);
+        }
+        // A note since the last key ended the echo line; a new one starts empty.
+        let (mut err, shown) = if echo_line {
+            (String::new(), running.typed.as_str())
+        } else {
+            (ECHO_PREFIX.to_owned(), "")
+        };
+        err.push_str(&echo_edit(shown, text));
         text.clone_into(&mut running.typed);
-        self.commit(String::new(), size)
+        self.echo_line = true;
+        Step { err, ..Step::default() }
     }
 
     /// The answer reached the command.
@@ -528,7 +554,9 @@ impl TurnView {
         self.asking = None;
         self.running = None;
         let committed = self.finish_message();
-        self.commit(committed, size)
+        // An echo line left open would carry what is written after the view.
+        let err = self.raw_err(String::new());
+        Step { err, ..self.commit(committed, size) }
     }
 
     /// An update of message `index`: `delta` at byte `offset` of its text. An update
@@ -656,7 +684,7 @@ impl TurnView {
             committed.push_str(&text);
             step.out = self.redraw(&committed, size);
         } else {
-            step.err = text;
+            step.err = self.raw_err(text);
         }
         step
     }
@@ -680,6 +708,12 @@ impl TurnView {
             step.err.push_str(&noted.err);
         }
         Step { settled, end: Some(end), ..step }
+    }
+
+    /// `text` for stderr when stdout is not a terminal, on a line of its own: an open
+    /// echo line ends first.
+    fn raw_err(&mut self, text: String) -> String {
+        if std::mem::take(&mut self.echo_line) { format!("\n{text}") } else { text }
     }
 
     /// Writes `committed` once: through the live zone on a terminal, as it is
@@ -732,6 +766,30 @@ impl TurnView {
 /// The line under the prompt of a command that waits for input.
 fn input_line(hidden: bool) -> &'static str {
     if hidden { HIDDEN_INPUT } else { VISIBLE_INPUT }
+}
+
+/// What turns the echo `shown` into `text` on a line that a terminal shows: each
+/// character after their common start is erased with Backspace, space, Backspace per
+/// column it takes, then the rest of `text` is written. The text never holds a control
+/// character: the answer line drops them.
+fn echo_edit(shown: &str, text: &str) -> String {
+    let common = shown
+        .char_indices()
+        .zip(text.chars())
+        .find(|((_, a), b)| a != b)
+        .map_or_else(|| shown.len().min(text.len()), |((at, _), _)| at);
+    // Both strings share their first `common` bytes, which end on a character boundary.
+    let (Some(removed), Some(added)) = (shown.get(common..), text.get(common..)) else {
+        return String::new();
+    };
+    let mut edit = String::new();
+    for c in removed.chars().rev() {
+        for _ in 0..c.width().unwrap_or(0) {
+            edit.push_str("\x08 \x08");
+        }
+    }
+    edit.push_str(added);
+    edit
 }
 
 /// The last line of `tail` with text in it, without the spaces around it; empty when
