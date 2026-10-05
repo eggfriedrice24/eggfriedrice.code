@@ -17,9 +17,12 @@ Modules:
   `Backend` and `ReasoningMode` enums. A request's `provider_options` override the
   defaults: `reasoning_effort`, `reasoning_summary`, `parallel_tool_calls`,
   `prompt_cache_key`, `service_tier` and `text_verbosity`; other keys are ignored.
-- `models`: the models the subscription is known to serve, with their limits. The
-  lists are hints: a model that is not listed is still sent, and an answer that says
-  the model is not served becomes `ProviderError::UnknownModel`.
+- `models`: the models the subscription is known to serve, with their limits, the
+  reasoning efforts each takes and its default effort, verified against Codex's
+  bundled catalog and opencode on 2026-10-05 (the sources are in the code). Codex
+  fetches the list from `/backend-api/codex/models` for a ChatGPT login; efr does
+  not call it yet. The lists are hints: a model that is not listed is still sent, and
+  an answer that says the model is not served becomes `ProviderError::UnknownModel`.
 - `convert`: canonical `Request` and `Message` to the Responses body and `input`
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
@@ -114,7 +117,10 @@ reference implementations (shallow clones of 2026-10-04):
   `codex-rs/login/src/auth/default_client.rs` (`originator`),
   `codex-rs/protocol/src/models.rs` (`ResponseItem` and `ContentItem` shapes),
   `codex-rs/tools/src/responses_api.rs` (function tools with `strict`),
-  `codex-rs/models-manager/models.json` (model ids and `context_window`),
+  `codex-rs/models-manager/models.json` (model ids, `context_window`, the reasoning
+  levels and the default level; read again at 823ea83 on 2026-10-05),
+  `codex-rs/model-provider/src/models_endpoint.rs` (the `/models` endpoint that
+  Codex asks for a ChatGPT login),
   `codex-rs/core/tests/common/responses.rs` (stream shapes for the fixtures).
 - sst/opencode at `907b3bc`:
   `packages/opencode/src/plugin/openai/codex.ts` (the endpoint, `ChatGPT-Account-Id`,

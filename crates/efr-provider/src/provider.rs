@@ -57,12 +57,24 @@ pub struct ModelInfo {
     pub context_window: Option<u64>,
     /// The output token limit, when known.
     pub max_output_tokens: Option<u32>,
+    /// The reasoning efforts the model takes, such as `low` and `high`, in the order a
+    /// picker shows them. Empty when they are not known, and then any effort is passed
+    /// through and the backend's answer decides.
+    pub efforts: Vec<String>,
+    /// The effort the backend uses when a request names none, when known.
+    pub default_effort: Option<String>,
 }
 
 impl ModelInfo {
     /// A model with no known limits.
     pub fn new(id: impl Into<String>) -> Self {
-        ModelInfo { id: id.into(), context_window: None, max_output_tokens: None }
+        ModelInfo {
+            id: id.into(),
+            context_window: None,
+            max_output_tokens: None,
+            efforts: Vec::new(),
+            default_effort: None,
+        }
     }
 
     /// The same model with a known context window.
@@ -76,6 +88,19 @@ impl ModelInfo {
     #[must_use]
     pub fn with_max_output_tokens(mut self, tokens: u32) -> Self {
         self.max_output_tokens = Some(tokens);
+        self
+    }
+
+    /// The same model with the reasoning `efforts` it takes and the backend's
+    /// `default_effort` for it.
+    #[must_use]
+    pub fn with_efforts<I, S>(mut self, efforts: I, default_effort: Option<&str>) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.efforts = efforts.into_iter().map(Into::into).collect();
+        self.default_effort = default_effort.map(str::to_owned);
         self
     }
 }

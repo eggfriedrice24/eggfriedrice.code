@@ -23,6 +23,45 @@ fn subscription_models_are_unique_and_reason() {
 }
 
 #[test]
+fn every_subscription_model_names_its_efforts_and_a_default_among_them() {
+    for model in subscription_models() {
+        assert!(!model.efforts.is_empty(), "{}", model.id);
+        let default = model.default_effort.as_deref().unwrap();
+        assert!(model.efforts.iter().any(|effort| effort == default), "{}", model.id);
+    }
+}
+
+#[test]
+fn the_subscription_list_is_codexs_listed_catalog() {
+    let models: Vec<(String, Vec<String>, Option<String>)> = subscription_models()
+        .into_iter()
+        .map(|model| (model.id, model.efforts, model.default_effort))
+        .collect();
+    let ultra = ["low", "medium", "high", "xhigh", "max", "ultra"];
+    let max = ["low", "medium", "high", "xhigh", "max"];
+    let entry = |id: &str, efforts: &[&str], default: &str| {
+        (
+            id.to_owned(),
+            efforts.iter().map(|effort| (*effort).to_owned()).collect::<Vec<_>>(),
+            Some(default.to_owned()),
+        )
+    };
+    assert_eq!(
+        models,
+        [
+            entry("gpt-6.1-sol", &ultra, "low"),
+            entry("gpt-6-astra", &ultra, "low"),
+            entry("gpt-6-sol", &ultra, "medium"),
+            entry("gpt-6-luna", &max, "medium"),
+            entry("gpt-5.6-sol", &ultra, "low"),
+            entry("gpt-5.6-terra", &ultra, "medium"),
+            entry("gpt-5.6-luna", &max, "medium"),
+            entry("gpt-5.5", &["low", "medium", "high", "xhigh"], "medium"),
+        ]
+    );
+}
+
+#[test]
 fn the_api_lists_no_models() {
     assert!(api_models().is_empty());
 }

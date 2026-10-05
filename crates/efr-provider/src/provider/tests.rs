@@ -131,3 +131,13 @@ fn model_info_records_known_limits() {
     assert_eq!(model.max_output_tokens, Some(128_000));
     assert_eq!(ModelInfo::new("m").context_window, None);
 }
+
+#[test]
+fn model_info_records_its_efforts() {
+    let model = ModelInfo::new("gpt-5.5").with_efforts(["low", "medium", "high"], Some("medium"));
+    assert_eq!(model.efforts, ["low", "medium", "high"]);
+    assert_eq!(model.default_effort.as_deref(), Some("medium"));
+    let unknown = ModelInfo::new("m");
+    assert!(unknown.efforts.is_empty());
+    assert_eq!(unknown.default_effort, None);
+}

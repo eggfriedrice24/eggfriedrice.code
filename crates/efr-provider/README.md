@@ -31,7 +31,7 @@ Modules:
   `complete` collects it by default, and `models` defaults to an empty list. `id`
   is also required: a `ProviderId` such as `openai-subscription` or `openai-api`,
   which decides whose `provider_raw` a message carries. `ModelInfo` describes a
-  model's limits.
+  model's limits and the reasoning efforts it takes, with the backend's default.
 - `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
   logs, the config and the event log.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
