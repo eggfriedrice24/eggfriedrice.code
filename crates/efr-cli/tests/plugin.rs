@@ -412,6 +412,31 @@ fn e2e_a_prompt_typed_at_a_terminal_reaches_efr_as_typed() {
     assert_eq!(prompts, expected);
 }
 
+/// What zsh-autosuggestions does on every prompt: it rebinds each widget of type
+/// "builtin" to a wrapper that calls `zle .<name>`. Only real builtins have a dot name,
+/// so a widget that merely aliases a builtin breaks under it.
+const REBIND_BUILTINS_LIKE_AUTOSUGGESTIONS: &str = r#"for w in ${(k)widgets}; do [[ $widgets[$w] == builtin && $w != .* ]] || continue; eval "_sim_orig_$w() { zle .$w }"; zle -N "$w" "_sim_orig_$w"; done"#;
+
+#[test]
+fn e2e_enter_works_after_a_plugin_rebinds_the_builtin_widgets() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let screen = type_lines(
+        &home,
+        &[
+            REBIND_BUILTINS_LIKE_AUTOSUGGESTIONS,
+            ", what is in this directory?",
+            "echo still-typing",
+        ],
+    );
+    assert!(!screen.contains("No such widget"), "{screen}");
+    assert!(screen.contains("still-typing"), "{screen}");
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some("what is in this directory?".to_owned())]);
+}
+
 #[test]
 fn e2e_a_prompt_with_shell_syntax_reaches_efr_as_typed() {
     if !zsh_tests_enabled() {
