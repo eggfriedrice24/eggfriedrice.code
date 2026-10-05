@@ -63,3 +63,6 @@ No protocol version has shipped yet.
   `{setting, value, choices}`, plus `model` for an effort; a turn whose settings no
   longer fit when it starts ends with `turn_failed` and the same error body. No wire
   type changed.
+- Before version 1 ships: the daemon answers `admin.config_reload` (it reloads at once and
+  reports the outcome), and the `admin.status` result now always carries `roots` and
+  `config`. No wire type changed.
