@@ -451,12 +451,32 @@ fn a_recursive_read_names_the_secret_below_it() {
 
 #[test]
 fn a_rule_that_opens_the_secrets_below_lets_a_recursive_read_run() {
-    let engine =
-        configured(vec![Rule::new(Action::Read, Resource::Under("~/.aws".into()), Effect::Allow)]);
+    let engine = configured(vec![
+        Rule::new(Action::Read, Resource::Under("~/.aws/credentials".into()), Effect::Allow),
+        Rule::new(Action::Read, Resource::Under("~/.aws/sso/cache".into()), Effect::Allow),
+    ]);
     let requirements = reading("rg region ~/.aws", &[], &["/home/u/.aws"]);
     let decide = |origin| engine.decide(&input(requirements.clone(), Scope::Machine, origin));
     assert_eq!(decide(Origin::Shell).effect(), Effect::Allow);
     assert_eq!(decide(Origin::Phone).effect(), Effect::Ask);
+}
+
+#[test]
+fn a_rule_for_the_directory_above_a_secret_does_not_open_it() {
+    let engine =
+        configured(vec![Rule::new(Action::Read, Resource::Under("~/.aws".into()), Effect::Allow)]);
+    let tree = engine.decide(&input(
+        reading("rg region ~/.aws", &[], &["/home/u/.aws"]),
+        Scope::Machine,
+        Origin::Shell,
+    ));
+    assert_eq!(tree.effect(), Effect::Ask);
+    let key = engine.decide(&input(
+        reading("cat ~/.aws/credentials", &["/home/u/.aws/credentials"], &[]),
+        Scope::Machine,
+        Origin::Shell,
+    ));
+    assert_eq!(key.effect(), Effect::Deny);
 }
 
 #[test]

@@ -566,6 +566,94 @@ fn the_machine_policy_may_open_a_secret_explicitly() {
     assert_eq!(decide("/home/u/.ssh/id_ed25519", Origin::Shell), Effect::Deny);
 }
 
+/// The defaults followed by `rules`, as the daemon builds the machine policy from the
+/// configuration.
+fn configured(rules: Vec<Rule>) -> Engine {
+    Engine::new(locations(), Policy::defaults().then(Policy::new(rules).unwrap()))
+}
+
+#[rstest]
+#[case::read_any(Rule::new(Action::Read, Resource::Any, Effect::Allow))]
+#[case::any_any(Rule::new(Action::Any, Resource::Any, Effect::Allow))]
+#[case::under_home(Rule::new(Action::Read, Resource::Under("~".into()), Effect::Allow))]
+#[case::under_root(Rule::new(Action::Any, Resource::Under("/".into()), Effect::Allow))]
+#[case::under_proc(Rule::new(Action::Read, Resource::Under("/proc".into()), Effect::Allow))]
+#[case::under_the_data_dir(Rule::new(
+    Action::Read,
+    Resource::Under("~/.local/share/efr".into()),
+    Effect::Allow
+))]
+#[case::project(Rule::new(Action::Any, Resource::Project, Effect::Allow))]
+#[case::broad_ask(Rule::new(Action::Read, Resource::Any, Effect::Ask))]
+fn a_broad_user_rule_opens_no_secret(#[case] rule: Rule) {
+    let engine = configured(vec![rule.clone()]);
+    for path in [
+        "/home/u/.ssh/id_ed25519",
+        "/home/u/.aws/credentials",
+        "/home/u/.local/share/efr/secrets/openai-subscription.json",
+        "/proc/self/environ",
+        "/etc/shadow",
+    ] {
+        let decision = engine.decide(&input(read(path), Scope::Project(app()), Origin::Shell));
+        assert_eq!(decision.effect(), Effect::Deny, "{path} under {rule:?}");
+        assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, index: 7 });
+    }
+}
+
+#[rstest]
+#[case::the_class(Resource::Class(PathClass::Secrets), "/home/u/.ssh/id_ed25519", Effect::Allow)]
+#[case::the_secret_dir(Resource::Under("~/.ssh".into()), "/home/u/.ssh/id_ed25519", Effect::Allow)]
+#[case::below_a_secret(Resource::Under("~/.ssh/config".into()), "/home/u/.ssh/config", Effect::Allow)]
+#[case::a_sibling_stays_closed(
+    Resource::Under("~/.ssh/config".into()),
+    "/home/u/.ssh/id_ed25519",
+    Effect::Deny
+)]
+#[case::process_environment(
+    Resource::Under("/proc/self/environ".into()),
+    "/proc/self/environ",
+    Effect::Allow
+)]
+fn a_user_rule_that_names_a_secret_opens_it(
+    #[case] resource: Resource,
+    #[case] path: &str,
+    #[case] expected: Effect,
+) {
+    let engine = configured(vec![Rule::new(Action::Read, resource, Effect::Allow)]);
+    let decision = engine.decide(&input(read(path), Scope::Machine, Origin::Shell));
+    assert_eq!(decision.effect(), expected, "{path}");
+}
+
+#[rstest]
+#[case::ask_for_everything(Effect::Ask)]
+#[case::deny_everything(Effect::Deny)]
+fn a_broad_user_rule_after_an_opened_secret_makes_it_stricter(#[case] broad: Effect) {
+    let engine = configured(vec![
+        Rule::new(Action::Read, Resource::Under("~/.ssh/config".into()), Effect::Allow),
+        Rule::new(Action::Any, Resource::Any, broad),
+    ]);
+    let decision =
+        engine.decide(&input(read("/home/u/.ssh/config"), Scope::Machine, Origin::Shell));
+    let index = Policy::defaults().rules().len() + 1;
+    assert_eq!(decision.effect(), broad);
+    assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, index });
+}
+
+#[test]
+fn a_broad_conversation_rule_makes_an_opened_secret_stricter() {
+    let engine = configured(vec![Rule::new(
+        Action::Read,
+        Resource::Under("~/.ssh/config".into()),
+        Effect::Allow,
+    )]);
+    let mut input = input(read("/home/u/.ssh/config"), Scope::Machine, Origin::Shell);
+    input.conversation_policy = ConversationPolicy::new(SCRATCH)
+        .with_rules(Policy::new(vec![Rule::new(Action::Any, Resource::Any, Effect::Ask)]).unwrap());
+    let decision = engine.decide(&input);
+    assert_eq!(decision.effect(), Effect::Ask);
+    assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Conversation, index: 0 });
+}
+
 #[test]
 fn an_empty_machine_policy_denies_what_no_rule_names() {
     let engine = Engine::new(locations(), Policy::empty());

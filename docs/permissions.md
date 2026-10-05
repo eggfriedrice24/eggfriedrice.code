@@ -15,7 +15,8 @@ effect. The strictest effect decides the call, in the order `allow < ask < deny`
 
 1. The machine policy sets the effect of each requirement. It is the built-in rules
    below, then your `[[permissions.rules]]`. The last rule that matches wins, so your
-   rules win where they match. A requirement that no rule matches is denied.
+   rules win where they match. A requirement that no rule matches is denied. For a
+   secret, only a rule that names secrets decides; see "Your rules".
 2. The rules of one conversation come after the machine policy. They can make any
    decision stricter. They can never loosen a decision about a secret or a system
    path.
@@ -263,11 +264,17 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
     the line, the directory is unknown and the rule matches nothing.
 
 Your rules come after the built-in rules, so the last one of yours that matches wins.
-Your rules are the only rules that can open a secret. A rule that does not have the
-shape of a rule, or that names a relative path, a program that is not one word, or an
-action that its resource never matches, stops the daemon at start. The error names
-the rule as `permissions.rules[N]`, counted from 0. `efrd --print-config` shows your
-rules.
+Your rules are the only rules that can open a secret, and only a rule that names it
+opens it: `{ class = "secrets" }`, or `under` a path at or below a secret location,
+such as `{ under = "~/.ssh/config" }`. A rule for a wider resource, such as `"any"`,
+`"project"` or `{ under = "~" }`, never opens a secret: `read` on `"any"` with `allow`
+still denies `~/.ssh/id_ed25519`. After a rule that opened a secret, a wider rule can
+only make the effect stricter, so `"any"` with `ask` asks for it again.
+
+A rule that does not have the shape of a rule, or that names a relative path, a
+program that is not one word, or an action that its resource never matches, stops the
+daemon at start. The error names the rule as `permissions.rules[N]`, counted from 0.
+`efrd --print-config` shows your rules.
 
 ### Example: allow `cargo test` in one project
 

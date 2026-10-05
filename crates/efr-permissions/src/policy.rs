@@ -435,6 +435,36 @@ impl Policy {
         Ok(())
     }
 
+    /// The position and effect of the rule that decides `target`, a secret.
+    ///
+    /// NOTE: only a rule whose resource names secrets, as `names` says, decides the way
+    /// the last match does. Any other rule that matches, such as `read any allow` or an
+    /// `under` path above the secret, may only make the effect stricter than the rules
+    /// before it, or than `earlier`, the effect that a policy before this one set; with
+    /// neither, only a denial counts. So a broad rule never opens a key without saying
+    /// so, and it can still close one that a narrower rule opened.
+    pub(crate) fn last_match_for_secret(
+        &self,
+        target: &Target<'_>,
+        cx: &MatchContext<'_>,
+        earlier: Option<Effect>,
+        names: impl Fn(&Resource) -> bool,
+    ) -> Option<(usize, Effect)> {
+        let mut decided: Option<(usize, Effect)> = None;
+        for (index, rule) in self.rules.iter().enumerate() {
+            if !rule.matches(target, cx) {
+                continue;
+            }
+            let current = decided.map(|(_, effect)| effect).or(earlier);
+            let stricter =
+                current.map_or(rule.effect == Effect::Deny, |current| rule.effect > current);
+            if names(&rule.resource) || stricter {
+                decided = Some((index, rule.effect));
+            }
+        }
+        decided
+    }
+
     /// The position and effect of the last rule that matches `target`.
     pub(crate) fn last_match(
         &self,
@@ -566,7 +596,7 @@ impl Rule {
 }
 
 /// An `under` path in normal form, with a leading `~` replaced by the home directory.
-fn expand(root: &Path, home: &Path) -> Option<PathBuf> {
+pub(crate) fn expand(root: &Path, home: &Path) -> Option<PathBuf> {
     match root.strip_prefix("~") {
         Ok(rest) => normalize(&home.join(rest)),
         Err(_) => normalize(root),

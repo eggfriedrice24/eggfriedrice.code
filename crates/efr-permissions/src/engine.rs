@@ -7,8 +7,8 @@ use efr_protocol::{Origin, Scope};
 use crate::command;
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::path_class::normalize;
-use crate::policy::{MatchContext, Target};
-use crate::{Access, DecisionInput, Locations, PathAccess, PathClass, Policy};
+use crate::policy::{MatchContext, Target, expand};
+use crate::{Access, DecisionInput, Locations, PathAccess, PathClass, Policy, Resource};
 
 /// The permission engine: the machine's [`Locations`] and the machine [`Policy`].
 ///
@@ -16,6 +16,9 @@ use crate::{Access, DecisionInput, Locations, PathAccess, PathClass, Policy};
 /// own [`Reason`] and the decision is the strictest of them, in three steps:
 ///
 /// 1. The last matching rule of the machine policy sets the effect; no match denies.
+///    For a secret, only a rule that names secrets (the class, or an `under` path at or
+///    below a secret location) decides; a later rule for a wider resource, such as
+///    `read any allow`, may only make the effect stricter.
 /// 2. The last matching rule of the conversation's policy replaces it, except for
 ///    secrets and system paths, where it may only make the effect stricter, so an
 ///    approval collected in one conversation never opens a key or `/etc`.
@@ -213,16 +216,52 @@ impl Judge<'_> {
 
     /// Steps 1 and 2: the machine policy, then the conversation's policy.
     fn by_rules(&self, target: &Target<'_>, class: Option<PathClass>) -> (Effect, Cause) {
-        let machine = match self.engine.policy.last_match(target, &self.cx) {
+        let secret = class == Some(PathClass::Secrets);
+        let machine = match self.decided_by(&self.engine.policy, target, secret, None) {
             Some((index, effect)) => (effect, Cause::Rule { layer: Layer::Machine, index }),
             None => (Effect::Deny, Cause::NoRule),
         };
         let may_loosen = !matches!(class, Some(PathClass::Secrets | PathClass::System));
-        match self.input.conversation_policy.rules.last_match(target, &self.cx) {
+        let conversation = &self.input.conversation_policy.rules;
+        match self.decided_by(conversation, target, secret, Some(machine.0)) {
             Some((index, effect)) if may_loosen || effect >= machine.0 => {
                 (effect, Cause::Rule { layer: Layer::Conversation, index })
             }
             _ => machine,
+        }
+    }
+
+    /// The rule of `policy` that decides `target`: the last match, or for a secret the
+    /// last rule that names secrets, made stricter by any later match. `earlier` is the
+    /// effect of the policy before this one.
+    fn decided_by(
+        &self,
+        policy: &Policy,
+        target: &Target<'_>,
+        secret: bool,
+        earlier: Option<Effect>,
+    ) -> Option<(usize, Effect)> {
+        if secret {
+            policy.last_match_for_secret(target, &self.cx, earlier, |resource| {
+                self.names_secrets(resource)
+            })
+        } else {
+            policy.last_match(target, &self.cx)
+        }
+    }
+
+    /// True when `resource` names secrets: the class itself, or an `under` path at or
+    /// below a secret location. `any`, the project and an `under` path above a secret
+    /// only reach secrets on the way to everything else.
+    fn names_secrets(&self, resource: &Resource) -> bool {
+        match resource {
+            Resource::Class(class) => *class == PathClass::Secrets,
+            Resource::Under(root) => {
+                expand(root, self.engine.locations.home()).is_some_and(|root| {
+                    self.engine.locations.classify_normal(&root, None) == PathClass::Secrets
+                })
+            }
+            Resource::Any | Resource::Project | Resource::Command(_) => false,
         }
     }
 }

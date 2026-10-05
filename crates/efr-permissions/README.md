@@ -87,8 +87,11 @@ decisions follow these rules, each covered by a decision table in
 property:
 
 - Secrets are denied by default, for reading and writing. Only the machine policy (the
-  user's configuration) can open one, explicitly; a conversation's rules never loosen
-  a secret or a system path, they can only tighten it (property).
+  user's configuration) can open one, explicitly: with a rule that names secrets, the
+  class or an `under` path at or below a secret location. A rule for a wider resource
+  (`read any allow`, `under = "~"`, the project) never opens a secret and can only
+  make a decision about one stricter; a conversation's rules never loosen a secret or
+  a system path, they can only tighten it (property).
 - A turn from the phone needs approval for everything outside `$SCRATCH`: an `Allow`
   becomes `Ask`, `Deny` stays `Deny`. Any origin other than shell, CLI or proxy,
   including one added to the protocol later, counts as remote (property: the phone is
