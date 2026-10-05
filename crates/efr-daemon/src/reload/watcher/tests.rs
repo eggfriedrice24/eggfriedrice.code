@@ -202,6 +202,17 @@ async fn until_reloaded(clock: &TestClock, settings: &mut watch::Receiver<Arc<Se
     panic!("the watcher never reloaded");
 }
 
+/// Waits, without moving the clock, until the settings pass `test`.
+async fn until(settings: &mut watch::Receiver<Arc<Settings>>, test: impl Fn(&Settings) -> bool) {
+    for _ in 0..1_000_000 {
+        if test(&settings.borrow_and_update()) {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("the settings never passed the test");
+}
+
 /// How many quiet times the watcher has started.
 fn quiet_times(clock: &TestClock) -> usize {
     clock.requested_sleeps().iter().filter(|sleep| **sleep == DEBOUNCE).count()
@@ -220,6 +231,23 @@ fn save_by_rename(path: &Path, text: &str) {
     let temp = path.with_file_name(".4913");
     std::fs::write(&temp, text).unwrap();
     std::fs::rename(&temp, path).unwrap();
+}
+
+#[tokio::test]
+async fn a_save_before_the_watches_were_armed_reloads_once_they_are() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let path = dirs.dirs().config().join("config.toml");
+    std::fs::create_dir_all(dirs.dirs().config()).unwrap();
+    // The daemon starts with the settings it loaded before this save.
+    std::fs::write(&path, "[shell]\nidle_minutes = 9\n").unwrap();
+
+    let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_config_watch()).await;
+    let mut settings = daemon.settings.subscribe();
+    until(&mut settings, |settings| settings.shell.idle_minutes == 9).await;
+
+    assert_eq!(quiet_times(&clock), 0, "no event started a quiet time");
+    daemon.stop().await;
 }
 
 #[tokio::test]
@@ -307,6 +335,8 @@ async fn a_retargeted_link_reloads_and_follows_the_new_target() {
     std::os::unix::fs::symlink(&old, &link).unwrap();
     let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_config_watch()).await;
     let mut settings = daemon.settings.subscribe();
+    // The watcher reads the file once it watches it.
+    until(&mut settings, |settings| settings.conversation.max_queued == 4).await;
 
     retarget(&link, &new);
     until_reloaded(&clock, &mut settings).await;
@@ -361,9 +391,13 @@ async fn a_lost_queue_arms_the_watches_again_and_reloads_once() {
     };
     let dirs = TestDirs::new().unwrap();
     let clock = TestClock::new();
+    let config = dirs.dirs().config();
+    std::fs::create_dir_all(config).unwrap();
+    std::fs::write(config.join("config.toml"), "[shell]\nidle_minutes = 7\n").unwrap();
     let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_config_watch()).await;
     let mut settings = daemon.settings.subscribe();
-    let config = dirs.dirs().config();
+    // The watcher reads the file once it watches it; the flood comes after that.
+    until(&mut settings, |settings| settings.shell.idle_minutes == 7).await;
 
     // NOTE: the watcher runs on this thread, so it reads nothing until the test
     // awaits: the flood fills the queue, and the event of the config file is lost.

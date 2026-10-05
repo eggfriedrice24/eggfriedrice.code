@@ -12,6 +12,9 @@
 //! (its queue overflowed) or a watched directory went away, the watches are armed again
 //! and the file reloads once.
 //!
+//! Once the watches are armed, the file reloads once, for a change made after the
+//! daemon loaded it and before the watches saw anything.
+//!
 //! The watcher is its own, on inotify ([`inotify`]): efrd runs on Linux only.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -203,6 +206,12 @@ pub(crate) async fn follow(state: Arc<State>, watching: Watching, stop: Cancella
         let error = DaemonError::Watch { path: path.clone(), source };
         tracing::warn!(error = %error, "config changes are no longer watched; efr config reload still applies them");
     };
+    // NOTE: the daemon loaded the file before the watches were armed, so a save in
+    // between made no event; one reload now applies it. A file that did not change
+    // changes nothing.
+    if reload(&state, "start").await.is_err() {
+        return;
+    }
     loop {
         let events = tokio::select! {
             () = stop.cancelled() => return,
