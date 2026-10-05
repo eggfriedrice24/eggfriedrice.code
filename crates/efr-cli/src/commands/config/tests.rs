@@ -408,6 +408,34 @@ async fn an_editor_that_fails_leaves_the_file_unchecked() {
 }
 
 #[tokio::test]
+async fn edit_opens_the_file_behind_a_link_so_an_editor_that_replaces_files_keeps_the_link() {
+    let env = TestEnv::new();
+    let path = env.dirs.config().join("config.toml");
+    let dotfiles = env.dirs.data().join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).unwrap();
+    let real = dotfiles.join("config.toml");
+    std::fs::write(&real, "# mine\n").unwrap();
+    std::os::unix::fs::symlink(&real, &path).unwrap();
+    let opened = env.dirs.data().join("opened");
+    // Saves as many editors do: a new file renamed over the one it was given.
+    let editor = format!(
+        "sh -c 'printf \"%s\" \"$1\" > {opened} && printf \"[conversation]\\nmax_queued = 3\\n\" > \"$1.new\" && mv \"$1.new\" \"$1\"' editor",
+        opened = opened.display()
+    );
+    let ctx =
+        Context { editor: Some(editor), cwd: Some(env.dirs.data().to_path_buf()), ..env.context() };
+
+    let (exit, _, stderr) = efr(&ctx, &["config", "edit"]).await;
+
+    assert_eq!(exit, Exit::Success, "{stderr}");
+    let resolved = std::fs::canonicalize(&real).unwrap();
+    assert_eq!(std::fs::read_to_string(&opened).unwrap(), resolved.display().to_string());
+    assert!(std::fs::symlink_metadata(&path).unwrap().file_type().is_symlink());
+    assert_eq!(std::fs::read_link(&path).unwrap(), real);
+    assert_eq!(std::fs::read_to_string(&real).unwrap(), "[conversation]\nmax_queued = 3\n");
+}
+
+#[tokio::test]
 async fn edit_refuses_a_link_to_nothing() {
     let env = TestEnv::new();
     let path = env.dirs.config().join("config.toml");

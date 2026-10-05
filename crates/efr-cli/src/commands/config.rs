@@ -9,8 +9,10 @@
 //! - `check` reads a file with the daemon's checks and the theme names of
 //!   `efr-render`; an error names its line, its column and its key, and exits 1.
 //! - `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `vi`, after it creates a
-//!   missing one from the commented example (never through a link to nothing); checks
-//!   it when the editor exits and offers to edit again; then asks the daemon to reload.
+//!   missing one from the commented example (never through a link to nothing); when
+//!   `config.toml` is a symbolic link, the editor gets the file behind it, so the link
+//!   stays a link; checks it when the editor exits and offers to edit again; then asks
+//!   the daemon to reload.
 //! - `set` and `unset` change one key through `efr-config`'s writer, which keeps
 //!   comments and layout and writes the file behind a link, then ask for a reload.
 //! - `schema` prints the JSON schema; `reload` asks the daemon to read the file now.
@@ -274,11 +276,15 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
 /// `efr config edit`.
 async fn edit(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
     let path = config_path(ctx);
-    if let Some(created) = create_from_example(&path).await? {
-        out.err(&format!("efr: created {} from the example\n", created.display()));
+    let Prepared { target, created } = create_from_example(&path).await?;
+    if created {
+        out.err(&format!("efr: created {} from the example\n", target.display()));
     }
     loop {
-        run_editor(ctx, &path).await?;
+        // NOTE: the editor gets the file behind a link, never the link: an editor that
+        // saves by writing a new file and renaming it over the old one would otherwise
+        // replace a link into a dotfiles repository with a plain file.
+        run_editor(ctx, &target).await?;
         let text = read(&path).await.map_err(|source| CliError::ConfigFile {
             source: Box::new(ConfigError::Read { path: path.clone(), source }),
         })?;
@@ -294,17 +300,26 @@ async fn edit(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
     reload_after_change(ctx, out).await
 }
 
-/// Creates the missing config file at `path` from the example and returns where it
-/// was written; `None` when a file is there. A link to nothing is refused.
-async fn create_from_example(path: &Path) -> Result<Option<PathBuf>, CliError> {
+/// The file that `edit` opens, and whether it was just created.
+#[derive(Debug)]
+struct Prepared {
+    /// The end of the link when `config.toml` is a symbolic link, else the file.
+    target: PathBuf,
+    created: bool,
+}
+
+/// Creates the missing config file at `path` from the example, and returns the file to
+/// edit. A link to nothing is refused.
+async fn create_from_example(path: &Path) -> Result<Prepared, CliError> {
     let path = path.to_path_buf();
-    let created = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>, ConfigError> {
+    let created = tokio::task::spawn_blocking(move || -> Result<Prepared, ConfigError> {
         let file = ConfigFile::open(&path)?;
+        let target = file.target().to_path_buf();
         if file.text().is_some() {
-            return Ok(None);
+            return Ok(Prepared { target, created: false });
         }
         file.write(&file.edit()?)?;
-        Ok(Some(file.target().to_path_buf()))
+        Ok(Prepared { target, created: true })
     })
     .await;
     let created = created.unwrap_or_else(|join| {
