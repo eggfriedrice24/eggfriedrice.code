@@ -42,7 +42,10 @@ Replies:
   again at the current width when the terminal was resized), erase to the end of the
   screen, then the new committed output and live zone, all inside synchronized output
   (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen.
-  Tool calls, answers and the end of a turn are dim notes, one line each.
+  Tool calls, answers and the end of a turn are dim notes, one line each. While a tool
+  call runs, the last line of its output with text in it (from `tool_call_output_updated`)
+  sits dim in the live zone, cut to the width; it goes when the call completes and is
+  never committed.
 - When stdout is not a terminal, the raw markdown is written, and notes and approval
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`
@@ -61,6 +64,30 @@ Approvals show inline. When stdin is a terminal, `y` allows and `n` denies with 
 a named thread puts the terminal into non-canonical mode without echo, discards keys
 typed before the question, and restores the terminal before the command goes on or
 exits. Without a terminal on stdin, the question waits for another client (the phone).
+
+Answers to a running command work the same way. `conversation.subscribe` sends
+`answers_input: true` exactly when stdin is a terminal, so the daemon knows that a
+person here can type. When `tool_call_input_changed` says that the running call waits
+for input, the key thread starts (and discards typeahead), and the live zone shows the
+command's prompt (its last output line) and how to answer:
+
+- `hidden` (echo off: `sudo`, `ssh`, `passwd`): nothing typed is shown, and the agent
+  never sees it.
+- `visible` (a `[Y/n]` question): the CLI echoes what is typed, and says that the agent
+  sees it, because the command's echo puts it in the output.
+
+Printable text is added, Backspace removes one character, Ctrl+U clears the line, arrow
+keys and other escape sequences are ignored, and Enter sends the line with
+`input.respond` (an empty line too: it takes a question's default). After a send, a dim
+note says `answer sent`; when the daemon answers `conflict` or `not_found`, the note
+says that the command no longer waits and nothing was sent. A wait of `none` or the
+call's completion stops the key thread and drops any unsent text. The line is an
+`answer::AnswerLine`: at most 1024 bytes, allocated once at that size, never in
+`Debug`, and zeroed when it is cleared, sent or dropped; a hidden one never reaches
+the view, a log or a note. When stdout is not a terminal, the prompt and how to answer
+go to stderr once, and nothing typed is echoed. Without a terminal on stdin, one dim
+note says that the command waits for input that `efr` cannot ask for here. Full-screen
+programs need an attach, which comes later.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
 130); the daemon stops the model and any running command. A prompt that still waits
@@ -97,7 +124,8 @@ threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 
 Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (the
 `[render]` table), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
-(row counting), `tracing`, `tracing-subscriber`, `thiserror`.
+(row counting), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
+line).
 
 `NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`:
 they are terminal conventions that `efr_stdx::env::Var` does not name.
@@ -113,6 +141,8 @@ they are terminal conventions that `efr_stdx::env::Var` does not name.
 - Text from the daemon or the model cannot drive the terminal: markdown goes through
   `efr-render`, and everything else the CLI prints passes through `format::one_line` or
   `format::lines`, which turn control characters into visible stand-ins.
+- A hidden answer is never written to stdout or stderr, never logged and never handed
+  to the view; it leaves the process only inside `input.respond`.
 - The last command line never reaches the shell context, and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
   reaches no child process and no log.
@@ -128,9 +158,11 @@ cargo nextest run -p efr-cli
 Unit tests cover argument parsing (with `efr --help` snapshots), output formatting
 (insta snapshots of status, listings, transcripts, config and rendered turns), the
 live-zone redraw arithmetic for wrapped lines (including a proptest that the CLI's row
-count agrees with the renderer's), and the key thread on a real pseudo-terminal. The
-end-to-end tests run whole commands against a fake daemon on a socket in a temporary
-directory, with a fixed screen, scripted keys and a Ctrl+C the test triggers.
+count agrees with the renderer's), the key thread on a real pseudo-terminal, and the
+editing of an answer line. The end-to-end tests run whole commands against a fake
+daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
+Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
+byte written to the fake terminal holds a hidden answer.
 `tests/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
 codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
