@@ -13,9 +13,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, CallId, CommandId, ConversationId, Event, EventEnvelope,
-    InputWait, Origin, ProjectId, PromptSend, PromptSendResult, Seq, ShellContext, TurnId,
-    TurnSettings,
+    ApprovalDecision, ApprovalRespond, CallId, CommandId, ConversationId, EffectiveSettings, Event,
+    EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, ProjectId, PromptSend,
+    PromptSendResult, Seq, ShellContext, TurnId, TurnSettings,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -253,6 +253,7 @@ impl Setup {
             ssh: false,
             scratch: self.scratch(title),
             agent_cwd: None,
+            mode: Mode::Cautious,
         }
     }
 
@@ -499,6 +500,16 @@ pub(crate) fn user_prompt(state: &LiveState, text: &str) -> Message {
             ContentBlock::Text { text: text.to_owned() },
         ],
     )
+}
+
+/// The settings of a turn whose prompt asked for none, under the harness's config.
+pub(crate) fn default_settings() -> Option<EffectiveSettings> {
+    Some(EffectiveSettings {
+        mode: Mode::Cautious,
+        model: MODEL.to_owned(),
+        effort: None,
+        overridden: OverriddenSettings::default(),
+    })
 }
 
 /// The transcript record of a request.

@@ -428,7 +428,27 @@ impl DaemonError {
                     DaemonError::Login { source } => source.to_string(),
                     other => other.to_string(),
                 };
-                ErrorBody::new(code, message)
+                let body = ErrorBody::new(code, message);
+                match &error {
+                    // The choices travel as data, so a client can offer them.
+                    DaemonError::Conversation {
+                        source:
+                            ConversationError::InvalidSetting { setting, value, model, choices, .. },
+                    } => {
+                        let mut data = serde_json::json!({
+                            "setting": setting,
+                            "value": value,
+                            "choices": choices,
+                        });
+                        if let (Some(model), serde_json::Value::Object(members)) =
+                            (model, &mut data)
+                        {
+                            members.insert("model".to_owned(), model.clone().into());
+                        }
+                        body.with_data(data)
+                    }
+                    _ => body,
+                }
             }
         }
     }
@@ -506,6 +526,7 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         ConversationError::WrongConversation { .. } => ErrorCode::Invalid,
         ConversationError::ApprovalNotPending { .. } => ErrorCode::NotFound,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
+        ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     }
 }

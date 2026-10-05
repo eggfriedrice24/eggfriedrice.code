@@ -11,7 +11,7 @@ use efr_conversation::{ConfigSource, ConversationConfig, HostInfo};
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
 
-use crate::providers::default_model;
+use crate::providers::{default_model, effective_models};
 
 /// The conversations' view of the settings watch, with the facts that do not change
 /// while the daemon runs.
@@ -59,8 +59,10 @@ pub(crate) fn conversation_config(
         .with_system_prompt(settings.model.system_prompt.clone())
         .with_time_zone(time_zone)
         .with_host(host);
-    config.max_output_tokens = settings.model.max_output_tokens;
+    config.effort.clone_from(&settings.model.effort);
     config.mode = settings.permissions.mode;
+    config.models = effective_models(settings);
+    config.max_output_tokens = settings.model.max_output_tokens;
     config.max_queued = settings.conversation.max_queued;
     config.approval_timeout = settings.conversation.approval_timeout_secs.map(Duration::from_secs);
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);

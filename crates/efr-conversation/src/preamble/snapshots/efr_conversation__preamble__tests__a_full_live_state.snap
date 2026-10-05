@@ -11,4 +11,5 @@ Git work tree: /home/u/p/efr, branch main.
 Home: /home/u
 Host: box (Arch Linux)
 $SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
+Permission mode: auto. Calls outside the auto list ask the user.
 </live_state>

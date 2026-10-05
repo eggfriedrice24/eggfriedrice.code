@@ -35,6 +35,23 @@ fn the_conversation_settings_follow_the_config() {
     assert_eq!(settings.update_interval, Duration::from_millis(50));
     assert_eq!(settings.host, host);
     assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(settings.effort, None);
+}
+
+#[test]
+fn the_turn_defaults_and_the_model_list_follow_the_config() {
+    let mut config = Settings::default();
+    config.permissions.mode = Mode::Auto;
+    config.model.effort = Some("high".to_owned());
+    config.openai.models = Some(vec!["gpt-next".to_owned()]);
+
+    let settings =
+        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(settings.effort.as_deref(), Some("high"));
+    assert_eq!(settings.models, crate::providers::effective_models(&config));
+    assert!(settings.models.iter().any(|model| model.id == "gpt-next"));
 }
 
 #[test]

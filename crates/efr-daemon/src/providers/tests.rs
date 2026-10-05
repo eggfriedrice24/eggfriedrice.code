@@ -3,6 +3,7 @@ use std::sync::Arc;
 use efr_config::Settings;
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
+use efr_protocol::{ModelInfo, ModelSource};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
 use efr_provider_openai::OpenAiConfig;
 use efr_test_support::{TestClock, TestRng};
@@ -10,9 +11,13 @@ use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
 use crate::providers::{
-    API, Providers, SUBSCRIPTION, StoredApiKey, default_model, known_models, openai_config,
+    API, Providers, SUBSCRIPTION, StoredApiKey, default_model, effective_models, openai_config,
     provider_status,
 };
+
+fn known_models(config: &Settings) -> Vec<String> {
+    effective_models(config).into_iter().map(|model| model.id).collect()
+}
 
 fn store(dir: &std::path::Path) -> Arc<FileStore> {
     Arc::new(FileStore::new(dir.join("secrets")))
@@ -55,16 +60,43 @@ fn the_model_is_the_configured_one_then_the_first_listed_then_the_default() {
 }
 
 #[test]
-fn the_known_models_are_the_configured_list_else_the_providers_own() {
+fn the_effective_models_are_the_builtin_list_then_the_configured_ids() {
     let mut config = Settings::default();
-    let builtin = known_models(&config);
-    assert!(builtin.iter().any(|id| id == efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL));
-    assert_eq!(config.unknown_model(&builtin.iter().map(String::as_str).collect::<Vec<_>>()), None);
+    let builtin = effective_models(&config);
+    assert!(builtin.iter().all(|model| model.source == ModelSource::Builtin));
+    let default: Vec<&str> =
+        builtin.iter().filter(|model| model.default).map(|model| model.id.as_str()).collect();
+    assert_eq!(default, [efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL]);
+    let gpt_5_5 = builtin.iter().find(|model| model.id == "gpt-5.5").unwrap();
+    assert_eq!(gpt_5_5.efforts, ["low", "medium", "high", "xhigh"]);
+    assert_eq!(gpt_5_5.default_effort.as_deref(), Some("medium"));
 
-    config.openai.models = Some(vec!["gpt-6-sol".to_owned()]);
-    assert_eq!(known_models(&config), ["gpt-6-sol"]);
+    config.openai.models = Some(vec!["gpt-next".to_owned(), "gpt-5.5".to_owned()]);
+    let models = effective_models(&config);
+    assert_eq!(models.len(), builtin.len() + 1, "an id the list holds is not added again");
+    let added = models.last().unwrap();
+    assert_eq!(
+        added,
+        &ModelInfo {
+            id: "gpt-next".to_owned(),
+            efforts: Vec::new(),
+            default_effort: None,
+            default: true,
+            source: ModelSource::Config,
+        },
+        "the first configured id is the default when model.name is unset"
+    );
+    assert_eq!(models.iter().filter(|model| model.default).count(), 1);
+}
+
+#[test]
+fn an_unknown_default_model_is_named_and_marks_no_model() {
+    let mut config = Settings::default();
     config.model.name = Some("gpt-9".to_owned());
+
     let known = known_models(&config);
+
+    assert!(!effective_models(&config).iter().any(|model| model.default));
     assert_eq!(
         config.unknown_model(&known.iter().map(String::as_str).collect::<Vec<_>>()),
         Some("gpt-9")
@@ -72,32 +104,31 @@ fn the_known_models_are_the_configured_list_else_the_providers_own() {
 }
 
 #[test]
-fn the_openai_settings_reach_the_provider_config() {
-    let mut settings = Settings::default().openai;
-    settings.originator = "efr-test".to_owned();
-    settings.models = Some(vec!["m1".to_owned()]);
+fn the_api_provider_lists_only_the_configured_ids() {
+    let mut config = Settings::default();
+    config.model.provider = API.to_owned();
+    assert!(effective_models(&config).is_empty());
 
-    let config = openai_config(
-        OpenAiConfig::subscription(),
-        &settings,
-        Some("high"),
-        Some("http://127.0.0.1:9/codex/"),
-    )
-    .unwrap();
-
-    assert_eq!(config.originator(), "efr-test");
-    assert_eq!(config.base_url(), "http://127.0.0.1:9/codex");
-    assert_eq!(config.models().iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m1"]);
-    assert_eq!(config.reasoning_effort(), Some("high"));
+    config.openai.models = Some(vec!["gpt-4.1".to_owned()]);
+    assert_eq!(known_models(&config), ["gpt-4.1"]);
 }
 
 #[test]
-fn without_an_effort_the_provider_keeps_the_backend_default() {
-    let settings = Settings::default().openai;
+fn the_openai_settings_reach_the_provider_config() {
+    let mut settings = Settings::default().openai;
+    settings.originator = "efr-test".to_owned();
+    settings.models = Some(vec!["m1".to_owned(), "gpt-5.5".to_owned()]);
 
-    let config = openai_config(OpenAiConfig::subscription(), &settings, None, None).unwrap();
+    let config =
+        openai_config(OpenAiConfig::subscription(), &settings, Some("http://127.0.0.1:9/codex/"))
+            .unwrap();
 
-    assert_eq!(config.reasoning_effort(), None);
+    assert_eq!(config.originator(), "efr-test");
+    assert_eq!(config.base_url(), "http://127.0.0.1:9/codex");
+    let ids: Vec<&str> = config.models().iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids.last(), Some(&"m1"), "a configured id is added to the built-in list");
+    assert_eq!(ids.len(), efr_provider_openai::subscription_models().len() + 1);
+    assert_eq!(config.reasoning_effort(), None, "each turn sends its own effort");
 }
 
 #[test]
@@ -110,7 +141,7 @@ fn an_originator_that_is_not_a_header_value_is_refused() {
     let mut settings = Settings::default().openai;
     settings.originator = "bad\nvalue".to_owned();
 
-    assert!(openai_config(OpenAiConfig::subscription(), &settings, None, None).is_err());
+    assert!(openai_config(OpenAiConfig::subscription(), &settings, None).is_err());
 }
 
 #[tokio::test]

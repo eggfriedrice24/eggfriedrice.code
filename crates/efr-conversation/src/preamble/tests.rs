@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use efr_protocol::Mode;
 use efr_scope::Repo;
 use insta::assert_snapshot;
 
@@ -18,6 +19,7 @@ fn minimal() -> LiveState {
         ssh: false,
         scratch: PathBuf::from("/home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d"),
         agent_cwd: None,
+        mode: Mode::Cautious,
     }
 }
 
@@ -31,6 +33,7 @@ fn full() -> LiveState {
         host: Some("box".to_owned()),
         os: Some("Arch Linux".to_owned()),
         agent_cwd: Some(PathBuf::from("/etc")),
+        mode: Mode::Auto,
         ..minimal()
     }
 }
@@ -53,6 +56,7 @@ fn a_detached_head_over_ssh_with_only_a_status() {
         last_status: Some(0),
         ssh: true,
         os: Some("Debian GNU/Linux 13".to_owned()),
+        mode: Mode::Manual,
         ..minimal()
     };
     assert_snapshot!(state.render());
@@ -80,6 +84,19 @@ fn a_long_command_is_cut() {
 fn the_hidden_shell_is_left_out_when_it_is_where_the_user_is() {
     let state = LiveState { agent_cwd: Some(PathBuf::from("/home/u")), ..minimal() };
     assert!(!state.render().contains("Your hidden shell"));
+}
+
+#[test]
+fn every_mode_says_what_it_means_for_the_calls() {
+    for (mode, says) in [
+        (Mode::Manual, "Permission mode: manual. Every call asks the user"),
+        (Mode::Cautious, "Permission mode: cautious. Reads and read-only commands run at once"),
+        (Mode::Auto, "Permission mode: auto. Calls outside the auto list ask the user."),
+    ] {
+        let text = LiveState { mode, ..minimal() }.render();
+        assert!(text.contains(says), "{mode}: {text}");
+        assert!(text.ends_with(".\n</live_state>"), "{text}");
+    }
 }
 
 #[test]

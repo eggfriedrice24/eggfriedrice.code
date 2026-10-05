@@ -55,3 +55,11 @@ No protocol version has shipped yet.
   optional `reload_error` of the last reload in the form of the `admin.config_reload`
   error, and the `restart_needed` keys, absent when empty). Absent means not reported,
   as from an earlier daemon. The `admin_status_result.json` fixture now sets both.
+- Before version 1 ships: the daemon applies turn settings and answers `models.list`.
+  The `turn_started` event and the `prompt.send` result now always carry `settings`; a
+  turn from a remote origin records a `mode` of at most `cautious`. A `prompt.send`
+  whose `settings.model` is not in `models.list`, or whose effort (its own or the
+  config's) is not one of the model's `efforts`, fails with `invalid` and `data`
+  `{setting, value, choices}`, plus `model` for an effort; a turn whose settings no
+  longer fit when it starts ends with `turn_failed` and the same error body. No wire
+  type changed.

@@ -26,8 +26,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect};
 use efr_protocol::{
-    ApprovalDecision, CallId, ConversationId, ErrorBody, ErrorCode, Event, InputWait, Origin,
-    Scope, ShellContext, TurnId,
+    ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    InputWait, Mode, Origin, Scope, ShellContext, TurnId, TurnSettings,
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
@@ -43,6 +43,7 @@ use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
 use crate::scratch::Scratch;
+use crate::settings;
 use crate::steer::Steering;
 use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, OutputSink,
@@ -55,6 +56,9 @@ const TAIL_MAX: usize = 4096;
 /// How many changes of a call's input wait may wait for the turn to record them. A
 /// command changes it at most once a second, and the turn records each at once.
 const INPUT_CAPACITY: usize = 64;
+
+/// The `provider_options` key of the reasoning effort, which the OpenAI provider reads.
+const REASONING_EFFORT: &str = "reasoning_effort";
 
 /// What the model reads for a call that did not run because the user interrupted the
 /// turn.
@@ -89,6 +93,8 @@ pub(crate) struct TurnSpec {
     pub(crate) context: Option<ShellContext>,
     /// The last command of `prompt.send`. It lives only in memory, for the preamble.
     pub(crate) last_command: Option<String>,
+    /// The settings the prompt asked for, resolved when the turn starts.
+    pub(crate) settings: TurnSettings,
 }
 
 impl fmt::Debug for TurnSpec {
@@ -99,6 +105,7 @@ impl fmt::Debug for TurnSpec {
             .field("text", &self.text)
             .field("origin", &self.origin)
             .field("context", &self.context)
+            .field("settings", &self.settings)
             .finish_non_exhaustive()
     }
 }
@@ -181,6 +188,9 @@ struct Turn {
     /// The settings of the turn, read when it started; a later change waits for the
     /// next turn.
     config: Arc<ConversationConfig>,
+    /// The mode, the model and the effort of the turn, resolved when it starts; `None`
+    /// until then.
+    settings: Option<EffectiveSettings>,
     spec: TurnSpec,
     control: Control,
     cwd: PathBuf,
@@ -204,6 +214,7 @@ impl Turn {
         Turn {
             shared,
             config,
+            settings: None,
             spec,
             control,
             cwd,
@@ -227,6 +238,13 @@ impl Turn {
         let shared = Arc::clone(&self.shared);
         let config = Arc::clone(&self.config);
         let turn_id = self.turn_id();
+        // NOTE: resolved again against the settings of this moment, because the config
+        // may have changed while the prompt waited; what no longer fits fails the turn.
+        let settings = match settings::resolve(&self.spec.settings, &config, self.spec.origin) {
+            Ok(settings) => settings,
+            Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
+        };
+        self.settings = Some(settings.clone());
         let snapshot =
             Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history).await?;
         let summary = snapshot.summary.as_ref();
@@ -237,12 +255,11 @@ impl Turn {
         };
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
         self.scope = derivation.scope.clone();
-        // NOTE: the effective settings are left out until turn settings are applied.
         let mut started = vec![Event::TurnStarted {
             turn_id,
             cwd: self.cwd.clone(),
             scope: self.scope.clone(),
-            settings: None,
+            settings: Some(settings.clone()),
         }];
         if let Some(previous) = summary.and_then(|summary| summary.scope.clone())
             && previous != self.scope
@@ -274,6 +291,10 @@ impl Turn {
             ],
         ));
         let tools = shared.deps.toolbox.definitions();
+        let mut provider_options = config.provider_options.clone();
+        if let Some(effort) = &settings.effort {
+            provider_options.insert(REASONING_EFFORT.to_owned(), Value::String(effort.clone()));
+        }
 
         for _ in 0..config.max_model_calls {
             if self.control.interrupt.is_raised() {
@@ -283,12 +304,12 @@ impl Turn {
                 self.push(&mut messages, Message::user(text));
             }
             let request = Request {
-                model: config.model.clone(),
+                model: settings.model.clone(),
                 system: config.system_prompt.clone().filter(|system| !system.is_empty()),
                 messages: messages.clone(),
                 tools: tools.clone(),
                 max_output_tokens: config.max_output_tokens,
-                provider_options: config.provider_options.clone(),
+                provider_options: provider_options.clone(),
             };
             let message = match self.respond(request).await? {
                 Response::Done(message) => message,
@@ -346,7 +367,13 @@ impl Turn {
 
     /// The provider and the model that answer this turn.
     fn model_key(&self) -> ModelKey {
-        ModelKey::new(self.shared.deps.provider.id().clone(), self.config.model.clone())
+        let model = self.settings.as_ref().map_or(&self.config.model, |settings| &settings.model);
+        ModelKey::new(self.shared.deps.provider.id().clone(), model.clone())
+    }
+
+    /// The turn's permission mode; the config's until the turn has resolved its own.
+    fn mode(&self) -> Mode {
+        self.settings.as_ref().map_or(self.config.mode, |settings| settings.mode)
     }
 
     /// Adds `message` to the request and to the turn's transcript.
@@ -372,6 +399,7 @@ impl Turn {
             ssh: context.is_some_and(|context| context.ssh_connection.is_some()),
             scratch: self.scratch.clone(),
             agent_cwd,
+            mode: self.mode(),
         }
     }
 
@@ -480,10 +508,7 @@ impl Turn {
             requirements,
             scope: call.context.scope.clone(),
             origin: call.context.origin,
-            // NOTE: the mode of the settings the turn read when it started, so a change
-            // of the config never reaches a running turn. The prompt's own mode joins
-            // here when turn settings apply.
-            mode: self.config.mode,
+            mode: self.mode(),
             conversation_policy: ConversationPolicy::new(&call.context.scratch)
                 .with_rules(self.config.policy.clone()),
         };

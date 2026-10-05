@@ -23,7 +23,7 @@ use efr_config::{OpenAiSettings, Settings};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
-use efr_protocol::ProviderStatus;
+use efr_protocol::{ModelInfo as WireModel, ModelSource, ProviderStatus};
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderId, StaticToken, TokenSource,
 };
@@ -89,7 +89,6 @@ impl Providers {
             Some(factory) => factory,
             None => Arc::new(CredentialProviders {
                 openai: config.openai.clone(),
-                effort: config.model.effort.clone(),
                 http,
                 subscription: Arc::clone(&subscription),
                 store: Arc::clone(&store),
@@ -98,11 +97,7 @@ impl Providers {
         };
         let active = factory.provider(&config.model.provider)?;
         let model = default_model(config);
-        let known = known_models(config);
-        let known: Vec<&str> = known.iter().map(String::as_str).collect();
-        if let Some(name) = config.unknown_model(&known) {
-            tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so the backend may refuse it");
-        }
+        warn_unfit_defaults(config);
         tracing::info!(provider = %active.id(), model = %model, "provider ready");
         Ok(Providers { store, subscription, login, active })
     }
@@ -165,18 +160,63 @@ pub(crate) fn default_model(config: &Settings) -> String {
         .unwrap_or_else(|| efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL.to_owned())
 }
 
-/// The model ids the provider of `config` offers: `openai.models` when the config names
-/// them, else the built-in list of that provider.
-pub(crate) fn known_models(config: &Settings) -> Vec<String> {
-    if let Some(models) = &config.openai.models {
-        return models.clone();
-    }
-    let builtin = if config.model.provider == API {
+/// The built-in models of the provider of `config`.
+fn builtin_models(config: &Settings) -> Vec<ModelInfo> {
+    if config.model.provider == API {
         efr_provider_openai::api_models()
     } else {
         efr_provider_openai::subscription_models()
-    };
-    builtin.into_iter().map(|model| model.id).collect()
+    }
+}
+
+/// The effective model list of `config`, as `models.list` answers it and a turn checks
+/// against it: the built-in models of its provider, then each id of `[openai] models`
+/// that the built-in list does not hold, and the default model marked.
+pub(crate) fn effective_models(config: &Settings) -> Vec<WireModel> {
+    let default = default_model(config);
+    let builtin = builtin_models(config).into_iter().map(|model| WireModel {
+        default: model.id == default,
+        id: model.id,
+        efforts: model.efforts,
+        default_effort: model.default_effort,
+        source: ModelSource::Builtin,
+    });
+    let mut models: Vec<WireModel> = builtin.collect();
+    for id in config.openai.models.iter().flatten() {
+        if models.iter().any(|model| model.id == *id) {
+            continue;
+        }
+        models.push(WireModel {
+            id: id.clone(),
+            efforts: Vec::new(),
+            default_effort: None,
+            default: *id == default,
+            source: ModelSource::Config,
+        });
+    }
+    models
+}
+
+/// Warns when the config's default model is not in the model list, or its default
+/// effort is not one the default model takes: every prompt that leaves them to the
+/// config then fails until the file is fixed.
+fn warn_unfit_defaults(config: &Settings) {
+    let models = effective_models(config);
+    if models.is_empty() {
+        return;
+    }
+    let known: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
+    if let Some(name) = config.unknown_model(&known) {
+        tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so a turn that does not name its own model fails");
+    }
+    let default = default_model(config);
+    let efforts = models.iter().find(|model| model.id == default).map(|model| &model.efforts);
+    if let (Some(effort), Some(efforts)) = (&config.model.effort, efforts)
+        && !efforts.is_empty()
+        && !efforts.contains(effort)
+    {
+        tracing::warn!(effort = %effort, model = %default, efforts = ?efforts, "model.effort is not an effort of the default model, so a turn on it that does not name its own effort fails");
+    }
 }
 
 fn credential(id: &str) -> Result<CredentialId, DaemonError> {
@@ -187,7 +227,6 @@ fn credential(id: &str) -> Result<CredentialId, DaemonError> {
 #[derive(Debug)]
 struct CredentialProviders {
     openai: OpenAiSettings,
-    effort: Option<String>,
     http: HttpClient,
     subscription: Arc<OpenAiTokenSource>,
     store: Arc<dyn SecretStore>,
@@ -201,22 +240,11 @@ impl ProviderFactory for CredentialProviders {
             let tokens: Arc<dyn TokenSource> =
                 Arc::new(StoredApiKey { store: Arc::clone(&self.store), id: credential(API)? });
             let base_url = self.openai.api_base_url.as_deref();
-            (
-                openai_config(OpenAiConfig::api(), &self.openai, self.effort.as_deref(), base_url)?,
-                tokens,
-            )
+            (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
         } else {
             let tokens: Arc<dyn TokenSource> = self.subscription.clone();
             let base_url = self.openai.subscription_base_url.as_deref();
-            (
-                openai_config(
-                    OpenAiConfig::subscription(),
-                    &self.openai,
-                    self.effort.as_deref(),
-                    base_url,
-                )?,
-                tokens,
-            )
+            (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
         };
         Ok(Arc::new(OpenAiProvider::new(
             provider_id,
@@ -228,12 +256,15 @@ impl ProviderFactory for CredentialProviders {
     }
 }
 
-/// `config` with the user's settings applied. `effort`, `[model] effort`, becomes the
-/// provider's default reasoning effort.
+/// `config` with the user's settings applied: the originator, the base URL and the ids
+/// of `[openai] models` added to the built-in list.
+///
+/// The reasoning effort is not set here: each turn sends its own in the request's
+/// `provider_options`, so a change of `[model] effort` reaches the next turn without a
+/// restart, and a turn without one leaves it to the backend.
 pub(crate) fn openai_config(
     config: OpenAiConfig,
     settings: &OpenAiSettings,
-    effort: Option<&str>,
     base_url: Option<&str>,
 ) -> Result<OpenAiConfig, DaemonError> {
     let invalid = |source| DaemonError::OpenAi { source };
@@ -241,11 +272,14 @@ pub(crate) fn openai_config(
     if let Some(base_url) = base_url {
         config = config.with_base_url(base_url).map_err(invalid)?;
     }
-    if let Some(models) = &settings.models {
-        config = config.with_models(models.iter().map(ModelInfo::new).collect());
-    }
-    if let Some(effort) = effort {
-        config = config.with_reasoning_effort(Some(effort.to_owned()));
+    if let Some(extra) = &settings.models {
+        let mut models = config.models().to_vec();
+        for id in extra {
+            if !models.iter().any(|model| model.id == *id) {
+                models.push(ModelInfo::new(id));
+            }
+        }
+        config = config.with_models(models);
     }
     Ok(config)
 }

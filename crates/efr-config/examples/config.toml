@@ -42,8 +42,9 @@
 # (restart)
 # originator = "efr"
 
-# Model ids that replace the built-in model list. Unset: the built-in list.
-# models = ["gpt-5.5"]
+# Model ids added to the built-in model list, such as a new model before efr knows
+# it. A prompt may then name them; their efforts are not checked.
+# models = ["gpt-5.4"]
 
 # Replaces the subscription backend's base URL. Unset: the ChatGPT backend. (restart)
 # subscription_base_url = "https://chatgpt.com/backend-api/codex"

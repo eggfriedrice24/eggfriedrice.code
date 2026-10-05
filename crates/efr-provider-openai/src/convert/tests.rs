@@ -291,6 +291,64 @@ fn raw_items_are_sent_verbatim_in_place_of_the_content() {
     assert_eq!(items[3]["type"], json!("function_call_output"));
 }
 
+/// Every object member named `key` anywhere in `value`.
+fn members<'a>(value: &'a Value, key: &str, found: &mut Vec<&'a Value>) {
+    match value {
+        Value::Object(object) => {
+            for (name, member) in object {
+                if name == key {
+                    found.push(member);
+                }
+                members(member, key, found);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| members(item, key, found)),
+        _ => {}
+    }
+}
+
+#[test]
+fn a_body_after_a_model_switch_holds_no_reasoning_or_item_id_of_the_other_model() {
+    // NOTE: the conversation sends another model's turns without their provider_raw;
+    // this is the body that such messages become.
+    let switched = [
+        Message::user("List the files."),
+        Message::new(
+            Role::Assistant,
+            vec![
+                ContentBlock::Reasoning { text: "Thinking.".to_owned() },
+                call("call_1", "shell", json!({"command": "ls"})),
+            ],
+        ),
+        Message::new(Role::User, vec![result("call_1", "file.txt", false)]),
+        Message::assistant("One file."),
+        Message::user("And now?"),
+    ];
+    let mut request = Request::new("gpt-6-sol");
+    request.messages = switched.to_vec();
+    request.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
+
+    let body = body(&request, &OpenAiConfig::subscription());
+
+    let types: Vec<&str> = body["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        ["message", "function_call", "function_call_output", "message", "message"],
+        "the text, the call and its result stay"
+    );
+    for key in ["id", "encrypted_content"] {
+        let mut found = Vec::new();
+        members(&body["input"], key, &mut found);
+        assert!(found.is_empty(), "{key}: {found:?}");
+    }
+    assert_eq!(body["reasoning"]["effort"], json!("high"), "the turn's effort");
+}
+
 #[rstest]
 #[case::not_a_list(json!({"items": []}))]
 #[case::empty(json!([]))]

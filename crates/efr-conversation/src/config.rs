@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_permissions::{Engine, Policy};
-use efr_protocol::{Mode, Origin};
+use efr_protocol::{Mode, ModelInfo, Origin};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -23,8 +23,20 @@ use crate::{HistoryLimits, ScopeResolver, Toolbox};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ConversationConfig {
-    /// The provider's model id.
+    /// The default model of a turn, the provider's model id. A prompt may name another
+    /// one from [`models`](Self::models).
     pub model: String,
+    /// The default reasoning effort of a turn; `None` leaves it to the backend. A
+    /// prompt may name another one that its model takes.
+    pub effort: Option<String>,
+    /// The default permission mode of a turn. A prompt may name another one; a turn
+    /// from a remote origin runs with at most `cautious`. The mode picks the built-in
+    /// policy that the user's rules follow.
+    pub mode: Mode,
+    /// The effective model list: the models a turn may use, each with the efforts it
+    /// takes. Empty when the provider does not say, and then any model id is passed
+    /// through and the backend's answer decides.
+    pub models: Vec<ModelInfo>,
     /// The static rules, sent as the request's system prompt. The live state is not
     /// here; it rides on the newest prompt.
     pub system_prompt: Option<String>,
@@ -39,9 +51,6 @@ pub struct ConversationConfig {
     pub time_zone: TimeZone,
     /// The machine facts for the preamble.
     pub host: HostInfo,
-    /// The permission mode a turn runs with: it picks the built-in policy that the
-    /// user's rules follow. The engine caps it at `cautious` for a remote origin.
-    pub mode: Mode,
     /// The conversation's own permission rules, read after the machine policy.
     pub policy: Policy,
     /// How much history a request carries.
@@ -60,19 +69,22 @@ pub struct ConversationConfig {
 
 impl ConversationConfig {
     /// Settings for `model` with scratch directories under `scratch_root`, and the
-    /// defaults for the rest: no system prompt, UTC dates, no machine facts, the
-    /// `cautious` permission mode, no conversation rules, [`HistoryLimits::default`], 200 ms between updates, no
+    /// defaults for the rest: the backend's default effort, the `cautious` mode, no
+    /// model list (any model), no system prompt, UTC dates, no machine facts, no
+    /// conversation rules, [`HistoryLimits::default`], 200 ms between updates, no
     /// approval timeout, 64 model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
+            effort: None,
+            mode: Mode::default(),
+            models: Vec::new(),
             system_prompt: None,
             max_output_tokens: None,
             provider_options: Map::new(),
             scratch_root: scratch_root.into(),
             time_zone: TimeZone::UTC,
             host: HostInfo::default(),
-            mode: Mode::default(),
             policy: Policy::empty(),
             history: HistoryLimits::default(),
             update_interval: Duration::from_millis(200),

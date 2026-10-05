@@ -11,4 +11,5 @@ Home: /home/u
 OS: Debian GNU/Linux 13
 The user's shell runs over SSH.
 $SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
+Permission mode: manual. Every call asks the user, except what the user's own rules allow.
 </live_state>

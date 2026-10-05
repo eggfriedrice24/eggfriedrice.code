@@ -36,6 +36,7 @@ mod interrupt;
 mod preamble;
 mod resolver;
 mod scratch;
+mod settings;
 mod steer;
 #[cfg(test)]
 mod testing;

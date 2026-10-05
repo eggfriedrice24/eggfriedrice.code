@@ -154,6 +154,32 @@ fn a_conversation_refusal_says_what_the_conversation_said() {
 }
 
 #[test]
+fn an_invalid_turn_setting_is_invalid_with_its_choices_as_data() {
+    let error = ConversationError::InvalidSetting {
+        setting: "effort",
+        value: "ultra".to_owned(),
+        model: Some("gpt-5.5".to_owned()),
+        choices: vec!["low".to_owned(), "high".to_owned()],
+        from_config: false,
+    };
+    let message = error.to_string();
+
+    let body = frame(DaemonError::from(error)).error;
+
+    assert_eq!(body.code, ErrorCode::Invalid);
+    assert_eq!(body.message, message);
+    assert_eq!(
+        body.data,
+        Some(json!({
+            "setting": "effort",
+            "value": "ultra",
+            "model": "gpt-5.5",
+            "choices": ["low", "high"],
+        }))
+    );
+}
+
+#[test]
 fn a_stored_refusal_is_answered_exactly_as_stored() {
     let body = ErrorBody::new(ErrorCode::NotFound, "the call has no pending approval")
         .with_data(json!({"call_id": "x"}));

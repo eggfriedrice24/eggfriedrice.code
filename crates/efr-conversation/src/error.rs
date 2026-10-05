@@ -76,6 +76,23 @@ pub enum ConversationError {
         limit: usize,
     },
 
+    /// A turn setting cannot work: the model is not in the model list, or the effort is
+    /// not one that the model takes. Nothing was recorded for a prompt; a turn that
+    /// starts with it fails.
+    #[error("{}", invalid_setting(.setting, .value, .model.as_deref(), .choices, *.from_config))]
+    InvalidSetting {
+        /// `model` or `effort`.
+        setting: &'static str,
+        /// The value that does not fit.
+        value: String,
+        /// For an effort, the model whose efforts it was checked against.
+        model: Option<String>,
+        /// The values that would fit; empty when any lowercase word would.
+        choices: Vec<String>,
+        /// True when the value is the config's default rather than the prompt's own.
+        from_config: bool,
+    },
+
     /// The scratch root could not be created.
     #[error("could not create the scratch root {}", .path.display())]
     CreateScratchRoot {
@@ -124,6 +141,34 @@ pub enum ConversationError {
         /// The task, such as `"scratch"`.
         task: &'static str,
     },
+}
+
+/// The message of [`ConversationError::InvalidSetting`]: what does not fit, and the
+/// choices.
+fn invalid_setting(
+    setting: &str,
+    value: &str,
+    model: Option<&str>,
+    choices: &[String],
+    from_config: bool,
+) -> String {
+    let what = if from_config {
+        format!("the config's default {setting} {value}")
+    } else {
+        format!("the {setting} {value}")
+    };
+    let problem = match (setting, model) {
+        ("effort", Some(model)) if choices.is_empty() => {
+            format!("{what} is not a word of lowercase letters, digits, - and _ (for {model})")
+        }
+        ("effort", Some(model)) => format!("{what} is not an effort of {model}"),
+        _ => format!("{what} is not in the model list"),
+    };
+    if choices.is_empty() {
+        problem
+    } else {
+        format!("{problem}; choose one of: {}", choices.join(", "))
+    }
 }
 
 impl ConversationError {

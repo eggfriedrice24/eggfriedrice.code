@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use efr_protocol::{
     ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, ErrorBody,
     ErrorCode, Event, Origin, PromptSend, PromptSendResult, Seq, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -33,6 +33,7 @@ use tracing::Instrument as _;
 use crate::approvals::Approvals;
 use crate::history::CachedTurn;
 use crate::scratch::Scratch;
+use crate::settings;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
 use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart};
 
@@ -201,13 +202,17 @@ impl ConversationActor {
         origin: Origin,
     ) -> Result<PromptSendResult, ConversationError> {
         self.check_conversation(params.conversation_id)?;
-        let limit = self.shared.config.current().max_queued;
+        let config = self.shared.config.current();
+        let limit = config.max_queued;
         if self.queue.len() >= limit {
             return Err(ConversationError::QueueFull {
                 conversation_id: self.conversation_id(),
                 limit,
             });
         }
+        // NOTE: checked here so a value that cannot work fails before anything is
+        // recorded; the turn checks again when it starts, against the settings of then.
+        let effective = settings::resolve(&params.settings, &config, origin)?;
         let turn_id = TurnId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
         let queued = self.running.is_some() || !self.queue.is_empty();
         let mut events = Vec::with_capacity(2);
@@ -221,16 +226,14 @@ impl ConversationActor {
             text: params.text.clone(),
             origin,
             context: params.context.clone(),
-            // NOTE: turn settings are not applied yet, so a prompt's own are not recorded
-            // either: every turn runs with the config's model and today's rules.
-            settings: TurnSettings::default(),
+            settings: params.settings.clone(),
         });
         let result = PromptSendResult {
             conversation_id: self.conversation_id(),
             turn_id,
             seq: Seq::ZERO,
             queued,
-            settings: None,
+            settings: Some(effective),
         };
         let receipt = receipt(params.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
         let committed = self.append(events, receipt).await?;
@@ -241,6 +244,7 @@ impl ConversationActor {
             origin,
             context: params.context,
             last_command: params.last_command,
+            settings: params.settings,
         });
         self.start_next();
         Ok(PromptSendResult { seq: seq_of(&committed, index), ..result })

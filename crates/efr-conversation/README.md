@@ -19,6 +19,18 @@ turns.
   once when the conversation is idle; a second prompt queues behind the running turn
   (`ConversationConfig::max_queued`, 16 by default). The last command of `prompt.send`
   stays in memory and reaches only the turn's preamble; it never enters an event.
+- Turn settings (`settings.rs`): a prompt may ask for a mode, a model and an effort.
+  `send_prompt` resolves them over the config's defaults (`ConversationConfig::mode`,
+  `model`, `effort`) and checks them against the model list
+  (`ConversationConfig::models`; an empty list takes any model): a model outside the
+  list, or an effort the model does not take, is `InvalidSetting` with the choices,
+  and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a held
+  prompt keeps it; the result carries the effective settings. When the turn starts it
+  resolves them again against the settings of that moment, fails with `invalid` and
+  the choices when they no longer fit, and records them on `turn_started`. A turn
+  from a remote origin runs with at most `cautious`. The turn sends its model, its
+  effort as `provider_options["reasoning_effort"]`, and its mode in the permission
+  engine's `DecisionInput` and as a line of the preamble.
 - `steer` records `turn_steered`; the turn sends the text to the model before its next
   model call, and a turn that would end with steering waiting makes one more call.
 - `interrupt` is two-phase: the actor records `turn_interrupt_requested`, the turn
@@ -42,8 +54,8 @@ request:
    each earlier turn rebuilt from its events;
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
-   status, the git work tree and branch, home, host, OS, `$SCRATCH`, and the hidden
-   shell's own directory when it differs;
+   status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
+   shell's own directory when it differs, and the turn's permission mode;
 4. the tool definitions.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at

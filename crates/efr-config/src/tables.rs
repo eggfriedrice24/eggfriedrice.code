@@ -124,7 +124,8 @@ pub struct OpenAiSettings {
     /// The `originator` of the subscription login and of every subscription request.
     /// Needs a restart.
     pub originator: String,
-    /// Model ids that replace the built-in model list. Unset: the built-in list.
+    /// Model ids added to the built-in model list, such as a new model before efr
+    /// knows it. A prompt may then name them; their efforts are not checked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<String>>,
     /// Replaces the subscription backend's base URL. Needs a restart.

@@ -6,8 +6,8 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{
-    ApprovalDecision, ErrorCode, Event, InputWait, Mode, Origin, ProjectId, Scope, TurnInterrupt,
-    TurnSettings, TurnSteer, Usage,
+    ApprovalDecision, EffectiveSettings, ErrorCode, Event, InputWait, Mode, ModelInfo, ModelSource,
+    Origin, OverriddenSettings, ProjectId, Scope, TurnInterrupt, TurnSettings, TurnSteer, Usage,
 };
 use efr_provider::{Message, ProviderEvent, StopReason, TokenUsage};
 use efr_scope::{Basis, Derivation, Repo};
@@ -15,42 +15,229 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{bounded_tail, provider_failure};
-use crate::approvals;
 use crate::testing::{
-    Setup, answer, done, expect_request, failure, find, hold, request, result_message, text_answer,
-    tool_answer, tool_message, user_prompt,
+    MODEL, Setup, answer, default_settings, done, expect_request, failure, find, hold, request,
+    result_message, text_answer, tool_answer, tool_message, user_prompt,
 };
+use crate::{ConversationError, approvals};
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
 }
 
+/// A model list with the test model and two others, each with its efforts.
+fn models() -> Vec<ModelInfo> {
+    let model = |id: &str, efforts: &[&str]| ModelInfo {
+        id: id.to_owned(),
+        efforts: efforts.iter().map(|effort| (*effort).to_owned()).collect(),
+        default_effort: Some("medium".to_owned()),
+        default: id == MODEL,
+        source: ModelSource::Builtin,
+    };
+    vec![
+        model(MODEL, &["low", "medium"]),
+        model("gpt-5.4", &["low", "medium", "high"]),
+        model("test-model-2", &["medium"]),
+    ]
+}
+
 #[tokio::test]
-async fn a_prompts_settings_change_nothing_until_turn_settings_apply() {
-    let setup = Setup::new();
-    let state = setup.live_state(&setup.cwd, "hello");
-    let records = vec![
-        expect_request(request(vec![setup.prompt(&state, "hello")])),
-        answer(&text_answer("Hi there.")),
-    ];
+async fn a_prompts_settings_reach_the_request_and_are_recorded() {
+    let mut setup = Setup::new();
+    setup.config.models = models();
+    let mut state = setup.live_state(&setup.cwd, "hello");
+    state.mode = Mode::Auto;
+    let mut expected = request(vec![setup.prompt(&state, "hello")]);
+    expected.model = "gpt-5.4".to_owned();
+    expected.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
+    let records = vec![expect_request(expected), answer(&text_answer("Hi there."))];
     let mut h = setup.start(records).await;
     let cwd = h.cwd.clone();
     let mut params = h.prompt_params(&cwd, "hello");
-    params.settings = TurnSettings {
+    let asked = TurnSettings {
         mode: Some(Mode::Auto),
         model: Some("gpt-5.4".to_owned()),
         effort: Some("high".to_owned()),
     };
+    params.settings = asked.clone();
 
     let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
     h.wait_end(sent.turn_id).await;
 
-    assert_eq!(sent.settings, None);
+    let effective = EffectiveSettings {
+        mode: Mode::Auto,
+        model: "gpt-5.4".to_owned(),
+        effort: Some("high".to_owned()),
+        overridden: OverriddenSettings { mode: true, model: true, effort: true },
+    };
+    assert_eq!(sent.settings, Some(effective.clone()));
     let events = h.events().await;
     let queued = find(&events, |e| matches!(e, Event::PromptQueued { .. }));
-    assert!(matches!(&queued, Event::PromptQueued { settings, .. } if settings.is_empty()));
+    assert!(matches!(&queued, Event::PromptQueued { settings, .. } if *settings == asked));
     let started = find(&events, |e| matches!(e, Event::TurnStarted { .. }));
-    assert!(matches!(started, Event::TurnStarted { settings: None, .. }));
+    assert!(
+        matches!(&started, Event::TurnStarted { settings: Some(settings), .. } if *settings == effective),
+        "{started:?}"
+    );
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_prompt_with_a_model_outside_the_list_is_refused_before_anything_is_recorded() {
+    let mut setup = Setup::new();
+    setup.config.models = models();
+    let mut h = setup.start(Vec::new()).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "hello");
+    params.settings.model = Some("gpt-4o".to_owned());
+
+    let refused = h.handle.send_prompt(params, Origin::Shell).await;
+
+    assert!(
+        matches!(
+            &refused,
+            Err(ConversationError::InvalidSetting { setting: "model", choices, .. })
+                if *choices == [MODEL, "gpt-5.4", "test-model-2"]
+        ),
+        "{refused:?}"
+    );
+    assert!(h.events().await.is_empty(), "nothing is recorded, not even the conversation");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_held_prompt_keeps_its_settings_and_fails_when_they_no_longer_fit() {
+    let mut setup = Setup::new();
+    setup.config.models = models();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&[ProviderEvent::TextDelta { text: "One.".to_owned() }]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+    ];
+    let mut h = setup.start(records).await;
+
+    let first = h.prompt("first").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "second");
+    params.settings.model = Some("gpt-5.4".to_owned());
+    let second = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
+    assert!(second.queued);
+    assert_eq!(second.settings.as_ref().map(|settings| settings.model.as_str()), Some("gpt-5.4"));
+    // The config drops gpt-5.4 while the prompt waits.
+    let mut changed = (**h.settings.borrow()).clone();
+    changed.models.retain(|model| model.id != "gpt-5.4");
+    h.settings.send_replace(std::sync::Arc::new(changed));
+    h.provider.handled_through(3);
+    h.wait_end(first.turn_id).await;
+    let end = h.wait_end(second.turn_id).await;
+
+    let Event::TurnFailed { error, .. } = end else {
+        panic!("the turn fails, got {end:?}");
+    };
+    assert_eq!(error.code, ErrorCode::Invalid);
+    assert_eq!(
+        error.message,
+        "the model gpt-5.4 is not in the model list; choose one of: test-model, test-model-2"
+    );
+    assert_eq!(
+        error.data,
+        Some(json!({
+            "setting": "model",
+            "value": "gpt-5.4",
+            "choices": [MODEL, "test-model-2"],
+        }))
+    );
+    let events = h.events().await;
+    let held = events.iter().find(|e| {
+        matches!(e, Event::PromptQueued { turn_id, settings, .. }
+            if *turn_id == second.turn_id && settings.model.as_deref() == Some("gpt-5.4"))
+    });
+    assert!(held.is_some(), "the held prompt keeps the settings it asked for");
+    let started = events
+        .iter()
+        .any(|e| matches!(e, Event::TurnStarted { turn_id, .. } if *turn_id == second.turn_id));
+    assert!(!started, "a turn whose settings no longer fit never starts");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_phone_turn_runs_with_at_most_cautious() {
+    let mut setup = Setup::new();
+    setup.config.mode = Mode::Auto;
+    let state = setup.live_state(&setup.cwd, "hello");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hello")])),
+        answer(&text_answer("Hi.")),
+    ];
+    let mut h = setup.start(records).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "hello");
+    params.settings.mode = Some(Mode::Auto);
+
+    let sent = h.handle.send_prompt(params, Origin::Phone).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+
+    let settings = sent.settings.unwrap();
+    assert_eq!(settings.mode, Mode::Cautious);
+    assert!(settings.overridden.mode, "the prompt asked for a mode, capped for a phone");
+    let events = h.events().await;
+    let started = find(&events, |e| matches!(e, Event::TurnStarted { .. }));
+    assert!(matches!(
+        started,
+        Event::TurnStarted { settings: Some(EffectiveSettings { mode: Mode::Cautious, .. }), .. }
+    ));
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_back_does() {
+    let mut setup = Setup::new();
+    setup.config.models = models();
+    let state = setup.live_state(&setup.cwd, "first");
+    let raw = json!([
+        { "type": "reasoning", "id": "rs_1", "encrypted_content": "opaque" },
+        { "type": "message", "id": "msg_1", "role": "assistant", "content": [] },
+    ]);
+    let mut first_answer = text_answer("One.");
+    first_answer[1] = done(StopReason::EndTurn, Some(raw.clone()));
+    let mut second = request(vec![
+        Message::user("first"),
+        Message::assistant("One."),
+        setup.prompt(&state, "second"),
+    ]);
+    second.model = "test-model-2".to_owned();
+    let third = request(vec![
+        Message::user("first"),
+        Message::assistant("One.").with_provider_raw(raw),
+        Message::user("second"),
+        Message::assistant("Two."),
+        setup.prompt(&state, "third"),
+    ]);
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&first_answer),
+        expect_request(second),
+        answer(&text_answer("Two.")),
+        expect_request(third),
+        answer(&text_answer("Three.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("first").await;
+    h.wait_end(sent.turn_id).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "second");
+    params.settings.model = Some("test-model-2".to_owned());
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+    let sent = h.prompt("third").await;
+    h.wait_end(sent.turn_id).await;
+
+    // The replay compares each request with the expected one in full: the second
+    // carries no item of the first model, the third, on the first model again, does.
     h.finish();
 }
 
@@ -97,7 +284,7 @@ async fn a_text_turn_records_the_answer_and_completes() {
             turn_id: sent.turn_id,
             cwd: h.cwd.clone(),
             scope: Scope::Machine,
-            settings: None,
+            settings: default_settings(),
         }
     );
     assert_eq!(
@@ -617,7 +804,7 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
             turn_id: second.turn_id,
             cwd: elsewhere,
             scope: Scope::Machine,
-            settings: None,
+            settings: default_settings(),
         }
     );
     h.finish();

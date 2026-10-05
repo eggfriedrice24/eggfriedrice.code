@@ -10,6 +10,7 @@
 use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
+use efr_protocol::Mode;
 use efr_scope::Repo;
 
 /// The longest last command shown, in characters; a longer one is cut with a marker.
@@ -44,6 +45,8 @@ pub(crate) struct LiveState {
     /// Where the conversation's hidden shell last reported to be, when it differs from
     /// the user's directory.
     pub(crate) agent_cwd: Option<PathBuf>,
+    /// The turn's permission mode.
+    pub(crate) mode: Mode,
 }
 
 impl fmt::Debug for LiveState {
@@ -60,6 +63,7 @@ impl fmt::Debug for LiveState {
             .field("ssh", &self.ssh)
             .field("scratch", &self.scratch)
             .field("agent_cwd", &self.agent_cwd)
+            .field("mode", &self.mode)
             .finish_non_exhaustive()
     }
 }
@@ -119,8 +123,30 @@ impl LiveState {
             "$SCRATCH: {} (your own directory for files; writing there needs no approval)",
             self.scratch.display()
         );
+        text.push_str(mode_line(self.mode));
         text.push_str("</live_state>");
         text
+    }
+}
+
+/// The line that tells the model the turn's permission mode and what it means for
+/// its calls.
+fn mode_line(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Manual => {
+            "Permission mode: manual. Every call asks the user, except what the user's own \
+             rules allow.\n"
+        }
+        Mode::Cautious => {
+            "Permission mode: cautious. Reads and read-only commands run at once; other \
+             calls ask the user.\n"
+        }
+        Mode::Auto => "Permission mode: auto. Calls outside the auto list ask the user.\n",
+        // NOTE: a mode added to the protocol after this crate was written.
+        _ => {
+            "Permission mode: one this build does not know; calls it does not allow ask \
+              the user.\n"
+        }
     }
 }
 

@@ -6,8 +6,8 @@
 #![cfg(test)]
 
 use efr_protocol::{
-    ConversationStatus, ConversationsList, ConversationsListResult, ErrorCode, Event, Method,
-    PromptSend, PromptSendResult, Scope,
+    ConversationStatus, ConversationsList, ConversationsListResult, EffectiveSettings, ErrorCode,
+    Event, Method, Mode, OverriddenSettings, PromptSend, PromptSendResult, Scope, TurnSettings,
 };
 use efr_test_daemon::{ClientError, Replay, TTY, TestDaemon};
 use pretty_assertions::assert_eq;
@@ -216,6 +216,66 @@ async fn an_idle_terminal_starts_over_after_the_configured_hours() {
 
     assert_eq!(second.conversation_id, first.conversation_id, "50 minutes is not idle");
     assert_ne!(third.conversation_id, second.conversation_id, "61 minutes is");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_prompt_with_a_model_outside_the_list_is_invalid_with_the_choices() {
+    let daemon = TestDaemon::start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, "hello", TTY) else { unreachable!() };
+    params.settings.model = Some("gpt-4o".to_owned());
+
+    let refused = client.call::<Value>(Method::PromptSend(params)).await;
+
+    let Err(ClientError::Server { body }) = refused else { panic!("{refused:?}") };
+    assert_eq!(body.code, ErrorCode::Invalid);
+    assert!(body.message.starts_with("the model gpt-4o is not in the model list"), "{body:?}");
+    let data = body.data.unwrap();
+    assert_eq!(data["setting"], "model");
+    let choices = data["choices"].as_array().unwrap();
+    assert!(choices.iter().any(|choice| choice == "gpt-5.5"), "{choices:?}");
+    let list: ConversationsListResult =
+        client.call(Method::ConversationsList(ConversationsList::default())).await.unwrap();
+    assert!(list.conversations.is_empty(), "nothing was recorded");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
+    let daemon = TestDaemon::builder()
+        .config(|config| config.model.effort = Some("low".to_owned()))
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, "hello", TTY) else { unreachable!() };
+    params.settings =
+        TurnSettings { mode: Some(Mode::Auto), model: Some("gpt-6-sol".to_owned()), effort: None };
+
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let seen = efr_test_daemon::events_until(
+        &mut follow,
+        |event| matches!(event, Event::TurnStarted { turn_id, .. } if *turn_id == sent.turn_id),
+    )
+    .await
+    .unwrap();
+
+    let expected = EffectiveSettings {
+        mode: Mode::Auto,
+        model: "gpt-6-sol".to_owned(),
+        effort: Some("low".to_owned()),
+        overridden: OverriddenSettings { mode: true, model: true, effort: false },
+    };
+    assert_eq!(sent.settings, Some(expected.clone()));
+    let started = seen.iter().find_map(|envelope| match &envelope.event {
+        Event::TurnStarted { settings, .. } => Some(settings.clone()),
+        _ => None,
+    });
+    assert_eq!(started, Some(Some(expected)));
     drop(client);
     daemon.stop().await.unwrap();
 }
