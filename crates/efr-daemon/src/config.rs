@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use efr_config::{CONFIG_FILE, ConfigError, Settings, Source};
+use efr_config::{ConfigError, Settings, Source};
 use efr_stdx::env::{Env, Var};
 
 use crate::DaemonError;
@@ -37,13 +37,9 @@ impl Flags {
 /// Reads `config.toml` from `config_dir` (a missing file is an empty one) and applies
 /// `env` and `flags` over it.
 pub fn load_settings(config_dir: &Path, env: &Env, flags: &Flags) -> Result<Settings, DaemonError> {
-    let path = config_dir.join(CONFIG_FILE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => Some(text),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => None,
-        Err(source) => return Err(config(ConfigError::Read { path, source })),
-    };
-    resolve_settings(&path, text.as_deref(), env, flags)
+    let mut settings = Settings::load(config_dir).map_err(config)?;
+    apply_overrides(&mut settings, env, flags)?;
+    Ok(settings)
 }
 
 /// The settings from the file `path` with contents `text` (`None` when it does not
@@ -55,6 +51,12 @@ pub fn resolve_settings(
     flags: &Flags,
 ) -> Result<Settings, DaemonError> {
     let mut settings = Settings::parse(path, text).map_err(config)?;
+    apply_overrides(&mut settings, env, flags)?;
+    Ok(settings)
+}
+
+/// Lays `env`, then `flags`, over `settings`.
+fn apply_overrides(settings: &mut Settings, env: &Env, flags: &Flags) -> Result<(), DaemonError> {
     for (var, key) in VARIABLES {
         if let Some(value) = env.var(*var).map_err(|source| DaemonError::Env { source })? {
             settings.apply_override(key, &value, Source::Env(*var)).map_err(config)?;
@@ -66,7 +68,7 @@ pub fn resolve_settings(
             settings.apply_override(key, value, Source::Flag(flag)).map_err(config)?;
         }
     }
-    Ok(settings)
+    Ok(())
 }
 
 fn config(source: ConfigError) -> DaemonError {
