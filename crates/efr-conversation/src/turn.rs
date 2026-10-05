@@ -512,7 +512,9 @@ impl Turn {
         }
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
-        let timeout = self.config.approval_timeout;
+        // NOTE: read at each call, not at turn start, so a reload reaches the next
+        // approval of a running turn.
+        let timeout = self.shared.config.current().approval_timeout;
         let waited = tokio::select! {
             biased;
             () = interrupt.raised() => Waited::Interrupted,
@@ -558,7 +560,8 @@ impl Turn {
         let (sender, mut output) = watch::channel(None);
         let (inputs, mut waits) = mpsc::channel(INPUT_CAPACITY);
         let mut sink = WatchSink { sender, inputs };
-        let mut updates = Coalescer::new(self.config.update_interval);
+        // NOTE: read at each call, as the approval timeout is.
+        let mut updates = Coalescer::new(self.shared.config.current().update_interval);
         let mut invoked = Box::pin(toolbox.invoke(call, &mut sink));
         let outcome = loop {
             let flush = updates.flush_after(clock.now());

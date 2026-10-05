@@ -104,8 +104,10 @@ impl ConversationConfig {
 /// starts.
 ///
 /// A turn reads the settings once, when it starts, and keeps them until it ends, so a
-/// change never reaches a running turn. A prompt reads them when it arrives (the queue
-/// limit), and the actor when a turn ends (how many turns it keeps for the history).
+/// change never reaches a running turn's model, prompt or limits. Each tool call reads
+/// the approval timeout and the update interval when it starts. A prompt reads them
+/// when it arrives (the queue limit), and the actor when a turn ends (how many turns it
+/// keeps for the history).
 /// The daemon implements it over its settings watch; a `watch::Receiver` of the
 /// settings is one too.
 pub trait ConfigSource: Send + Sync + fmt::Debug {

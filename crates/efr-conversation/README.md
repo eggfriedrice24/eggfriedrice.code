@@ -9,8 +9,9 @@ turns.
   `ConversationHandle`, the only way in. The actor reads its settings from a
   `ConfigSource` (the daemon's settings watch; a `watch::Receiver` of
   `ConversationConfig` is one too): a turn takes the latest settings when it starts
-  and keeps them until it ends, so a change never reaches a running turn; a prompt
-  reads the queue limit when it arrives. `ConversationStart::New` records
+  and keeps them until it ends, so a change never reaches a running turn's model,
+  prompt or limits; each tool call reads the approval timeout and the update interval
+  when it starts; a prompt reads the queue limit when it arrives. `ConversationStart::New` records
   `conversation_created` together with the first prompt, so a conversation never
   exists without one; `ConversationStart::Existing` picks up a conversation from the
   log, as after a restart.

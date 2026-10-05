@@ -508,6 +508,42 @@ async fn an_approval_that_times_out_expires_and_the_model_hears_it() {
 }
 
 #[tokio::test]
+async fn the_approval_timeout_is_read_at_each_call_of_a_running_turn() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "set an alias");
+    let zshrc = setup.home().join(".zshrc");
+    let input = json!({ "path": zshrc, "content": "x" });
+    let first = setup.prompt(&state, "set an alias");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        hold(),
+        answer(&tool_answer("call_1", "write_file", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "write_file", &input),
+            result_message("call_1", super::EXPIRED, true),
+        ])),
+        answer(&text_answer("Nobody answered.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("set an alias").await;
+    h.wait_for(|e| matches!(e, Event::TurnStarted { .. })).await;
+    let mut changed = (**h.settings.borrow()).clone();
+    changed.approval_timeout = Some(Duration::from_secs(60));
+    h.settings.send_replace(std::sync::Arc::new(changed));
+    h.provider.handled_through(2);
+    h.wait_approval().await;
+    h.clock.wait_for_sleeps(1).await;
+    h.clock.advance(Duration::from_secs(60));
+    h.wait_end(sent.turn_id).await;
+
+    let events = h.events().await;
+    assert!(events.iter().any(|e| matches!(e, Event::ApprovalExpired { .. })), "{events:?}");
+    h.finish();
+}
+
+#[tokio::test]
 async fn a_provider_401_fails_the_turn_as_unauthorized() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "hello");
