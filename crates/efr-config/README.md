@@ -55,7 +55,11 @@ Modules:
   directory; a link to nothing is refused. A hash of the file read before the change is
   compared right before the write, so a change made meanwhile is never lost: the write
   fails with `ConfigError::Changed` and the caller plans the change again. The new
-  text is checked like a load before anything is written.
+  text is checked like a load before anything is written. `Edit::add_rule` appends a
+  rule after the rules of the file (`[[permissions.rules]]` right below
+  `[permissions]`, or the inline array the file already uses) and
+  `Edit::remove_rule` removes one by its place; only the settings tool calls them, and
+  `efr config set` never changes rules.
 
 `permissions.mode` is the mode of a turn whose prompt names none;
 `PermissionSettings::policy(mode)` is that mode's built-in policy followed by the

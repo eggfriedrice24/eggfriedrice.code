@@ -259,3 +259,158 @@ fn a_file_with_an_invalid_value_can_be_fixed() {
 
     assert_eq!(settings.conversation.max_queued, 8);
 }
+
+fn allow_cargo_test() -> efr_permissions::Rule {
+    let pattern = efr_permissions::CommandPattern::new("cargo").with_args(["test"]);
+    efr_permissions::Rule::new(
+        efr_permissions::Action::Execute,
+        efr_permissions::Resource::Command(pattern),
+        efr_permissions::Effect::Allow,
+    )
+}
+
+fn deny_downloads() -> efr_permissions::Rule {
+    efr_permissions::Rule::new(
+        efr_permissions::Action::Write,
+        efr_permissions::Resource::Under("~/Downloads".into()),
+        efr_permissions::Effect::Deny,
+    )
+}
+
+const WITH_RULES: &str = "\
+# My rules.
+[permissions]
+mode = \"cautious\" # for now
+
+# Never touch the downloads.
+[[permissions.rules]]
+action = \"write\"
+resource = { under = \"~/Downloads\" }
+effect = \"deny\"
+
+[shell]
+idle_minutes = 30
+";
+
+#[test]
+fn a_new_rule_goes_after_the_rules_of_the_file_and_the_comments_stay() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, WITH_RULES);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&allow_cargo_test()).unwrap();
+    let settings = file.write(&edit).unwrap();
+
+    let expected = WITH_RULES.replace(
+        "effect = \"deny\"\n",
+        "effect = \"deny\"\n\n[[permissions.rules]]\naction = \"execute\"\nresource = { command = \
+         { program = \"cargo\", args = [\"test\"] } }\neffect = \"allow\"\n",
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+    assert_eq!(settings.permissions.rules.rules(), [deny_downloads(), allow_cargo_test()]);
+}
+
+#[test]
+fn the_first_rule_goes_below_the_permissions_table_and_a_missing_table_is_added() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    let without_rules = "[permissions]\nmode = \"auto\"\n\n[shell]\nidle_minutes = 30\n";
+    write_file(&path, without_rules);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&deny_downloads()).unwrap();
+    file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        text,
+        "[permissions]\nmode = \"auto\"\n\n[[permissions.rules]]\naction = \"write\"\nresource \
+         = { under = \"~/Downloads\" }\neffect = \"deny\"\n\n[shell]\nidle_minutes = 30\n"
+    );
+
+    write_file(&path, ORIGINAL);
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&deny_downloads()).unwrap();
+    let settings = file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with(ORIGINAL), "{text}");
+    assert!(text.ends_with("\n[[permissions.rules]]\naction = \"write\"\nresource = { under = \"~/Downloads\" }\neffect = \"deny\"\n"), "{text}");
+    assert_eq!(settings.permissions.rules.rules(), [deny_downloads()]);
+}
+
+#[test]
+fn a_rule_added_to_the_example_reads_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&allow_cargo_test()).unwrap();
+    let settings = file.write(&edit).unwrap();
+
+    assert_eq!(settings.permissions.rules.rules(), [allow_cargo_test()]);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("# [[permissions.rules]]"), "the commented example stays: {text}");
+}
+
+#[test]
+fn rules_written_inline_stay_inline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(
+        &path,
+        "permissions.rules = [{ action = \"write\", resource = { under = \"~/Downloads\" }, effect = \"deny\" }]\n",
+    );
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&allow_cargo_test()).unwrap();
+    let settings = file.write(&edit).unwrap();
+
+    assert_eq!(settings.permissions.rules.rules(), [deny_downloads(), allow_cargo_test()]);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("[[permissions.rules]]"), "{text}");
+
+    write_file(&path, "permissions = { mode = \"auto\" }\n");
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&deny_downloads()).unwrap();
+    let settings = file.write(&edit).unwrap();
+    assert_eq!(settings.permissions.rules.rules(), [deny_downloads()]);
+}
+
+#[test]
+fn a_rule_is_removed_by_its_place_and_a_missing_one_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, WITH_RULES);
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_rule(&allow_cargo_test()).unwrap();
+    file.write(&edit).unwrap();
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    let error = edit.remove_rule(2).unwrap_err();
+    assert!(matches!(error, ConfigError::NoRule { index: 2, count: 2 }), "{error:?}");
+    assert_eq!(error.key().as_deref(), Some("permissions.rules[2]"));
+    edit.remove_rule(0).unwrap();
+    let settings = file.write(&edit).unwrap();
+    assert_eq!(settings.permissions.rules.rules(), [allow_cargo_test()]);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("mode = \"cautious\" # for now"), "{text}");
+    assert!(!text.contains("~/Downloads"), "{text}");
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.remove_rule(0).unwrap();
+    file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("permissions.rules"), "the last rule takes the key with it: {text}");
+
+    let mut edit = ConfigFile::open(&path).unwrap().edit().unwrap();
+    assert!(matches!(edit.remove_rule(0), Err(ConfigError::NoRule { index: 0, count: 0 })));
+}

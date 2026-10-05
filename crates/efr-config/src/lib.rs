@@ -16,8 +16,8 @@
 //!   settings, with the keys that need a restart.
 //! - [`FileState`]: what is at the file's path, a file, nothing, or a symbolic link.
 //! - [`ConfigFile`] and [`Edit`]: the format-preserving writer, which keeps comments and
-//!   layout, writes the file behind a symlink and refuses a file that changed since it
-//!   was read.
+//!   layout, writes the file behind a symlink, refuses a file that changed since it was
+//!   read, and adds and removes rules for the settings tool.
 //!
 //! Allowed dependencies: `efr-permissions` (rules), `efr-protocol` (the `Mode` wire
 //! type and `ConfigFileError`) and `efr-stdx` (variables, atomic writes). What does not

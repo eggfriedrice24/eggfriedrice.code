@@ -126,6 +126,21 @@ pub enum ConfigError {
         /// The dotted key as given.
         key: String,
     },
+    /// A rule the writer was asked to remove is not in the file.
+    #[error("permissions.rules[{index}] does not exist; the file has {count} rules")]
+    NoRule {
+        /// The rule's place as asked, counted from 0.
+        index: usize,
+        /// How many rules the file has.
+        count: usize,
+    },
+    /// `permissions` or `permissions.rules` in the file is not a table or a list of
+    /// tables, so the writer cannot add or remove a rule there.
+    #[error("{key} in the config file has a form the writer cannot change")]
+    NotATable {
+        /// The dotted key.
+        key: &'static str,
+    },
     /// The config file is a symbolic link to nothing, so the writer would create a file
     /// the user may not expect.
     #[error("the config file {} is a link to {}, which does not exist", .path.display(), .target.display())]
@@ -189,7 +204,10 @@ impl ConfigError {
             ConfigError::ParseRule { index, .. } | ConfigError::InvalidRule { index, .. } => {
                 Some(format!("permissions.rules[{index}]"))
             }
-            ConfigError::Invalid { key, .. } => Some((*key).to_owned()),
+            ConfigError::Invalid { key, .. } | ConfigError::NotATable { key } => {
+                Some((*key).to_owned())
+            }
+            ConfigError::NoRule { index, .. } => Some(format!("permissions.rules[{index}]")),
             ConfigError::InvalidOverride { key, .. }
             | ConfigError::InvalidValue { key, .. }
             | ConfigError::UnknownKey { key } => Some(key.clone()),

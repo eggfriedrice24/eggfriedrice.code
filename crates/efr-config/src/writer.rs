@@ -17,12 +17,19 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use efr_permissions::Rule;
 use sha2::{Digest as _, Sha256};
-use toml_edit::{DocumentMut, Item, Table, TableLike};
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, TableLike, Value};
 
 use crate::keys::{self, Kind};
 use crate::settings::value_from_text;
 use crate::{ConfigError, EXAMPLE, Settings};
+
+/// The table of the rules.
+const PERMISSIONS: &str = "permissions";
+
+/// The key of the rules in [`PERMISSIONS`].
+const RULES: &str = "rules";
 
 /// The config file as the writer read it.
 #[derive(Debug, Clone)]
@@ -137,7 +144,7 @@ impl Edit {
     /// Sets `key`, a dotted key such as `model.name`, to `value`. A comment after the
     /// old value stays. The rules are tables, not one value, so they cannot be set
     /// here.
-    pub fn set(&mut self, key: &str, value: toml_edit::Value) -> Result<(), ConfigError> {
+    pub fn set(&mut self, key: &str, value: Value) -> Result<(), ConfigError> {
         writable(key)?;
         if !key.contains('.') && !self.document.contains_key(key) {
             self.insert_top_level(key, value);
@@ -179,6 +186,86 @@ impl Edit {
         Ok(table.is_some_and(|table| table.remove(name).is_some()))
     }
 
+    /// Appends `rule` to `permissions.rules`, after the rules the file has, so it wins
+    /// over them where both match. A file without rules gets a `[[permissions.rules]]`
+    /// table right after its `[permissions]` table and its rules; a file that writes
+    /// the rules as an inline array keeps that form.
+    pub fn add_rule(&mut self, rule: &Rule) -> Result<(), ConfigError> {
+        let encoded =
+            toml_edit::ser::to_document(rule).map_err(|source| ConfigError::Encode { source })?;
+        let mut table = encoded.as_table().clone();
+        table.decor_mut().clear();
+        let inline = self.document.get(PERMISSIONS).is_some_and(Item::is_inline_table);
+        let permissions = self.permissions()?;
+        match permissions.get_mut(RULES) {
+            Some(Item::ArrayOfTables(tables)) => tables.push(table),
+            Some(Item::Value(Value::Array(array))) => {
+                let mut inline = table.into_inline_table();
+                inline.fmt();
+                array.push(Value::InlineTable(inline));
+            }
+            Some(_) => return Err(ConfigError::NotATable { key: "permissions.rules" }),
+            None if inline => {
+                let mut inline = table.into_inline_table();
+                inline.fmt();
+                let array: toml_edit::Array = std::iter::once(Value::InlineTable(inline)).collect();
+                permissions.insert(RULES, Item::Value(Value::Array(array)));
+            }
+            None => {
+                let mut tables = ArrayOfTables::new();
+                tables.push(table);
+                permissions.insert(RULES, Item::ArrayOfTables(tables));
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes `permissions.rules[index]`, counted from 0 as `efr config show` and the
+    /// errors number the rules. The rules after it move up by one.
+    pub fn remove_rule(&mut self, index: usize) -> Result<(), ConfigError> {
+        let missing = |count| ConfigError::NoRule { index, count };
+        let Some(permissions) =
+            self.document.as_table_mut().get_mut(PERMISSIONS).and_then(Item::as_table_like_mut)
+        else {
+            return Err(missing(0));
+        };
+        let count = match permissions.get_mut(RULES) {
+            None => return Err(missing(0)),
+            Some(Item::ArrayOfTables(tables)) => {
+                let count = tables.len();
+                if index >= count {
+                    return Err(missing(count));
+                }
+                tables.remove(index);
+                tables.len()
+            }
+            Some(Item::Value(Value::Array(array))) => {
+                let count = array.len();
+                if index >= count {
+                    return Err(missing(count));
+                }
+                array.remove(index);
+                array.len()
+            }
+            Some(_) => return Err(ConfigError::NotATable { key: "permissions.rules" }),
+        };
+        if count == 0 {
+            permissions.remove(RULES);
+        }
+        Ok(())
+    }
+
+    /// The `[permissions]` table, added at the end of the file when it is missing.
+    fn permissions(&mut self) -> Result<&mut dyn TableLike, ConfigError> {
+        let root = self.document.as_table_mut();
+        if !root.contains_key(PERMISSIONS) {
+            root.insert(PERMISSIONS, Item::Table(Table::new()));
+        }
+        root.get_mut(PERMISSIONS)
+            .and_then(Item::as_table_like_mut)
+            .ok_or(ConfigError::NotATable { key: "permissions" })
+    }
+
     /// The new contents of the file.
     pub fn text(&self) -> String {
         self.document.to_string()
@@ -187,7 +274,7 @@ impl Edit {
     /// Adds the top-level key `key`. A file with no top-level value keeps its opening
     /// comments in front of its first table; they move in front of the new key, so the
     /// key does not land above the `#:schema` line.
-    fn insert_top_level(&mut self, key: &str, value: toml_edit::Value) {
+    fn insert_top_level(&mut self, key: &str, value: Value) {
         let root = self.document.as_table_mut();
         let has_values = root.iter().any(|(_, item)| item.is_value());
         let first_table = root
