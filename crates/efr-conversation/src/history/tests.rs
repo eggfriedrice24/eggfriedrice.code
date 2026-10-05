@@ -13,7 +13,9 @@ use efr_test_support::{TestClock, TestRng, TestStore};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{CachedTurn, HistoryLimits, Snapshot, UNFINISHED_CALL, close_open_calls, rebuild};
+use super::{
+    CachedTurn, HistoryLimits, ModelKey, Snapshot, UNFINISHED_CALL, close_open_calls, rebuild,
+};
 
 fn turn(seed: u64) -> TurnId {
     TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
@@ -27,8 +29,8 @@ fn conversation() -> ConversationId {
     ConversationId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1)))
 }
 
-fn provider(name: &str) -> ProviderId {
-    ProviderId::new(name).expect("provider id")
+fn key(provider: &str, model: &str) -> ModelKey {
+    ModelKey::new(ProviderId::new(provider).expect("provider id"), model)
 }
 
 fn completed(turn_id: TurnId, index: u32, text: &str) -> Event {
@@ -285,7 +287,7 @@ async fn only_finished_turns_other_than_the_current_one_count() {
     let history = snapshot(&store, HistoryLimits::default()).await.history(
         current,
         &HashMap::new(),
-        &provider("replay"),
+        &key("replay", "m"),
         HistoryLimits::default(),
     );
 
@@ -318,7 +320,7 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
     let history = snapshot(&store, HistoryLimits::default()).await.history(
         turn(9),
         &HashMap::new(),
-        &provider("replay"),
+        &key("replay", "m"),
         HistoryLimits::default(),
     );
 
@@ -355,7 +357,7 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
     let history = snapshot(&store, limits).await.history(
         turn(9),
         &HashMap::new(),
-        &provider("replay"),
+        &key("replay", "m"),
         limits,
     );
 
@@ -363,28 +365,43 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
 }
 
 #[tokio::test]
-async fn a_cached_turn_keeps_its_provider_items_only_for_the_same_provider() {
-    let a = turn(2);
+async fn a_cached_turn_keeps_its_provider_items_only_for_the_same_provider_and_model() {
+    let (a, c) = (turn(2), call(3));
     let store = store_with(vec![whole_turn(
         a,
         "first",
-        vec![completed(a, 0, "One.")],
+        vec![started(a, c, "shell"), finished(a, c, "ok"), completed(a, 0, "One.")],
         Event::TurnCompleted { turn_id: a, usage: None },
     )])
     .await;
-    let raw = json!([{ "type": "reasoning", "encrypted_content": "opaque" }]);
-    let exact = vec![Message::user("first"), Message::assistant("One.").with_provider_raw(raw)];
+    let raw = json!([
+        { "type": "reasoning", "id": "rs_1", "encrypted_content": "opaque" },
+        { "type": "function_call", "id": "fc_1", "call_id": "p1", "name": "shell", "arguments": "{}" },
+    ]);
+    let calling = Message::new(Role::Assistant, vec![tool_call(c, "shell")]);
+    let results = Message::new(Role::User, vec![tool_result(c, "ok")]);
+    let exact = vec![
+        Message::user("first"),
+        calling.clone().with_provider_raw(raw),
+        results.clone(),
+        Message::assistant("One."),
+    ];
     let cache = HashMap::from([(
         a,
-        Arc::new(CachedTurn { provider: provider("replay"), messages: exact.clone() }),
+        Arc::new(CachedTurn { key: key("replay", "gpt-5.5"), messages: exact.clone() }),
     )]);
     let snapshot = snapshot(&store, HistoryLimits::default()).await;
+    let history = |key: ModelKey| snapshot.history(turn(9), &cache, &key, HistoryLimits::default());
 
-    let same = snapshot.history(turn(9), &cache, &provider("replay"), HistoryLimits::default());
-    let other = snapshot.history(turn(9), &cache, &provider("other"), HistoryLimits::default());
+    let same = history(key("replay", "gpt-5.5"));
+    let other_model = history(key("replay", "gpt-6-sol"));
+    let other_provider = history(key("other", "gpt-5.5"));
 
     assert_eq!(same, exact);
-    assert_eq!(other, vec![Message::user("first"), Message::assistant("One.")]);
+    let canonical = vec![Message::user("first"), calling, results, Message::assistant("One.")];
+    assert_eq!(other_model, canonical, "text, calls and results stay; the raw items go");
+    assert_eq!(other_provider, canonical);
+    assert!(other_model.iter().all(|message| message.provider_raw.is_none()));
 }
 
 #[tokio::test]
@@ -414,7 +431,7 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
     .await;
     let snapshot = snapshot(&store, HistoryLimits::default()).await;
     let none = HashMap::new();
-    let replay = provider("replay");
+    let replay = key("replay", "m");
 
     let by_turns =
         snapshot.history(turn(9), &none, &replay, HistoryLimits::new(2, 4096, usize::MAX));

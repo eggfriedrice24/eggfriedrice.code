@@ -8,11 +8,12 @@ use serde_json::Value;
 ///
 /// [`provider_raw`](Self::provider_raw) is native passthrough: the provider's own items
 /// for this message (for the Responses API, the `reasoning` item with its encrypted
-/// content and the exact `function_call` items), stored verbatim in the event log and
-/// sent back unchanged on the next request to the same provider. Only the provider that
-/// wrote it reads it; every other crate treats it as opaque. When the conversation
-/// switches providers, the history assembler drops it and the next provider works from
-/// [`content`](Self::content) alone.
+/// content and the exact `function_call` items with their ids). No event holds it: the
+/// conversation keeps it in memory with the turns it ran and sends it back unchanged
+/// on the next request to the same provider and model, so it is lost when the daemon
+/// restarts. Only the provider that wrote it reads it; every other crate treats it as
+/// opaque. When the conversation switches providers or models, the history assembler
+/// drops it and the next model works from [`content`](Self::content) alone.
 ///
 /// On the wire, `provider_raw` is left out when absent. A raw value of JSON `null`
 /// therefore reads back as absent, which is the same thing to every provider. Object

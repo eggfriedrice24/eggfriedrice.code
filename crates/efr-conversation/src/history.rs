@@ -6,12 +6,15 @@
 //! tool call with its result, and steering. Those messages carry no provider items,
 //! because the events do not hold them.
 //!
-//! The provider's own items (`provider_raw`, such as encrypted reasoning) must go back
-//! unchanged to the provider that made them, so the actor keeps the exact messages of
-//! the turns it ran in a [`CachedTurn`], and a cached turn is used instead of the
-//! rebuild while the provider is the same. With another provider the cached messages
-//! lose their `provider_raw` and the provider works from the canonical content. After
-//! a restart the cache is empty and every turn is rebuilt.
+//! The provider's own items (`provider_raw`, such as encrypted reasoning and the ids of
+//! its output items) must go back unchanged to the model that made them, so the actor
+//! keeps the exact messages of the turns it ran in a [`CachedTurn`], and a cached turn
+//! is used instead of the rebuild while the provider and the model are the same
+//! ([`ModelKey`]). With another provider or another model the cached messages lose
+//! their `provider_raw`, and the model works from the canonical content: the text, the
+//! tool calls and their results stay, the other model's encrypted reasoning and item
+//! ids do not. opencode does the same (`session/message-v2.ts`, `differentModel`).
+//! After a restart the cache is empty and every turn is rebuilt.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -59,10 +62,25 @@ impl Default for HistoryLimits {
     }
 }
 
-/// The exact messages of a turn this actor ran, with the provider that answered it.
+/// The provider and the model that answered a turn. Provider items go back only to the
+/// same pair: encrypted reasoning is bound to the model that wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ModelKey {
+    pub(crate) provider: ProviderId,
+    pub(crate) model: String,
+}
+
+impl ModelKey {
+    pub(crate) fn new(provider: ProviderId, model: impl Into<String>) -> Self {
+        ModelKey { provider, model: model.into() }
+    }
+}
+
+/// The exact messages of a turn this actor ran, with the provider and the model that
+/// answered it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedTurn {
-    pub(crate) provider: ProviderId,
+    pub(crate) key: ModelKey,
     /// The prompt without the preamble, then every message of the turn in order.
     pub(crate) messages: Vec<Message>,
 }
@@ -119,12 +137,13 @@ impl Snapshot {
     ///
     /// A turn counts when it has finished and its `turn_started` event is in the page,
     /// so none of its events was cut off. `current` is the turn being assembled, which
-    /// never counts.
+    /// never counts. A cached turn keeps its provider items only when `key`, the
+    /// provider and the model of the current turn, answered it.
     pub(crate) fn history(
         &self,
         current: TurnId,
         cache: &HashMap<TurnId, Arc<CachedTurn>>,
-        provider: &ProviderId,
+        key: &ModelKey,
         limits: HistoryLimits,
     ) -> Vec<Message> {
         let mut by_turn: HashMap<TurnId, Vec<&Event>> = HashMap::new();
@@ -144,7 +163,7 @@ impl Snapshot {
         });
         let mut turns: Vec<Vec<Message>> = eligible
             .map(|turn| match cache.get(&turn.id) {
-                Some(cached) if cached.provider == *provider => cached.messages.clone(),
+                Some(cached) if cached.key == *key => cached.messages.clone(),
                 Some(cached) => cached.messages.iter().cloned().map(without_raw).collect(),
                 None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
             })
@@ -164,7 +183,8 @@ impl Snapshot {
     }
 }
 
-/// `message` without the provider's items.
+/// `message` without the provider's items: the encrypted reasoning and the ids of the
+/// provider's output items go, the canonical content stays.
 fn without_raw(mut message: Message) -> Message {
     message.provider_raw = None;
     message

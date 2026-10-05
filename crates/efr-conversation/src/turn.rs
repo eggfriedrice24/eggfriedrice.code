@@ -39,7 +39,7 @@ use tracing::Instrument as _;
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
-use crate::history::{CachedTurn, Snapshot, close_open_calls};
+use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
 use crate::scratch::Scratch;
@@ -265,8 +265,7 @@ impl Turn {
             None => snapshot.agent_cwd(),
         };
         let preamble = self.live_state(derivation.repo, agent_cwd).render();
-        let mut messages =
-            snapshot.history(turn_id, cache, shared.deps.provider.id(), config.history);
+        let mut messages = snapshot.history(turn_id, cache, &self.model_key(), config.history);
         messages.push(Message::new(
             Role::User,
             vec![
@@ -338,11 +337,16 @@ impl Turn {
         if let Err(error) = self.record(vec![event]).await {
             tracing::error!(error = %error, "the end of the turn could not be recorded");
         }
-        let provider = self.shared.deps.provider.id().clone();
+        let key = self.model_key();
         close_open_calls(&mut self.transcript);
-        let cached = (!self.transcript.is_empty())
-            .then_some(CachedTurn { provider, messages: self.transcript });
+        let cached =
+            (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
         TurnEnd { turn_id, cached }
+    }
+
+    /// The provider and the model that answer this turn.
+    fn model_key(&self) -> ModelKey {
+        ModelKey::new(self.shared.deps.provider.id().clone(), self.config.model.clone())
     }
 
     /// Adds `message` to the request and to the turn's transcript.

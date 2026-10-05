@@ -126,10 +126,13 @@ else changes.
 
 ### Provider items do not survive a restart
 
-`provider_raw` must go back unchanged to the provider that made it, but no event in
+`provider_raw` must go back unchanged to the model that made it, but no event in
 `efr-protocol` carries it. The actor keeps the exact messages of the turns it ran (as
-many as the history may carry) and uses them while the provider is the same; with
-another provider they lose `provider_raw`. After a restart, history is rebuilt from the
+many as the history may carry), each with the provider and the model that answered
+it, and uses them while both are the same; with another provider or another model
+(a prompt that names one, or a new default in the config) they lose `provider_raw`:
+the other model's encrypted reasoning and item ids go, the text, the tool calls and
+their results stay, as opencode does. After a restart, history is rebuilt from the
 events with the daemon's call ids and without provider items, which costs the
 encrypted reasoning of earlier turns but nothing else.
 

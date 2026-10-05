@@ -11,7 +11,7 @@
 //!   log within [`HistoryLimits`], the live-state preamble regenerated from the prompt's
 //!   shell context, the tool definitions), streams the provider, and records every step
 //!   as an event through the store's writer. Provider items in `provider_raw` go back
-//!   unchanged to the provider that made them.
+//!   unchanged to the provider and model that made them.
 //! - Every tool call passes `turn.rs`'s `authorize_tool_call`, the single permission
 //!   check point, where `efr_permissions::Engine::decide` answers Allow, Ask or Deny.
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
