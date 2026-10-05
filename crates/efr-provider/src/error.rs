@@ -91,15 +91,27 @@ pub enum ProviderError {
     },
 }
 
-/// The tail of the rate-limit message: the delay in whole seconds, rounded up so a
-/// reader never retries early.
+/// The tail of the rate-limit message: the delay rounded up to whole seconds, so a
+/// reader never retries early, in its two largest units. A plan's usage limit resets
+/// hours later, and `10800s` is not a time a person reads at a glance.
 fn retry_hint(retry_after: Option<Duration>) -> String {
     match retry_after {
         Some(delay) => {
             let seconds = delay.as_secs() + u64::from(delay.subsec_nanos() > 0);
-            format!("; retry after {seconds}s")
+            format!("; retry after {}", span(seconds))
         }
         None => String::new(),
+    }
+}
+
+/// `seconds` as `45s`, `5m 3s`, `3h 0m` or `2d 4h`.
+fn span(seconds: u64) -> String {
+    let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
+    match (days, hours, minutes) {
+        (0, 0, 0) => format!("{seconds}s"),
+        (0, 0, _) => format!("{minutes}m {}s", seconds % 60),
+        (0, _, _) => format!("{hours}h {minutes}m"),
+        _ => format!("{days}d {hours}h"),
     }
 }
 

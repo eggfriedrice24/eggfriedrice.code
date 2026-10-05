@@ -42,7 +42,7 @@ fn messages_name_what_failed_in_one_sentence() {
 }
 
 #[test]
-fn rate_limits_name_the_delay_rounded_up() {
+fn rate_limits_name_the_delay_rounded_up_in_its_two_largest_units() {
     let cases = [
         (None, "the provider is rate limiting requests"),
         (Some(Duration::from_secs(30)), "the provider is rate limiting requests; retry after 30s"),
@@ -52,6 +52,18 @@ fn rate_limits_name_the_delay_rounded_up() {
         ),
         (Some(Duration::from_millis(1)), "the provider is rate limiting requests; retry after 1s"),
         (Some(Duration::ZERO), "the provider is rate limiting requests; retry after 0s"),
+        (
+            Some(Duration::from_secs(303)),
+            "the provider is rate limiting requests; retry after 5m 3s",
+        ),
+        (
+            Some(Duration::from_secs(3 * 3_600)),
+            "the provider is rate limiting requests; retry after 3h 0m",
+        ),
+        (
+            Some(Duration::from_secs(2 * 86_400 + 4 * 3_600 + 59)),
+            "the provider is rate limiting requests; retry after 2d 4h",
+        ),
     ];
     for (retry_after, expected) in cases {
         assert_eq!(ProviderError::RateLimited { retry_after }.to_string(), expected);
