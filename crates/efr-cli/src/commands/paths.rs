@@ -24,12 +24,6 @@ use crate::error::CliError;
 use crate::format;
 use crate::output::Output;
 
-/// The database file in the data root (`efr_store::DATABASE_FILE`, `docs/storage.md`).
-const DATABASE_FILE: &str = "efr.sqlite";
-
-/// The secrets directory in the data root (`efr-credentials`, `docs/storage.md`).
-const SECRETS_DIR: &str = "secrets";
-
 /// The fix for a daemon whose roots differ from this shell's.
 const FIX: &str = "give efrd.service the same EFR_HOME with systemctl --user edit efrd";
 
@@ -79,7 +73,7 @@ async fn gather(ctx: &Context) -> Facts {
     let config = file_state(&config_path(ctx)).await;
     let local = tokio::task::spawn_blocking(move || {
         let roots = local_roots(&dirs, sources);
-        let database = dirs.data().join(DATABASE_FILE);
+        let database = dirs.database_path();
         let socket = dirs.socket_path();
         (roots, database.exists(), socket.exists())
     })
@@ -96,9 +90,9 @@ async fn gather(ctx: &Context) -> Facts {
     Facts {
         roots,
         config,
-        database: ctx.dirs.data().join(DATABASE_FILE),
+        database: ctx.dirs.database_path(),
         database_exists,
-        secrets: ctx.dirs.data().join(SECRETS_DIR),
+        secrets: ctx.dirs.secrets_dir(),
         socket: ctx.dirs.socket_path(),
         socket_exists,
         daemon,

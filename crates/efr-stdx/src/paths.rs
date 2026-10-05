@@ -30,6 +30,13 @@ const SOCKET_FILE: &str = "daemon.sock";
 const DAEMON_JSON_FILE: &str = "daemon.json";
 const LOCK_FILE: &str = "daemon.lock";
 
+/// The database's file name in the data root; `efr-store` owns the file.
+pub const DATABASE_FILE: &str = "efr.sqlite";
+
+/// The directory, in the data root, of the credential records; `efr-credentials` owns
+/// it.
+pub const SECRETS_DIR: &str = "secrets";
+
 /// The directories below `EFR_HOME`.
 const HOME_CONFIG: &str = "config";
 const HOME_DATA: &str = "data";
@@ -249,6 +256,16 @@ impl Dirs {
     /// lives in the data root, not the runtime root, because it guards the database.
     pub fn lock_path(&self) -> PathBuf {
         self.data.join(LOCK_FILE)
+    }
+
+    /// The database, [`DATABASE_FILE`] in the data root.
+    pub fn database_path(&self) -> PathBuf {
+        self.data.join(DATABASE_FILE)
+    }
+
+    /// The credential records, [`SECRETS_DIR`] in the data root.
+    pub fn secrets_dir(&self) -> PathBuf {
+        self.data.join(SECRETS_DIR)
     }
 }
 

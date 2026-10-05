@@ -13,7 +13,7 @@ use crate::writer::DEFAULT_BROADCAST_CAPACITY;
 use crate::{MigrationReport, Migrations, Readers, StoreError, StoreWriter, WriterHandle, db};
 
 /// The database's file name in the data directory.
-pub const DATABASE_FILE: &str = "efr.sqlite";
+pub const DATABASE_FILE: &str = efr_stdx::paths::DATABASE_FILE;
 
 /// The directory, in the data directory, of the copies taken before migrations.
 pub const BACKUP_DIR: &str = "backups";

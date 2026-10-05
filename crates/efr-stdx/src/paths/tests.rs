@@ -153,6 +153,8 @@ fn daemon_files_live_in_their_roots() {
     assert_eq!(dirs.socket_path(), Path::new("/t/runtime/daemon.sock"));
     assert_eq!(dirs.daemon_json_path(), Path::new("/t/runtime/daemon.json"));
     assert_eq!(dirs.lock_path(), Path::new("/t/data/daemon.lock"));
+    assert_eq!(dirs.database_path(), Path::new("/t/data/efr.sqlite"));
+    assert_eq!(dirs.secrets_dir(), Path::new("/t/data/secrets"));
 }
 
 #[test]

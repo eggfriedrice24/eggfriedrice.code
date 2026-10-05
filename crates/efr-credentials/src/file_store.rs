@@ -10,8 +10,6 @@ use zeroize::Zeroizing;
 
 use crate::{CredentialId, CredentialRecord, CredentialsError, SecretStore};
 
-/// The directory under the data root that holds the record files.
-const DIR_NAME: &str = "secrets";
 const SUFFIX: &str = ".json";
 const DIR_MODE: u32 = 0o700;
 /// Permission bits that let a user other than the owner reach a path.
@@ -43,7 +41,7 @@ impl FileStore {
     /// The store at its standard place, `<data root>/secrets`, which is
     /// `$XDG_DATA_HOME/efr/secrets` unless `EFR_DATA_DIR` moves the data root.
     pub fn in_data_dir(dirs: &Dirs) -> Self {
-        FileStore::new(dirs.data().join(DIR_NAME))
+        FileStore::new(dirs.secrets_dir())
     }
 
     /// The directory that holds the record files.
