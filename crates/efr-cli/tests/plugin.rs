@@ -5,7 +5,8 @@
 //! These tests need zsh and run only with `EFR_TEST_ZSH=1`. zsh starts with `-f`, a
 //! cleared environment and a temporary `HOME`, so no startup file of the real user runs.
 //! The plugin's hooks are called directly, in the order zsh calls them around a line.
-//! One test puts the built `efr` in the fake's place, in front of a `TestDaemon`.
+//! One test puts the built `efr` in the fake's place, in front of a `TestDaemon`, and
+//! one compares the plugin's runtime root with the one the built `efr paths` finds.
 
 // NOTE: an integration test crate is always built with cfg(test); saying so lets
 // clippy treat its helper functions as test code, as it does for unit tests.
@@ -1259,4 +1260,76 @@ fn e2e_without_xdg_runtime_dir_notices_come_from_a_private_run_user_dir() {
 
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(notices_with(&home, &[], &["XDG_RUNTIME_DIR"], &script), "", "no directory");
+}
+
+/// The runtime root that the plugin's rule and the built `efr paths --json` find in
+/// the same environment: `HOME` and `XDG_RUNTIME_DIR` at the temporary home, with
+/// `env` added and `unset` removed. `None` when there is none: the plugin's rule
+/// returns 1, or `efr` refuses the variables.
+fn runtime_roots(home: &Home, env: &[(&str, &str)], unset: &[&str]) -> [Option<String>; 2] {
+    let mut base = vec![
+        ("HOME", home.path().to_str().unwrap()),
+        ("PATH", "/usr/bin:/bin"),
+        ("XDG_RUNTIME_DIR", home.path().to_str().unwrap()),
+    ];
+    base.retain(|(name, _)| !unset.contains(name) && !env.iter().any(|(set, _)| set == name));
+    base.extend_from_slice(env);
+
+    let script =
+        format!("source {}\n_efr_runtime_root && print -r -- $REPLY\n", plugin().display());
+    let output = Command::new("zsh")
+        .env_clear()
+        .envs(base.iter().copied())
+        .current_dir(home.path())
+        .args(["-f", "-i", "-c", &script])
+        .output()
+        .unwrap();
+    let plugin = String::from_utf8(output.stdout).unwrap();
+    let plugin = (!plugin.is_empty()).then(|| plugin.trim_end().to_owned());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_efr"))
+        .env_clear()
+        .envs(base.iter().copied())
+        .current_dir(home.path())
+        .args(["paths", "--json"])
+        .output()
+        .unwrap();
+    let efr = output.status.success().then(|| {
+        let paths: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        paths["roots"]["runtime"]["path"].as_str().unwrap().to_owned()
+    });
+    [plugin, efr]
+}
+
+#[test]
+fn e2e_efr_paths_and_the_plugin_find_the_same_runtime_root() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let path = |name: &str| home.path().join(name).to_str().unwrap().to_owned();
+    let (efr_home, named) = (path("efr-home"), path("named"));
+    // NOTE: every environment names a runtime root below the temporary home, or none,
+    // so `efr paths` never asks a daemon outside it. The /run/user fallback is left to
+    // the unit tests of both sides, which point it at a temporary tree.
+    let cases: [(&[(&str, &str)], &[&str], Option<String>); 7] = [
+        (&[], &[], Some(path("efr"))),
+        (&[("EFR_HOME", &efr_home)], &[], Some(format!("{efr_home}/runtime"))),
+        (&[("EFR_HOME", &efr_home)], &["XDG_RUNTIME_DIR"], Some(format!("{efr_home}/runtime"))),
+        (&[("EFR_HOME", &efr_home), ("EFR_RUNTIME_DIR", &named)], &[], Some(named.clone())),
+        (
+            &[("EFR_HOME", &efr_home), ("EFR_RUNTIME_DIR", "")],
+            &[],
+            Some(format!("{efr_home}/runtime")),
+        ),
+        (&[("EFR_HOME", "")], &[], Some(path("efr"))),
+        (&[("EFR_HOME", "efr-home")], &[], None),
+    ];
+    for (env, unset, expected) in cases {
+        let [plugin, efr] = runtime_roots(&home, env, unset);
+        assert_eq!(plugin, efr, "the plugin and efr differ for {env:?} without {unset:?}");
+        assert_eq!(plugin, expected, "for {env:?} without {unset:?}");
+    }
+    let relative = runtime_roots(&home, &[("EFR_RUNTIME_DIR", "named")], &[]);
+    assert_eq!(relative, [None, None], "a relative EFR_RUNTIME_DIR gives no root");
 }
