@@ -108,8 +108,8 @@ environment, passed in by the daemon; this crate reads no environment) without
 `xterm-256color` and `truecolor`), `PWD`, and `EFR_HIDDEN_SHELL=1`, which nothing in
 efr reads but the user's startup files can test (to skip `exec tmux` or an instant
 prompt). A zsh with the integration also gets `_EFR_HS_TRUSTED_PROGRAMS`, the
-trusted programs separated by spaces, which the integration reads and unsets before
-the user's startup files run. It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
+trusted programs separated by spaces, which the integration reads and unsets right
+after the user's `.zshenv`, before `.zprofile` and `.zshrc` run. It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
 nobody reads a pager on the hidden screen, so `git log` or `systemctl status` would
 otherwise open `less` there and the run would wait until someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the config).
 

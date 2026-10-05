@@ -51,8 +51,8 @@ pub(crate) const PAGERS: &[(&str, &str)] =
     &[("PAGER", "cat"), ("GIT_PAGER", "cat"), ("SYSTEMD_PAGER", "cat"), ("MANPAGER", "cat")];
 
 /// The programs of [`ShellConfig::trusted_programs`], separated by spaces, for a zsh
-/// with the integration. The integration reads it once, before the user's startup
-/// files, and removes it from the environment.
+/// with the integration. The integration reads it once, right after the user's
+/// `.zshenv`, and removes it from the environment.
 pub(crate) const TRUSTED_PROGRAMS: &str = "_EFR_HS_TRUSTED_PROGRAMS";
 
 /// The whole environment of a new hidden shell started in `cwd`. `integration` is
