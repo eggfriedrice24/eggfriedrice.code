@@ -11,7 +11,7 @@
 //!   what each holds, what it means, when a change applies and the JSON schema, all
 //!   derived from the typed tables, so a new key is written once.
 //! - [`EXAMPLE`]: `examples/config.toml`, every key with a comment.
-//! - [`reference`] and [`schema_text`]: `docs/config.md` and `docs/config.schema.json`.
+//! - [`reference()`] and [`schema_text`]: `docs/config.md` and `docs/config.schema.json`.
 //! - [`Settings::reloaded`] and [`Reloaded`]: a file read again, laid over the running
 //!   settings, with the keys that need a restart.
 //! - [`FileState`]: what is at the file's path, a file, nothing, or a symbolic link.
