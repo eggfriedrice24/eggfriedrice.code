@@ -134,6 +134,10 @@ impl Toolbox for FakeToolbox {
         }
     }
 
+    fn takes_manual_input(&self, name: &str, _input: &Value) -> bool {
+        name == "shell"
+    }
+
     async fn preview(&self, call: &ToolCall) -> Option<String> {
         (call.name == "write_file").then(|| format!("+{}", call.input["content"]))
     }

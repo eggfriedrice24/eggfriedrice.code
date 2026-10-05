@@ -141,6 +141,12 @@ pub enum Event {
         tool: String,
         /// The tool's input as the model wrote it.
         input: Value,
+        /// True when the call takes an input that the user chooses to type while it
+        /// reports no wait (`input.respond` with `manual`), as a `shell` call does whose
+        /// command does not type into a shell that reads command lines. A client offers
+        /// such an input only for a call with this flag. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        manual_input: bool,
     },
 
     /// A running tool call produced more output. The daemon coalesces updates per call.

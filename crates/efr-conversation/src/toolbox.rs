@@ -42,6 +42,13 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         None
     }
 
+    /// True when a call of the tool `name` with `input` takes an input that the user
+    /// chooses to type while it reports no wait (`input.respond` with `manual`); the
+    /// turn records it in the call's `tool_call_started`. Pure. The default takes none.
+    fn takes_manual_input(&self, _name: &str, _input: &Value) -> bool {
+        false
+    }
+
     /// Runs `call`, which passed the permission check. Output that grows while it runs
     /// goes to `out`. A failure is an error outcome, which the model reads.
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome;

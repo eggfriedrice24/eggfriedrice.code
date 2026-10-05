@@ -96,3 +96,11 @@ No protocol version has shipped yet.
   `projects_list_params.json`, `projects_list_result.json`,
   `admin_project_add_params.json`, `admin_project_add_result.json`,
   `admin_project_remove_params.json` and `admin_project_remove_result.json`.
+- Before version 1 ships: the `tool_call_started` event gains an optional
+  `manual_input` flag, false when absent: the call takes an input that the user chooses
+  to type while it reports no wait (`input.respond` with `manual`). A client offers such
+  an input only for a call with the flag. A `shell` call has it unless its command types
+  into a shell that reads command lines (`nested_shell`, or a command that starts a
+  shell or a REPL), and the daemon now refuses a manual answer for such a call with
+  `conflict`, and for a job in the foreground that its last look at the command did not
+  see. The `events/tool_call_started.json` fixture now sets the flag.

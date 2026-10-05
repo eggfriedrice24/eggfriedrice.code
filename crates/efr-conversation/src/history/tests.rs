@@ -38,7 +38,13 @@ fn completed(turn_id: TurnId, index: u32, text: &str) -> Event {
 }
 
 fn started(turn_id: TurnId, call_id: CallId, tool: &str) -> Event {
-    Event::ToolCallStarted { turn_id, call_id, tool: tool.to_owned(), input: json!({}) }
+    Event::ToolCallStarted {
+        turn_id,
+        call_id,
+        tool: tool.to_owned(),
+        input: json!({}),
+        manual_input: false,
+    }
 }
 
 fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {

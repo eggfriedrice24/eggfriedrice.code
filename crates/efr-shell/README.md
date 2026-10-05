@@ -156,6 +156,9 @@ and `D`, or the two sentinels):
   look saw while the command ran (`NotWaiting` before the first look and for a group
   that appeared after it, such as a later precmd hook's command once the command
   ended).
+- `takes_manual_answers(mode, command)` says whether a run takes a manual answer at
+  all: false for a sentinel run and a run whose command starts a shell or a REPL. The
+  shell tool asks it, so a client offers a manual answer only where one can go.
 - `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the
   tool call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters

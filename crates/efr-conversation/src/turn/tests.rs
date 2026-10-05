@@ -344,7 +344,8 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             turn_id: sent.turn_id,
             call_id,
             tool: "read_file".to_owned(),
-            input
+            input,
+            manual_input: false,
         }
     );
     assert_eq!(
@@ -890,6 +891,11 @@ async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
     assert_eq!(h.toolbox.invoked(), vec![("shell".to_owned(), input)]);
     let events = h.events().await;
     assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    // The toolbox says whether the call takes a manual input, and the event records it.
+    assert!(matches!(
+        find(&events, |e| matches!(e, Event::ToolCallStarted { .. })),
+        Event::ToolCallStarted { manual_input: true, .. }
+    ));
     h.finish();
 }
 

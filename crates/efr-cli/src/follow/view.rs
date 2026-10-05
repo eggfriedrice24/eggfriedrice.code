@@ -23,11 +23,13 @@
 //! view at all, and a visible one is echoed here as the user types it, unless its
 //! prompt looks like a password prompt behind another program (`looks_secret`).
 //!
-//! A shell call of this turn that reports no wait and has printed nothing for a while
-//! gets one dim line that offers `Ctrl+\` ([`TurnView::silence`], [`TurnView::silent`]).
-//! The view reads no key for it: text typed meanwhile stays typeahead for the user's
-//! shell. Only `Ctrl+\` opens an answer line ([`TurnView::manual`]), which is shown as it
-//! is typed and goes as a manual answer.
+//! A call of this turn that takes a manual input (`manual_input` on its
+//! `tool_call_started`, a shell call whose command does not type into a shell that reads
+//! command lines), reports no wait and has printed nothing for a while gets one dim line
+//! that offers `Ctrl+\` ([`TurnView::silence`], [`TurnView::silent`]). The view reads no
+//! key for it: text typed meanwhile stays typeahead for the user's shell. Only `Ctrl+\`
+//! opens an answer line ([`TurnView::manual`]), which is shown as it is typed and goes as
+//! a manual answer.
 
 use std::collections::{HashMap, HashSet};
 
@@ -65,8 +67,8 @@ const VISIBLE_INPUT: &str =
 /// answer, because the program on the inner terminal decides whether it is shown.
 const SECRET_INPUT: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
 
-/// The line under a shell call that has printed nothing for a while and reports no
-/// wait; the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
+/// The line under a call that has printed nothing for a while and reports no wait;
+/// the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
 const SILENCE_HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
 
 /// The note when a command waits for hidden input and no key can be read here.
@@ -81,9 +83,6 @@ const ANSWER_SENT: &str = "answer sent";
 
 /// The note when the daemon refused an answer because the wait was over.
 const ANSWER_REFUSED: &str = "the command no longer waits for that input; nothing was sent";
-
-/// The name of the tool whose silent calls offer `Ctrl+\`.
-const SHELL: &str = "shell";
 
 /// What the echo of a visible answer starts with.
 const ECHO_PREFIX: &str = "> ";
@@ -193,8 +192,9 @@ struct Running {
     guarding: bool,
     /// What the user typed so far, for a visible answer only.
     typed: String,
-    /// A shell call of the followed turn, which may offer `Ctrl+\` when it is silent.
-    shell: bool,
+    /// A call of the followed turn that takes a manual input, which may offer `Ctrl+\`
+    /// when it is silent.
+    takes_manual: bool,
     /// Changes whenever the call shows a sign of life: output, a wait, an answer. The
     /// follow loop times the silence from the last change.
     activity: u64,
@@ -211,7 +211,7 @@ impl Running {
             asking: None,
             guarding: false,
             typed: String::new(),
-            shell: false,
+            takes_manual: false,
             activity: 0,
             hinted: false,
         }
@@ -229,10 +229,10 @@ impl Running {
         self.hinted = false;
     }
 
-    /// True when the call is a shell call that waits for nothing the daemon reported and
-    /// nothing reads keys for it.
-    fn quiet_shell(&self) -> bool {
-        self.shell && self.wait == InputWait::None && !self.reads_keys()
+    /// True when the call takes a manual input, waits for nothing the daemon reported
+    /// and nothing reads keys for it.
+    fn quiet(&self) -> bool {
+        self.takes_manual && self.wait == InputWait::None && !self.reads_keys()
     }
 }
 
@@ -345,14 +345,14 @@ impl TurnView {
             Event::AssistantMessageCompleted { index, text, .. } => {
                 self.message_text(*index, text, true, size)
             }
-            Event::ToolCallStarted { call_id, tool, input, .. } => {
+            Event::ToolCallStarted { call_id, tool, input, manual_input, .. } => {
                 self.tools.insert(*call_id, tool.clone());
-                // A shell call is followed from its start, so a command that never prints
-                // can still offer `Ctrl+\`.
+                // A call that takes a manual input is followed from its start, so a
+                // command that never prints can still offer `Ctrl+\`.
                 let mut settled = false;
-                if tool == SHELL {
+                if *manual_input {
                     let (running, replaced) = self.running(*call_id);
-                    running.shell = true;
+                    running.takes_manual = true;
                     settled = replaced;
                 }
                 // The model writes a tool call after the text it belongs to, so the
@@ -485,13 +485,13 @@ impl TurnView {
         Step { settled, ..self.commit(String::new(), size) }
     }
 
-    /// The shell call that may offer `Ctrl+\` once it has been silent long enough, with
-    /// its activity count, which changes at every sign of life: a shell call of this
-    /// turn that runs, reports no wait, while no key is read for it and no approval
-    /// waits, and whose line that offers `Ctrl+\` is not shown yet.
+    /// The call that may offer `Ctrl+\` once it has been silent long enough, with its
+    /// activity count, which changes at every sign of life: a call of this turn that
+    /// takes a manual input, runs and reports no wait, while no key is read for it and
+    /// no approval waits, and whose line that offers `Ctrl+\` is not shown yet.
     pub(crate) fn silence(&self) -> Option<(CallId, u64)> {
         let running = self.running.as_ref()?;
-        let quiet = running.quiet_shell() && !running.hinted && self.asking.is_none();
+        let quiet = running.quiet() && !running.hinted && self.asking.is_none();
         quiet.then_some((running.call_id, running.activity))
     }
 
@@ -499,7 +499,7 @@ impl TurnView {
     /// the key exactly while there is one.
     pub(crate) fn manual_offer(&self) -> Option<CallId> {
         let running = self.running.as_ref()?;
-        let offered = running.quiet_shell() && running.hinted && self.asking.is_none();
+        let offered = running.quiet() && running.hinted && self.asking.is_none();
         offered.then_some(running.call_id)
     }
 

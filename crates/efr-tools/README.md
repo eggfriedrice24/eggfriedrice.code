@@ -16,8 +16,12 @@ The tools the model calls, and the registry that offers them.
   so the conversation can ask before anything runs. Its `Debug` shows the command's
   length, not its text.
 - `ToolRegistry`: `register`, `specs` (for the provider request, in registration
-  order), and `requirements`, `preview` and `invoke` by name. It never hands out a
-  tool.
+  order), and `requirements`, `preview`, `takes_manual_input` and `invoke` by name. It
+  never hands out a tool.
+- `Tool::takes_manual_input(input)`: whether a call takes an input that the user
+  chooses to type while it reports no wait (false by default). The shell tool takes one
+  unless its line goes to a nested shell or starts a shell or a REPL
+  (`efr_shell::takes_manual_answers`), where the hidden shell refuses it.
 - `write_file` previews a write as a unified diff against the current file (every
   line added for a new file), at most 200 lines and 16 KiB, with a line that says
   how much is left out. `unified_diff` is that diff, public so the daemon's settings

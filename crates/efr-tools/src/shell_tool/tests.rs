@@ -146,6 +146,16 @@ fn programs_skip_assignments_and_wrappers() {
 }
 
 #[test]
+fn a_call_takes_a_manual_input_unless_its_line_goes_to_a_shell_that_reads_command_lines() {
+    let takes = |input| tool().takes_manual_input(&input);
+    assert!(takes(json!({"command": "./deploy"})));
+    assert!(!takes(json!({"command": "sleep 60", "nested_shell": true})));
+    assert!(!takes(json!({"command": "bash"})));
+    assert!(!takes(json!({"command": "ssh host"})));
+    assert!(!takes(json!({"cmd": "./deploy"})), "an input that does not parse");
+}
+
+#[test]
 fn unknown_input_fields_are_invalid() {
     let fixture = Fixture::new();
     let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/"))));

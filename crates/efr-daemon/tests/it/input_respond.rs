@@ -588,14 +588,17 @@ async fn shell_a_manual_answer_reaches_a_silent_command_and_a_plain_one_does_not
     let daemon = daemon_calling(&server, &arguments).await;
     let client = daemon.client_for_tty(TTY).await.unwrap();
     let (conversation_id, mut stream) = prompt_until_shown(&daemon, &client, true, "ready").await;
-    let call_id =
+    let started =
         daemon.events(&client, conversation_id).await.unwrap().iter().find_map(|envelope| {
             match &envelope.event {
-                Event::ToolCallStarted { call_id, .. } => Some(*call_id),
+                Event::ToolCallStarted { call_id, manual_input, .. } => {
+                    Some((*call_id, *manual_input))
+                }
                 _ => None,
             }
         });
-    let call_id = call_id.unwrap();
+    let (call_id, manual_input) = started.unwrap();
+    assert!(manual_input, "the client may offer a manual answer for the call");
     let seen = events_for_seconds(&daemon, &mut stream, 5).await;
     assert_eq!(input_waits(&seen), Vec::<InputWait>::new(), "no prompt, so no wait");
 

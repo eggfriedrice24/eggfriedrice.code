@@ -128,7 +128,10 @@ by field:
   becomes an error outcome;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
   interrupted command does not keep running in the hidden shell;
-- `preview`: the diff of a `write_file` call, once the tools offer one.
+- `preview`: the diff of a `write_file` call, once the tools offer one;
+- `takes_manual_input`: `ToolRegistry::takes_manual_input`, which the turn records as
+  `manual_input` in the call's `tool_call_started`, so a client offers a manual answer
+  (`Ctrl+\` in `efr`) only for a call that takes one.
 
 If the forbidden-edge check learns to accept the path through `efr-tools`, this crate
 can depend on `efr-tools` and implement `Toolbox` for `ToolRegistry` itself; nothing

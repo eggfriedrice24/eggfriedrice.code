@@ -64,6 +64,12 @@ impl ToolRegistry {
         self.entry(name)?.tool.requirements(ctx, input)
     }
 
+    /// True when a call of the tool `name` with `input` takes an input that the user
+    /// chooses to type while it reports no wait; false for an unknown tool.
+    pub fn takes_manual_input(&self, name: &str, input: &Value) -> bool {
+        self.entry(name).is_ok_and(|entry| entry.tool.takes_manual_input(input))
+    }
+
     /// What a call of the tool `name` with `input` would change, for its approval;
     /// `None` for an unknown tool or a call without a preview.
     pub async fn preview(&self, name: &str, ctx: &ToolContext, input: &Value) -> Option<String> {

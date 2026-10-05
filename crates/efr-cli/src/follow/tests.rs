@@ -449,6 +449,7 @@ fn shell_started(command: &str) -> Event {
         call_id: call(),
         tool: "shell".to_owned(),
         input: serde_json::json!({ "command": command }),
+        manual_input: true,
     }
 }
 

@@ -40,6 +40,12 @@ struct ShellInput {
     nested_shell: bool,
 }
 
+/// How a call's line is typed: into a nested shell with sentinels, or into the hidden
+/// zsh as its marks allow.
+fn mode(input: &ShellInput) -> RunMode {
+    if input.nested_shell { RunMode::Sentinel } else { RunMode::Auto }
+}
+
 /// Runs a command line in the conversation's hidden zsh: one long-lived interactive
 /// shell with the user's environment and startup files, whose working directory and
 /// variables carry over from call to call. The user does not see its screen; a person
@@ -237,6 +243,15 @@ impl Tool for ShellTool {
         Ok(requirements)
     }
 
+    /// A call takes a manual input unless its line goes to a nested shell or starts a
+    /// shell or a REPL: the hidden shell refuses one there, because the text would run
+    /// as a command line once the command ends. An input that does not parse takes
+    /// none; its call fails anyway.
+    fn takes_manual_input(&self, input: &Value) -> bool {
+        parse_input::<ShellInput>(Self::NAME, input)
+            .is_ok_and(|input| efr_shell::takes_manual_answers(mode(&input), &input.command))
+    }
+
     async fn invoke(
         &self,
         ctx: ToolContext,
@@ -248,7 +263,7 @@ impl Tool for ShellTool {
             .timeout_seconds
             .map_or(self.default_timeout, Duration::from_secs)
             .min(self.max_timeout);
-        let mode = if input.nested_shell { RunMode::Sentinel } else { RunMode::Auto };
+        let mode = mode(&input);
         let request = RunRequest::new(input.command, ctx.cwd.clone())
             .with_timeout(timeout)
             .with_mode(mode)

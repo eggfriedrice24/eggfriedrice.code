@@ -6,5 +6,6 @@
   "input": {
     "command": "du -sh /var/log/*",
     "timeout_secs": 30
-  }
+  },
+  "manual_input": true
 }

@@ -38,6 +38,10 @@ impl Tool for Echo {
         Ok(ToolRequirements::none().with_network(input["network"] == true))
     }
 
+    fn takes_manual_input(&self, input: &Value) -> bool {
+        input["manual"] == true
+    }
+
     async fn invoke(
         &self,
         _ctx: ToolContext,
@@ -90,6 +94,17 @@ fn requirements_are_dispatched_by_name() {
     assert!(requirements.network);
     let error = registry.requirements("nope", &fixture.context(), &json!({})).unwrap_err();
     assert!(matches!(&error, ToolError::UnknownTool { name } if name == "nope"), "{error:?}");
+}
+
+#[test]
+fn whether_a_call_takes_a_manual_input_is_dispatched_by_name() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Echo::named("echo")).unwrap();
+    registry.register(Arc::new(ReadFileTool::new())).unwrap();
+    assert!(registry.takes_manual_input("echo", &json!({"manual": true})));
+    assert!(!registry.takes_manual_input("echo", &json!({})));
+    assert!(!registry.takes_manual_input("read_file", &json!({"manual": true})), "the default");
+    assert!(!registry.takes_manual_input("nope", &json!({"manual": true})));
 }
 
 #[tokio::test]

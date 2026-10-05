@@ -597,6 +597,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             call_id: call_id(),
             tool: "shell".into(),
             input: json!({ "command": "du -sh /var/log/*", "timeout_secs": 30 }),
+            manual_input: true,
         },
         Event::ToolCallOutputUpdated {
             turn_id: turn_id(),

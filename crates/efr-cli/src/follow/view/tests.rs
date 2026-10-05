@@ -46,6 +46,7 @@ fn tool_started(command: &str) -> Event {
         call_id: call(),
         tool: "shell".to_owned(),
         input: json!({ "command": command }),
+        manual_input: true,
     }
 }
 
@@ -783,6 +784,7 @@ fn shell_started() -> Event {
         call_id: call(),
         tool: "shell".to_owned(),
         input: json!({ "command": "./deploy" }),
+        manual_input: true,
     }
 }
 
@@ -809,18 +811,35 @@ fn a_running_shell_call_of_the_turn_is_silent_until_it_shows_a_sign_of_life() {
 }
 
 #[test]
-fn only_shell_calls_of_the_followed_turn_can_be_silent() {
+fn only_calls_of_the_followed_turn_that_take_a_manual_input_can_be_silent() {
     let mut view = TurnView::new(turn(), RenderOptions::new(80));
     let read = Event::ToolCallStarted {
         turn_id: turn(),
         call_id: call(),
         tool: "read_file".to_owned(),
         input: json!({ "path": "/etc/hosts" }),
+        manual_input: false,
     };
     view.event(&read, SIZE, true);
     assert_eq!(view.silence(), None);
     view.event(&output("127.0.0.1 localhost"), SIZE, true);
-    assert_eq!(view.silence(), None, "output alone does not make a call a shell call");
+    assert_eq!(view.silence(), None, "output alone does not make a call take a manual input");
+}
+
+#[test]
+fn a_shell_call_into_a_shell_that_reads_command_lines_is_never_silent() {
+    // The daemon refuses a manual answer there: it would run as a command line.
+    let mut view = TurnView::new(turn(), RenderOptions::new(80));
+    let nested = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "sleep 60", "nested_shell": true }),
+        manual_input: false,
+    };
+    view.event(&nested, SIZE, true);
+    assert_eq!(view.silence(), None);
+    assert_eq!(view.manual_offer(), None);
 }
 
 #[test]

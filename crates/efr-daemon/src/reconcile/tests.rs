@@ -43,6 +43,7 @@ fn call_started(turn: TurnId, call: CallId) -> Event {
         call_id: call,
         tool: "write_file".to_owned(),
         input: json!({ "path": "/etc/hosts", "content": "" }),
+        manual_input: false,
     }
 }
 

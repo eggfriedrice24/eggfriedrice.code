@@ -109,6 +109,14 @@ pub(crate) fn check_job(
     }
 }
 
+/// True when a run of `command` in `mode` takes a manual answer
+/// ([`ShellSessions::answer_manual`](crate::ShellSessions::answer_manual)): when it
+/// reports visible waits, so its command does not type into a shell or a REPL that
+/// reads command lines. A client offers a manual answer only for such a run.
+pub fn takes_manual_answers(mode: RunMode, command: &str) -> bool {
+    Offer::of(mode, command) == Offer::All
+}
+
 /// Refuses a manual answer for a run that reports hidden waits only. Such a run types
 /// into a shell or a REPL that reads command lines: a sentinel run's line, or a command
 /// that starts one. Once the command ends, that shell reads what is still unread as its

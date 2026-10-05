@@ -380,3 +380,35 @@ fn an_input_change_with_an_unknown_wait_is_an_error_not_unknown() {
     let event = json!({ "kind": "tool_call_input_changed", "turn_id": TURN, "call_id": CALL, "input": "loud" });
     assert!(serde_json::from_value::<Event>(event).is_err());
 }
+
+#[test]
+fn a_call_that_takes_a_manual_input_says_so_and_an_old_one_does_not() {
+    let started = |manual_input| Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "./deploy" }),
+        manual_input,
+    };
+    let wire = json!({
+        "kind": "tool_call_started",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "tool": "shell",
+        "input": { "command": "./deploy" },
+        "manual_input": true,
+    });
+    assert_eq!(serde_json::to_value(started(true)).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), started(true));
+    // An event from before the flag reads as a call that takes none, and a call that
+    // takes none leaves the flag out.
+    let old = json!({
+        "kind": "tool_call_started",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "tool": "shell",
+        "input": { "command": "./deploy" },
+    });
+    assert_eq!(serde_json::to_value(started(false)).unwrap(), old);
+    assert_eq!(serde_json::from_value::<Event>(old).unwrap(), started(false));
+}

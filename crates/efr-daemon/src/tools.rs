@@ -36,6 +36,7 @@ use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
     ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
 };
+use serde_json::Value;
 use tokio::sync::watch;
 
 use crate::DaemonError;
@@ -181,6 +182,10 @@ impl Toolbox for DaemonToolbox {
         }
         let context = self.context(&call.context);
         self.registry.preview(&call.name, &context, &call.input).await
+    }
+
+    fn takes_manual_input(&self, name: &str, input: &Value) -> bool {
+        self.registry.takes_manual_input(name, input)
     }
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {

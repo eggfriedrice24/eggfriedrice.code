@@ -465,11 +465,13 @@ impl Turn {
         let call_id = CallId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
         let span = tracing::info_span!("tool_call", tool = %call.name, call_id = %call_id);
         async move {
+            let manual_input = self.shared.deps.toolbox.takes_manual_input(&call.name, &call.input);
             self.record(vec![Event::ToolCallStarted {
                 turn_id,
                 call_id,
                 tool: call.name.clone(),
                 input: call.input.clone(),
+                manual_input,
             }])
             .await?;
             // NOTE: asked for every call, because the call before may have moved the

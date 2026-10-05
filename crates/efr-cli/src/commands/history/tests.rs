@@ -49,6 +49,7 @@ fn events() -> Vec<EventEnvelope> {
                 call_id: call(),
                 tool: "shell".to_owned(),
                 input: json!({ "command": "systemctl status nginx" }),
+                manual_input: true,
             },
         ),
         envelope(

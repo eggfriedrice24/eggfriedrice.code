@@ -54,6 +54,7 @@ mod writer;
 
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
+pub use input::takes_manual_answers;
 pub use modes::{InputModes, TerminalModes, Termios};
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{

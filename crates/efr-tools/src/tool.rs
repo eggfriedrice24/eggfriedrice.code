@@ -41,6 +41,13 @@ pub trait Tool: Send + Sync + fmt::Debug {
         None
     }
 
+    /// True when a call with `input` takes an input that the user chooses to type
+    /// while it reports no wait, as a command that prints nothing for a while may need.
+    /// Pure, like [`requirements`](Tool::requirements). No tool takes one by default.
+    fn takes_manual_input(&self, _input: &Value) -> bool {
+        false
+    }
+
     /// Runs the call. Output that grows while the call runs goes to `out`.
     async fn invoke(
         &self,
