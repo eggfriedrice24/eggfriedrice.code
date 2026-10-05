@@ -160,9 +160,11 @@ impl ShellSessions {
     /// call that [`RunRequest::call`](crate::RunRequest::call) named.
     ///
     /// The answer is written only while that call's command runs (between its `C` and
-    /// `D`, or its sentinels) and the terminal reads a line (canonical input on); with
-    /// `hidden`, the terminal must also have echo off, so the text never reaches the
-    /// output. The modes are read right before the one write that types the answer.
+    /// `D`, or its sentinels), the run has reported a wait, the job that was in the
+    /// terminal's foreground when it did still is, by its process group, and the
+    /// terminal reads a line (canonical input on); with `hidden`, the terminal must also
+    /// have echo off, so the text never reaches the output. The group and the modes are
+    /// read right before the one write that types the answer.
     /// It fails with [`ShellError::InvalidAnswer`] for text that is not one line of at
     /// most [`InputRespond::MAX_TEXT_BYTES`](efr_protocol::InputRespond::MAX_TEXT_BYTES)
     /// bytes without control characters, [`ShellError::NoShell`] or
@@ -559,8 +561,14 @@ impl ShellSessions {
                 _ => InputWait::None,
             },
         };
-        if let Some(changed) = watch.settle(wait, probe.answers) {
+        if let Some(changed) = watch.settle(wait, probe.job.map(|job| job.group), probe.answers) {
+            // The actor learns which job waits before any client hears of the wait, so an
+            // answer sent for it is checked against that job. The client hears of the
+            // change even when the actor is gone, so the `None` that the caller reports
+            // then follows a wait that the client heard.
+            let told = session.send(Msg::Waiting { id, group: watch.waiting() }).await;
             progress.input_changed(changed);
+            told?;
         }
         Ok(watch.current() == InputWait::Hidden && !progress.can_answer_hidden())
     }

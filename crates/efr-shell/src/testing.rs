@@ -438,6 +438,10 @@ pub(crate) struct FakeModes {
 /// The process group of a command's job in [`FakeModes`], never a fake shell's pid.
 pub(crate) const JOB: u32 = 4242;
 
+/// The process group of another job, such as a command that a precmd hook starts once
+/// the command's job has ended; never a fake shell's pid either.
+pub(crate) const OTHER_JOB: u32 = 4343;
+
 impl Default for FakeModes {
     fn default() -> Self {
         FakeModes {

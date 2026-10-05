@@ -49,6 +49,9 @@ pub(crate) enum Msg {
     State { reply: oneshot::Sender<ShellState> },
     /// Tell what a look at run `id` needs; `None` once the run ended or was left.
     Probe { id: u64, reply: oneshot::Sender<Option<Probe>> },
+    /// The wait that run `id` reported last changed: `group` is the process group of
+    /// the job that waits, as the look read it, or `None` when nothing waits.
+    Waiting { id: u64, group: Option<u32> },
     /// Type `text` for the running command of `call`, if it waits for such input.
     /// `Debug` shows no text: `SecretText` hides it.
     Answer {
@@ -123,6 +126,9 @@ struct Active {
     started: bool,
     /// How many answers were typed for this run.
     answers: u64,
+    /// The process group of the job whose wait the run reported last; `None` while it
+    /// reports none. Only that job gets an answer.
+    waiting: Option<u32>,
 }
 
 impl Active {
@@ -288,13 +294,22 @@ impl SessionCore {
         Some(Probe {
             running: active.machine.running(),
             last_output: self.last_output,
-            modes: None,
+            job: None,
             answers: active.answers,
         })
     }
 
-    /// Refuses an answer for `call` unless that call's command runs now.
-    pub(crate) fn answerable(&self, call: CallId) -> Result<(), ShellError> {
+    /// Records the job whose wait run `id` reported, by its process group, or that
+    /// nothing waits.
+    pub(crate) fn waiting(&mut self, id: u64, group: Option<u32>) {
+        if let Some(active) = self.active.as_mut().filter(|active| active.id == id) {
+            active.waiting = group;
+        }
+    }
+
+    /// Refuses an answer for `call` unless that call's command runs now; returns the
+    /// process group of the job whose wait the run reported, if it reports one.
+    pub(crate) fn answerable(&self, call: CallId) -> Result<Option<u32>, ShellError> {
         let conversation = self.conversation;
         let Some(active) = &self.active else {
             return Err(ShellError::NoCall { conversation });
@@ -308,7 +323,7 @@ impl SessionCore {
                 reason: "the command does not run now",
             });
         }
-        Ok(())
+        Ok(active.waiting)
     }
 
     /// An answer was typed for the active run.
@@ -391,6 +406,7 @@ impl SessionCore {
                     progress: order.progress,
                     started: false,
                     answers: 0,
+                    waiting: None,
                 });
                 vec![line]
             }
@@ -549,12 +565,13 @@ impl SessionActor {
                     let _ = reply.send(self.core.state().clone());
                 }
                 Msg::Probe { id, reply } => {
-                    let probe = self.core.probe(id).map(|probe| Probe {
-                        modes: self.terminal.job_modes().ok().flatten(),
-                        ..probe
-                    });
+                    let probe = self
+                        .core
+                        .probe(id)
+                        .map(|probe| Probe { job: self.terminal.job().ok().flatten(), ..probe });
                     let _ = reply.send(probe);
                 }
+                Msg::Waiting { id, group } => self.core.waiting(id, group),
                 Msg::Answer { call, text, hidden, reply } => {
                     let _ = reply.send(answer(&mut self.core, &self.terminal, call, &text, hidden));
                 }
@@ -574,22 +591,27 @@ impl SessionActor {
     }
 }
 
-/// Types an answer for `call` when its command runs, a job of it holds the terminal,
-/// and the terminal reads a line in the right modes. The group and the modes are read
-/// right before the one write, with no await between them: a getpass-style read that
-/// ended, or the shell back in its hooks or at its prompt, is seen and refused.
+/// Types an answer for `call` when its command runs, the run reported a wait, the job
+/// whose wait it was still holds the terminal, and the terminal reads a line in the
+/// right modes. The group and the modes are read right before the one write, with no
+/// await between them: a getpass-style read that ended, the shell back in its hooks or
+/// at its prompt, or another job in the foreground is seen and refused.
 ///
 /// NOTE: zsh takes the terminal back as soon as the command's job ends, before its
 /// precmd hooks run, and the integration's hook, the first of them, drains unread input
 /// before it prints `D`. An answer written before zsh takes the terminal back is
 /// drained, and one tried after it, while `D` is still on its way here, finds the
-/// shell's own group in the foreground and is refused. One window is left: a precmd
-/// hook that runs after the integration's and starts an external command puts that
-/// command in the foreground, in a process group of its own and in cooked mode, after
-/// the drain. A visible answer tried then, before this actor has read `D`, passes both
-/// checks (a hidden one is refused unless that command turned echo off), and the line
-/// editor reads it as the next command line once the hook ends. The window lasts from
-/// zsh's write of `D` until the chunk that holds it reaches this actor.
+/// shell's own group in the foreground and is refused. A precmd hook that runs after
+/// the integration's and starts an external command puts that command in the
+/// foreground, in a process group of its own and in cooked mode, after the drain; an
+/// answer tried then finds a group other than the one the look recorded with the wait,
+/// and is refused too, so it never waits there for the line editor. What is left is a
+/// new wait: a look that runs while such a command holds the terminal and `D` still has
+/// not reached this actor reports `None` and, at the look after, a wait of that command
+/// when it looks like one (the cursor after text on a cooked terminal, or echo off), and
+/// an answer to that wait is typed for that command. That takes the reader held up on
+/// the chunk with `D` for two looks, as a slow recording sink can hold it, while the
+/// command holds the terminal.
 fn answer(
     core: &mut SessionCore,
     terminal: &Terminal,
@@ -597,23 +619,25 @@ fn answer(
     text: &SecretText,
     hidden: bool,
 ) -> Result<(), ShellError> {
-    core.answerable(call)?;
+    let waiting = core.answerable(call)?;
     let conversation = core.conversation;
-    let modes =
-        terminal.job_modes().map_err(|source| ShellError::Terminal { conversation, source })?;
+    let job = terminal.job().map_err(|source| ShellError::Terminal { conversation, source })?;
     // The shell holds the terminal again as soon as the command's job ended, and `D`
     // may still be on its way here: an answer then would wait for the line editor.
-    let modes = modes.ok_or(ShellError::NotWaiting {
+    let job = job.ok_or(ShellError::NotWaiting {
         conversation,
         reason: "the shell itself holds the terminal",
     })?;
-    input::check_modes(modes, hidden)
+    input::check_job(waiting, job.group)
+        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    input::check_modes(job.modes, hidden)
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
     // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to
     // a terminal query) can arrive after the answer; they cannot split it, because the
     // answer is a single write of its own. Nothing locks the terminal between the read
-    // of the modes above and this write: when `sudo`'s own password timeout turns echo
-    // back on in those microseconds, the terminal echoes a hidden answer.
+    // of the group and the modes above and this write: when `sudo`'s own password
+    // timeout turns echo back on in those microseconds, the terminal echoes a hidden
+    // answer, and a job that ends in them leaves the answer to the integration's drain.
     terminal
         .write_line(text.expose_secret())
         .map_err(|source| ShellError::Terminal { conversation, source })?;

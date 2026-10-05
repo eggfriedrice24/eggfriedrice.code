@@ -16,11 +16,11 @@ use tokio::task::JoinHandle;
 
 use super::{CommandRunner, ShellSessions, replay_name, screen_name};
 use crate::input::Probe;
-use crate::modes::Terminal;
+use crate::modes::{Job, Terminal};
 use crate::session::{Life, Msg, SessionHandle};
 use crate::testing::{
-    AnsweringScreens, CountingScreens, FakeModes, FakeTerminal, Harness, Heard, SIZE, Vt100Screens,
-    conversation, listener,
+    AnsweringScreens, CountingScreens, FakeModes, FakeTerminal, Harness, Heard, OTHER_JOB, SIZE,
+    Vt100Screens, conversation, listener,
 };
 use crate::{
     CommandResult, Completion, Delimiter, InputModes, NoProgress, OutputUpdate, Phase, RunMode,
@@ -890,8 +890,15 @@ async fn answers_reach_only_the_running_command_of_their_call() {
     assert!(matches!(idle, Err(ShellError::NoCall { .. })), "{idle:?}");
 
     let harness = Harness::new(ZSH);
-    let (mut terminal, run, _heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
+    let (mut terminal, run, mut heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
     harness.modes.set(Some(HIDDEN));
+    // The command runs and reads with echo off, but no look has said so: nobody was
+    // asked yet. The screen is fed after the session, so the session has seen `C`.
+    screen_shows(&harness.sessions, conversation(1), "pw:").await;
+    let unasked = harness.sessions.answer(conversation(1), call(), &text, true).await;
+    assert!(matches!(unasked, Err(ShellError::NotWaiting { .. })), "{unasked:?}");
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
     let other: CallId = "01920000-0000-7000-8000-0000000c0002".parse().unwrap();
     let wrong = harness.sessions.answer(conversation(1), other, &text, true).await;
     assert!(matches!(wrong, Err(ShellError::NotWaiting { .. })), "{wrong:?}");
@@ -902,7 +909,7 @@ async fn answers_reach_only_the_running_command_of_their_call() {
     let invalid =
         harness.sessions.answer(conversation(1), call(), &SecretText::new("a\rb"), true).await;
     assert!(matches!(invalid, Err(ShellError::InvalidAnswer { .. })), "{invalid:?}");
-    let error = format!("{wrong:?} {editor:?} {invalid:?}");
+    let error = format!("{unasked:?} {wrong:?} {editor:?} {invalid:?}");
     assert!(!error.contains("hunter2"), "{error}");
 
     harness.modes.set(Some(HIDDEN));
@@ -940,6 +947,39 @@ async fn nothing_is_asked_or_typed_while_the_shell_itself_holds_the_terminal() {
     harness.sessions.answer(conversation(1), call(), &SecretText::new("ok"), true).await.unwrap();
     assert_eq!(terminal.typed_line().await, b"ok\r");
     terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn an_answer_reaches_only_the_job_whose_wait_was_reported() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
+    screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
+    for _ in 0..3 {
+        one_look(&harness).await;
+    }
+    heard.inputs(&[InputWait::Visible]).await;
+
+    // The job ended, and a command that a precmd hook after efr's started holds the
+    // terminal in cooked mode before the command's `D` arrives.
+    harness.modes.set_foreground(OTHER_JOB);
+    let refused =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    // The next look says that the job that waited is gone; a wait of the new job is a
+    // new change, and only an answer after it reaches that job.
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Visible, InputWait::None]).await;
+    let early =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await;
+    assert!(matches!(early, Err(ShellError::NotWaiting { .. })), "{early:?}");
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Visible, InputWait::None, InputWait::Visible]).await;
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("n"), false).await.unwrap();
+    // Nothing of the refused answers was typed before this one.
+    assert_eq!(terminal.typed_line().await, b"n\r");
+    terminal.print(b"n\r\n\x1b]133;D;0\x07").await;
     run.await.unwrap().unwrap();
 }
 
@@ -982,7 +1022,8 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         panic!("the run did not look");
     };
     assert_eq!(id, order.id);
-    let probe = Probe { running: true, last_output: None, modes: Some(HIDDEN), answers: 0 };
+    let job = Some(Job { group: crate::testing::JOB, modes: HIDDEN });
+    let probe = Probe { running: true, last_output: None, job, answers: 0 };
     reply.send(Some(probe)).unwrap();
     heard.inputs(&[InputWait::Hidden]).await;
 

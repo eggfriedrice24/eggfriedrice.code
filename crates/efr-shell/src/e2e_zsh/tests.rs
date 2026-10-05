@@ -460,7 +460,8 @@ async fn e2e_a_hidden_answer_while_echo_is_on_is_refused_and_writes_nothing() {
         return;
     };
     let command = r#"sh -c 'printf "name? "; IFS= read -r line; printf "got=%s\n" "$line"'"#;
-    let (run, _heard) = zsh.run_waiting(command, true, "name? ").await;
+    let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
+    zsh.look_until(&mut heard, &[InputWait::Visible]).await;
     let secret = SecretText::new("secret");
     let refused = zsh.sessions.answer(zsh.conversation, call(), &secret, true).await;
     assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");

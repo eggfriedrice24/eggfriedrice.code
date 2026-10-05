@@ -273,7 +273,7 @@ fn a_probe_tells_whether_the_command_runs_and_when_it_last_printed() {
     core.submit(order);
     let before = core.probe(1).unwrap();
     assert!(!before.running);
-    assert_eq!(before.modes, None, "the actor reads the modes");
+    assert_eq!(before.job, None, "the actor reads the job");
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
     let running = core.probe(1).unwrap();
     assert!(running.running);
@@ -303,6 +303,23 @@ fn only_the_running_command_of_the_same_call_takes_an_answer() {
     // Its `D` ends it: the shell is no longer the command's.
     feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07");
     assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NoCall { .. })));
+}
+
+#[test]
+fn an_answer_learns_the_job_whose_wait_its_run_reported_last() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
+    assert_eq!(core.answerable(call_id(1)).unwrap(), None, "no wait was reported yet");
+    core.waiting(1, Some(4242));
+    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(4242));
+    core.waiting(2, Some(4343));
+    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(4242), "another run's report");
+    core.waiting(1, None);
+    assert_eq!(core.answerable(call_id(1)).unwrap(), None, "the wait ended");
 }
 
 #[test]

@@ -7,7 +7,9 @@
 //! shell itself turns both off. `tcgetpgrp` on the master returns the slave's
 //! foreground process group: a command's job while it runs, and the shell's own group
 //! once the job has ended, which zsh takes back before it runs its precmd hooks. The
-//! terminal is cooked again there, so only the group tells that window apart.
+//! terminal is cooked again there, so only the group tells that window apart. A command
+//! that a later precmd hook starts gets a group of its own, in cooked mode too, so the
+//! group is also what tells it from the job whose wait was reported.
 
 use std::fmt;
 use std::io;
@@ -73,6 +75,16 @@ impl TerminalModes for Termios {
     }
 }
 
+/// The job in a terminal's foreground: a command that the shell started, never the
+/// shell itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Job {
+    /// Its process group, which tells it from a job that comes after it.
+    pub(crate) group: u32,
+    /// The input modes it set.
+    pub(crate) modes: InputModes,
+}
+
 /// The master of one shell with the reader of its modes: what the session's actor
 /// needs to check a terminal and type an answer in one step.
 #[derive(Debug, Clone)]
@@ -89,20 +101,26 @@ impl Terminal {
         Terminal { master, modes, shell }
     }
 
-    /// The input modes of the job in the terminal's foreground now; `None` while the
-    /// shell itself holds the terminal, at its prompt, in its hooks, or running a
-    /// builtin or a function. Input typed then would reach the shell, not a command.
-    pub(crate) fn job_modes(&self) -> io::Result<Option<InputModes>> {
-        if self.shell_holds()? {
+    /// The job in the terminal's foreground now; `None` while the shell itself holds
+    /// the terminal, at its prompt, in its hooks, or running a builtin or a function.
+    /// Input typed then would reach the shell, not a command.
+    pub(crate) fn job(&self) -> io::Result<Option<Job>> {
+        let group = self.foreground()?;
+        if group == self.shell {
             return Ok(None);
         }
-        self.modes.read(self.master.get_ref().as_fd()).map(Some)
+        let modes = self.modes.read(self.master.get_ref().as_fd())?;
+        Ok(Some(Job { group, modes }))
     }
 
     /// True while the shell's own process group is in the terminal's foreground, so
     /// typed input and a signal to the foreground group would reach the shell.
     pub(crate) fn shell_holds(&self) -> io::Result<bool> {
-        Ok(self.modes.foreground(self.master.get_ref().as_fd())? == self.shell)
+        Ok(self.foreground()? == self.shell)
+    }
+
+    fn foreground(&self) -> io::Result<u32> {
+        self.modes.foreground(self.master.get_ref().as_fd())
     }
 
     /// Writes `text` and a carriage return in one system call, as Enter would end the
