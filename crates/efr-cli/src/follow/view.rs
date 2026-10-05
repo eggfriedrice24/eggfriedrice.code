@@ -20,7 +20,8 @@
 //! live zone, cut to the width, and goes when the call completes; it is never
 //! committed. When the call's command waits for input and keys can be read, the view
 //! asks for an answer line below it: a hidden answer (a password) never reaches the
-//! view at all, and a visible one is echoed here as the user types it.
+//! view at all, and a visible one is echoed here as the user types it, unless its
+//! prompt looks like a password prompt behind another program (`looks_secret`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -52,6 +53,11 @@ const HIDDEN_INPUT: &str = "type the answer and press Enter; it is not shown, an
 /// terminal decides whether the answer is shown.
 const VISIBLE_INPUT: &str =
     "type the answer and press Enter; the agent sees it if the program shows it";
+
+/// The line under a visible prompt that looks like a password prompt behind a relay,
+/// such as `sudo`'s own pty: what is typed is not shown, and it goes as a visible
+/// answer, because the program on the inner terminal decides whether it is shown.
+const SECRET_INPUT: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
 
 /// The note when a command waits for hidden input and no key can be read here.
 const HIDDEN_INPUT_ELSEWHERE: &str =
@@ -97,14 +103,53 @@ pub(crate) struct Step {
     pub(crate) end: Option<TurnEnd>,
 }
 
+/// How an answer line is read and sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnswerKind {
+    /// The terminal's echo is off: never shown, sent as a hidden answer.
+    Hidden,
+    /// Shown as it is typed, sent as a visible answer.
+    Visible,
+    /// A visible wait whose prompt looks like a password prompt behind a relay: not
+    /// shown, but sent as a visible answer, the kind the daemon reported.
+    Masked,
+}
+
+impl AnswerKind {
+    /// True when what is typed is shown as it is typed.
+    pub(crate) fn shown(self) -> bool {
+        self == AnswerKind::Visible
+    }
+
+    /// True when the answer goes as a hidden one.
+    pub(crate) fn hidden(self) -> bool {
+        self == AnswerKind::Hidden
+    }
+
+    /// True when what is typed may be a password: until the call completes, keys typed
+    /// while it asks nothing are read and thrown away.
+    fn guards(self) -> bool {
+        matches!(self, AnswerKind::Hidden | AnswerKind::Masked)
+    }
+
+    /// The line under the prompt.
+    fn line(self) -> &'static str {
+        match self {
+            AnswerKind::Hidden => HIDDEN_INPUT,
+            AnswerKind::Visible => VISIBLE_INPUT,
+            AnswerKind::Masked => SECRET_INPUT,
+        }
+    }
+}
+
 /// What the user is asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Ask {
     /// An approval, answered with one key.
     Approval(CallId),
-    /// A line for the running call `call_id`, whose command waits for input. `hidden`
-    /// when the terminal's echo is off: the answer must never show.
-    Input { call_id: CallId, hidden: bool },
+    /// A line for the running call `call_id`, whose command waits for input, read and
+    /// sent as `kind` says.
+    Input { call_id: CallId, kind: AnswerKind },
     /// Nothing to answer now, but keep reading keys and throw them away until call
     /// `call_id` completes. It asked for a hidden answer and may ask again, as `sudo`
     /// does after a wrong password, and a password typed again meanwhile must neither
@@ -120,10 +165,10 @@ struct Running {
     tail: String,
     /// What its command waits for, as the daemon said last.
     wait: InputWait,
-    /// The user is being asked for that input now.
-    asking: bool,
-    /// It asked for a hidden answer and still runs: keys are read and thrown away
-    /// while it asks nothing.
+    /// The answer the user is being asked for now, if any.
+    asking: Option<AnswerKind>,
+    /// It asked for an answer that may be a password and still runs: keys are read and
+    /// thrown away while it asks nothing.
     guarding: bool,
     /// What the user typed so far, for a visible answer only.
     typed: String,
@@ -135,7 +180,7 @@ impl Running {
             call_id,
             tail: String::new(),
             wait: InputWait::None,
-            asking: false,
+            asking: None,
             guarding: false,
             typed: String::new(),
         }
@@ -143,16 +188,7 @@ impl Running {
 
     /// True while keys are read for it, to answer or to throw away.
     fn reads_keys(&self) -> bool {
-        self.asking || self.guarding
-    }
-
-    /// The input asked for, if the user is asked for one now; true when hidden.
-    fn asked(&self) -> Option<bool> {
-        match self.wait {
-            _ if !self.asking => None,
-            InputWait::Visible => Some(false),
-            _ => Some(true),
-        }
+        self.asking.is_some() || self.guarding
     }
 }
 
@@ -273,8 +309,8 @@ impl TurnView {
                 self.note_after(before, &format::tool_call(tool, input), size)
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
-            Event::ToolCallInputChanged { call_id, input, .. } => {
-                self.input_changed(*call_id, *input, size, can_ask)
+            Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
+                self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
             Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
                 let settled = self.call_ended(*call_id);
@@ -334,8 +370,8 @@ impl TurnView {
                 self.expired(*call_id, size)
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
-            Event::ToolCallInputChanged { call_id, input, .. } => {
-                self.input_changed(*call_id, *input, size, can_ask)
+            Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
+                self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
             Event::ToolCallCompleted { call_id, .. }
                 if self.running.as_ref().is_some_and(|running| running.call_id == *call_id) =>
@@ -396,26 +432,29 @@ impl TurnView {
         Step { settled, ..self.commit(String::new(), size) }
     }
 
-    /// Call `call_id` began or stopped waiting for input.
+    /// Call `call_id` began or stopped waiting for input; `looks_secret` when a visible
+    /// wait's prompt looks like a password prompt behind another program.
     fn input_changed(
         &mut self,
         call_id: CallId,
         input: InputWait,
+        looks_secret: bool,
         size: Size,
         can_ask: bool,
     ) -> Step {
         let approval_pending = self.asking.is_some();
         let (running, replaced) = self.running(call_id);
-        if running.asked() == Some(true) {
+        if running.asking.is_some_and(AnswerKind::guards) {
             running.guarding = true;
         }
         let settled = replaced || running.reads_keys();
         running.wait = input;
-        running.asking = false;
+        running.asking = None;
         running.typed.clear();
-        let hidden = match input {
-            InputWait::Hidden => true,
-            InputWait::Visible => false,
+        let kind = match input {
+            InputWait::Hidden => AnswerKind::Hidden,
+            InputWait::Visible if looks_secret => AnswerKind::Masked,
+            InputWait::Visible => AnswerKind::Visible,
             // No wait, or one this build does not know: nothing to ask, but a call that
             // asked for a password keeps the keys quiet until it completes.
             _ if running.guarding => {
@@ -426,7 +465,7 @@ impl TurnView {
             _ => return Step { settled, ..self.commit(String::new(), size) },
         };
         if !can_ask {
-            let note = if hidden { HIDDEN_INPUT_ELSEWHERE } else { VISIBLE_INPUT_ELSEWHERE };
+            let note = if kind.hidden() { HIDDEN_INPUT_ELSEWHERE } else { VISIBLE_INPUT_ELSEWHERE };
             return Step { settled, ..self.note(note, size) };
         }
         // One question at a time, so an approval and an input never overlap. Tool calls
@@ -434,7 +473,7 @@ impl TurnView {
         if approval_pending {
             return Step { settled, ..Step::default() };
         }
-        running.asking = true;
+        running.asking = Some(kind);
         let prompt = format::one_line(&running.tail);
         let mut step = if self.terminal() {
             self.commit(String::new(), size)
@@ -444,17 +483,17 @@ impl TurnView {
             if !prompt.is_empty() {
                 err.push_str(&render_trace(&prompt, &options));
             }
-            err.push_str(input_line(hidden));
+            err.push_str(kind.line());
             err.push('\n');
             let mut err = self.raw_err(err);
-            // A visible answer is echoed on the next line as it is typed.
-            if !hidden {
+            // A shown answer is echoed on the next line as it is typed.
+            if kind.shown() {
                 err.push_str(ECHO_PREFIX);
                 self.echo_line = true;
             }
             Step { err, ..Step::default() }
         };
-        step.ask = Some(Ask::Input { call_id, hidden });
+        step.ask = Some(Ask::Input { call_id, kind });
         step
     }
 
@@ -483,17 +522,17 @@ impl TurnView {
         }
     }
 
-    /// What the user typed so far for a visible answer, echoed below the prompt: in the
+    /// What the user typed so far for a shown answer, echoed below the prompt: in the
     /// live zone on a terminal, otherwise on stderr after `> `, where a removed
-    /// character is erased with Backspace. A hidden answer is never passed here, and
-    /// text passed while no visible answer is asked for is dropped.
+    /// character is erased with Backspace. An answer that is not shown is never passed
+    /// here, and text passed while no shown answer is asked for is dropped.
     pub(crate) fn typed(&mut self, text: &str, size: Size) -> Step {
         let terminal = self.terminal();
         let echo_line = self.echo_line;
         let Some(running) = &mut self.running else {
             return Step::default();
         };
-        if running.asked() != Some(false) {
+        if !running.asking.is_some_and(AnswerKind::shown) {
             return Step::default();
         }
         if terminal {
@@ -670,7 +709,7 @@ impl TurnView {
             step.ask = Some(Ask::Approval(call_id));
             // One question at a time: the approval's key reader replaces the input's.
             if let Some(running) = &mut self.running {
-                running.asking = false;
+                running.asking = None;
                 running.guarding = false;
                 running.typed.clear();
             }
@@ -743,10 +782,10 @@ impl TurnView {
             if !running.tail.is_empty() {
                 live.push_str(&render_trace(&format::one_line(&running.tail), &options));
             }
-            if let Some(hidden) = running.asked() {
-                live.push_str(&format::paint(input_line(hidden), Tone::Attention, &options));
+            if let Some(kind) = running.asking {
+                live.push_str(&format::paint(kind.line(), Tone::Attention, &options));
                 live.push('\n');
-                if !hidden {
+                if kind.shown() {
                     live.push_str(ECHO_PREFIX);
                     live.push_str(&format::one_line(&running.typed));
                     live.push('\n');
@@ -764,11 +803,6 @@ impl TurnView {
         }
         self.live.redraw(committed, &live, measured, size)
     }
-}
-
-/// The line under the prompt of a command that waits for input.
-fn input_line(hidden: bool) -> &'static str {
-    if hidden { HIDDEN_INPUT } else { VISIBLE_INPUT }
 }
 
 /// What turns the echo `shown` into `text` on a line that a terminal shows: each

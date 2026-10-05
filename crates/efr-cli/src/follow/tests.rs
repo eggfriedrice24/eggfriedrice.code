@@ -807,3 +807,45 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
         assert!(!written.contains("hunter"), "{written}");
     }
 }
+
+#[tokio::test]
+async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo -u build passwd"))).await;
+        conn.item(sub, &item(12, shell_output("Current password: "))).await;
+        let wait = Event::ToolCallInputChanged {
+            turn_id: turn(),
+            call_id: call(),
+            input: InputWait::Visible,
+            looks_secret: true,
+        };
+        conn.item(sub, &item(13, wait)).await;
+        presser.type_bytes(b"hunter2\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        assert!(!params.hidden, "the daemon reported a visible wait");
+        assert!(!params.manual);
+        conn.reply(id, &InputRespondResult {}).await;
+        while !seen.stdout().contains("answer sent") {
+            tokio::task::yield_now().await;
+        }
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(15, shell_completed(0))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(16, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("your typing is not shown here"), "{out}");
+    assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter"), "{written}");
+        assert!(!written.contains("ter2"), "{written}");
+    }
+}

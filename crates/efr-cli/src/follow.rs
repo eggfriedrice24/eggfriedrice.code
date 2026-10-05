@@ -33,6 +33,7 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::keys::{self, KeyReader};
 use crate::output::Output;
+use view::AnswerKind;
 
 pub(crate) use view::{Ask, Step, TurnEnd, TurnView};
 
@@ -124,7 +125,7 @@ enum Asking {
     /// An approval, with one key.
     Approval(CallId),
     /// The input that a running call waits for, with a line.
-    Input { call_id: CallId, hidden: bool, line: AnswerLine },
+    Input { call_id: CallId, kind: AnswerKind, line: AnswerLine },
     /// Nothing: the keys are thrown away until the call that asked for a hidden answer
     /// completes.
     Discard,
@@ -301,8 +302,8 @@ impl Follower<'_> {
             Some(ask) => {
                 let asking = match ask {
                     Ask::Approval(call_id) => Asking::Approval(call_id),
-                    Ask::Input { call_id, hidden } => {
-                        Asking::Input { call_id, hidden, line: AnswerLine::new() }
+                    Ask::Input { call_id, kind } => {
+                        Asking::Input { call_id, kind, line: AnswerLine::new() }
                     }
                     Ask::Discard(_) => Asking::Discard,
                 };
@@ -358,18 +359,18 @@ impl Follower<'_> {
                 write(out, &step)?;
                 self.respond(call_id, decision, out, view).await
             }
-            Asking::Input { call_id, hidden, mut line } => {
+            Asking::Input { call_id, kind, mut line } => {
                 let edit = line.key(key);
-                let shown = (!hidden && edit == Edit::Changed).then(|| line.text().to_owned());
+                let shown = (kind.shown() && edit == Edit::Changed).then(|| line.text().to_owned());
                 let text = (edit == Edit::Submit).then(|| line.take());
                 // NOTE: the reader goes back before anything can fail, so the exit path
                 // still stops it and restores the terminal.
-                self.keys = Some((reader, Asking::Input { call_id, hidden, line }));
+                self.keys = Some((reader, Asking::Input { call_id, kind, line }));
                 if let Some(shown) = shown {
                     write(out, &view.typed(&shown, self.ctx.screen.size()))?;
                 }
                 match text {
-                    Some(text) => self.answer(call_id, hidden, text, out, view).await,
+                    Some(text) => self.answer(call_id, kind, text, out, view).await,
                     None => Ok(()),
                 }
             }
@@ -382,16 +383,18 @@ impl Follower<'_> {
     async fn answer(
         &self,
         call_id: CallId,
-        hidden: bool,
+        kind: AnswerKind,
         text: SecretText,
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
+        // NOTE: an answer that is not shown because its prompt looks secret still goes as
+        // a visible one, the kind of the wait that the daemon reported.
         let method = Method::InputRespond(InputRespond {
             conversation_id: self.target.conversation,
             call_id,
             text,
-            hidden,
+            hidden: kind.hidden(),
             manual: false,
         });
         let size = self.ctx.screen.size();

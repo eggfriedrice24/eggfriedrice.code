@@ -7,7 +7,7 @@ use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{Ask, Step, TurnEnd, TurnView, last_line};
+use super::{AnswerKind, Ask, Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
 use crate::testing::{call, readable, turn};
 
@@ -499,7 +499,7 @@ fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
     view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
     view.event(&output("[sudo] password for egg: "), SIZE, true);
     let step = view.event(&input(InputWait::Hidden), SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     insta::assert_snapshot!(readable(&step.out));
     // Text passed for a hidden answer would never be shown.
     assert_eq!(view.typed("hunter2", SIZE), Step::default());
@@ -518,7 +518,7 @@ fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
     assert!(out.contains("[sudo] password for egg:"), "the tail stays: {out}");
 
     let step = view.event(&input(InputWait::Hidden), SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     view.event(&input(InputWait::None), SIZE, true);
     let step = view.event(&call_completed(0), SIZE, true);
     assert!(step.settled, "the keys stop with the call");
@@ -541,7 +541,7 @@ fn a_visible_input_echoes_what_is_typed_until_it_is_sent() {
     view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
     view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true);
     let step = view.event(&input(InputWait::Visible), SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: false }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
     let typed = view.typed("y", SIZE);
     insta::assert_snapshot!(readable(&typed.out));
 
@@ -594,7 +594,7 @@ fn a_raw_view_asks_on_stderr() {
     let mut view = raw_view();
     view.event(&output("Password: "), SIZE, true);
     let step = view.event(&input(InputWait::Hidden), SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
@@ -609,7 +609,7 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     let mut view = raw_view();
     view.event(&output("Proceed? [Y/n] "), SIZE, true);
     let step = view.event(&input(InputWait::Visible), SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: false }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
@@ -662,7 +662,7 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
         looks_secret: false,
     };
     let step = view.event(&wait, SIZE, true);
-    assert_eq!(step.ask, Some(Ask::Input { call_id: other, hidden: true }));
+    assert_eq!(step.ask, Some(Ask::Input { call_id: other, kind: AnswerKind::Hidden }));
 
     let started = Event::TurnStarted {
         turn_id: turn(),
@@ -676,4 +676,54 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
 
     // From now on another turn's waits are not this view's.
     assert_eq!(view.event(&wait, SIZE, true), Step::default());
+}
+
+fn secret_input() -> Event {
+    Event::ToolCallInputChanged {
+        turn_id: turn(),
+        call_id: call(),
+        input: InputWait::Visible,
+        looks_secret: true,
+    }
+}
+
+const SECRET_NOTE: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
+
+#[test]
+fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&tool_started("sudo -u build passwd"), size, true);
+    view.event(&output("Current password: "), size, true);
+    let step = view.event(&secret_input(), size, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
+    let shown = readable(&step.out);
+    assert!(shown.contains("Current password:"), "{shown}");
+    assert!(shown.contains(SECRET_NOTE), "{shown}");
+    assert!(!shown.contains("> "), "no echo line: {shown}");
+    // Text handed to the view by mistake is dropped, never drawn.
+    assert_eq!(view.typed("hunter2", size), Step::default());
+
+    // Asked again later, keys typed in between are thrown away, as for a hidden wait.
+    let step = view.event(&input(InputWait::None), size, true);
+    assert_eq!(step.ask, Some(Ask::Discard(call())));
+}
+
+#[test]
+fn a_raw_view_of_a_secret_looking_wait_opens_no_echo_line() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&output("Enter PIN: "), size, true);
+    let step = view.event(&secret_input(), size, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
+    assert!(step.err.contains(SECRET_NOTE), "{:?}", step.err);
+    assert!(!step.err.contains("> "), "{:?}", step.err);
+}
+
+#[test]
+fn an_answer_kind_says_whether_it_is_shown_and_how_it_is_sent() {
+    assert!(AnswerKind::Visible.shown() && !AnswerKind::Visible.hidden());
+    assert!(!AnswerKind::Hidden.shown() && AnswerKind::Hidden.hidden());
+    // A secret-looking visible wait hides the typing but answers as visible.
+    assert!(!AnswerKind::Masked.shown() && !AnswerKind::Masked.hidden());
 }
