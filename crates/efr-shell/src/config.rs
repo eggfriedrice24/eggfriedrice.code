@@ -57,8 +57,9 @@ pub struct ShellConfig {
     pub visible_input_quiet: Duration,
     /// While a command runs, the least time between two reads of its live tail on a
     /// screen, which output that moves the cursor needs (output that only prints text
-    /// is cleaned at every change). The same as the conversation's default update
-    /// interval, at which a client hears the tail.
+    /// is cleaned at every change). 200 ms, which equals the default of
+    /// `conversation.update_interval_ms`, at which a client hears the tail; the daemon
+    /// does not set it from that key, so a changed update interval leaves it as it is.
     pub tail_interval: Duration,
     /// How long [`close`](crate::ShellSessions::close) waits for the shell to end
     /// after `SIGHUP` before it sends `SIGKILL`.

@@ -121,7 +121,8 @@ dependencies of its own, or a second binary needs it.
   screen (`replay-<conversation short id>`) that replays the output and is shut down
   as soon as it is read, so a finished run keeps no thread. While it runs, its live
   tail is read the same way on a screen of the shell's size (`tail-<conversation short
-  id>`), at most once per update interval.
+  id>`), at most once per `ShellConfig::tail_interval` (200 ms, fixed; the default of
+  `conversation.update_interval_ms` is the same, but the key does not change it).
 - Non-goals: no `Mutex<Terminal>`, no `spawn_blocking` with a `Terminal`, no `LocalSet`
   inside the main runtime, no `Screen` built outside its actor thread.
 - Blocking work (SQLite reads, file hashing) runs in `spawn_blocking`. Time and
