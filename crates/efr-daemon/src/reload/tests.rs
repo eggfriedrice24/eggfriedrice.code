@@ -331,3 +331,34 @@ async fn a_reload_reaches_the_rules_of_every_mode_at_the_next_tool_call() {
     assert_eq!(effects(&daemon), [Effect::Deny; 3], "the user's rule follows every mode");
     daemon.stop().await;
 }
+
+#[tokio::test]
+async fn a_retargeted_config_link_is_write_sealed_after_the_reload() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let dotfiles = dirs.home().join("dotfiles");
+    let (old, new) = (dotfiles.join("a/config.toml"), dotfiles.join("b/config.toml"));
+    for file in [&old, &new] {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "[shell]\nidle_minutes = 5\n").unwrap();
+    }
+    std::fs::create_dir_all(dirs.dirs().config()).unwrap();
+    std::os::unix::fs::symlink(&old, config_file(&dirs)).unwrap();
+    let daemon = start(&dirs, &clock).await;
+    let write = |daemon: &Running, path: &Path| {
+        let engine = Arc::clone(&daemon.engine.borrow());
+        decide(&engine, &dirs, Mode::Auto, Requirements::none().with_write(path))
+    };
+    assert_eq!(write(&daemon, &old), Effect::Deny);
+    assert_ne!(write(&daemon, &new), Effect::Deny);
+    let engine_before = Arc::clone(&daemon.engine.borrow());
+
+    std::fs::remove_file(config_file(&dirs)).unwrap();
+    std::os::unix::fs::symlink(&new, config_file(&dirs)).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+
+    assert!(!Arc::ptr_eq(&engine_before, &daemon.engine.borrow()), "a new engine was sent");
+    assert_eq!(write(&daemon, &new), Effect::Deny, "the new target is sealed");
+    assert_ne!(write(&daemon, &old), Effect::Deny, "the old target is a file like any other");
+    daemon.stop().await;
+}

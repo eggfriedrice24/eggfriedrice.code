@@ -11,8 +11,9 @@
 //!
 //! - the settings watch, which a turn reads when it starts and a prompt when it
 //!   arrives, and the idle shell collector at each look;
-//! - the permission engine, rebuilt when the `[permissions]` table changed, and the
-//!   trusted programs of the hidden shells with it;
+//! - the permission engine, sent again when the `[permissions]` table changed or what
+//!   it protects did (the links in the config directory, the registered projects),
+//!   and the trusted programs of the hidden shells when the table changed;
 //! - how new hidden shells start (`shell.program`, `shell.login`);
 //! - the log filter.
 //!
@@ -213,14 +214,25 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     }
     // NOTE: everything that can fail runs before the first send, so a refused file
     // changes nothing.
-    let engine = if settings.permissions == running.permissions {
-        None
-    } else {
-        let engine = state.engine_parts.engine(&settings).await.map_err(|e| refused(&e, None))?;
-        Some(engine)
+    // NOTE: the engine is built again on every reload, because what it protects also
+    // follows the links in the config directory and the project registry, which a
+    // reload reads again: a `config.toml` link that now points elsewhere must be
+    // write-sealed from the next tool call on. It is sent only when it differs.
+    let rules_changed = settings.permissions != running.permissions;
+    let current = Arc::clone(&state.engine.borrow());
+    let engine = match state.engine_parts.engine(&settings).await {
+        Ok(engine) if rules_changed || engine.locations() != current.locations() => Some(engine),
+        Ok(_) => None,
+        Err(error) if rules_changed => return Err(refused(&error, None)),
+        Err(error) => {
+            tracing::warn!(error = %error, "the permission engine stays as it was");
+            None
+        }
     };
     if let Some(engine) = engine {
         state.engine.send_replace(Arc::new(engine));
+    }
+    if rules_changed {
         // NOTE: the auto policy names the programs of every mode, as at the start.
         let auto = settings.permissions.policy(Mode::Auto);
         state.shells.set_trusted_programs(shells::trusted_programs(&auto));

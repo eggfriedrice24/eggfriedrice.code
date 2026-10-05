@@ -33,7 +33,8 @@ pub(crate) struct State {
     /// when it starts, a prompt when it arrives. A reload sends the new value.
     pub(crate) settings: watch::Sender<Arc<Settings>>,
     /// The permission engine that each tool call reads. The conversations hold its
-    /// receiver; a reload that changes `[permissions]` sends a new one.
+    /// receiver; a reload that changes `[permissions]`, or what the engine protects,
+    /// sends a new one.
     pub(crate) engine: watch::Sender<Arc<Engine>>,
     /// What the engine is built from besides the settings.
     pub(crate) engine_parts: EngineParts,

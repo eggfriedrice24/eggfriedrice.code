@@ -100,9 +100,12 @@ the appliers take the new values:
 - the settings watch: the next turn's model, effort, system prompt, output limit and
   approval and streaming settings, the queue limit and the terminal idle hours of the
   next prompt, and the idle time of the shell collector;
-- the permission engine, built again (with the project registry) when `[permissions]`
-  changed, and the hidden shells' trusted programs with it: a running zsh with the old
-  set restarts in its directory before its next command (`efr-shell`);
+- the permission engine, built again on every reload (with the project registry and
+  the links in the config directory) and sent when `[permissions]` or what it protects
+  changed, so a `config.toml` link that points elsewhere is write-sealed from the next
+  tool call on; and, when `[permissions]` changed, the hidden shells' trusted
+  programs: a running zsh with the old set restarts in its directory before its next
+  command (`efr-shell`);
 - `shell.program` and `shell.login` for the hidden shells started from then on;
 - `log`, through the reload layer of the tracing filter (`telemetry.rs`). An invalid
   filter is an error of the file.
@@ -266,7 +269,7 @@ values, an insta snapshot of the effective dump; the file's own checks are teste
 `efr-config`), the error mapping, the scope table, prompt routing, receipts,
 reconciliation against the real store in memory, the idle collector's rule, live
 reload (applied files, refused files with their place, restart keys, the engine sent on
-a rules change, the notices, the status, SIGHUP, and the watcher on real inotify events
+a rules change and on a retargeted link, the notices, the status, SIGHUP, and the watcher on real inotify events
 with saves by rename and in place, a removed and recreated file, a symlinked file, a
 retargeted link, a removed and recreated target directory and a forced queue
 overflow), the PTY

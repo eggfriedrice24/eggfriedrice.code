@@ -403,9 +403,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
     // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`
-    // changed, a new engine on the channel above. Turns read the settings when they
-    // start; tool calls read the engine. A change of the mode alone needs no new
-    // engine: a turn passes its own.
+    // or the links in the config directory changed, a new engine on the channel
+    // above. Turns read the settings when they start; tool calls read the engine. A
+    // change of the mode alone needs no new engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
     let toolbox = DaemonToolbox::new(
