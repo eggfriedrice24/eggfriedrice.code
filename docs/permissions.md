@@ -35,6 +35,17 @@ web page, a file or a command's output) in `auto`. Choose `auto` only for work w
 you accept that. The commands that `auto` itself allows never reach the network
 outside the package rows; see "The auto table".
 
+A registered project is a directory that you list in `projects.toml` in efr's config
+directory. A turn whose hidden shell is in a project's root or below it runs in that
+project: `cautious` writes freely below the root, and `auto` also runs the project's
+build, test and git commands there. `efr project add` registers the git work tree
+that holds the current directory (or the directory itself), `efr project add PATH`
+registers PATH, `efr project list` shows the projects and `efr project remove PATH`
+takes one out. The daemon makes the change: it keeps the comments of the file and a
+link to it, and the next tool call uses the new set of projects. The home directory
+and `/` are a project only when you name them. No tool may write `projects.toml`; see
+"Config protection".
+
 A turn from the phone runs with at most `cautious`: `auto` there counts as
 `cautious`, and the engine asks for everything outside `$SCRATCH` anyway.
 
