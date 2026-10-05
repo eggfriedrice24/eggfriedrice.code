@@ -3,20 +3,23 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bytes::Bytes;
 use efr_holder::{ChildStatus, Signal, SignalTarget, Size};
-use efr_protocol::ConversationId;
+use efr_protocol::{CallId, ConversationId, InputWait, SecretText};
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::{CommandRunner, ShellSessions, replay_name, screen_name};
-use crate::testing::{AnsweringScreens, CountingScreens, FakeTerminal, Harness, conversation};
+use crate::testing::{
+    AnsweringScreens, CountingScreens, FakeTerminal, Harness, Heard, conversation, listener,
+};
 use crate::{
-    CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, Phase, RunMode, RunRequest,
-    ScreenFactory, ShellError, ShellNotice,
+    CommandResult, Completion, Delimiter, InputModes, NoProgress, OutputUpdate, Phase, RunMode,
+    RunRequest, ScreenFactory, ShellError, ShellNotice,
 };
 
 const ZSH: &str = "/usr/bin/zsh";
@@ -627,4 +630,266 @@ fn a_missing_zsh_is_an_error() {
     );
     let error = ShellSessions::new(config, deps).unwrap_err();
     assert!(matches!(error, ShellError::ProgramNotFound { .. }), "{error:?}");
+}
+
+const CALL: &str = "01920000-0000-7000-8000-0000000cca11";
+
+fn call() -> CallId {
+    CALL.parse().unwrap()
+}
+
+/// Starts a run of `command` for [`call`] whose listener says whether someone can
+/// answer, plays a ready prompt, and starts the command with `output`.
+async fn waiting(
+    harness: &Harness,
+    command: &str,
+    can_answer: bool,
+    output: &[u8],
+) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+    let (mut listener, heard) = listener(can_answer);
+    let sessions = harness.sessions.clone();
+    let request = request(command).with_call(call()).with_timeout(Duration::from_secs(600));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    let mut started = b"\r\n\x1b]133;C\x07".to_vec();
+    started.extend_from_slice(output);
+    terminal.print(&started).await;
+    (terminal, run, heard)
+}
+
+/// Lets one look pass: waits until the run sleeps until its next look (with its
+/// deadline and the shell's startup timer), then moves the clock by the quiet period.
+async fn one_look(harness: &Harness) {
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(1));
+}
+
+const HIDDEN: InputModes = InputModes::new(false, true);
+
+#[tokio::test]
+async fn a_command_that_reads_with_echo_off_waits_for_hidden_input_and_takes_an_answer() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "sudo true", true, b"[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+
+    let secret = SecretText::new("hunter2");
+    harness.sessions.answer(conversation(1), call(), &secret, true).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"hunter2\r");
+
+    // The look after an answer says the prompt is gone, even before sudo moves on.
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden, InputWait::None]).await;
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    terminal.prompt().await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+}
+
+#[tokio::test]
+async fn hidden_input_waits_for_the_quiet_period_and_ends_when_output_resumes() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
+    harness.modes.set(Some(HIDDEN));
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_millis(500));
+    // Output half a second ago is not quiet enough.
+    terminal.print(b"x").await;
+    screen_shows(&harness.sessions, conversation(1), "pw: x").await;
+    harness.clock.advance(Duration::from_millis(500));
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+    harness.modes.set(Some(InputModes::new(true, true)));
+    terminal.print(b"\r\nworking\r\n").await;
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden, InputWait::None]).await;
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_prompt_with_echo_on_waits_for_visible_input_after_the_longer_quiet() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
+    screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
+    one_look(&harness).await;
+    one_look(&harness).await;
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(
+        heard.inputs.borrow().is_empty(),
+        "two seconds are not enough: {:?}",
+        heard.inputs.borrow()
+    );
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Visible]).await;
+
+    // A visible answer may go to a terminal that echoes; a hidden one may not.
+    let refused =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("secret"), true).await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    // Nothing of the refused answer was typed before this one.
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    terminal.print(b"y\r\n\x1b]133;D;0\x07").await;
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::Finished);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+#[tokio::test]
+async fn a_full_screen_program_is_not_a_visible_prompt() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, heard) =
+        waiting(&harness, "htop", true, b"\x1b[?1049h\x1b[Htop - 12:00").await;
+    screen_shows(&harness.sessions, conversation(1), "top - 12:00").await;
+    for _ in 0..4 {
+        one_look(&harness).await;
+    }
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    terminal.print(b"\x1b[?1049l\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn nothing_is_looked_at_before_the_command_runs_or_without_modes() {
+    let harness = Harness::new(ZSH);
+    let (mut listener, heard) = listener(false);
+    let sessions = harness.sessions.clone();
+    let run = tokio::spawn(async move {
+        sessions.run_command(conversation(1), request("sudo true"), &mut listener).await
+    });
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    // The startup timer and the deadline: no look before `C`.
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(2));
+    assert_eq!(harness.modes.reads(), 0);
+
+    harness.modes.set(None);
+    terminal.print(b"\r\n\x1b]133;C\x07pw: ").await;
+    one_look(&harness).await;
+    one_look(&harness).await;
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(harness.modes.reads() >= 2);
+    // Modes that cannot be read never count as hidden input, so nothing is stopped.
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::Finished);
+}
+
+#[tokio::test]
+async fn hidden_input_that_nobody_can_answer_stops_the_command_at_once() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, _heard) =
+        waiting(&harness, "sudo pacman -Syu", false, b"[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    one_look(&harness).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Unanswered);
+    assert_eq!(result.exit_code, None);
+    assert_eq!(result.output, "[sudo] password for u: ");
+    assert_eq!(
+        harness.holder.signals(),
+        [(terminal.pty_id, Signal::Interrupt, SignalTarget::ForegroundGroup)]
+    );
+
+    // The interrupted command still owns the shell until its `D`.
+    let next = spawn_run(&harness.sessions, request("true"));
+    terminal.print(b"^C\r\nsudo: a password is required\r\n\x1b]133;D;1\x07").await;
+    terminal.prompt().await;
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    terminal.run(b"", 0).await;
+    assert_eq!(next.await.unwrap().unwrap().exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn the_listener_is_asked_at_every_look_while_hidden_input_waits() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, mut heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
+    harness.modes.set(Some(HIDDEN));
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+    one_look(&harness).await;
+    harness.clock.wait_for_sleeps(3).await;
+    // The client that could answer went away.
+    heard.can_answer.store(false, Ordering::SeqCst);
+    one_look(&harness).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Unanswered);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+}
+
+#[tokio::test]
+async fn the_timeout_ends_a_wait() {
+    let harness = Harness::new(ZSH);
+    let (mut listener, mut heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = request("sudo true").with_call(call()).with_timeout(Duration::from_secs(5));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    terminal.print(b"\r\n\x1b]133;C\x07[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    screen_shows(&harness.sessions, conversation(1), "password for u:").await;
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(4));
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Interactive);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+    // The call is over: its answers no longer reach the command.
+    let late = harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), true).await;
+    assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+}
+
+#[tokio::test]
+async fn answers_reach_only_the_running_command_of_their_call() {
+    let harness = Harness::new(ZSH);
+    let text = SecretText::new("hunter2");
+    let no_shell = harness.sessions.answer(conversation(1), call(), &text, true).await;
+    assert!(matches!(no_shell, Err(ShellError::NoShell { .. })), "{no_shell:?}");
+
+    harness.sessions.open(conversation(1), Path::new("/")).await.unwrap();
+    let idle = harness.sessions.answer(conversation(1), call(), &text, true).await;
+    assert!(matches!(idle, Err(ShellError::NoCall { .. })), "{idle:?}");
+
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, _heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
+    harness.modes.set(Some(HIDDEN));
+    let other: CallId = "01920000-0000-7000-8000-0000000c0002".parse().unwrap();
+    let wrong = harness.sessions.answer(conversation(1), other, &text, true).await;
+    assert!(matches!(wrong, Err(ShellError::NotWaiting { .. })), "{wrong:?}");
+    let raw = InputModes::new(false, false);
+    harness.modes.set(Some(raw));
+    let editor = harness.sessions.answer(conversation(1), call(), &text, true).await;
+    assert!(matches!(editor, Err(ShellError::NotWaiting { .. })), "{editor:?}");
+    let invalid =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("a\rb"), true).await;
+    assert!(matches!(invalid, Err(ShellError::InvalidAnswer { .. })), "{invalid:?}");
+    let error = format!("{wrong:?} {editor:?} {invalid:?}");
+    assert!(!error.contains("hunter2"), "{error}");
+
+    harness.modes.set(Some(HIDDEN));
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("ok"), true).await.unwrap();
+    // Only the accepted answer was typed.
+    assert_eq!(terminal.typed_line().await, b"ok\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
 }

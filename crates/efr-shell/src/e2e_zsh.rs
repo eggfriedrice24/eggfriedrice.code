@@ -16,7 +16,7 @@ use efr_pty::LocalPtyHolder;
 use efr_stdx::env::Var;
 use efr_test_support::{TestClock, TestRng};
 
-use crate::testing::{Notices, Vt100Screens};
+use crate::testing::{Notices, Recorded, Vt100Screens};
 use crate::{RecordingSink, ShellConfig, ShellDeps, ShellObserver, ShellSessions};
 
 /// A manager over a real zsh in a throwaway home.
@@ -24,6 +24,8 @@ pub(crate) struct Zsh {
     pub(crate) sessions: ShellSessions,
     pub(crate) clock: TestClock,
     pub(crate) notices: Arc<Notices>,
+    /// Every byte the shell printed.
+    pub(crate) recorded: Arc<Recorded>,
     pub(crate) conversation: ConversationId,
     /// The temporary tree: `home/` and `zsh/` (the integration directory).
     pub(crate) root: tempfile::TempDir,
@@ -62,17 +64,18 @@ impl Zsh {
         configure(&mut config);
         let clock = TestClock::new();
         let notices = Notices::new();
+        let recorded = Arc::new(Recorded::default());
         let deps = ShellDeps::new(
             Arc::new(LocalPtyHolder::new()),
             Arc::new(Vt100Screens),
             clock.shared(),
             Arc::new(TestRng::new(42)),
         )
-        .with_recording(Arc::new(crate::testing::Recorded::default()) as Arc<dyn RecordingSink>)
+        .with_recording(Arc::clone(&recorded) as Arc<dyn RecordingSink>)
         .with_observer(Arc::clone(&notices) as Arc<dyn ShellObserver>);
         let sessions = ShellSessions::new(config, deps).unwrap();
         let conversation = "01920000-0000-7000-8000-00000000e2e0".parse().unwrap();
-        Some(Zsh { sessions, clock, notices, conversation, root })
+        Some(Zsh { sessions, clock, notices, recorded, conversation, root })
     }
 
     pub(crate) fn home(&self) -> PathBuf {

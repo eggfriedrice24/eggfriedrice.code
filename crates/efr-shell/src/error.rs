@@ -114,6 +114,40 @@ pub enum ShellError {
         /// What is wrong with it.
         reason: &'static str,
     },
+
+    /// No command runs in the conversation's shell for an answer to reach.
+    #[error("no command of conversation {conversation} runs in its hidden shell")]
+    NoCall {
+        /// The conversation.
+        conversation: ConversationId,
+    },
+
+    /// The call's command does not wait for that input now, so the answer was not
+    /// written.
+    #[error("the command does not wait for this input: {reason}")]
+    NotWaiting {
+        /// The conversation.
+        conversation: ConversationId,
+        /// Why not.
+        reason: &'static str,
+    },
+
+    /// An answer is not one line that can be typed. The reason never quotes the text.
+    #[error("the answer cannot be typed: {reason}")]
+    InvalidAnswer {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
+
+    /// The terminal's modes could not be read, or the answer could not be written.
+    #[error("the terminal of conversation {conversation} failed")]
+    Terminal {
+        /// The conversation.
+        conversation: ConversationId,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
 }
 
 #[cfg(test)]

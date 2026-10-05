@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use efr_protocol::Seq;
+use efr_protocol::{CallId, Seq};
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 use tokio::sync::{oneshot, watch};
@@ -31,11 +31,16 @@ fn order(id: u64, command: &str, mode: RunMode) -> (RunOrder, Answer, watch::Rec
         command: command.to_owned(),
         mode,
         output_limit: 1024,
+        call: Some(call_id(id)),
         token: "0123456789abcdef".to_owned(),
         reply,
         progress,
     };
     (order, answer, updates)
+}
+
+fn call_id(n: u64) -> CallId {
+    format!("01920000-0000-7000-8000-0000000c{n:04}").parse().unwrap()
 }
 
 /// Feeds `bytes` as one chunk at the current end of the stream.
@@ -236,4 +241,90 @@ fn a_bare_end_after_the_line_means_it_never_ran() {
     let end = answer.try_recv().unwrap().unwrap();
     assert_eq!(end.output.completion, Completion::NotStarted);
     assert_eq!(end.output.kept.clean().text, ")\nzsh: parse error\n");
+}
+
+#[test]
+fn the_caller_hears_once_that_the_command_runs_even_before_any_output() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, mut updates) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n");
+    assert!(!updates.borrow_and_update().started, "the echo is not the command");
+    feed(&mut core, &mut at, b"\x1b]133;C\x07");
+    assert!(updates.has_changed().unwrap());
+    let progress = updates.borrow_and_update().clone();
+    assert!(progress.started);
+    assert_eq!(progress.bytes, 0, "the start alone is no output");
+    feed(&mut core, &mut at, b"pw: ");
+    let progress = updates.borrow_and_update().clone();
+    assert!(progress.started);
+    assert_eq!(progress.bytes, 4);
+}
+
+#[test]
+fn a_probe_tells_whether_the_command_runs_and_when_it_last_printed() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    assert_eq!(core.probe(1), None);
+    let (order, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    let before = core.probe(1).unwrap();
+    assert!(!before.running);
+    assert_eq!(before.modes, None, "the actor reads the modes");
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
+    let running = core.probe(1).unwrap();
+    assert!(running.running);
+    assert_eq!(running.last_output, Some(TestClock::START));
+    assert_eq!(running.answers, 0);
+    core.answered();
+    assert_eq!(core.probe(1).unwrap().answers, 1);
+    assert_eq!(core.probe(2), None, "another run");
+    feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07");
+    assert!(answer.try_recv().is_ok());
+    assert_eq!(core.probe(1), None, "the run ended");
+}
+
+#[test]
+fn only_the_running_command_of_the_same_call_takes_an_answer() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NoCall { .. })));
+    let (order, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    // Typed, but its `C` has not come: the line editor may still be reading.
+    assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NotWaiting { .. })));
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
+    core.answerable(call_id(1)).unwrap();
+    assert!(matches!(core.answerable(call_id(2)), Err(ShellError::NotWaiting { .. })));
+    // Its `D` ends it: the shell is no longer the command's.
+    feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07");
+    assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NoCall { .. })));
+}
+
+#[test]
+fn a_detached_run_takes_no_answer() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
+    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NoCall { .. })));
+}
+
+#[test]
+fn a_sentinel_run_takes_an_answer_between_its_markers() {
+    let (mut core, _) = core(false);
+    let mut at = 0;
+    let (order, _answer, mut updates) = order(1, "sudo true", RunMode::Auto);
+    core.submit(order);
+    assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NotWaiting { .. })));
+    feed(&mut core, &mut at, b"__efr_0123456789abcdef_b\r\npw: ");
+    core.answerable(call_id(1)).unwrap();
+    assert!(updates.borrow_and_update().started);
 }

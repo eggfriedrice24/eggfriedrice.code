@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
 use efr_holder::{ChildStatus, PtyHolder, Size};
-use efr_protocol::{ConversationId, PtyId, Seq};
+use efr_protocol::{CallId, ConversationId, PtyId, SecretText, Seq};
 use efr_screen::{ScreenHandle, ShellMark, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
@@ -21,6 +21,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::capture::Kept;
+use crate::input::{self, Probe};
+use crate::modes::Terminal;
 use crate::run::{Delimiter, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line};
 use crate::sentinel::{SentinelRun, sentinel_line};
 use crate::{Phase, ShellError, ShellNotice, ShellObserver, ShellState};
@@ -45,6 +47,16 @@ pub(crate) enum Msg {
     Detach { id: u64, reply: oneshot::Sender<Detached> },
     /// Tell the shell's state.
     State { reply: oneshot::Sender<ShellState> },
+    /// Tell what a look at run `id` needs; `None` once the run ended or was left.
+    Probe { id: u64, reply: oneshot::Sender<Option<Probe>> },
+    /// Type `text` for the running command of `call`, if it waits for such input.
+    /// `Debug` shows no text: `SecretText` hides it.
+    Answer {
+        call: CallId,
+        text: SecretText,
+        hidden: bool,
+        reply: oneshot::Sender<Result<(), ShellError>>,
+    },
 }
 
 /// One run, as the caller hands it to the actor.
@@ -54,6 +66,8 @@ pub(crate) struct RunOrder {
     pub(crate) command: String,
     pub(crate) mode: RunMode,
     pub(crate) output_limit: usize,
+    /// The tool call that runs the command, whose answers may reach it.
+    pub(crate) call: Option<CallId>,
     /// The sentinel token, drawn by the caller from the injected generator.
     pub(crate) token: String,
     pub(crate) reply: oneshot::Sender<Result<RunEnd, ShellError>>,
@@ -101,9 +115,24 @@ enum Placement {
 
 struct Active {
     id: u64,
+    call: Option<CallId>,
     machine: Machine,
     reply: oneshot::Sender<Result<RunEnd, ShellError>>,
     progress: watch::Sender<Progress>,
+    /// True once the caller was told that the command runs.
+    started: bool,
+    /// How many answers were typed for this run.
+    answers: u64,
+}
+
+impl Active {
+    /// Tells the caller once that the command runs, so it starts to look for input.
+    fn note_start(&mut self) {
+        if !self.started && self.machine.running() {
+            self.started = true;
+            self.progress.send_modify(|progress| progress.started = true);
+        }
+    }
 }
 
 enum Machine {
@@ -116,6 +145,14 @@ impl Machine {
         match self {
             Machine::Marks(_) => Delimiter::Marks,
             Machine::Sentinel(_) => Delimiter::Sentinel,
+        }
+    }
+
+    /// True between the command's start and its end.
+    fn running(&self) -> bool {
+        match self {
+            Machine::Marks(run) => run.running(),
+            Machine::Sentinel(run) => run.running(),
         }
     }
 }
@@ -244,6 +281,43 @@ impl SessionCore {
         writes
     }
 
+    /// What a look at run `id` needs from the session, without the terminal's modes,
+    /// which the actor reads; `None` once the run ended or was left.
+    pub(crate) fn probe(&self, id: u64) -> Option<Probe> {
+        let active = self.active.as_ref().filter(|active| active.id == id)?;
+        Some(Probe {
+            running: active.machine.running(),
+            last_output: self.last_output,
+            modes: None,
+            answers: active.answers,
+        })
+    }
+
+    /// Refuses an answer for `call` unless that call's command runs now.
+    pub(crate) fn answerable(&self, call: CallId) -> Result<(), ShellError> {
+        let conversation = self.conversation;
+        let Some(active) = &self.active else {
+            return Err(ShellError::NoCall { conversation });
+        };
+        if active.call != Some(call) {
+            return Err(ShellError::NotWaiting { conversation, reason: "another call runs" });
+        }
+        if !active.machine.running() {
+            return Err(ShellError::NotWaiting {
+                conversation,
+                reason: "the command does not run now",
+            });
+        }
+        Ok(())
+    }
+
+    /// An answer was typed for the active run.
+    pub(crate) fn answered(&mut self) {
+        if let Some(active) = &mut self.active {
+            active.answers = active.answers.saturating_add(1);
+        }
+    }
+
     /// The first marked prompt did not come in time.
     pub(crate) fn startup_expired(&mut self) -> Vec<Bytes> {
         self.state.startup_expired();
@@ -311,9 +385,12 @@ impl SessionCore {
             Ok(line) => {
                 self.active = Some(Active {
                     id: order.id,
+                    call: order.call,
                     machine,
                     reply: order.reply,
                     progress: order.progress,
+                    started: false,
+                    answers: 0,
                 });
                 vec![line]
             }
@@ -354,12 +431,13 @@ impl SessionCore {
             Machine::Marks(run) => (None, run.on_bytes(at, bytes)),
             Machine::Sentinel(run) => run.on_bytes(at, bytes),
         };
+        active.note_start();
         if captured {
             let capture = match &active.machine {
                 Machine::Marks(run) => run.capture(),
                 Machine::Sentinel(run) => run.capture(),
             };
-            active.progress.send_replace(Progress::of(capture));
+            active.progress.send_replace(Progress::of(capture, active.started));
         }
         if let Some(output) = ended {
             self.finish(output);
@@ -377,10 +455,15 @@ impl SessionCore {
                 MarkStep::Ended(_) => self.orphan = None,
             }
         }
-        let Some(Active { machine: Machine::Marks(run), .. }) = &mut self.active else {
+        let Some(active) = &mut self.active else {
             return;
         };
-        match run.on_mark(mark) {
+        let Machine::Marks(run) = &mut active.machine else {
+            return;
+        };
+        let step = run.on_mark(mark);
+        active.note_start();
+        match step {
             MarkStep::Continue => {}
             MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
             MarkStep::Ended(output) => self.finish(output),
@@ -422,6 +505,8 @@ pub(crate) struct SessionActor {
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) holder: Arc<dyn PtyHolder>,
     pub(crate) writer: mpsc::Sender<Bytes>,
+    /// The master and its modes, for answers.
+    pub(crate) terminal: Terminal,
     pub(crate) screen: ScreenHandle,
     /// The reader, writer and reply tasks, stopped when the shell ends.
     pub(crate) tasks: Vec<JoinHandle<()>>,
@@ -463,6 +548,16 @@ impl SessionActor {
                 Msg::State { reply } => {
                     let _ = reply.send(self.core.state().clone());
                 }
+                Msg::Probe { id, reply } => {
+                    let probe = self
+                        .core
+                        .probe(id)
+                        .map(|probe| Probe { modes: self.terminal.modes().ok(), ..probe });
+                    let _ = reply.send(probe);
+                }
+                Msg::Answer { call, text, hidden, reply } => {
+                    let _ = reply.send(answer(&mut self.core, &self.terminal, call, &text, hidden));
+                }
                 Msg::Exited(status) => break status,
             }
         };
@@ -479,6 +574,33 @@ impl SessionActor {
     }
 }
 
+/// Types an answer for `call` when its command runs and the terminal reads a line in
+/// the right modes. The modes are read right before the one write, with no await
+/// between them, so the terminal cannot change hands in between as far as this task
+/// can tell: a getpass-style read that ended, or the shell's line editor back at its
+/// prompt, is seen and refused.
+fn answer(
+    core: &mut SessionCore,
+    terminal: &Terminal,
+    call: CallId,
+    text: &SecretText,
+    hidden: bool,
+) -> Result<(), ShellError> {
+    core.answerable(call)?;
+    let conversation = core.conversation;
+    let modes = terminal.modes().map_err(|source| ShellError::Terminal { conversation, source })?;
+    input::check_modes(modes, hidden)
+        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to
+    // a terminal query) can arrive after the answer; they cannot split it, because the
+    // answer is a single write of its own.
+    terminal
+        .write_line(text.expose_secret())
+        .map_err(|source| ShellError::Terminal { conversation, source })?;
+    core.answered();
+    Ok(())
+}
+
 // NOTE: a free function rather than a method, because `&SessionActor` is not `Send`
 // (the startup sleep is not `Sync`) and the actor's future must be.
 async fn write_all(writer: &mpsc::Sender<Bytes>, writes: Vec<Bytes>) {
@@ -489,7 +611,7 @@ async fn write_all(writer: &mpsc::Sender<Bytes>, writes: Vec<Bytes>) {
 }
 
 /// Completes when the sleep does; never when there is none.
-async fn until(sleep: &mut Option<Sleep>) {
+pub(crate) async fn until(sleep: &mut Option<Sleep>) {
     match sleep {
         Some(sleep) => sleep.as_mut().await,
         None => std::future::pending().await,

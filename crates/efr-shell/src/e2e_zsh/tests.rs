@@ -1,14 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use bytes::Bytes;
 use efr_holder::ChildStatus;
+use efr_protocol::{CallId, InputWait, SecretText};
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 use super::Zsh;
+use crate::testing::{Heard, listener};
 use crate::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, Phase, RunMode, RunRequest,
-    ShellNotice,
+    ShellError, ShellNotice,
 };
 
 impl Zsh {
@@ -340,6 +344,64 @@ async fn e2e_exit_ends_the_shell() {
     assert_eq!(state.cwd, PathBuf::from(zsh.start_dir()));
 }
 
+/// A program that reads a password as getpass does: echo off, one line, echo on. It
+/// prints how long the line was, never the line.
+const GETPASS: &str =
+    r#"sh -c 'stty -echo; printf "pw: "; IFS= read -r p; stty echo; printf "\nlen=%s\n" "${#p}"'"#;
+
+const CALL: &str = "01920000-0000-7000-8000-0000000ce2e0";
+
+fn call() -> CallId {
+    CALL.parse().unwrap()
+}
+
+impl Zsh {
+    /// Starts `command` for [`CALL`] with a listener that says `can_answer`, and waits
+    /// until its output shows `text`.
+    async fn run_waiting(
+        &self,
+        command: &str,
+        can_answer: bool,
+        text: &str,
+    ) -> (JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+        let (mut listener, mut heard) = listener(can_answer);
+        let sessions = self.sessions.clone();
+        let conversation = self.conversation;
+        let request =
+            self.request(command).with_call(call()).with_timeout(Duration::from_secs(600));
+        let run = tokio::spawn(async move {
+            sessions.run_command(conversation, request, &mut listener).await
+        });
+        heard.output(text).await;
+        (run, heard)
+    }
+
+    /// Moves the clock one quiet period, then waits until the run sleeps until its next
+    /// look, which it does only after it told the listener what it saw.
+    async fn one_look(&self) {
+        self.clock.advance(Duration::from_secs(1));
+        let after = self.clock.pending_sleeps();
+        self.clock.wait_for_sleeps(after + 1).await;
+    }
+
+    /// Lets looks pass until the listener has heard `expected`; returns how many.
+    async fn look_until(&self, heard: &mut Heard, expected: &[InputWait]) -> usize {
+        for looks in 0..30 {
+            if heard.inputs.borrow().as_slice() == expected {
+                return looks;
+            }
+            self.one_look().await;
+        }
+        panic!("the run never reported {expected:?}: {:?}", heard.inputs.borrow());
+    }
+
+    /// Every byte the shell printed so far, as text.
+    async fn recording(&self) -> String {
+        let pty_id = self.sessions.state(self.conversation).await.unwrap().pty_id;
+        String::from_utf8_lossy(&self.recorded.stream(pty_id)).into_owned()
+    }
+}
+
 #[tokio::test]
 async fn e2e_input_left_over_when_a_command_ends_never_runs() {
     let Some(zsh) = Zsh::start("e2e_input_left_over_when_a_command_ends_never_runs") else {
@@ -365,4 +427,91 @@ async fn e2e_input_left_over_when_a_command_ends_never_runs() {
     let listed = zsh.run("ls -A").await;
     assert_eq!(listed.output, "", "the leftover line never ran");
     assert!(!dir.join("leak").exists());
+}
+
+#[tokio::test]
+async fn e2e_a_getpass_read_waits_for_hidden_input_and_its_answer_never_reaches_the_output() {
+    let Some(zsh) = Zsh::start(
+        "e2e_a_getpass_read_waits_for_hidden_input_and_its_answer_never_reaches_the_output",
+    ) else {
+        return;
+    };
+    let (run, mut heard) = zsh.run_waiting(GETPASS, true, "pw: ").await;
+    zsh.look_until(&mut heard, &[InputWait::Hidden]).await;
+
+    let secret = SecretText::new("hunter2");
+    zsh.sessions.answer(zsh.conversation, call(), &secret, true).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(0));
+    assert!(result.output.contains("len=7"), "{:?}", result.output);
+    assert!(!result.output.contains("hunter2"), "{:?}", result.output);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+    let after = zsh.run("echo after").await;
+    assert_eq!(after.output, "after\n");
+    assert!(!zsh.recording().await.contains("hunter2"), "the answer never reached the screen");
+}
+
+#[tokio::test]
+async fn e2e_a_hidden_answer_while_echo_is_on_is_refused_and_writes_nothing() {
+    let Some(zsh) =
+        Zsh::start("e2e_a_hidden_answer_while_echo_is_on_is_refused_and_writes_nothing")
+    else {
+        return;
+    };
+    let command = r#"printf 'name? '; IFS= read -r line; printf 'got=%s\n' "$line""#;
+    let (run, _heard) = zsh.run_waiting(command, true, "name? ").await;
+    let secret = SecretText::new("secret");
+    let refused = zsh.sessions.answer(zsh.conversation, call(), &secret, true).await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+
+    zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("ok"), false).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert!(result.output.ends_with("got=ok\n"), "{:?}", result.output);
+    assert!(!result.output.contains("secret"), "{:?}", result.output);
+}
+
+#[tokio::test]
+async fn e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output() {
+    let Some(zsh) =
+        Zsh::start("e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output")
+    else {
+        return;
+    };
+    let command = r#"printf 'name? '; IFS= read -r n; printf 'hi %s\n' "$n""#;
+    let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
+    let looks = zsh.look_until(&mut heard, &[InputWait::Visible]).await;
+    assert!(looks >= 3, "visible input waits for three quiet seconds, not {looks}");
+
+    zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("bob"), false).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.output, "name? bob\nhi bob\n");
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+#[tokio::test]
+async fn e2e_hidden_input_that_nobody_can_answer_is_interrupted() {
+    let Some(zsh) = Zsh::start("e2e_hidden_input_that_nobody_can_answer_is_interrupted") else {
+        return;
+    };
+    let (run, heard) = zsh.run_waiting(GETPASS, false, "pw: ").await;
+    // The run stops at the first look that sees the hidden read, so it never sleeps
+    // until another one.
+    for _ in 0..30 {
+        if run.is_finished() {
+            break;
+        }
+        zsh.clock.advance(Duration::from_secs(1));
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+    assert_eq!(result.completion, Completion::Unanswered);
+    assert_eq!(result.output, "pw: ");
+
+    // The interrupted program ends and the shell takes the next command.
+    let after = zsh.run("echo after").await;
+    assert_eq!(after.output, "after\n");
 }

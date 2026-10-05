@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use bytes::Bytes;
-use efr_protocol::{ScreenSnapshot, Seq};
+use efr_protocol::{CallId, InputWait, ScreenSnapshot, Seq};
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, row_text};
 
 use crate::ShellError;
@@ -32,6 +32,10 @@ pub struct RunRequest {
     pub mode: RunMode,
     /// The most output bytes kept in memory: half from the start, half from the end.
     pub output_limit: usize,
+    /// The tool call that runs the command, if any. Only an answer for this call
+    /// reaches the command while it runs (see
+    /// [`ShellSessions::answer`](crate::ShellSessions::answer)).
+    pub call: Option<CallId>,
 }
 
 impl RunRequest {
@@ -48,6 +52,7 @@ impl RunRequest {
             timeout: Self::DEFAULT_TIMEOUT,
             mode: RunMode::Auto,
             output_limit: Self::DEFAULT_OUTPUT_LIMIT,
+            call: None,
         }
     }
 
@@ -69,6 +74,13 @@ impl RunRequest {
     #[must_use]
     pub fn with_output_limit(mut self, output_limit: usize) -> Self {
         self.output_limit = output_limit;
+        self
+    }
+
+    /// Sets the tool call that runs the command.
+    #[must_use]
+    pub fn with_call(mut self, call: CallId) -> Self {
+        self.call = Some(call);
         self
     }
 }
@@ -107,11 +119,17 @@ pub enum Completion {
     /// unclosed quote) and was cancelled.
     NotStarted,
     /// The timeout passed while the command waits for input at the terminal, such as
-    /// a password or a `[Y/n]` prompt. The user can answer on the attached screen.
+    /// a password or a `[Y/n]` prompt. The command keeps running; nothing can answer
+    /// it through this run any more, and the next run waits for its prompt.
     Interactive,
     /// The timeout passed while the command still runs and does not look like it is
     /// waiting for input.
     StillRunning,
+    /// The command waited for hidden input, such as a password, while
+    /// [`RunProgress::can_answer_hidden`] said that nobody could answer it, so the run
+    /// sent `SIGINT` to the terminal's foreground process group and returned at once.
+    /// The command may still be ending; the next run waits for its prompt.
+    Unanswered,
 }
 
 /// The result of [`ShellSessions::run_command`](crate::ShellSessions::run_command).
@@ -219,11 +237,24 @@ impl OutputUpdate {
     }
 }
 
-/// Hears a command's output as it grows. Updates are coalesced: a slow listener gets
-/// the latest state, never a backlog.
+/// Hears a command's output as it grows, and whether it waits for input. Updates are
+/// coalesced: a slow listener gets the latest state, never a backlog.
 pub trait RunProgress: Send {
     /// Takes the latest state of the output.
     fn update(&mut self, update: &OutputUpdate);
+
+    /// The command started or stopped waiting for input. Each change comes once, and a
+    /// run that ended or was left while it waited reports [`InputWait::None`] last.
+    /// Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait) {}
+
+    /// Whether a person can answer hidden input for this run now. Asked when the
+    /// command starts to wait for hidden input and at every look while it waits;
+    /// `false` stops the command ([`Completion::Unanswered`]). True by default, which
+    /// lets the command wait until it ends or the timeout passes.
+    fn can_answer_hidden(&mut self) -> bool {
+        true
+    }
 }
 
 impl<F: FnMut(&OutputUpdate) + Send> RunProgress for F {
@@ -251,11 +282,13 @@ pub(crate) const SCREEN_TAIL_ROWS: usize = 20;
 pub(crate) struct Progress {
     pub(crate) bytes: u64,
     pub(crate) tail: Bytes,
+    /// True once the command runs: its output has started.
+    pub(crate) started: bool,
 }
 
 impl Progress {
-    pub(crate) fn of(capture: &Capture) -> Self {
-        Progress { bytes: capture.total(), tail: capture.tail(PREVIEW_BYTES) }
+    pub(crate) fn of(capture: &Capture, started: bool) -> Self {
+        Progress { bytes: capture.total(), tail: capture.tail(PREVIEW_BYTES), started }
     }
 
     pub(crate) fn update(&self) -> OutputUpdate {
@@ -406,6 +439,11 @@ impl MarkRun {
         &self.capture
     }
 
+    /// True once `C` arrived: the command runs until `D` ends the run.
+    pub(crate) fn running(&self) -> bool {
+        self.output_start.is_some()
+    }
+
     /// The output so far, for a run that is left running.
     pub(crate) fn partial(&self) -> (Kept, Option<Range<Seq>>) {
         let range = self.output_start.map(|start| start..self.captured_end);
@@ -441,9 +479,11 @@ impl MarkRun {
 /// `[Y/n] `. A command that is merely slow has usually ended its last line, which
 /// leaves the cursor at the start of the next.
 pub(crate) fn waits_for_input(snapshot: &ScreenSnapshot) -> bool {
-    if snapshot.alternate_screen {
-        return true;
-    }
+    snapshot.alternate_screen || cursor_after_text(snapshot)
+}
+
+/// True when the cursor sits after some text on its row.
+pub(crate) fn cursor_after_text(snapshot: &ScreenSnapshot) -> bool {
     let cursor = snapshot.cursor;
     if cursor.col == 0 {
         return false;

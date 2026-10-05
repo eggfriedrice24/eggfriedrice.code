@@ -12,17 +12,20 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use efr_holder::{HolderError, PtyHandle, Signal, SignalTarget, Size, SpawnSpec};
-use efr_protocol::{ConversationId, PtyId};
+use efr_protocol::{CallId, ConversationId, InputWait, PtyId, SecretText};
 use efr_screen::ScreenHandle;
 use efr_stdx::StdxError;
-use efr_stdx::time::Clock as _;
+use efr_stdx::time::{Clock as _, Sleep};
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
+use crate::input::{self, InputWatch, Look, Quiet};
+use crate::modes::Terminal;
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, screen_tail, waits_for_input};
 use crate::session::{
-    Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore, SessionHandle,
+    Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
+    SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
@@ -129,6 +132,14 @@ impl ShellSessions {
     /// At the timeout the command keeps running; the result is
     /// [`Completion::Interactive`] when it waits for input at the terminal and
     /// [`Completion::StillRunning`] otherwise, with the screen's last lines.
+    ///
+    /// While the command runs, the run looks once per `quiet_period` whether it waits
+    /// for input and tells `progress` of each change (see
+    /// [`RunProgress::input_changed`](crate::RunProgress::input_changed)). When it waits
+    /// for hidden input and
+    /// [`RunProgress::can_answer_hidden`](crate::RunProgress::can_answer_hidden) says
+    /// that nobody can answer, the run interrupts the command and returns
+    /// [`Completion::Unanswered`] at once.
     pub async fn run_command(
         &self,
         conversation: ConversationId,
@@ -142,6 +153,32 @@ impl ShellSessions {
     /// The state of the conversation's shell.
     pub async fn state(&self, conversation: ConversationId) -> Result<ShellState, ShellError> {
         self.existing(conversation)?.state().await
+    }
+
+    /// Types `text` and a carriage return for the running command of `call`, the tool
+    /// call that [`RunRequest::call`](crate::RunRequest::call) named.
+    ///
+    /// The answer is written only while that call's command runs (between its `C` and
+    /// `D`, or its sentinels) and the terminal reads a line (canonical input on); with
+    /// `hidden`, the terminal must also have echo off, so the text never reaches the
+    /// output. The modes are read right before the one write that types the answer.
+    /// It fails with [`ShellError::InvalidAnswer`] for text that is not one line of at
+    /// most 1024 bytes without control characters, [`ShellError::NoShell`] or
+    /// [`ShellError::NoCall`] when nothing runs, and [`ShellError::NotWaiting`] when the
+    /// command does not wait for that input; then nothing is written. The text never
+    /// reaches an error, a log or the recording (unless the terminal echoes it).
+    pub async fn answer(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        text: &SecretText,
+        hidden: bool,
+    ) -> Result<(), ShellError> {
+        input::check_answer(text.expose_secret())?;
+        let session = self.existing(conversation)?;
+        let (reply, answered) = oneshot::channel();
+        session.send(Msg::Answer { call, text: text.clone(), hidden, reply }).await?;
+        answered.await.map_err(|_| session.exited())?
     }
 
     /// Writes raw input to the conversation's shell, as `pty.write` does for an
@@ -337,6 +374,7 @@ impl ShellSessions {
             session: inbox.clone(),
             screen: screen.clone(),
         };
+        let terminal = Terminal::new(Arc::clone(&master), Arc::clone(&deps.modes));
         let tasks = vec![
             tokio::spawn(writer::write_loop(Arc::clone(&master), writes)),
             tokio::spawn(reader::read_loop(master, targets)),
@@ -354,6 +392,7 @@ impl ShellSessions {
             clock: Arc::clone(&deps.clock),
             holder: Arc::clone(&deps.holder),
             writer: writer.clone(),
+            terminal,
             screen: screen.clone(),
             tasks,
             life,
@@ -387,6 +426,7 @@ impl ShellSessions {
             command: request.command,
             mode: request.mode,
             output_limit: request.output_limit,
+            call: request.call,
             token: sentinel::token(&*deps.rng),
             reply,
             progress: publish,
@@ -396,28 +436,49 @@ impl ShellSessions {
 
         let mut deadline = deps.clock.sleep(request.timeout);
         let mut updates_open = true;
+        let mut reported = 0;
+        // The looks for input start once the command runs, one per quiet period.
+        let mut look: Option<Sleep> = None;
+        let mut watch = InputWatch::default();
         loop {
             tokio::select! {
                 biased;
                 ended = &mut answer => {
                     guard.disarm();
-                    return self.finished(session, ended).await;
+                    let result = self.finished(session, ended).await;
+                    end_watch(&mut watch, progress);
+                    return result;
                 }
                 changed = updates.changed(), if updates_open => match changed {
                     Ok(()) => {
-                        let update = updates.borrow_and_update().update();
-                        progress.update(&update);
+                        let latest = updates.borrow_and_update().clone();
+                        if latest.started && look.is_none() {
+                            look = Some(deps.clock.sleep(self.inner.config.quiet_period));
+                        }
+                        // The start alone is not output.
+                        if latest.bytes > reported {
+                            reported = latest.bytes;
+                            progress.update(&latest.update());
+                        }
                     }
                     Err(_) => updates_open = false,
                 },
                 () = &mut deadline => break,
+                () = until(&mut look) => {
+                    if self.look_for_input(session, id, &mut watch, progress).await? {
+                        let result =
+                            self.stop_unanswered(session, id, &mut guard, &mut answer).await;
+                        end_watch(&mut watch, progress);
+                        return result;
+                    }
+                    look = Some(deps.clock.sleep(self.inner.config.quiet_period));
+                }
             }
         }
 
-        let (reply, detached) = oneshot::channel();
-        session.send(Msg::Detach { id, reply }).await?;
-        guard.disarm();
-        match detached.await.map_err(|_| session.exited())? {
+        let detached = self.detach(session, id, &mut guard).await;
+        end_watch(&mut watch, progress);
+        match detached? {
             Detached::Gone => self.finished(session, answer.await).await,
             Detached::Unstarted => Err(ShellError::NotReady { conversation: session.conversation }),
             Detached::Running { kept, range, last_output, cwd, delimiter } => {
@@ -449,6 +510,88 @@ impl ShellSessions {
                     delimiter,
                 })
             }
+        }
+    }
+
+    /// Lets the session's actor go of run `id`, which goes on without a caller.
+    async fn detach(
+        &self,
+        session: &SessionHandle,
+        id: u64,
+        guard: &mut DetachOnDrop,
+    ) -> Result<Detached, ShellError> {
+        let (reply, detached) = oneshot::channel();
+        session.send(Msg::Detach { id, reply }).await?;
+        guard.disarm();
+        detached.await.map_err(|_| session.exited())
+    }
+
+    /// One look at whether run `id` waits for input; each change goes to `progress`.
+    /// Returns true when the command waits for hidden input that nobody can answer.
+    async fn look_for_input(
+        &self,
+        session: &SessionHandle,
+        id: u64,
+        watch: &mut InputWatch,
+        progress: &mut dyn RunProgress,
+    ) -> Result<bool, ShellError> {
+        let (reply, probed) = oneshot::channel();
+        session.send(Msg::Probe { id, reply }).await?;
+        // A run that ended meanwhile is answered on its reply channel.
+        let Ok(Some(probe)) = probed.await else {
+            return Ok(false);
+        };
+        let config = &self.inner.config;
+        let quiet = Quiet { hidden: config.quiet_period, visible: config.visible_input_quiet };
+        let wait = match input::look(&probe, self.inner.deps.clock.now(), quiet) {
+            Look::Settled(wait) => wait,
+            // A screen that failed only loses the guess; the command goes on.
+            Look::ReadScreen => match session.screen.snapshot(0).await {
+                Ok(capture) if input::visible_prompt(&capture.snapshot) => InputWait::Visible,
+                _ => InputWait::None,
+            },
+        };
+        if let Some(changed) = watch.settle(wait, probe.answers) {
+            progress.input_changed(changed);
+        }
+        Ok(watch.current() == InputWait::Hidden && !progress.can_answer_hidden())
+    }
+
+    /// Interrupts run `id`, whose command waits for hidden input that nobody can
+    /// answer, and returns its output so far as [`Completion::Unanswered`].
+    async fn stop_unanswered(
+        &self,
+        session: &SessionHandle,
+        id: u64,
+        guard: &mut DetachOnDrop,
+        answer: &mut oneshot::Receiver<Result<RunEnd, ShellError>>,
+    ) -> Result<CommandResult, ShellError> {
+        let conversation = session.conversation;
+        // Detached first, so the end that SIGINT brings belongs to the orphan, and this
+        // result says why the command stopped.
+        let detached = self.detach(session, id, guard).await?;
+        tracing::info!(%conversation, "a command waits for hidden input that no client can answer; interrupting it");
+        if let Err(error) = self.interrupt(conversation).await {
+            tracing::warn!(%conversation, error = %error, "could not interrupt a command that waits for hidden input");
+        }
+        match detached {
+            Detached::Running { kept, range, cwd, delimiter, .. } => {
+                let captured = self.replayer(session).render(&kept).await;
+                Ok(CommandResult {
+                    completion: Completion::Unanswered,
+                    exit_code: None,
+                    output: captured.text,
+                    truncated: captured.truncated,
+                    output_bytes: captured.bytes,
+                    output_range: range,
+                    cwd_after: cwd,
+                    screen_tail: None,
+                    delimiter,
+                })
+            }
+            // The command ended between the look and the detach; it needs no stop.
+            Detached::Gone => self.finished(session, answer.await).await,
+            Detached::Unstarted => Err(ShellError::NotReady { conversation }),
         }
     }
 
@@ -546,6 +689,14 @@ impl Drop for DetachOnDrop {
             // anyway, because its reply channel is closed.
             let _ = inbox.try_send(Msg::Detach { id: self.id, reply });
         }
+    }
+}
+
+/// Tells `progress` that a run that waited for input no longer does, because it ended
+/// or was left.
+fn end_watch(watch: &mut InputWatch, progress: &mut dyn RunProgress) {
+    if let Some(changed) = watch.end() {
+        progress.input_changed(changed);
     }
 }
 

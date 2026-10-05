@@ -52,6 +52,47 @@ prompts such as `sudo` stay visible.
   (it has been quiet for `quiet_period` and the cursor sits after some text, or a
   full-screen program is on the alternate screen), and `Completion::StillRunning`
   otherwise.
+
+Waiting for input (`input.rs`, `modes.rs`), while a run's command runs (between `C`
+and `D`, or the two sentinels):
+
+- The run looks once per `quiet_period` (1 s), on the injected clock, and tells
+  `RunProgress::input_changed` of each change of `efr_protocol::InputWait`, once:
+  `Hidden` when the terminal has echo off and canonical input on (a getpass-style
+  read: `sudo`, `ssh`, `su`, `passwd`, polkit's agent) and the output has been quiet
+  for `quiet_period`; `Visible` when echo and canonical input are on, the output has
+  been quiet for `visible_input_quiet` (3 s) and the main screen has the cursor after
+  some text (a `[Y/n]` question); `None` otherwise. The screen is read only when the
+  output is that quiet. A full-screen program on the alternate screen is judged only
+  at the timeout, as above. A run that ends, is left at its timeout or is stopped
+  while it waits reports `None` last.
+- The modes come from `tcgetattr` on the master (Linux returns the slave's termios
+  there) through `ShellDeps::modes`, a `TerminalModes` (`Termios` by default; a test
+  injects a fake, because its PTY is a socketpair). Modes that cannot be read never
+  count as waiting.
+- While the command waits for hidden input, the run asks
+  `RunProgress::can_answer_hidden` at the change and at every look. `false` (the daemon
+  says it when no client that can type answers follows the conversation) detaches the
+  run, sends `SIGINT` to the foreground process group, as `interrupt` does, and returns
+  `Completion::Unanswered` with the output so far at once; the next run waits for the
+  prompt. A visible wait never stops a command: it is a guess, and a slow command whose
+  last line is unfinished looks the same.
+- `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the
+  tool call that `RunRequest::call` named. The text is one line of at most 1024 bytes
+  without control characters (U+0000 to U+001F, U+007F), else `InvalidAnswer`; the
+  session's actor checks that this call's command runs now (`NoCall` when nothing runs,
+  `NotWaiting` for another call, a run left at its timeout, or a command not yet
+  started), reads the modes and refuses unless canonical input is on and, for a hidden
+  answer, echo is off (`NotWaiting`), then writes the text and `\r` in one `writev` on
+  the master. Nothing awaits between the check and the write. Canonical input is what
+  the shell's own line editor never has, so an answer that arrives just after the
+  command ended is refused instead of typed at the prompt. An answer counts as activity:
+  the next look reports `None`, so a prompt that is asked again (`Sorry, try again.`)
+  is a new change. The text is a `SecretText` throughout: no error, `Debug` output or
+  log carries it, and a hidden answer never reaches the output or the recording.
+- `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
+  minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
+  clears it (no `sudo -k`); a later setting will control that.
 - Without the integration (a shell that is not a zsh, or a zsh whose first marked
   prompt did not come within `startup_timeout`), and for `RunMode::Sentinel` (a shell
   started inside the hidden one: `sudo -i`, `bash`, `ssh`), the command is delimited
@@ -161,7 +202,7 @@ snapshot types) and `efr-stdx` (`Clock`, `Rng`, UUIDv7 ids, atomic writes, the
 scrubbed variable list). `xtask/src/deps.rs` holds the allowlist.
 
 Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fcntl`
-for `O_NONBLOCK`), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
+for `O_NONBLOCK`, `tcgetattr` for the input modes, `writev` for an answer), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
 timestamps), `async-trait`, `thiserror` and `tracing`.
 
 Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests (vt100 also
@@ -179,7 +220,10 @@ clock and the seeded generator.
   thread; only output that moves the cursor starts one.
 - Time and randomness are injected: every timeout runs on the `Clock`, and PTY ids
   and sentinel tokens come from the `Rng`.
-- No error, notice or `Debug` output carries a command line or an environment value.
+- No error, notice or `Debug` output carries a command line or an environment value,
+  or the text of an answer.
+- An answer reaches a terminal only while the same call's command runs and the
+  terminal reads a line; a hidden one only while echo is off.
 
 ## Tests
 
@@ -192,8 +236,9 @@ just test-shell                                  # the same, with zsh installed
 ```
 
 The unit tests drive the manager over a fake holder whose PTY is a socketpair: the
-test plays the shell with scripted bytes and moves a manual clock, so nothing waits on
-real time. The `e2e_` tests (module `e2e_zsh`) spawn a real zsh through
+test plays the shell with scripted bytes, sets the terminal modes through a fake
+`TerminalModes` and moves a manual clock, so nothing waits on real time. `modes.rs`
+reads the modes of real PTY pairs it opens. The `e2e_` tests (module `e2e_zsh`) spawn a real zsh through
 `efr_pty::LocalPtyHolder`, watched through a vt100 screen, in a throwaway home with
 empty startup files; they skip with a message unless `EFR_TEST_ZSH=1`, and nextest
 runs them one at a time in the `shell` test group. No test uses the network, the

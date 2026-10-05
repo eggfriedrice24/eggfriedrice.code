@@ -126,6 +126,11 @@ impl SentinelRun {
         &self.capture
     }
 
+    /// True between the begin marker's line and the end marker: the command runs.
+    pub(crate) fn running(&self) -> bool {
+        self.stage == Stage::Output
+    }
+
     /// The output so far, for a run that is left running.
     pub(crate) fn partial(&self) -> (Kept, Option<Range<Seq>>) {
         (self.capture.finish(), self.output_start.map(|start| start..self.captured_end))

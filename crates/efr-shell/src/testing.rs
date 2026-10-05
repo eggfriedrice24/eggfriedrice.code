@@ -2,9 +2,10 @@
 //! collectors for the recording and the notices.
 
 use std::collections::{BTreeMap, HashMap};
-use std::os::fd::OwnedFd;
+use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyId, PtyInfo, Signal, SignalTarget, Size,
     SpawnSpec,
 };
-use efr_protocol::{ConversationId, Cursor, RowCells, ScreenSnapshot, Seq};
+use efr_protocol::{ConversationId, Cursor, InputWait, RowCells, ScreenSnapshot, Seq};
 use efr_screen::{Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink};
 use efr_stdx::StdxError;
 use efr_test_support::{TestClock, TestRng};
@@ -22,7 +23,8 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::watch;
 
 use crate::{
-    RecordingSink, ScreenFactory, ShellConfig, ShellDeps, ShellNotice, ShellObserver, ShellSessions,
+    InputModes, OutputUpdate, RecordingSink, RunProgress, ScreenFactory, ShellConfig, ShellDeps,
+    ShellNotice, ShellObserver, ShellSessions, TerminalModes,
 };
 
 pub(crate) const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -424,6 +426,94 @@ impl ShellObserver for Notices {
     }
 }
 
+/// Terminal modes that the test sets, for a fake PTY that has none: a cooked terminal
+/// (echo and line input on) until the test says otherwise.
+#[derive(Debug)]
+pub(crate) struct FakeModes {
+    modes: Mutex<Option<InputModes>>,
+    reads: AtomicUsize,
+}
+
+impl Default for FakeModes {
+    fn default() -> Self {
+        FakeModes {
+            modes: Mutex::new(Some(InputModes::new(true, true))),
+            reads: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl FakeModes {
+    /// Sets the modes; `None` makes every read fail, as on a socket.
+    pub(crate) fn set(&self, modes: Option<InputModes>) {
+        *self.modes.lock().unwrap() = modes;
+    }
+
+    /// How many times the modes were read.
+    pub(crate) fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+}
+
+impl TerminalModes for FakeModes {
+    fn read(&self, _master: BorrowedFd<'_>) -> std::io::Result<InputModes> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.modes.lock().unwrap().ok_or_else(|| std::io::Error::from_raw_os_error(25))
+    }
+}
+
+/// A run listener that keeps the output and every change of the input wait, and says
+/// whether someone can answer hidden input.
+pub(crate) struct Listener {
+    output: watch::Sender<OutputUpdate>,
+    inputs: watch::Sender<Vec<InputWait>>,
+    can_answer: Arc<AtomicBool>,
+}
+
+/// The test's side of a [`Listener`].
+pub(crate) struct Heard {
+    pub(crate) output: watch::Receiver<OutputUpdate>,
+    pub(crate) inputs: watch::Receiver<Vec<InputWait>>,
+    /// What the listener answers when it is asked whether someone can answer.
+    pub(crate) can_answer: Arc<AtomicBool>,
+}
+
+impl Heard {
+    /// Waits until the listener has heard exactly the changes `expected`.
+    pub(crate) async fn inputs(&mut self, expected: &[InputWait]) {
+        self.inputs.wait_for(|inputs| inputs.as_slice() == expected).await.unwrap();
+    }
+
+    /// Waits until the output's tail contains `text`.
+    pub(crate) async fn output(&mut self, text: &str) {
+        self.output.wait_for(|update| update.tail.contains(text)).await.unwrap();
+    }
+}
+
+/// A listener that says `can_answer`, and the test's side of it.
+pub(crate) fn listener(can_answer: bool) -> (Listener, Heard) {
+    let (output, output_seen) = watch::channel(OutputUpdate::default());
+    let (inputs, inputs_seen) = watch::channel(Vec::new());
+    let can_answer = Arc::new(AtomicBool::new(can_answer));
+    let heard =
+        Heard { output: output_seen, inputs: inputs_seen, can_answer: Arc::clone(&can_answer) };
+    (Listener { output, inputs, can_answer }, heard)
+}
+
+impl RunProgress for Listener {
+    fn update(&mut self, update: &OutputUpdate) {
+        self.output.send_replace(update.clone());
+    }
+
+    fn input_changed(&mut self, wait: InputWait) {
+        self.inputs.send_modify(|inputs| inputs.push(wait));
+    }
+
+    fn can_answer_hidden(&mut self) -> bool {
+        self.can_answer.load(Ordering::SeqCst)
+    }
+}
+
 /// A manager over a [`FakeHolder`] with a manual clock.
 pub(crate) struct Harness {
     pub(crate) sessions: ShellSessions,
@@ -431,6 +521,7 @@ pub(crate) struct Harness {
     pub(crate) clock: TestClock,
     pub(crate) recorded: Arc<Recorded>,
     pub(crate) notices: Arc<Notices>,
+    pub(crate) modes: Arc<FakeModes>,
     pub(crate) dir: tempfile::TempDir,
 }
 
@@ -446,6 +537,7 @@ impl Harness {
         let clock = TestClock::new();
         let recorded = Arc::new(Recorded::default());
         let notices = Notices::new();
+        let modes = Arc::new(FakeModes::default());
         let mut config = ShellConfig::new(
             dir.path().join("zsh"),
             BTreeMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]),
@@ -460,8 +552,9 @@ impl Harness {
             Arc::new(TestRng::new(1)),
         )
         .with_recording(Arc::clone(&recorded) as Arc<dyn RecordingSink>)
-        .with_observer(Arc::clone(&notices) as Arc<dyn ShellObserver>);
+        .with_observer(Arc::clone(&notices) as Arc<dyn ShellObserver>)
+        .with_modes(Arc::clone(&modes) as Arc<dyn TerminalModes>);
         let sessions = ShellSessions::new(config, deps).unwrap();
-        Harness { sessions, holder, clock, recorded, notices, dir }
+        Harness { sessions, holder, clock, recorded, notices, modes, dir }
     }
 }

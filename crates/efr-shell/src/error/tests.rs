@@ -32,3 +32,27 @@ fn an_invalid_command_says_why_without_the_command() {
         "the command cannot be typed into the shell: it contains a NUL byte"
     );
 }
+
+#[test]
+fn answer_errors_say_why_without_the_answer() {
+    let refused = ShellError::NotWaiting {
+        conversation: conversation(),
+        reason: "the terminal echoes what is typed",
+    };
+    assert_eq!(
+        refused.to_string(),
+        "the command does not wait for this input: the terminal echoes what is typed"
+    );
+    let invalid = ShellError::InvalidAnswer { reason: "it contains a control character" };
+    assert_eq!(invalid.to_string(), "the answer cannot be typed: it contains a control character");
+    let none = ShellError::NoCall { conversation: conversation() };
+    assert_eq!(
+        none.to_string(),
+        "no command of conversation 01920000-0000-7000-8000-000000000001 runs in its hidden shell"
+    );
+    let failed = ShellError::Terminal {
+        conversation: conversation(),
+        source: std::io::Error::from(std::io::ErrorKind::WriteZero),
+    };
+    assert!(failed.source().is_some());
+}

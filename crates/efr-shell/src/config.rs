@@ -10,7 +10,7 @@ use efr_holder::{PtyHolder, Size};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
-use crate::{Discard, RecordingSink, ScreenFactory, ShellObserver};
+use crate::{Discard, RecordingSink, ScreenFactory, ShellObserver, TerminalModes, Termios};
 
 /// How hidden shells are started. The daemon builds it from its own config and passes
 /// it by value; nothing in this crate reads the environment.
@@ -45,8 +45,15 @@ pub struct ShellConfig {
     /// fall back to sentinels.
     pub startup_timeout: Duration,
     /// At a run's timeout, a command that printed nothing for this long and left the
-    /// cursor after some text counts as waiting for input.
+    /// cursor after some text counts as waiting for input. While a command runs, the
+    /// run looks for input waits once per this period, and a terminal with echo off and
+    /// line input on that printed nothing for this long waits for hidden input.
     pub quiet_period: Duration,
+    /// While a command runs, a terminal with echo on that printed nothing for this long
+    /// and left the cursor after some text on the main screen waits for visible input,
+    /// such as a `[Y/n]` question. Longer than `quiet_period`, because a slow command
+    /// whose last line is unfinished looks the same.
+    pub visible_input_quiet: Duration,
     /// How long [`close`](crate::ShellSessions::close) waits for the shell to end
     /// after `SIGHUP` before it sends `SIGKILL`.
     pub close_grace: Duration,
@@ -63,8 +70,8 @@ impl ShellConfig {
 
     /// A config with the defaults: zsh from the `PATH`, an interactive login shell,
     /// [`DEFAULT_SIZE`](Self::DEFAULT_SIZE), `xterm-256color` with truecolor, ten
-    /// seconds to start, one second of quiet for an input prompt, five seconds to
-    /// close, and no trusted programs.
+    /// seconds to start, one second of quiet for an input prompt (three for a visible
+    /// one while the command runs), five seconds to close, and no trusted programs.
     pub fn new(integration_dir: impl Into<PathBuf>, base_env: BTreeMap<String, String>) -> Self {
         ShellConfig {
             program: None,
@@ -76,6 +83,7 @@ impl ShellConfig {
             colorterm: "truecolor".to_owned(),
             startup_timeout: Duration::from_secs(10),
             quiet_period: Duration::from_secs(1),
+            visible_input_quiet: Duration::from_secs(3),
             close_grace: Duration::from_secs(5),
             trusted_programs: Vec::new(),
         }
@@ -94,6 +102,7 @@ impl fmt::Debug for ShellConfig {
             .field("colorterm", &self.colorterm)
             .field("startup_timeout", &self.startup_timeout)
             .field("quiet_period", &self.quiet_period)
+            .field("visible_input_quiet", &self.visible_input_quiet)
             .field("close_grace", &self.close_grace)
             .field("trusted_programs", &self.trusted_programs)
             .finish()
@@ -117,12 +126,16 @@ pub struct ShellDeps {
     pub clock: Arc<dyn Clock>,
     /// Mints PTY ids and sentinel tokens.
     pub rng: Arc<dyn Rng>,
+    /// Reads the input modes of a shell's terminal from its master: whether a command
+    /// waits for hidden input, and whether an answer may be typed.
+    pub modes: Arc<dyn TerminalModes>,
 }
 
 impl ShellDeps {
     /// Collaborators that discard the recording and every notice until
     /// [`with_recording`](Self::with_recording) and
-    /// [`with_observer`](Self::with_observer) say otherwise.
+    /// [`with_observer`](Self::with_observer) say otherwise, and read the terminal
+    /// modes with [`Termios`].
     pub fn new(
         holder: Arc<dyn PtyHolder>,
         screens: Arc<dyn ScreenFactory>,
@@ -136,6 +149,7 @@ impl ShellDeps {
             observer: Arc::new(Discard),
             clock,
             rng,
+            modes: Arc::new(Termios),
         }
     }
 
@@ -150,6 +164,13 @@ impl ShellDeps {
     #[must_use]
     pub fn with_observer(mut self, observer: Arc<dyn ShellObserver>) -> Self {
         self.observer = observer;
+        self
+    }
+
+    /// Reads the terminal modes with `modes`, such as a fake whose answers a test sets.
+    #[must_use]
+    pub fn with_modes(mut self, modes: Arc<dyn TerminalModes>) -> Self {
+        self.modes = modes;
         self
     }
 }

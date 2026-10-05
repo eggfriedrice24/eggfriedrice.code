@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use super::ShellConfig;
 
@@ -18,4 +19,12 @@ fn the_defaults_start_an_interactive_login_zsh() {
     assert!(config.program.is_none());
     assert_eq!(config.term, "xterm-256color");
     assert_eq!(config.size, ShellConfig::DEFAULT_SIZE);
+}
+
+#[test]
+fn visible_input_needs_a_longer_quiet_than_hidden_input() {
+    let config = ShellConfig::new("/tmp/zsh", BTreeMap::new());
+    assert_eq!(config.quiet_period, Duration::from_secs(1));
+    assert_eq!(config.visible_input_quiet, Duration::from_secs(3));
+    assert!(format!("{config:?}").contains("visible_input_quiet: 3s"));
 }

@@ -32,7 +32,9 @@ mod config;
 mod e2e_zsh;
 mod env;
 mod error;
+mod input;
 mod integration;
+mod modes;
 mod reader;
 mod recording_sink;
 mod replay;
@@ -48,6 +50,7 @@ mod writer;
 
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
+pub use modes::{InputModes, TerminalModes, Termios};
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,
