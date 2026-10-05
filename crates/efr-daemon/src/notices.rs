@@ -58,7 +58,9 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
             format!("efr: turn failed: {title}: {}", error.message)
         }
         Event::ApprovalRequested { summary, .. } => {
-            format!("efr: approval waiting: {title}: {summary}")
+            // NOTE: a summary's second line names the parts of a command line that
+            // ask; on one line it follows after a `;`.
+            format!("efr: approval waiting: {title}: {}", summary.replace('\n', "; "))
         }
         _ => return None,
     };

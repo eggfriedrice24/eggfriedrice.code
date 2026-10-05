@@ -70,6 +70,23 @@ fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
 }
 
 #[test]
+fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
+        summary: "shell: run \"uptime; hostnamectl\"\nasks for: hostnamectl".to_owned(),
+        diff_preview: None,
+    };
+    assert_eq!(
+        line(&approval, Some("fix nginx")).as_deref(),
+        Some(
+            "efr: approval waiting: fix nginx: shell: run \"uptime; hostnamectl\"; asks for: \
+             hostnamectl"
+        )
+    );
+}
+
+#[test]
 fn the_login_hint_survives_a_long_title() {
     let failed = Event::TurnFailed {
         turn_id: turn(),
