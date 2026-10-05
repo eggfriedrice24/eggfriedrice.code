@@ -50,6 +50,11 @@ pub(crate) const HIDDEN_SHELL: &str = "EFR_HIDDEN_SHELL";
 pub(crate) const PAGERS: &[(&str, &str)] =
     &[("PAGER", "cat"), ("GIT_PAGER", "cat"), ("SYSTEMD_PAGER", "cat"), ("MANPAGER", "cat")];
 
+/// The programs of [`ShellConfig::trusted_programs`], separated by spaces, for a zsh
+/// with the integration. The integration reads it once, before the user's startup
+/// files, and removes it from the environment.
+pub(crate) const TRUSTED_PROGRAMS: &str = "_EFR_HS_TRUSTED_PROGRAMS";
+
 /// The whole environment of a new hidden shell started in `cwd`. `integration` is
 /// true for a zsh that gets the ZDOTDIR shim.
 pub(crate) fn shell_env(
@@ -68,6 +73,9 @@ pub(crate) fn shell_env(
             env.insert(USER_ZDOTDIR.to_owned(), user_zdotdir);
         }
         env.insert("ZDOTDIR".to_owned(), config.integration_dir.to_string_lossy().into_owned());
+        if !config.trusted_programs.is_empty() {
+            env.insert(TRUSTED_PROGRAMS.to_owned(), config.trusted_programs.join(" "));
+        }
     }
     env.insert("TERM".to_owned(), config.term.clone());
     env.insert("COLORTERM".to_owned(), config.colorterm.clone());

@@ -50,6 +50,11 @@ pub struct ShellConfig {
     /// How long [`close`](crate::ShellSessions::close) waits for the shell to end
     /// after `SIGHUP` before it sends `SIGKILL`.
     pub close_grace: Duration,
+    /// Programs that a permission rule trusts by name, such as `ls` or `git`. In a zsh
+    /// with the integration, an alias or a function of the same name that the user's
+    /// startup files define is removed, so the name runs the program itself. The
+    /// daemon passes the programs of its command rules; empty by default.
+    pub trusted_programs: Vec<String>,
 }
 
 impl ShellConfig {
@@ -58,8 +63,8 @@ impl ShellConfig {
 
     /// A config with the defaults: zsh from the `PATH`, an interactive login shell,
     /// [`DEFAULT_SIZE`](Self::DEFAULT_SIZE), `xterm-256color` with truecolor, ten
-    /// seconds to start, one second of quiet for an input prompt and five seconds to
-    /// close.
+    /// seconds to start, one second of quiet for an input prompt, five seconds to
+    /// close, and no trusted programs.
     pub fn new(integration_dir: impl Into<PathBuf>, base_env: BTreeMap<String, String>) -> Self {
         ShellConfig {
             program: None,
@@ -72,6 +77,7 @@ impl ShellConfig {
             startup_timeout: Duration::from_secs(10),
             quiet_period: Duration::from_secs(1),
             close_grace: Duration::from_secs(5),
+            trusted_programs: Vec::new(),
         }
     }
 }
@@ -89,6 +95,7 @@ impl fmt::Debug for ShellConfig {
             .field("startup_timeout", &self.startup_timeout)
             .field("quiet_period", &self.quiet_period)
             .field("close_grace", &self.close_grace)
+            .field("trusted_programs", &self.trusted_programs)
             .finish()
     }
 }

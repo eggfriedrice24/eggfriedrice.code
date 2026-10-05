@@ -32,6 +32,12 @@ pub(crate) struct Zsh {
 impl Zsh {
     /// The harness, or `None` with a message when `EFR_TEST_ZSH` is off.
     pub(crate) fn start(test: &str) -> Option<Self> {
+        Self::start_with(test, |_| {})
+    }
+
+    /// The harness with `configure` applied to the shell config, or `None` with a
+    /// message when `EFR_TEST_ZSH` is off.
+    pub(crate) fn start_with(test: &str, configure: impl FnOnce(&mut ShellConfig)) -> Option<Self> {
         if !enabled(test) {
             return None;
         }
@@ -53,6 +59,7 @@ impl Zsh {
         // A login shell would also run the system's /etc/profile, which is not under
         // test here.
         config.login = false;
+        configure(&mut config);
         let clock = TestClock::new();
         let notices = Notices::new();
         let deps = ShellDeps::new(

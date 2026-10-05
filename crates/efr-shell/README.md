@@ -107,7 +107,9 @@ environment, passed in by the daemon; this crate reads no environment) without
 `LINES`, `SHLVL`, `OLDPWD` and `_`. It sets `TERM` and `COLORTERM` (default
 `xterm-256color` and `truecolor`), `PWD`, and `EFR_HIDDEN_SHELL=1`, which nothing in
 efr reads but the user's startup files can test (to skip `exec tmux` or an instant
-prompt). It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
+prompt). A zsh with the integration also gets `_EFR_HS_TRUSTED_PROGRAMS`, the
+trusted programs separated by spaces, which the integration reads and unsets before
+the user's startup files run. It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
 nobody reads a pager on the hidden screen, so `git log` or `systemctl status` would
 otherwise open `less` there and the run would wait until someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the config).
 
@@ -131,9 +133,10 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   efr keeps its own recording), no pager (the four pager variables are set to `cat`
   again, because a `.zshrc` often exports `PAGER=less`), no `NULL_GLOB` or
   `CSH_NULL_GLOB` (the permission engine counts a pattern that matches nothing as one
-  word, so it must not vanish), no global or suffix aliases (removed after the
-  startup files and again by the key efr types before each command, because they
-  change what a line that the permission engine allowed runs), and zsh's
+  word, so it must not vanish), no global or suffix aliases and no alias or function
+  named like one of `ShellConfig::trusted_programs` (removed after the startup files
+  and again by the key efr types before each command, because they change what a line
+  that the permission engine allowed runs), and zsh's
   `PROMPT_SP` mark is printed after `D` instead of before the precmd hooks, so it
   never counts as output.
 

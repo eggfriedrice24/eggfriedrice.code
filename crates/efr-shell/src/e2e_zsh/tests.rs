@@ -204,6 +204,22 @@ async fn e2e_global_and_suffix_aliases_from_the_users_zshrc_are_dropped() {
     assert_eq!(result.output, "hello L\n0 0\nhi\n");
 }
 
+#[tokio::test]
+async fn e2e_an_alias_or_function_named_like_a_trusted_program_is_dropped() {
+    let test = "e2e_an_alias_or_function_named_like_a_trusted_program_is_dropped";
+    let Some(zsh) = Zsh::start_with(test, |config| {
+        config.trusted_programs = vec!["ls".to_owned(), "cat".to_owned(), "nproc".to_owned()];
+    }) else {
+        return;
+    };
+    let zshrc = "alias ls='echo aliased'\ncat() { echo function; }\nalias greet='echo hi'\n";
+    std::fs::write(zsh.home().join(".zshrc"), zshrc).unwrap();
+    let result = zsh
+        .run("ls -d /; cat /dev/null; greet; print -r -- ${_EFR_HS_TRUSTED_PROGRAMS-unset}")
+        .await;
+    assert_eq!(result.output, "/\nhi\nunset\n");
+}
+
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
 fn plugin() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")

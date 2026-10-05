@@ -115,3 +115,16 @@ fn every_pager_is_cat_whatever_the_user_set() {
     assert_eq!(env["SYSTEMD_PAGER"], "cat");
     assert_eq!(env["MANPAGER"], "cat");
 }
+
+#[test]
+fn the_trusted_programs_reach_a_zsh_with_the_integration_only() {
+    let mut config = config(&[("_EFR_HS_TRUSTED_PROGRAMS", "inherited")]);
+    let without = shell_env(&config, Path::new("/"), true);
+    assert!(!without.contains_key("_EFR_HS_TRUSTED_PROGRAMS"), "{without:?}");
+
+    config.trusted_programs = vec!["ls".to_owned(), "git".to_owned()];
+    let zsh = shell_env(&config, Path::new("/"), true);
+    assert_eq!(zsh["_EFR_HS_TRUSTED_PROGRAMS"], "ls git");
+    let other = shell_env(&config, Path::new("/"), false);
+    assert!(!other.contains_key("_EFR_HS_TRUSTED_PROGRAMS"), "{other:?}");
+}

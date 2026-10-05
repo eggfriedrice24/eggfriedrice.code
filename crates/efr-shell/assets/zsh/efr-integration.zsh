@@ -25,6 +25,14 @@
 # its own with the shorter efr prefix; with the same names, sourcing it from .zshrc
 # would replace these hooks and the hidden shell would never print A, C or D.
 
+# The programs that a permission rule trusts by name, from the daemon. An alias or a
+# function of the same name from the user's startup files would run something else
+# for a line that the engine allowed. Read once and kept out of every child's
+# environment.
+builtin typeset -ga _efr_hs_trusted
+_efr_hs_trusted=(${(s: :)_EFR_HS_TRUSTED_PROGRAMS})
+builtin unset _EFR_HS_TRUSTED_PROGRAMS
+
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
 builtin typeset -gi _efr_hs_state=0
 builtin typeset -g _efr_hs_pwd=
@@ -127,12 +135,18 @@ _efr_hs_clear_line() {
 # A command line that the permission engine allowed must run as written. A global
 # alias (`alias -g L='| less'`, as oh-my-zsh's common-aliases defines) expands any
 # word of a line into pipes or other programs, and a suffix alias (`alias -s txt=vim`)
-# runs a program for a word that only names a file, so the hidden shell keeps neither.
+# runs a program for a word that only names a file, so the hidden shell keeps neither,
+# nor an alias or a function named like a program that a rule trusts.
 _efr_hs_plain_words() {
   builtin emulate -L zsh
   builtin zmodload zsh/parameter
   (( ${#galiases} )) && builtin unalias -- ${(k)galiases}
   (( ${#saliases} )) && builtin unalias -s -- ${(k)saliases}
+  builtin local name
+  for name in $_efr_hs_trusted; do
+    (( ${+aliases[$name]} )) && builtin unalias -- $name
+    (( ${+functions[$name]} )) && builtin unfunction -- $name
+  done
   return 0
 }
 
