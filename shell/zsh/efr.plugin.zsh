@@ -47,6 +47,7 @@
 zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+zmodload -F zsh/stat b:zstat 2>/dev/null
 autoload -Uz add-zsh-hook
 
 typeset -g _efr_sticky=0
@@ -65,6 +66,8 @@ typeset -gi _efr_model_names_at
 typeset -gi _efr_completion_ready
 # 1 while the line being accepted is a prompt that sticky mode sends to the agent.
 typeset -gi _efr_prompt_line
+# Where the per-user runtime directories live; tests point it at a temporary tree.
+typeset -g _efr_run_user=${_efr_run_user:-/run/user}
 # The last shell command line and its exit status, for the next `,` line, and the line
 # that is running now. Declared without values so that re-sourcing keeps them.
 typeset -g _efr_last_command _efr_last_command_status _efr_running
@@ -558,15 +561,39 @@ _efr_accept_line() {
 
 # --- daemon notices ---------------------------------------------------------------
 
+# Sets REPLY to the daemon's runtime root by the one rule that efr_stdx's Dirs::runtime
+# follows too: EFR_RUNTIME_DIR (which `just run` sets), else $EFR_HOME/runtime, else
+# $XDG_RUNTIME_DIR/efr, else /run/user/$UID/efr when /run/user/$UID exists, belongs to
+# this user and has mode 0700. An empty variable counts as unset, and so does an
+# XDG_RUNTIME_DIR that is not absolute, as the XDG specification says. Returns 1 when
+# there is no root: EFR_RUNTIME_DIR or EFR_HOME is not absolute, or nothing applies.
+_efr_runtime_root() {
+  emulate -L zsh
+  if [[ -n $EFR_RUNTIME_DIR ]]; then
+    REPLY=$EFR_RUNTIME_DIR
+  elif [[ -n $EFR_HOME ]]; then
+    REPLY=$EFR_HOME/runtime
+  elif [[ $XDG_RUNTIME_DIR == /* ]]; then
+    REPLY=$XDG_RUNTIME_DIR/efr
+  else
+    local dir=$_efr_run_user/$UID
+    local -a mode
+    [[ -d $dir && -O $dir ]] || return 1
+    zstat -A mode +mode -- $dir 2>/dev/null || return 1
+    (( (mode[1] & 8#7777) == 8#700 )) || return 1
+    REPLY=$dir/efr
+  fi
+  [[ $REPLY == /* ]]
+}
+
 # The daemon leaves notices (an approval waiting, a finished turn) in one file per
-# terminal under its runtime root; the prompt shows them. The root is the daemon's
-# (efr_stdx's Dirs::runtime): EFR_RUNTIME_DIR, which `just run` sets, else
-# $XDG_RUNTIME_DIR/efr. Moving the file first means a notice written while printing
-# lands in a new file instead of being lost.
+# terminal under its runtime root; the prompt shows them. Moving the file first means
+# a notice written while printing lands in a new file instead of being lost.
 _efr_print_notices() {
   [[ -n $TTY ]] || return 0
-  local root=${EFR_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$UID}/efr}
-  local file="$root/notices/${${TTY#/dev/}//\//-}"
+  local REPLY
+  _efr_runtime_root || return 0
+  local file="$REPLY/notices/${${TTY#/dev/}//\//-}"
   [[ -s $file ]] || return 0
   local shown="$file.shown.$$"
   zf_mv -f -- "$file" "$shown" 2>/dev/null || return 0

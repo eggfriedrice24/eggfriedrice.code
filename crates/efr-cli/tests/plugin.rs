@@ -1182,3 +1182,81 @@ fn e2e_completion_offers_the_modes_the_models_and_the_models_efforts() {
     let lists: Vec<&Vec<&str>> = args.iter().filter(|args| args[0] == "models").collect();
     assert_eq!(lists, [&vec!["models", "--names"]], "{args:?}");
 }
+
+/// The uid that owns the temporary home, which is this process's.
+fn uid(home: &Home) -> u32 {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata(home.path()).unwrap().uid()
+}
+
+/// Shows the notices of `/dev/pts/77` with the variables `env` set and those in
+/// `unset` removed, after `script`, and returns what was printed.
+fn notices_with(home: &Home, env: &[(&str, &str)], unset: &[&str], script: &str) -> String {
+    let full =
+        format!("source {}\n{script}\nTTY=/dev/pts/77\n_efr_print_notices\n", plugin().display());
+    let mut zsh = home.zsh();
+    zsh.envs(env.iter().copied());
+    for name in unset {
+        zsh.env_remove(name);
+    }
+    let output = zsh.args(["-f", "-i", "-c", &full]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn e2e_notices_follow_the_runtime_rule_with_efr_home() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let efr_home = home.path().join("efr-home");
+    let below_home = notice(&efr_home.join("runtime"), "from EFR_HOME");
+    let named = home.path().join("named");
+    notice(&named, "from EFR_RUNTIME_DIR");
+    // Home::zsh sets XDG_RUNTIME_DIR to the home, whose efr root holds another notice.
+    let xdg = notice(&home.path().join("efr"), "from XDG_RUNTIME_DIR");
+    let efr_home_text = efr_home.to_str().unwrap();
+
+    // EFR_HOME/runtime comes before XDG_RUNTIME_DIR.
+    assert_eq!(notices_with(&home, &[("EFR_HOME", efr_home_text)], &[], ""), "from EFR_HOME\n");
+    assert!(!below_home.exists());
+    // EFR_RUNTIME_DIR comes before EFR_HOME.
+    let env = [("EFR_HOME", efr_home_text), ("EFR_RUNTIME_DIR", named.to_str().unwrap())];
+    assert_eq!(notices_with(&home, &env, &[], ""), "from EFR_RUNTIME_DIR\n");
+    // A relative EFR_HOME is an error, as in efr: no root, and no fallback to XDG.
+    assert_eq!(notices_with(&home, &[("EFR_HOME", "efr-home")], &[], ""), "");
+    assert!(xdg.exists());
+    // An empty EFR_HOME counts as unset.
+    assert_eq!(notices_with(&home, &[("EFR_HOME", "")], &[], ""), "from XDG_RUNTIME_DIR\n");
+}
+
+#[test]
+fn e2e_without_xdg_runtime_dir_notices_come_from_a_private_run_user_dir() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let run_user = home.path().join("run-user");
+    let dir = run_user.join(uid(&home).to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    // The plugin's base for /run/user, so the test never reads the real one.
+    let script = format!("_efr_run_user={}", run_user.display());
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let file = notice(&dir.join("efr"), "from /run/user");
+    assert_eq!(notices_with(&home, &[], &["XDG_RUNTIME_DIR"], &script), "", "mode 0755");
+    assert!(file.exists());
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(notices_with(&home, &[], &["XDG_RUNTIME_DIR"], &script), "from /run/user\n");
+    assert!(!file.exists());
+
+    // A relative XDG_RUNTIME_DIR counts as unset, as the XDG specification says.
+    notice(&dir.join("efr"), "again from /run/user");
+    let env = [("XDG_RUNTIME_DIR", "relative")];
+    assert_eq!(notices_with(&home, &env, &[], &script), "again from /run/user\n");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(notices_with(&home, &[], &["XDG_RUNTIME_DIR"], &script), "", "no directory");
+}
