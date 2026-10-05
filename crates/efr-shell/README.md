@@ -53,6 +53,12 @@ prompts such as `sudo` stay visible.
   exists), `Completion::Interactive` when it waits for input (it has been quiet for
   `quiet_period` and the cursor sits after some text), and `Completion::StillRunning`
   otherwise.
+- Without the integration (a shell that is not a zsh, or a zsh whose first marked
+  prompt did not come within `startup_timeout`), and for `RunMode::Sentinel` (a shell
+  started inside the hidden one: `sudo -i`, `bash`, `ssh`), the command is delimited
+  with a random-token sentinel: `printf '__efr_%s_b\n' TOKEN; eval 'COMMAND'; printf
+  '\n__efr_%s_e:%s:%s\n' TOKEN "$?" "$PWD"`. The echo of the typed line never contains
+  a marker, because the token is never next to `__efr_` there.
 
 Waiting for input (`input.rs`, `modes.rs`), while a run's command runs (between `C`
 and `D`, or the two sentinels):
@@ -101,12 +107,6 @@ and `D`, or the two sentinels):
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
   minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
   clears it (no `sudo -k`); a later setting will control that.
-- Without the integration (a shell that is not a zsh, or a zsh whose first marked
-  prompt did not come within `startup_timeout`), and for `RunMode::Sentinel` (a shell
-  started inside the hidden one: `sudo -i`, `bash`, `ssh`), the command is delimited
-  with a random-token sentinel: `printf '__efr_%s_b\n' TOKEN; eval 'COMMAND'; printf
-  '\n__efr_%s_e:%s:%s\n' TOKEN "$?" "$PWD"`. The echo of the typed line never contains
-  a marker, because the token is never next to `__efr_` there.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:
