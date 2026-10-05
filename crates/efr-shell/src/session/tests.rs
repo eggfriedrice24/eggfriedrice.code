@@ -158,6 +158,49 @@ fn a_sentinel_run_left_running_still_forgets_credentials_when_it_ends() {
 }
 
 #[test]
+fn a_sentinel_run_after_a_run_that_forgets_waits_for_the_forget_key() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% ");
+    assert!(answer.try_recv().unwrap().is_ok(), "the run is answered at its end");
+
+    let (second, _second_answer, _) = order(2, "id", RunMode::Sentinel);
+    assert!(core.submit(second).is_empty(), "the sentinel line waits for the prompt");
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;B\x07");
+
+    assert_eq!(at_prompt.len(), 2, "{at_prompt:?}");
+    assert_eq!(at_prompt[0], b"\x1b[efr-forget~".to_vec(), "the forget key goes first");
+    assert!(String::from_utf8_lossy(&at_prompt[1]).contains("eval 'id'"), "{at_prompt:?}");
+}
+
+#[test]
+fn a_sentinel_run_goes_into_a_nested_shell_while_a_forget_key_waits_for_the_outer_prompt() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    feed(&mut core, &mut at, b"\x1b]133;C\x07");
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Sentinel);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(
+        &mut core,
+        &mut at,
+        b"__efr_0123456789abcdef_b\r\n\r\n__efr_0123456789abcdef_e:0:/root\r\n",
+    );
+    assert!(answer.try_recv().unwrap().is_ok(), "the run is answered at its end marker");
+
+    let (second, _second_answer, _) = order(2, "id", RunMode::Sentinel);
+    let writes = core.submit(second);
+
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert!(String::from_utf8_lossy(&writes[0]).contains("eval 'id'"), "{writes:?}");
+}
+
+#[test]
 fn a_run_before_the_prompt_is_typed_when_it_comes() {
     let (mut core, _) = core(true);
     let mut at = 0;

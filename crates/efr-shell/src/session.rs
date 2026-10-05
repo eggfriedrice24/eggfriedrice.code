@@ -257,6 +257,16 @@ impl SessionCore {
             }
             _ => {}
         }
+        // NOTE: between a command's end and the next prompt's `B`, where a pending forget
+        // key goes out, a sentinel line also waits for that `B`. Typed now, it would be
+        // read before the key, and the key would reach that line's command, which could
+        // take it as part of an answer, or the drain before the next `D` would throw it
+        // away and sudo would keep its credentials.
+        if self.forget_pending
+            && matches!(self.state.phase, Phase::Finished | Phase::Prompting { .. })
+        {
+            return Placement::Wait;
+        }
         match (mode, self.state.phase) {
             (RunMode::Sentinel, _) | (_, Phase::Unmarked) => Placement::Now(Delimiter::Sentinel),
             (_, Phase::Ready) => Placement::Now(Delimiter::Marks),

@@ -192,7 +192,11 @@ and `D`, or the two sentinels):
   timeout (sudo at its password prompt) still forgets when it ends. A run delimited
   by sentinels (a nested shell) forgets at the outer zsh's next `B` too: right after
   its end marker when it was typed at that prompt, and only when the nested shell
-  exits when it was typed into one. A shell without the integration (not a zsh, or
+  exits when it was typed into one. A sentinel run that comes after the end and
+  before that `B` waits for the `B` as well, so its line follows the key: the key
+  behind the line would reach the line's command, which could read it as part of an
+  answer, or the drain before the next `D` would throw it away and sudo would keep
+  its credentials. A shell without the integration (not a zsh, or
   the integration did not load) has no binding and no marks, so it keeps the cache;
   the session logs a warning once when such a shell gets a run that should forget.
 
