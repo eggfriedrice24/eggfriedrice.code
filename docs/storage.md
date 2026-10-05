@@ -17,7 +17,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_RUNTIME_DIR/efr/daemon.sock` (0600) | the Unix socket | `efr-transport/src/unix_listener.rs` |
 | `$XDG_RUNTIME_DIR/efr/daemon.json` | `{pid, socket, protocol, daemon_id, tailnet_endpoint?}` for discovery | `efr-daemon/src/discovery.rs` |
 | `$XDG_RUNTIME_DIR/efr/notices/<tty>` | notices for one terminal, shown and removed by the zsh plugin at the next prompt (`<tty>` is `$TTY` without `/dev/`, with `/` as `-`) | the daemon writes, `shell/zsh/efr.plugin.zsh` reads |
-| `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-daemon/src/config.rs`, `efr-scope/src/registry.rs` |
+| `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-config`, `efr-scope/src/registry.rs` |
 
 `EFR_DATA_DIR` and the matching variables for the other roots override each root, which
 is how tests and `just run` use temporary directories. The zsh plugin follows
