@@ -114,7 +114,20 @@ and `D`, or the two sentinels):
   from zsh's write of `D` until the session reads it. An answer counts as activity: the
   next look reports `None`, so a prompt that is asked again (`Sorry, try again.`) is a
   new change. The text is a `SecretText` throughout: no error, `Debug` output or log
-  carries it, and a hidden answer never reaches the output or the recording.
+  carries it, and the terminal does not echo a hidden answer into the output or the
+  recording (the program that reads it can still print it), with the one exception
+  below.
+- Two limits of an answer are known and left as they are. The modes are read and the
+  answer written in one step, with no await in between, but nothing locks the terminal:
+  in the microseconds between `tcgetattr` and `writev` the program can change its
+  modes, and when `sudo`'s own password timeout (five minutes by default) turns echo
+  back on right then, the terminal echoes the hidden answer into the output, the
+  recording and what the model reads. And an answer is tied to its call and to the
+  command waiting for that kind of input when it is written, not to the prompt that the
+  user saw: when one hidden prompt ends and another starts, a client learns of it only
+  at the next look, up to `quiet_period` later (never, when the new prompt prints
+  nothing, because the wait stays `Hidden`), so an answer typed for the first prompt in
+  that time goes to the second.
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
   minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
   clears it (no `sudo -k`); a later setting will control that.
@@ -246,7 +259,7 @@ clock and the seeded generator.
   or the text of an answer.
 - An answer reaches a terminal only while the same call's command runs, as far as the
   session has read the stream (`D` not yet read), and the terminal reads a line; a
-  hidden one only while echo is off.
+  hidden one only while echo is off, as read right before the write.
 
 ## Tests
 

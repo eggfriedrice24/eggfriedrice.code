@@ -14,6 +14,11 @@
 //!
 //! An answer resets the wait to `None` for one look, so the same prompt asked again
 //! (`Sorry, try again.`) is a new change that a client asks the user about again.
+//!
+//! NOTE: a wait is about the call's command, not about one prompt. When one hidden
+//! prompt ends and another starts, the change shows only at the next look (and not at
+//! all when the new prompt prints nothing, since both are `Hidden`), so an answer typed
+//! for the first prompt in that time goes to the second.
 
 use std::time::Duration;
 

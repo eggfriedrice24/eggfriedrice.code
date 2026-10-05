@@ -611,7 +611,9 @@ fn answer(
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
     // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to
     // a terminal query) can arrive after the answer; they cannot split it, because the
-    // answer is a single write of its own.
+    // answer is a single write of its own. Nothing locks the terminal between the read
+    // of the modes above and this write: when `sudo`'s own password timeout turns echo
+    // back on in those microseconds, the terminal echoes a hidden answer.
     terminal
         .write_line(text.expose_secret())
         .map_err(|source| ShellError::Terminal { conversation, source })?;
