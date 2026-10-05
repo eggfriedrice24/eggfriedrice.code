@@ -26,7 +26,7 @@ mod daemon {
         ShellContext, Size, TurnSteer,
     };
     use efr_stdx::time::Clock as _;
-    use efr_test_support::{TestClock, TestDirs};
+    use efr_test_support::{TestClock, TestDirs, Wait};
     use pretty_assertions::assert_eq;
 
     use crate::DaemonError;
@@ -314,30 +314,41 @@ mod daemon {
             }
         }
 
-        // The notice is written by its own task after the commit; yield until it is.
+        // The notice is written by its own task after the commit, on the blocking pool.
         let file = dirs.dirs().runtime().join("notices/pts-7");
-        let mut notice = None;
-        for _ in 0..100_000 {
-            if let Ok(text) = std::fs::read_to_string(&file)
-                && !text.is_empty()
-            {
-                notice = Some(text);
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(notice.as_deref(), Some("efr: turn finished: say hello\n"));
+        let notice = notice_in(&file).await;
+        assert_eq!(notice, "efr: turn finished: say hello\n");
 
         drop((terminal, watcher));
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
     }
 
+    /// The first full line in the notice file `file`, once the daemon has written it.
+    async fn notice_in(file: &std::path::Path) -> String {
+        Wait::new(&format!("a notice in {}", file.display()))
+            .until_some(|| std::fs::read_to_string(file).ok().filter(|text| text.ends_with('\n')))
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn a_terminal_that_followed_its_turn_to_the_end_gets_no_notice() {
+        use std::sync::Arc;
+
+        use tokio::sync::watch;
+
+        use crate::Settings;
+        use crate::testing::{GatedFactory, serve_with};
+
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
-        let daemon = serve(&dirs, &clock).await;
+        // The model answers once the terminal follows the conversation: with an answer
+        // at once, the notices could decide on the end of the turn before the
+        // subscription opens, which is a terminal that did not follow it.
+        let (gate, held) = watch::channel(false);
+        let deps = deps(&dirs, &clock).with_providers(Arc::new(GatedFactory(held)));
+        let daemon = serve_with(Settings::default(), deps).await;
         let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
         let sent: PromptSendResult = terminal
             .call(Method::PromptSend(prompt(1, "say hello", dirs.home().to_path_buf())))
@@ -350,6 +361,13 @@ mod daemon {
                 answers_input: false,
             }))
             .await;
+        let attached =
+            |seq| daemon.connections.attached(TTY, sent.conversation_id, clock.now(), seq);
+        Wait::new("the terminal's subscription")
+            .until(|| attached(Seq::new(u64::MAX)))
+            .await
+            .unwrap();
+        gate.send_replace(true);
         let mut completed = None;
         while let Some(item) = terminal.next(stream).await.unwrap() {
             if item["event"]["kind"] == "turn_completed" {
@@ -365,17 +383,10 @@ mod daemon {
         // record that covers the other order is checked directly. No subscription was
         // handed the last possible event, so that one is attached only while the
         // request is open.
-        let attached =
-            |seq| daemon.connections.attached(TTY, sent.conversation_id, clock.now(), seq);
-        let mut open = true;
-        for _ in 0..100_000 {
-            open = attached(Seq::new(u64::MAX));
-            if !open {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert!(!open, "the subscription ends with its connection");
+        Wait::new("the end of the subscription with its connection")
+            .until(|| !attached(Seq::new(u64::MAX)))
+            .await
+            .unwrap();
         assert!(attached(completed), "the ended subscription was handed the turn's last event");
 
         // A turn in another terminal that nobody follows. Notices are decided in commit
@@ -386,18 +397,8 @@ mod daemon {
             context.tty = Some("/dev/pts/8".to_owned());
         }
         let _: PromptSendResult = other.call(Method::PromptSend(elsewhere)).await.unwrap();
-        let file = dirs.dirs().runtime().join("notices/pts-8");
-        let mut notice = None;
-        for _ in 0..100_000 {
-            if let Ok(text) = std::fs::read_to_string(&file)
-                && !text.is_empty()
-            {
-                notice = Some(text);
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(notice.as_deref(), Some("efr: turn finished: say hello again\n"));
+        let notice = notice_in(&dirs.dirs().runtime().join("notices/pts-8")).await;
+        assert_eq!(notice, "efr: turn finished: say hello again\n");
         assert!(!dirs.dirs().runtime().join("notices/pts-7").exists());
 
         drop(other);
