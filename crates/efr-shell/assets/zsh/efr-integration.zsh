@@ -28,9 +28,10 @@
 # The programs that a permission rule trusts by name, from the daemon. An alias or a
 # function of the same name from the user's startup files would run something else
 # for a line that the engine allowed. Read once and kept out of every child's
-# environment.
+# environment. The user's .zshenv has run, so the `-` keeps NO_UNSET from stopping
+# this file when the daemon passed none.
 builtin typeset -ga _efr_hs_trusted
-_efr_hs_trusted=(${(s: :)_EFR_HS_TRUSTED_PROGRAMS})
+_efr_hs_trusted=(${(s: :)_EFR_HS_TRUSTED_PROGRAMS-})
 builtin unset _EFR_HS_TRUSTED_PROGRAMS
 
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.

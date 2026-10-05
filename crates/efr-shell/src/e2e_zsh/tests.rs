@@ -220,6 +220,18 @@ async fn e2e_an_alias_or_function_named_like_a_trusted_program_is_dropped() {
     assert_eq!(result.output, "/\nhi\nunset\n");
 }
 
+#[tokio::test]
+async fn e2e_the_integration_loads_when_the_users_zshenv_sets_no_unset() {
+    let Some(zsh) = Zsh::start("e2e_the_integration_loads_when_the_users_zshenv_sets_no_unset")
+    else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshenv"), "setopt no_unset\n").unwrap();
+    let result = zsh.run("echo marked").await;
+    assert_eq!(result.delimiter, Delimiter::Marks);
+    assert_eq!(result.output, "marked\n");
+}
+
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
 fn plugin() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shell/zsh/efr.plugin.zsh")
