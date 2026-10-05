@@ -319,6 +319,36 @@ mod daemon {
     }
 
     #[tokio::test]
+    async fn an_answer_with_nothing_to_answer_is_refused_without_repeating_it() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let daemon = serve(&dirs, &clock).await;
+        let (mut client, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        let answer = |text: &str| {
+            Method::InputRespond(efr_protocol::InputRespond {
+                conversation_id: efr_protocol::ConversationId::from_uuid(uuid::Uuid::from_u128(4)),
+                call_id: efr_protocol::CallId::from_uuid(uuid::Uuid::from_u128(5)),
+                text: efr_protocol::SecretText::new(text),
+                hidden: true,
+            })
+        };
+
+        let unknown = client.call::<serde_json::Value>(answer("hunter2")).await.unwrap_err();
+        assert_eq!(unknown.code, ErrorCode::NotFound);
+        assert!(!unknown.message.contains("hunter2"), "{}", unknown.message);
+        let two_lines = client.call::<serde_json::Value>(answer("hunter2\rls")).await.unwrap_err();
+        assert_eq!(two_lines.code, ErrorCode::Invalid);
+        assert!(!two_lines.message.contains("hunter2"), "{}", two_lines.message);
+        let long = "x".repeat(1025);
+        let too_long = client.call::<serde_json::Value>(answer(&long)).await.unwrap_err();
+        assert_eq!(too_long.code, ErrorCode::Invalid);
+
+        drop(client);
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn a_finished_turn_leaves_a_notice_for_a_terminal_that_does_not_follow_it() {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();

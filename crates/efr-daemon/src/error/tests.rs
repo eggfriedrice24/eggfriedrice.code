@@ -54,7 +54,18 @@ fn request_errors_map_to_the_code_a_client_acts_on() {
         ),
         (DaemonError::AlreadyRunning { path: PathBuf::from("/d/daemon.lock") }, ErrorCode::Busy),
         (DaemonError::TaskPanicked { task: "x" }, ErrorCode::Internal),
-        (DaemonError::NotWired { method: "input.respond" }, ErrorCode::Internal),
+        (
+            DaemonError::CallNotRunning { conversation_id, call_id: CallId::from_uuid(id(5)) },
+            ErrorCode::NotFound,
+        ),
+        (
+            DaemonError::NotWaitingForInput {
+                call_id: CallId::from_uuid(id(5)),
+                reason: "the terminal echoes what is typed",
+            },
+            ErrorCode::Conflict,
+        ),
+        (DaemonError::InvalidAnswer { reason: "it is longer than 1024 bytes" }, ErrorCode::Invalid),
     ];
     for (error, expected) in cases {
         let message = error.to_string();
@@ -159,6 +170,11 @@ fn an_overflow_carries_the_sequence_to_resume_after() {
 fn shell_and_login_errors_map_to_their_codes() {
     let conversation = ConversationId::from_uuid(id(1));
     assert_eq!(code(DaemonError::from(ShellError::NoShell { conversation })), ErrorCode::NotFound);
+    assert_eq!(code(DaemonError::from(ShellError::NoCall { conversation })), ErrorCode::NotFound);
+    let not_waiting = ShellError::NotWaiting { conversation, reason: "another call runs" };
+    assert_eq!(code(DaemonError::from(not_waiting)), ErrorCode::Conflict);
+    let invalid = ShellError::InvalidAnswer { reason: "it contains a control character" };
+    assert_eq!(code(DaemonError::from(invalid)), ErrorCode::Invalid);
     let login = |source| DaemonError::Login { source };
     assert_eq!(code(login(OAuthError::LoginInProgress)), ErrorCode::Busy);
     assert_eq!(

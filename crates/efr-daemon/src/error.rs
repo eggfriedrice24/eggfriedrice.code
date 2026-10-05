@@ -285,12 +285,6 @@ pub enum DaemonError {
     /// `hello` reached the dispatcher, which the transport never lets happen.
     #[error("hello was already sent on this connection")]
     HelloRepeated,
-    /// The method is part of the protocol, but this daemon has no handler for it yet.
-    #[error("{method} is not wired in this daemon yet")]
-    NotWired {
-        /// The wire method.
-        method: &'static str,
-    },
     /// The params break a rule that their type cannot express.
     #[error("the request is invalid: {reason}")]
     InvalidParams {
@@ -327,6 +321,28 @@ pub enum DaemonError {
         /// The PTY.
         pty_id: PtyId,
     },
+    /// No command runs in the conversation for an answer to reach.
+    #[error("no command of conversation {conversation_id} runs for call {call_id}")]
+    CallNotRunning {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The call the answer was for.
+        call_id: CallId,
+    },
+    /// The call's command does not wait for that input now, so nothing was written.
+    #[error("call {call_id} does not wait for this input: {reason}")]
+    NotWaitingForInput {
+        /// The call the answer was for.
+        call_id: CallId,
+        /// Why not, never quoting the answer.
+        reason: &'static str,
+    },
+    /// An answer is not one line that can be typed. The reason never quotes it.
+    #[error("the answer cannot be typed: {reason}")]
+    InvalidAnswer {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
     /// A command id was used before for another method.
     #[error("the command {command_id} was already used for {method}")]
     CommandReused {
@@ -349,13 +365,17 @@ impl DaemonError {
         match self {
             DaemonError::Forbidden { .. } => ErrorCode::Forbidden,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,
-            DaemonError::NoRunningTurn { .. } => ErrorCode::Conflict,
+            DaemonError::NoRunningTurn { .. } | DaemonError::NotWaitingForInput { .. } => {
+                ErrorCode::Conflict
+            }
             DaemonError::InvalidParams { .. }
             | DaemonError::InvalidCursor { .. }
-            | DaemonError::InvalidConfig { .. } => ErrorCode::Invalid,
+            | DaemonError::InvalidConfig { .. }
+            | DaemonError::InvalidAnswer { .. } => ErrorCode::Invalid,
             DaemonError::ConversationNotFound { .. }
             | DaemonError::ApprovalNotPending { .. }
-            | DaemonError::PtyNotFound { .. } => ErrorCode::NotFound,
+            | DaemonError::PtyNotFound { .. }
+            | DaemonError::CallNotRunning { .. } => ErrorCode::NotFound,
             DaemonError::AlreadyRunning { .. } => ErrorCode::Busy,
             DaemonError::Rejected { body } => body.code,
             DaemonError::Store { source } => store_code(source),
@@ -388,8 +408,7 @@ impl DaemonError {
             | DaemonError::OpenAi { .. }
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }
-            | DaemonError::TaskPanicked { .. }
-            | DaemonError::NotWired { .. } => ErrorCode::Internal,
+            | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }
 
@@ -493,7 +512,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
 
 fn shell_code(error: &ShellError) -> ErrorCode {
     match error {
-        ShellError::NoShell { .. } => ErrorCode::NotFound,
+        ShellError::NoShell { .. } | ShellError::NoCall { .. } => ErrorCode::NotFound,
+        ShellError::NotWaiting { .. } => ErrorCode::Conflict,
+        ShellError::InvalidAnswer { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     }
 }

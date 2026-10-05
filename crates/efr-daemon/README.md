@@ -75,8 +75,32 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   size without rows or columns and clamps a huge one.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed` and makes the running provider forget its cached token.
-- `input.respond` is a stub for now: it answers `internal` and writes nothing, until the
-  handler that types a waiting command's answer into its PTY lands.
+- `input.respond` types the line a user gave for a running tool call that waits for
+  input into the conversation's hidden shell, through `ShellSessions::answer`: only
+  while that call's command runs and the terminal reads a line, and for a hidden
+  answer only while echo is off, all checked by the shell's actor right before its one
+  write; the shell appends `\r`. A text that is not one line of at most 1024 bytes
+  without control characters is `invalid`, a conversation without a shell or without a
+  running command is `not_found`, and a command that does not wait for that input
+  (another call, a call left at its timeout, echo on for a hidden answer, the line
+  editor back at its prompt) is `conflict`; nothing is written then. There is no
+  receipt. The text is a `SecretText`: it reaches no log, error message, event or
+  receipt, and the handler logs only its length.
+- `conversation.subscribe` with `answers_input` from a connection that holds the
+  `terminal` scope counts, while its stream lasts, as a client at which a person can
+  answer a waiting command (`Connections::answerers`); the count drops when the stream
+  ends for any reason, or the connection closes. The toolbox (`tools.rs`) answers the
+  shell's question who can answer hidden input from it, when the command starts to
+  wait and at every look after: with no such client, a command that waits for hidden
+  input, such as a password, is interrupted at once (`SIGINT` to the foreground process
+  group) and the model reads that nobody could answer it, with the advice to have the
+  user run it in their own terminal or follow the turn while it retries. With one, the
+  command waits until it ends or its timeout passes. A visible wait (a `[Y/n]`
+  question) never stops a command.
+- `sudo` keeps its own credential cache on the hidden shell's terminal (about five
+  minutes by default), so a second `sudo` soon after an answered one may not ask again.
+  efr does not clear it; a later setting will control that. Every command with `sudo`
+  still needs the user's approval.
 
 ### Notices
 
@@ -147,11 +171,12 @@ Unit tests cover the config (precedence, refused keys and values, an insta snaps
 the effective dump), the error mapping, the scope table, prompt routing, receipts,
 reconciliation against the real store in memory, the idle collector's rule, the PTY
 fan-out with overflow, the connection table, notices, the lock, `daemon.json`, the
-providers and the tool adapter. The tests in `run/tests.rs` start the real daemon
+providers, the tool adapter and its answer to who can answer hidden input. The tests
+in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
-raw frames: a prompt followed to the end of its turn, routing and receipts, refusals,
-a notice for a terminal that does not follow its conversation and none for one that
+raw frames: a prompt followed to the end of its turn, routing and receipts, refusals
+(an answer with nothing to answer among them, its text never repeated), a notice for a terminal that does not follow its conversation and none for one that
 followed its turn to the end, and a second daemon refused by the lock. The tool adapter's tests run shell calls through the real
 toolbox and the engine with the defaults and with user rules: read-only commands run,
 other commands ask, a named secret is denied, and relative paths resolve where the
