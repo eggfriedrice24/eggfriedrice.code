@@ -71,6 +71,33 @@ fn a_text_answer_streams_one_message_from_created_to_completed() {
     assert_eq!(events[7].1["response"]["output"][0]["content"][0]["text"], "Hi there.");
 }
 
+#[test]
+fn a_tool_call_answer_sends_the_whole_call_in_one_item() {
+    let arguments = serde_json::json!({ "command": "true", "timeout_seconds": 600 });
+    let answer = ResponsesAnswer::tool_call("call_1", "shell", &arguments);
+
+    assert_eq!(answer.status, 200);
+    let events: Vec<serde_json::Value> = answer
+        .body
+        .split("\n\n")
+        .filter(|event| !event.is_empty())
+        .map(|event| {
+            let (_, data) = event.split_once('\n').unwrap();
+            serde_json::from_str(data.strip_prefix("data: ").unwrap()).unwrap()
+        })
+        .collect();
+    let kinds: Vec<&str> = events.iter().map(|event| event["type"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["response.created", "response.output_item.done", "response.completed"]);
+    let item = &events[1]["item"];
+    assert_eq!(item["type"], "function_call");
+    assert_eq!(item["call_id"], "call_1");
+    assert_eq!(item["name"], "shell");
+    let sent: serde_json::Value =
+        serde_json::from_str(item["arguments"].as_str().unwrap()).unwrap();
+    assert_eq!(sent, arguments);
+    assert_eq!(events[2]["response"]["output"][0], *item);
+}
+
 #[tokio::test]
 async fn requests_take_the_queued_answers_in_order_and_are_kept() {
     let server = ResponsesServer::start().await;

@@ -98,16 +98,37 @@ impl ResponsesAnswer {
                 serde_json::json!({ "response": response("completed", serde_json::json!([message(true)])) }),
             ),
         ];
-        let body = events
-            .into_iter()
-            .enumerate()
-            .map(|(sequence, (kind, mut data))| {
-                data["type"] = kind.into();
-                data["sequence_number"] = sequence.into();
-                format!("event: {kind}\ndata: {data}\n\n")
+        ResponsesAnswer::new(200, sse_body(events))
+    }
+
+    /// A 200 answer that asks for one function call of the tool `name` with
+    /// `arguments` (a JSON object), sent whole in `response.output_item.done`, as a
+    /// server may send an item without deltas.
+    pub fn tool_call(call_id: &str, name: &str, arguments: &Value) -> Self {
+        let id = "0123456789abcdef0123456789abcdef";
+        let item = serde_json::json!({
+            "id": format!("fc_{id}"), "type": "function_call", "status": "completed",
+            "call_id": call_id, "name": name, "arguments": arguments.to_string(),
+        });
+        let response = |status: &str, output: Value| {
+            serde_json::json!({
+                "id": format!("resp_{id}"), "object": "response", "created_at": 1_791_115_200,
+                "status": status, "model": "gpt-5.5", "output": output,
+                "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
             })
-            .collect::<String>();
-        ResponsesAnswer::new(200, body)
+        };
+        let events = [
+            (
+                "response.created",
+                serde_json::json!({ "response": response("in_progress", serde_json::json!([])) }),
+            ),
+            ("response.output_item.done", serde_json::json!({ "output_index": 0, "item": item })),
+            (
+                "response.completed",
+                serde_json::json!({ "response": response("completed", serde_json::json!([item])) }),
+            ),
+        ];
+        ResponsesAnswer::new(200, sse_body(events))
     }
 
     /// The answer a `provider_sse` text stands for. A first line `: status <code>`, a
@@ -127,6 +148,19 @@ impl ResponsesAnswer {
             None => ResponsesAnswer::new(200, text),
         }
     }
+}
+
+/// Server-sent events of the Responses stream, each with its type and sequence number.
+fn sse_body(events: impl IntoIterator<Item = (&'static str, Value)>) -> String {
+    events
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, (kind, mut data))| {
+            data["type"] = kind.into();
+            data["sequence_number"] = sequence.into();
+            format!("event: {kind}\ndata: {data}\n\n")
+        })
+        .collect()
 }
 
 /// A request the server got.
