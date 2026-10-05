@@ -148,12 +148,12 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
     let previous = state.reloads.last();
     let (now, result) = match outcome {
         Ok(restart_needed) => {
-            tracing::info!(trigger, restart_needed = ?restart_needed, "config reloaded");
+            tracing::info!(restart_needed = ?restart_needed, "config reloaded");
             let now = Outcome { error: None, restart_needed: restart_needed.clone() };
             (now, AdminConfigReloadResult { applied: true, error: None, restart_needed })
         }
         Err(error) => {
-            tracing::warn!(trigger, error = %error.message, "config.toml has an error; the old settings stay");
+            tracing::warn!(error = %error.message, "config.toml has an error; the old settings stay");
             let restart_needed = previous.restart_needed.clone();
             let now =
                 Outcome { error: Some(error.clone()), restart_needed: restart_needed.clone() };
