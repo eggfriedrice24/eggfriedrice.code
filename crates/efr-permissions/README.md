@@ -55,11 +55,14 @@ Modules:
   cluster, `-word` as `find` reads it, or a substring of an operand), `min_operands`
   and `max_operands`, `max_options` (with `max_operands`, 0 allows the `args` alone),
   and `under`, a directory the command must run in or below, which matches only while
-  the line's directory is known: before any `cd`, `pushd` or `popd` in it. `Policy::defaults()` is the table above as eight rules followed by the
-  read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`,
-  `systemctl status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without
-  `-exec` or `-delete` and more; `env` and `printenv` are left out because they print
-  tokens, and `systemctl show` must name a unit for the same reason);
+  the line's directory is known: before any `cd`, `pushd` or `popd` in it.
+  `Policy::defaults()` is the table above as eight rules followed by the read-only
+  commands of `policy/defaults.rs` (`ls`, `cat`, `rg`, `git status`, `systemctl
+  status`, `journalctl` without `--vacuum*`, `pacman -Q*`, `find` without `-exec` or
+  `-delete` and more; `env` and `printenv` are left out because they print tokens, and
+  `systemctl show` must name a unit, `ps` may hold no `e` outside a long option and no
+  `--format`, and `jq` may use no `env`, `$ENV`, program file or module, for the same
+  reason);
   `policy/defaults.md` is the same table for the docs, and tests keep it, the table in
   `docs/permissions.md` and the data equal. The daemon appends the user's configured rules with `then`. Rules deserialize
   from TOML with unknown keys refused, and every rule is checked when a policy is
