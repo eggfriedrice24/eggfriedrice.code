@@ -13,6 +13,8 @@ doctest = false
 
 [dependencies]
 efr-protocol.workspace = true
+# Only for the JSON schema of the rules in config.toml, which efr-config publishes.
+schemars.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

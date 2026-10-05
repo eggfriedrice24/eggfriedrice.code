@@ -17,6 +17,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::command::{self, is_plain_char};
@@ -25,7 +26,7 @@ use crate::{Access, Effect, PathClass, PermissionsError};
 
 /// One rule: when a requirement matches `action` and `resource`, its effect is
 /// `effect`, unless a later rule matches too.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
     /// What the requirement does.
@@ -44,7 +45,7 @@ impl Rule {
 }
 
 /// What a requirement does, as a rule matches it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     /// Every requirement.
@@ -72,7 +73,7 @@ impl fmt::Display for Action {
 }
 
 /// What a requirement acts on, as a rule matches it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Resource {
     /// Every path, command line and network access.
@@ -107,7 +108,7 @@ pub enum Resource {
 /// command with a pattern outside quotes, such as `src/*.rs`, matches only a pattern
 /// that sets no operand bound, forbids no word without a dash and has no wildcard
 /// alternative without one, because zsh replaces the pattern with the names it matches.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommandPattern {
     /// The first word of the simple command, such as `git`. A path such as `/bin/ls`
@@ -345,7 +346,7 @@ fn options(words: &[String]) -> usize {
 ///
 /// Every rule is checked when the policy is built, from code or from the configuration,
 /// so a policy never holds a rule that cannot match.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "Vec<Rule>", into = "Vec<Rule>")]
 pub struct Policy {
     rules: Vec<Rule>,

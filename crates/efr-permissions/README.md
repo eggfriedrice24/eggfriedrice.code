@@ -81,7 +81,8 @@ Tier 1.
 the allowlist, and forbids `efr-tools -> efr-permissions` so a tool can never grant
 itself anything.
 
-Third-party crates: `serde` (rules in the configuration) and `thiserror`.
+Third-party crates: `serde` (rules in the configuration), `schemars` (the JSON schema of
+those rules, which `efr-config` publishes) and `thiserror`.
 
 ## Invariant
 

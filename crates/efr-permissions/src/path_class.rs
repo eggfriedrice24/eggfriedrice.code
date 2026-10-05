@@ -13,6 +13,7 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::ProjectId;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::PermissionsError;
@@ -29,7 +30,9 @@ use crate::PermissionsError;
 ///
 /// The enum is deliberately exhaustive: a new class must make every consumer decide
 /// what it means, instead of falling into a wildcard arm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PathClass {
     /// The conversation's own `$SCRATCH` directory.

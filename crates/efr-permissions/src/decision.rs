@@ -4,6 +4,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use efr_protocol::Origin;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{Access, Construct, PathClass};
@@ -13,7 +14,9 @@ use crate::{Access, Construct, PathClass};
 ///
 /// The enum is deliberately exhaustive: the check point in `efr-conversation` must
 /// handle every effect, and a new one must not fall into a wildcard arm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
     /// The call runs.

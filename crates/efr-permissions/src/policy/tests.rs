@@ -688,3 +688,17 @@ fn reading_checks_the_rules() {
 fn unknown_keys_and_values_are_refused(#[case] text: &str) {
     assert!(toml::from_str::<Config>(text).is_err());
 }
+
+#[test]
+fn the_json_schema_of_a_policy_is_a_list_of_rules_with_every_resource() {
+    let schema = schemars::schema_for!(Policy);
+    let text = schema.as_value().to_string();
+
+    assert_eq!(schema.get("type").and_then(|kind| kind.as_str()), Some("array"));
+    for name in ["action", "resource", "effect", "command", "under", "class", "max_operands"] {
+        assert!(text.contains(&format!("\"{name}\"")), "{name} is missing from {text}");
+    }
+    for value in ["execute", "network", "secrets", "user_config", "deny", "project"] {
+        assert!(text.contains(&format!("\"{value}\"")), "{value} is missing from {text}");
+    }
+}
