@@ -96,6 +96,23 @@ const UV_FORBID: &[&str] = &[
     "--find-links",
 ];
 
+/// What makes `git checkout` throw away changes in the work tree, or take paths from
+/// a file.
+const CHECKOUT_FORBID: &[&str] = &[
+    "-p",
+    "--patch",
+    "-f",
+    "--force",
+    "--ours",
+    "--theirs",
+    "-m",
+    "--merge",
+    "--conflict",
+    "--overlay",
+    "--no-overlay",
+    "--pathspec-from-file",
+];
+
 /// What makes `git fetch` and `git pull` run a program or send data to the remote.
 const GIT_REMOTE_FORBID: &[&str] =
     &["--upload-pack", "--exec", "-o", "--server-option", "-s", "--strategy"];
@@ -226,24 +243,21 @@ const ROWS: &[Row] = &[
         forbid: &["--discard-changes", "-f", "--force"],
         ..TOOL
     },
-    // A branch only: a path, `.`, `--` or a pathspec would throw away changes.
+    // A branch only: a path, `.`, `--` or a pathspec would throw away changes. One
+    // operand, because a second one after a branch is a path to restore from it.
     Row {
         program: "git",
         args: &["checkout"],
-        forbid: &[
-            "-p",
-            "--patch",
-            "-f",
-            "--force",
-            "--ours",
-            "--theirs",
-            "-m",
-            "--merge",
-            "--conflict",
-            "--overlay",
-            "--no-overlay",
-            "--pathspec-from-file",
-        ],
+        forbid: CHECKOUT_FORBID,
+        operands: AtMost(1),
+        check: Some(Check::RefNames),
+        ..TOOL
+    },
+    // A new branch, and the commit it starts at.
+    Row {
+        program: "git",
+        args: &["checkout", "-b|-B"],
+        forbid: CHECKOUT_FORBID,
         operands: AtMost(2),
         check: Some(Check::RefNames),
         ..TOOL

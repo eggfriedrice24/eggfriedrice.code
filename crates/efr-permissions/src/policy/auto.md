@@ -36,16 +36,17 @@
 | 157-158 | `git` | `add` |  |  |  |  |  | project, scratch |  |
 | 159-160 | `git` | `commit` |  |  |  |  |  | project, scratch |  |
 | 161-162 | `git` | `switch` | `--discard-changes` `-f` `--force` |  |  |  |  | project, scratch |  |
-| 163-164 | `git` | `checkout` | `-p` `--patch` `-f` `--force` `--ours` `--theirs` `-m` `--merge` `--conflict` `--overlay` `--no-overlay` `--pathspec-from-file` |  | 2 |  | `ref_names` | project, scratch |  |
-| 165-166 | `git` | `restore` `--staged\|-S` | `-W` `--worktree` `-p` `--patch` |  |  |  |  | project, scratch |  |
-| 167-168 | `git` | `stash` |  |  | 0 | 0 |  | project, scratch |  |
-| 169-170 | `git` | `stash` `push\|list\|show\|apply\|pop` |  |  |  |  |  | project, scratch |  |
-| 171-172 | `git` | `merge` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 173-174 | `git` | `rebase` | `-i` `--interactive` `-x` `--exec` `--edit-todo` `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 175-176 | `git` | `cherry-pick` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 177-178 | `git` | `tag` | `-d` `--delete` `-f` `--force` `-s` `--sign` `-u` `--local-user` `-v` `--verify` |  |  |  |  | project, scratch |  |
-| 179-180 | `git` | `mv` |  |  |  |  |  | project, scratch |  |
-| 181-182 | `git` | `rm` |  |  |  |  |  | project, scratch |  |
-| 183-184 | `git` | `worktree` `add\|list` |  |  |  |  |  | project, scratch |  |
-| 185-188 | `git` | `fetch` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |
-| 189-192 | `git` | `pull` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |
+| 163-164 | `git` | `checkout` | `-p` `--patch` `-f` `--force` `--ours` `--theirs` `-m` `--merge` `--conflict` `--overlay` `--no-overlay` `--pathspec-from-file` |  | 1 |  | `ref_names` | project, scratch |  |
+| 165-166 | `git` | `checkout` `-b\|-B` | `-p` `--patch` `-f` `--force` `--ours` `--theirs` `-m` `--merge` `--conflict` `--overlay` `--no-overlay` `--pathspec-from-file` |  | 2 |  | `ref_names` | project, scratch |  |
+| 167-168 | `git` | `restore` `--staged\|-S` | `-W` `--worktree` `-p` `--patch` |  |  |  |  | project, scratch |  |
+| 169-170 | `git` | `stash` |  |  | 0 | 0 |  | project, scratch |  |
+| 171-172 | `git` | `stash` `push\|list\|show\|apply\|pop` |  |  |  |  |  | project, scratch |  |
+| 173-174 | `git` | `merge` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
+| 175-176 | `git` | `rebase` | `-i` `--interactive` `-x` `--exec` `--edit-todo` `-s` `--strategy` |  |  |  |  | project, scratch |  |
+| 177-178 | `git` | `cherry-pick` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
+| 179-180 | `git` | `tag` | `-d` `--delete` `-f` `--force` `-s` `--sign` `-u` `--local-user` `-v` `--verify` |  |  |  |  | project, scratch |  |
+| 181-182 | `git` | `mv` |  |  |  |  |  | project, scratch |  |
+| 183-184 | `git` | `rm` |  |  |  |  |  | project, scratch |  |
+| 185-186 | `git` | `worktree` `add\|list` |  |  |  |  |  | project, scratch |  |
+| 187-190 | `git` | `fetch` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |
+| 191-194 | `git` | `pull` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |

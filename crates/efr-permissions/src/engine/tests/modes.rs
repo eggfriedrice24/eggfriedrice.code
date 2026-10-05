@@ -254,6 +254,7 @@ fn auto_asks_for_the_table_outside_the_project_and_scratch(
 #[case::git_checkout_dot("git checkout -- .")]
 #[case::git_checkout_bare_dot("git checkout .")]
 #[case::git_checkout_force("git checkout -f main")]
+#[case::git_checkout_path_from_a_branch("git checkout main src/main.rs")]
 #[case::git_restore_worktree("git restore src/main.rs")]
 #[case::git_restore_both("git restore --staged --worktree x")]
 #[case::git_switch_discard("git switch --discard-changes main")]
