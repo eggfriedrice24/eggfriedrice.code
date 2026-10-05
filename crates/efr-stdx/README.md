@@ -71,7 +71,6 @@ table names the same set. An empty value counts as unset.
 | `EFR_STATE_DIR` | An absolute path that replaces `$XDG_STATE_HOME/efr`. |
 | `EFR_RUNTIME_DIR` | An absolute path that replaces `$XDG_RUNTIME_DIR/efr`. |
 | `EFR_OPEN_BROWSER` | A flag. When it is on, `efr login openai` opens the login URL in a browser. |
-| `EFR_RECORD_TRANSCRIPT` | An absolute path. `efrd` writes an NDJSON transcript of provider traffic and PTY bytes to it. |
 | `EFR_TEST_ZSH` | A flag. Tests that drive a real zsh run only when it is on. |
 | `EFR_MODE` | The permission mode that `efr send`, `efr new` and `efr settings` ask for: `manual`, `cautious` or `auto`. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_MODEL` | The model that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |

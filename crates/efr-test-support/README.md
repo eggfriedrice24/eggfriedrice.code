@@ -89,9 +89,9 @@ Third-party crates: `async-trait`, `base64`, `futures`, `jiff`, `serde`, `serde_
 - Nothing here reads the wall clock or waits on real time.
 - The `TestRng` sequence never changes: fixtures hold ids made from it, and a test pins
   its first values.
-- The transcript format is defined here, in `ndjson`. The daemon's recorder behind
-  `EFR_RECORD_TRANSCRIPT` may not depend on this crate, so it must write the same
-  shape; `Transcript::to_ndjson` is the reference for it.
+- The transcript format is defined here, in `ndjson`. A recorder in a shipped binary
+  may not depend on this crate, so it must write the same shape;
+  `Transcript::to_ndjson` is the reference for it.
 
 ## Tests
 

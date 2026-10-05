@@ -137,7 +137,6 @@ fn all_lists_every_variant() {
         Var::StateDir,
         Var::RuntimeDir,
         Var::OpenBrowser,
-        Var::RecordTranscript,
         Var::TestZsh,
         Var::Mode,
         Var::Model,
@@ -156,7 +155,6 @@ fn all_lists_every_variant() {
             | Var::StateDir
             | Var::RuntimeDir
             | Var::OpenBrowser
-            | Var::RecordTranscript
             | Var::TestZsh
             | Var::Mode
             | Var::Model

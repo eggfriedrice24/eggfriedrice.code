@@ -1,10 +1,9 @@
 //! The transcript hook.
 //!
-//! With `EFR_RECORD_TRANSCRIPT` set, the daemon gives its [`HttpClient`] a
-//! [`Recorder`] that writes provider traffic to an NDJSON transcript, which is how
-//! replay fixtures are captured from a live session. This module only defines what
-//! the client reports; the file format belongs to the daemon and the test support
-//! crate.
+//! A [`Recorder`] given to an [`HttpClient`] receives its recorded exchanges, which is
+//! how a later tool can capture replay fixtures from a live session. No binary installs
+//! one yet: the replay fixtures are written by hand. This module only defines what the
+//! client reports; the file format belongs to the test support crate.
 //!
 //! Only requests marked with [`HttpRequest::recorded`] are reported, and headers and
 //! URLs arrive already redacted.

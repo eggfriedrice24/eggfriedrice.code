@@ -27,8 +27,8 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   tailscaled's LocalAPI at the phone milestone. Its timeout runs on the injected
   clock.
 - `redact`: header and URL redaction for logs, errors and transcripts.
-- `recorder`: the `Recorder` hook through which the daemon writes provider traffic to
-  an NDJSON transcript (`EFR_RECORD_TRANSCRIPT`). Recording is opt-in per request.
+- `recorder`: the `Recorder` hook that receives provider traffic, for capturing a
+  transcript later; no binary installs one yet. Recording is opt-in per request.
 
 Consumers: `efr-provider-openai` (the streaming Responses API), `efr-oauth-openai`
 (token exchange and refresh), and later the daemon's tailnet whois check.

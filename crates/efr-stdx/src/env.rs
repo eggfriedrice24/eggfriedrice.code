@@ -36,9 +36,6 @@ pub enum Var {
     /// `EFR_OPEN_BROWSER`: a flag; when it is on, `efr login openai` opens the login
     /// URL in a browser.
     OpenBrowser,
-    /// `EFR_RECORD_TRANSCRIPT`: an absolute path; `efrd` writes an NDJSON transcript
-    /// of provider traffic and PTY bytes to it.
-    RecordTranscript,
     /// `EFR_TEST_ZSH`: a flag; tests that drive a real zsh run only when it is on.
     TestZsh,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
@@ -74,7 +71,6 @@ impl Var {
         Var::StateDir,
         Var::RuntimeDir,
         Var::OpenBrowser,
-        Var::RecordTranscript,
         Var::TestZsh,
         Var::Mode,
         Var::Model,
@@ -109,7 +105,6 @@ impl Var {
             Var::StateDir => "EFR_STATE_DIR",
             Var::RuntimeDir => "EFR_RUNTIME_DIR",
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
-            Var::RecordTranscript => "EFR_RECORD_TRANSCRIPT",
             Var::TestZsh => "EFR_TEST_ZSH",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
