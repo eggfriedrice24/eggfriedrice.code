@@ -20,7 +20,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: taiki-e/install-action@v2
         with:
@@ -31,7 +31,7 @@ jobs:
   tidy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask tidy
@@ -88,7 +88,7 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --exclude efr-screen-ghostty --all-targets -- -D warnings
@@ -96,7 +96,7 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: taiki-e/install-action@v2
         with:
@@ -106,7 +106,7 @@ jobs:
   test-leaf:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
@@ -131,7 +131,7 @@ jobs:
   test-full:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
@@ -142,7 +142,7 @@ jobs:
   ghostty:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: check for the ghostty screen crate
         id: present
         shell: bash
@@ -156,6 +156,9 @@ jobs:
       - if: steps.present.outputs.run == 'true'
         run: rustup toolchain install
       # Zig 0.16.0 exactly: the pin triple in docs/ghostty-pin.md.
+      # NOTE: every release of setup-zig up to v2.2.1, on GitHub and on Codeberg, still
+      # declares node20; GitHub runs it on Node 24 and warns. Move to the first release
+      # that declares node24.
       - if: steps.present.outputs.run == 'true'
         uses: mlugg/setup-zig@v2
         with:
@@ -181,7 +184,7 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: check for the shell crates
         id: present
         shell: bash
@@ -213,7 +216,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
@@ -223,7 +226,7 @@ jobs:
   hack:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
