@@ -133,7 +133,9 @@ pub enum Completion {
     /// The command waited for hidden input, such as a password, while
     /// [`RunProgress::can_answer_hidden`] said that nobody could answer it, so the run
     /// sent `SIGINT` to the terminal's foreground process group and returned at once.
-    /// The command may still be ending; the next run waits for its prompt.
+    /// When the command had ended by then and the shell held the terminal again, no
+    /// signal was sent. The command may still be ending; the next run waits for its
+    /// prompt.
     Unanswered,
 }
 

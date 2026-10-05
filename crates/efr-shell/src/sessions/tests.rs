@@ -1,6 +1,7 @@
 //! The manager over a fake holder: the test plays the shell on the other end of a
 //! socketpair and drives time with a manual clock, so nothing waits on real time.
 
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -15,14 +16,15 @@ use tokio::task::JoinHandle;
 
 use super::{CommandRunner, ShellSessions, replay_name, screen_name};
 use crate::input::Probe;
+use crate::modes::Terminal;
 use crate::session::{Life, Msg, SessionHandle};
 use crate::testing::{
-    AnsweringScreens, CountingScreens, FakeTerminal, Harness, Heard, SIZE, Vt100Screens,
+    AnsweringScreens, CountingScreens, FakeModes, FakeTerminal, Harness, Heard, SIZE, Vt100Screens,
     conversation, listener,
 };
 use crate::{
     CommandResult, Completion, Delimiter, InputModes, NoProgress, OutputUpdate, Phase, RunMode,
-    RunRequest, ScreenFactory, ShellError, ShellNotice,
+    RunProgress, RunRequest, ScreenFactory, ShellError, ShellNotice, TerminalModes,
 };
 
 const ZSH: &str = "/usr/bin/zsh";
@@ -950,6 +952,9 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
     let (writer, _writes) = mpsc::channel(8);
     let (_life, life) = watch::channel(Life::Running);
     let (screen, _events) = Vt100Screens.spawn("screen-test", SIZE).unwrap();
+    let (master, _shell_end) = std::os::unix::net::UnixStream::pair().unwrap();
+    let master = crate::reader::master(OwnedFd::from(master)).unwrap();
+    let modes = Arc::clone(&harness.modes) as Arc<dyn TerminalModes>;
     let session = SessionHandle {
         conversation: conversation(1),
         pty_id: "01920000-0000-7000-8000-0000000000aa".parse().unwrap(),
@@ -957,6 +962,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         screen,
         inbox,
         writer,
+        terminal: Terminal::new(master, modes, 1000),
         life,
         size: Arc::new(Mutex::new(SIZE)),
     };
@@ -987,4 +993,51 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
     assert!(matches!(error, ShellError::Exited { .. }), "{error:?}");
     assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
     drop(order);
+}
+
+/// A listener at whose question nobody can answer, and at which the command's job ends
+/// and the shell takes the terminal back, as when `sudo` gives up right then.
+struct EndsAtTheQuestion {
+    modes: Arc<FakeModes>,
+    shell: u32,
+}
+
+impl RunProgress for EndsAtTheQuestion {
+    fn update(&mut self, _update: &OutputUpdate) {}
+
+    fn can_answer_hidden(&mut self) -> bool {
+        self.modes.set_foreground(self.shell);
+        false
+    }
+}
+
+#[tokio::test]
+async fn a_stop_sends_no_signal_once_the_shell_holds_the_terminal_again() {
+    let harness = Harness::new(ZSH);
+    let shell = harness.sessions.open(conversation(1), Path::new("/home/u")).await.unwrap().pid;
+    let mut progress = EndsAtTheQuestion { modes: Arc::clone(&harness.modes), shell };
+    let sessions = harness.sessions.clone();
+    let sudo = request("sudo true").with_call(call()).with_timeout(Duration::from_secs(600));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), sudo, &mut progress).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    terminal.print(b"\r\n\x1b]133;C\x07[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    one_look(&harness).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Unanswered);
+    // A SIGINT now would reach zsh in its precmd hooks.
+    assert_eq!(harness.holder.signals(), []);
+
+    // The command's own `D` still frees the shell for the next run.
+    let next = spawn_run(&harness.sessions, request("true"));
+    terminal.print(b"\r\nsudo: timed out\r\n\x1b]133;D;1\x07").await;
+    terminal.prompt().await;
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    terminal.run(b"", 0).await;
+    assert_eq!(next.await.unwrap().unwrap().exit_code, Some(0));
 }

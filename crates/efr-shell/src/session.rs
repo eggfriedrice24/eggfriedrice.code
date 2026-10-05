@@ -634,6 +634,8 @@ pub(crate) struct SessionHandle {
     pub(crate) screen: ScreenHandle,
     pub(crate) inbox: mpsc::Sender<Msg>,
     pub(crate) writer: mpsc::Sender<Bytes>,
+    /// The master and who holds it, read right before a stop sends `SIGINT`.
+    pub(crate) terminal: Terminal,
     pub(crate) life: watch::Receiver<Life>,
     /// The terminal size the shell's programs see, shared by every clone; a finished
     /// command's output is replayed at this width.

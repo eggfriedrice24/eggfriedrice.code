@@ -86,8 +86,11 @@ and `D`, or the two sentinels):
   says it when no client that can type answers follows the conversation) detaches the
   run, sends `SIGINT` to the foreground process group, as `interrupt` does, and returns
   `Completion::Unanswered` with the output so far at once; the next run waits for the
-  prompt. A visible wait never stops a command: it is a guess, and a slow command whose
-  last line is unfinished looks the same.
+  prompt. Right before the signal it reads the foreground group again: when the command
+  ended meanwhile and the shell's own group holds the terminal (zsh in its precmd hooks,
+  before `D`), it sends nothing, because the signal would reach zsh and could cut short
+  the hook that prints `D`. A visible wait never stops a command: it is a guess, and a
+  slow command whose last line is unfinished looks the same.
 - `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the tool
   call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters (U+0000

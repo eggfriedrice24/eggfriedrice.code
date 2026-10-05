@@ -394,7 +394,7 @@ impl ShellSessions {
             clock: Arc::clone(&deps.clock),
             holder: Arc::clone(&deps.holder),
             writer: writer.clone(),
-            terminal,
+            terminal: terminal.clone(),
             screen: screen.clone(),
             tasks,
             life,
@@ -408,6 +408,7 @@ impl ShellSessions {
             screen,
             inbox,
             writer,
+            terminal,
             life: lives,
             size: Arc::new(Mutex::new(inner.config.size)),
         })
@@ -577,9 +578,25 @@ impl ShellSessions {
         // Detached first, so the end that SIGINT brings belongs to the orphan, and this
         // result says why the command stopped.
         let detached = self.detach(session, id, guard).await?;
-        tracing::info!(%conversation, "a command waits for hidden input that no client can answer; interrupting it");
-        if let Err(error) = self.interrupt(conversation).await {
-            tracing::warn!(%conversation, error = %error, "could not interrupt a command that waits for hidden input");
+        // NOTE: the command may have ended since the look. zsh then holds the terminal
+        // again and runs its precmd hooks, and a SIGINT to the foreground group would
+        // reach zsh and could cut short the hook that prints `D`, which the orphan waits
+        // for. So the group is read right before the signal, and nothing is sent while
+        // the shell holds the terminal. What is left is the moment between this read
+        // and the holder's own read of the group as it signals.
+        match session.terminal.shell_holds() {
+            Ok(false) => {
+                tracing::info!(%conversation, "a command waits for hidden input that no client can answer; interrupting it");
+                if let Err(error) = self.interrupt(conversation).await {
+                    tracing::warn!(%conversation, error = %error, "could not interrupt a command that waits for hidden input");
+                }
+            }
+            Ok(true) => {
+                tracing::debug!(%conversation, "a command that waited for hidden input ended before the stop; nothing is interrupted");
+            }
+            Err(error) => {
+                tracing::warn!(%conversation, error = %error, "could not read who holds the terminal; a command that waits for hidden input is not interrupted");
+            }
         }
         match detached {
             Detached::Running { kept, range, cwd, delimiter, .. } => {

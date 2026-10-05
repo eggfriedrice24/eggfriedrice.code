@@ -93,11 +93,16 @@ impl Terminal {
     /// shell itself holds the terminal, at its prompt, in its hooks, or running a
     /// builtin or a function. Input typed then would reach the shell, not a command.
     pub(crate) fn job_modes(&self) -> io::Result<Option<InputModes>> {
-        let master = self.master.get_ref().as_fd();
-        if self.modes.foreground(master)? == self.shell {
+        if self.shell_holds()? {
             return Ok(None);
         }
-        self.modes.read(master).map(Some)
+        self.modes.read(self.master.get_ref().as_fd()).map(Some)
+    }
+
+    /// True while the shell's own process group is in the terminal's foreground, so
+    /// typed input and a signal to the foreground group would reach the shell.
+    pub(crate) fn shell_holds(&self) -> io::Result<bool> {
+        Ok(self.modes.foreground(self.master.get_ref().as_fd())? == self.shell)
     }
 
     /// Writes `text` and a carriage return in one system call, as Enter would end the
