@@ -92,8 +92,13 @@ impl<'a> Wait<'a> {
         let start = Instant::now();
         let mut polls: u32 = 0;
         loop {
-            if let Some(value) = poll().await {
-                return Ok(value);
+            // NOTE: a poll that never resolves, such as a request to a stuck actor, is cut
+            // at the limit too, so the wait fails with its description.
+            let left = self.limit.saturating_sub(start.elapsed());
+            match SystemClock.timeout(left, poll()).await {
+                Ok(Some(value)) => return Ok(value),
+                Ok(None) => {}
+                Err(_) => return Err(self.timed_out()),
             }
             if start.elapsed() >= self.limit {
                 return Err(self.timed_out());

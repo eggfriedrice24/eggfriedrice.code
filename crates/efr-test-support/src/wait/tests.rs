@@ -139,3 +139,19 @@ fn until_blocking_fails_at_the_limit() {
     assert!(start.elapsed() >= SHORT);
     assert_eq!(error.to_string(), "gave up waiting for the terminal mode after 50ms");
 }
+
+#[tokio::test]
+async fn a_poll_that_never_resolves_gives_up_at_the_limit() {
+    let (_sender, mut receiver) = tokio::sync::mpsc::channel::<u32>(1);
+    let started = Instant::now();
+    let error = Wait::new("a message that never comes")
+        .limit(SHORT)
+        .until_some_async(async || receiver.recv().await)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, TestSupportError::TimedOut { what, limit } if what == "a message that never comes" && *limit == SHORT),
+        "{error:?}"
+    );
+    assert!(started.elapsed() >= SHORT);
+}
