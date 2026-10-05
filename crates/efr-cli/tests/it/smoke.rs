@@ -8,10 +8,6 @@
 //! model is the real OpenAI provider against a local Responses server, which answers
 //! whatever the prompt is.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::process::Output;
 
 use assert_cmd::Command;

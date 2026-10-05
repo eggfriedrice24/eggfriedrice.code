@@ -6,10 +6,6 @@
 //! daemon speaks `efr_protocol::framing` on a plain thread; `efr-cli` may not use
 //! `efr-transport`, not even here.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helper functions as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::collections::VecDeque;
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};

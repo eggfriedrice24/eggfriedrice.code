@@ -8,10 +8,6 @@
 //! One test puts the built `efr` in the fake's place, in front of a `TestDaemon`, and
 //! one compares the plugin's runtime root with the one the built `efr paths` finds.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helper functions as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 

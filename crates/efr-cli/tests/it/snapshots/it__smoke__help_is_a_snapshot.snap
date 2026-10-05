@@ -1,5 +1,5 @@
 ---
-source: crates/efr-cli/tests/smoke.rs
+source: crates/efr-cli/tests/it/smoke.rs
 expression: text(&output.stdout)
 ---
 Talk to the efr daemon: send prompts, follow replies, check status

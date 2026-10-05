@@ -266,8 +266,9 @@ whose sleeps end when the test opens a gate and a `Ctrl+\` the test presses, and
 that no key reader starts before the key and that the key is waited for only while the
 line offers it. `quit.rs` is tested with SIGQUITs that the test sends to its own process,
 with a stand-in for the default action, which would end it.
-`tests/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
-codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
+The integration tests are one test binary, `tests/it/main.rs`, with one module per
+area (nextest names a test `efr-cli::it <module>::<test>`). `tests/it/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
+codes and the environment. `tests/it/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
 variables it was handed, so a test can prove that no typed text reaches a command
 line; one test runs the built `efr` behind the plugin against a `TestDaemon`. The
@@ -284,10 +285,10 @@ so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and sk
 with a message unless `EFR_TEST_ZSH=1`:
 
 ```sh
-EFR_TEST_ZSH=1 cargo nextest run -p efr-cli --test plugin
+EFR_TEST_ZSH=1 cargo nextest run -p efr-cli -E 'test(/^plugin::/)'
 ```
 
-`tests/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s
+`tests/it/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s
 `TestDaemon`, in the test's process: the `efr --help` snapshot, `efr status`, and an
 `efr send` round trip whose model is a local Responses server.
 
