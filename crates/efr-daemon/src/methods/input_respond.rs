@@ -3,10 +3,11 @@
 //!
 //! The shell manager does the checks and the write in one step of the shell's actor:
 //! the text is one line of at most [`InputRespond::MAX_TEXT_BYTES`] bytes without
-//! control characters, the call's
-//! command runs now, the terminal reads a line, and for a hidden answer echo is off.
-//! Anything else writes nothing. The text is a `SecretText`, so it never reaches a log,
-//! an error message, the event log or a receipt; this handler logs only its length.
+//! control characters, the call's command runs now, a wait of it was reported and the
+//! job that waited still holds the terminal, the terminal reads a line, and for a hidden
+//! answer echo is off. Anything else writes nothing. The text is a `SecretText`, so it
+//! never reaches a log, an error message, the event log or a receipt; this handler logs
+//! only its length.
 
 use efr_protocol::{CallId, ConversationId, InputRespond, InputRespondResult};
 use efr_shell::ShellError;

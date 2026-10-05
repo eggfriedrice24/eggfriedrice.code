@@ -77,18 +77,21 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `login_completed` and makes the running provider forget its cached token.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
-  while that call's command runs and the terminal reads a line, and for a hidden answer
-  only while echo is off, all checked by the shell's actor right before its one write;
+  while that call's command runs, a wait of it was reported, the job that waited (by
+  its process group) still holds the terminal and the terminal reads a line, and for a
+  hidden answer only while echo is off, all checked by the shell's actor right before
+  its one write;
   the shell appends `\r`. A text that is not one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters is
   `invalid`; a conversation without a shell, or in which no call's command runs (the
   call's command ended, or was left at its timeout and goes on without a call), is
   `not_found`; and a command that does not wait for that input (another call's command,
-  one not started yet, a terminal that does not read a line, echo on for a hidden
-  answer, the shell itself holding the terminal again before the command's `D` arrived)
-  is `conflict`; nothing is written then. There is no receipt. The text is a
-  `SecretText`: it reaches no log, error message, event or receipt, and the handler logs
-  only its length. The transport zeroes the frame's bytes once it has read and decoded
+  one not started yet, one with no wait reported, a terminal that does not read a line,
+  echo on for a hidden answer, the shell itself or another job than the one that waited
+  holding the terminal, as when the command's job ended and zsh's precmd hooks, or a
+  command one of them started, run before the command's `D` arrived) is `conflict`;
+  nothing is written then. There is no receipt. The text is a `SecretText`: it reaches
+  no log, error message, event or receipt, and the handler logs only its length. The transport zeroes the frame's bytes once it has read and decoded
   them, the `SecretText` and the clone that the shell's actor gets are zeroed when they
   drop, and the shell writes the answer to the PTY from that clone's buffer;
   serde_json's scratch buffer for a text that holds an escape (a quote, a backslash,
@@ -100,8 +103,9 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   shell's question who can answer hidden input from it, when the command starts to
   wait and at every look after: with no such client, a command that waits for hidden
   input, such as a password, is interrupted at once (`SIGINT` to the foreground process
-  group) and the model reads that nobody could answer it, with the advice to have the
-  user run it in their own terminal or follow the turn while it retries. With one, the
+  group, sent only while the job that waited holds the terminal) and the model reads
+  that nobody could answer it, with the advice to have the user run it in their own
+  terminal or follow the turn while it retries. With one, the
   command waits until it ends or its timeout passes. A visible wait (a `[Y/n]`
   question) never stops a command.
 - `sudo` keeps its own credential cache on the hidden shell's terminal (about five

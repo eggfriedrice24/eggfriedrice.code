@@ -73,6 +73,11 @@ and `D`, or the two sentinels):
   output is that quiet. A full-screen program on the alternate screen is judged only
   at the timeout, as above. A run that ends, is left at its timeout or is stopped
   while it waits reports `None` last.
+- A wait belongs to a job: the look records the process group in the terminal's
+  foreground with it, and tells the session's actor before it tells
+  `RunProgress::input_changed`, so an answer that a client sends for the wait is
+  checked against that job. A look that finds another job in the foreground reports
+  `None`, and a wait of that job is a new change at the look after.
 - The modes come from `tcgetattr` on the master (Linux returns the slave's termios
   there) through `ShellDeps::modes`, a `TerminalModes` (`Termios` by default; a test
   injects a fake, because its PTY is a socketpair). The same trait reads the
@@ -86,11 +91,14 @@ and `D`, or the two sentinels):
   says it when no client that can type answers follows the conversation) detaches the
   run, sends `SIGINT` to the foreground process group, as `interrupt` does, and returns
   `Completion::Unanswered` with the output so far at once; the next run waits for the
-  prompt. Right before the signal it reads the foreground group again: when the command
-  ended meanwhile and the shell's own group holds the terminal (zsh in its precmd hooks,
-  before `D`), it sends nothing, because the signal would reach zsh and could cut short
-  the hook that prints `D`. A visible wait never stops a command: it is a guess, and a
-  slow command whose last line is unfinished looks the same.
+  prompt. Right before the signal it reads the foreground group again, and it sends the
+  signal only while the job whose wait was reported holds the terminal. The command may
+  have ended meanwhile: the shell's own group then holds the terminal (zsh in its
+  precmd hooks, before `D`), where the signal could cut short the hook that prints `D`,
+  or a command that a later precmd hook started does, which never waited. What is left
+  is the moment between that read and the holder's own read of the group as it
+  signals. A visible wait never stops a command: it is a guess, and a slow command whose
+  last line is unfinished looks the same.
 - `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the tool
   call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters (U+0000
@@ -99,21 +107,27 @@ and `D`, or the two sentinels):
   was left at its timeout and its command goes on without a call; `NotWaiting` when
   another call's command runs or this call's command has not started yet), reads the
   foreground group and the modes, refuses (`NotWaiting`) while the shell's own group
-  holds the terminal, when canonical input is off, and for a hidden answer when echo is
-  on, then writes the text and `\r` in one `writev` on the master. Nothing awaits
-  between the check and the write. The group check matters because zsh takes the
-  terminal back when the job ends and runs its precmd hooks in cooked mode, before `D`
-  reaches the session: canonical input alone would let an answer through there, to be
-  read by the line editor. An answer written before zsh takes the terminal back is
-  thrown away by the integration's drain (below), which runs first among the precmd
-  hooks. One window is left: a precmd hook that runs after the integration's and starts
-  an external command puts it in the foreground, in a process group of its own and in
-  cooked mode, after the drain; a visible answer tried then, before the session has read
-  `D`, passes both checks (a hidden one is refused unless that command turned echo off),
-  and the line editor reads it as the next command line once the hook ends. It lasts
-  from zsh's write of `D` until the session reads it. An answer counts as activity: the
-  next look reports `None`, so a prompt that is asked again (`Sorry, try again.`) is a
-  new change. The text is a `SecretText` throughout: no error, `Debug` output or log
+  holds the terminal, while the run reports no wait, while the group in the foreground
+  is not the one recorded with the wait, when canonical input is off, and for a hidden
+  answer when echo is on, then writes the text and `\r` in one `writev` on the master.
+  Nothing awaits between the check and the write. The group checks matter because zsh
+  takes the terminal back when the job ends and runs its precmd hooks in cooked mode,
+  before `D` reaches the session: canonical input alone would let an answer through
+  there, to be read by the line editor. An answer written before zsh takes the terminal
+  back is thrown away by the integration's drain (below), which runs first among the
+  precmd hooks. A precmd hook that runs after the integration's and starts an external
+  command puts it in the foreground, in a process group of its own and in cooked mode,
+  after the drain; an answer tried then, before the session has read `D`, would pass the
+  mode checks and wait there for the line editor, which would run it as the next command
+  line once the hook ends, so the group recorded with the wait is what refuses it. What
+  is left is a new wait: while such a command holds the terminal and `D` still has not
+  reached the session, a look reports `None`, the look after reports a wait of that
+  command when it looks like one (the cursor after text on a cooked terminal, or echo
+  off), and an answer to that wait is typed for that command. That takes the reader held
+  up on the chunk with `D` for two looks, as a slow `RecordingSink` can hold it, while
+  the hook's command holds the terminal. An answer counts as activity: the next look
+  reports `None`, so a prompt that is asked again (`Sorry, try again.`) is a new
+  change. The text is a `SecretText` throughout: no error, `Debug` output or log
   carries it, and the terminal does not echo a hidden answer into the output or the
   recording (the program that reads it can still print it), with the one exception
   below.
@@ -122,12 +136,12 @@ and `D`, or the two sentinels):
   in the microseconds between `tcgetattr` and `writev` the program can change its
   modes, and when `sudo`'s own password timeout (five minutes by default) turns echo
   back on right then, the terminal echoes the hidden answer into the output, the
-  recording and what the model reads. And an answer is tied to its call and to the
-  command waiting for that kind of input when it is written, not to the prompt that the
-  user saw: when one hidden prompt ends and another starts, a client learns of it only
-  at the next look, up to `quiet_period` later (never, when the new prompt prints
-  nothing, because the wait stays `Hidden`), so an answer typed for the first prompt in
-  that time goes to the second.
+  recording and what the model reads. And an answer is tied to its call and to the job
+  whose wait was reported, not to the prompt that the user saw: when one hidden prompt
+  of that job ends and another of the same job starts, a client learns of it only at
+  the next look, up to `quiet_period` later (never, when the new prompt prints nothing,
+  because the wait stays `Hidden`), so an answer typed for the first prompt in that
+  time goes to the second.
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
   minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
   clears it (no `sudo -k`); a later setting will control that.
@@ -258,8 +272,11 @@ clock and the seeded generator.
 - No error, notice or `Debug` output carries a command line or an environment value,
   or the text of an answer.
 - An answer reaches a terminal only while the same call's command runs, as far as the
-  session has read the stream (`D` not yet read), and the terminal reads a line; a
-  hidden one only while echo is off, as read right before the write.
+  session has read the stream (`D` not yet read), the run reports a wait, the job in
+  the foreground is the one that was there at the look that reported it (by its
+  process group), and the terminal reads a line; a hidden one only while echo is off,
+  all as read right before the write. The stop of an unanswered hidden wait signals
+  only while that job holds the terminal, as read right before the signal.
 
 ## Tests
 
@@ -274,7 +291,10 @@ just test-shell                                  # the same, with zsh installed
 The unit tests drive the manager over a fake holder whose PTY is a socketpair: the
 test plays the shell with scripted bytes, sets the terminal modes through a fake
 `TerminalModes` and moves a manual clock, so nothing waits on real time. `modes.rs`
-reads the modes of real PTY pairs it opens. The `e2e_` tests (module `e2e_zsh`) spawn a real zsh through
+reads the modes of real PTY pairs it opens. The test recording sink can hold back the
+chunk that holds a given mark, as a slow store holds the reader, which is how an `e2e_`
+test answers while a later precmd hook's command holds the terminal and `D` has not
+reached the session. The `e2e_` tests (module `e2e_zsh`) spawn a real zsh through
 `efr_pty::LocalPtyHolder`, watched through a vt100 screen, in a throwaway home with
 empty startup files; they skip with a message unless `EFR_TEST_ZSH=1`, and nextest
 runs them one at a time in the `shell` test group. No test uses the network, the
