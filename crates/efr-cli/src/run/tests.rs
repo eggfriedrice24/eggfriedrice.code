@@ -12,6 +12,14 @@ use crate::settings::Settings;
 use crate::testing::{TestEnv, capture, command};
 
 #[test]
+fn the_runtime_runs_on_one_thread() {
+    let runtime = super::runtime().unwrap();
+
+    assert_eq!(runtime.handle().runtime_flavor(), tokio::runtime::RuntimeFlavor::CurrentThread);
+    assert_eq!(runtime.metrics().num_workers(), 1);
+}
+
+#[test]
 fn a_message_carries_its_sources_on_one_line() {
     let error = CliError::Client(ClientError::Connect {
         socket: PathBuf::from("/run/user/1000/efr/daemon.sock"),

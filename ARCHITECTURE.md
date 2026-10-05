@@ -96,8 +96,11 @@ dependencies of its own, or a second binary needs it.
 
 ## Threading model
 
-- One tokio multi-thread runtime, created in `efrd`'s and `efr`'s `main`. Library
-  crates never create a runtime or call `block_on`.
+- One tokio runtime per binary, started in its `main`: `efrd`'s is multi-thread with
+  one worker per core and at most four (`efr-daemon/src/runtime.rs`), because its
+  work is waiting and the screens and the store writer have threads of their own;
+  `efr`'s is current-thread (`efr-cli/src/run.rs`). Library crates never create a
+  runtime or call `block_on`.
 - State belongs to actors: one actor per conversation, one `StoreWriter`, one
   `ShellSessions`, one `ScreenActor` per screen. Actors talk over bounded `mpsc`
   channels (default capacity 64) with `oneshot` replies; a handle type is the only

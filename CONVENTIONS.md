@@ -75,7 +75,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 
 ## Async and actor rules
 
-- One tokio 1.53.2 multi-thread runtime, created in `efr-daemon/src/main.rs` and `efr-cli/src/main.rs`. Library crates never create runtimes and never call `block_on`; functions that need a runtime are `async fn`.
+- One tokio 1.53.2 runtime per binary, started in `efr-daemon/src/main.rs` and `efr-cli/src/main.rs`: `efrd` builds a multi-thread runtime of at most four workers (`efr-daemon/src/runtime.rs`), `efr` a current-thread one (`efr-cli/src/run.rs`). Library crates never create runtimes and never call `block_on`; functions that need a runtime are `async fn`.
 - State is owned by actors, not shared: one actor per conversation, one `StoreWriter`, one `ShellSessions`, one `ScreenActor` per screen. Communication is `tokio::sync::mpsc` with bounded capacity (default 64) and `oneshot` replies. A handle type is the only public API of an actor.
 - No lock is held across an `.await` (`await_holding_lock = "deny"`, `await_holding_invalid_type` for tokio guards, as in codex). `std::sync::Mutex` is fine for short critical sections; `tokio::sync::Mutex` only when the guard must live across an await, which should be rare and commented.
 - Time is injected: anything that schedules, retries or expires takes a `Clock` (`efr_stdx::time::Clock`, `SystemClock` in production, `TestClock` in tests). `tokio::time::sleep` appears only inside `SystemClock`. This is what lets provider refresh timing and lease expiry be tested without waiting.

@@ -54,7 +54,7 @@ fn daemon(args: Args) -> anyhow::Result<()> {
     }
     let (_, log) = efr_daemon::init_telemetry(&config.log);
     let deps = deps.with_log_filter(log);
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let runtime = efr_daemon::build_runtime()?;
     runtime.block_on(async {
         let shutdown = efr_daemon::shutdown_on_signals()?;
         efr_daemon::run(config, deps, shutdown).await

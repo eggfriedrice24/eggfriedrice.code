@@ -11,6 +11,13 @@ use crate::format;
 use crate::output::Output;
 use crate::terminal::TermFacts;
 
+/// The runtime `efr` runs on: one thread. A command waits on one socket and, at most,
+/// the key thread, so more workers would only be idle threads in every `,` line; the
+/// file work goes to the blocking pool, which starts its threads on demand.
+pub(crate) fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()
+}
+
 /// Runs `cli` in this process.
 pub(crate) async fn main(cli: Cli, term: TermFacts) -> Exit {
     let mut out = Output::process();

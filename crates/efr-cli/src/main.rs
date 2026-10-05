@@ -58,7 +58,7 @@ fn main() -> ExitCode {
     };
     let term = TermFacts::from_process();
     telemetry(&term);
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match run::runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             Output::process().err(&format!("efr: the async runtime could not start: {error}\n"));
