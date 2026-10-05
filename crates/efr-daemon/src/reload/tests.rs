@@ -107,6 +107,31 @@ async fn a_valid_file_applies_to_the_settings_and_the_engine_follows_the_rules()
 }
 
 #[tokio::test]
+async fn a_rules_change_reaches_the_trusted_programs_and_a_shell_change_how_shells_start() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = crate::start(Settings::default(), deps(&dirs, &clock)).await.unwrap();
+    let shells = daemon.shells();
+    let socket = daemon.socket_path().to_path_buf();
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let served = tokio::spawn(daemon.serve(shutdown.clone()));
+    assert!(!format!("{shells:?}").contains("\"frobnicate\""), "{shells:?}");
+
+    let file = "[shell]\nprogram = \"/usr/bin/zsh-test\"\nlogin = false\n[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"frobnicate\" } }\neffect = \"allow\"\n";
+    std::fs::write(config_file(&dirs), file).unwrap();
+    assert!(reload(&socket).await.applied);
+
+    let shown = format!("{shells:?}");
+    assert!(shown.contains("\"frobnicate\""), "{shown}");
+    assert!(shown.contains("program: \"/usr/bin/zsh-test\""), "{shown}");
+    assert!(shown.contains("login: false"), "{shown}");
+    // The drain waits for the last handle of the shells.
+    drop(shells);
+    shutdown.cancel();
+    served.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn a_broken_file_keeps_the_old_settings_and_the_status_says_why_until_it_is_fixed() {
     let dirs = TestDirs::new().unwrap();
     let clock = TestClock::new();

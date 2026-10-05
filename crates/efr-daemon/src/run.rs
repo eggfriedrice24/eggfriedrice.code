@@ -515,6 +515,12 @@ impl Daemon {
         self.state.settings.clone()
     }
 
+    /// The hidden shells, for the tests that check what a reload changes in them.
+    #[cfg(test)]
+    pub(crate) fn shells(&self) -> efr_shell::ShellSessions {
+        self.state.shells.clone()
+    }
+
     /// The engine watch, for the tests that check what a reload sends on it.
     #[cfg(test)]
     pub(crate) fn engine(&self) -> watch::Sender<Arc<efr_permissions::Engine>> {
