@@ -102,6 +102,14 @@ pub struct RootSources {
     pub runtime: RootSource,
 }
 
+impl RootSources {
+    /// Every root from `source`, such as the roots of [`Dirs::new`], which a caller
+    /// names itself.
+    pub const fn all(source: RootSource) -> Self {
+        RootSources { config: source, data: source, state: source, runtime: source }
+    }
+}
+
 /// The XDG base directories, before `efr` is appended.
 #[derive(Debug, Clone)]
 pub(crate) struct XdgBases {

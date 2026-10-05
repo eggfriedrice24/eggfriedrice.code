@@ -54,11 +54,7 @@ fn xdg_bases_get_the_efr_directory() {
     assert_eq!(dirs.data(), Path::new("/home/u/.local/share/efr"));
     assert_eq!(dirs.state(), Path::new("/home/u/.local/state/efr"));
     assert_eq!(dirs.runtime(), Path::new("/run/user/1000/efr"));
-    let xdg = RootSource::Xdg;
-    assert_eq!(
-        sources(&env, bases),
-        RootSources { config: xdg, data: xdg, state: xdg, runtime: xdg }
-    );
+    assert_eq!(sources(&env, bases), RootSources::all(RootSource::Xdg));
 }
 
 #[test]
@@ -86,8 +82,7 @@ fn efr_home_places_every_root_below_it_without_an_xdg_lookup() {
         dirs,
         Dirs::new("/h/efr/config", "/h/efr/data", "/h/efr/state", "/h/efr/runtime").unwrap()
     );
-    let home = RootSource::EfrHome;
-    assert_eq!(sources, RootSources { config: home, data: home, state: home, runtime: home });
+    assert_eq!(sources, RootSources::all(RootSource::EfrHome));
 }
 
 #[test]
