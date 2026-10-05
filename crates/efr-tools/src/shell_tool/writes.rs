@@ -22,7 +22,8 @@ const ALL_WRITTEN: &[&str] = &["rm", "rmdir", "mkdir", "touch", "mv", "chmod", "
 ///
 /// - `rm`, `rmdir`, `mkdir`, `touch`, `mv` (sources and target), `chmod`, `truncate`
 ///   and `tee` write every operand;
-/// - `cp` writes its last operand, or the directory of `-t`, and reads the others;
+/// - `cp` writes its last operand, or the directory of `-t`, and reads the others
+///   with everything below them, as a recursive copy does;
 /// - `ln` writes the link: its last operand, the directory of `-t`, or, with one
 ///   operand, the name of that operand in the working directory. It reads the others,
 ///   so a link to a secret is judged as a read of the secret.
@@ -75,7 +76,10 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
             reads.writes.push(link_name(only));
         }
         (Kind::Copy | Kind::Link, Some((last, sources))) => {
-            reads.named.extend(sources.iter().map(|word| from_word(word, Depth::One)));
+            // NOTE: `cp -r ~ x` would copy the keys below `~` to where they are no
+            // longer secret, so a source of `cp` is read with everything below it.
+            let depth = if kind == Kind::Copy { Depth::Tree } else { Depth::One };
+            reads.named.extend(sources.iter().map(|word| from_word(word, depth)));
             reads.writes.push(from_word(last, Depth::One));
         }
     }

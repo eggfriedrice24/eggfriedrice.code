@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use crate::shell_tool::reads::{Named, Reads, reads};
+use crate::shell_tool::reads::{Depth, Named, Reads, reads};
 use crate::shell_tool::words::split;
 
 /// The reads and the writes of the first simple command of `line`.
@@ -9,8 +9,14 @@ fn of(line: &str) -> (Vec<String>, Vec<String>) {
     let line = split(line);
     let Reads { named, writes, cwd } = reads(line.commands[0].program_and_args());
     assert_eq!(cwd, None, "a writer reads no working directory it does not name");
-    let texts =
-        |list: Vec<Named>| -> Vec<String> { list.into_iter().map(|named| named.text).collect() };
+    let texts = |list: Vec<Named>| -> Vec<String> {
+        list.into_iter()
+            .map(|named| match named.depth {
+                Depth::One => named.text,
+                Depth::Tree => format!("{}/**", named.text),
+            })
+            .collect()
+    };
     (texts(named), texts(writes))
 }
 
@@ -29,14 +35,15 @@ fn of(line: &str) -> (Vec<String>, Vec<String>) {
 #[case::stdin_and_expansion("tee - $OUT", &[], &[])]
 #[case::reference_is_read("chmod --reference=/etc/hosts f", &["/etc/hosts"], &["f"])]
 // cp writes its last operand and reads the others.
-#[case::cp("cp a b ~/.config/efr/config.toml", &["a", "b"], &["~/.config/efr/config.toml"])]
+#[case::cp("cp a b ~/.config/efr/config.toml", &["a/**", "b/**"], &["~/.config/efr/config.toml"])]
+#[case::cp_recursive_home("cp -r ~ backup", &["~/**"], &["backup"])]
 #[case::cp_one_operand("cp a", &[], &["a"])]
 #[case::cp_target_attached("cp -t/srv/x a b", &[], &["/srv/x", "a", "b"])]
 #[case::cp_target_apart("cp -t dst a b", &[], &["dst", "a", "b"])]
 #[case::cp_target_in_a_cluster("cp -at dst a", &[], &["dst", "a"])]
 #[case::cp_target_long("cp --target-directory=/srv/x a", &[], &["/srv/x", "a"])]
 #[case::cp_target_abbreviated("cp --targ dst a", &[], &["dst", "a"])]
-#[case::cp_no_target("cp --no-target-directory a b", &["a"], &["b"])]
+#[case::cp_no_target("cp --no-target-directory a b", &["a/**"], &["b"])]
 // ln writes the link and reads its target.
 #[case::ln("ln -s ~/.ssh/id_ed25519 key", &["~/.ssh/id_ed25519"], &["key"])]
 #[case::ln_into_config("ln -sf x ~/.config/efr/config.toml", &["x"], &["~/.config/efr/config.toml"])]

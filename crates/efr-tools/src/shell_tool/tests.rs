@@ -69,7 +69,7 @@ fn the_operands_of_writer_programs_are_declared_as_writes() {
     assert_eq!(paths_in(&context, "rm -rf ~/.ssh/x"), [written(home.join(".ssh/x"))]);
     assert_eq!(
         paths_in(&context, "cp notes.txt ~/.config/efr/config.toml"),
-        [read(fixture.cwd().join("notes.txt")), written(home.join(".config/efr/config.toml"))]
+        [tree(fixture.cwd().join("notes.txt")), written(home.join(".config/efr/config.toml"))]
     );
     assert_eq!(
         paths_in(&context, "mv src ~/x"),

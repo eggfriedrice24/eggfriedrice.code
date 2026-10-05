@@ -36,7 +36,7 @@ fn declare(line: &str) -> Declared {
 #[case::inside_substitution("echo $(cat ~/.ssh/id_rsa)", &["/home/u/.ssh/id_rsa"], &[], &[])]
 #[case::every_program("diff ~/.ssh/id_rsa /tmp/k", &[], &["/home/u/.ssh/id_rsa", "/tmp/k"], &[])]
 // Writer programs write their operands; cp reads its sources.
-#[case::cp("cp ~/.ssh/id_rsa /tmp/k", &["/home/u/.ssh/id_rsa"], &[], &["/tmp/k"])]
+#[case::cp("cp ~/.ssh/id_rsa /tmp/k", &[], &["/home/u/.ssh/id_rsa"], &["/tmp/k"])]
 #[case::rm_parent("rm -rf ..", &[], &[], &["/home/u/p"])]
 #[case::mv_out("mv src ~/x", &[], &[], &["/home/u/p/app/src", "/home/u/x"])]
 #[case::glob_write("rm src/*.o", &[], &[], &["/home/u/p/app/src"])]
