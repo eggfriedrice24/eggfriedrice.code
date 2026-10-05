@@ -23,7 +23,8 @@
 # Every name here starts with _efr_hs_, so nothing the user's .zshrc loads can
 # replace it. The efr plugin for interactive terminals (efr.plugin.zsh) has hooks of
 # its own with the shorter efr prefix; with the same names, sourcing it from .zshrc
-# would replace these hooks and the hidden shell would never print A, C or D.
+# would replace these hooks and the hidden shell would never print A, C or D. The one
+# exception is the compinit wrapper at the end, which must have compinit's name.
 
 # The programs that a permission rule trusts by name, from the daemon. An alias or a
 # function of the same name from the user's startup files would run something else
@@ -213,6 +214,32 @@ _efr_hs_init() {
   # This hook already runs as a precmd hook, so the first prompt is marked from here.
   _efr_hs_precmd
 }
+
+# compinit asks before it loads completions from a directory of fpath that other
+# users can write to, and waits for a key. Nobody types one in the hidden shell, so
+# its first prompt would never come. Ubuntu's /etc/zsh/zshrc calls compinit in every
+# interactive shell, and GitHub's Ubuntu runner image makes all of /usr/share
+# writable by everyone, zsh's vendor-completions directory among it. So every call,
+# from a startup file or from a plugin that loads later, runs as `compinit -i`, which
+# leaves those directories out of fpath as the answer y does. A caller's -u or -C
+# still wins, because compinit reads its options in order.
+_efr_hs_compinit() {
+  builtin unfunction compinit
+  builtin autoload -Uz compinit
+  {
+    compinit -i "$@"
+  } always {
+    # compinit turns itself back into a plain autoload function when it ends.
+    _efr_hs_wrap_compinit
+  }
+}
+
+# The `function` keyword keeps an alias named compinit from renaming the wrapper.
+_efr_hs_wrap_compinit() {
+  function compinit { _efr_hs_compinit "$@"; }
+}
+
+_efr_hs_wrap_compinit
 
 builtin typeset -ga precmd_functions preexec_functions chpwd_functions
 precmd_functions+=(_efr_hs_init)

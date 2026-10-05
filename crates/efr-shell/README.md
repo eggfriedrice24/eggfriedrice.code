@@ -276,6 +276,13 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   that the permission engine allowed runs), and zsh's
   `PROMPT_SP` mark is printed after `D` instead of before the precmd hooks, so it
   never counts as output.
+- `compinit` runs as `compinit -i` in the hidden shell, whoever calls it: a startup
+  file, or a plugin that loads after the first prompt. Without `-i` it asks before it
+  loads completions from a directory of `fpath` that other users can write to, and
+  waits for a key that nobody types, so the first prompt never comes. Ubuntu's
+  `/etc/zsh/zshrc` calls it in every interactive shell, and GitHub's Ubuntu runner
+  image makes all of `/usr/share` writable by everyone. `-i` leaves those directories
+  out of `fpath`, as the answer `y` does; a caller's `-u` or `-C` still wins.
 - When a command ends, the precmd hook throws away input that reached the terminal and
   that the command never read (`builtin read -s -t 0 -k 1` until nothing is left),
   before it prints `D`. Without it, an answer written just as `sudo` gave up, or keys
