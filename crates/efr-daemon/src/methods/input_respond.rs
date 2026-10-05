@@ -5,9 +5,12 @@
 //! the text is one line of at most [`InputRespond::MAX_TEXT_BYTES`] bytes without
 //! control characters, the call's command runs now, a wait of it of the answer's kind
 //! was reported and the job that waited still holds the terminal, and for a hidden
-//! answer the terminal reads a line with echo off. Anything else writes nothing. The
-//! text is a `SecretText`, so it never reaches a log, an error message, the event log
-//! or a receipt; this handler logs only its length.
+//! answer the terminal reads a line with echo off. A `manual` answer, which the user
+//! chose to type for a command that reported no wait, skips the check against a
+//! reported wait and its kind and keeps the rest. Anything else writes nothing. An
+//! answer after the call ended gets `not_found`. The text is a `SecretText`, so it never
+//! reaches a log, an error message, the event log or a receipt; this handler logs only
+//! its length.
 
 use efr_protocol::{CallId, ConversationId, InputRespond, InputRespondResult};
 use efr_shell::ShellError;
@@ -16,18 +19,20 @@ use efr_transport::Responder;
 use crate::DaemonError;
 use crate::state::State;
 
-#[tracing::instrument(skip_all, fields(conversation_id = %params.conversation_id, call_id = %params.call_id, hidden = params.hidden))]
+#[tracing::instrument(skip_all, fields(conversation_id = %params.conversation_id, call_id = %params.call_id, hidden = params.hidden, manual = params.manual))]
 pub(crate) async fn handle(
     state: &State,
     params: InputRespond,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let InputRespond { conversation_id, call_id, text, hidden, manual: _ } = params;
-    state
-        .shells
-        .answer(conversation_id, call_id, &text, hidden)
-        .await
-        .map_err(|error| refused(error, conversation_id, call_id))?;
+    let InputRespond { conversation_id, call_id, text, hidden, manual } = params;
+    let shells = &state.shells;
+    let typed = if manual {
+        shells.answer_manual(conversation_id, call_id, &text, hidden).await
+    } else {
+        shells.answer(conversation_id, call_id, &text, hidden).await
+    };
+    typed.map_err(|error| refused(error, conversation_id, call_id))?;
     tracing::debug!(
         bytes = text.expose_secret().len(),
         "an answer was typed for a waiting command"

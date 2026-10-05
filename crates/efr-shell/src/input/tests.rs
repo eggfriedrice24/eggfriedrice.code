@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 
 use super::{
     InputWatch, Look, Offer, Probe, Quiet, Waiting, check_answer, check_job, check_kind,
-    check_modes, look, visible_prompt,
+    check_modes, look, looks_secret, secret_prompt, visible_prompt,
 };
 use crate::modes::{InputModes, Job};
 use crate::{RunMode, ShellError};
@@ -127,12 +127,12 @@ fn a_prompt_is_the_cursor_after_text_on_the_main_screen() {
 #[test]
 fn each_change_is_reported_once() {
     let mut watch = InputWatch::default();
-    assert_eq!(watch.settle(InputWait::None, Some(JOB), 0), None);
-    assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 0), Some(InputWait::Hidden));
-    assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 0), None);
+    assert_eq!(watch.settle(InputWait::None, false, Some(JOB), 0), None);
+    assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 0), Some(InputWait::Hidden));
+    assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 0), None);
     assert_eq!(watch.current(), InputWait::Hidden);
     assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: true }));
-    assert_eq!(watch.settle(InputWait::Visible, Some(JOB), 0), Some(InputWait::Visible));
+    assert_eq!(watch.settle(InputWait::Visible, false, Some(JOB), 0), Some(InputWait::Visible));
     assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
     assert_eq!(watch.end(), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
@@ -142,27 +142,30 @@ fn each_change_is_reported_once() {
 #[test]
 fn an_answer_makes_the_next_look_none_so_a_prompt_asked_again_is_new() {
     let mut watch = InputWatch::default();
-    assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 0), Some(InputWait::Hidden));
+    assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 0), Some(InputWait::Hidden));
     // The look right after the answer still sees the old prompt.
-    assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 1), Some(InputWait::None));
+    assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 1), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
-    assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 1), Some(InputWait::Hidden));
+    assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 1), Some(InputWait::Hidden));
 }
 
 #[test]
 fn another_job_in_the_foreground_ends_a_wait_and_its_own_wait_is_new() {
     let mut watch = InputWatch::default();
-    assert_eq!(watch.settle(InputWait::Visible, Some(JOB), 0), Some(InputWait::Visible));
+    assert_eq!(watch.settle(InputWait::Visible, false, Some(JOB), 0), Some(InputWait::Visible));
     assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
     // The job ended and a command that a later precmd hook started holds the terminal,
     // cooked, with the old prompt still on the screen.
-    assert_eq!(watch.settle(InputWait::Visible, Some(OTHER_JOB), 0), Some(InputWait::None));
+    assert_eq!(watch.settle(InputWait::Visible, false, Some(OTHER_JOB), 0), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
-    assert_eq!(watch.settle(InputWait::Visible, Some(OTHER_JOB), 0), Some(InputWait::Visible));
+    assert_eq!(
+        watch.settle(InputWait::Visible, false, Some(OTHER_JOB), 0),
+        Some(InputWait::Visible)
+    );
     assert_eq!(watch.waiting(), Some(Waiting { group: OTHER_JOB, hidden: false }));
     // A wait without a job to answer is none.
-    assert_eq!(watch.settle(InputWait::Hidden, None, 0), Some(InputWait::None));
-    assert_eq!(watch.settle(InputWait::Hidden, None, 0), None);
+    assert_eq!(watch.settle(InputWait::Hidden, false, None, 0), Some(InputWait::None));
+    assert_eq!(watch.settle(InputWait::Hidden, false, None, 0), None);
     assert_eq!(watch.waiting(), None);
 }
 
@@ -210,4 +213,60 @@ fn a_hidden_answer_needs_a_getpass_read_and_a_visible_one_takes_any_modes() {
     for modes in [HIDDEN, COOKED, RAW, ECHOING_RAW] {
         check_modes(modes, false).unwrap();
     }
+}
+
+#[test]
+fn a_prompt_that_names_a_secret_looks_secret_in_any_case() {
+    for line in [
+        "Password:",
+        "[sudo] password for u:",
+        "Enter passphrase for key '/home/u/.ssh/id_ed25519':",
+        "PASSCODE: ",
+        "Enter PIN for 'YubiKey':",
+        "pin:",
+        "Verification code: ",
+        "Enter the one-time code from your app:",
+        "One time code:",
+        "u@host's password: ",
+    ] {
+        assert!(looks_secret(line), "{line}");
+    }
+}
+
+#[test]
+fn a_prompt_that_names_no_secret_does_not_look_secret() {
+    for line in [
+        "Proceed with installation? [Y/n] ",
+        "PING example.org: continue? ",
+        "spinning up workers... ",
+        "pinned version 1.2? [y/N] ",
+        "Enter the code to continue: ",
+        "Name: ",
+        "",
+    ] {
+        assert!(!looks_secret(line), "{line}");
+    }
+}
+
+#[test]
+fn only_the_row_with_the_cursor_counts_as_the_prompt() {
+    let asking = screen(&["Password changed earlier", "Continue? "], (1, 10), false);
+    assert!(!secret_prompt(&asking));
+    let secret = screen(&["Welcome", "Password: "], (1, 10), false);
+    assert!(secret_prompt(&secret));
+}
+
+#[test]
+fn a_visible_wait_that_starts_to_look_secret_is_a_change_and_a_hidden_one_never_does() {
+    let mut watch = InputWatch::default();
+    assert_eq!(watch.settle(InputWait::Visible, false, Some(JOB), 0), Some(InputWait::Visible));
+    assert!(!watch.looks_secret());
+    assert_eq!(watch.settle(InputWait::Visible, true, Some(JOB), 0), Some(InputWait::Visible));
+    assert!(watch.looks_secret());
+    assert_eq!(watch.settle(InputWait::Visible, true, Some(JOB), 0), None);
+    // A hidden wait hides the answer anyway; the flag belongs to visible waits only.
+    assert_eq!(watch.settle(InputWait::Hidden, true, Some(JOB), 0), Some(InputWait::Hidden));
+    assert!(!watch.looks_secret());
+    assert_eq!(watch.end(), Some(InputWait::None));
+    assert!(!watch.looks_secret());
 }

@@ -54,12 +54,14 @@ pub(crate) enum Msg {
     /// The wait that run `id` reported last changed: its kind and the process group of
     /// the job that waits, as the look read it, or `None` when nothing waits.
     Waiting { id: u64, waiting: Option<Waiting> },
-    /// Type `text` for the running command of `call`, if it waits for such input.
-    /// `Debug` shows no text: `SecretText` hides it.
+    /// Type `text` for the running command of `call`, if it waits for such input, or,
+    /// with `manual`, if a job of it holds the terminal. `Debug` shows no text:
+    /// `SecretText` hides it.
     Answer {
         call: CallId,
         text: SecretText,
         hidden: bool,
+        manual: bool,
         reply: oneshot::Sender<Result<(), ShellError>>,
     },
 }
@@ -633,8 +635,9 @@ impl SessionActor {
                     let _ = reply.send(probe);
                 }
                 Msg::Waiting { id, waiting } => self.core.waiting(id, waiting),
-                Msg::Answer { call, text, hidden, reply } => {
-                    let _ = reply.send(answer(&mut self.core, &self.terminal, call, &text, hidden));
+                Msg::Answer { call, text, hidden, manual, reply } => {
+                    let typed = answer(&mut self.core, &self.terminal, call, &text, hidden, manual);
+                    let _ = reply.send(typed);
                 }
                 Msg::Exited(status) => break status,
             }
@@ -675,12 +678,18 @@ impl SessionActor {
 /// an answer to that wait is typed for that command. That takes the reader held up on
 /// the chunk with `D` for two looks, as a slow recording sink can hold it, while the
 /// command holds the terminal.
+///
+/// A `manual` answer is one that the user chose to type while no wait was reported, such
+/// as for a command that printed nothing for a while. It skips the check against the
+/// reported wait and its kind, and keeps the rest: the call's command runs, a job and
+/// not the shell itself holds the terminal, and the modes suit the answer.
 fn answer(
     core: &mut SessionCore,
     terminal: &Terminal,
     call: CallId,
     text: &SecretText,
     hidden: bool,
+    manual: bool,
 ) -> Result<(), ShellError> {
     let waiting = core.answerable(call)?;
     let conversation = core.conversation;
@@ -691,10 +700,12 @@ fn answer(
         conversation,
         reason: "the shell itself holds the terminal",
     })?;
-    let waiting = input::check_job(waiting, job.group)
-        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
-    input::check_kind(waiting, hidden)
-        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    if !manual {
+        let waiting = input::check_job(waiting, job.group)
+            .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+        input::check_kind(waiting, hidden)
+            .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    }
     input::check_modes(job.modes, hidden)
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
     // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to

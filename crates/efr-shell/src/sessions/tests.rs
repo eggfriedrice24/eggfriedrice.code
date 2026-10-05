@@ -10,6 +10,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use efr_holder::{ChildStatus, Signal, SignalTarget, Size};
 use efr_protocol::{CallId, ConversationId, InputWait, SecretText};
+use efr_stdx::time::Clock as _;
 use pretty_assertions::assert_eq;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -1337,4 +1338,251 @@ async fn a_new_start_applies_to_shells_spawned_after_it() {
     assert_eq!(specs[1].program, PathBuf::from("/usr/bin/zsh-5.9"));
     assert_eq!(specs[1].args, ["-i"]);
     assert!(specs[1].env.contains_key("ZDOTDIR"), "a zsh still gets the integration");
+}
+
+/// The modes a relay such as `sudo`'s own pty leaves on the hidden shell's terminal.
+const RELAY: InputModes = InputModes::new(false, false);
+
+/// Plays a run of `command` whose program prints `prompt` with the terminal in `modes`,
+/// until the look that reports a visible wait; returns what the listener heard.
+async fn visible_wait(
+    command: &str,
+    modes: InputModes,
+    prompt: &[u8],
+) -> (Vec<InputWait>, Vec<bool>) {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) = waiting(&harness, command, true, prompt).await;
+    harness.modes.set(Some(modes));
+    for _ in 0..3 {
+        one_look(&harness).await;
+    }
+    heard.inputs(&[InputWait::Visible]).await;
+    // The answer is a visible one either way, so the kind check holds.
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"pw\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+    let inputs = heard.inputs.borrow().clone();
+    let secrets = heard.secrets.borrow().clone();
+    (inputs, secrets)
+}
+
+#[tokio::test]
+async fn a_password_prompt_behind_a_relay_looks_secret() {
+    let (inputs, secrets) =
+        visible_wait("sudo -u build passwd", RELAY, b"Current password: ").await;
+    assert_eq!(inputs, [InputWait::Visible, InputWait::None]);
+    assert_eq!(secrets, [true, false]);
+}
+
+#[tokio::test]
+async fn a_question_behind_a_relay_or_a_password_prompt_in_line_mode_does_not_look_secret() {
+    let (_, secrets) =
+        visible_wait("sudo pacman -Syu", RELAY, b"Proceed with installation? [Y/n] ").await;
+    assert_eq!(secrets, [false, false]);
+    // A program that reads a line with echo on asks no password, whatever it prints.
+    let cooked = InputModes::new(true, true);
+    let (_, secrets) = visible_wait("./setup", cooked, b"Password: ").await;
+    assert_eq!(secrets, [false, false]);
+}
+
+/// Starts a run of `command` for [`call`] with a timeout of five seconds and an
+/// interactive `limit`, whose listener says `can_answer`, and starts the command with
+/// `output`.
+async fn approved_interactive(
+    harness: &Harness,
+    limit: Option<Duration>,
+    can_answer: bool,
+    output: &[u8],
+) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+    let (mut listener, heard) = listener(can_answer);
+    let sessions = harness.sessions.clone();
+    let request = request("sudo pacman -Syu")
+        .with_call(call())
+        .with_timeout(Duration::from_secs(5))
+        .with_interactive_limit(limit);
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    let mut started = b"\r\n\x1b]133;C\x07".to_vec();
+    started.extend_from_slice(output);
+    terminal.print(&started).await;
+    (terminal, run, heard)
+}
+
+/// Moves the clock one second at a time, `seconds` times, each once the run sleeps
+/// again: `sleeps` is how many sleeps are pending then (the deadline, the look, and the
+/// shell's startup timer for the first ten seconds).
+async fn seconds(harness: &Harness, seconds: u64) {
+    for _ in 0..seconds {
+        let started = harness.clock.now();
+        let sleeps = if started.duration_since(START_OF_TEST).as_secs() < 10 { 3 } else { 2 };
+        harness.clock.wait_for_sleeps(sleeps).await;
+        harness.clock.advance(Duration::from_secs(1));
+    }
+}
+
+const START_OF_TEST: jiff::Timestamp = efr_test_support::TestClock::START;
+
+#[tokio::test]
+async fn an_approved_interactive_run_waits_past_its_timeout_while_someone_can_answer() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) = approved_interactive(
+        &harness,
+        Some(Duration::from_secs(60)),
+        true,
+        b":: Proceed with installation? [Y/n] ",
+    )
+    .await;
+    seconds(&harness, 12).await;
+    harness.clock.wait_for_sleeps(2).await;
+    assert!(!run.is_finished(), "the timeout of five seconds passed");
+    heard.inputs(&[InputWait::Visible]).await;
+    // An answer still reaches the command past the timeout.
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    terminal.print(b"y\r\n\x1b]133;D;0\x07").await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn an_approved_interactive_run_ends_soon_after_nobody_can_answer() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, heard) = approved_interactive(
+        &harness,
+        Some(Duration::from_secs(60)),
+        true,
+        b":: Proceed with installation? [Y/n] ",
+    )
+    .await;
+    seconds(&harness, 12).await;
+    harness.clock.wait_for_sleeps(2).await;
+    assert!(!run.is_finished());
+    heard.can_answer.store(false, Ordering::SeqCst);
+    seconds(&harness, 1).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Interactive);
+    assert_eq!(harness.clock.now().duration_since(START_OF_TEST).as_secs(), 13);
+}
+
+#[tokio::test]
+async fn an_approved_interactive_run_ends_at_its_limit() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, _heard) = approved_interactive(
+        &harness,
+        Some(Duration::from_secs(8)),
+        true,
+        b":: Proceed with installation? [Y/n] ",
+    )
+    .await;
+    seconds(&harness, 7).await;
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(!run.is_finished());
+    seconds(&harness, 1).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Interactive);
+}
+
+#[tokio::test]
+async fn a_run_keeps_its_timeout_without_a_limit_or_without_someone_to_answer() {
+    for (limit, can_answer) in [(None, true), (Some(Duration::from_secs(60)), false)] {
+        let harness = Harness::new(ZSH);
+        let (_terminal, run, _heard) =
+            approved_interactive(&harness, limit, can_answer, b"compiling\r\n").await;
+        seconds(&harness, 5).await;
+        let result = run.await.unwrap().unwrap();
+        assert_eq!(result.completion, Completion::StillRunning, "{limit:?} {can_answer}");
+    }
+}
+
+#[tokio::test]
+async fn a_run_that_waits_for_the_prompt_is_not_kept_past_its_timeout() {
+    let harness = Harness::new(ZSH);
+    let (mut listener, _heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = request("sudo true")
+        .with_call(call())
+        .with_timeout(Duration::from_secs(5))
+        .with_interactive_limit(Some(Duration::from_secs(60)));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    // No prompt comes: the startup timer and the deadline.
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(5));
+    let result = run.await.unwrap();
+    assert!(matches!(result, Err(ShellError::NotReady { .. })), "{result:?}");
+}
+
+#[tokio::test]
+async fn a_manual_answer_reaches_a_silent_command_that_reported_no_wait() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, heard) = waiting(&harness, "./deploy", true, b"deploying\r\n").await;
+    screen_shows(&harness.sessions, conversation(1), "deploying").await;
+    // The command printed nothing, so no look reports a wait, and a plain answer has
+    // nothing to answer.
+    let plain =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("go"), false).await;
+    assert!(matches!(plain, Err(ShellError::NotWaiting { .. })), "{plain:?}");
+    // A manual hidden answer still needs a getpass-style read.
+    let hidden =
+        harness.sessions.answer_manual(conversation(1), call(), &SecretText::new("pw"), true).await;
+    assert!(matches!(hidden, Err(ShellError::NotWaiting { .. })), "{hidden:?}");
+    let other: CallId = "01920000-0000-7000-8000-0000000c0002".parse().unwrap();
+    let wrong =
+        harness.sessions.answer_manual(conversation(1), other, &SecretText::new("go"), false).await;
+    assert!(matches!(wrong, Err(ShellError::NotWaiting { .. })), "{wrong:?}");
+    let invalid = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("a\rb"), false)
+        .await;
+    assert!(matches!(invalid, Err(ShellError::InvalidAnswer { .. })), "{invalid:?}");
+
+    harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("go"), false)
+        .await
+        .unwrap();
+    // Only the accepted answer was typed.
+    assert_eq!(terminal.typed_line().await, b"go\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::Finished);
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+
+    // The call is over: a manual answer no longer reaches anything.
+    let late = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("go"), false)
+        .await;
+    assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+}
+
+#[tokio::test]
+async fn a_manual_answer_is_refused_while_the_shell_itself_holds_the_terminal() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, _heard) = waiting(&harness, "./deploy", true, b"deploying\r\n").await;
+    screen_shows(&harness.sessions, conversation(1), "deploying").await;
+    // The job ended and zsh runs its precmd hooks; the command's `D` has not arrived.
+    let shell = harness.sessions.state(conversation(1)).await.unwrap().pid;
+    harness.modes.set_foreground(shell);
+    let refused = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("rm -rf ~"), false)
+        .await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    terminal.prompt().await;
+    run.await.unwrap().unwrap();
+    // Nothing was typed after the line of the run.
+    let next = spawn_run(&harness.sessions, request("true"));
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    terminal.run(b"", 0).await;
+    next.await.unwrap().unwrap();
 }

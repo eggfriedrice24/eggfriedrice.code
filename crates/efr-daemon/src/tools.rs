@@ -15,10 +15,13 @@
 //! password: a call's sink says yes while the conversation has a live subscription
 //! with `answers_input` (see `connections.rs`), so a command that asks for a password
 //! while nobody who can type it follows the turn is stopped at once instead of waiting
-//! for its timeout.
+//! for its timeout. The same subscriptions keep a call that the user approved because it
+//! may wait for input running past the model's timeout, up to
+//! `shell.interactive_timeout_minutes`, while one of them follows the conversation.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
@@ -112,6 +115,16 @@ impl DaemonToolbox {
         .with_origin(call.origin)
         .with_shell_cwd(call.shell_cwd.clone())
         .with_forget_credentials(self.forgets_credentials())
+        .with_interactive_limit(self.interactive_limit(call))
+    }
+
+    /// How long a call that the user approved because it may wait for input may run
+    /// while someone who can answer follows it, from the latest settings, so a change
+    /// reaches the next call; `None` for any other call, which keeps the model's
+    /// timeout.
+    fn interactive_limit(&self, call: &CallContext) -> Option<Duration> {
+        let minutes = self.settings.borrow().shell.interactive_timeout_minutes;
+        call.approved_interactive.then(|| Duration::from_secs(minutes.saturating_mul(60)))
     }
 
     /// True when the latest settings make the hidden shell forget sudo's credentials
@@ -213,13 +226,19 @@ impl ToolOutputSink for CallSink<'_> {
         self.out.update(tail, bytes);
     }
 
-    fn input_changed(&mut self, wait: InputWait) {
-        self.out.input_changed(wait);
+    fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
+        self.out.input_changed(wait, looks_secret);
     }
 
     fn can_answer_hidden(&mut self) -> bool {
         // NOTE: asked at every look while a command waits for hidden input, so a client
         // that goes away mid-wait stops the command at the next look.
+        self.connections.answerers(self.conversation_id) > 0
+    }
+
+    fn can_answer(&mut self) -> bool {
+        // NOTE: asked once per quiet period past the timeout of an approved interactive
+        // call, so the call answers the model soon after the last client goes away.
         self.connections.answerers(self.conversation_id) > 0
     }
 }

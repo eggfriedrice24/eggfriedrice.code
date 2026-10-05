@@ -1300,6 +1300,94 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
             },
         ]
     );
+    // A rule allowed the call, so nobody approved it as one that waits for input.
+    assert!(!h.toolbox.ran()[0].approved_interactive);
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_visible_wait_that_looks_secret_is_recorded_as_one() {
+    let mut setup = Setup::new();
+    let rule = Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("relay-password")),
+        Effect::Allow,
+    );
+    setup.config.policy = Policy::new(vec![rule]).expect("policy");
+    let state = setup.live_state(&setup.cwd, "log in");
+    let input = json!({ "command": "relay-password" });
+    let first = setup.prompt(&state, "log in");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "ok\n", false),
+        ])),
+        answer(&text_answer("Logged in.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("log in").await;
+    h.wait_end(sent.turn_id).await;
+
+    let call_id = h.call_ids().await[0];
+    let turn_id = sent.turn_id;
+    let waits: Vec<Event> = h
+        .events()
+        .await
+        .into_iter()
+        .filter(|e| matches!(e, Event::ToolCallInputChanged { .. }))
+        .collect();
+    assert_eq!(
+        waits,
+        [
+            Event::ToolCallInputChanged {
+                turn_id,
+                call_id,
+                input: InputWait::Visible,
+                looks_secret: true,
+            },
+            Event::ToolCallInputChanged {
+                turn_id,
+                call_id,
+                input: InputWait::None,
+                looks_secret: false,
+            },
+        ]
+    );
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_call_approved_as_one_that_waits_for_input_runs_as_one() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "update");
+    let input = json!({ "command": "sudo true" });
+    let first = setup.prompt(&state, "update");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "done", false),
+        ])),
+        answer(&text_answer("Updated.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("update").await;
+    let call_id = h.wait_approval().await;
+    // Judged before the approval came, the call is not approved yet.
+    assert!(!h.toolbox.judged()[0].approved_interactive);
+    h.answer(call_id, ApprovalDecision::Allow).await;
+    h.wait_end(sent.turn_id).await;
+
+    let ran = h.toolbox.ran();
+    assert_eq!(ran.len(), 1);
+    assert!(ran[0].approved_interactive, "the user approved a call that waits for input");
     h.finish();
 }
 

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
@@ -110,6 +111,25 @@ fn each_call_reads_the_sudo_cache_from_the_latest_settings() {
 
     assert!(!kept, "keep leaves the cache to sudo");
     assert!(forgotten, "per_call reaches the next call");
+}
+
+#[test]
+fn only_an_approved_interactive_call_gets_the_interactive_limit_of_the_latest_settings() {
+    let home = tempfile::tempdir().unwrap();
+    let (toolbox, settings) = toolbox_with(home.path(), Settings::default());
+    let call = call("shell", json!({"command": "sudo pacman -Syu"}), home.path());
+    let approved = call.context.clone().with_approved_interactive(true);
+
+    assert_eq!(toolbox.context(&call.context).interactive_limit, None);
+    assert_eq!(toolbox.context(&approved).interactive_limit, Some(Duration::from_secs(3600)));
+    let mut shorter = Settings::default();
+    shorter.shell.interactive_timeout_minutes = 5;
+    settings.send_replace(Arc::new(shorter));
+    assert_eq!(
+        toolbox.context(&approved).interactive_limit,
+        Some(Duration::from_secs(300)),
+        "a change reaches the next call"
+    );
 }
 
 fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {
@@ -653,14 +673,14 @@ fn a_call_s_sink_passes_output_and_waits_on_and_asks_the_live_subscriptions() {
 
     struct Seen {
         output: Vec<(String, u64)>,
-        inputs: Vec<InputWait>,
+        inputs: Vec<(InputWait, bool)>,
     }
     impl efr_conversation::OutputSink for Seen {
         fn update(&mut self, tail: &str, bytes: u64) {
             self.output.push((tail.to_owned(), bytes));
         }
-        fn input_changed(&mut self, wait: InputWait) {
-            self.inputs.push(wait);
+        fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
+            self.inputs.push((wait, looks_secret));
         }
     }
 
@@ -670,19 +690,24 @@ fn a_call_s_sink_passes_output_and_waits_on_and_asks_the_live_subscriptions() {
     {
         let mut sink = CallSink { out: &mut seen, connections: &connections, conversation_id };
         sink.update("pw: ", 4);
-        sink.input_changed(InputWait::Hidden);
+        sink.input_changed(InputWait::Hidden, false);
+        sink.input_changed(InputWait::Visible, true);
         assert!(!sink.can_answer_hidden(), "nobody follows the conversation");
+        assert!(!sink.can_answer());
 
         let hello = HelloInfo { surface: Origin::Shell, tty: None, client: None };
         connections.opened(ConnId::new(1), hello);
         let viewer = connections.subscribe(ConnId::new(1), conversation_id, false);
         assert!(!sink.can_answer_hidden(), "a viewer cannot type an answer");
+        assert!(!sink.can_answer(), "a viewer keeps no call past its timeout");
         let answerer = connections.subscribe(ConnId::new(1), conversation_id, true);
         assert!(sink.can_answer_hidden());
+        assert!(sink.can_answer());
         drop(answerer);
         assert!(!sink.can_answer_hidden(), "the answering client went away");
+        assert!(!sink.can_answer());
         drop(viewer);
     }
     assert_eq!(seen.output, [("pw: ".to_owned(), 4)]);
-    assert_eq!(seen.inputs, [InputWait::Hidden]);
+    assert_eq!(seen.inputs, [(InputWait::Hidden, false), (InputWait::Visible, true)]);
 }

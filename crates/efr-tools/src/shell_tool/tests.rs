@@ -1,7 +1,9 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_protocol::InputWait;
 use efr_shell::{CommandResult, Completion, OutputUpdate, RunMode, RunRequest, ShellError};
+use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -282,30 +284,76 @@ async fn a_password_nobody_could_answer_is_an_error_that_says_what_to_do() {
 async fn input_waits_and_the_question_who_can_answer_reach_the_output_sink() {
     #[derive(Default)]
     struct Sink {
-        inputs: Vec<InputWait>,
+        inputs: Vec<(InputWait, bool)>,
         asked: usize,
     }
     impl ToolOutputSink for Sink {
         fn update(&mut self, _tail: &str, _bytes: u64) {}
-        fn input_changed(&mut self, wait: InputWait) {
-            self.inputs.push(wait);
+        fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
+            self.inputs.push((wait, looks_secret));
         }
         fn can_answer_hidden(&mut self) -> bool {
             self.asked += 1;
             false
         }
+        fn can_answer(&mut self) -> bool {
+            true
+        }
     }
     let fixture = Fixture::new();
-    let runner = FakeRunner::with_inputs(
-        CommandResult::finished(Some(0), "", "/"),
-        vec![InputWait::Visible, InputWait::Hidden, InputWait::None],
-    );
+    let waits = vec![
+        (InputWait::Visible, false),
+        (InputWait::Visible, true),
+        (InputWait::Hidden, false),
+        (InputWait::None, false),
+    ];
+    let runner = FakeRunner::with_inputs(CommandResult::finished(Some(0), "", "/"), waits.clone());
     let tool = ShellTool::new(runner.clone());
     let mut sink = Sink::default();
     tool.invoke(fixture.context(), json!({"command": "sudo true"}), &mut sink).await.unwrap();
-    assert_eq!(sink.inputs, [InputWait::Visible, InputWait::Hidden, InputWait::None]);
+    assert_eq!(sink.inputs, waits);
     assert_eq!(sink.asked, 1);
     assert_eq!(*runner.answerable.lock().unwrap(), [false]);
+    assert_eq!(*runner.followed.lock().unwrap(), [true], "the shell asks the sink who follows");
+}
+
+#[tokio::test]
+async fn an_approved_interactive_call_hands_its_limit_to_the_shell_and_says_how_long_it_ran() {
+    let fixture = Fixture::new();
+    let clock = TestClock::new();
+    let outcome = CommandResult::finished(None, "", "/home/u")
+        .with_completion(Completion::Interactive)
+        .with_screen_tail(":: Proceed with installation? [Y/n]");
+    let runner = Arc::new(FakeRunner {
+        outcomes: Mutex::new(vec![Ok(outcome)]),
+        runs_for: Some((clock.clone(), Duration::from_secs(600))),
+        ..FakeRunner::default()
+    });
+    let tool = ShellTool::new(runner.clone());
+    let mut context = fixture.context().with_interactive_limit(Some(Duration::from_secs(3600)));
+    context.clock = clock.shared();
+    let result = tool
+        .invoke(
+            context,
+            json!({"command": "sudo pacman -Syu", "timeout_seconds": 5}),
+            &mut NoOutput,
+        )
+        .await
+        .unwrap();
+    assert_eq!(runner.last_request().interactive_limit, Some(Duration::from_secs(3600)));
+    assert!(
+        result.output.starts_with("[still running after 600s and waiting for input."),
+        "{}",
+        result.output
+    );
+
+    // A call that was not approved that way keeps its timeout.
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/")));
+    ShellTool::new(runner.clone())
+        .invoke(fixture.context(), json!({"command": "ls"}), &mut NoOutput)
+        .await
+        .unwrap();
+    assert_eq!(runner.last_request().interactive_limit, None);
 }
 
 #[test]

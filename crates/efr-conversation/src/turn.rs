@@ -171,8 +171,9 @@ enum Ending {
 /// The answer of the check point about one tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Authorization {
-    /// The engine allowed the call, or the user approved it.
-    Allowed,
+    /// The engine allowed the call, or the user approved it; `approved_interactive`
+    /// when the user approved a call that may wait for input at the terminal.
+    Allowed { approved_interactive: bool },
     /// The engine refused the call, or the user denied it; the model reads `message`.
     Denied { message: String },
     /// The call could not be judged, such as an unknown tool; the model reads `message`.
@@ -483,16 +484,20 @@ impl Turn {
                 scratch: self.scratch.clone(),
                 scope: self.scope.clone(),
                 origin: self.spec.origin,
+                approved_interactive: false,
             };
-            let tool_call = ToolCall::new(call.name, call.input, context);
+            let mut tool_call = ToolCall::new(call.name, call.input, context);
             let (outcome, interrupted) = if skip || self.control.interrupt.is_raised() {
                 (ToolOutcome::error(NOT_RUN), true)
             } else {
                 match self.authorize_tool_call(&tool_call).await? {
-                    Authorization::Allowed => match self.invoke(tool_call).await? {
-                        Some(outcome) => (outcome, false),
-                        None => (ToolOutcome::error(STOPPED), true),
-                    },
+                    Authorization::Allowed { approved_interactive } => {
+                        tool_call.context.approved_interactive = approved_interactive;
+                        match self.invoke(tool_call).await? {
+                            Some(outcome) => (outcome, false),
+                            None => (ToolOutcome::error(STOPPED), true),
+                        }
+                    }
                     Authorization::Denied { message } | Authorization::Refused { message } => {
                         (ToolOutcome::error(message), false)
                     }
@@ -536,6 +541,7 @@ impl Turn {
             Ok(requirements) => requirements,
             Err(message) => return Ok(Authorization::Refused { message }),
         };
+        let interactive = requirements.interactive;
         let input = DecisionInput {
             requirements,
             scope: call.context.scope.clone(),
@@ -550,20 +556,22 @@ impl Turn {
         let decision = engine.decide(&input);
         tracing::debug!(effect = %decision.effect(), "the permission engine decided");
         match decision.effect() {
-            Effect::Allow => Ok(Authorization::Allowed),
+            Effect::Allow => Ok(Authorization::Allowed { approved_interactive: false }),
             Effect::Deny => {
                 Ok(Authorization::Denied { message: approvals::denial(&call.name, &decision) })
             }
-            Effect::Ask => self.ask(call, &decision).await,
+            Effect::Ask => self.ask(call, &decision, interactive).await,
         }
     }
 
     /// Parks `call` until the user answers, the turn is interrupted, or the approval
-    /// timeout passes.
+    /// timeout passes. An approval of an `interactive` call, one that may wait for input
+    /// at the terminal, says so.
     async fn ask(
         &mut self,
         call: &ToolCall,
         decision: &Decision,
+        interactive: bool,
     ) -> Result<Authorization, ConversationError> {
         let turn_id = self.turn_id();
         let call_id = call.context.call_id;
@@ -587,7 +595,9 @@ impl Turn {
             () = sleep_or_pending(&*clock, timeout) => Waited::TimedOut,
         };
         match waited {
-            Waited::Answer(Some(ApprovalDecision::Allow)) => Ok(Authorization::Allowed),
+            Waited::Answer(Some(ApprovalDecision::Allow)) => {
+                Ok(Authorization::Allowed { approved_interactive: interactive })
+            }
             // NOTE: a decision added to the protocol later denies, so a newer client
             // can never run a call that this build would not.
             Waited::Answer(Some(_)) => Ok(Authorization::Denied {
@@ -685,7 +695,7 @@ impl Turn {
         &self,
         context: &CallContext,
         output: &mut watch::Receiver<Option<(String, u64)>>,
-        input: InputWait,
+        (input, looks_secret): (InputWait, bool),
     ) -> Result<(), ConversationError> {
         let mut events = Vec::with_capacity(2);
         if output.has_changed().unwrap_or(false) {
@@ -695,7 +705,7 @@ impl Turn {
             turn_id: self.turn_id(),
             call_id: context.call_id,
             input,
-            looks_secret: false,
+            looks_secret,
         });
         self.record(events).await?;
         Ok(())
@@ -793,7 +803,7 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
 /// matter.
 struct WatchSink {
     sender: watch::Sender<Option<(String, u64)>>,
-    inputs: mpsc::Sender<InputWait>,
+    inputs: mpsc::Sender<(InputWait, bool)>,
 }
 
 impl OutputSink for WatchSink {
@@ -801,11 +811,11 @@ impl OutputSink for WatchSink {
         self.sender.send_replace(Some((bounded_tail(tail), bytes)));
     }
 
-    fn input_changed(&mut self, wait: InputWait) {
+    fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
         // NOTE: the turn records each change as it comes, so the queue is full only if
         // the turn stopped reading; a lost change then matters to no one, and the
         // call's completion ends any wait.
-        if self.inputs.try_send(wait).is_err() {
+        if self.inputs.try_send((wait, looks_secret)).is_err() {
             tracing::warn!("a change of a tool call's input wait was dropped");
         }
     }

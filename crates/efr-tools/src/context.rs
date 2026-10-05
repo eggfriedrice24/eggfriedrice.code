@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
 use efr_scope::Home;
@@ -49,6 +50,11 @@ pub struct ToolContext {
     /// Make the hidden shell forget sudo's and doas's cached credentials when a
     /// command of this call ends (`shell.sudo_cache = "per_call"`).
     pub forget_credentials: bool,
+    /// The longest a command of this call may run in all, past the model's timeout,
+    /// while a person who can type answers follows the conversation
+    /// (`shell.interactive_timeout_minutes`): set for a call that the user approved
+    /// because it may wait for input at the terminal, `None` otherwise.
+    pub interactive_limit: Option<Duration>,
 }
 
 impl ToolContext {
@@ -74,6 +80,7 @@ impl ToolContext {
             clock,
             journal,
             forget_credentials: false,
+            interactive_limit: None,
         }
     }
 
@@ -96,6 +103,14 @@ impl ToolContext {
     #[must_use]
     pub fn with_forget_credentials(mut self, forget: bool) -> Self {
         self.forget_credentials = forget;
+        self
+    }
+
+    /// Sets how long a command of this call may run past the model's timeout while a
+    /// person who can answer follows the conversation; `None` keeps the timeout.
+    #[must_use]
+    pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
+        self.interactive_limit = limit;
         self
     }
 

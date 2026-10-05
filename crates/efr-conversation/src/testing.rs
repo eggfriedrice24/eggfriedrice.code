@@ -48,7 +48,8 @@ pub(crate) const OS: &str = "TestOS";
 /// - `shell {command}` runs a command, reports `partial` as output, yields, then
 ///   answers `done` with exit code 0; the command `ask-password` instead prints a
 ///   prompt, waits for hidden input, takes an answer and prints `ok`, yielding between
-///   the steps;
+///   the steps, and `relay-password` does the same with a visible wait that looks
+///   secret; a command that starts with `sudo ` may wait for input at the terminal;
 /// - `hang {}` declares nothing, signals [`FakeToolbox::hang_started`] and never ends.
 #[derive(Debug, Default)]
 pub(crate) struct FakeToolbox {
@@ -59,6 +60,8 @@ pub(crate) struct FakeToolbox {
     pub(crate) shell_cwd: Mutex<Option<PathBuf>>,
     /// The context of every call that `requirements` was asked about.
     judged: Mutex<Vec<CallContext>>,
+    /// The context of every call that reached `invoke`.
+    ran: Mutex<Vec<CallContext>>,
 }
 
 impl FakeToolbox {
@@ -94,6 +97,11 @@ impl FakeToolbox {
     pub(crate) fn judged(&self) -> Vec<CallContext> {
         self.judged.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
+
+    /// The context of every call that ran, in order.
+    pub(crate) fn ran(&self) -> Vec<CallContext> {
+        self.ran.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
 }
 
 fn text_input(input: &Value, key: &str) -> Result<String, String> {
@@ -115,7 +123,12 @@ impl Toolbox for FakeToolbox {
         match call.name.as_str() {
             "read_file" => Ok(Requirements::none().with_read(text_input(&call.input, "path")?)),
             "write_file" => Ok(Requirements::none().with_write(text_input(&call.input, "path")?)),
-            "shell" => Ok(Requirements::none().with_command(text_input(&call.input, "command")?)),
+            "shell" => {
+                let command = text_input(&call.input, "command")?;
+                let interactive = command.starts_with("sudo ");
+                let requirements = Requirements::none().with_command(command);
+                Ok(if interactive { requirements.with_interactive() } else { requirements })
+            }
             "hang" => Ok(Requirements::none()),
             other => Err(format!("no tool is named {other:?}")),
         }
@@ -134,6 +147,7 @@ impl Toolbox for FakeToolbox {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push((call.name.clone(), call.input.clone()));
+        self.ran.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
         let path = call.input.get("path").and_then(Value::as_str).unwrap_or_default();
         match call.name.as_str() {
             "read_file" => ToolOutcome::ok(format!("contents of {path}")),
@@ -141,11 +155,17 @@ impl Toolbox for FakeToolbox {
             "shell" if call.input["command"] == "ask-password" => {
                 out.update("pw: ", 4);
                 tokio::task::yield_now().await;
-                out.input_changed(InputWait::Hidden);
+                out.input_changed(InputWait::Hidden, false);
                 tokio::task::yield_now().await;
                 out.update("pw: \nok\n", 8);
-                out.input_changed(InputWait::None);
+                out.input_changed(InputWait::None, false);
                 ToolOutcome::ok("pw: \nok\n").with_exit_code(Some(0))
+            }
+            "shell" if call.input["command"] == "relay-password" => {
+                out.input_changed(InputWait::Visible, true);
+                tokio::task::yield_now().await;
+                out.input_changed(InputWait::None, false);
+                ToolOutcome::ok("ok\n").with_exit_code(Some(0))
             }
             "shell" => {
                 out.update("partial", 7);

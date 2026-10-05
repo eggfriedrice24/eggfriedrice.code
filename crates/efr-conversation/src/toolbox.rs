@@ -114,6 +114,11 @@ pub struct CallContext {
     pub scope: Scope,
     /// The surface the turn came from.
     pub origin: Origin,
+    /// True when the user approved the call although, or because, it may wait for input
+    /// at the terminal, such as a `sudo` password: such a call may run past the model's
+    /// timeout while someone who can answer follows it. Set by the check point once the
+    /// approval came; false while the call is judged.
+    pub approved_interactive: bool,
 }
 
 impl CallContext {
@@ -136,7 +141,16 @@ impl CallContext {
             scratch: scratch.into(),
             scope: Scope::Machine,
             origin: Origin::Shell,
+            approved_interactive: false,
         }
+    }
+
+    /// Sets whether the user approved the call as one that may wait for input at the
+    /// terminal.
+    #[must_use]
+    pub fn with_approved_interactive(mut self, approved: bool) -> Self {
+        self.approved_interactive = approved;
+        self
     }
 
     /// Sets where the conversation's hidden shell is.
@@ -210,8 +224,9 @@ pub trait OutputSink: Send {
     fn update(&mut self, tail: &str, bytes: u64);
 
     /// The call's command started or stopped waiting for input. Each change is
-    /// recorded, none is coalesced. Ignored by default.
-    fn input_changed(&mut self, _wait: InputWait) {}
+    /// recorded, none is coalesced. `looks_secret` marks a visible wait whose prompt
+    /// reads like a password prompt behind a relay. Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait, _looks_secret: bool) {}
 }
 
 impl<F: FnMut(&str, u64) + Send> OutputSink for F {

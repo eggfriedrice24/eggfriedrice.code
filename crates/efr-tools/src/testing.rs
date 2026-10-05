@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_protocol::{ConversationId, InputWait};
@@ -65,14 +66,23 @@ impl Fixture {
 
 /// A shell that answers every run with the next scripted outcome, reports scripted
 /// progress and input waits first, and remembers the requests and what the listener
-/// said when it was asked whether someone can answer hidden input.
+/// said when it was asked whether someone can answer.
 #[derive(Debug, Default)]
 pub(crate) struct FakeRunner {
-    outcomes: Mutex<Vec<Result<CommandResult, ShellError>>>,
+    pub(crate) outcomes: Mutex<Vec<Result<CommandResult, ShellError>>>,
     pub(crate) requests: Mutex<Vec<(ConversationId, RunRequest)>>,
     pub(crate) progress: Vec<OutputUpdate>,
-    pub(crate) inputs: Vec<InputWait>,
+    /// Each wait with whether it looks like a prompt for a secret.
+    pub(crate) inputs: Vec<(InputWait, bool)>,
+    /// What the listener said, for each hidden wait, when it was asked whether someone
+    /// can answer hidden input.
     pub(crate) answerable: Mutex<Vec<bool>>,
+    /// What the listener said, at the end of each run, when it was asked whether
+    /// someone who can answer follows it.
+    pub(crate) followed: Mutex<Vec<bool>>,
+    /// A clock that each run moves forward by the duration, as a command that runs
+    /// that long would.
+    pub(crate) runs_for: Option<(TestClock, Duration)>,
 }
 
 impl FakeRunner {
@@ -88,7 +98,7 @@ impl FakeRunner {
         })
     }
 
-    pub(crate) fn with_inputs(outcome: CommandResult, inputs: Vec<InputWait>) -> Arc<Self> {
+    pub(crate) fn with_inputs(outcome: CommandResult, inputs: Vec<(InputWait, bool)>) -> Arc<Self> {
         Arc::new(FakeRunner {
             outcomes: Mutex::new(vec![Ok(outcome)]),
             inputs,
@@ -113,13 +123,18 @@ impl CommandRunner for FakeRunner {
         for update in &self.progress {
             progress.update(update);
         }
-        for wait in &self.inputs {
-            progress.input_changed(*wait);
+        for (wait, looks_secret) in &self.inputs {
+            progress.input_changed(*wait, *looks_secret);
             if *wait == InputWait::Hidden {
                 let answerable = progress.can_answer_hidden();
                 self.answerable.lock().unwrap().push(answerable);
             }
         }
+        if let Some((clock, by)) = &self.runs_for {
+            clock.advance(*by);
+        }
+        let followed = progress.can_answer();
+        self.followed.lock().unwrap().push(followed);
         self.outcomes.lock().unwrap().remove(0)
     }
 }

@@ -185,7 +185,11 @@ impl ShellSessions {
     /// At the timeout the command keeps running; the result is
     /// [`Completion::FullScreen`] for a program on the alternate screen,
     /// [`Completion::Interactive`] when it waits for input at the terminal and
-    /// [`Completion::StillRunning`] otherwise, with the screen's last lines.
+    /// [`Completion::StillRunning`] otherwise, with the screen's last lines. A run with
+    /// an [`interactive_limit`](RunRequest::interactive_limit) whose command runs keeps
+    /// waiting past the timeout while
+    /// [`RunProgress::can_answer`](crate::RunProgress::can_answer) says yes, asked once
+    /// per quiet period, up to that limit in all; then the same results apply.
     ///
     /// While the command runs, the run looks once per `quiet_period` whether it waits
     /// for input and tells `progress` of each change (see
@@ -254,10 +258,38 @@ impl ShellSessions {
         text: &SecretText,
         hidden: bool,
     ) -> Result<(), ShellError> {
+        self.type_answer(conversation, call, text, hidden, false).await
+    }
+
+    /// Types `text` and a carriage return for the running command of `call` without a
+    /// reported wait: the user chose to type an input, such as for a command that has
+    /// printed nothing for a while. The answer is written only while that call's
+    /// command runs and a job of it, not the shell itself, holds the terminal, with
+    /// `hidden` only while the terminal reads a line with echo off; the check against a
+    /// reported wait and its kind does not apply. The errors are those of
+    /// [`answer`](Self::answer).
+    pub async fn answer_manual(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        text: &SecretText,
+        hidden: bool,
+    ) -> Result<(), ShellError> {
+        self.type_answer(conversation, call, text, hidden, true).await
+    }
+
+    async fn type_answer(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        text: &SecretText,
+        hidden: bool,
+        manual: bool,
+    ) -> Result<(), ShellError> {
         input::check_answer(text.expose_secret())?;
         let session = self.existing(conversation)?;
         let (reply, answered) = oneshot::channel();
-        session.send(Msg::Answer { call, text: text.clone(), hidden, reply }).await?;
+        session.send(Msg::Answer { call, text: text.clone(), hidden, manual, reply }).await?;
         answered.await.map_err(|_| session.exited())?
     }
 
@@ -509,6 +541,8 @@ impl ShellSessions {
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
         let offer = Offer::of(request.mode, &request.command);
+        let started = deps.clock.now();
+        let interactive_limit = request.interactive_limit;
         let order = RunOrder {
             id,
             command: request.command,
@@ -574,7 +608,14 @@ impl ShellSessions {
                         progress.update(&OutputUpdate::new(reported, tail));
                     }
                 }
-                () = &mut deadline => break,
+                () = &mut deadline => {
+                    // NOTE: the looks start with the command, so a run still waiting for
+                    // the prompt is never kept past its timeout.
+                    match self.extension(interactive_limit, started, look.is_some(), progress) {
+                        Some(wait) => deadline = deps.clock.sleep(wait),
+                        None => break,
+                    }
+                }
                 () = until(&mut look) => {
                     let looked = self.look_for_input(session, id, offer, &mut watch, progress).await;
                     let stop = match looked {
@@ -663,24 +704,51 @@ impl ShellSessions {
         };
         let config = &self.inner.config;
         let quiet = Quiet { hidden: config.quiet_period, visible: config.visible_input_quiet };
-        let wait = match input::look(&probe, self.inner.deps.clock.now(), quiet, offer) {
-            Look::Settled(wait) => wait,
+        // A terminal that is not in line mode while a job waits is a relay's, such as
+        // `sudo`'s own pty, or a program's raw mode: only then can a password prompt be
+        // a visible wait.
+        let relayed = probe.job.is_some_and(|job| !job.modes.canonical);
+        let (wait, secret) = match input::look(&probe, self.inner.deps.clock.now(), quiet, offer) {
+            Look::Settled(wait) => (wait, false),
             // A screen that failed only loses the guess; the command goes on.
             Look::ReadScreen => match session.screen.snapshot(0).await {
-                Ok(capture) if input::visible_prompt(&capture.snapshot) => InputWait::Visible,
-                _ => InputWait::None,
+                Ok(capture) if input::visible_prompt(&capture.snapshot) => {
+                    (InputWait::Visible, relayed && input::secret_prompt(&capture.snapshot))
+                }
+                _ => (InputWait::None, false),
             },
         };
-        if let Some(changed) = watch.settle(wait, probe.job.map(|job| job.group), probe.answers) {
+        let group = probe.job.map(|job| job.group);
+        if let Some(changed) = watch.settle(wait, secret, group, probe.answers) {
             // The actor learns which job waits before any client hears of the wait, so an
             // answer sent for it is checked against that job. The client hears of the
             // change even when the actor is gone, so the `None` that the caller reports
             // then follows a wait that the client heard.
             let told = session.send(Msg::Waiting { id, waiting: watch.waiting() }).await;
-            progress.input_changed(changed);
+            progress.input_changed(changed, watch.looks_secret());
             told?;
         }
         Ok(watch.current() == InputWait::Hidden && !progress.can_answer_hidden())
+    }
+
+    /// How much longer a run that reached its deadline waits for its command, when it
+    /// has an interactive `limit`, its command runs, the limit since `started` has not
+    /// passed and a person who can answer follows it: at most one quiet period, so a
+    /// person who stops following ends the wait soon. `None` ends the run as at its
+    /// timeout.
+    fn extension(
+        &self,
+        limit: Option<Duration>,
+        started: jiff::Timestamp,
+        running: bool,
+        progress: &mut dyn RunProgress,
+    ) -> Option<Duration> {
+        let limit = limit.filter(|_| running)?;
+        // A clock that went back counts as no time passed.
+        let elapsed = Duration::try_from(self.inner.deps.clock.now().duration_since(started))
+            .unwrap_or_default();
+        let left = limit.checked_sub(elapsed).filter(|left| !left.is_zero())?;
+        progress.can_answer().then(|| left.min(self.inner.config.quiet_period))
     }
 
     /// Interrupts run `id`, whose command waits for hidden input that nobody can
@@ -869,7 +937,7 @@ impl Drop for DetachOnDrop {
 /// or was left.
 fn end_watch(watch: &mut InputWatch, progress: &mut dyn RunProgress) {
     if let Some(changed) = watch.end() {
-        progress.input_changed(changed);
+        progress.input_changed(changed, false);
     }
 }
 

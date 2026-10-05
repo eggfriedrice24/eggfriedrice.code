@@ -2,8 +2,10 @@
 //! the local Responses server as the model: a password typed through `input.respond`
 //! reaches the program and nothing else, a password prompt that no client can answer is
 //! stopped at once, also when the last client that could answer leaves while it waits,
-//! and one of two such clients leaving stops nothing. Every test drives a real zsh and
-//! skips with a message unless `EFR_TEST_ZSH=1`.
+//! and one of two such clients leaving stops nothing. A call approved as one that waits
+//! for input runs past its timeout while a client that can answer follows, and a manual
+//! answer reaches a silent command that reported no wait. Every test drives a real zsh
+//! and skips with a message unless `EFR_TEST_ZSH=1`.
 
 // NOTE: an integration test crate is always built with cfg(test); saying so lets
 // clippy treat its helpers as test code, as it does for unit tests.
@@ -29,6 +31,10 @@ use pretty_assertions::assert_eq;
 /// prints how long the line was, never the line.
 const GETPASS: &str =
     r#"sh -c 'stty -echo; printf "pw: "; IFS= read -r p; stty echo; printf "\nlen=%s\n" "${#p}"'"#;
+
+/// A program that prints a line and then reads one in line mode with echo on, without a
+/// prompt, so no wait is reported; it prints what it read.
+const SILENT_READ: &str = r#"sh -c 'printf "ready\n"; IFS= read -r a; printf "got=%s\n" "$a"'"#;
 
 /// The password the user types: nothing may hold it but the program that reads it.
 const SECRET: &str = "hunter2-efr-secret";
@@ -80,7 +86,13 @@ fn logged() -> String {
 /// then says `done`.
 async fn daemon(server: &ResponsesServer) -> TestDaemon {
     let arguments = serde_json::json!({ "command": GETPASS, "timeout_seconds": 600 });
-    server.push(ResponsesAnswer::tool_call("call_1", "shell", &arguments));
+    daemon_calling(server, &arguments).await
+}
+
+/// A daemon over a real zsh whose model asks for one `shell` call with `arguments` and
+/// then says `done`.
+async fn daemon_calling(server: &ResponsesServer, arguments: &serde_json::Value) -> TestDaemon {
+    server.push(ResponsesAnswer::tool_call("call_1", "shell", arguments));
     server.push(ResponsesAnswer::text("done"));
     TestDaemon::builder().local_pty().responses(server).persistent().start().await.unwrap()
 }
@@ -219,6 +231,17 @@ async fn prompt_until_the_password_prompt(
     client: &Client,
     answers_input: bool,
 ) -> (ConversationId, ItemStream<ConversationSubscribeItem>) {
+    prompt_until_shown(daemon, client, answers_input, "pw: ").await
+}
+
+/// Sends the prompt, approves the shell call and waits, without moving the clock, until
+/// the program's output shows `shown`; returns the conversation and the stream.
+async fn prompt_until_shown(
+    daemon: &TestDaemon,
+    client: &Client,
+    answers_input: bool,
+    shown: &str,
+) -> (ConversationId, ItemStream<ConversationSubscribeItem>) {
     let sent: PromptSendResult = client.call(daemon.prompt(1, "update", TTY)).await.unwrap();
     let mut stream = subscribe(client, sent.conversation_id, answers_input).await;
     let seen = events_until(&mut stream, |event| {
@@ -238,7 +261,7 @@ async fn prompt_until_the_password_prompt(
     });
     let _: ApprovalRespondResult = client.call(approve).await.unwrap();
     let shown = events_until(&mut stream, |event| {
-        matches!(event, Event::ToolCallOutputUpdated { tail, .. } if tail.contains("pw: "))
+        matches!(event, Event::ToolCallOutputUpdated { tail, .. } if tail.contains(shown))
             || matches!(event, Event::ToolCallCompleted { .. } | Event::TurnFailed { .. })
     })
     .await
@@ -502,6 +525,114 @@ async fn shell_a_hidden_wait_goes_on_when_one_of_two_clients_that_can_answer_lea
     assert!(!is_error, "{output}");
     assert_eq!(exit_code, Some(0));
     assert!(output.contains(&format!("len={}", SECRET.len())), "{output}");
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
+
+/// The output and the exit code of the completed tool call among `events`.
+fn completed_call(events: &[EventEnvelope]) -> (String, Option<i32>) {
+    let completed = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, exit_code, .. } => Some((output.clone(), *exit_code)),
+        _ => None,
+    });
+    completed.unwrap_or_else(|| panic!("{events:#?}"))
+}
+
+#[tokio::test]
+async fn shell_an_approved_interactive_call_runs_past_its_timeout_while_a_client_can_answer() {
+    if !zsh_enabled(
+        "shell_an_approved_interactive_call_runs_past_its_timeout_while_a_client_can_answer",
+    ) {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    // The line names `less`, which may wait for input at the terminal, so the user
+    // approves the call as one that does; `less` itself never runs.
+    let command = format!("true || less; {GETPASS}");
+    let arguments = serde_json::json!({ "command": command, "timeout_seconds": 5 });
+    let daemon = daemon_calling(&server, &arguments).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, mut stream) =
+        prompt_until_the_password_prompt(&daemon, &client, true).await;
+    let (call_id, _) = until_hidden(&daemon, &mut stream).await;
+
+    // Four times the call's timeout passes; the call keeps running.
+    let seen = events_for_seconds(&daemon, &mut stream, 20).await;
+    assert!(
+        !seen.iter().any(|envelope| matches!(envelope.event, Event::ToolCallCompleted { .. })),
+        "{seen:#?}"
+    );
+    let answer = Method::InputRespond(InputRespond {
+        conversation_id,
+        call_id,
+        text: SecretText::new(SECRET),
+        hidden: true,
+        manual: false,
+    });
+    let _: InputRespondResult = client.call(answer).await.unwrap();
+    let rest = events_until(&mut stream, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    let (output, exit_code) = completed_call(&rest);
+    assert!(output.contains(&format!("len={}", SECRET.len())), "{output}");
+    assert_eq!(exit_code, Some(0));
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_a_manual_answer_reaches_a_silent_command_and_a_plain_one_does_not() {
+    if !zsh_enabled("shell_a_manual_answer_reaches_a_silent_command_and_a_plain_one_does_not") {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    let arguments = serde_json::json!({ "command": SILENT_READ, "timeout_seconds": 600 });
+    let daemon = daemon_calling(&server, &arguments).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, mut stream) = prompt_until_shown(&daemon, &client, true, "ready").await;
+    let call_id =
+        daemon.events(&client, conversation_id).await.unwrap().iter().find_map(|envelope| {
+            match &envelope.event {
+                Event::ToolCallStarted { call_id, .. } => Some(*call_id),
+                _ => None,
+            }
+        });
+    let call_id = call_id.unwrap();
+    let seen = events_for_seconds(&daemon, &mut stream, 5).await;
+    assert_eq!(input_waits(&seen), Vec::<InputWait>::new(), "no prompt, so no wait");
+
+    let answer = |manual: bool| {
+        Method::InputRespond(InputRespond {
+            conversation_id,
+            call_id,
+            text: SecretText::new("hello"),
+            hidden: false,
+            manual,
+        })
+    };
+    let plain = client.call::<InputRespondResult>(answer(false)).await;
+    assert!(
+        matches!(&plain, Err(efr_test_daemon::ClientError::Server { body }) if body.code == efr_protocol::ErrorCode::Conflict),
+        "{plain:?}"
+    );
+    let _: InputRespondResult = client.call(answer(true)).await.unwrap();
+    let rest = events_until(&mut stream, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    let (output, exit_code) = completed_call(&rest);
+    assert!(output.contains("got=hello"), "{output}");
+    assert_eq!(exit_code, Some(0));
+
+    // The call ended: an answer for it finds nothing.
+    let late = client.call::<InputRespondResult>(answer(true)).await;
+    assert!(
+        matches!(&late, Err(efr_test_daemon::ClientError::Server { body }) if body.code == efr_protocol::ErrorCode::NotFound),
+        "{late:?}"
+    );
     drop((stream, client));
     daemon.stop().await.unwrap();
 }

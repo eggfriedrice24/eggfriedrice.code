@@ -524,6 +524,7 @@ impl TerminalModes for FakeModes {
 pub(crate) struct Listener {
     output: watch::Sender<OutputUpdate>,
     inputs: watch::Sender<Vec<InputWait>>,
+    secrets: watch::Sender<Vec<bool>>,
     can_answer: Arc<AtomicBool>,
 }
 
@@ -531,6 +532,8 @@ pub(crate) struct Listener {
 pub(crate) struct Heard {
     pub(crate) output: watch::Receiver<OutputUpdate>,
     pub(crate) inputs: watch::Receiver<Vec<InputWait>>,
+    /// Whether each change of `inputs` looked like a prompt for a secret.
+    pub(crate) secrets: watch::Receiver<Vec<bool>>,
     /// What the listener answers when it is asked whether someone can answer.
     pub(crate) can_answer: Arc<AtomicBool>,
 }
@@ -551,10 +554,15 @@ impl Heard {
 pub(crate) fn listener(can_answer: bool) -> (Listener, Heard) {
     let (output, output_seen) = watch::channel(OutputUpdate::default());
     let (inputs, inputs_seen) = watch::channel(Vec::new());
+    let (secrets, secrets_seen) = watch::channel(Vec::new());
     let can_answer = Arc::new(AtomicBool::new(can_answer));
-    let heard =
-        Heard { output: output_seen, inputs: inputs_seen, can_answer: Arc::clone(&can_answer) };
-    (Listener { output, inputs, can_answer }, heard)
+    let heard = Heard {
+        output: output_seen,
+        inputs: inputs_seen,
+        secrets: secrets_seen,
+        can_answer: Arc::clone(&can_answer),
+    };
+    (Listener { output, inputs, secrets, can_answer }, heard)
 }
 
 impl RunProgress for Listener {
@@ -562,11 +570,16 @@ impl RunProgress for Listener {
         self.output.send_replace(update.clone());
     }
 
-    fn input_changed(&mut self, wait: InputWait) {
+    fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
+        self.secrets.send_modify(|secrets| secrets.push(looks_secret));
         self.inputs.send_modify(|inputs| inputs.push(wait));
     }
 
     fn can_answer_hidden(&mut self) -> bool {
+        self.can_answer.load(Ordering::SeqCst)
+    }
+
+    fn can_answer(&mut self) -> bool {
         self.can_answer.load(Ordering::SeqCst)
     }
 }

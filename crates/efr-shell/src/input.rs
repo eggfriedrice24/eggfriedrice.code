@@ -15,6 +15,12 @@
 //! - [`InputWait::None`] otherwise, and when the modes cannot be read. A full-screen
 //!   program on the alternate screen is judged only at the run's timeout, as before.
 //!
+//! A visible wait looks secret when the terminal is not in line mode, as behind a relay
+//! (`sudo`'s own pty, `ssh`, `docker exec`), and the cursor's row reads like a password
+//! prompt ([`looks_secret`]). The program on the inner terminal decides whether the
+//! answer is shown, so a client hides what the user types; the answer still goes as a
+//! visible one, so the kind check holds.
+//!
 //! What a run may report depends on the run ([`Offer`]). A prompt that reads command
 //! lines (a shell's `$ `, a REPL's `>>> `) looks like a visible question, and an answer
 //! there would run as a command line, so two kinds of run report hidden waits only. A
@@ -41,6 +47,7 @@
 use std::time::Duration;
 
 use efr_protocol::{InputRespond, InputWait, ScreenSnapshot};
+use efr_screen::row_text;
 use jiff::Timestamp;
 
 use crate::modes::{InputModes, Job};
@@ -205,11 +212,42 @@ pub(crate) fn visible_prompt(snapshot: &ScreenSnapshot) -> bool {
     !snapshot.alternate_screen && cursor_after_text(snapshot)
 }
 
+/// What a prompt that asks for a secret says, in lower case. `pin` counts only as a
+/// word of its own, so `ping` or `spinning` do not.
+const SECRET_WORDS: &[&str] =
+    &["password", "passphrase", "passcode", "verification code", "one-time code", "one time code"];
+
+/// True when the cursor's row of `snapshot` reads like a prompt for a secret.
+pub(crate) fn secret_prompt(snapshot: &ScreenSnapshot) -> bool {
+    snapshot
+        .rows
+        .get(usize::from(snapshot.cursor.row))
+        .is_some_and(|row| looks_secret(&row_text(row)))
+}
+
+/// True when `line` reads like a prompt for a secret: it names a password, a
+/// passphrase, a passcode, a PIN, a verification code or a one-time code, in any case.
+/// A guess from the text that a program printed, so it only changes what a client
+/// shows, never where an answer goes.
+pub(crate) fn looks_secret(line: &str) -> bool {
+    let line = line.to_lowercase();
+    let starts_word =
+        |at: usize| !line[..at].chars().next_back().is_some_and(char::is_alphanumeric);
+    let ends_word = |at: usize| !line[at..].chars().next().is_some_and(char::is_alphanumeric);
+    let found = |word: &str, whole: bool| {
+        line.match_indices(word)
+            .any(|(at, _)| starts_word(at) && (!whole || ends_word(at + word.len())))
+    };
+    SECRET_WORDS.iter().any(|word| found(word, false)) || found("pin", true)
+}
+
 /// The wait a run reported last, so each change is reported once, and the job it
 /// belongs to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct InputWatch {
     current: InputWait,
+    /// The wait reported last looks like a prompt for a secret.
+    secret: bool,
     /// The process group in the terminal's foreground at the last look.
     group: Option<u32>,
     answers: u64,
@@ -219,6 +257,12 @@ impl InputWatch {
     /// The wait reported last.
     pub(crate) fn current(&self) -> InputWait {
         self.current
+    }
+
+    /// True when the wait reported last is a visible one that looks like a prompt for a
+    /// secret.
+    pub(crate) fn looks_secret(&self) -> bool {
+        self.secret
     }
 
     /// The wait reported last with the process group of its job, as it was at that
@@ -233,7 +277,8 @@ impl InputWatch {
     }
 
     /// Takes the wait of a look that saw `answers` answers and the job of process group
-    /// `group` in the foreground; returns it when it differs from the last one.
+    /// `group` in the foreground, with whether it looks like a prompt for a secret;
+    /// returns it when it or that flag differs from the last one.
     ///
     /// A reported wait ends at a look that finds another job in the foreground, which
     /// reports `None`; a wait of that job is a new change at the look after. A wait
@@ -241,6 +286,7 @@ impl InputWatch {
     pub(crate) fn settle(
         &mut self,
         wait: InputWait,
+        secret: bool,
         group: Option<u32>,
         answers: u64,
     ) -> Option<InputWait> {
@@ -252,19 +298,20 @@ impl InputWatch {
         };
         self.answers = answers;
         self.group = group;
-        self.change(wait)
+        self.change(wait, secret && wait == InputWait::Visible)
     }
 
     /// The run ended or was left: `None`, when that is a change.
     pub(crate) fn end(&mut self) -> Option<InputWait> {
-        self.change(InputWait::None)
+        self.change(InputWait::None, false)
     }
 
-    fn change(&mut self, wait: InputWait) -> Option<InputWait> {
-        if wait == self.current {
+    fn change(&mut self, wait: InputWait, secret: bool) -> Option<InputWait> {
+        if wait == self.current && secret == self.secret {
             return None;
         }
         self.current = wait;
+        self.secret = secret;
         Some(wait)
     }
 }

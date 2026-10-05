@@ -294,8 +294,10 @@ pub trait ToolOutputSink: Send {
     fn update(&mut self, tail: &str, bytes: u64);
 
     /// The call's command started or stopped waiting for input; each change comes
-    /// once. Ignored by default.
-    fn input_changed(&mut self, _wait: InputWait) {}
+    /// once. `looks_secret` is true for a visible wait whose prompt reads like a
+    /// password prompt behind a relay, where the program on the inner terminal decides
+    /// whether the answer is shown. Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait, _looks_secret: bool) {}
 
     /// Whether a person can answer hidden input, such as a password, for this call
     /// now. Asked when the command starts to wait for hidden input and again while it
@@ -303,6 +305,13 @@ pub trait ToolOutputSink: Send {
     /// ends or the call's timeout passes.
     fn can_answer_hidden(&mut self) -> bool {
         true
+    }
+
+    /// Whether a person who can type answers follows the call now, which keeps a call
+    /// with an [`interactive_limit`](crate::ToolContext::interactive_limit) running past
+    /// its timeout. False by default, which keeps the timeout.
+    fn can_answer(&mut self) -> bool {
+        false
     }
 }
 

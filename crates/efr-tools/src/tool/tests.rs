@@ -166,10 +166,12 @@ fn a_path_named_twice_is_added_once() {
 fn a_sink_ignores_input_waits_and_lets_hidden_input_wait_unless_it_says_otherwise() {
     let mut seen = Vec::new();
     let mut closure = |tail: &str, bytes: u64| seen.push((tail.to_owned(), bytes));
-    closure.input_changed(efr_protocol::InputWait::Hidden);
+    closure.input_changed(efr_protocol::InputWait::Hidden, false);
     assert!(closure.can_answer_hidden());
+    assert!(!closure.can_answer(), "nobody is known to follow, so the timeout holds");
     let mut none = NoOutput;
-    none.input_changed(efr_protocol::InputWait::Visible);
+    none.input_changed(efr_protocol::InputWait::Visible, true);
     assert!(none.can_answer_hidden());
+    assert!(!none.can_answer());
     assert!(seen.is_empty());
 }

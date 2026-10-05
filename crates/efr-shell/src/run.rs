@@ -41,6 +41,11 @@ pub struct RunRequest {
     /// takes effect for a run delimited by marks: the integration's key runs
     /// `sudo -k` and `doas -L` without printing anything.
     pub forget_credentials: bool,
+    /// The longest the run waits for its command in all, past [`timeout`](Self::timeout),
+    /// while [`RunProgress::can_answer`] says that a person who can type answers
+    /// follows it: for a command that the user approved because it may wait for input.
+    /// `None` keeps the timeout.
+    pub interactive_limit: Option<Duration>,
 }
 
 impl RunRequest {
@@ -59,6 +64,7 @@ impl RunRequest {
             output_limit: Self::DEFAULT_OUTPUT_LIMIT,
             call: None,
             forget_credentials: false,
+            interactive_limit: None,
         }
     }
 
@@ -95,6 +101,14 @@ impl RunRequest {
     #[must_use]
     pub fn with_forget_credentials(mut self, forget: bool) -> Self {
         self.forget_credentials = forget;
+        self
+    }
+
+    /// Sets the longest the run waits for its command while a person who can answer
+    /// follows it; `None` keeps the timeout.
+    #[must_use]
+    pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
+        self.interactive_limit = limit;
         self
     }
 }
@@ -267,8 +281,10 @@ pub trait RunProgress: Send {
 
     /// The command started or stopped waiting for input. Each change comes once, and a
     /// run that ended or was left while it waited reports [`InputWait::None`] last.
-    /// Ignored by default.
-    fn input_changed(&mut self, _wait: InputWait) {}
+    /// `looks_secret` is true for a visible wait whose prompt reads like a password
+    /// prompt while the terminal is not in line mode, as behind a relay; a change of it
+    /// alone is a change too. Ignored by default.
+    fn input_changed(&mut self, _wait: InputWait, _looks_secret: bool) {}
 
     /// Whether a person can answer hidden input for this run now. Asked when the
     /// command starts to wait for hidden input and at every look while it waits;
@@ -276,6 +292,14 @@ pub trait RunProgress: Send {
     /// lets the command wait until it ends or the timeout passes.
     fn can_answer_hidden(&mut self) -> bool {
         true
+    }
+
+    /// Whether a person who can type answers follows the run now. Asked at the timeout,
+    /// and then once per quiet period, of a run with an
+    /// [`interactive_limit`](RunRequest::interactive_limit): `true` keeps it waiting for
+    /// its command up to that limit. False by default, which keeps the timeout.
+    fn can_answer(&mut self) -> bool {
+        false
     }
 }
 

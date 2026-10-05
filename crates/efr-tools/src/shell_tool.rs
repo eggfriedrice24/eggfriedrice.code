@@ -43,7 +43,9 @@ struct ShellInput {
 /// Runs a command line in the conversation's hidden zsh: one long-lived interactive
 /// shell with the user's environment and startup files, whose working directory and
 /// variables carry over from call to call. The user does not see its screen; a person
-/// who follows the turn can answer a command that waits for input.
+/// who follows the turn can answer a command that waits for input. A call that the user
+/// approved because it may wait for input keeps running past its timeout while such a
+/// person follows, up to [`ToolContext::interactive_limit`].
 ///
 /// It declares the command line, `interactive` for commands that may wait for input
 /// at the terminal (`sudo`, `ssh`, an editor, or any nested shell) and `network` for
@@ -98,14 +100,15 @@ impl ShellTool {
         self
     }
 
-    fn render(&self, result: &CommandResult, timeout: Duration) -> ToolResult {
+    /// The model's answer for `result`, after the command ran for `waited`.
+    fn render(&self, result: &CommandResult, waited: Duration) -> ToolResult {
         let cut = truncate_middle(&result.output, self.output_limit);
         let mut text = cut.text;
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
         let cwd = result.cwd_after.display();
-        let seconds = timeout.as_secs();
+        let seconds = waited.as_secs();
         let is_error = match result.completion {
             Completion::Finished => {
                 let status =
@@ -241,10 +244,18 @@ impl Tool for ShellTool {
             .with_timeout(timeout)
             .with_mode(mode)
             .with_call(ctx.ids.call_id)
-            .with_forget_credentials(ctx.forget_credentials);
+            .with_forget_credentials(ctx.forget_credentials)
+            .with_interactive_limit(ctx.interactive_limit);
         let mut progress = Relay { out };
+        let started = ctx.clock.now();
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {
-            Ok(result) => Ok(self.render(&result, timeout)),
+            Ok(result) => {
+                // NOTE: a call that a person followed may have run past its timeout, and
+                // the model must learn how long it really waited.
+                let ran =
+                    Duration::try_from(ctx.clock.now().duration_since(started)).unwrap_or_default();
+                Ok(self.render(&result, timeout.max(ran)))
+            }
             // NOTE: nothing clears a busy shell from here: an interrupt reaches the shell
             // only for a call in flight, and this one never started.
             Err(ShellError::Busy { .. }) => Ok(ToolResult::error(
@@ -281,12 +292,16 @@ impl RunProgress for Relay<'_> {
         self.out.update(&update.tail, update.bytes);
     }
 
-    fn input_changed(&mut self, wait: InputWait) {
-        self.out.input_changed(wait);
+    fn input_changed(&mut self, wait: InputWait, looks_secret: bool) {
+        self.out.input_changed(wait, looks_secret);
     }
 
     fn can_answer_hidden(&mut self) -> bool {
         self.out.can_answer_hidden()
+    }
+
+    fn can_answer(&mut self) -> bool {
+        self.out.can_answer()
     }
 }
 
