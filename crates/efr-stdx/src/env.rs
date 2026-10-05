@@ -22,6 +22,9 @@ pub enum Var {
     Log,
     /// `EFR_SCREEN`: the screen backend, `vt100` or `ghostty`.
     Screen,
+    /// `EFR_HOME`: an absolute path below which every root lives, in `config/`, `data/`,
+    /// `state/` and `runtime/`; each root's own variable wins over it. Not read yet.
+    Home,
     /// `EFR_CONFIG_DIR`: an absolute path that replaces `$XDG_CONFIG_HOME/efr`.
     ConfigDir,
     /// `EFR_DATA_DIR`: an absolute path that replaces `$XDG_DATA_HOME/efr`.
@@ -38,6 +41,15 @@ pub enum Var {
     RecordTranscript,
     /// `EFR_TEST_ZSH`: a flag; tests that drive a real zsh run only when it is on.
     TestZsh,
+    /// `EFR_MODE`: the permission mode that `efr send` and `efr new` ask for, `manual`,
+    /// `cautious` or `auto`; a flag wins over it. Not read yet.
+    Mode,
+    /// `EFR_MODEL`: the model that `efr send` and `efr new` ask for; a flag wins over it.
+    /// Not read yet.
+    Model,
+    /// `EFR_EFFORT`: the reasoning effort that `efr send` and `efr new` ask for; a flag
+    /// wins over it. Not read yet.
+    Effort,
     /// `EFR_CONTEXT`: the shell context JSON that the zsh plugin hands to `efr send`
     /// and `efr new`. Private: see [`Var::PRIVATE`].
     Context,
@@ -54,6 +66,7 @@ impl Var {
     pub const ALL: &'static [Var] = &[
         Var::Log,
         Var::Screen,
+        Var::Home,
         Var::ConfigDir,
         Var::DataDir,
         Var::StateDir,
@@ -61,6 +74,9 @@ impl Var {
         Var::OpenBrowser,
         Var::RecordTranscript,
         Var::TestZsh,
+        Var::Mode,
+        Var::Model,
+        Var::Effort,
         Var::Context,
         Var::LastCommand,
         Var::Prompt,
@@ -85,6 +101,7 @@ impl Var {
         match self {
             Var::Log => "EFR_LOG",
             Var::Screen => "EFR_SCREEN",
+            Var::Home => "EFR_HOME",
             Var::ConfigDir => "EFR_CONFIG_DIR",
             Var::DataDir => "EFR_DATA_DIR",
             Var::StateDir => "EFR_STATE_DIR",
@@ -92,6 +109,9 @@ impl Var {
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
             Var::RecordTranscript => "EFR_RECORD_TRANSCRIPT",
             Var::TestZsh => "EFR_TEST_ZSH",
+            Var::Mode => "EFR_MODE",
+            Var::Model => "EFR_MODEL",
+            Var::Effort => "EFR_EFFORT",
             Var::Context => "EFR_CONTEXT",
             Var::LastCommand => "EFR_LAST_COMMAND",
             Var::Prompt => "EFR_PROMPT",

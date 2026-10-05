@@ -131,6 +131,7 @@ fn all_lists_every_variant() {
     let every = [
         Var::Log,
         Var::Screen,
+        Var::Home,
         Var::ConfigDir,
         Var::DataDir,
         Var::StateDir,
@@ -138,6 +139,9 @@ fn all_lists_every_variant() {
         Var::OpenBrowser,
         Var::RecordTranscript,
         Var::TestZsh,
+        Var::Mode,
+        Var::Model,
+        Var::Effort,
         Var::Context,
         Var::LastCommand,
         Var::Prompt,
@@ -146,6 +150,7 @@ fn all_lists_every_variant() {
         match var {
             Var::Log
             | Var::Screen
+            | Var::Home
             | Var::ConfigDir
             | Var::DataDir
             | Var::StateDir
@@ -153,6 +158,9 @@ fn all_lists_every_variant() {
             | Var::OpenBrowser
             | Var::RecordTranscript
             | Var::TestZsh
+            | Var::Mode
+            | Var::Model
+            | Var::Effort
             | Var::Context
             | Var::LastCommand
             | Var::Prompt => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
@@ -167,6 +175,18 @@ fn the_plugins_handover_variables_are_the_private_ones() {
         Var::ALL.iter().filter(|var| var.is_private()).map(|var| var.name()).collect();
     assert_eq!(private, ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_PROMPT"]);
     assert_eq!(Var::PRIVATE.len(), private.len());
+}
+
+#[test]
+fn the_home_and_turn_settings_variables_have_their_names_and_are_not_private() {
+    // The plugin hands mode, model and effort to efr in plain sight, as prefix
+    // assignments, so they are not private like the prompt.
+    let vars = [Var::Home, Var::Mode, Var::Model, Var::Effort];
+    let names: Vec<_> = vars.iter().map(|var| var.name()).collect();
+    assert_eq!(names, ["EFR_HOME", "EFR_MODE", "EFR_MODEL", "EFR_EFFORT"]);
+    for var in vars {
+        assert!(!var.is_private(), "{var}");
+    }
 }
 
 #[test]
