@@ -3,7 +3,10 @@
 //! While a shell call runs silently and reports no wait, `efr` must not read keys: text
 //! typed then goes on to the user's shell as typeahead, which the user chose. So the
 //! view only says that `Ctrl+\` opens an answer line, and the terminal turns that key into
-//! SIGQUIT for `efr`, the foreground job, without `efr` reading anything.
+//! SIGQUIT for `efr`, the foreground job, without `efr` reading anything. The press
+//! itself throws that typeahead away: the terminal driver flushes unread input when it
+//! turns the key into a signal, as it does for Ctrl+C. Nothing here sets `NOFLSH`,
+//! which would have to be put back on every way out of `efr`.
 //!
 //! The key counts only while a [`Quit::wait`] future lives, which the follow loop keeps
 //! while that line is shown and while it reads keys: the key reader turns echo and line

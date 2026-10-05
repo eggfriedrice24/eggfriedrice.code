@@ -27,7 +27,8 @@
 //! `tool_call_started`, a shell call whose command does not type into a shell that reads
 //! command lines), reports no wait and has printed nothing for a while gets one dim line
 //! that offers `Ctrl+\` ([`TurnView::silence`], [`TurnView::silent`]). The view reads no
-//! key for it: text typed meanwhile stays typeahead for the user's shell. Only `Ctrl+\`
+//! key for it: text typed meanwhile stays typeahead for the user's shell (until
+//! `Ctrl+\`, which makes the terminal throw it away). Only `Ctrl+\`
 //! opens an answer line ([`TurnView::manual`]), which goes as a manual answer. That line
 //! is never shown as it is typed: nothing reported a prompt, so nothing tells whether
 //! the command asks for a password, and the program's own echo still shows in its

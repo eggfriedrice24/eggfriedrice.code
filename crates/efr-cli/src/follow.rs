@@ -16,7 +16,8 @@
 //! A call that takes a manual input, reports no wait and prints nothing for [`SILENCE`]
 //! gets a line that offers `Ctrl+\`, and the loop waits for the key (`crate::quit`)
 //! while that line is shown. No key is read before it: what the user types meanwhile
-//! stays typeahead for their shell. `Ctrl+\` opens an answer line, which goes as a
+//! stays typeahead for their shell, unless they press `Ctrl+\`, which makes the terminal
+//! throw it away. `Ctrl+\` opens an answer line, which goes as a
 //! manual answer. The loop also waits for the key while it reads keys, because the key
 //! reader holds the terminal in modes of its own that the key's default action, the
 //! end of the process, would leave behind: a press then closes an open manual line
