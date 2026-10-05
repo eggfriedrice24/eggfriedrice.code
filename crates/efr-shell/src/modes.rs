@@ -4,7 +4,9 @@
 //! On Linux `tcgetattr` on a PTY master returns the termios of its slave, which is what
 //! the program in the foreground set: a getpass-style read (`sudo`, `ssh`, `su`,
 //! `passwd`) turns echo off and keeps canonical line input, and the line editor of the
-//! shell itself turns both off. `tcgetpgrp` on the master returns the slave's
+//! shell itself turns both off. So does a relay that runs a program on a terminal of
+//! its own (`sudo` with `use_pty`, its default, or `script`), so its modes say nothing
+//! about the program behind it. `tcgetpgrp` on the master returns the slave's
 //! foreground process group: a command's job while it runs, and the shell's own group
 //! once the job has ended, which zsh takes back before it runs its precmd hooks. The
 //! terminal is cooked again there, so only the group tells that window apart. A command

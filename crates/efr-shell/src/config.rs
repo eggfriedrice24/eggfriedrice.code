@@ -49,10 +49,11 @@ pub struct ShellConfig {
     /// run looks for input waits once per this period, and a terminal with echo off and
     /// line input on that printed nothing for this long waits for hidden input.
     pub quiet_period: Duration,
-    /// While a command runs, a terminal with echo on that printed nothing for this long
-    /// and left the cursor after some text on the main screen waits for visible input,
-    /// such as a `[Y/n]` question. Longer than `quiet_period`, because a slow command
-    /// whose last line is unfinished looks the same.
+    /// While a command runs, a terminal that is not in a getpass-style read, printed
+    /// nothing for this long and left the cursor after some text on the main screen
+    /// waits for visible input, such as a `[Y/n]` question, in any other modes. Longer
+    /// than `quiet_period`, because a slow command whose last line is unfinished looks
+    /// the same.
     pub visible_input_quiet: Duration,
     /// How long [`close`](crate::ShellSessions::close) waits for the shell to end
     /// after `SIGHUP` before it sends `SIGKILL`.

@@ -232,11 +232,14 @@ impl ShellSessions {
     /// call that [`RunRequest::call`](crate::RunRequest::call) named.
     ///
     /// The answer is written only while that call's command runs (between its `C` and
-    /// `D`, or its sentinels), the run has reported a wait, the job that was in the
-    /// terminal's foreground when it did still is, by its process group, and the
-    /// terminal reads a line (canonical input on); with `hidden`, the terminal must also
-    /// have echo off, so the text never reaches the output. The group and the modes are
-    /// read right before the one write that types the answer.
+    /// `D`, or its sentinels), the run has reported a wait of the answer's kind (hidden
+    /// with `hidden`, visible without), and the job that was in the terminal's
+    /// foreground when it did still is, by its process group. With `hidden`, the
+    /// terminal must also read a line (canonical input on) with echo off, so the text
+    /// never reaches the output. A visible answer takes any modes: behind a relay such
+    /// as `sudo`'s own terminal they are the relay's, and the program on the inner
+    /// terminal decides whether the answer is shown. The group and the modes are read
+    /// right before the one write that types the answer.
     /// It fails with [`ShellError::InvalidAnswer`] for text that is not one line of at
     /// most [`InputRespond::MAX_TEXT_BYTES`](efr_protocol::InputRespond::MAX_TEXT_BYTES)
     /// bytes without control characters, [`ShellError::NoShell`] or

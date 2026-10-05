@@ -642,11 +642,13 @@ impl SessionActor {
     }
 }
 
-/// Types an answer for `call` when its command runs, the run reported a wait, the job
-/// whose wait it was still holds the terminal, and the terminal reads a line in the
-/// right modes. The group and the modes are read right before the one write, with no
-/// await between them: a getpass-style read that ended, the shell back in its hooks or
-/// at its prompt, or another job in the foreground is seen and refused.
+/// Types an answer for `call` when its command runs, the run reported a wait of the
+/// answer's kind, the job whose wait it was still holds the terminal, and, for a hidden
+/// answer, the terminal reads a line with echo off. A visible answer takes any modes:
+/// behind a relay such as `sudo`'s own terminal they are the relay's. The group and the
+/// modes are read right before the one write, with no await between them: a
+/// getpass-style read that ended, the shell back in its hooks or at its prompt, or
+/// another job in the foreground is seen and refused.
 ///
 /// NOTE: zsh takes the terminal back as soon as the command's job ends, before its
 /// precmd hooks run, and the integration's hook, the first of them, drains unread input
@@ -659,7 +661,7 @@ impl SessionActor {
 /// and is refused too, so it never waits there for the line editor. What is left is a
 /// new wait: a look that runs while such a command holds the terminal and `D` still has
 /// not reached this actor reports `None` and, at the look after, a wait of that command
-/// when it looks like one (the cursor after text on a cooked terminal, or echo off), and
+/// when it looks like one (the cursor after text, or a getpass-style read), and
 /// an answer to that wait is typed for that command. That takes the reader held up on
 /// the chunk with `D` for two looks, as a slow recording sink can hold it, while the
 /// command holds the terminal.
