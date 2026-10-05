@@ -19,6 +19,7 @@ use efr_stdx::time::{Clock as _, Sleep};
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
 use crate::input::{self, InputWatch, Look, Offer, Quiet};
+use crate::live_tail::{LiveTail, Step};
 use crate::modes::Terminal;
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
@@ -29,8 +30,8 @@ use crate::session::{
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, RunProgress, RunRequest, ShellConfig, ShellDeps, ShellError,
-    ShellNotice, ShellState, env, integration, sentinel,
+    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, ShellConfig, ShellDeps,
+    ShellError, ShellNotice, ShellState, env, integration, sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
@@ -528,6 +529,9 @@ impl ShellSessions {
         // The looks for input start once the command runs, one per quiet period.
         let mut look: Option<Sleep> = None;
         let mut watch = InputWatch::default();
+        let mut live = LiveTail::new(self.inner.config.tail_interval);
+        // Set while a change that needs a screen is held for the interval.
+        let mut held_tail: Option<Sleep> = None;
         loop {
             tokio::select! {
                 biased;
@@ -546,11 +550,30 @@ impl ShellSessions {
                         // The start alone is not output.
                         if latest.bytes > reported {
                             reported = latest.bytes;
-                            progress.update(&latest.update());
+                            match live.offer(latest, deps.clock.now()) {
+                                Step::Clean(latest) => progress.update(&latest.update()),
+                                Step::Screen(window) => {
+                                    let tail = self.tail_reader(session).tail(&window).await;
+                                    progress.update(&OutputUpdate::new(reported, tail));
+                                }
+                                Step::Hold(left) => {
+                                    if held_tail.is_none() {
+                                        held_tail = Some(deps.clock.sleep(left));
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(_) => updates_open = false,
                 },
+                () = until(&mut held_tail) => {
+                    held_tail = None;
+                    // A change that needed no screen may have replaced the held one.
+                    if let Some(window) = live.due(deps.clock.now()) {
+                        let tail = self.tail_reader(session).tail(&window).await;
+                        progress.update(&OutputUpdate::new(reported, tail));
+                    }
+                }
                 () = &mut deadline => break,
                 () = until(&mut look) => {
                     let looked = self.look_for_input(session, id, offer, &mut watch, progress).await;
@@ -755,6 +778,13 @@ impl ShellSessions {
     fn replayer(&self, session: &SessionHandle) -> Replayer<'_> {
         Replayer::new(&*self.inner.deps.screens, replay_name(session.conversation), session.size())
     }
+
+    /// Reads a running command's live tail on a screen of the shell's current size, from
+    /// the session's own factory, in the caller's task as [`replayer`](Self::replayer)
+    /// does. Its screen lives for one read.
+    fn tail_reader(&self, session: &SessionHandle) -> Replayer<'_> {
+        Replayer::new(&*self.inner.deps.screens, tail_name(session.conversation), session.size())
+    }
 }
 
 impl fmt::Debug for ShellSessions {
@@ -866,6 +896,12 @@ fn screen_name(conversation: ConversationId) -> String {
 /// output, named apart from the shell's own screen.
 fn replay_name(conversation: ConversationId) -> String {
     format!("replay-{}", short_id(conversation))
+}
+
+/// `tail-` and the same eight digits: the screen that reads a running command's live
+/// tail.
+fn tail_name(conversation: ConversationId) -> String {
+    format!("tail-{}", short_id(conversation))
 }
 
 fn short_id(conversation: ConversationId) -> String {

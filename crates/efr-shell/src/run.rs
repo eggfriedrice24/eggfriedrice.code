@@ -316,6 +316,19 @@ impl Progress {
     pub(crate) fn update(&self) -> OutputUpdate {
         OutputUpdate { bytes: self.bytes, tail: crate::capture::clean(&self.tail) }
     }
+
+    /// The bytes of the tail that a screen reads. A tail that starts inside the output
+    /// starts after its first line feed, when it has one, so the screen never starts in
+    /// the middle of an escape sequence and prints its rest as text.
+    pub(crate) fn window(&self) -> Bytes {
+        if self.bytes <= self.tail.len() as u64 {
+            return self.tail.clone();
+        }
+        match self.tail.iter().position(|&byte| byte == b'\n') {
+            Some(at) if at + 1 < self.tail.len() => self.tail.slice(at + 1..),
+            _ => self.tail.clone(),
+        }
+    }
 }
 
 /// The key the integration binds to a widget that empties the line editor, so text

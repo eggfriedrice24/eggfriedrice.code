@@ -119,7 +119,9 @@ dependencies of its own, or a second binary needs it.
   single shared screen thread was rejected because one slow `vt_write` would stall
   every conversation. A command whose output moves the cursor also gets a capture
   screen (`replay-<conversation short id>`) that replays the output and is shut down
-  as soon as it is read, so a finished run keeps no thread.
+  as soon as it is read, so a finished run keeps no thread. While it runs, its live
+  tail is read the same way on a screen of the shell's size (`tail-<conversation short
+  id>`), at most once per update interval.
 - Non-goals: no `Mutex<Terminal>`, no `spawn_blocking` with a `Terminal`, no `LocalSet`
   inside the main runtime, no `Screen` built outside its actor thread.
 - Blocking work (SQLite reads, file hashing) runs in `spawn_blocking`. Time and

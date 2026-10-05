@@ -36,6 +36,7 @@ mod env;
 mod error;
 mod input;
 mod integration;
+mod live_tail;
 mod modes;
 mod nested_shell;
 mod reader;

@@ -16,6 +16,10 @@
 //! replayed again in two halves split at a line end.
 //!
 //! When the capture screen cannot start or stops early, the cleaner reads the bytes.
+//!
+//! The live tail of a running command ([`Replayer::tail`]) follows the same rule, on the
+//! end of the output only: a screen of the shell's own size, read without its
+//! scrollback, so it costs one screen of rows however long the output is.
 
 use bytes::Bytes;
 use efr_holder::Size;
@@ -73,9 +77,7 @@ impl<'a> Replayer<'a> {
     /// One part of the output as text.
     pub(crate) async fn text(&self, bytes: &Bytes) -> String {
         let scan = Scan::of(bytes);
-        // A screen drops the lines that scroll out of a scroll region, where the
-        // cleaner keeps them; losing output is worse than showing a status line twice.
-        if !scan.needs_screen || scan.scroll_region {
+        if !scan.wants_screen() {
             return clean(bytes);
         }
         match self.replay(bytes, scan.full_screen).await {
@@ -91,6 +93,38 @@ impl<'a> Replayer<'a> {
         }
     }
 
+    /// The end of a running command's output as text, for its live tail: the rows that
+    /// a screen of the shell's size shows after `bytes`, without the rows that
+    /// scrolled off it, or the cleaner's text when `bytes` need no screen or the
+    /// screen fails. A full-screen program still running is ended on the copy, as
+    /// [`text`](Self::text) does, so the tail shows the main screen and the note.
+    pub(crate) async fn tail(&self, bytes: &Bytes) -> String {
+        let scan = Scan::of(bytes);
+        if !scan.wants_screen() {
+            return clean(bytes);
+        }
+        match self.replay_piece(bytes, self.size, 0).await {
+            Ok(snapshot) => {
+                let mut text = screen_text(&snapshot, true);
+                if scan.full_screen {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(FULL_SCREEN_NOTE);
+                }
+                text
+            }
+            Err(error) => {
+                tracing::debug!(
+                    screen = %self.name,
+                    %error,
+                    "the live tail's screen failed; the tail is cleaned byte by byte instead"
+                );
+                clean(bytes)
+            }
+        }
+    }
+
     /// The text of `bytes` replayed on capture screens, in more than one piece when the
     /// scrollback of one may have overflowed.
     async fn replay(&self, bytes: &Bytes, full_screen: bool) -> Result<String, ScreenError> {
@@ -99,7 +133,8 @@ impl<'a> Replayer<'a> {
         let mut text = String::new();
         while let Some(piece) = pieces.pop() {
             let last = pieces.is_empty();
-            let snapshot = self.replay_piece(&piece).await?;
+            let size = Size { cols: self.size.cols, rows: rows_for(&piece, self.size) };
+            let snapshot = self.replay_piece(&piece, size, usize::MAX).await?;
             if snapshot.scrollback.len() < TRUSTED_SCROLLBACK {
                 text.push_str(&screen_text(&snapshot, last));
                 continue;
@@ -123,11 +158,15 @@ impl<'a> Replayer<'a> {
         Ok(text)
     }
 
-    /// Replays `piece` on a capture screen of its own and reads it back, scrollback
-    /// included. The screen stops when this returns, and also when the caller drops
-    /// the future, because its last handle goes with it.
-    async fn replay_piece(&self, piece: &Bytes) -> Result<ScreenSnapshot, ScreenError> {
-        let size = Size { cols: self.size.cols, rows: rows_for(piece, self.size) };
+    /// Replays `piece` on a capture screen of its own of `size` and reads it back with
+    /// at most `scrollback` rows of its scrollback. The screen stops when this returns,
+    /// and also when the caller drops the future, because its last handle goes with it.
+    async fn replay_piece(
+        &self,
+        piece: &Bytes,
+        size: Size,
+        scrollback: usize,
+    ) -> Result<ScreenSnapshot, ScreenError> {
         let (screen, events) = self.screens.spawn(&self.name, size)?;
         // Nobody answers this screen's terminal queries or hears its bells. With the
         // stream gone, the actor drops its events instead of waiting for a reader.
@@ -140,7 +179,7 @@ impl<'a> Replayer<'a> {
                 let at = Seq::new(piece.len() as u64);
                 screen.feed(Bytes::from_static(LEAVE_ALTERNATE), at).await?;
             }
-            screen.snapshot(usize::MAX).await
+            screen.snapshot(scrollback).await
         };
         let capture = read.await;
         // A screen that already stopped has nothing left to stop.
@@ -165,6 +204,13 @@ pub(crate) struct Scan {
 }
 
 impl Scan {
+    /// True when the bytes read right only on a screen. A screen drops the lines that
+    /// scroll out of a scroll region, where the cleaner keeps them; losing output is
+    /// worse than showing a status line twice, so a scroll region stays on the cleaner.
+    pub(crate) fn wants_screen(self) -> bool {
+        self.needs_screen && !self.scroll_region
+    }
+
     pub(crate) fn of(bytes: &[u8]) -> Self {
         let mut scan = Scan::default();
         let mut at = 0;

@@ -43,7 +43,7 @@ prompts such as `sudo` stay visible.
   exit status, the output as plain text (see "The output as text" below), a truncation
   flag (head and tail of `output_limit`, 1 MiB by default), the output's range in the
   recording and the directory after. `RunProgress` hears the output's size and tail as
-  it grows.
+  it grows (see "The live tail" below).
 - A run waits for the prompt: while the shell starts, while an earlier command still
   runs, and until the user answers what it asks; it fails with `NotReady` when the
   prompt does not come before its timeout. A run that overlaps another run of the same
@@ -240,6 +240,30 @@ so far of a run left running at its timeout:
   shell's complaint around the echo of the line, which the line editor drew relative
   to a prompt that a capture screen does not have.
 
+The live tail (`live_tail.rs`), the `tail` of each `OutputUpdate` while a command runs
+(a client shows its last line, and the daemon records it as
+`ToolCallOutputUpdated.tail`):
+
+- It reads the last 4 KiB of the output (`PREVIEW_BYTES`) by the rule of the finished
+  output. Bytes that the cleaner reads right are cleaned at every change, which costs
+  no screen: a carriage-return bar shows its current line.
+- Bytes that move the cursor are replayed on a screen from the session's own
+  `ScreenFactory`, named `tail-<last eight hex digits>`, of the shell's current size,
+  and read without its scrollback: the tail is the rows that the screen shows, as
+  `screen_text` reads them. So a multi-line progress display redrawn with cursor-up
+  shows its current frame, where the cleaner would show every old frame after it. When
+  the 4 KiB start inside the output, the screen reads them from after their first
+  line feed, so it never starts inside an escape sequence. A full-screen program
+  still running ends on the copy, so the tail shows the main screen and the note line.
+- A screen is read at most once per `ShellConfig::tail_interval` (200 ms, the
+  conversation's default update interval) on the injected clock: the first change that
+  needs one is read at once, a change within the interval is held, and the newest held
+  change is read when the interval has passed. A change that needs no screen replaces
+  a held one. The screen lives for one read, in the caller's task, and is shut down
+  when the read ends or the caller drops the run.
+- When the screen cannot start or stops early, the cleaner reads the bytes, as for
+  the finished output.
+
 Environment hygiene: the shell inherits `ShellConfig::base_env` (the user's
 environment, passed in by the daemon; this crate reads no environment) without
 `efr_stdx::process::SCRUBBED_ENV` (the daemon's systemd unit), the `EFR_*` and
@@ -344,7 +368,8 @@ clock and the seeded generator.
   command's output is exactly `recording[C.end .. D.start]` whatever the screen
   backend.
 - A capture screen lives for one replay and no longer, so a finished run keeps no
-  thread; only output that moves the cursor starts one.
+  thread; only output that moves the cursor starts one. The same holds for the screen
+  of a live tail, which a run reads at most once per `tail_interval`.
 - Time and randomness are injected: every timeout runs on the `Clock`, and PTY ids
   and sentinel tokens come from the `Rng`.
 - No error, notice or `Debug` output carries a command line or an environment value,

@@ -158,6 +158,62 @@ async fn the_capture_screen_has_the_shell_width_and_room_for_the_output() {
     assert!(needed > 30);
 }
 
+async fn tail(screens: &dyn ScreenFactory, bytes: &[u8]) -> String {
+    replayer(screens, SIZE).tail(&Bytes::copy_from_slice(bytes)).await
+}
+
+#[tokio::test]
+async fn the_tail_of_a_redrawn_display_is_its_current_frame() {
+    assert_eq!(tail(&Vt100Screens, DISPLAY).await, "layer a: done\nlayer b: done");
+    // Mid-way, the frame drawn last ends the tail, and no older frame shows.
+    let half = &DISPLAY[..DISPLAY.len() - b"\x1b[2Klayer b: done\r\n".len()];
+    assert_eq!(tail(&Vt100Screens, half).await, "layer a: done\nlayer b: 30%");
+}
+
+#[tokio::test]
+async fn the_tail_of_a_carriage_return_bar_is_its_current_line() {
+    let bar = b" 10% [#    ]\r 50% [###  ]";
+    assert_eq!(tail(&Vt100Screens, bar).await, " 50% [###  ]");
+    assert_eq!(tail(&Vt100Screens, &on_screen(bar)).await, " 50% [###  ]");
+}
+
+#[tokio::test]
+async fn the_tail_reads_one_screen_of_the_shells_size_without_scrollback() {
+    let screens = CountingScreens::default();
+    let mut tall = b"\x1b[2K".to_vec();
+    for line in 0..30 {
+        tall.extend_from_slice(format!("line {line}\r\n").as_bytes());
+    }
+    let text = tail(&screens, &tall).await;
+    // Ten rows: the cursor's empty row after nine lines.
+    let shown: Vec<String> = (21..30).map(|line| format!("line {line}")).collect();
+    assert_eq!(text, shown.join("\n"));
+    let captures = screens.captures();
+    assert_eq!(captures.len(), 1);
+    assert_eq!(captures[0].0, SIZE);
+    let stopped = captures[0].1.snapshot(0).await;
+    assert!(matches!(stopped, Err(ScreenError::Closed { .. })), "{stopped:?}");
+}
+
+#[tokio::test]
+async fn a_tail_without_cursor_movement_starts_no_screen() {
+    let screens = CountingScreens::default();
+    assert_eq!(tail(&screens, b"a\tb\r\n50%\r100%").await, "a\tb\n100%");
+    assert!(screens.captures().is_empty());
+}
+
+#[tokio::test]
+async fn the_cleaner_reads_the_tail_when_no_screen_starts() {
+    assert_eq!(tail(&NoScreens, DISPLAY).await, clean(DISPLAY));
+    assert_eq!(tail(&DyingScreens, DISPLAY).await, clean(DISPLAY));
+}
+
+#[tokio::test]
+async fn the_tail_of_a_full_screen_program_shows_the_main_screen_and_a_note() {
+    let program = b"before\r\n\x1b[?1049h\x1b[H\x1b[2Jfull screen ui";
+    assert_eq!(tail(&Vt100Screens, program).await, format!("before\n{FULL_SCREEN_NOTE}"));
+}
+
 #[tokio::test]
 async fn a_full_screen_program_leaves_the_main_screen_and_a_note() {
     let program = b"before\r\n\x1b[?1049h\x1b[H\x1b[2Jfull screen ui\x1b[?1049lafter\r\n";

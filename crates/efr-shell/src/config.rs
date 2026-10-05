@@ -55,6 +55,11 @@ pub struct ShellConfig {
     /// than `quiet_period`, because a slow command whose last line is unfinished looks
     /// the same.
     pub visible_input_quiet: Duration,
+    /// While a command runs, the least time between two reads of its live tail on a
+    /// screen, which output that moves the cursor needs (output that only prints text
+    /// is cleaned at every change). The same as the conversation's default update
+    /// interval, at which a client hears the tail.
+    pub tail_interval: Duration,
     /// How long [`close`](crate::ShellSessions::close) waits for the shell to end
     /// after `SIGHUP` before it sends `SIGKILL`.
     pub close_grace: Duration,
@@ -72,7 +77,8 @@ impl ShellConfig {
     /// A config with the defaults: zsh from the `PATH`, an interactive login shell,
     /// [`DEFAULT_SIZE`](Self::DEFAULT_SIZE), `xterm-256color` with truecolor, ten
     /// seconds to start, one second of quiet for an input prompt (three for a visible
-    /// one while the command runs), five seconds to close, and no trusted programs.
+    /// one while the command runs), a live tail read on a screen at most every 200 ms,
+    /// five seconds to close, and no trusted programs.
     pub fn new(integration_dir: impl Into<PathBuf>, base_env: BTreeMap<String, String>) -> Self {
         ShellConfig {
             program: None,
@@ -85,6 +91,7 @@ impl ShellConfig {
             startup_timeout: Duration::from_secs(10),
             quiet_period: Duration::from_secs(1),
             visible_input_quiet: Duration::from_secs(3),
+            tail_interval: Duration::from_millis(200),
             close_grace: Duration::from_secs(5),
             trusted_programs: Vec::new(),
         }
@@ -104,6 +111,7 @@ impl fmt::Debug for ShellConfig {
             .field("startup_timeout", &self.startup_timeout)
             .field("quiet_period", &self.quiet_period)
             .field("visible_input_quiet", &self.visible_input_quiet)
+            .field("tail_interval", &self.tail_interval)
             .field("close_grace", &self.close_grace)
             .field("trusted_programs", &self.trusted_programs)
             .finish()

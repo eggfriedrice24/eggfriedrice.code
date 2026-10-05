@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{CommandRunner, ShellSessions, replay_name, screen_name};
+use super::{CommandRunner, ShellSessions, replay_name, screen_name, tail_name};
 use crate::input::Probe;
 use crate::modes::{Job, Terminal};
 use crate::session::{Life, Msg, SessionHandle};
@@ -422,6 +422,103 @@ async fn progress_hears_the_output_grow() {
     run.await.unwrap().unwrap();
 }
 
+/// Starts a run of `command` whose progress goes to the returned watch, and plays the
+/// prompt and the start of the command.
+async fn following(
+    harness: &Harness,
+    command: &str,
+) -> (FakeTerminal, watch::Receiver<OutputUpdate>, JoinHandle<Result<CommandResult, ShellError>>) {
+    let (seen, updates) = watch::channel(OutputUpdate::default());
+    let sessions = harness.sessions.clone();
+    let request = request(command);
+    let run = tokio::spawn(async move {
+        let mut progress = move |update: &OutputUpdate| {
+            seen.send_replace(update.clone());
+        };
+        sessions.run_command(conversation(1), request, &mut progress).await
+    });
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    terminal.print(b"\r\n\x1b]133;C\x07").await;
+    (terminal, updates, run)
+}
+
+/// Yields until the run has asked for a sleep of `duration`, without real time.
+async fn slept(harness: &Harness, duration: Duration) {
+    while !harness.clock.requested_sleeps().contains(&duration) {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn the_live_tail_of_a_redrawn_display_is_its_current_frame() {
+    let harness = Harness::new(ZSH);
+    let interval = crate::ShellConfig::new("/z", std::collections::BTreeMap::new()).tail_interval;
+    let (mut terminal, mut updates, run) = following(&harness, "docker pull x").await;
+    terminal.print(b"one 1\r\ntwo 1\r\n").await;
+    updates.wait_for(|update| update.tail == "one 1\ntwo 1\n").await.unwrap();
+
+    // The byte cleaner would show every frame; the screen shows the current one.
+    terminal.print(b"\x1b[2Aone 2\r\ntwo 2\r\n").await;
+    updates.wait_for(|update| update.tail == "one 2\ntwo 2").await.unwrap();
+    assert_eq!(updates.borrow().bytes, 32);
+
+    // The next frame within the interval waits for it, so a screen is read at most
+    // once per interval.
+    terminal.print(b"\x1b[2Aone 3\r\ntwo 3\r\n").await;
+    slept(&harness, interval).await;
+    assert_eq!(updates.borrow().tail, "one 2\ntwo 2");
+    harness.clock.advance(interval);
+    updates.wait_for(|update| update.tail == "one 3\ntwo 3").await.unwrap();
+    assert_eq!(updates.borrow().bytes, 50);
+
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    assert_eq!(run.await.unwrap().unwrap().output, "one 3\ntwo 3");
+}
+
+#[tokio::test]
+async fn the_live_tail_of_a_carriage_return_bar_is_its_current_line() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, mut updates, run) = following(&harness, "curl -O x").await;
+    terminal.print(b" 10% [#    ]\r 50% [###  ]").await;
+    updates.wait_for(|update| update.bytes == 25).await.unwrap();
+    assert_eq!(updates.borrow().tail, " 50% [###  ]");
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn the_live_tail_falls_back_to_the_cleaner_when_its_screen_cannot_start() {
+    let harness = Harness::with(ZSH, Arc::new(ShellScreenOnly));
+    let (mut terminal, mut updates, run) = following(&harness, "docker pull x").await;
+    let display = b"one 1\r\ntwo 1\r\n\x1b[2Aone 2\r\ntwo 2\r\n";
+    terminal.print(display).await;
+    updates.wait_for(|update| update.bytes == 32).await.unwrap();
+    assert_eq!(updates.borrow().tail, "one 1\ntwo 1\none 2\ntwo 2\n");
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+/// Screens for the shell itself and none for anything else, as when the system refuses
+/// one more thread.
+#[derive(Debug)]
+struct ShellScreenOnly;
+
+impl ScreenFactory for ShellScreenOnly {
+    fn spawn(
+        &self,
+        name: &str,
+        size: Size,
+    ) -> Result<(efr_screen::ScreenHandle, efr_screen::ScreenEvents), efr_screen::ScreenError> {
+        if name.starts_with("screen-") {
+            Vt100Screens.spawn(name, size)
+        } else {
+            crate::testing::NoScreens.spawn(name, size)
+        }
+    }
+}
+
 #[tokio::test]
 async fn every_byte_reaches_the_recording_in_order() {
     let harness = Harness::new(ZSH);
@@ -620,6 +717,7 @@ fn screen_names_use_the_random_end_of_the_id() {
     assert!(screen_name(conversation(7)).len() <= 15);
     assert_eq!(replay_name(conversation(7)), "replay-00000007");
     assert!(replay_name(conversation(7)).len() <= 15);
+    assert_eq!(tail_name(conversation(7)), "tail-00000007");
 }
 
 #[test]
