@@ -469,3 +469,25 @@ proptest! {
         );
     }
 }
+
+#[test]
+fn a_sealed_root_is_a_secret_in_every_form_of_home() {
+    let locations = Locations::new(HOME)
+        .unwrap()
+        .with_sealed_root("/var/home/u/.local/share/efr/secrets")
+        .unwrap()
+        .with_home_alias("/var/home/u")
+        .unwrap();
+    let scratch = Path::new(SCRATCH);
+    for path in
+        ["/home/u/.local/share/efr/secrets/x.json", "/var/home/u/.local/share/efr/secrets/x.json"]
+    {
+        assert_eq!(locations.classify(Path::new(path), scratch), Some(PathClass::Secrets));
+        assert!(locations.is_sealed(Path::new(path)), "{path}");
+    }
+    assert!(!locations.is_sealed(Path::new("/home/u/.ssh/id_ed25519")));
+    assert_eq!(
+        locations.secrets_below(Path::new("/home/u/.local/share/efr")),
+        [PathBuf::from("/home/u/.local/share/efr/secrets")]
+    );
+}

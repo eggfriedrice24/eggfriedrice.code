@@ -55,7 +55,7 @@ fn unknown_project() -> ProjectId {
 fn locations() -> Locations {
     Locations::new(HOME)
         .unwrap()
-        .with_secret_root("/home/u/.local/share/efr/secrets")
+        .with_sealed_root("/home/u/.local/share/efr/secrets")
         .unwrap()
         .with_project(app(), "/home/u/p/app")
         .unwrap()
@@ -587,17 +587,67 @@ fn configured(rules: Vec<Rule>) -> Engine {
 #[case::broad_ask(Rule::new(Action::Read, Resource::Any, Effect::Ask))]
 fn a_broad_user_rule_opens_no_secret(#[case] rule: Rule) {
     let engine = configured(vec![rule.clone()]);
-    for path in [
-        "/home/u/.ssh/id_ed25519",
-        "/home/u/.aws/credentials",
-        "/home/u/.local/share/efr/secrets/openai-subscription.json",
-        "/proc/self/environ",
-        "/etc/shadow",
-    ] {
+    for path in
+        ["/home/u/.ssh/id_ed25519", "/home/u/.aws/credentials", "/proc/self/environ", "/etc/shadow"]
+    {
         let decision = engine.decide(&input(read(path), Scope::Project(app()), Origin::Shell));
         assert_eq!(decision.effect(), Effect::Deny, "{path} under {rule:?}");
         assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, index: 7 });
     }
+}
+
+const TOKEN: &str = "/home/u/.local/share/efr/secrets/openai-subscription.json";
+
+#[rstest]
+#[case::the_class(Rule::new(Action::Read, Resource::Class(PathClass::Secrets), Effect::Allow))]
+#[case::the_secrets_dir(Rule::new(
+    Action::Any,
+    Resource::Under("~/.local/share/efr/secrets".into()),
+    Effect::Allow
+))]
+#[case::the_token(Rule::new(Action::Read, Resource::Under(TOKEN.into()), Effect::Allow))]
+#[case::everything(Rule::new(Action::Any, Resource::Any, Effect::Allow))]
+fn no_user_rule_opens_the_daemons_own_secrets(#[case] rule: Rule) {
+    let engine = configured(vec![rule.clone()]);
+    for requirements in [read(TOKEN), write(TOKEN)] {
+        let decision = engine.decide(&input(requirements, Scope::Machine, Origin::Shell));
+        assert_eq!(decision.effect(), Effect::Deny, "{rule:?}");
+        assert_eq!(decision.reasons()[0].cause, Cause::Sealed);
+    }
+}
+
+#[test]
+fn no_conversation_rule_opens_the_daemons_own_secrets() {
+    let mut input = input(read(TOKEN), Scope::Machine, Origin::Shell);
+    input.conversation_policy = ConversationPolicy::new(SCRATCH).with_rules(
+        Policy::new(vec![Rule::new(Action::Any, Resource::Any, Effect::Allow)]).unwrap(),
+    );
+    assert_eq!(engine().decide(&input).effect(), Effect::Deny);
+}
+
+#[test]
+fn a_rule_for_every_secret_opens_the_others_but_not_the_daemons() {
+    let engine = configured(vec![Rule::new(
+        Action::Read,
+        Resource::Class(PathClass::Secrets),
+        Effect::Allow,
+    )]);
+    let decide = |requirements| engine.decide(&input(requirements, Scope::Machine, Origin::Shell));
+    assert_eq!(decide(read("/home/u/.ssh/id_ed25519")).effect(), Effect::Allow);
+    let tree = decide(Requirements::none().with_read_tree("/home/u/.local/share/efr"));
+    assert_eq!(tree.effect(), Effect::Ask);
+    assert_eq!(
+        tree.reasons()[0].cause,
+        Cause::ReachesSecret { secret: "/home/u/.local/share/efr/secrets".into() }
+    );
+    let reason = decide(read(TOKEN)).reasons()[0].to_string();
+    assert_eq!(
+        reason,
+        format!(
+            "read {TOKEN} (secrets): deny, because efr keeps its own credentials there and no \
+             rule opens them"
+        )
+    );
 }
 
 #[rstest]

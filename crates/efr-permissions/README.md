@@ -22,8 +22,9 @@ Modules:
   | System | everything outside `~` | free | approval |
   | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc` (its tokens, and back doors to every other path), the daemon's `secrets/`, and the roots the config adds | denied | denied |
 
-  Classification is lexical: `.` and `..` are resolved by name, nothing is read from
-  the disk, and a relative path has no class. Tools resolve symbolic links before they
+  `with_sealed_root` adds a secret root that no rule opens, which the daemon uses for
+  its own `secrets/`. Classification is lexical: `.` and `..` are resolved by name,
+  nothing is read from the disk, and a relative path has no class. Tools resolve symbolic links before they
   declare a path, so when `/home` links to `/var/home` a tool declares
   `/var/home/u/.ssh/id_ed25519`. The daemon therefore builds `Locations` from
   `efr_scope::Home::path()` and adds `Home::canonical()` with `with_home_alias`; a
@@ -91,7 +92,8 @@ property:
   class or an `under` path at or below a secret location. A rule for a wider resource
   (`read any allow`, `under = "~"`, the project) never opens a secret and can only
   make a decision about one stricter; a conversation's rules never loosen a secret or
-  a system path, they can only tighten it (property).
+  a system path, they can only tighten it (property). A sealed root, the daemon's own
+  credentials, is denied whatever any rule says.
 - A turn from the phone needs approval for everything outside `$SCRATCH`: an `Allow`
   becomes `Ask`, `Deny` stays `Deny`. Any origin other than shell, CLI or proxy,
   including one added to the protocol later, counts as remote (property: the phone is

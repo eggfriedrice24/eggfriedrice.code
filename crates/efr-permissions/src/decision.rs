@@ -147,6 +147,8 @@ pub enum Cause {
         /// The first secret below the path that no rule allows.
         secret: PathBuf,
     },
+    /// The path holds efr's own credentials, which no rule opens.
+    Sealed,
     /// No rule matched, so the engine refused.
     NoRule,
     /// The path is relative, so its class is unknown.
@@ -201,6 +203,9 @@ impl fmt::Display for Reason {
             }
             Cause::ReachesSecret { secret } => {
                 write!(f, ", because the secret {} lies below it", secret.display())
+            }
+            Cause::Sealed => {
+                f.write_str(", because efr keeps its own credentials there and no rule opens them")
             }
             Cause::NoRule => f.write_str(", because no rule matched"),
             Cause::NotAbsolute => f.write_str(", because the path is not absolute"),

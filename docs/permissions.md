@@ -37,7 +37,8 @@ shell is in.
 | System | everything outside `~` | free | approval |
 | Secrets | `~/.ssh`, `~/.gnupg`, password stores, credential files such as `~/.aws/credentials`, `/etc/shadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc`, the daemon's `secrets/`, and `permissions.secret_paths` | denied | denied |
 
-`crates/efr-permissions/src/path_class.rs` lists every secret location. A
+`crates/efr-permissions/src/path_class.rs` lists every secret location. No rule opens
+the daemon's own `secrets/`, where efr keeps your login, not even one of yours. A
 repository's `.git` is user config, also inside the turn's project or `$SCRATCH`:
 `git status`, `git diff` and `git log` run without approval, and they run the programs
 that the repository's config names (`core.fsmonitor`, filter drivers,

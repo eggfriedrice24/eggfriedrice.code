@@ -143,6 +143,8 @@ pub struct Locations {
     home: PathBuf,
     home_aliases: Vec<PathBuf>,
     secret_roots: Vec<PathBuf>,
+    /// The secret roots that no rule opens; each is in `secret_roots` too.
+    sealed_roots: Vec<PathBuf>,
     user_config_roots: Vec<PathBuf>,
     projects: BTreeMap<ProjectId, PathBuf>,
 }
@@ -161,6 +163,7 @@ impl Locations {
             home,
             home_aliases: Vec::new(),
             secret_roots: Vec::new(),
+            sealed_roots: Vec::new(),
             user_config_roots: Vec::new(),
             projects: BTreeMap::new(),
         })
@@ -188,8 +191,16 @@ impl Locations {
         self.home_aliases.push(alias);
         // NOTE: a root added before the alias may be in the alias's form. Rewriting the
         // roots now keeps the order of the builder calls from mattering.
-        let Locations { home, home_aliases, secret_roots, user_config_roots, projects } = &mut self;
-        for root in secret_roots.iter_mut().chain(user_config_roots).chain(projects.values_mut()) {
+        let Locations {
+            home,
+            home_aliases,
+            secret_roots,
+            sealed_roots,
+            user_config_roots,
+            projects,
+        } = &mut self;
+        let roots = secret_roots.iter_mut().chain(sealed_roots).chain(user_config_roots);
+        for root in roots.chain(projects.values_mut()) {
             if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
                 *root = rehomed;
             }
@@ -202,6 +213,16 @@ impl Locations {
     pub fn with_secret_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
         let root = self.absolute_root(root.into())?;
         self.secret_roots.push(root);
+        Ok(self)
+    }
+
+    /// Adds a directory or file whose contents are secret and that no rule opens, not
+    /// even the user's: the daemon's own `secrets/`, whose tokens would let whoever
+    /// reads them act as the user at the model provider.
+    pub fn with_sealed_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        self.secret_roots.push(root.clone());
+        self.sealed_roots.push(root);
         Ok(self)
     }
 
@@ -323,6 +344,13 @@ impl Locations {
     fn absolute_root(&self, root: PathBuf) -> Result<PathBuf, PermissionsError> {
         let root = absolute(root)?;
         Ok(self.rehome(&root).into_owned())
+    }
+
+    /// True when `path`, in normal form, is a sealed root or lies below one, in any
+    /// form of the home directory.
+    pub(crate) fn is_sealed(&self, path: &Path) -> bool {
+        let path = self.rehome(path);
+        self.sealed_roots.iter().any(|root| path.starts_with(root))
     }
 
     fn is_secret(&self, path: &Path) -> bool {

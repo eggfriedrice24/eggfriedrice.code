@@ -34,7 +34,9 @@ use crate::{Access, DecisionInput, Locations, PathAccess, PathClass, Policy, Res
 /// at least approval whatever the rules say.
 ///
 /// A path read with everything below it ([`Access::ReadTree`]) is judged like a read,
-/// and needs at least approval when a secret that no rule allows lies below it.
+/// and needs at least approval when a secret that no rule allows lies below it. A
+/// sealed path ([`Locations::with_sealed_root`], the daemon's own credentials) is
+/// denied whatever the rules say.
 ///
 /// A call that declares no requirement gets one reason, [`Subject::Nothing`]. It is
 /// allowed for the local origins (shell, CLI and proxy) and needs approval for any other,
@@ -214,8 +216,14 @@ impl Judge<'_> {
         Reason { subject: Subject::Command { line: line.to_owned() }, effect, cause }
     }
 
-    /// Steps 1 and 2: the machine policy, then the conversation's policy.
+    /// Steps 1 and 2: the machine policy, then the conversation's policy. A sealed
+    /// path is denied before any rule is read.
     fn by_rules(&self, target: &Target<'_>, class: Option<PathClass>) -> (Effect, Cause) {
+        if let Target::Path { path, .. } = target
+            && self.engine.locations.is_sealed(path)
+        {
+            return (Effect::Deny, Cause::Sealed);
+        }
         let secret = class == Some(PathClass::Secrets);
         let machine = match self.decided_by(&self.engine.policy, target, secret, None) {
             Some((index, effect)) => (effect, Cause::Rule { layer: Layer::Machine, index }),
