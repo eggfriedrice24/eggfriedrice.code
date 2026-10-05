@@ -19,8 +19,11 @@ efr-protocol.workspace = true
 efr-screen.workspace = true
 efr-stdx.workspace = true
 jiff.workspace = true
-# The `fs` feature of the workspace entry has fcntl, which sets O_NONBLOCK on the master
-# before tokio's AsyncFd takes it.
+# The workspace entry's features cover every call here: `fs` for fcntl, which sets
+# O_NONBLOCK on the master before tokio's AsyncFd takes it; `termios` for tcgetattr and
+# tcgetpgrp, which read the input modes and the foreground group before an answer; and
+# the `io` module, which needs no feature, for the master's reads and writes and the one
+# writev that types an answer.
 rustix.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
