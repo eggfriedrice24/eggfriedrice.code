@@ -8,6 +8,7 @@
 #![cfg(test)]
 
 mod approvals;
+mod backtrace;
 mod hello;
 mod input_respond;
 mod interrupt;

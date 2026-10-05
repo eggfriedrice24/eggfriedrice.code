@@ -19,6 +19,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 ## Tests
 
 - One integration test binary per crate: `tests/it/main.rs` declares one module per area (`tests/it/hello.rs`, `tests/it/smoke.rs`) and holds the `#![cfg(test)]` line; insta snapshots of those modules live in `tests/it/snapshots/` (tidy). Cargo makes a binary of every `tests/*.rs`, and each one links the crate and all its dependencies again: eleven files in efr-daemon were eleven binaries of about 320 MB that each held the whole daemon. One binary links once, and nextest still runs every test in a process of its own. A test is named `<crate>::it <module>::<test>`; `cargo nextest run -p efr-daemon -E 'test(/^hello::/)'` runs one module.
+- Debug info is `line-tables-only` for the workspace's crates and off for dependencies in dev and test builds (the root `Cargo.toml`): a backtrace keeps the file and the line of each frame, and `target/` stays a fraction of its size. `CARGO_PROFILE_DEV_DEBUG=full` turns full debug info back on for a debugger session.
 
 ## Naming
 

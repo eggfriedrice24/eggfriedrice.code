@@ -183,9 +183,18 @@ large_futures = "warn"
 str_to_string = "warn"
 uninlined_format_args = "warn"
 
-# vt100 and serde_json are hot in tests.
+# Full debug info made every test binary that links the daemon about 320 MB and target/
+# hundreds of GB. Line tables keep the file and line of every backtrace frame
+# (efr-daemon/tests/it/backtrace.rs checks it), which is what a failing test needs;
+# a debugger session that wants variables sets CARGO_PROFILE_DEV_DEBUG=full.
+[profile.dev]
+debug = "line-tables-only"
+
+# vt100 and serde_json are hot in tests. Dependencies carry no debug info at all: their
+# frames still show the function name, and nobody steps through them.
 [profile.dev.package."*"]
 opt-level = 1
+debug = false
 
 [profile.test]
 inherits = "dev"
