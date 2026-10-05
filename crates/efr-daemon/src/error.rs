@@ -277,12 +277,6 @@ pub enum DaemonError {
     /// `hello` reached the dispatcher, which the transport never lets happen.
     #[error("hello was already sent on this connection")]
     HelloRepeated,
-    /// The method is part of the protocol, but this daemon has no handler for it yet.
-    #[error("{method} is not wired in this daemon yet")]
-    NotWired {
-        /// The wire method.
-        method: &'static str,
-    },
     /// The params break a rule that their type cannot express.
     #[error("the request is invalid: {reason}")]
     InvalidParams {
@@ -407,8 +401,7 @@ impl DaemonError {
             | DaemonError::OpenAi { .. }
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }
-            | DaemonError::TaskPanicked { .. }
-            | DaemonError::NotWired { .. } => ErrorCode::Internal,
+            | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }
 
