@@ -40,6 +40,20 @@ fn a_turn_without_usable_credentials_hints_at_the_login() {
 }
 
 #[test]
+fn a_refused_model_hints_at_the_config() {
+    let body = ErrorBody::new(ErrorCode::Invalid, "the provider does not serve the model \"m\"")
+        .with_data(serde_json::json!({ "model": "m" }));
+    let error = CliError::TurnFailed { body };
+    assert_eq!(error.exit(), Exit::DaemonError);
+    let hint = error.hint().unwrap();
+    assert!(hint.contains("under [model] in the daemon's config.toml"), "{hint}");
+    assert!(hint.contains("systemctl --user restart efrd"), "{hint}");
+
+    let other = ErrorBody::new(ErrorCode::Invalid, "the prompt is too long");
+    assert_eq!(CliError::TurnFailed { body: other }.hint(), None, "not about a model");
+}
+
+#[test]
 fn a_daemon_that_does_not_answer_points_at_its_log() {
     let after = std::time::Duration::from_secs(5);
     let socket = PathBuf::from("/run/user/1000/efr/daemon.sock");

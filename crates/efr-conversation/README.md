@@ -53,7 +53,8 @@ with `tool_call_started`, judged at the check point, run when allowed or approve
 `turn_completed` (with the summed usage), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
-`retry_after_ms`, an unknown model to `invalid`, the rest to `internal`) or
+`retry_after_ms`, an unknown model to `invalid` with the `model`, the rest to
+`internal`) or
 `turn_interrupted`.
 
 `$SCRATCH` is `<scratch root>/<YYYY-MM-DD>-<slug>-<idtail>`: the day the conversation

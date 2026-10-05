@@ -9,6 +9,10 @@ use efr_stdx::StdxError;
 /// The next step when the model provider has no usable credentials.
 pub(crate) const LOGIN_HINT: &str = "log in with: efr login openai";
 
+/// The next step when the provider refuses the model. Which model ids the
+/// subscription serves to efr is unknown until it answers, so a first run may meet it.
+pub(crate) const MODEL_HINT: &str = "choose another model: set name = \"<model>\" under [model] in the daemon's config.toml (efrd --print-config names the file), then restart it: systemctl --user restart efrd";
+
 /// How `efr` exits. The zsh plugin and scripts tell the cases apart by the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Exit {
@@ -179,6 +183,13 @@ impl CliError {
             // A turn fails as unauthorized when the provider has no usable credentials.
             CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
                 Some(LOGIN_HINT)
+            }
+            // The daemon names the refused model in the data of an `invalid` turn.
+            CliError::TurnFailed { body }
+                if body.code == ErrorCode::Invalid
+                    && body.data.as_ref().is_some_and(|data| data.get("model").is_some()) =>
+            {
+                Some(MODEL_HINT)
             }
             CliError::NewWithoutPrompt => {
                 Some("in zsh, a bare ,new makes the next , line start a new conversation")

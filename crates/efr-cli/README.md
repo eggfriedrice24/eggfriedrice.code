@@ -74,8 +74,10 @@ interrupted elsewhere, or the connection broke; 2 a usage error; 3 no daemon lis
 A failure that a first run meets gets a second line with the command that fixes it:
 no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
 turn that fails as `unauthorized` because the provider has no usable credentials
-(`efr login openai`), a daemon that does not answer (`journalctl --user -u efrd`), a
-missing `XDG_RUNTIME_DIR` or `HOME`, and `efr` and `efrd` from different builds.
+(`efr login openai`), a turn that fails as `invalid` because the provider does not
+serve the model (`name` under `[model]` in the daemon's `config.toml`, then a restart),
+a daemon that does not answer (`journalctl --user -u efrd`), a missing
+`XDG_RUNTIME_DIR` or `HOME`, and `efr` and `efrd` from different builds.
 `efr status` adds the login line on stderr when no provider is logged in.
 
 Logs go to stderr, filtered by `EFR_LOG` (default `warn`, because stderr shares the

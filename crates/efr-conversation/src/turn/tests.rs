@@ -894,10 +894,9 @@ fn provider_errors_map_to_codes_a_client_can_act_on() {
     let refused = provider_failure(&refused);
     assert_eq!(refused.code, ErrorCode::Unauthorized);
     assert_eq!(refused.message, "the token source could not produce an access token");
-    assert_eq!(
-        provider_failure(&ProviderError::UnknownModel { model: "m".to_owned() }).code,
-        ErrorCode::Invalid
-    );
+    let unknown = provider_failure(&ProviderError::UnknownModel { model: "m".to_owned() });
+    assert_eq!(unknown.code, ErrorCode::Invalid);
+    assert_eq!(unknown.data, Some(json!({ "model": "m" })));
     assert_eq!(provider_failure(&ProviderError::Incomplete).code, ErrorCode::Internal);
     let limited =
         provider_failure(&ProviderError::RateLimited { retry_after: Some(Duration::from_secs(2)) });

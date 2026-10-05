@@ -649,6 +649,11 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
             let millis = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
             body.with_data(serde_json::json!({ "retry_after_ms": millis }))
         }
+        // NOTE: the model a client can tell the user to replace; which ids the
+        // subscription serves to efr is known only once a request is refused.
+        ProviderError::UnknownModel { model } => {
+            body.with_data(serde_json::json!({ "model": model }))
+        }
         _ => body,
     }
 }
