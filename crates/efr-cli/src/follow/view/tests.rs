@@ -727,3 +727,113 @@ fn an_answer_kind_says_whether_it_is_shown_and_how_it_is_sent() {
     // A secret-looking visible wait hides the typing but answers as visible.
     assert!(!AnswerKind::Masked.shown() && !AnswerKind::Masked.hidden());
 }
+
+const HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+
+fn shell_started() -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "./deploy" }),
+    }
+}
+
+/// A terminal view wide enough for the hint, with a shell call of this turn running.
+fn silent_shell() -> (TurnView, Size) {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&shell_started(), size, true);
+    (view, size)
+}
+
+#[test]
+fn a_running_shell_call_of_the_turn_is_silent_until_it_shows_a_sign_of_life() {
+    let (mut view, size) = silent_shell();
+    let (silent, first) = view.silence().unwrap();
+    assert_eq!(silent, call());
+    assert_eq!(view.manual_offer(), None, "nothing is offered before the time is up");
+    view.event(&output("deploying"), size, true);
+    let (_, second) = view.silence().unwrap();
+    assert_ne!(first, second, "output starts the silence again");
+    // A reported wait asks for itself, so the call is not silent.
+    view.event(&input(InputWait::Visible), size, true);
+    assert_eq!(view.silence(), None);
+}
+
+#[test]
+fn only_shell_calls_of_the_followed_turn_can_be_silent() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(80));
+    let read = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "read_file".to_owned(),
+        input: json!({ "path": "/etc/hosts" }),
+    };
+    view.event(&read, SIZE, true);
+    assert_eq!(view.silence(), None);
+    view.event(&output("127.0.0.1 localhost"), SIZE, true);
+    assert_eq!(view.silence(), None, "output alone does not make a call a shell call");
+}
+
+#[test]
+fn a_silent_call_offers_ctrl_backslash_on_one_dim_line_until_it_prints() {
+    let (mut view, size) = silent_shell();
+    let step = view.silent(call(), size);
+    assert_eq!(step.ask, None, "no key is read for the hint");
+    assert!(readable(&step.out).contains(HINT), "{}", readable(&step.out));
+    assert_eq!(view.manual_offer(), Some(call()));
+    assert_eq!(view.silence(), None, "the hint shows once");
+
+    let step = view.event(&output("deploying"), size, true);
+    assert!(!readable(&step.out).contains(HINT), "{}", readable(&step.out));
+    assert_eq!(view.manual_offer(), None);
+    assert!(view.silence().is_some(), "a new silence starts");
+}
+
+#[test]
+fn ctrl_backslash_asks_for_a_shown_manual_line_and_one_answer_ends_it() {
+    let (mut view, size) = silent_shell();
+    view.silent(call(), size);
+    let step = view.manual(call(), size);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
+    let shown = readable(&step.out);
+    assert!(shown.contains("the agent sees it if the program shows it"), "{shown}");
+    assert!(!shown.contains(HINT), "{shown}");
+    assert!(readable(&view.typed("yes", size).out).contains("> yes"));
+    assert_eq!(view.manual_offer(), None);
+
+    let step = view.answer_sent(size);
+    assert!(step.settled, "the keys stop after a manual answer");
+    assert!(view.silence().is_some(), "the silence starts again");
+}
+
+#[test]
+fn ctrl_backslash_for_a_call_that_no_longer_offers_it_does_nothing() {
+    let (mut view, size) = silent_shell();
+    assert_eq!(view.manual(call(), size), Step::default(), "the hint was not shown");
+    view.silent(call(), size);
+    view.event(&output("deploying"), size, true);
+    assert_eq!(view.manual(call(), size), Step::default(), "the call printed since");
+    let other: CallId = "0192f0c1-7a00-7000-8000-0000000000ff".parse().unwrap();
+    assert_eq!(view.silent(other, size), Step::default());
+}
+
+#[test]
+fn an_approval_hides_the_offer() {
+    let (mut view, size) = silent_shell();
+    view.silent(call(), size);
+    view.event(&approval(None), size, true);
+    assert_eq!(view.manual_offer(), None);
+    assert_eq!(view.silence(), None);
+}
+
+#[test]
+fn without_a_terminal_the_offer_is_a_note_on_stderr() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&shell_started(), size, true);
+    let step = view.silent(call(), size);
+    assert!(step.err.contains(HINT), "{:?}", step.err);
+    assert_eq!(step.out, "");
+}

@@ -1,6 +1,7 @@
 //! Fakes shared by the unit tests: a daemon on a temporary socket built from
 //! `efr_protocol::framing`, a context on temporary directories, fixed clocks and
-//! sizes, scripted keys and a Ctrl+C the test triggers.
+//! sizes, a clock whose sleeps end when the test says, scripted keys, and a Ctrl+C
+//! and a `Ctrl+\` the test triggers.
 //!
 //! The fake daemon cannot come from `efr-transport`: `efr-cli` may not depend on it,
 //! not even for tests. Speaking the framing directly keeps the CLI honest about the
@@ -10,7 +11,7 @@ use std::collections::VecDeque;
 use std::future::{pending, ready};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,13 +29,14 @@ use jiff::Timestamp;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, watch};
 
 use crate::cli::{Cli, Command};
 use crate::context::{Browser, Context, Interrupt, Stop};
 use crate::error::CliError;
 use crate::keys::{KeyReader, Keys};
 use crate::output::Output;
+use crate::quit::Quit;
 use crate::settings::Settings;
 use crate::terminal::{Screen, Size, TermFacts};
 
@@ -261,6 +263,97 @@ impl Interrupt for TestInterrupt {
     }
 }
 
+/// A `Ctrl+\` that the test triggers; it counts how many waits for it live.
+#[derive(Debug, Default)]
+pub(crate) struct TestQuit {
+    pressed: Arc<Notify>,
+    armed: Arc<AtomicUsize>,
+}
+
+impl TestQuit {
+    /// Presses the key for the wait that lives now, or the next one.
+    pub(crate) fn trigger(&self) {
+        self.pressed.notify_one();
+    }
+
+    /// How many waits for the key live.
+    pub(crate) fn armed(&self) -> usize {
+        self.armed.load(Ordering::SeqCst)
+    }
+
+    /// Waits until `count` waits for the key live.
+    pub(crate) async fn until_armed(&self, count: usize) {
+        while self.armed() != count {
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+impl Quit for TestQuit {
+    fn wait(&self) -> Stop {
+        let pressed = Arc::clone(&self.pressed);
+        let armed = Arc::clone(&self.armed);
+        Box::pin(async move {
+            armed.fetch_add(1, Ordering::SeqCst);
+            let _live = Live(Arc::clone(&armed));
+            pressed.notified().await;
+        })
+    }
+}
+
+/// Counts down a [`TestQuit`] wait when it ends or is dropped.
+struct Live(Arc<AtomicUsize>);
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A clock whose sleeps all finish when the test opens its gate; it remembers what
+/// each sleep asked for.
+#[derive(Debug)]
+pub(crate) struct GateClock {
+    gate: watch::Sender<u64>,
+    requested: Mutex<Vec<Duration>>,
+}
+
+impl Default for GateClock {
+    fn default() -> Self {
+        GateClock { gate: watch::channel(0).0, requested: Mutex::new(Vec::new()) }
+    }
+}
+
+impl GateClock {
+    /// Finishes every sleep that waits now.
+    pub(crate) fn open(&self) {
+        self.gate.send_modify(|opened| *opened += 1);
+    }
+
+    /// Waits until a sleep of `duration` was asked for.
+    pub(crate) async fn until_slept(&self, duration: Duration) {
+        while !self.requested.lock().unwrap().contains(&duration) {
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+impl Clock for GateClock {
+    fn now(&self) -> Timestamp {
+        now()
+    }
+
+    fn sleep(&self, duration: Duration) -> Sleep {
+        self.requested.lock().unwrap().push(duration);
+        let mut gate = self.gate.subscribe();
+        Box::pin(async move {
+            if gate.changed().await.is_err() {
+                pending::<()>().await;
+            }
+        })
+    }
+}
+
 /// A browser that only remembers the URLs it was asked to open.
 #[derive(Debug, Default)]
 pub(crate) struct RecordingBrowser(pub(crate) Mutex<Vec<String>>);
@@ -372,6 +465,7 @@ impl TestEnv {
             screen: Arc::new(FixedScreen(Size::default())),
             keys: Arc::new(NoKeys),
             interrupt: Arc::new(TestInterrupt::default()),
+            quit: Arc::new(TestQuit::default()),
             browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),
             tty: None,

@@ -13,8 +13,8 @@ use super::{Target, TurnView, follow};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::testing::{
-    Captured, Conn, ScriptedKeys, TestEnv, TestInterrupt, call, capture, conversation, envelope,
-    item, now, turn,
+    Captured, Conn, GateClock, ScriptedKeys, TestEnv, TestInterrupt, TestQuit, call, capture,
+    conversation, envelope, item, now, turn,
 };
 
 fn target() -> Target {
@@ -848,4 +848,104 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
         assert!(!written.contains("hunter"), "{written}");
         assert!(!written.contains("ter2"), "{written}");
     }
+}
+
+const HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+
+/// Waits until stdout holds `text`.
+async fn shows(seen: &Captured, text: &str) {
+    while !seen.stdout().contains(text) {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn ctrl_backslash_after_a_silence_types_a_manual_answer() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let quit = Arc::new(TestQuit::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx =
+        Context { keys: keys.clone(), quit: quit.clone(), clock: clock.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (pressing, timing) = (Arc::clone(&quit), Arc::clone(&clock));
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("./deploy"))).await;
+        conn.item(sub, &item(12, shell_output("deploying\n"))).await;
+        timing.until_slept(super::SILENCE).await;
+        assert_eq!(pressing.armed(), 0, "the key is not taken before the hint");
+        timing.open();
+        shows(&seen, HINT).await;
+        pressing.until_armed(1).await;
+        assert_eq!(presser.starts(), 0, "the hint reads no key");
+        pressing.trigger();
+        presser.type_bytes(b"yes\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.call_id, call());
+        assert_eq!(params.text.expose_secret(), "yes");
+        assert!(params.manual);
+        assert!(!params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        // One manual answer, then the keys go back to the shell.
+        presser.stopped().await;
+        conn.item(sub, &item(13, shell_completed(0))).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert!(out.contains("> yes"), "the manual answer shows as it is typed: {out}");
+    assert_eq!(quit.armed(), 0, "the key is let go when the turn ends");
+}
+
+#[tokio::test]
+async fn a_silent_call_without_ctrl_backslash_reads_no_keys_and_lets_go_of_the_key() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let quit = Arc::new(TestQuit::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx =
+        Context { keys: keys.clone(), quit: quit.clone(), clock: clock.clone(), ..env.context() };
+    let (pressing, timing) = (Arc::clone(&quit), Arc::clone(&clock));
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("./deploy"))).await;
+        timing.until_slept(super::SILENCE).await;
+        timing.open();
+        shows(&seen, HINT).await;
+        pressing.until_armed(1).await;
+        // The command prints again: the hint goes and the key is let go.
+        conn.item(sub, &item(12, shell_output("done\n"))).await;
+        pressing.until_armed(0).await;
+        conn.item(sub, &item(13, shell_completed(0))).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 0, "typeahead stays for the user's shell");
+    let last_frame = out.rsplit("\x1b[?2026h").next().unwrap_or_default();
+    assert!(!last_frame.contains("Ctrl+"), "the hint is gone: {last_frame:?}");
+}
+
+#[tokio::test]
+async fn without_keys_a_silent_call_offers_nothing() {
+    let env = TestEnv::new();
+    let quit = Arc::new(TestQuit::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx = Context { quit: quit.clone(), clock: clock.clone(), ..env.context() };
+    let (result, _, err) = run_view(&env, &ctx, raw_view(), |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("./deploy"))).await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!err.contains("Ctrl+"), "{err}");
+    assert_eq!(quit.armed(), 0);
 }

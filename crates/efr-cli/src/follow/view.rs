@@ -22,6 +22,12 @@
 //! asks for an answer line below it: a hidden answer (a password) never reaches the
 //! view at all, and a visible one is echoed here as the user types it, unless its
 //! prompt looks like a password prompt behind another program (`looks_secret`).
+//!
+//! A shell call of this turn that reports no wait and has printed nothing for a while
+//! gets one dim line that offers `Ctrl+\` ([`TurnView::silence`], [`TurnView::silent`]).
+//! The view reads no key for it: text typed meanwhile stays typeahead for the user's
+//! shell. Only `Ctrl+\` opens an answer line ([`TurnView::manual`]), which is shown as it
+//! is typed and goes as a manual answer.
 
 use std::collections::{HashMap, HashSet};
 
@@ -59,6 +65,10 @@ const VISIBLE_INPUT: &str =
 /// answer, because the program on the inner terminal decides whether it is shown.
 const SECRET_INPUT: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
 
+/// The line under a shell call that has printed nothing for a while and reports no
+/// wait; the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
+const SILENCE_HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+
 /// The note when a command waits for hidden input and no key can be read here.
 const HIDDEN_INPUT_ELSEWHERE: &str =
     "the command waits for hidden input, such as a password; efr cannot ask for it here";
@@ -71,6 +81,9 @@ const ANSWER_SENT: &str = "answer sent";
 
 /// The note when the daemon refused an answer because the wait was over.
 const ANSWER_REFUSED: &str = "the command no longer waits for that input; nothing was sent";
+
+/// The name of the tool whose silent calls offer `Ctrl+\`.
+const SHELL: &str = "shell";
 
 /// What the echo of a visible answer starts with.
 const ECHO_PREFIX: &str = "> ";
@@ -113,17 +126,25 @@ pub(crate) enum AnswerKind {
     /// A visible wait whose prompt looks like a password prompt behind a relay: not
     /// shown, but sent as a visible answer, the kind the daemon reported.
     Masked,
+    /// A line the user asked for with `Ctrl+\` while the command reported no wait: shown
+    /// as it is typed, sent as a visible, manual answer.
+    Manual,
 }
 
 impl AnswerKind {
     /// True when what is typed is shown as it is typed.
     pub(crate) fn shown(self) -> bool {
-        self == AnswerKind::Visible
+        matches!(self, AnswerKind::Visible | AnswerKind::Manual)
     }
 
     /// True when the answer goes as a hidden one.
     pub(crate) fn hidden(self) -> bool {
         self == AnswerKind::Hidden
+    }
+
+    /// True when the answer goes as a manual one, without a reported wait.
+    pub(crate) fn manual(self) -> bool {
+        self == AnswerKind::Manual
     }
 
     /// True when what is typed may be a password: until the call completes, keys typed
@@ -136,7 +157,7 @@ impl AnswerKind {
     fn line(self) -> &'static str {
         match self {
             AnswerKind::Hidden => HIDDEN_INPUT,
-            AnswerKind::Visible => VISIBLE_INPUT,
+            AnswerKind::Visible | AnswerKind::Manual => VISIBLE_INPUT,
             AnswerKind::Masked => SECRET_INPUT,
         }
     }
@@ -172,6 +193,13 @@ struct Running {
     guarding: bool,
     /// What the user typed so far, for a visible answer only.
     typed: String,
+    /// A shell call of the followed turn, which may offer `Ctrl+\` when it is silent.
+    shell: bool,
+    /// Changes whenever the call shows a sign of life: output, a wait, an answer. The
+    /// follow loop times the silence from the last change.
+    activity: u64,
+    /// The line that offers `Ctrl+\` is shown.
+    hinted: bool,
 }
 
 impl Running {
@@ -183,12 +211,28 @@ impl Running {
             asking: None,
             guarding: false,
             typed: String::new(),
+            shell: false,
+            activity: 0,
+            hinted: false,
         }
     }
 
     /// True while keys are read for it, to answer or to throw away.
     fn reads_keys(&self) -> bool {
         self.asking.is_some() || self.guarding
+    }
+
+    /// The call shows a sign of life: its silence starts again, and the line that
+    /// offers `Ctrl+\` goes.
+    fn stirred(&mut self) {
+        self.activity = self.activity.wrapping_add(1);
+        self.hinted = false;
+    }
+
+    /// True when the call is a shell call that waits for nothing the daemon reported and
+    /// nothing reads keys for it.
+    fn quiet_shell(&self) -> bool {
+        self.shell && self.wait == InputWait::None && !self.reads_keys()
     }
 }
 
@@ -303,10 +347,18 @@ impl TurnView {
             }
             Event::ToolCallStarted { call_id, tool, input, .. } => {
                 self.tools.insert(*call_id, tool.clone());
+                // A shell call is followed from its start, so a command that never prints
+                // can still offer `Ctrl+\`.
+                let mut settled = false;
+                if tool == SHELL {
+                    let (running, replaced) = self.running(*call_id);
+                    running.shell = true;
+                    settled = replaced;
+                }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                self.note_after(before, &format::tool_call(tool, input), size)
+                Step { settled, ..self.note_after(before, &format::tool_call(tool, input), size) }
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
@@ -429,7 +481,54 @@ impl TurnView {
     fn output(&mut self, call_id: CallId, tail: &str, size: Size) -> Step {
         let (running, settled) = self.running(call_id);
         running.tail = last_line(tail);
+        running.stirred();
         Step { settled, ..self.commit(String::new(), size) }
+    }
+
+    /// The shell call that may offer `Ctrl+\` once it has been silent long enough, with
+    /// its activity count, which changes at every sign of life: a shell call of this
+    /// turn that runs, reports no wait, while no key is read for it and no approval
+    /// waits, and whose line that offers `Ctrl+\` is not shown yet.
+    pub(crate) fn silence(&self) -> Option<(CallId, u64)> {
+        let running = self.running.as_ref()?;
+        let quiet = running.quiet_shell() && !running.hinted && self.asking.is_none();
+        quiet.then_some((running.call_id, running.activity))
+    }
+
+    /// The call whose line that offers `Ctrl+\` is shown now; the follow loop waits for
+    /// the key exactly while there is one.
+    pub(crate) fn manual_offer(&self) -> Option<CallId> {
+        let running = self.running.as_ref()?;
+        let offered = running.quiet_shell() && running.hinted && self.asking.is_none();
+        offered.then_some(running.call_id)
+    }
+
+    /// Call `call_id` has been silent since its activity count was last read: shows the
+    /// line that offers `Ctrl+\`. Nothing when it is no longer the silent call.
+    pub(crate) fn silent(&mut self, call_id: CallId, size: Size) -> Step {
+        if self.silence().map(|(silent, _)| silent) != Some(call_id) {
+            return Step::default();
+        }
+        if let Some(running) = &mut self.running {
+            running.hinted = true;
+        }
+        if self.terminal() {
+            self.commit(String::new(), size)
+        } else {
+            self.note(SILENCE_HINT, size)
+        }
+    }
+
+    /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
+    /// line that is shown as it is typed and goes as a manual answer.
+    pub(crate) fn manual(&mut self, call_id: CallId, size: Size) -> Step {
+        if self.manual_offer() != Some(call_id) {
+            return Step::default();
+        }
+        if let Some(running) = &mut self.running {
+            running.hinted = false;
+        }
+        self.ask_for(call_id, AnswerKind::Manual, size)
     }
 
     /// Call `call_id` began or stopped waiting for input; `looks_secret` when a visible
@@ -451,6 +550,7 @@ impl TurnView {
         running.wait = input;
         running.asking = None;
         running.typed.clear();
+        running.stirred();
         let kind = match input {
             InputWait::Hidden => AnswerKind::Hidden,
             InputWait::Visible if looks_secret => AnswerKind::Masked,
@@ -473,6 +573,16 @@ impl TurnView {
         if approval_pending {
             return Step { settled, ..Step::default() };
         }
+        self.ask_for(call_id, kind, size)
+    }
+
+    /// Asks for an answer line of `kind` for the running call `call_id`, below its last
+    /// output line.
+    fn ask_for(&mut self, call_id: CallId, kind: AnswerKind, size: Size) -> Step {
+        let Some(running) = self.running.as_mut().filter(|running| running.call_id == call_id)
+        else {
+            return Step::default();
+        };
         running.asking = Some(kind);
         let prompt = format::one_line(&running.tail);
         let mut step = if self.terminal() {
@@ -568,11 +678,19 @@ impl TurnView {
     }
 
     /// A note about an answer; the echo of what was typed goes with it.
+    /// A manual answer asks once: after it, the keys stop and the call's silence starts
+    /// again.
     fn answer_note(&mut self, text: &str, size: Size) -> Step {
+        let mut settled = false;
         if let Some(running) = &mut self.running {
             running.typed.clear();
+            if running.asking.is_some_and(AnswerKind::manual) {
+                running.asking = None;
+                running.stirred();
+                settled = true;
+            }
         }
-        self.note(text, size)
+        Step { settled, ..self.note(text, size) }
     }
 
     /// The user answered the approval `call_id` with a key.
@@ -712,6 +830,7 @@ impl TurnView {
                 running.asking = None;
                 running.guarding = false;
                 running.typed.clear();
+                running.hinted = false;
             }
             if !self.terminal() {
                 text.push_str(QUESTION);
@@ -790,6 +909,9 @@ impl TurnView {
                     live.push_str(&format::one_line(&running.typed));
                     live.push('\n');
                 }
+            } else if running.hinted && self.asking.is_none() {
+                live.push_str(&format::paint(SILENCE_HINT, Tone::Dim, &options));
+                live.push('\n');
             }
             if live.len() != before {
                 measured = None;

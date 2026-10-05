@@ -12,6 +12,12 @@
 //! an [`AnswerLine`] and the [`SecretText`] it becomes: it is never handed to the view,
 //! never logged, and both are zeroed once it is sent or dropped (the README lists the
 //! copies that are not).
+//!
+//! A shell call that reports no wait and prints nothing for [`SILENCE`] gets a line that
+//! offers `Ctrl+\`, and only while that line is shown does the loop wait for the key
+//! (`crate::quit`). No key is read before it: what the user types meanwhile stays
+//! typeahead for their shell. `Ctrl+\` opens an answer line, which goes as a manual
+//! answer.
 
 mod view;
 
@@ -24,12 +30,12 @@ use efr_protocol::{
     ErrorCode, Event, InputRespond, InputRespondResult, Method, SecretText, Seq, TurnId,
     TurnInterrupt, TurnInterruptResult,
 };
-use efr_stdx::time::Clock as _;
+use efr_stdx::time::{Clock as _, Sleep};
 use futures::StreamExt as _;
 use serde_json::Value;
 
 use crate::answer::{AnswerLine, Edit};
-use crate::context::Context;
+use crate::context::{Context, Stop};
 use crate::error::CliError;
 use crate::keys::{self, KeyReader};
 use crate::output::Output;
@@ -46,6 +52,10 @@ const BLOCKING_PAGE: u32 = 500;
 /// How long Ctrl+C waits for the daemon to take the interrupt before the command ends
 /// anyway.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How long a shell call that reports no wait prints nothing before the view offers
+/// `Ctrl+\` to type an input for it.
+pub(crate) const SILENCE: Duration = Duration::from_secs(10);
 
 /// Where the turn to follow is.
 #[derive(Debug, Clone, Copy)]
@@ -65,7 +75,15 @@ pub(crate) async fn follow(
     view: &mut TurnView,
     target: Target,
 ) -> Result<(), CliError> {
-    let mut follower = Follower { ctx, client, target, last_seen: target.after, keys: None };
+    let mut follower = Follower {
+        ctx,
+        client,
+        target,
+        last_seen: target.after,
+        keys: None,
+        silence: None,
+        quit: None,
+    };
     let result = match follower.blocking(out, view).await {
         Ok(()) => follower.run(out, view).await,
         Err(error) => Err(error),
@@ -117,6 +135,11 @@ struct Follower<'a> {
     last_seen: Seq,
     /// Reads keys while an approval question or an input is pending.
     keys: Option<(KeyReader, Asking)>,
+    /// The silent shell call and its activity count, with the time until it offers
+    /// `Ctrl+\`.
+    silence: Option<((CallId, u64), Sleep)>,
+    /// Waits for `Ctrl+\` while the view offers it, and only then.
+    quit: Option<Stop>,
 }
 
 /// What the keys being read answer.
@@ -214,12 +237,25 @@ impl Follower<'_> {
         loop {
             let mut stream = self.subscribe().await?;
             let resubscribe = loop {
+                self.watch_silence(view);
                 tokio::select! {
                     () = &mut interrupt => {
                         return Err(CliError::Interrupted);
                     }
                     key = next_key(&mut self.keys) => {
                         self.key(key, out, view).await?;
+                    }
+                    call_id = silent(&mut self.silence) => {
+                        self.silence = None;
+                        let step = view.silent(call_id, self.ctx.screen.size());
+                        self.apply(step, out).await?;
+                    }
+                    () = pressed(&mut self.quit) => {
+                        self.quit = None;
+                        if let Some(call_id) = view.manual_offer() {
+                            let step = view.manual(call_id, self.ctx.screen.size());
+                            self.apply(step, out).await?;
+                        }
                     }
                     item = stream.next() => match item {
                         Some(Ok(value)) => {
@@ -244,6 +280,20 @@ impl Follower<'_> {
                 }
                 tracing::debug!(after = %self.last_seen, "the subscription fell behind; resuming");
             }
+        }
+    }
+
+    /// Times the silence of the shell call that may offer `Ctrl+\`, from its last sign of
+    /// life, and waits for the key exactly while the view offers it. Without a terminal
+    /// to read keys from, nothing is offered.
+    fn watch_silence(&mut self, view: &TurnView) {
+        let candidate = if self.ctx.keys.available() { view.silence() } else { None };
+        if self.silence.as_ref().map(|(key, _)| *key) != candidate {
+            self.silence = candidate.map(|key| (key, self.ctx.clock.sleep(SILENCE)));
+        }
+        let offered = view.manual_offer().is_some();
+        if offered != self.quit.is_some() {
+            self.quit = offered.then(|| self.ctx.quit.wait());
         }
     }
 
@@ -379,9 +429,10 @@ impl Follower<'_> {
 
     /// Sends the answer line `text` to the running call `call_id`, and says how that
     /// went. The `SecretText` is dropped, and its buffer zeroed, once the call returns;
-    /// `efr-client` zeroes the encoded request frame once it is written.
+    /// `efr-client` zeroes the encoded request frame once it is written. A manual answer
+    /// asks once, so its keys stop after it.
     async fn answer(
-        &self,
+        &mut self,
         call_id: CallId,
         kind: AnswerKind,
         text: SecretText,
@@ -395,7 +446,7 @@ impl Follower<'_> {
             call_id,
             text,
             hidden: kind.hidden(),
-            manual: false,
+            manual: kind.manual(),
         });
         let size = self.ctx.screen.size();
         let step = match self.client.call::<InputRespondResult>(method).await {
@@ -410,7 +461,7 @@ impl Follower<'_> {
             Err(ClientError::Server { body }) => view.answer_failed(&body.message, size),
             Err(error) => return Err(error.into()),
         };
-        write(out, &step)
+        self.apply(step, out).await.map(drop)
     }
 
     async fn respond(
@@ -438,6 +489,26 @@ impl Follower<'_> {
             }
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+/// The call that has been silent for [`SILENCE`] when its time is up; never resolves
+/// while no call is silent.
+async fn silent(silence: &mut Option<((CallId, u64), Sleep)>) -> CallId {
+    match silence {
+        Some(((call_id, _), sleep)) => {
+            sleep.as_mut().await;
+            *call_id
+        }
+        None => std::future::pending().await,
+    }
+}
+
+/// `Ctrl+\` while it is offered; never resolves otherwise.
+async fn pressed(quit: &mut Option<Stop>) {
+    match quit {
+        Some(wait) => wait.as_mut().await,
+        None => std::future::pending().await,
     }
 }
 

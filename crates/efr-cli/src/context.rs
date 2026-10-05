@@ -1,5 +1,5 @@
 //! Everything a command needs from the world, gathered once: the directories, the
-//! environment, the terminal, time, randomness, keys, Ctrl+C and the browser.
+//! environment, the terminal, time, randomness, keys, Ctrl+C, `Ctrl+\` and the browser.
 //!
 //! Commands take a [`Context`] instead of reaching for process state themselves, so a
 //! test can run a whole command against a fake daemon with a fixed screen, scripted
@@ -21,6 +21,7 @@ use efr_stdx::time::{Clock, SystemClock};
 
 use crate::error::CliError;
 use crate::keys::{Keys, TtyKeys};
+use crate::quit::{CtrlBackslash, Quit};
 use crate::settings::Settings;
 use crate::terminal::{self, Screen, StdoutScreen, TermFacts};
 
@@ -89,6 +90,8 @@ pub(crate) struct Context {
     pub(crate) screen: Arc<dyn Screen>,
     pub(crate) keys: Arc<dyn Keys>,
     pub(crate) interrupt: Arc<dyn Interrupt>,
+    /// `Ctrl+\`, which asks to type an input for a command that prints nothing.
+    pub(crate) quit: Arc<dyn Quit>,
     pub(crate) browser: Arc<dyn Browser>,
     /// The working directory, for a prompt sent without the plugin's context.
     pub(crate) cwd: Option<PathBuf>,
@@ -122,6 +125,7 @@ impl Context {
             screen: Arc::new(StdoutScreen),
             keys: Arc::new(keys),
             interrupt: Arc::new(CtrlC),
+            quit: Arc::new(CtrlBackslash::new()),
             browser: Arc::new(XdgOpen),
             cwd: std::env::current_dir().ok(),
             tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },

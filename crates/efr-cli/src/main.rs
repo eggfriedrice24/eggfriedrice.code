@@ -6,8 +6,9 @@
 //! - `follow`: following a turn's events, with `follow/view` deciding what they look
 //!   like and `live` redrawing the live zone of a streaming reply.
 //! - `keys`: the key thread, for one-key answers to approvals and for answer lines;
-//!   `answer`: the line typed for a command that waits for input; `terminal`: the
-//!   terminal facts and size.
+//!   `answer`: the line typed for a command that waits for input; `quit`: `Ctrl+\`,
+//!   which opens such a line for a silent command; `terminal`: the terminal facts and
+//!   size.
 //! - `context`: what every command runs with; `settings`: the `[render]` table and the
 //!   turn defaults of `config.toml`, and the checks of `efr config`; `turn_settings`:
 //!   the mode, model and effort a command asks for; `format`: the CLI's own lines;
@@ -32,6 +33,7 @@ mod format;
 mod keys;
 mod live;
 mod output;
+mod quit;
 mod run;
 mod settings;
 mod terminal;
