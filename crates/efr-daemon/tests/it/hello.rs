@@ -1,9 +1,5 @@
 //! `hello`, the scopes it grants and the single-instance lock, over a `TestDaemon`.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_daemon::DaemonError;
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{

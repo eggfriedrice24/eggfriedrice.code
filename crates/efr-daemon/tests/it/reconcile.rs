@@ -2,10 +2,6 @@
 //! when the daemon stopped is settled at the next start, and nothing continues on its
 //! own.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,10 +1,6 @@
 //! Approvals over a `TestDaemon`: a write outside `$SCRATCH` waits for the user, runs
 //! when allowed and never runs when denied; an answer is a write with a receipt.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ErrorCode, Event, Method,
 };

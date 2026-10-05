@@ -1,10 +1,6 @@
 //! `turn.interrupt` over a `TestDaemon`: two phases, the request at once and the end
 //! when the model's stream has stopped, with the text that already streamed kept.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     ConversationStatus, ConversationsList, ConversationsListResult, ErrorCode, Event, Method,
     TurnInterrupt, TurnInterruptResult,

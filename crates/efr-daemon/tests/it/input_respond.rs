@@ -7,10 +7,6 @@
 //! answer reaches a silent command that reported no wait. Every test drives a real zsh
 //! and skips with a message unless `EFR_TEST_ZSH=1`.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;

@@ -2,10 +2,6 @@
 //! offsets in the PTY's recording, a resume replays from its offset, a fresh attach
 //! starts with the screen, and live output follows without a hole or a repeat.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     Base64Bytes, ErrorCode, Method, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
     PtyWrite, PtyWriteResult, Seq, Size,

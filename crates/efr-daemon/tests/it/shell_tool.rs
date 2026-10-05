@@ -2,10 +2,6 @@
 //! hidden shell, played by the fake PTY holder in the scenarios and by a real zsh in
 //! the `shell_` test.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

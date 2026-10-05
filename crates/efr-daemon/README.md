@@ -365,7 +365,8 @@ allow `seq 3` but not `seq 4`; they skip with a message unless `EFR_TEST_ZSH=1`:
 EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 ```
 
-The integration tests in `tests/` (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
+The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
+linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY

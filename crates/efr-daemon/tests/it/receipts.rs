@@ -1,10 +1,6 @@
 //! Command receipts over a `TestDaemon`: a retried write answers from its receipt and
 //! runs nothing; a final refusal stays refused; a command id is bound to its method.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::ErrorCode;
 use efr_test_daemon::Replay;
 use pretty_assertions::assert_eq;

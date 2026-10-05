@@ -1,10 +1,6 @@
 //! `conversation.subscribe` over a `TestDaemon`: a resume replays the gap and goes on
 //! live without a hole or a repeat; a gap too large starts with a bounded snapshot.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
     ConversationSubscribeItem, ErrorCode, Event, EventEnvelope, Method, Seq,

@@ -3,10 +3,6 @@
 //! the API key provider retries once and then fails, and `admin.login_openai` hands
 //! out the authorize URL, runs one login at a time and ends with what the browser said.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     AdminLoginOpenAi, AdminLoginOpenAiItem, ErrorCode, Event, Method, PromptSendResult,
 };

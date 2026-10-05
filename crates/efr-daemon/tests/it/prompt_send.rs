@@ -1,10 +1,6 @@
 //! `prompt.send` over a `TestDaemon`: a whole turn, a prompt queued behind a running
 //! turn, the scope following the user between turns, and the refusals.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_protocol::{
     ConversationStatus, ConversationsList, ConversationsListResult, EffectiveSettings, ErrorCode,
     Event, Method, Mode, OverriddenSettings, PromptSend, PromptSendResult, Scope, TurnSettings,
