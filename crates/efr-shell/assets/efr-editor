@@ -1,0 +1,10 @@
+#!/bin/sh
+# efr: the editor of a hidden conversation shell.
+#
+# Nobody can use an editor on the hidden screen. git commit without -m, git merge
+# without --no-edit, git rebase -i, crontab -e or systemctl edit would open one there
+# and wait until the run's timeout. efr points EDITOR, VISUAL, GIT_EDITOR,
+# GIT_SEQUENCE_EDITOR, SUDO_EDITOR and SYSTEMD_EDITOR at this script instead, so these
+# commands fail at once, and the message tells the model what to do instead.
+printf '%s\n' 'efr: there is no editor in the hidden shell; pass the text another way, such as git commit -m, a file, or ask the user to edit it' >&2
+exit 1

@@ -250,9 +250,25 @@ environment, passed in by the daemon; this crate reads no environment) without
 efr reads but the user's startup files can test (to skip `exec tmux` or an instant
 prompt). A zsh with the integration also gets `_EFR_HS_TRUSTED_PROGRAMS`, the
 trusted programs separated by spaces, which the integration reads and unsets right
-after the user's `.zshenv`, before `.zprofile` and `.zshrc` run. It sets `PAGER`, `GIT_PAGER`, `SYSTEMD_PAGER` and `MANPAGER` to `cat`:
-nobody reads a pager on the hidden screen, so `git log` or `systemctl status` would
-otherwise open `less` there and the run would wait until someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the config).
+after the user's `.zshenv`, before `.zprofile` and `.zshrc` run. It sets `PAGER`,
+`GIT_PAGER`, `SYSTEMD_PAGER`, `MANPAGER`, `GH_PAGER` and `BAT_PAGER` to `cat` and
+`AWS_PAGER` to the empty value: nobody reads a pager on the hidden screen, so `git log`
+or `systemctl status` would otherwise open `less` there and the run would wait until
+someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the
+config).
+
+Nobody can use an editor on the hidden screen either, so the shell sets `EDITOR`,
+`VISUAL`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, `SUDO_EDITOR` and `SYSTEMD_EDITOR` to
+the path of `efr-editor` in `ShellConfig::integration_dir` (`assets/efr-editor`, a
+`/bin/sh` script written there with mode 0700 before the first shell starts, a zsh or
+not). It prints `efr: there is no editor in the hidden shell; pass the text another
+way, such as git commit -m, a file, or ask the user to edit it` on stderr and exits 1,
+so `git commit` without `-m`, `git merge` without `--no-edit`, `git rebase -i`,
+`crontab -e`, `systemctl edit` and `sudoedit` fail at once instead of waiting for the
+run's timeout. `GIT_EDITOR` and `GIT_SEQUENCE_EDITOR` win over the user's
+`core.editor` and `sequence.editor`. A program that `sudo` starts sees the variables
+only when `sudo` keeps them (`visudo` under `sudo`'s default `env_reset` does not),
+and a path with spaces in the integration directory would split the variables.
 
 The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
 `ShellConfig::integration_dir` on the first spawn):
@@ -271,8 +287,9 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   `D`. It is an original script: ghostty's is GPLv3 and is never copied.
 - The integration changes a few options in the hidden shell only: no `!` history
   expansion, no spelling correction prompts, no history file (`HISTFILE` is unset;
-  efr keeps its own recording), no pager (the four pager variables are set to `cat`
-  again, because a `.zshrc` often exports `PAGER=less`), no `NULL_GLOB` or
+  efr keeps its own recording), no pager and no editor (the pager and editor
+  variables are set again, because a `.zshrc` often exports `PAGER=less` or
+  `EDITOR=vim`; the script finds `efr-editor` next to itself), no `NULL_GLOB` or
   `CSH_NULL_GLOB` (the permission engine counts a pattern that matches nothing as one
   word, so it must not vanish), no global or suffix aliases and no alias or function
   named like one of `ShellConfig::trusted_programs` (removed after the startup files

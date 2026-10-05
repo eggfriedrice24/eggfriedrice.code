@@ -391,12 +391,9 @@ impl ShellSessions {
     ) -> Result<SessionHandle, ShellError> {
         let inner = &self.inner;
         let start = self.start();
-        if start.integration {
-            inner
-                .installed
-                .get_or_try_init(|| install(inner.config.integration_dir.clone()))
-                .await?;
-        }
+        // Every shell gets the files, a zsh or not: the editor variables of each one
+        // name the stub among them.
+        inner.installed.get_or_try_init(|| install(inner.config.integration_dir.clone())).await?;
         let mut config = inner.config.clone();
         config.login = start.login;
         config.trusted_programs = start.trusted_programs.to_vec();

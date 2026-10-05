@@ -1,8 +1,9 @@
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::{INTEGRATION, ZSHENV, args, install, supports};
+use super::{EDITOR, EDITOR_FILE, INTEGRATION, ZSHENV, args, install, supports};
 
 /// The exact sequences the scanner and a ghostty screen expect, as the script writes
 /// them in zsh's `$'...'` quoting.
@@ -74,6 +75,50 @@ fn the_script_turns_off_the_pagers_the_environment_turns_off() {
     assert!(INTEGRATION.contains(&export), "missing {export}");
 }
 
+/// The script points the same editor variables as the daemon's environment at the
+/// stub, after the user's startup files, and finds the stub under the name it is
+/// written under.
+#[test]
+fn the_script_points_the_editors_the_environment_names_at_the_stub() {
+    let assignments: Vec<String> =
+        crate::env::EDITORS.iter().map(|name| format!("{name}=$_efr_hs_editor")).collect();
+    let export = format!("builtin export {}", assignments.join(" "));
+    assert!(INTEGRATION.contains(&export), "missing {export}");
+    let stub = format!("builtin typeset -g _efr_hs_editor=${{${{(%):-%x}}:A:h}}/{EDITOR_FILE}");
+    assert!(INTEGRATION.contains(&stub), "missing {stub}");
+}
+
+#[test]
+fn the_editor_fails_and_says_how_to_go_on() {
+    assert!(EDITOR.starts_with("#!/bin/sh\n"));
+    assert!(EDITOR.contains(
+        "'efr: there is no editor in the hidden shell; pass the text another way, such as git commit -m, a file, or ask the user to edit it' >&2"
+    ));
+    assert!(EDITOR.ends_with("exit 1\n"));
+}
+
+/// The stub runs: it prints its message on stderr, nothing on stdout, and fails,
+/// whatever file it is asked to edit.
+#[tokio::test]
+async fn the_installed_editor_runs_and_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    install(dir.path()).unwrap();
+    let editor = dir.path().join(EDITOR_FILE);
+    let mode = std::fs::metadata(&editor).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o700);
+    let output = efr_stdx::process::command(&editor, dir.path())
+        .arg("COMMIT_EDITMSG")
+        .output()
+        .await
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"");
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "efr: there is no editor in the hidden shell; pass the text another way, such as git commit -m, a file, or ask the user to edit it\n"
+    );
+}
+
 #[test]
 fn the_shim_restores_zdotdir_and_sources_the_users_zshenv() {
     assert!(ZSHENV.contains("ZDOTDIR=$_EFR_USER_ZDOTDIR"));
@@ -99,6 +144,7 @@ fn install_writes_both_files_and_replaces_old_copies() {
     install(&target).unwrap();
     assert_eq!(std::fs::read_to_string(target.join(".zshenv")).unwrap(), ZSHENV);
     assert_eq!(std::fs::read_to_string(target.join("efr-integration.zsh")).unwrap(), INTEGRATION);
+    assert_eq!(std::fs::read_to_string(target.join("efr-editor")).unwrap(), EDITOR);
 }
 
 #[test]

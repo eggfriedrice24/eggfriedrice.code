@@ -28,8 +28,8 @@ pub struct ShellConfig {
     /// `.zlogin` run as in a terminal's first shell. The daemon runs as a service whose
     /// environment came from systemd, not from a login.
     pub login: bool,
-    /// Where the ZDOTDIR shim and the integration script are written. The daemon
-    /// passes a directory of its own, such as `$XDG_RUNTIME_DIR/efr/zsh`.
+    /// Where the ZDOTDIR shim, the integration script and the editor stub are written.
+    /// The daemon passes a directory of its own, such as `$XDG_RUNTIME_DIR/efr/zsh`.
     pub integration_dir: PathBuf,
     /// The user's environment, which every hidden shell inherits after the variables
     /// that belong to the daemon or to another terminal are removed (see the crate

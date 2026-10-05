@@ -44,11 +44,28 @@ pub(crate) const HIDDEN_SHELL: &str = "EFR_HIDDEN_SHELL";
 
 /// Pagers turned off. Nobody reads a pager on the hidden screen: `git log` or
 /// `systemctl status` would open `less` there, and the run would wait until someone
-/// quit it. `cat` is the value git, systemd and man all treat as "no pager". The zsh
-/// integration sets the same values again after the user's startup files, which often
-/// export `PAGER=less`; its tests keep the two lists equal.
-pub(crate) const PAGERS: &[(&str, &str)] =
-    &[("PAGER", "cat"), ("GIT_PAGER", "cat"), ("SYSTEMD_PAGER", "cat"), ("MANPAGER", "cat")];
+/// quit it. `cat` is the value git, systemd, man, gh and bat all treat as "no pager";
+/// the AWS CLI takes an empty value. The zsh integration sets the same values again
+/// after the user's startup files, which often export `PAGER=less`; its tests keep the
+/// two lists equal.
+pub(crate) const PAGERS: &[(&str, &str)] = &[
+    ("PAGER", "cat"),
+    ("GIT_PAGER", "cat"),
+    ("SYSTEMD_PAGER", "cat"),
+    ("MANPAGER", "cat"),
+    ("AWS_PAGER", ""),
+    ("GH_PAGER", "cat"),
+    ("BAT_PAGER", "cat"),
+];
+
+/// The variables that name an editor. Nobody can use one on the hidden screen either:
+/// `git commit` without `-m` or `crontab -e` would open it there and wait for the
+/// run's timeout. Each names the stub that the session writes next to the zsh
+/// integration ([`crate::integration::EDITOR_FILE`]), which fails at once and says
+/// why. The zsh integration sets them again after the user's startup files, as it does
+/// the pagers; its tests keep the two lists equal.
+pub(crate) const EDITORS: &[&str] =
+    &["EDITOR", "VISUAL", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "SUDO_EDITOR", "SYSTEMD_EDITOR"];
 
 /// The programs of [`ShellConfig::trusted_programs`], separated by spaces, for a zsh
 /// with the integration. The integration reads it once, right after the user's
@@ -85,6 +102,11 @@ pub(crate) fn shell_env(
     env.insert(HIDDEN_SHELL.to_owned(), "1".to_owned());
     for (name, value) in PAGERS {
         env.insert((*name).to_owned(), (*value).to_owned());
+    }
+    let editor = config.integration_dir.join(crate::integration::EDITOR_FILE);
+    let editor = editor.to_string_lossy();
+    for name in EDITORS {
+        env.insert((*name).to_owned(), editor.clone().into_owned());
     }
     env
 }

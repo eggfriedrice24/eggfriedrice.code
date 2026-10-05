@@ -191,9 +191,66 @@ async fn e2e_a_pager_from_the_users_zshrc_is_turned_off() {
     let Some(zsh) = Zsh::start("e2e_a_pager_from_the_users_zshrc_is_turned_off") else {
         return;
     };
-    std::fs::write(zsh.home().join(".zshrc"), "export PAGER=less GIT_PAGER=less\n").unwrap();
-    let result = zsh.run("print -r -- $PAGER $GIT_PAGER $SYSTEMD_PAGER $MANPAGER").await;
-    assert_eq!(result.output, "cat cat cat cat\n");
+    std::fs::write(
+        zsh.home().join(".zshrc"),
+        "export PAGER=less GIT_PAGER=less AWS_PAGER=less GH_PAGER=less BAT_PAGER=less\n",
+    )
+    .unwrap();
+    let result = zsh
+        .run("print -r -- $PAGER $GIT_PAGER $SYSTEMD_PAGER $MANPAGER \"[$AWS_PAGER]\" $GH_PAGER $BAT_PAGER")
+        .await;
+    assert_eq!(result.output, "cat cat cat cat [] cat cat\n");
+}
+
+#[tokio::test]
+async fn e2e_an_editor_from_the_users_zshrc_is_replaced_by_the_stub() {
+    let Some(zsh) = Zsh::start("e2e_an_editor_from_the_users_zshrc_is_replaced_by_the_stub") else {
+        return;
+    };
+    std::fs::write(
+        zsh.home().join(".zshrc"),
+        "export EDITOR=vim VISUAL=vim GIT_EDITOR=vim GIT_SEQUENCE_EDITOR=vim SUDO_EDITOR=vim \
+         SYSTEMD_EDITOR=vim\n",
+    )
+    .unwrap();
+    let result = zsh
+        .run(
+            "print -r -- $EDITOR $VISUAL $GIT_EDITOR $GIT_SEQUENCE_EDITOR $SUDO_EDITOR \
+             $SYSTEMD_EDITOR",
+        )
+        .await;
+    let stub = std::fs::canonicalize(zsh.start_dir().join("zsh")).unwrap().join("efr-editor");
+    let stub = stub.display();
+    assert_eq!(result.output, format!("{stub} {stub} {stub} {stub} {stub} {stub}\n"));
+}
+
+/// Without the stub, git would open vi on the hidden screen and wait for the run's
+/// timeout (or fail to find it); with it, the commit fails at once with a message
+/// that says how to go on.
+#[tokio::test]
+async fn e2e_git_commit_without_a_message_fails_at_once_and_says_why() {
+    let Some(zsh) = Zsh::start("e2e_git_commit_without_a_message_fails_at_once_and_says_why")
+    else {
+        return;
+    };
+    let repo = zsh.dir("repo");
+    let result = zsh
+        .run(&format!(
+            "cd '{}' && git init -q && git -c user.name=efr -c user.email=efr@example.invalid \
+             commit --allow-empty",
+            repo.display()
+        ))
+        .await;
+    assert_eq!(result.completion, Completion::Finished);
+    assert_eq!(result.exit_code, Some(1), "{}", result.output);
+    assert!(
+        result.output.contains(
+            "efr: there is no editor in the hidden shell; pass the text another way, such as \
+             git commit -m, a file, or ask the user to edit it\n"
+        ),
+        "{}",
+        result.output
+    );
 }
 
 #[tokio::test]

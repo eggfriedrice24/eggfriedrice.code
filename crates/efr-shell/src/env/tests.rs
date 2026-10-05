@@ -14,13 +14,13 @@ fn config(vars: &[(&str, &str)]) -> ShellConfig {
 #[test]
 fn the_users_variables_are_inherited() {
     let env = shell_env(
-        &config(&[("PATH", "/usr/bin"), ("HOME", "/home/u"), ("EDITOR", "nvim")]),
+        &config(&[("PATH", "/usr/bin"), ("HOME", "/home/u"), ("LANG", "C.UTF-8")]),
         Path::new("/home/u/p"),
         true,
     );
     assert_eq!(env["PATH"], "/usr/bin");
     assert_eq!(env["HOME"], "/home/u");
-    assert_eq!(env["EDITOR"], "nvim");
+    assert_eq!(env["LANG"], "C.UTF-8");
 }
 
 #[test]
@@ -45,15 +45,24 @@ fn daemon_and_terminal_variables_are_removed() {
     assert_eq!(
         names,
         [
+            "AWS_PAGER",
+            "BAT_PAGER",
             "COLORTERM",
+            "EDITOR",
             "EFR_HIDDEN_SHELL",
+            "GH_PAGER",
+            "GIT_EDITOR",
             "GIT_PAGER",
+            "GIT_SEQUENCE_EDITOR",
             "KEEP",
             "MANPAGER",
             "PAGER",
             "PWD",
+            "SUDO_EDITOR",
+            "SYSTEMD_EDITOR",
             "SYSTEMD_PAGER",
             "TERM",
+            "VISUAL",
             "ZDOTDIR"
         ],
         "{env:?}"
@@ -114,6 +123,30 @@ fn every_pager_is_cat_whatever_the_user_set() {
     assert_eq!(env["GIT_PAGER"], "cat");
     assert_eq!(env["SYSTEMD_PAGER"], "cat");
     assert_eq!(env["MANPAGER"], "cat");
+    assert_eq!(env["AWS_PAGER"], "");
+    assert_eq!(env["GH_PAGER"], "cat");
+    assert_eq!(env["BAT_PAGER"], "cat");
+}
+
+#[test]
+fn every_editor_is_the_stub_whatever_the_user_set() {
+    for integration in [true, false] {
+        let env = shell_env(
+            &config(&[("EDITOR", "nvim"), ("VISUAL", "code --wait"), ("GIT_EDITOR", "vim")]),
+            Path::new("/"),
+            integration,
+        );
+        for name in [
+            "EDITOR",
+            "VISUAL",
+            "GIT_EDITOR",
+            "GIT_SEQUENCE_EDITOR",
+            "SUDO_EDITOR",
+            "SYSTEMD_EDITOR",
+        ] {
+            assert_eq!(env[name], "/run/user/1000/efr/zsh/efr-editor", "{name}");
+        }
+    }
 }
 
 #[test]

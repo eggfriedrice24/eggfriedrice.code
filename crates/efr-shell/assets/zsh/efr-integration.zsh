@@ -35,6 +35,10 @@ builtin typeset -ga _efr_hs_trusted
 _efr_hs_trusted=(${(s: :)_EFR_HS_TRUSTED_PROGRAMS-})
 builtin unset _EFR_HS_TRUSTED_PROGRAMS
 
+# The editor stub that efr writes next to this file. %x names this file while it is
+# sourced, and nowhere later.
+builtin typeset -g _efr_hs_editor=${${(%):-%x}:A:h}/efr-editor
+
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
 builtin typeset -gi _efr_hs_state=0
 builtin typeset -g _efr_hs_pwd=
@@ -209,7 +213,12 @@ _efr_hs_init() {
   # No pager either: nobody reads one on the hidden screen, and a command that opens
   # less would wait until someone quit it. The daemon sets these already; they are
   # set again because the user's .zshrc often exports PAGER=less.
-  builtin export PAGER=cat GIT_PAGER=cat SYSTEMD_PAGER=cat MANPAGER=cat
+  builtin export PAGER=cat GIT_PAGER=cat SYSTEMD_PAGER=cat MANPAGER=cat AWS_PAGER= GH_PAGER=cat BAT_PAGER=cat
+
+  # No editor either, for the same reason: git commit without -m would open one and
+  # wait. The stub next to this file fails at once and says why. The daemon sets these
+  # already; a .zshrc often exports EDITOR=vim.
+  builtin export EDITOR=$_efr_hs_editor VISUAL=$_efr_hs_editor GIT_EDITOR=$_efr_hs_editor GIT_SEQUENCE_EDITOR=$_efr_hs_editor SUDO_EDITOR=$_efr_hs_editor SYSTEMD_EDITOR=$_efr_hs_editor
 
   # This hook already runs as a precmd hook, so the first prompt is marked from here.
   _efr_hs_precmd
