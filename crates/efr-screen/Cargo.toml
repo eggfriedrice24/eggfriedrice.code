@@ -14,7 +14,7 @@ doctest = false
 [features]
 # The backend conformance suite (`efr_screen::conformance`). Only test targets enable
 # it: this crate's own tests through the dev-dependency below, and the
-# tests/conformance.rs of each backend crate.
+# tests/it/conformance.rs of each backend crate.
 conformance = ["dep:insta", "dep:serde_json"]
 
 [dependencies]

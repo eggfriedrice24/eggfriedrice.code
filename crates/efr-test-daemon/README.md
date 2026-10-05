@@ -97,7 +97,7 @@ failures a fixture can show (a different event, typed line or request, an unboun
 placeholder). Rewriting the fixtures is an ignored test that `just bless` runs:
 
 ```sh
-cargo nextest run -p efr-test-daemon --test bless --run-ignored only
+cargo nextest run -p efr-test-daemon --test it --run-ignored only -E 'test(/^bless::/)'
 ```
 
 The scenario tests themselves run with `efr-daemon`:

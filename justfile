@@ -159,7 +159,7 @@ bless:
     cargo insta accept
     cargo xtask fixtures --bless
     # The scenario fixtures of efr-test-daemon: outbound records only; review the diff.
-    cargo nextest run -p efr-test-daemon --test bless --run-ignored only
+    cargo nextest run -p efr-test-daemon --test it --run-ignored only -E 'test(/^bless::/)'
 
 # Build the docs with warnings denied, then open them.
 doc:

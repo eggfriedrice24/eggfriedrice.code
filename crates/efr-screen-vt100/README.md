@@ -99,7 +99,7 @@ the screen (scrollback paging, the one-row view, the panic guard, the cursor at 
 pending wrap). A proptest feeds random escape fragments between random resizes (sizes
 0 to 6) and snapshots, and checks that nothing panics out of the screen.
 
-`tests/conformance.rs` runs `efr_screen::conformance::run("vt100", factory)` over
+`tests/it/conformance.rs` runs `efr_screen::conformance::run("vt100", factory)` over
 every fixture in `crates/efr-screen/fixtures/`. Its rendered screens are the
 `*__vt100.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`; they match the
 fake backend's except for the replies vt100 does not give. Nothing here needs Zig,

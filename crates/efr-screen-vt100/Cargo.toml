@@ -17,7 +17,7 @@ tracing.workspace = true
 vt100.workspace = true
 
 [dev-dependencies]
-# tests/conformance.rs runs the suite behind efr-screen's conformance feature, which only
+# tests/it/conformance.rs runs the suite behind efr-screen's conformance feature, which only
 # test builds turn on.
 efr-screen = { workspace = true, features = ["conformance"] }
 pretty_assertions.workspace = true

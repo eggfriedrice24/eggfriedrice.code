@@ -149,7 +149,7 @@ scanner has unit tests per file and a proptest that checks that any split of a b
 stream yields the same marks. The conformance suite runs against the fake screen
 through a dev-dependency of the crate on itself with the `conformance` feature.
 
-A backend crate runs the suite from `tests/conformance.rs`:
+A backend crate runs the suite from `tests/it/conformance.rs`:
 
 ```rust
 #[test]

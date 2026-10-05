@@ -1,10 +1,6 @@
 //! `just bless` for the scenario fixtures: every outbound record of every scenario is
 //! rewritten with what the daemon actually sends. Review the diff before committing.
 
-// NOTE: an integration test crate is always built with cfg(test); saying so lets
-// clippy treat its helpers as test code, as it does for unit tests.
-#![cfg(test)]
-
 use efr_test_daemon::{Replay, SCENARIOS, Scenario};
 
 #[tokio::test]

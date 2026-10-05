@@ -12,7 +12,7 @@
 //! backend in `differs`.
 //!
 //! The suite is a test harness: it panics with a report of every failure, so a
-//! backend's `tests/conformance.rs` is one call. A screen that blocks forever shows up
+//! backend's `tests/it/conformance.rs` is one call. A screen that blocks forever shows up
 //! as a hang that nextest's slow-timeout ends, never as a sleep in the suite.
 
 mod cases;

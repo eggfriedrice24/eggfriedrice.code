@@ -78,7 +78,7 @@ or `just test-ghostty`. Unit tests drive libghostty-vt directly: the effect buff
 the wire conversion of cells (styles, wide characters, grapheme clusters, erased
 backgrounds), scrollback, GHOSTSNP round trips (including a snapshot cut inside an
 escape sequence), the factories on a real `ScreenActor`, and the cross-check with
-agreeing streams and with states libghostty-vt did not reach. `tests/conformance.rs`
+agreeing streams and with states libghostty-vt did not reach. `tests/it/conformance.rs`
 runs the efr-screen conformance suite with the `ghostty` backend name; its rendered
 screens are the `*__ghostty.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`.
 
