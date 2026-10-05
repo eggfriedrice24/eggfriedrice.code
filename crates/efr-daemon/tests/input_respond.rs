@@ -1,8 +1,9 @@
 //! Answering a command that waits for input, over a `TestDaemon` with a real zsh and
 //! the local Responses server as the model: a password typed through `input.respond`
-//! reaches the program and nothing else, and a password prompt that no client can
-//! answer is stopped at once. Both tests drive a real zsh and skip with a message
-//! unless `EFR_TEST_ZSH=1`.
+//! reaches the program and nothing else, a password prompt that no client can answer is
+//! stopped at once, also when the last client that could answer leaves while it waits,
+//! and one of two such clients leaving stops nothing. Every test drives a real zsh and
+//! skips with a message unless `EFR_TEST_ZSH=1`.
 
 // NOTE: an integration test crate is always built with cfg(test); saying so lets
 // clippy treat its helpers as test code, as it does for unit tests.
@@ -91,9 +92,27 @@ async fn subscribe(
     conversation_id: ConversationId,
     answers_input: bool,
 ) -> ItemStream<ConversationSubscribeItem> {
-    let params =
-        ConversationSubscribe { conversation_id, after_seq: Some(Seq::ZERO), answers_input };
+    subscribe_after(client, conversation_id, Seq::ZERO, answers_input).await
+}
+
+/// Subscribes `client` to the events of the conversation after `after`.
+async fn subscribe_after(
+    client: &Client,
+    conversation_id: ConversationId,
+    after: Seq,
+    answers_input: bool,
+) -> ItemStream<ConversationSubscribeItem> {
+    let params = ConversationSubscribe { conversation_id, after_seq: Some(after), answers_input };
     client.stream(Method::ConversationSubscribe(params)).await.unwrap()
+}
+
+/// The events of one subscription item.
+fn envelopes(item: ConversationSubscribeItem) -> Vec<EventEnvelope> {
+    match item {
+        ConversationSubscribeItem::Event(envelope) => vec![envelope],
+        ConversationSubscribeItem::Snapshot(snapshot) => snapshot.events,
+        other => panic!("{other:?}"),
+    }
 }
 
 /// The events of `stream` up to the first that `stop` accepts. Whenever none comes for
@@ -111,12 +130,7 @@ async fn events_while_time_passes(
         tokio::select! {
             biased;
             item = stream.next() => {
-                let events = match item.unwrap().unwrap() {
-                    ConversationSubscribeItem::Event(envelope) => vec![envelope],
-                    ConversationSubscribeItem::Snapshot(snapshot) => snapshot.events,
-                    other => panic!("{other:?}"),
-                };
-                for envelope in events {
+                for envelope in envelopes(item.unwrap().unwrap()) {
                     let done = stop(&envelope.event);
                     seen.push(envelope);
                     if done {
@@ -130,6 +144,61 @@ async fn events_while_time_passes(
                 moved += 1;
             }
         }
+    }
+}
+
+/// The events of `stream` while the daemon's clock moves `seconds` seconds, one second
+/// each time nothing comes for a while.
+async fn events_for_seconds(
+    daemon: &TestDaemon,
+    stream: &mut ItemStream<ConversationSubscribeItem>,
+    seconds: u32,
+) -> Vec<EventEnvelope> {
+    let mut seen = Vec::new();
+    let mut moved = 0;
+    loop {
+        tokio::select! {
+            biased;
+            item = stream.next() => seen.extend(envelopes(item.unwrap().unwrap())),
+            () = idle() => {
+                if moved == seconds {
+                    return seen;
+                }
+                daemon.clock().advance(Duration::from_secs(1));
+                moved += 1;
+            }
+        }
+    }
+}
+
+/// The input waits that `events` report, in order.
+fn input_waits(events: &[EventEnvelope]) -> Vec<InputWait> {
+    events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::ToolCallInputChanged { input, .. } => Some(*input),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Lets time pass until the run reports that the program waits for hidden input;
+/// returns the call and the sequence number of that event.
+async fn until_hidden(
+    daemon: &TestDaemon,
+    stream: &mut ItemStream<ConversationSubscribeItem>,
+) -> (CallId, Seq) {
+    let seen = events_while_time_passes(daemon, stream, 10, |event| {
+        matches!(event, Event::ToolCallInputChanged { .. } | Event::ToolCallCompleted { .. })
+    })
+    .await;
+    match seen.last() {
+        Some(EventEnvelope {
+            seq,
+            event: Event::ToolCallInputChanged { call_id, input: InputWait::Hidden, .. },
+            ..
+        }) => (*call_id, *seq),
+        other => panic!("{other:?}"),
     }
 }
 
@@ -330,6 +399,107 @@ async fn shell_a_password_prompt_that_no_client_can_answer_is_stopped_at_once() 
     let requests = server.received();
     assert_eq!(requests.len(), 2);
     assert!(requests[1].body.to_string().contains("efr interrupted it"));
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_a_hidden_wait_stops_promptly_when_the_only_client_that_can_answer_leaves() {
+    if !zsh_enabled(
+        "shell_a_hidden_wait_stops_promptly_when_the_only_client_that_can_answer_leaves",
+    ) {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    let daemon = daemon(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, mut stream) =
+        prompt_until_the_password_prompt(&daemon, &client, true).await;
+    let (_, hidden_at) = until_hidden(&daemon, &mut stream).await;
+
+    // The one subscription that could answer ends; the client watches on without it.
+    drop(stream);
+    let left = daemon.clock().now();
+    let mut watching = subscribe_after(&client, conversation_id, hidden_at, false).await;
+    let mut seen = events_while_time_passes(&daemon, &mut watching, 10, |event| {
+        matches!(event, Event::ToolCallCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await;
+    // The call's timeout is ten minutes; the stop comes at one of the next looks.
+    let waited = daemon.clock().now().duration_since(left);
+    assert!(waited.as_secs() <= 3, "{waited:?}");
+    seen.extend(
+        events_until(&mut watching, |event| {
+            matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+        })
+        .await
+        .unwrap(),
+    );
+    let completed = seen.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, is_error, exit_code, .. } => {
+            Some((output.clone(), *is_error, *exit_code))
+        }
+        _ => None,
+    });
+    let (output, is_error, exit_code) = completed.unwrap();
+    assert!(is_error);
+    assert_eq!(exit_code, None);
+    assert!(output.contains("no user could answer it at a terminal"), "{output}");
+    assert_eq!(input_waits(&seen), [InputWait::None]);
+    drop((watching, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_a_hidden_wait_goes_on_when_one_of_two_clients_that_can_answer_leaves() {
+    if !zsh_enabled("shell_a_hidden_wait_goes_on_when_one_of_two_clients_that_can_answer_leaves") {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    let daemon = daemon(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, mut stream) =
+        prompt_until_the_password_prompt(&daemon, &client, true).await;
+    let (call_id, hidden_at) = until_hidden(&daemon, &mut stream).await;
+
+    // A second client that can answer, on a connection of its own, comes and goes. Its
+    // first item, the wait replayed, shows that the daemon counts it.
+    let other = daemon.client_for_tty(TTY).await.unwrap();
+    let before = Seq::new(hidden_at.get() - 1);
+    let mut second = subscribe_after(&other, conversation_id, before, true).await;
+    let replayed = envelopes(second.next().await.unwrap().unwrap());
+    assert!(replayed.iter().any(|envelope| envelope.seq == hidden_at), "{replayed:#?}");
+    drop((second, other));
+    let seen = events_for_seconds(&daemon, &mut stream, 5).await;
+    assert!(
+        !seen.iter().any(|envelope| matches!(envelope.event, Event::ToolCallCompleted { .. })),
+        "{seen:#?}"
+    );
+    assert_eq!(input_waits(&seen), Vec::<InputWait>::new(), "the program still waits");
+
+    // The client that stayed answers, and the program reads the password.
+    let answer = Method::InputRespond(InputRespond {
+        conversation_id,
+        call_id,
+        text: SecretText::new(SECRET),
+        hidden: true,
+    });
+    let _: InputRespondResult = client.call(answer).await.unwrap();
+    let rest = events_until(&mut stream, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    let completed = rest.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, is_error, exit_code, .. } => {
+            Some((output.clone(), *is_error, *exit_code))
+        }
+        _ => None,
+    });
+    let (output, is_error, exit_code) = completed.unwrap();
+    assert!(!is_error, "{output}");
+    assert_eq!(exit_code, Some(0));
+    assert!(output.contains(&format!("len={}", SECRET.len())), "{output}");
     drop((stream, client));
     daemon.stop().await.unwrap();
 }
