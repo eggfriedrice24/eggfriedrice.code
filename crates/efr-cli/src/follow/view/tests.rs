@@ -167,6 +167,55 @@ fn an_approval_asks_below_the_live_zone_when_keys_can_be_read() {
     assert_eq!(step, Step::default());
 }
 
+/// The end of the call of [`tool_started`] that never ran.
+fn refused_call_completed() -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "Error: The user denied the shell call; it did not run.".to_owned(),
+        truncated: false,
+        is_error: true,
+        exit_code: None,
+    }
+}
+
+#[test]
+fn a_denied_call_is_not_reported_as_failed_too() {
+    let mut view = terminal_view();
+    view.event(&tool_started("touch note.txt"), SIZE, true);
+    view.event(&approval(None), SIZE, true);
+    view.answered(call(), ApprovalDecision::Deny, SIZE);
+    assert_eq!(view.event(&refused_call_completed(), SIZE, true), Step::default());
+
+    let mut view = terminal_view();
+    view.event(&tool_started("touch note.txt"), SIZE, false);
+    view.event(&approval(None), SIZE, false);
+    let denied = Event::ApprovalResolved {
+        turn_id: turn(),
+        call_id: call(),
+        decision: ApprovalDecision::Deny,
+        origin: Origin::Phone,
+    };
+    assert!(readable(&view.event(&denied, SIZE, false).out).contains("denied from the phone"));
+    assert_eq!(view.event(&refused_call_completed(), SIZE, false), Step::default());
+
+    let mut view = terminal_view();
+    view.event(&tool_started("touch note.txt"), SIZE, true);
+    view.event(&approval(None), SIZE, true);
+    view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true);
+    assert_eq!(view.event(&refused_call_completed(), SIZE, true), Step::default());
+}
+
+#[test]
+fn an_allowed_call_that_fails_is_still_reported() {
+    let mut view = terminal_view();
+    view.event(&tool_started("touch /root/x"), SIZE, true);
+    view.event(&approval(None), SIZE, true);
+    view.answered(call(), ApprovalDecision::Allow, SIZE);
+    let step = view.event(&refused_call_completed(), SIZE, true);
+    assert!(readable(&step.out).contains("shell failed"), "{}", readable(&step.out));
+}
+
 #[test]
 fn without_keys_an_approval_waits_for_another_client() {
     let mut view = terminal_view();

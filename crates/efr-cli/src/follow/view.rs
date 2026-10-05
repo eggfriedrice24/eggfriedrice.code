@@ -94,6 +94,9 @@ pub(crate) struct TurnView {
     queued: bool,
     /// The other turn's approvals shown while this one waited.
     blocking: HashSet<CallId>,
+    /// Calls whose approval was denied or expired: a note said so already, so their
+    /// failed end needs no second one.
+    refused: HashSet<CallId>,
 }
 
 impl TurnView {
@@ -112,6 +115,7 @@ impl TurnView {
             answered: None,
             queued: false,
             blocking: HashSet::new(),
+            refused: HashSet::new(),
         }
     }
 
@@ -158,6 +162,9 @@ impl TurnView {
                 // message before it is complete.
                 let before = self.finish_message();
                 self.note_after(before, &format::tool_call(tool, input), size)
+            }
+            Event::ToolCallCompleted { call_id, .. } if self.refused.contains(call_id) => {
+                Step::default()
             }
             Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
@@ -222,6 +229,9 @@ impl TurnView {
         origin: Origin,
         size: Size,
     ) -> Step {
+        if decision == ApprovalDecision::Deny {
+            self.refused.insert(call_id);
+        }
         if self.answered == Some(call_id) {
             return Step::default();
         }
@@ -231,6 +241,7 @@ impl TurnView {
     }
 
     fn expired(&mut self, call_id: CallId, size: Size) -> Step {
+        self.refused.insert(call_id);
         let settled = self.settle(call_id);
         Step { settled, ..self.note("the approval expired", size) }
     }
@@ -261,6 +272,9 @@ impl TurnView {
     ) -> Step {
         self.asking = None;
         self.answered = Some(call_id);
+        if decision == ApprovalDecision::Deny {
+            self.refused.insert(call_id);
+        }
         self.note(format::decision(decision), size)
     }
 
