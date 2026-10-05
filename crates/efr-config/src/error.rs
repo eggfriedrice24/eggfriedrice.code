@@ -218,23 +218,14 @@ impl ConfigError {
     /// The error as `admin.status` and `admin.config_reload` report it: the message
     /// with its causes on one line, the place and the key.
     pub fn file_error(&self) -> ConfigFileError {
-        let mut message = self.to_string();
-        match self {
+        let message = match self {
             // NOTE: the parser's Display quotes the file with a caret under the error;
             // the place is in `line` and `column`, so only its message is kept.
             ConfigError::Parse { source, .. } | ConfigError::ParseRule { source, .. } => {
-                message.push_str(": ");
-                message.push_str(source.message());
+                format!("{self}: {}", source.message())
             }
-            _ => {
-                let mut source = std::error::Error::source(self);
-                while let Some(cause) = source {
-                    message.push_str(": ");
-                    message.push_str(&cause.to_string());
-                    source = cause.source();
-                }
-            }
-        }
+            _ => efr_stdx::with_causes(self),
+        };
         let location = self.location();
         ConfigFileError {
             message: message.split_whitespace().collect::<Vec<_>>().join(" "),

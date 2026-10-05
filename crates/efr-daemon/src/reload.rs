@@ -283,13 +283,7 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
 
 /// `error` as the wire error of a refused file, belonging to `key` when one is known.
 fn refused(error: &DaemonError, key: Option<&str>) -> ConfigFileError {
-    let mut message = error.to_string();
-    let mut source = std::error::Error::source(error);
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
-    }
+    let message = efr_stdx::with_causes(error);
     ConfigFileError {
         message: message.split_whitespace().collect::<Vec<_>>().join(" "),
         line: None,

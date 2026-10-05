@@ -121,16 +121,7 @@ fn reason(error: &ConfigError) -> String {
         ConfigError::Invalid { key, value, expected, .. } => {
             format!("{key} = {value} is not {expected}")
         }
-        other => {
-            let mut text = other.to_string();
-            let mut source = std::error::Error::source(other);
-            while let Some(cause) = source {
-                text.push_str(": ");
-                text.push_str(&cause.to_string());
-                source = cause.source();
-            }
-            text
-        }
+        other => efr_stdx::with_causes(other),
     }
 }
 

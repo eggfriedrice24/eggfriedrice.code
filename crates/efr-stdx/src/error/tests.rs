@@ -38,3 +38,13 @@ fn error_can_cross_tasks_and_threads() {
     fn assert_send_sync<T: Send + Sync + 'static>() {}
     assert_send_sync::<StdxError>();
 }
+
+#[test]
+fn with_causes_joins_the_error_and_each_source() {
+    let err = StdxError::WriteFile {
+        path: PathBuf::from("/d/secrets/openai.json"),
+        source: io::Error::other("no space left"),
+    };
+    assert_eq!(crate::with_causes(&err), "could not write /d/secrets/openai.json: no space left");
+    assert_eq!(crate::with_causes(&io::Error::other("alone")), "alone");
+}

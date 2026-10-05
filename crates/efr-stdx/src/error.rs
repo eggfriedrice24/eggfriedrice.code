@@ -164,5 +164,19 @@ pub enum StdxError {
     },
 }
 
+/// `error` and each of its sources, joined by `: `, as one text. An error's own
+/// `Display` names only what failed, so a log line or a message for the user adds the
+/// causes with this.
+pub fn with_causes(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests;

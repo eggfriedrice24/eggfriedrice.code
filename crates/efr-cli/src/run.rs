@@ -1,7 +1,6 @@
 //! Runs one parsed command line: gathers the context, dispatches to the command, and
 //! turns the outcome into an exit code and, on failure, a message on stderr.
 
-use std::error::Error as _;
 use std::fmt::Write as _;
 
 use crate::cli::{Cli, Command};
@@ -57,12 +56,7 @@ fn report(error: &CliError, out: &mut Output) -> Exit {
 /// `efr: ` and the error with its sources on one line, then the hint on a line of its
 /// own when there is one.
 pub(crate) fn message(error: &CliError) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        let _ = write!(text, ": {cause}");
-        source = cause.source();
-    }
+    let text = efr_stdx::with_causes(error);
     let mut out = format!("efr: {}\n", format::one_line(&text));
     if let Some(hint) = error.hint() {
         let _ = writeln!(out, "efr: {hint}");

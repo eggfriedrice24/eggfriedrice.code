@@ -27,4 +27,4 @@ pub mod rng;
 pub mod thread;
 pub mod time;
 
-pub use error::StdxError;
+pub use error::{StdxError, with_causes};

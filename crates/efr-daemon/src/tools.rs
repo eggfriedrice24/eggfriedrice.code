@@ -17,8 +17,6 @@
 //! while nobody who can type it follows the turn is stopped at once instead of waiting
 //! for its timeout.
 
-use std::error::Error;
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -266,13 +264,7 @@ pub(crate) fn outcome(result: ToolResult) -> ToolOutcome {
 /// A tool error with its causes, for the model: the reason a file could not be read
 /// is what lets it choose another way.
 pub(crate) fn for_model(error: &ToolError) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        let _ = write!(text, ": {cause}");
-        source = cause.source();
-    }
-    text
+    efr_stdx::with_causes(error)
 }
 
 /// The write journal until the store keeps one: each original is logged by path and
