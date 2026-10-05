@@ -7,7 +7,16 @@
 #   ,! <text>      steer the running turn instead of queueing
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
-#                  commands above); the prompt starts with `efr> ` while it is on
+#                  commands above); `efr> ` stands before the typed text while it
+#                  is on (shown with PREDISPLAY, so the prompt itself never changes)
+#
+# A prompt is never parsed as shell syntax, and the line stays exactly as typed on the
+# screen and in history. The accept-line widget saves the prompt text, and `,`,
+# `,new` and `,!` are aliases whose expansion ends in a comment marker, so zsh reads
+# the rest of the line as a comment; the commands then take the saved text. The two
+# options this needs (interactive_comments on, bang_hist off) hold for that one line
+# only. A prompt that spans several lines falls back to a quoted rewrite, because a
+# comment ends at the first newline.
 #
 # The plugin only observes and relays. The daemon derives git root, scope and
 # permissions, so nothing here runs git or forks per prompt.
@@ -36,8 +45,20 @@ typeset -g _efr_last_command _efr_last_command_status _efr_running
 # 1 after a bare `,new`: the next `,` line starts a new conversation. A conversation
 # exists only once it has a prompt, so a bare `,new` can only remember the wish.
 typeset -gi _efr_new_pending
-# Override before sourcing to change how sticky mode shows in the prompt.
-: ${EFR_STICKY_INDICATOR:='%F{magenta}efr>%f '}
+# The prompt text the accept-line widget saved for the command of the line that runs
+# now, and 1 while it is waiting there.
+typeset -g _efr_stash
+typeset -gi _efr_stash_set
+# The user's own interactive_comments and bang_hist ("on" or "off") while a plugin
+# line runs with its own settings, or empty.
+typeset -ga _efr_saved_options
+# Override before sourcing to change how sticky mode shows before the typed text:
+# plain text, and a region_highlight style for it.
+: ${EFR_STICKY_INDICATOR:='efr> '}
+: ${EFR_STICKY_STYLE:='fg=magenta'}
+# The indicator that versions before PREDISPLAY put in front of PROMPT, removed once
+# when such a shell sources this version.
+typeset -g _efr_old_prompt_indicator='%F{magenta}efr>%f '
 
 # --- helpers ----------------------------------------------------------------------
 
@@ -137,14 +158,42 @@ _efr_call() {
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text efr "$@"
 }
 
+# Sets REPLY to the prompt text of a plugin command called with the arguments "$@".
+# After a typed line it is the text the accept-line widget saved, exactly as typed;
+# the arguments are then only the comment marker that ended the alias. Called another
+# way (from a script, or with aliases off), the words are the prompt, and a leading
+# `#` left by the alias with interactive_comments off is dropped.
+_efr_prompt_text() {
+  emulate -L zsh
+  if (( _efr_stash_set )); then
+    REPLY=$_efr_stash
+    _efr_stash=''
+    _efr_stash_set=0
+    return 0
+  fi
+  [[ $1 == '#' ]] && shift
+  REPLY=${(j: :)@}
+}
+
+# Gives interactive_comments and bang_hist back their values from before a plugin
+# line. Runs from preexec, once the line is parsed, and from precmd as a backstop.
+_efr_restore_options() {
+  (( ${#_efr_saved_options} == 2 )) || return 0
+  if [[ $_efr_saved_options[1] == on ]]; then setopt interactive_comments; else unsetopt interactive_comments; fi
+  if [[ $_efr_saved_options[2] == on ]]; then setopt bang_hist; else unsetopt bang_hist; fi
+  _efr_saved_options=()
+}
+
 # --- commands ---------------------------------------------------------------------
 
 function , {
   # Must be first: any other command would overwrite the status being reported.
   local last_status=$?
   emulate -L zsh
+  _efr_prompt_text "$@"
+  local text=$REPLY
   _efr_available || { _efr_missing; return 127 }
-  if (( $# == 0 )); then
+  if [[ -z ${text//[[:space:]]/} ]]; then
     print -u2 -- "usage: , <prompt>   (a line of just , or Ctrl+Space toggles sticky agent mode)"
     return 2
   fi
@@ -154,17 +203,19 @@ function , {
   _efr_context_json $last_status
   local context=$REPLY
   if (( _efr_new_pending )); then
-    _efr_new "$context" "$@"
+    _efr_new "$context" "$text"
   else
-    _efr_call "$context" "$_efr_last_command" "${(j: :)@}" send
+    _efr_call "$context" "$_efr_last_command" "$text" send
   fi
 }
 
 function ,new {
   local last_status=$?
   emulate -L zsh
+  _efr_prompt_text "$@"
+  local text=$REPLY
   _efr_available || { _efr_missing; return 127 }
-  if [[ -z ${*//[[:space:]]/} ]]; then
+  if [[ -z ${text//[[:space:]]/} ]]; then
     _efr_new_pending=1
     print -u2 -- "efr: the next , line starts a new conversation"
     return 0
@@ -172,7 +223,7 @@ function ,new {
   [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status
   _efr_context_json $last_status
   local context=$REPLY
-  _efr_new "$context" "$@"
+  _efr_new "$context" "$text"
 }
 
 # Runs `efr new` with the context $1 and the prompt words after it. A pending bare
@@ -192,35 +243,44 @@ _efr_new() {
 function ,! {
   local last_status=$?
   emulate -L zsh
+  _efr_prompt_text "$@"
+  local text=$REPLY
   _efr_available || { _efr_missing; return 127 }
-  if (( $# == 0 )); then
+  if [[ -z ${text//[[:space:]]/} ]]; then
     print -u2 -- "usage: ,! <text>   (steers the running turn)"
     return 2
   fi
   _efr_context_json $last_status
-  _efr_call "$REPLY" '' "${(j: :)@}" send --steer
+  _efr_call "$REPLY" '' "$text" send --steer
 }
 
 # --- sticky agent mode ------------------------------------------------------------
 
-# Themes that rebuild PROMPT on every precmd would drop the indicator, so it is
-# reapplied from precmd as well as on toggle.
-_efr_apply_indicator() {
+# Shows the indicator before the typed text while sticky mode is on. PREDISPLAY is not
+# part of the buffer and leaves PROMPT alone, so it works with any prompt theme,
+# including one whose prompt starts with a newline. Runs from the line-init hook and
+# on every toggle.
+_efr_show_indicator() {
+  local style="P0 ${#EFR_STICKY_INDICATOR} $EFR_STICKY_STYLE"
+  region_highlight=(${region_highlight:#$style})
   if (( _efr_sticky )); then
-    [[ $PROMPT == "$EFR_STICKY_INDICATOR"* ]] || PROMPT="$EFR_STICKY_INDICATOR$PROMPT"
-  elif [[ $PROMPT == "$EFR_STICKY_INDICATOR"* ]]; then
-    PROMPT=${PROMPT#"$EFR_STICKY_INDICATOR"}
+    PREDISPLAY=$EFR_STICKY_INDICATOR
+    region_highlight+=($style)
+  else
+    PREDISPLAY=''
   fi
 }
 
+_efr_line_init() {
+  _efr_show_indicator
+}
+
 # Turns sticky agent mode on (1) or off (0); turning it on fails while efr is missing.
-# Called only from widgets and never under emulate: reset-prompt expands the prompt
-# at once, with the options in effect, and a theme may need the user's prompt_subst.
 _efr_set_sticky() {
   (( $1 )) && ! _efr_available && return 1
   _efr_sticky=$1
-  _efr_apply_indicator
-  zle reset-prompt
+  _efr_show_indicator
+  zle -R
 }
 
 _efr_toggle_sticky() {
@@ -237,26 +297,41 @@ _efr_is_toggle_line() {
 
 # Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a
 # line goes to the agent unless it starts with `,` (one of the plugin's commands) or
-# `!` (an escape hatch for one shell command), or is empty.
+# `!` (an escape hatch for one shell command), or is empty; it gets `, ` in front, and
+# nothing else changes. Outside sticky mode every line runs as typed.
 _efr_line_to_run() {
   emulate -L zsh -o extended_glob
   local line=$1
   if (( ! _efr_sticky )) || [[ $line == [[:space:]]#,* ]]; then
-    _efr_rewrite_line "$line"
+    REPLY=$line
   elif [[ $line == '!'* ]]; then
     REPLY=${line#!}
   elif [[ -z ${line//[[:space:]]/} ]]; then
     REPLY=$line
   else
-    # Through the rewrite, so the prompt is quoted the same way as after a typed `,`.
-    _efr_rewrite_line ", $line"
+    REPLY=", $line"
   fi
 }
 
+# For a one-line plugin line $1 (`,`, `,new` or `,!` followed by a prompt): saves the
+# prompt for the command and the user's two options for _efr_restore_options, and
+# returns 0. The caller then sets the options, because an emulate here would undo
+# them. Any other line returns 1 and changes nothing.
+_efr_stash_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == *$'\n'* ]] && return 1
+  [[ $1 == (#b)[[:space:]]#(,new|,!|,)[[:space:]]##(*) ]] || return 1
+  local rest=${match[2]%%[[:space:]]##}
+  [[ -n $rest ]] || return 1
+  _efr_stash=$rest
+  _efr_stash_set=1
+  _efr_saved_options=($options[interactivecomments] $options[banghist])
+  return 0
+}
+
 # Wraps whatever accept-line was before (another plugin's widget or the builtin),
-# so loading order with other plugins keeps working. Lines are rewritten rather than
-# sent to efr directly, so each lands in history as the command that actually ran.
-# The wrapped widget runs outside any emulate, with the user's own options.
+# so loading order with other plugins keeps working. The wrapped widget runs outside
+# any emulate, with the user's own options.
 _efr_accept_line() {
   # A line of just `,` toggles sticky agent mode, as Ctrl+Space does: nothing runs and
   # nothing lands in history. Without efr it runs, and `,` says what is missing.
@@ -265,7 +340,21 @@ _efr_accept_line() {
     return 0
   fi
   _efr_line_to_run "$BUFFER"
-  BUFFER=$REPLY
+  [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
+  if _efr_stash_line "$BUFFER"; then
+    # The line stays as typed. The alias ends in `#`, which starts a comment only with
+    # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.
+    setopt interactive_comments
+    unsetopt bang_hist
+  elif _efr_is_plugin_line "$BUFFER"; then
+    # A prompt over several lines, or a bare `,new`: a comment would end at the first
+    # newline and leave the next lines to run as commands, so the prompt is quoted as
+    # one word instead, and the alias's `#` must stay a plain word for this line.
+    _efr_rewrite_line "$BUFFER"
+    BUFFER=$REPLY
+    _efr_saved_options=($options[interactivecomments] $options[banghist])
+    unsetopt interactive_comments
+  fi
   zle _efr_orig_accept_line
 }
 
@@ -289,9 +378,11 @@ _efr_print_notices() {
 
 # --- last command -----------------------------------------------------------------
 
-# preexec gets the line as typed, just before it runs.
+# preexec gets the line as typed, just before it runs. The line is parsed by then, so
+# a plugin line's own options can go.
 _efr_preexec() {
   _efr_running=$1
+  _efr_restore_options
 }
 
 # Keeps the line that just finished, with its status, unless it ran a plugin command.
@@ -306,8 +397,12 @@ _efr_remember_command() {
 _efr_precmd() {
   # Must be first: the status of the line that just finished.
   local exit_status=$?
+  _efr_restore_options
+  # A saved prompt that no command took (the line failed before it ran) must not
+  # leak into the next one.
+  _efr_stash=''
+  _efr_stash_set=0
   _efr_remember_command $exit_status
-  _efr_apply_indicator
   _efr_print_notices
 }
 
@@ -339,6 +434,14 @@ case ${widgets[_efr_orig_accept_line]-} in
 esac
 zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget line-init _efr_line_init
+# Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
+# not expand an alias again inside its own expansion, so `,` reaches the function.
+alias ,=', #' ,new=',new #'
+alias ',!=,! #'
+# A shell that ran a version before PREDISPLAY still has its indicator in PROMPT.
+[[ $PROMPT == "$_efr_old_prompt_indicator"* ]] && PROMPT=${PROMPT#"$_efr_old_prompt_indicator"}
 # Ctrl+Space sends NUL (^@) in common terminals.
 bindkey -M emacs '^@' _efr_toggle_sticky
 bindkey -M viins '^@' _efr_toggle_sticky
