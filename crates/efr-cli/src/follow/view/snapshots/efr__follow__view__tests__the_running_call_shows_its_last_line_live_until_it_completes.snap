@@ -1,0 +1,16 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: shown
+---
+\e[?2026h\e[2mshell: sudo pacman -Syu\e[0m
+\e[?2026l
+---
+\e[?2026h\e[2mcore is up to date\e[0m
+\e[?2026l
+---
+
+---
+\e[?2026h\r\e[1A\e[J\e[2mパッケージを取得しています。お待ちくだ…\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[J\e[?2026l

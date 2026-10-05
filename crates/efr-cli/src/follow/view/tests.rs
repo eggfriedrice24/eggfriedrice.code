@@ -5,7 +5,7 @@ use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{Step, TurnEnd, TurnView};
+use super::{Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
 use crate::testing::{call, readable, turn};
 
@@ -391,4 +391,89 @@ fn an_approval_completes_the_message_before_it() {
     let (out, err, _) = feed(&mut view, &[updated(0, "I will edit it."), approval(None)], false);
     assert_eq!(out, "I will edit it.\n");
     assert!(err.starts_with("approval needed: write ~/.zshrc\n"), "{err}");
+}
+
+fn output(tail: &str) -> Event {
+    Event::ToolCallOutputUpdated {
+        turn_id: turn(),
+        call_id: call(),
+        tail: tail.to_owned(),
+        bytes: tail.len() as u64,
+    }
+}
+
+fn call_completed(exit_code: i32) -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "...".to_owned(),
+        truncated: false,
+        is_error: false,
+        exit_code: Some(exit_code),
+    }
+}
+
+/// Feeds events to a terminal view and joins the bytes of each write.
+fn writes(view: &mut TurnView, events: &[Event], can_ask: bool) -> String {
+    let writes: Vec<String> =
+        events.iter().map(|event| readable(&view.event(event, SIZE, can_ask).out)).collect();
+    writes.join("\n---\n")
+}
+
+#[test]
+fn the_last_line_with_text_is_the_tail() {
+    assert_eq!(last_line("one\ntwo\n\n  \n"), "two");
+    assert_eq!(last_line("Proceed? [Y/n] "), "Proceed? [Y/n]");
+    assert_eq!(last_line("\n \n"), "");
+    assert_eq!(last_line(""), "");
+}
+
+#[test]
+fn the_running_call_shows_its_last_line_live_until_it_completes() {
+    let mut view = terminal_view();
+    let shown = writes(
+        &mut view,
+        &[
+            tool_started("sudo pacman -Syu"),
+            output(":: Synchronizing package databases...\n core is up to date\n"),
+            // A blank last line keeps the line before it, so nothing is redrawn.
+            output(":: Synchronizing package databases...\n core is up to date\n\n"),
+            // Two columns a character: cut at the width with an ellipsis.
+            output(
+                "\u{30d1}\u{30c3}\u{30b1}\u{30fc}\u{30b8}\u{3092}\u{53d6}\u{5f97}\u{3057}\u{3066}\u{3044}\u{307e}\u{3059}\u{3002}\u{304a}\u{5f85}\u{3061}\u{304f}\u{3060}\u{3055}\u{3044}\n",
+            ),
+            call_completed(0),
+        ],
+        false,
+    );
+    insta::assert_snapshot!(shown);
+}
+
+#[test]
+fn a_wide_tail_takes_one_row_at_most() {
+    let mut view = terminal_view();
+    view.event(&tool_started("make"), SIZE, false);
+    let line = "\u{6f22}".repeat(30);
+    let out = view.event(&output(&line), SIZE, false).out;
+    assert!(!out.contains(&line), "{}", readable(&out));
+    assert!(out.contains('\u{2026}'), "{}", readable(&out));
+    let live = out.rsplit('\n').nth(1).unwrap_or_default();
+    assert!(crate::live::display_width(live) <= 40, "{}", readable(live));
+}
+
+#[test]
+fn a_failed_call_commits_its_note_and_drops_the_tail() {
+    let mut view = terminal_view();
+    view.event(&tool_started("make"), SIZE, false);
+    view.event(&output("error: no rule\n"), SIZE, false);
+    let out = readable(&view.event(&call_completed(2), SIZE, false).out);
+    assert_eq!(out, "\\e[?2026h\\r\\e[1A\\e[J\\e[2mshell exited with 2\\e[0m\n\\e[?2026l");
+}
+
+#[test]
+fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
+    let mut view = raw_view();
+    view.event(&tool_started("make"), SIZE, false);
+    assert_eq!(view.event(&output("building\n"), SIZE, false), Step::default());
+    assert_eq!(view.event(&call_completed(0), SIZE, false), Step::default());
 }

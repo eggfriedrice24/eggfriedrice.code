@@ -13,6 +13,10 @@
 //! While the turn waits behind another one, the other turn's approvals show too: that
 //! turn may be parked on a question nobody else will answer, and the prompt runs only
 //! once it is answered.
+//!
+//! While a tool call runs, the last line of its output with text in it sits dim in the
+//! live zone, cut to the width, and goes when the call completes; it is never
+//! committed.
 
 use std::collections::{HashMap, HashSet};
 
@@ -60,6 +64,14 @@ pub(crate) struct Step {
     pub(crate) end: Option<TurnEnd>,
 }
 
+/// The tool call whose output is arriving now.
+#[derive(Debug)]
+struct Running {
+    call_id: CallId,
+    /// The last line of its output with text in it.
+    tail: String,
+}
+
 /// The assistant message that is streaming now.
 #[derive(Debug)]
 struct Message {
@@ -97,6 +109,8 @@ pub(crate) struct TurnView {
     /// Calls whose approval was denied or expired: a note said so already, so their
     /// failed end needs no second one.
     refused: HashSet<CallId>,
+    /// The tool call that runs, once its output arrived.
+    running: Option<Running>,
 }
 
 impl TurnView {
@@ -116,6 +130,7 @@ impl TurnView {
             queued: false,
             blocking: HashSet::new(),
             refused: HashSet::new(),
+            running: None,
         }
     }
 
@@ -163,14 +178,16 @@ impl TurnView {
                 let before = self.finish_message();
                 self.note_after(before, &format::tool_call(tool, input), size)
             }
-            Event::ToolCallCompleted { call_id, .. } if self.refused.contains(call_id) => {
-                Step::default()
-            }
+            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
             Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
+                self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
-                match format::tool_result(tool, *is_error, *exit_code) {
+                let line = format::tool_result(tool, *is_error, *exit_code)
+                    .filter(|_| !self.refused.contains(call_id));
+                match line {
                     Some(line) => self.note(&line, size),
-                    None => Step::default(),
+                    // The live tail goes either way.
+                    None => self.commit(String::new(), size),
                 }
             }
             Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
@@ -263,6 +280,23 @@ impl TurnView {
         Step { out: self.redraw(&committed, size), ..Step::default() }
     }
 
+    /// The output of call `call_id` grew and now ends in `tail`.
+    fn output(&mut self, call_id: CallId, tail: &str, size: Size) -> Step {
+        let tail = last_line(tail);
+        match &mut self.running {
+            Some(running) if running.call_id == call_id => running.tail = tail,
+            _ => self.running = Some(Running { call_id, tail }),
+        }
+        self.commit(String::new(), size)
+    }
+
+    /// Call `call_id` completed: its tail goes.
+    fn call_ended(&mut self, call_id: CallId) {
+        if self.running.as_ref().is_some_and(|running| running.call_id == call_id) {
+            self.running = None;
+        }
+    }
+
     /// The user answered the approval `call_id` with a key.
     pub(crate) fn answered(
         &mut self,
@@ -282,6 +316,7 @@ impl TurnView {
     /// live zone, before an error or an interrupt is reported.
     pub(crate) fn close(&mut self, size: Size) -> Step {
         self.asking = None;
+        self.running = None;
         let committed = self.finish_message();
         self.commit(committed, size)
     }
@@ -441,12 +476,17 @@ impl TurnView {
     }
 
     /// Redraws the live zone with `committed` written above it: the current message's
-    /// live text, then the question when one is pending.
+    /// live text, the running call's tail, then the question when one is pending.
     fn redraw(&mut self, committed: &str, size: Size) -> String {
         let (mut live, mut measured) = match &self.message {
             Some(message) => (message.live.clone(), message.measured),
             None => (String::new(), None),
         };
+        if let Some(running) = self.running.as_ref().filter(|running| !running.tail.is_empty()) {
+            let options = self.options_at(size);
+            live.push_str(&render_trace(&format::one_line(&running.tail), &options));
+            measured = None;
+        }
         if self.asking.is_some() {
             let options = self.options_at(size);
             live.push_str(&format::paint(QUESTION, Tone::Dim, &options));
@@ -455,6 +495,12 @@ impl TurnView {
         }
         self.live.redraw(committed, &live, measured, size)
     }
+}
+
+/// The last line of `tail` with text in it, without the spaces around it; empty when
+/// there is none.
+fn last_line(tail: &str) -> String {
+    tail.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or("").to_owned()
 }
 
 /// An approval request as the view shows it.
