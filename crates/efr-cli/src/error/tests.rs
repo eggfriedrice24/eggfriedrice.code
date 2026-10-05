@@ -46,11 +46,26 @@ fn a_refused_model_hints_at_the_config() {
     let error = CliError::TurnFailed { body };
     assert_eq!(error.exit(), Exit::DaemonError);
     let hint = error.hint().unwrap();
-    assert!(hint.contains("under [model] in the daemon's config.toml"), "{hint}");
-    assert!(hint.contains("systemctl --user restart efrd"), "{hint}");
+    assert!(hint.contains(",model <model> for this terminal"), "{hint}");
+    assert!(hint.contains("under [model] in config.toml"), "{hint}");
+    assert!(hint.contains("reloads without a restart"), "{hint}");
 
     let other = ErrorBody::new(ErrorCode::Invalid, "the prompt is too long");
     assert_eq!(CliError::TurnFailed { body: other }.hint(), None, "not about a model");
+}
+
+#[test]
+fn a_turn_setting_that_no_longer_fits_hints_at_the_model_only_for_the_model() {
+    let setting = |setting: &str| {
+        let body = ErrorBody::new(ErrorCode::Invalid, "the turn's settings no longer fit")
+            .with_data(serde_json::json!({
+                "setting": setting, "value": "x", "model": "gpt-5.5", "choices": ["low"],
+            }));
+        CliError::TurnFailed { body }.hint()
+    };
+
+    assert_eq!(setting("model"), Some(super::MODEL_HINT));
+    assert_eq!(setting("effort"), None, "the message names the efforts");
 }
 
 #[test]

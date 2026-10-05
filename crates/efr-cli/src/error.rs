@@ -12,7 +12,7 @@ pub(crate) const LOGIN_HINT: &str = "log in with: efr login openai";
 
 /// The next step when the provider refuses the model. Which model ids the
 /// subscription serves to efr is unknown until it answers, so a first run may meet it.
-pub(crate) const MODEL_HINT: &str = "choose another model: set name = \"<model>\" under [model] in the daemon's config.toml (efrd --print-config names the file), then restart it: systemctl --user restart efrd";
+pub(crate) const MODEL_HINT: &str = "choose another model: ,model <model> for this terminal, or name = \"<model>\" under [model] in config.toml, which the daemon reloads without a restart";
 
 /// How `efr` exits. The zsh plugin and scripts tell the cases apart by the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,10 +213,15 @@ impl CliError {
             CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
                 Some(LOGIN_HINT)
             }
-            // The daemon names the refused model in the data of an `invalid` turn.
+            // The daemon names the refused model in the data of an `invalid` turn: the
+            // provider's refusal has a `model`, a turn setting that no longer fits has a
+            // `setting`, which names the model for an effort too.
             CliError::TurnFailed { body }
                 if body.code == ErrorCode::Invalid
-                    && body.data.as_ref().is_some_and(|data| data.get("model").is_some()) =>
+                    && body.data.as_ref().is_some_and(|data| match data.get("setting") {
+                        Some(setting) => setting == "model",
+                        None => data.get("model").is_some(),
+                    }) =>
             {
                 Some(MODEL_HINT)
             }
