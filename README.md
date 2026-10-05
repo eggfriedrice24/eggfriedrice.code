@@ -39,7 +39,7 @@ The daemon starts one hidden zsh for each conversation, and that zsh reads your 
 ## Use
 
 - `, <prompt>` sends a prompt with the current directory, the terminal and the last command, and the reply streams below it. A prompt sent while a turn runs waits for it.
-- `,` alone, or Ctrl+Space, switches sticky agent mode on: `efr> ` stands before the text you type, and every line goes to the agent. Your prompt itself does not change. `!<command>` runs one shell command, a line that starts with `,` runs that command, and `,` alone switches sticky mode off.
+- `,` alone, or Ctrl+Space, switches sticky agent mode on: a robot (🤖) stands before the text you type, and every line goes to the agent. Your prompt itself does not change. When you press Enter, the robot becomes the first word of the line, so the screen and history show `🤖 <prompt>`, and that line goes to the agent again when you recall it from history. `!<command>` runs one shell command, a line that starts with `,` runs that command, and `,` alone switches sticky mode off.
 - `,new [prompt]` starts a new conversation in this terminal. Without a prompt, the next `,` line starts it.
 - `,! <text>` steers the running turn instead of waiting for it.
 - When the agent asks for approval, `y` allows and `n` denies. Ctrl+C interrupts the turn.
