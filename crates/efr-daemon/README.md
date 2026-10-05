@@ -189,11 +189,15 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 ```
 
 The integration tests in `tests/` (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
-`approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`) run the
-daemon through `efr-test-daemon`'s `TestDaemon` and replay its fourteen NDJSON
-scenarios, each with the assertions of its case: the fake PTY holder plays the hidden
-shell, the replay provider or a local Responses server plays the model. The `shell_`
-test runs a real zsh and skips with a message unless `EFR_TEST_ZSH=1`.
+`approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
+`input_respond`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
+holder plays the hidden shell, the replay provider or a local Responses server plays
+the model. The `shell_` tests run a real zsh and skip with a message unless
+`EFR_TEST_ZSH=1`: a command runs and is recorded, a password typed through
+`input.respond` reaches only the program (not the model's next request, the event log,
+any file of the daemon's tree or any log line at any level), and a password prompt
+that no client can answer is stopped within seconds.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.

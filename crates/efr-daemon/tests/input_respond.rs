@@ -1,0 +1,335 @@
+//! Answering a command that waits for input, over a `TestDaemon` with a real zsh and
+//! the local Responses server as the model: a password typed through `input.respond`
+//! reaches the program and nothing else, and a password prompt that no client can
+//! answer is stopped at once. Both tests drive a real zsh and skip with a message
+//! unless `EFR_TEST_ZSH=1`.
+
+// NOTE: an integration test crate is always built with cfg(test); saying so lets
+// clippy treat its helpers as test code, as it does for unit tests.
+#![cfg(test)]
+
+use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
+
+use efr_protocol::{
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationId,
+    ConversationSubscribe, ConversationSubscribeItem, Event, EventEnvelope, InputRespond,
+    InputRespondResult, InputWait, Method, PromptSendResult, SecretText, Seq,
+};
+use efr_stdx::time::Clock as _;
+use efr_test_daemon::{
+    Client, ItemStream, ResponsesAnswer, ResponsesServer, TTY, TestDaemon, command_id, events_until,
+};
+use futures::StreamExt as _;
+use pretty_assertions::assert_eq;
+
+/// A program that reads a password as getpass does: echo off, one line, echo on. It
+/// prints how long the line was, never the line.
+const GETPASS: &str =
+    r#"sh -c 'stty -echo; printf "pw: "; IFS= read -r p; stty echo; printf "\nlen=%s\n" "${#p}"'"#;
+
+/// The password the user types: nothing may hold it but the program that reads it.
+const SECRET: &str = "hunter2-efr-secret";
+
+#[expect(clippy::print_stderr, reason = "a skipped test says why, as atuin's e2e tests do")]
+fn zsh_enabled(test: &str) -> bool {
+    let on = efr_stdx::env::flag(efr_stdx::env::Var::TestZsh).unwrap_or(false);
+    if !on {
+        eprintln!("skipping {test}: set EFR_TEST_ZSH=1 to run the tests that drive a real zsh");
+    }
+    on
+}
+
+/// Everything every span and event of this process logs, at every level.
+fn logs() -> Arc<Mutex<Vec<u8>>> {
+    static LOGS: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
+    Arc::clone(LOGS.get_or_init(|| {
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&logs);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || LogWriter(Arc::clone(&sink)))
+            .finish();
+        // NOTE: nextest runs each test in a process of its own; under cargo test the
+        // second test finds the subscriber already set, which is the same one.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        logs
+    }))
+}
+
+struct LogWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn logged() -> String {
+    String::from_utf8_lossy(&logs().lock().unwrap()).into_owned()
+}
+
+/// A daemon over a real zsh whose model asks for one `shell` call of [`GETPASS`] and
+/// then says `done`.
+async fn daemon(server: &ResponsesServer) -> TestDaemon {
+    let arguments = serde_json::json!({ "command": GETPASS, "timeout_seconds": 600 });
+    server.push(ResponsesAnswer::tool_call("call_1", "shell", &arguments));
+    server.push(ResponsesAnswer::text("done"));
+    TestDaemon::builder().local_pty().responses(server).persistent().start().await.unwrap()
+}
+
+/// Subscribes `client` to the conversation from the start, saying whether a person at
+/// it can answer a waiting command.
+async fn subscribe(
+    client: &Client,
+    conversation_id: ConversationId,
+    answers_input: bool,
+) -> ItemStream<ConversationSubscribeItem> {
+    let params =
+        ConversationSubscribe { conversation_id, after_seq: Some(Seq::ZERO), answers_input };
+    client.stream(Method::ConversationSubscribe(params)).await.unwrap()
+}
+
+/// The events of `stream` up to the first that `stop` accepts. Whenever none comes for
+/// a while, the daemon's clock moves one second, at most `max_seconds` times, which is
+/// what lets the run look for input: nothing in the daemon waits on real time.
+async fn events_while_time_passes(
+    daemon: &TestDaemon,
+    stream: &mut ItemStream<ConversationSubscribeItem>,
+    max_seconds: u32,
+    mut stop: impl FnMut(&Event) -> bool,
+) -> Vec<EventEnvelope> {
+    let mut seen = Vec::new();
+    let mut moved = 0;
+    loop {
+        tokio::select! {
+            biased;
+            item = stream.next() => {
+                let events = match item.unwrap().unwrap() {
+                    ConversationSubscribeItem::Event(envelope) => vec![envelope],
+                    ConversationSubscribeItem::Snapshot(snapshot) => snapshot.events,
+                    other => panic!("{other:?}"),
+                };
+                for envelope in events {
+                    let done = stop(&envelope.event);
+                    seen.push(envelope);
+                    if done {
+                        return seen;
+                    }
+                }
+            }
+            () = idle() => {
+                assert!(moved < max_seconds, "nothing came in {max_seconds}s: {seen:#?}");
+                daemon.clock().advance(Duration::from_secs(1));
+                moved += 1;
+            }
+        }
+    }
+}
+
+/// Lets every other task run for a while, without real time.
+async fn idle() {
+    for _ in 0..2000 {
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Sends the prompt, approves the shell call and waits, without moving the clock, until
+/// the program shows its prompt; returns the conversation and the stream.
+///
+/// The clock stands still while the hidden zsh starts and the program runs up to its
+/// prompt, which happen in real time: the shell's startup timer must not pass.
+async fn prompt_until_the_password_prompt(
+    daemon: &TestDaemon,
+    client: &Client,
+    answers_input: bool,
+) -> (ConversationId, ItemStream<ConversationSubscribeItem>) {
+    let sent: PromptSendResult = client.call(daemon.prompt(1, "update", TTY)).await.unwrap();
+    let mut stream = subscribe(client, sent.conversation_id, answers_input).await;
+    let seen = events_until(&mut stream, |event| {
+        matches!(event, Event::ApprovalRequested { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    let Some(Event::ApprovalRequested { call_id, .. }) = seen.last().map(|e| e.event.clone())
+    else {
+        panic!("{seen:#?}");
+    };
+    let approve = Method::ApprovalRespond(ApprovalRespond {
+        command_id: command_id(2),
+        conversation_id: sent.conversation_id,
+        call_id,
+        decision: ApprovalDecision::Allow,
+    });
+    let _: ApprovalRespondResult = client.call(approve).await.unwrap();
+    let shown = events_until(&mut stream, |event| {
+        matches!(event, Event::ToolCallOutputUpdated { tail, .. } if tail.contains("pw: "))
+            || matches!(event, Event::ToolCallCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    assert!(
+        matches!(shown.last().map(|e| &e.event), Some(Event::ToolCallOutputUpdated { .. })),
+        "{shown:#?}"
+    );
+    (sent.conversation_id, stream)
+}
+
+/// Every file under `root` that holds `needle`.
+fn files_holding(root: &Path, needle: &[u8]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        // A directory or file that went away while the daemon stopped holds nothing.
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_symlink() {
+                continue;
+            }
+            if path.is_dir() {
+                dirs.push(path);
+            } else if let Ok(bytes) = std::fs::read(&path)
+                && bytes.windows(needle.len()).any(|window| window == needle)
+            {
+                found.push(path.display().to_string());
+            }
+        }
+    }
+    found
+}
+
+#[tokio::test]
+async fn shell_a_password_typed_through_input_respond_reaches_only_the_program() {
+    if !zsh_enabled("shell_a_password_typed_through_input_respond_reaches_only_the_program") {
+        return;
+    }
+    let logs = logs();
+    let server = ResponsesServer::start().await;
+    let daemon = daemon(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, mut stream) =
+        prompt_until_the_password_prompt(&daemon, &client, true).await;
+
+    let seen = events_while_time_passes(&daemon, &mut stream, 10, |event| {
+        matches!(event, Event::ToolCallInputChanged { .. } | Event::ToolCallCompleted { .. })
+    })
+    .await;
+    let (call_id, input): (CallId, InputWait) = match seen.last().map(|e| e.event.clone()) {
+        Some(Event::ToolCallInputChanged { call_id, input, .. }) => (call_id, input),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(input, InputWait::Hidden);
+
+    let answer = Method::InputRespond(InputRespond {
+        conversation_id,
+        call_id,
+        text: SecretText::new(SECRET),
+        hidden: true,
+    });
+    let _: InputRespondResult = client.call(answer).await.unwrap();
+    let rest = events_until(&mut stream, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    assert!(
+        matches!(rest.last().map(|e| &e.event), Some(Event::TurnCompleted { .. })),
+        "{rest:#?}"
+    );
+    let completed = rest.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, exit_code, .. } => Some((output.clone(), *exit_code)),
+        _ => None,
+    });
+    let (output, exit_code) = completed.unwrap();
+    assert!(output.contains(&format!("len={}", SECRET.len())), "{output}");
+    assert_eq!(exit_code, Some(0));
+    assert!(rest.iter().any(|envelope| matches!(
+        &envelope.event,
+        Event::ToolCallInputChanged { input: InputWait::None, .. }
+    )));
+
+    // The model read the length, never the password.
+    let requests = server.received();
+    assert_eq!(requests.len(), 2);
+    let second = requests[1].body.to_string();
+    assert!(second.contains(&format!("len={}", SECRET.len())), "{second}");
+    assert!(!second.contains(SECRET));
+    let events = daemon.events(&client, conversation_id).await.unwrap();
+    assert!(!serde_json::to_string(&events).unwrap().contains(SECRET));
+
+    drop((stream, client));
+    // Kept, so the tree outlives the daemon.
+    let dirs = Arc::clone(daemon.dirs());
+    daemon.stop().await.unwrap();
+    // The database and the recording hold what the program printed...
+    let length = format!("len={}", SECRET.len());
+    assert!(!files_holding(dirs.root(), length.as_bytes()).is_empty(), "the scan sees the tree");
+    // ...but no file of the daemon's tree holds the password.
+    assert_eq!(files_holding(dirs.root(), SECRET.as_bytes()), Vec::<String>::new());
+    let logged = logged();
+    assert!(logged.contains("an answer was typed for a waiting command"), "the logs were captured");
+    assert!(!logged.contains(SECRET), "a log holds the password");
+    drop(logs);
+}
+
+#[tokio::test]
+async fn shell_a_password_prompt_that_no_client_can_answer_is_stopped_at_once() {
+    if !zsh_enabled("shell_a_password_prompt_that_no_client_can_answer_is_stopped_at_once") {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    let daemon = daemon(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (_, mut stream) = prompt_until_the_password_prompt(&daemon, &client, false).await;
+    let shown = daemon.clock().now();
+
+    let mut seen = events_while_time_passes(&daemon, &mut stream, 10, |event| {
+        matches!(event, Event::ToolCallCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await;
+    // The call's timeout is ten minutes; the stop comes within seconds of the prompt.
+    let waited = daemon.clock().now().duration_since(shown);
+    assert!(waited.as_secs() <= 10, "{waited:?}");
+    seen.extend(
+        events_until(&mut stream, |event| {
+            matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+        })
+        .await
+        .unwrap(),
+    );
+    let completed = seen.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, is_error, exit_code, .. } => {
+            Some((output.clone(), *is_error, *exit_code))
+        }
+        _ => None,
+    });
+    let (output, is_error, exit_code) = completed.unwrap();
+    assert!(is_error);
+    assert_eq!(exit_code, None);
+    assert!(output.contains("asked for hidden input, such as a password"), "{output}");
+    assert!(output.contains("no user could answer it at a terminal"), "{output}");
+    let waits: Vec<InputWait> = seen
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::ToolCallInputChanged { input, .. } => Some(*input),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(waits, [InputWait::Hidden, InputWait::None]);
+
+    // The model got the stopped text as the call's result.
+    let requests = server.received();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].body.to_string().contains("efr interrupted it"));
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
