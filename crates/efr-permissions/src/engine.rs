@@ -295,10 +295,12 @@ impl Judge<'_> {
         line: &str,
         analyzed: Result<(&[SimpleCommand], &[Part<'_>]), &Construct>,
     ) -> Reason {
+        let mut deciding = Vec::new();
         let (effect, cause) = match analyzed {
             Ok((commands, parts)) => {
                 let several = parts.len() > 1;
                 let mut strictest: Option<(Effect, Cause)> = None;
+                let mut effects = Vec::with_capacity(parts.len());
                 for (command, part) in commands.iter().zip(parts) {
                     let (mut effect, mut cause) = self.by_rules(&Target::Command(*part), None);
                     match (command::privileged(command), cause) {
@@ -311,12 +313,22 @@ impl Judge<'_> {
                         }
                         (_, other) => cause = other,
                     }
+                    effects.push(effect);
                     if strictest.as_ref().is_none_or(|(worst, _)| effect > *worst) {
                         strictest = Some((effect, cause));
                     }
                 }
                 // NOTE: `analyze` returns at least one part, and no parts would deny.
-                strictest.unwrap_or((Effect::Deny, Cause::NoRule))
+                let (effect, cause) = strictest.unwrap_or((Effect::Deny, Cause::NoRule));
+                if several && effect != Effect::Allow {
+                    deciding = commands
+                        .iter()
+                        .zip(effects)
+                        .filter(|(_, part)| *part == effect)
+                        .map(|(command, _)| command.words.clone())
+                        .collect();
+                }
+                (effect, cause)
             }
             Err(construct) => {
                 let (effect, cause) = self.by_rules(&Target::Opaque, None);
@@ -335,7 +347,7 @@ impl Judge<'_> {
             }
         };
         let (effect, cause) = clamp_remote(effect, cause, None, self.input.origin);
-        Reason { subject: Subject::Command { line: line.to_owned() }, effect, cause }
+        Reason { subject: Subject::Command { line: line.to_owned(), deciding }, effect, cause }
     }
 
     /// The network access of a call whose command line has the simple commands

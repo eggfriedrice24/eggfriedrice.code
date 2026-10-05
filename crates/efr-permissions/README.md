@@ -86,6 +86,9 @@ Modules:
   unknown keys refused, and every rule is checked when a policy is built.
 - `decision`: `Effect` (`Allow < Ask < Deny`), `Decision` and `Reason`, whose `Display`
   is the one line that goes into a log, an approval summary or a denied tool result.
+  The `Subject::Command` of a line of several simple commands that asks or is denied
+  lists in `deciding` the words of each simple command that got the line's effect, in
+  the order of the line, so an approval can name them.
 - `engine`: `Engine::decide` and `effective_mode`.
 
 ## Tier

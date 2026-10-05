@@ -68,7 +68,7 @@ fn a_decision_without_reasons_fails_closed() {
 )]
 #[case::command(
     reason(
-        Subject::Command { line: "ls -la".to_owned() },
+        Subject::Command { line: "ls -la".to_owned(), deciding: Vec::new() },
         Effect::Ask,
         Cause::Rule { layer: Layer::Machine, index: 0 }
     ),

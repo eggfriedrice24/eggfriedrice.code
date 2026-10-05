@@ -10,7 +10,7 @@ use rstest::rstest;
 use super::{app, engine, input, locations};
 use crate::{
     Action, Cause, CommandPattern, Construct, Effect, Engine, Layer, Policy, Requirements,
-    Resource, Rule,
+    Resource, Rule, Subject,
 };
 
 fn run(line: &str) -> Requirements {
@@ -334,6 +334,63 @@ fn the_part_that_asks_is_named() {
     assert_eq!(
         decision.reasons()[0].to_string(),
         "run \"ls && rm -rf build\": ask, by rule 0 of the machine policy for \"rm -rf build\""
+    );
+}
+
+/// The simple commands that the reason about the line `line` names as deciding.
+fn deciding_parts(engine: &Engine, line: &str) -> Vec<Vec<String>> {
+    let decision = engine.decide(&input(run(line), Scope::Machine, Origin::Shell));
+    decision
+        .reasons()
+        .iter()
+        .find_map(|reason| match &reason.subject {
+            Subject::Command { deciding, .. } => Some(deciding.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+fn words(parts: &[&[&str]]) -> Vec<Vec<String>> {
+    parts.iter().map(|part| part.iter().map(|word| (*word).to_owned()).collect()).collect()
+}
+
+#[test]
+fn every_part_that_asks_is_named_in_the_order_of_the_line() {
+    let line = "printf '%s\\n' up; hostnamectl; uptime; systemctl --failed";
+    assert_eq!(
+        deciding_parts(&engine(), line),
+        words(&[&["hostnamectl"], &["systemctl", "--failed"]])
+    );
+}
+
+#[test]
+fn a_denied_part_is_named_and_an_asking_one_is_not() {
+    let engine = configured(vec![Rule::new(
+        Action::Execute,
+        Resource::Command(CommandPattern::new("curl")),
+        Effect::Deny,
+    )]);
+    assert_eq!(
+        deciding_parts(&engine, "hostnamectl && curl -s example.org | head"),
+        words(&[&["curl", "-s", "example.org"]])
+    );
+}
+
+#[rstest]
+#[case::one_command("hostnamectl")]
+#[case::allowed("ls && pwd")]
+#[case::cannot_be_split("echo $(hostnamectl); uptime")]
+fn no_part_is_named_for_one_command_an_allowed_line_or_one_that_cannot_be_split(
+    #[case] line: &str,
+) {
+    assert_eq!(deciding_parts(&engine(), line), Vec::<Vec<String>>::new());
+}
+
+#[test]
+fn a_named_part_leaves_out_harmless_assignments_and_redirections() {
+    assert_eq!(
+        deciding_parts(&engine(), "uptime; LC_ALL=C hostnamectl 2>/dev/null"),
+        words(&[&["hostnamectl"]])
     );
 }
 

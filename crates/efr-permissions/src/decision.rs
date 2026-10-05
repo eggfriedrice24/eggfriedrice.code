@@ -99,6 +99,12 @@ pub enum Subject {
     Command {
         /// The line as the model wrote it.
         line: String,
+        /// The simple commands that gave a line of several its effect, when that
+        /// effect is `ask` or `deny`, each as its words (without the harmless
+        /// assignments and the redirections), in the order of the line. Empty for a
+        /// line of one simple command, a line that cannot be split and an allowed line.
+        /// An approval names them, so the user sees which parts of a long line ask.
+        deciding: Vec<Vec<String>>,
     },
     /// Network access by the call itself.
     Network,
@@ -276,7 +282,7 @@ impl fmt::Display for Subject {
                 write!(f, "{access} {} ({class})", path.display())
             }
             Subject::Path { path, access, class: None } => write!(f, "{access} {}", path.display()),
-            Subject::Command { line } => write!(f, "run {line:?}"),
+            Subject::Command { line, .. } => write!(f, "run {line:?}"),
             Subject::Network => f.write_str("network access"),
             Subject::Interactive => f.write_str("input at the terminal"),
             Subject::Settings { summary, loosens: false } => {
