@@ -71,6 +71,8 @@ async fn the_key_thread_reads_one_key_without_enter_or_echo_and_restores_the_ter
     let mut reader = start_on(slave).unwrap();
     wait_for_key_mode(&probe);
     assert!(!echoes(&probe));
+    let signals = tcgetattr(&probe).unwrap().local_modes.contains(LocalModes::ISIG);
+    assert!(signals, "Ctrl+C still sends SIGINT, which interrupts the turn");
     rustix::io::write(&master, b"y").unwrap();
     assert_eq!(reader.next().await, Some(b'y'));
 
