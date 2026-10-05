@@ -512,9 +512,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
 
 fn shell_code(error: &ShellError) -> ErrorCode {
     match error {
-        ShellError::NoShell { .. } | ShellError::NoCall { .. } => ErrorCode::NotFound,
-        ShellError::NotWaiting { .. } => ErrorCode::Conflict,
-        ShellError::InvalidAnswer { .. } => ErrorCode::Invalid,
+        ShellError::NoShell { .. } => ErrorCode::NotFound,
+        // NOTE: the answer errors (`NoCall`, `NotWaiting`, `InvalidAnswer`) never reach
+        // here: `methods/input_respond.rs` turns them into daemon errors that name the call.
         _ => ErrorCode::Internal,
     }
 }

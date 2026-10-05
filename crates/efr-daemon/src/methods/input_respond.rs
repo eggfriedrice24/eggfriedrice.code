@@ -7,7 +7,7 @@
 //! Anything else writes nothing. The text is a `SecretText`, so it never reaches a log,
 //! an error message, the event log or a receipt; this handler logs only its length.
 
-use efr_protocol::{InputRespond, InputRespondResult};
+use efr_protocol::{CallId, ConversationId, InputRespond, InputRespondResult};
 use efr_shell::ShellError;
 use efr_transport::Responder;
 
@@ -21,21 +21,31 @@ pub(crate) async fn handle(
     responder: &Responder,
 ) -> Result<(), DaemonError> {
     let InputRespond { conversation_id, call_id, text, hidden } = params;
-    let not_running = || DaemonError::CallNotRunning { conversation_id, call_id };
-    match state.shells.answer(conversation_id, call_id, &text, hidden).await {
-        Ok(()) => {}
-        Err(ShellError::NoShell { .. } | ShellError::NoCall { .. } | ShellError::Exited { .. }) => {
-            return Err(not_running());
-        }
-        Err(ShellError::NotWaiting { reason, .. }) => {
-            return Err(DaemonError::NotWaitingForInput { call_id, reason });
-        }
-        Err(ShellError::InvalidAnswer { reason }) => {
-            return Err(DaemonError::InvalidAnswer { reason });
-        }
-        Err(error) => return Err(error.into()),
-    }
+    state
+        .shells
+        .answer(conversation_id, call_id, &text, hidden)
+        .await
+        .map_err(|error| refused(error, conversation_id, call_id))?;
     tracing::info!(bytes = text.expose_secret().len(), "an answer was typed for a waiting command");
     responder.item(&InputRespondResult {}).await?;
     Ok(())
 }
+
+/// The daemon error for an answer that the shell did not type. This is the one mapping
+/// of the shell's answer errors; the daemon errors it makes name the call, and
+/// `error.rs` gives each its wire code.
+fn refused(error: ShellError, conversation_id: ConversationId, call_id: CallId) -> DaemonError {
+    match error {
+        ShellError::NoShell { .. } | ShellError::NoCall { .. } | ShellError::Exited { .. } => {
+            DaemonError::CallNotRunning { conversation_id, call_id }
+        }
+        ShellError::NotWaiting { reason, .. } => {
+            DaemonError::NotWaitingForInput { call_id, reason }
+        }
+        ShellError::InvalidAnswer { reason } => DaemonError::InvalidAnswer { reason },
+        error => error.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -170,11 +170,6 @@ fn an_overflow_carries_the_sequence_to_resume_after() {
 fn shell_and_login_errors_map_to_their_codes() {
     let conversation = ConversationId::from_uuid(id(1));
     assert_eq!(code(DaemonError::from(ShellError::NoShell { conversation })), ErrorCode::NotFound);
-    assert_eq!(code(DaemonError::from(ShellError::NoCall { conversation })), ErrorCode::NotFound);
-    let not_waiting = ShellError::NotWaiting { conversation, reason: "another call runs" };
-    assert_eq!(code(DaemonError::from(not_waiting)), ErrorCode::Conflict);
-    let invalid = ShellError::InvalidAnswer { reason: "it contains a control character" };
-    assert_eq!(code(DaemonError::from(invalid)), ErrorCode::Invalid);
     let login = |source| DaemonError::Login { source };
     assert_eq!(code(login(OAuthError::LoginInProgress)), ErrorCode::Busy);
     assert_eq!(
