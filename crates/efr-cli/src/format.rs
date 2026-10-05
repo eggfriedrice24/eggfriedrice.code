@@ -12,7 +12,7 @@ use std::path::Path;
 
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError,
-    ConversationStatus, ConversationsListResult, Origin,
+    ConversationStatus, ConversationsListResult, EffectiveSettings, Origin,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::Timestamp;
@@ -158,6 +158,24 @@ pub(crate) fn tool_result(tool: &str, is_error: bool, exit_code: Option<i32>) ->
         _ if is_error => Some(format!("{tool} failed")),
         _ => None,
     }
+}
+
+/// A turn's settings on one line, such as `mode auto, model gpt-5.4, effort high`: every
+/// value with `all`, else only the ones that the prompt set. `None` when that leaves
+/// none. An effort that is not sent shows as `default`, the backend's.
+pub(crate) fn turn_settings(settings: &EffectiveSettings, all: bool) -> Option<String> {
+    let EffectiveSettings { mode, model, effort, overridden } = settings;
+    let mut parts = Vec::new();
+    if all || overridden.mode {
+        parts.push(format!("mode {mode}"));
+    }
+    if all || overridden.model {
+        parts.push(format!("model {}", one_line(model)));
+    }
+    if all || overridden.effort {
+        parts.push(format!("effort {}", one_line(effort.as_deref().unwrap_or("default"))));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 /// The answer to an approval in a word.

@@ -1,7 +1,7 @@
 use efr_protocol::{
     ApprovalDecision, CommandId, ConversationHistoryResult, ConversationStatus,
-    ConversationSummary, ConversationsListResult, ErrorBody, ErrorCode, Event, EventEnvelope,
-    Method, Origin, PageCursor, Seq,
+    ConversationSummary, ConversationsListResult, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, Method, Mode, Origin, OverriddenSettings, PageCursor, Scope, Seq, TurnSettings,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -39,7 +39,7 @@ fn events() -> Vec<EventEnvelope> {
                 text: "is nginx\nhealthy?".to_owned(),
                 origin: Origin::Shell,
                 context: None,
-                settings: efr_protocol::TurnSettings::default(),
+                settings: TurnSettings::default(),
             },
         ),
         envelope(
@@ -272,4 +272,60 @@ async fn a_very_short_start_of_an_id_matches_nothing_without_asking() {
     let line = command(&["history", "01"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::DaemonError);
+}
+
+#[test]
+fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let prompt = |seq: u64, text: &str| {
+        envelope(
+            seq,
+            Event::PromptQueued {
+                turn_id: turn(),
+                command_id,
+                text: text.to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+            },
+        )
+    };
+    let started = |seq: u64, settings: Option<EffectiveSettings>| {
+        envelope(
+            seq,
+            Event::TurnStarted {
+                turn_id: turn(),
+                cwd: "/home/user".into(),
+                scope: Scope::Machine,
+                settings,
+            },
+        )
+    };
+    let auto = EffectiveSettings {
+        mode: Mode::Auto,
+        model: "gpt-5.4".to_owned(),
+        effort: Some("high".to_owned()),
+        overridden: OverriddenSettings { mode: true, ..OverriddenSettings::default() },
+    };
+    let cautious = EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "gpt-5.5".to_owned(),
+        effort: None,
+        overridden: OverriddenSettings::default(),
+    };
+    let page = ConversationHistoryResult {
+        events: vec![
+            prompt(1, "an old turn"),
+            started(2, None),
+            prompt(3, "build it"),
+            started(4, Some(auto)),
+            prompt(5, "and check"),
+            started(6, Some(cautious)),
+        ],
+        next_cursor: None,
+    };
+
+    let text = transcript(conversation(), &page, &RenderOptions::new(60).with_terminal(false));
+
+    insta::assert_snapshot!(text);
 }

@@ -156,18 +156,7 @@ pub(crate) async fn send_prompt(
 /// The values of `settings` that the prompt set, such as `mode auto, model gpt-5.4`;
 /// `None` when the config gave every one.
 pub(crate) fn overrides(settings: &EffectiveSettings) -> Option<String> {
-    let EffectiveSettings { mode, model, effort, overridden } = settings;
-    let mut parts = Vec::new();
-    if overridden.mode {
-        parts.push(format!("mode {mode}"));
-    }
-    if overridden.model {
-        parts.push(format!("model {model}"));
-    }
-    if overridden.effort {
-        parts.push(format!("effort {}", effort.as_deref().unwrap_or("default")));
-    }
-    (!parts.is_empty()).then(|| parts.join(", "))
+    crate::format::turn_settings(settings, false)
 }
 
 /// Adds `text` to the running turn of the conversation, or of the terminal's active

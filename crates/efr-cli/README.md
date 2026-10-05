@@ -16,7 +16,7 @@ state and never writes the daemon's database or credentials.
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices |
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the efforts of each; `--names` prints only the ids, for completion |
 | `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error and the keys that wait for a restart |
-| `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
+| `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); each turn shows its mode, model and effort as a dim line after its prompt |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
 | `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
 | `efr config check [path]` | none | the file checked with the daemon's schema and the theme names; an error names its line, column and key; exit 0 or 1 |

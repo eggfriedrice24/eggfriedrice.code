@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: text
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+> an old turn
+
+> build it
+
+mode auto, model gpt-5.4, effort high
+
+> and check
+
+mode cautious, model gpt-5.5, effort default

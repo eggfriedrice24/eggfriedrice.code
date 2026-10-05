@@ -90,7 +90,8 @@ async fn resolve(client: &Client, query: &str) -> Result<ConversationId, CliErro
 }
 
 /// One page of a conversation's events as a transcript: prompts, rendered replies,
-/// and dim notes for tool calls, approvals and how turns ended.
+/// and dim notes for each turn's mode, model and effort, tool calls, approvals and how
+/// turns ended.
 pub(crate) fn transcript(
     conversation_id: ConversationId,
     page: &ConversationHistoryResult,
@@ -160,6 +161,12 @@ impl<'a> Transcript<'a> {
     fn other(&mut self, event: &Event) {
         match event {
             Event::PromptQueued { text, .. } => self.prompt(text),
+            // NOTE: a turn recorded before turn settings names none.
+            Event::TurnStarted { settings: Some(settings), .. } => {
+                if let Some(line) = format::turn_settings(settings, true) {
+                    self.note(&line);
+                }
+            }
             Event::ToolCallStarted { call_id, tool, input, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 self.note(&format::tool_call(tool, input));
