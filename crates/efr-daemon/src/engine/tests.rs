@@ -188,3 +188,45 @@ async fn no_tool_writes_the_config_or_the_file_behind_its_link_in_any_mode() {
     let read = Requirements::none().with_read(config.join("config.toml"));
     assert_eq!(decide(&engine, &home, Mode::Cautious, read), Effect::Allow);
 }
+
+#[tokio::test]
+async fn the_file_that_efr_config_set_writes_is_sealed_and_the_writer_still_writes_it() {
+    let (_root, home) = home();
+    let config = home.path().join(".config/efr");
+    let dotfiles = home.path().join("dotfiles/efr");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::create_dir_all(&dotfiles).unwrap();
+    std::fs::write(dotfiles.join("config.toml"), "# mine\n[model]\nname = \"gpt-5.5\"\n").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.toml"), config.join("config.toml")).unwrap();
+    let other = home.path().join("other/efr");
+    std::fs::create_dir_all(&other).unwrap();
+
+    // The writer of `efr config set` is not a tool: protection does not stop it.
+    let linked = efr_config::ConfigFile::open(&config.join("config.toml")).unwrap();
+    let mut edit = linked.edit().unwrap();
+    edit.set_text("model.effort", "high").unwrap();
+    linked.write(&edit).unwrap();
+    let missing = efr_config::ConfigFile::open(&other.join("config.toml")).unwrap();
+    let mut edit = missing.edit().unwrap();
+    edit.set_text("model.effort", "low").unwrap();
+    missing.write(&edit).unwrap();
+
+    let written = std::fs::read_to_string(dotfiles.join("config.toml")).unwrap();
+    assert!(written.starts_with("# mine\n") && written.contains("effort = \"high\""), "{written}");
+    assert!(std::fs::symlink_metadata(config.join("config.toml")).unwrap().is_symlink());
+    assert_eq!(linked.target(), dotfiles.join("config.toml"));
+    // The engine protects what the writer wrote, behind the link or created new.
+    let settings = Settings::default();
+    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+    let mut created = parts(&home, home.path().join("secrets"));
+    created.config.clone_from(&other);
+    let created = created.engine(&settings).await.unwrap();
+    for mode in Mode::ALL {
+        for path in [linked.path(), linked.target()] {
+            let write = Requirements::none().with_write(path);
+            assert_eq!(decide(&engine, &home, mode, write), Effect::Deny, "{mode} {path:?}");
+        }
+        let write = Requirements::none().with_write(missing.target());
+        assert_eq!(decide(&created, &home, mode, write), Effect::Deny, "{mode}");
+    }
+}
