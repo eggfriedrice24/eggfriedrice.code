@@ -704,6 +704,7 @@ dependencies = [
  "efr-render",
  "efr-stdx",
  "efr-test-daemon",
+ "efr-test-support",
  "futures",
  "insta",
  "jiff",

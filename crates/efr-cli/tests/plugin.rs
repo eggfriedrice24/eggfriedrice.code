@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use efr_protocol::{Event, PromptSendResult};
 use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon, events_until};
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
 /// A fake `efr` that records each call under `$EFR_ARGS.<n>`: its command line from
@@ -833,15 +834,10 @@ async fn e2e_the_prompt_shows_the_notice_that_the_daemon_wrote() {
     let runtime = daemon.dirs().dirs().runtime().to_path_buf();
     let file = runtime.join("notices").join(TTY.trim_start_matches("/dev/").replace('/', "-"));
     // The daemon writes the notice from its own task after the commit.
-    let mut written = false;
-    for _ in 0..100_000 {
-        if std::fs::metadata(&file).is_ok_and(|meta| meta.len() > 0) {
-            written = true;
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(written, "no notice at {}", file.display());
+    Wait::new(&format!("a notice at {}", file.display()))
+        .until(|| std::fs::read(&file).is_ok_and(|text| text.ends_with(b"\n")))
+        .await
+        .unwrap();
 
     let home = Home::new();
     let script = format!("source {}\nTTY={TTY}\n_efr_print_notices\n", plugin().display());

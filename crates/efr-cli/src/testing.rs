@@ -25,6 +25,7 @@ use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
+use efr_test_support::Wait;
 use jiff::Timestamp;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -283,9 +284,10 @@ impl TestQuit {
 
     /// Waits until `count` waits for the key live.
     pub(crate) async fn until_armed(&self, count: usize) {
-        while self.armed() != count {
-            tokio::task::yield_now().await;
-        }
+        Wait::new(&format!("{count} waits for the key"))
+            .until(|| self.armed() == count)
+            .await
+            .unwrap();
     }
 }
 
@@ -332,9 +334,10 @@ impl GateClock {
 
     /// Waits until a sleep of `duration` was asked for.
     pub(crate) async fn until_slept(&self, duration: Duration) {
-        while !self.requested.lock().unwrap().contains(&duration) {
-            tokio::task::yield_now().await;
-        }
+        Wait::new(&format!("a sleep of {duration:?}"))
+            .until(|| self.requested.lock().unwrap().contains(&duration))
+            .await
+            .unwrap();
     }
 }
 

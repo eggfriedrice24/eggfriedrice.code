@@ -7,6 +7,7 @@ use efr_protocol::{
     Method, Origin, RequestId, Seq, TurnId, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
 use super::{Target, TurnView, follow};
@@ -397,9 +398,7 @@ async fn ctrl_c_interrupts_the_turn_and_keeps_what_arrived() {
         };
         conn.item(sub, &item(11, updated)).await;
         // Ctrl+C once the update is on the screen.
-        while seen.stdout().is_empty() {
-            tokio::task::yield_now().await;
-        }
+        shows_on(&seen, Stream::Stdout, |text| !text.is_empty()).await;
         interrupt.trigger();
         // A closed connection alone would leave the turn running in the daemon.
         let (id, method) = request_after_cancels(&mut conn).await;
@@ -506,9 +505,7 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
         assert_eq!(params.text.expose_secret(), "hunter2");
         assert!(params.hidden);
         conn.reply(id, &InputRespondResult {}).await;
-        while !seen.stdout().contains("answer sent") {
-            tokio::task::yield_now().await;
-        }
+        shows(&seen, "answer sent").await;
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_completed(0))).await;
         presser.stopped().await;
@@ -572,14 +569,10 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
         presser.type_bytes(b"hunter2\r").await;
         let (id, _) = input_respond(&mut conn).await;
         conn.reply(id, &InputRespondResult {}).await;
-        while !seen.stderr().contains("answer sent") {
-            tokio::task::yield_now().await;
-        }
+        shows_on(&seen, Stream::Stderr, |text| text.contains("answer sent")).await;
         conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
-        while !seen.stderr().ends_with("> ") {
-            tokio::task::yield_now().await;
-        }
+        shows_on(&seen, Stream::Stderr, |text| text.ends_with("> ")).await;
         presser.type_bytes(b"yo\x7fes\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "yes");
@@ -611,9 +604,7 @@ async fn an_answer_the_daemon_refuses_is_a_note_and_completion_stops_the_keys() 
         let (id, _) = input_respond(&mut conn).await;
         conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "the call does not wait for input"))
             .await;
-        while !seen.stdout().contains("nothing was sent") {
-            tokio::task::yield_now().await;
-        }
+        shows(&seen, "nothing was sent").await;
         // The command ends without a word about the wait first.
         conn.item(sub, &item(14, shell_completed(255))).await;
         presser.stopped().await;
@@ -665,15 +656,11 @@ async fn keys_stay_quiet_between_two_hidden_asks_of_one_call() {
         presser.type_bytes(b"wrong\r").await;
         let (id, _) = input_respond(&mut conn).await;
         conn.reply(id, &InputRespondResult {}).await;
-        while !seen.stdout().contains("answer sent") {
-            tokio::task::yield_now().await;
-        }
+        shows(&seen, "answer sent").await;
         // sudo checks the password and says it was wrong: no wait for a while.
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_output("Sorry, try again."))).await;
-        while !seen.stdout().contains("Sorry, try again.") {
-            tokio::task::yield_now().await;
-        }
+        shows(&seen, "Sorry, try again.").await;
         // Typed while nothing is asked: read and thrown away, never echoed or sent.
         presser.type_bytes(b"hunter2\r").await;
         conn.item(sub, &item(16, shell_output("[sudo] password for egg: "))).await;
@@ -831,9 +818,7 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
         assert!(!params.hidden, "the daemon reported a visible wait");
         assert!(!params.manual);
         conn.reply(id, &InputRespondResult {}).await;
-        while !seen.stdout().contains("answer sent") {
-            tokio::task::yield_now().await;
-        }
+        shows(&seen, "answer sent").await;
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_completed(0))).await;
         presser.stopped().await;
@@ -854,9 +839,25 @@ const HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the c
 
 /// Waits until stdout holds `text`.
 async fn shows(seen: &Captured, text: &str) {
-    while !seen.stdout().contains(text) {
-        tokio::task::yield_now().await;
-    }
+    shows_on(seen, Stream::Stdout, |shown| shown.contains(text)).await;
+}
+
+/// Where a view writes.
+#[derive(Debug, Clone, Copy)]
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// Waits until what the view wrote to `stream` passes `test`.
+async fn shows_on(seen: &Captured, stream: Stream, test: impl Fn(&str) -> bool) {
+    Wait::new(&format!("the view's {stream:?}"))
+        .until(|| match stream {
+            Stream::Stdout => test(&seen.stdout()),
+            Stream::Stderr => test(&seen.stderr()),
+        })
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

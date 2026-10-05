@@ -212,7 +212,9 @@ Tier 4: a binary.
 (markdown to ANSI), `efr-protocol` (the wire types) and `efr-stdx` (paths, `Clock`, `Rng`, `EFR_*` variables, named
 threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 `efr-transport`, not even in tests: the fake daemon of the tests speaks
-`efr_protocol::framing` directly.
+`efr_protocol::framing` directly. Tests also use `efr-test-support` (a dev-dependency)
+for `Wait`, which waits for a key thread, a view or the daemon's notice with a real
+time limit.
 
 Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (strings
 in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
@@ -290,4 +292,5 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-cli --test plugin
 `efr send` round trip whose model is a local Responses server.
 
 Nothing touches the network, the real home, config or runtime directory, and nothing
-sleeps on real time.
+under test sleeps on real time: only `Wait` sleeps between its polls, and its limit
+decides only when a failing test stops waiting.

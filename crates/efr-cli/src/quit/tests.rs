@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use efr_test_support::Wait;
 use futures::FutureExt as _;
 use rustix::process::{Signal, getpid, kill_process};
 
@@ -41,9 +42,10 @@ async fn ctrl_backslash_counts_only_while_a_wait_lives_and_otherwise_keeps_its_d
 
     // With no wait alive, the key takes its default action.
     press();
-    while UNARMED.load(Ordering::SeqCst) == 0 {
-        tokio::task::yield_now().await;
-    }
+    Wait::new("the default action of the key")
+        .until(|| UNARMED.load(Ordering::SeqCst) == 1)
+        .await
+        .unwrap();
 
     // A key from before a wait does not resolve it; the next one does.
     let mut wait = quit.wait();
@@ -60,7 +62,8 @@ async fn ctrl_backslash_counts_only_while_a_wait_lives_and_otherwise_keeps_its_d
     assert!((&mut dropped).now_or_never().is_none());
     drop(dropped);
     press();
-    while UNARMED.load(Ordering::SeqCst) == 1 {
-        tokio::task::yield_now().await;
-    }
+    Wait::new("the default action of the key")
+        .until(|| UNARMED.load(Ordering::SeqCst) == 2)
+        .await
+        .unwrap();
 }

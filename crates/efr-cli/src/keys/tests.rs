@@ -1,6 +1,7 @@
 use std::os::fd::OwnedFd;
 
 use efr_protocol::ApprovalDecision;
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use rustix::fs::{Mode, OFlags};
 use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
@@ -33,11 +34,9 @@ fn echoes(fd: &OwnedFd) -> bool {
     tcgetattr(fd).unwrap().local_modes.contains(LocalModes::ECHO)
 }
 
-/// Waits, without sleeping, until the key thread has switched the terminal.
+/// Waits until the key thread has switched the terminal.
 fn wait_for_key_mode(probe: &OwnedFd) {
-    while canonical(probe) {
-        std::thread::yield_now();
-    }
+    Wait::new("the key mode").until_blocking(|| !canonical(probe)).unwrap();
 }
 
 #[test]
@@ -112,9 +111,7 @@ async fn stopping_a_reader_whose_queue_is_full_ends_and_restores_the_terminal() 
     // A paste longer than the queue, which nobody reads: the thread ends up blocked
     // on a full queue.
     rustix::io::write(&master, &[b'x'; 2 * KEY_QUEUE]).unwrap();
-    while reader.keys.len() < KEY_QUEUE {
-        tokio::task::yield_now().await;
-    }
+    full_queue(&reader).await;
 
     reader.stop().await;
     assert!(canonical(&probe), "the line mode is back");
@@ -134,10 +131,13 @@ async fn full_reader(master: &OwnedFd, slave: OwnedFd, probe: &OwnedFd) -> KeyRe
     let reader = start_on(slave).unwrap();
     wait_for_key_mode(probe);
     rustix::io::write(master, &[b'x'; 2 * KEY_QUEUE]).unwrap();
-    while reader.keys.len() < KEY_QUEUE {
-        tokio::task::yield_now().await;
-    }
+    full_queue(&reader).await;
     reader
+}
+
+/// Waits until the key thread has filled the queue of `reader`.
+async fn full_queue(reader: &KeyReader) {
+    Wait::new("a full key queue").until(|| reader.keys.len() >= KEY_QUEUE).await.unwrap();
 }
 
 #[tokio::test]
