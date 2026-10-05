@@ -254,3 +254,6 @@ fn skip_rules<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Policy, D::E
     serde::de::IgnoredAny::deserialize(deserializer)?;
     Ok(Policy::empty())
 }
+
+#[cfg(test)]
+mod tests;
