@@ -285,6 +285,11 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
         // Through the link in the project, and through the link in the config.
         ("echo x > cfg/config.toml", Effect::Deny),
         ("tee cfg/new.toml", Effect::Deny),
+        // A hard link writes the same file under a new name.
+        ("ln ~/.config/efr/config.toml x", Effect::Deny),
+        ("cp -l ~/.config/efr/config.toml x", Effect::Deny),
+        // A link that the same line makes cannot be resolved before the line runs.
+        ("ln -s ~/.config/efr c && cp notes c/config.toml", Effect::Ask),
         // Reading stays free.
         ("cat ~/.config/efr/config.toml", Effect::Allow),
         ("cat cfg/config.toml", Effect::Allow),

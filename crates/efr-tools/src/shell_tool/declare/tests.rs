@@ -42,6 +42,27 @@ fn declare(line: &str) -> Declared {
 #[case::glob_write("rm src/*.o", &[], &[], &["/home/u/p/app/src"])]
 #[case::write_after_lost_cd("cd - && rm x", &[], &[], &["/"])]
 #[case::git_rm("git rm -r src", &[], &[], &["/home/u/p/app/src"])]
+// What an earlier cp, ln or mv of the line wrote may be a link that leads anywhere.
+#[case::through_a_new_link(
+    "ln -s ~ h && cat h/.ssh/id_ed25519",
+    &["/home/u", "/home/u/p/app/h/.ssh/id_ed25519"],
+    &["/"],
+    &["/home/u/p/app/h"]
+)]
+#[case::write_through_a_new_link(
+    "ln -s ~/.config/efr c && cp x c/config.toml",
+    &["/home/u/.config/efr"],
+    &["/home/u/p/app/x"],
+    &["/home/u/p/app/c", "/", "/home/u/p/app/c/config.toml"]
+)]
+#[case::cd_into_a_new_link(
+    "ln -s ~/.ssh k && cd k && cat id_ed25519",
+    &["/home/u/.ssh", "/home/u/p/app/k"],
+    &["/"],
+    &["/home/u/p/app/k"]
+)]
+#[case::through_a_copy("cp -r a b && cat b/x", &["/home/u/p/app/b/x"], &["/home/u/p/app/a", "/"], &["/home/u/p/app/b"])]
+#[case::mkdir_makes_no_link("mkdir -p out && cp a out/", &[], &["/home/u/p/app/a"], &["/home/u/p/app/out"])]
 #[case::echo_names_nothing("echo ~/.ssh/id_rsa", &[], &[], &[])]
 #[case::home_variable("cat $HOME/.ssh/id_rsa", &["/home/u/.ssh/id_rsa"], &[], &[])]
 fn declares(

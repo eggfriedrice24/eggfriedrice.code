@@ -7,7 +7,7 @@ use crate::shell_tool::words::split;
 /// The reads and the writes of the first simple command of `line`.
 fn of(line: &str) -> (Vec<String>, Vec<String>) {
     let line = split(line);
-    let Reads { named, writes, cwd } = reads(line.commands[0].program_and_args());
+    let Reads { named, writes, cwd, .. } = reads(line.commands[0].program_and_args());
     assert_eq!(cwd, None, "a writer reads no working directory it does not name");
     let texts = |list: Vec<Named>| -> Vec<String> {
         list.into_iter()
@@ -51,6 +51,15 @@ fn of(line: &str) -> (Vec<String>, Vec<String>) {
 #[case::ln_one_operand_slash("ln -s /srv/x/", &["/srv/x/"], &["x"])]
 #[case::ln_one_operand_home("ln -s ~", &["~"], &["."])]
 #[case::ln_target("ln -s -t ~/bin a b", &[], &["~/bin", "a", "b"])]
+// A hard link writes its source too: the new name writes the same file.
+#[case::ln_hard("ln ~/.config/efr/config.toml x", &[], &["~/.config/efr/config.toml", "x"])]
+#[case::ln_hard_one_operand("ln ~/.config/efr/config.toml", &[], &["~/.config/efr/config.toml", "config.toml"])]
+#[case::ln_symbolic_long("ln --symbolic a b", &["a"], &["b"])]
+#[case::ln_symbolic_abbreviated("ln --sy a b", &["a"], &["b"])]
+#[case::ln_suffix_is_not_symbolic("ln -Ss a b", &[], &["a", "b"])]
+#[case::cp_hard("cp -l a b", &[], &["a/**", "b"])]
+#[case::cp_hard_in_a_cluster("cp -al a b", &[], &["a/**", "b"])]
+#[case::cp_hard_abbreviated("cp --l a b", &[], &["a/**", "b"])]
 // A wrapper writes what its program writes.
 #[case::nice("nice rm -rf ~/x", &["rm", "~/x"], &["~/x"])]
 // git deletes, moves and creates paths in the work tree.
@@ -74,5 +83,17 @@ fn owned(texts: &[&str]) -> Vec<String> {
 fn programs_that_are_not_writers_write_nothing() {
     for line in ["cat a b", "cargo test", "sed -n 1p f", "git checkout main"] {
         assert_eq!(of(line).1, Vec::<String>::new(), "{line:?}");
+    }
+}
+
+#[test]
+fn cp_ln_and_mv_may_relink_and_the_other_writers_may_not() {
+    let links = |line: &str| reads(split(line).commands[0].program_and_args()).links;
+    for line in ["cp a b", "ln -s a b", "mv a b", "nice mv a b", "git mv a b", "git worktree add w"]
+    {
+        assert!(links(line), "{line:?}");
+    }
+    for line in ["rm a", "mkdir a", "touch a", "chmod +x a", "tee a", "cat a"] {
+        assert!(!links(line), "{line:?}");
     }
 }

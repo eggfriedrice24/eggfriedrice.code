@@ -391,8 +391,10 @@ directory:
   `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`; the last
   operand of `cp` (its other operands are read with everything below them, as a
   recursive copy reads them); the link that `ln` creates (its target is read). With
-  `-t` or `--target-directory`, every operand of `cp` and `ln` counts as written. The
-  operands of `git rm`, `git mv` and `git worktree add` are written too;
+  `-t` or `--target-directory`, every operand of `cp` and `ln` counts as written. A
+  hard link (`ln` without `-s`, `cp -l`) writes its sources too, because the new name
+  writes the same file. The operands of `git rm`, `git mv` and `git worktree add` are
+  written too;
 - `ls` with no path lists the working directory, which is a read of it;
 - `rg`, `grep -r`, `find`, `du`, `tree`, `ls -R` and `diff` read everything below their
   paths. With no path, they read the working directory. An option that the shell tool
@@ -404,7 +406,11 @@ directory:
 - `< file` is a read, and `> file` or `>> file` is a write;
 - the commands inside `$(...)`, backquotes and groups declare their paths too;
 - a `cd` in the line adds its target as one more directory where the rest of the line
-  may run. After `cd -`, `popd` or `cd $DIR`, a relative path may be anywhere below `/`.
+  may run. After `cd -`, `popd` or `cd $DIR`, a relative path may be anywhere below `/`;
+- a path that an earlier `cp`, `ln`, `mv`, `git mv` or `git worktree add` of the same
+  line writes may be a symbolic link by the time a later command uses it, so a later
+  path at or below it may be anywhere below `/` too: `ln -s ~ h && cat h/.ssh/x`
+  asks.
 
 So `cat ~/.ssh/id_ed25519` is denied, although `cat` runs freely, and `rm ~/.ssh/x`
 is a denied write of a secret, not a read. A read of everything below a directory asks
@@ -417,7 +423,8 @@ path reaches through a symbolic link, so `cat notes`, where `notes` links to
 `~/.ssh/id_ed25519`, is denied like `cat ~/.ssh/id_ed25519`, and a recursive search
 whose root is a link is judged by its target too. It does not see a link that a glob
 expands to, a link below the root of a recursive search that the program follows
-(`rg -L`, `grep -R`, `find -L`), or a link that the same line creates. It does not see
+(`rg -L`, `grep -R`, `find -L`), or a link that a program other than the writer
+programs creates in the same line, such as `git checkout` or a build. It does not see
 the files that a program writes without naming them on the line, such as what a build,
 a script or `git checkout` writes.
 
@@ -451,6 +458,11 @@ that could write them could give itself any permission.
 - A write of a directory above it, such as `rm -rf ~/.config`, asks, also when a rule
   allows it.
 - Reading it is free in `cautious` and `auto`; it holds no secrets.
+
+Config protection judges what a call declares. A build or a test that `auto` runs
+runs the project's own code, and that code can write any file you can, efr's config
+included. This is one more reason to choose `auto` only in projects whose code you
+trust.
 
 You change the file yourself, in your editor or with `efr config`. The daemon reads the
 links in the directory each time it builds the engine.

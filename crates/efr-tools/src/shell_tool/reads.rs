@@ -46,6 +46,9 @@ pub(super) struct Reads {
     pub(super) named: Vec<Named>,
     /// The paths it names and writes: creates, changes, moves or deletes.
     pub(super) writes: Vec<Named>,
+    /// True when it may create or move a symbolic link at a path it writes, so a later
+    /// command of the line may reach anything through that path.
+    pub(super) links: bool,
     /// How much of the working directory it reads without naming it, if any.
     pub(super) cwd: Option<Depth>,
 }
@@ -452,7 +455,7 @@ fn git(args: &[Word]) -> Option<Reads> {
         _ => return None,
     };
     let Reads { named, .. } = generic(after);
-    Some(Reads { named: Vec::new(), writes: named, cwd: None })
+    Some(Reads { writes: named, links: true, ..Reads::default() })
 }
 
 /// Every operand, and every option value that looks like a path, read alone.
@@ -482,7 +485,7 @@ pub(super) fn generic(args: &[Word]) -> Reads {
             named.push(value);
         }
     }
-    Reads { named, writes: Vec::new(), cwd: None }
+    Reads { named, ..Reads::default() }
 }
 
 /// A wrapper such as `sudo` or `timeout`: every word as a path, and the program it
@@ -499,6 +502,7 @@ fn wrapped(args: &[Word]) -> Reads {
         let inner = self::reads(&args[at..]);
         reads.named.extend(inner.named);
         reads.writes.extend(inner.writes);
+        reads.links |= inner.links;
         reads.cwd = reads.cwd.max(inner.cwd);
     }
     reads
@@ -535,7 +539,7 @@ fn find(args: &[Word]) -> Reads {
         }
     }
     let cwd = named.is_empty().then_some(Depth::Tree);
-    Reads { named, writes: Vec::new(), cwd }
+    Reads { named, cwd, ..Reads::default() }
 }
 
 impl Reader {
@@ -653,7 +657,7 @@ impl Reader {
         named.extend(values);
         let reads_cwd = self.cwd && (depth == Depth::Tree || !self.pattern_first);
         let cwd = (reads_cwd && (!certain || paths.is_empty())).then_some(depth);
-        Reads { named, writes: Vec::new(), cwd }
+        Reads { named, cwd, ..Reads::default() }
     }
 }
 

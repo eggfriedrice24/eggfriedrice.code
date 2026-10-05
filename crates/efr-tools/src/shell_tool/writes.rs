@@ -26,10 +26,14 @@ const ALL_WRITTEN: &[&str] = &["rm", "rmdir", "mkdir", "touch", "mv", "chmod", "
 ///   with everything below them, as a recursive copy does;
 /// - `ln` writes the link: its last operand, the directory of `-t`, or, with one
 ///   operand, the name of that operand in the working directory. It reads the others,
-///   so a link to a secret is judged as a read of the secret.
+///   so a link to a secret is judged as a read of the secret;
+/// - a hard link (`ln` without `-s`, `cp -l`) writes its sources too, because the
+///   new name writes the same file: `ln ~/.config/efr/config.toml x` is a write of the
+///   config.
 ///
 /// The value of an option that looks like a path is read, except the directory of
-/// `-t` and `--target-directory`, which is written.
+/// `-t` and `--target-directory`, which is written. `cp`, `ln` and `mv` may create or
+/// move a symbolic link, which the result says ([`Reads::links`]).
 pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
     let kind = match name {
         "cp" => Kind::Copy,
@@ -38,8 +42,10 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
         _ => return None,
     };
     let mut operands: Vec<&Word> = Vec::new();
-    let mut reads = Reads::default();
+    let mut reads = Reads { links: matches!(name, "cp" | "ln" | "mv"), ..Reads::default() };
     let mut target = false;
+    // NOTE: `ln` makes a hard link unless the line shows `-s`; `cp` only with `-l`.
+    let mut hard = kind == Kind::Link;
     let mut after_options = false;
     for word in args {
         let text = word.text.as_str();
@@ -58,6 +64,13 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
         }
         let names_target = matches!(name, "cp" | "mv" | "ln") && names_target_directory(text);
         target |= names_target;
+        match kind {
+            // NOTE: an abbreviation counts for `--link` from one letter on, which errs
+            // towards a hard link, and for `--symbolic` only from two.
+            Kind::Link if has_flag(text, 's', "symbolic", 2) => hard = false,
+            Kind::Copy if has_flag(text, 'l', "link", 1) => hard = true,
+            _ => {}
+        }
         if let Some(value) = option_value(word) {
             if names_target { reads.writes.push(value) } else { reads.named.push(value) }
         }
@@ -72,14 +85,24 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
             reads.writes.extend(operands.iter().map(written));
         }
         (Kind::Link, Some((only, []))) => {
-            reads.named.push(from_word(only, Depth::One));
+            let source = from_word(only, Depth::One);
+            if hard {
+                reads.writes.push(source)
+            } else {
+                reads.named.push(source)
+            }
             reads.writes.push(link_name(only));
         }
         (Kind::Copy | Kind::Link, Some((last, sources))) => {
             // NOTE: `cp -r ~ x` would copy the keys below `~` to where they are no
             // longer secret, so a source of `cp` is read with everything below it.
             let depth = if kind == Kind::Copy { Depth::Tree } else { Depth::One };
-            reads.named.extend(sources.iter().map(|word| from_word(word, depth)));
+            let sources = sources.iter().map(|word| from_word(word, depth));
+            if hard {
+                reads.writes.extend(sources)
+            } else {
+                reads.named.extend(sources)
+            }
             reads.writes.push(from_word(last, Depth::One));
         }
     }
@@ -106,6 +129,22 @@ fn names_target_directory(text: &str) -> bool {
             !name.is_empty() && "target-directory".starts_with(name)
         }
         None => text[1..].contains('t'),
+    }
+}
+
+/// True when the option word `text` sets the flag `short`, or the long option `long`
+/// or an abbreviation of it of at least `least` letters. A short value option of `cp`
+/// and `ln` (`-S`, `-t`) ends the cluster: what follows is its value.
+fn has_flag(text: &str, short: char, long: &str, least: usize) -> bool {
+    match text.strip_prefix("--") {
+        Some(name) => {
+            let name = name.split_once('=').map_or(name, |(name, _)| name);
+            name.len() >= least && long.starts_with(name)
+        }
+        None => text[1..]
+            .chars()
+            .take_while(|letter| !matches!(letter, 'S' | 't'))
+            .any(|letter| letter == short),
     }
 }
 

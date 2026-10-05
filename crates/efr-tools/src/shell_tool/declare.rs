@@ -7,6 +7,11 @@
 //! `||` may or may not take effect; a `cd` whose target the text does not show (`cd -`,
 //! `popd`, `cd $DIR`) leaves the directory unknown, and a relative path then counts as
 //! anything below `/`.
+//!
+//! A path that an earlier `cp`, `ln` or `mv` of the same line writes may be a symbolic
+//! link by the time a later command uses it, and the daemon resolves links before the
+//! line runs, so a later path at or below it may reach anything: it counts as anything
+//! below `/` as well. `ln -s ~ h && cat h/.ssh/id_ed25519` then asks.
 
 use std::path::{Path, PathBuf};
 
@@ -28,8 +33,13 @@ pub(super) struct Declared {
 
 /// The paths of `line`, run from `start` by a user whose home directory is `home`.
 pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
-    let mut walk =
-        Walk { bases: vec![start.to_path_buf()], lost: false, home, out: Declared::default() };
+    let mut walk = Walk {
+        bases: vec![start.to_path_buf()],
+        lost: false,
+        relinked: Vec::new(),
+        home,
+        out: Declared::default(),
+    };
     for command in &line.commands {
         for input in &command.inputs {
             walk.declare(&named(input, Depth::One), Access::Read);
@@ -49,8 +59,12 @@ pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
                 for named in &reads.named {
                     walk.declare(named, Access::Read);
                 }
+                let mut written = Vec::new();
                 for named in &reads.writes {
-                    walk.declare(named, Access::Write);
+                    written.extend(walk.declare(named, Access::Write));
+                }
+                if reads.links {
+                    walk.relinked.extend(written);
                 }
                 if let Some(depth) = reads.cwd {
                     walk.declare(
@@ -75,6 +89,9 @@ struct Walk<'a> {
     bases: Vec<PathBuf>,
     /// True once a `cd` went somewhere the text does not show.
     lost: bool,
+    /// The paths that an earlier `cp`, `ln` or `mv` of the line writes, which may be
+    /// symbolic links when a later command uses them.
+    relinked: Vec<PathBuf>,
     home: &'a Path,
     out: Declared,
 }
@@ -95,6 +112,10 @@ impl Walk<'_> {
             Some(word) => {
                 let target = named(word, Depth::One);
                 self.declare(&target, Access::Read);
+                if self.relinked.iter().any(|link| self.reaches(&target, link)) {
+                    self.lost = true;
+                    return;
+                }
                 let moved = self.resolve(&target.text, target.tilde);
                 for base in moved.into_iter().flatten() {
                     if !self.bases.contains(&base) {
@@ -106,8 +127,8 @@ impl Walk<'_> {
     }
 
     /// Declares `named`: a pattern as everything below its fixed directory, anything
-    /// else as itself.
-    fn declare(&mut self, named: &Named, access: Access) {
+    /// else as itself. Returns the paths it declared.
+    fn declare(&mut self, named: &Named, access: Access) -> Vec<PathBuf> {
         let (text, depth) = match named.pattern {
             Some(at) => {
                 let fixed = &named.text[..at];
@@ -122,15 +143,29 @@ impl Walk<'_> {
             None => (named.text.as_str(), named.depth),
         };
         let tilde = named.tilde && (text == "~" || text.starts_with("~/"));
-        match self.resolve(text, tilde) {
-            Some(paths) => {
-                for path in paths {
-                    self.push(path, access, depth);
-                }
-            }
+        let paths = match self.resolve(text, tilde) {
+            Some(paths) => paths,
             // NOTE: the directory is unknown, so a relative path may be anywhere.
-            None => self.push(PathBuf::from("/"), access, Depth::Tree),
+            None => {
+                self.push(PathBuf::from("/"), access, Depth::Tree);
+                return Vec::new();
+            }
+        };
+        for path in &paths {
+            // NOTE: a link that this line made may lead anywhere, and the daemon cannot
+            // resolve it before the line runs.
+            if self.relinked.iter().any(|link| path.starts_with(link)) {
+                self.push(PathBuf::from("/"), access, Depth::Tree);
+            }
+            self.push(path.clone(), access, depth);
         }
+        paths
+    }
+
+    /// True when `target` resolves to `link` or below it from one of the bases.
+    fn reaches(&self, target: &Named, link: &Path) -> bool {
+        self.resolve(&target.text, target.tilde)
+            .is_some_and(|paths| paths.iter().any(|path| path.starts_with(link)))
     }
 
     /// The absolute forms of `text`: under the home directory for `~`, itself when

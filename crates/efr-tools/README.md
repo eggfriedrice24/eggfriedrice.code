@@ -57,10 +57,12 @@ The tools:
   `shell_tool/writes.rs` says which words of a writer program it writes (every
   operand of `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`;
   the last operand or the `-t` directory of `cp`; the link of `ln`; every operand when
-  the text cannot show which one `-t` takes), `reads.rs` does the same for `git rm`,
-  `git mv` and `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
+  the text cannot show which one `-t` takes; the sources of a hard link, `ln` without
+  `-s` or `cp -l`), `reads.rs` does the same for `git rm`, `git mv` and
+  `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
   `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows
-  `cd` within the line, turns a glob into everything below its fixed directory and an
+  `cd` within the line, counts a path at or below what an earlier `cp`, `ln` or `mv`
+  of the line wrote as anywhere below `/` too (it may be a link by then), turns a glob into everything below its fixed directory and an
   output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is
   denied, `rg TOKEN ~/.aws` declares `~/.aws` with everything below and asks, and
   `cp x ~/.config/efr/config.toml` declares a write of efr's config, which every mode
