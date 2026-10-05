@@ -25,14 +25,29 @@
         },
         {
           "const": "network",
-          "description": "Network access.",
+          "description": "Network access: by any call with the resource `any`, or by one simple command\nof a command line that the resource's command pattern matches. A line reaches\nthe network without a question only when every simple command in it may: by\nsuch a rule, or because only a built-in rule lets it run, as for `tail` in\n`npm ci | tail`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Check": {
+      "description": "A check of the words after a [`CommandPattern`](super::CommandPattern)'s `args`.\n\nThe enum is deliberately exhaustive, like the other rule types: a new check must be\nmatched everywhere.",
+      "oneOf": [
+        {
+          "const": "sed_print_only",
+          "description": "`sed` that only prints: `-n` or `--quiet` is given; the only other options are\n`-e` and `--expression` with a script, `-E`, `-r`, `-u`, `--regexp-extended`,\n`--posix`, `--sandbox` and `--unbuffered`; and each script holds only addresses\n(line numbers, `$`, `first~step`, `/regex/` without a bracket expression, and\nranges of them, `addr,+N` and `addr,~N`), `!`, and the commands `p`, `l`, `=`,\n`q` and `Q`, separated by `;` or newlines. So no script file (`-f`), no in-place\nedit (`-i`), no `w`, `W`, `r`, `R` or `e` command and no `s` command, whose `w`\nand `e` flags write a file and run a program.",
+          "type": "string"
+        },
+        {
+          "const": "ref_names",
+          "description": "Every operand is a git ref name, such as `main`, `origin`, `v1.2` or\n`feature/x`, and no word is `--`: letters, digits, `.`, `_`, `/`, `-`, `~` and\n`^`, starting with a letter, a digit or `_`, without `..`, `//` or a trailing\n`/` or `.`. So `git checkout -- .`, `git checkout .`, a quoted pathspec such as\n`'*'` and a URL such as `https://host/x` fail.",
           "type": "string"
         }
       ]
     },
     "CommandPattern": {
       "additionalProperties": false,
-      "description": "A command that a rule names: a program, the words that must follow it, the words\nthat must not appear, and how many operands it may have.\n\nA pattern judges one simple command at a time. The engine splits a line on `;`,\n`&&`, `||`, `|` and newlines, reading quotes as zsh does, and allows a line only\nwhen it allows every simple command in it. A line with a command substitution, a\nparameter expansion, a here-document, an output redirection to anything but\n`/dev/null`, a group, a background job, an assignment that could change what runs,\nor a builtin such as `eval` matches no pattern at all, and falls through to the\nrules for every command line. A program that runs commands as another user (`sudo`,\n`doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper\nsuch as `env`.\n\nWords are compared after quotes are removed, so `git 'status'` is `git status`. A\ncommand with a pattern outside quotes, such as `src/*.rs`, matches only a pattern\nthat sets no operand bound, forbids no word without a dash and has no wildcard\nalternative without one, because zsh replaces the pattern with the names it matches.",
+      "description": "A command that a rule names: a program, the words that must follow it, the words\nthat must not appear, and how many operands it may have.\n\nA pattern judges one simple command at a time. The engine splits a line on `;`,\n`&&`, `||`, `|` and newlines, reading quotes as zsh does, and allows a line only\nwhen it allows every simple command in it. A line with a command substitution, a\nparameter expansion, a here-document, an output redirection to anything but\n`/dev/null`, a group, a background job, an assignment that could change what runs,\nor a builtin such as `eval` matches no pattern at all, and falls through to the\nrules for every command line. A program that runs commands as another user (`sudo`,\n`doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper\nsuch as `env`.\n\nWords are compared after quotes are removed, so `git 'status'` is `git status`. A\ncommand with a pattern outside quotes, such as `src/*.rs`, matches only a pattern\nthat sets no operand bound, forbids no word without a dash, has no check and no\nwildcard alternative without a dash, because zsh replaces the pattern with the\nnames it matches.",
       "properties": {
         "args": {
           "description": "The words that must follow the program, in order, such as `[\"status\"]`. A word\nmay list alternatives separated by `|`, as in `\"status|diff|log\"`, and an\nalternative that ends in `*` matches every word that starts with what comes\nbefore it, as `-Q*` matches `-Qi`. No words matches every invocation.",
@@ -40,6 +55,17 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A check of the words after `args` that a list of words cannot express, such as\n`sed_print_only` for a `sed` script that only prints. What the check cannot\nprove matches nothing."
         },
         "forbid": {
           "description": "Words that must not appear anywhere after the program:\n\n- `--name` matches `--name`, `--name=value`, and every abbreviation of it down\n  to `--n`, because GNU programs accept any unambiguous abbreviation;\n- `-x`, one letter, matches every word that starts with one `-` and holds the\n  letter, so `-o` also matches `-uo`;\n- `-name`, several letters after one `-`, matches that word, the way `find`\n  reads its predicates;\n- an option that ends in `*` matches every word that starts with it;\n- a word without a leading `-` matches every word without one that contains it.",
@@ -80,11 +106,15 @@
           "type": "string"
         },
         "under": {
-          "description": "A directory the command must run in, or below: absolute or starting with `~`.\nThe directory is where the hidden shell is when the line starts; after a `cd`,\n`pushd` or `popd` earlier in the line it is unknown, and the pattern matches\nnothing.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Under"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the command must run: a directory or below it (absolute or starting with\n`~`), `\"project\"` for the turn's registered project, or `\"scratch\"` for the\nconversation's `$SCRATCH`. The directory is where the hidden shell is when the\nline starts; after a `cd`, `pushd` or `popd` earlier in the line it is unknown,\nand the pattern matches nothing."
         }
       },
       "required": [
@@ -202,7 +232,7 @@
           "type": "string"
         },
         "system_prompt": {
-          "default": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. Every tool call is checked against the user's permission policy: writes outside $SCRATCH may need the user's approval, and secrets are never readable. Read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH.",
+          "default": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. The user does not see your tools' output. For each tool call they see one dim line, such as shell: <command>, the last line of its output while it runs, and any approval question or input prompt. Say in your reply what the output showed that matters to them, and never refer to output as \"above\" or \"shown\". Every tool call is checked against the user's permission policy and the turn's permission mode, which the live state names: writes outside $SCRATCH may need the user's approval, and secrets are never readable. In the cautious mode, read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH.",
           "description": "The system prompt of every request.",
           "type": "string"
         }
@@ -221,7 +251,7 @@
           ]
         },
         "models": {
-          "description": "Model ids that replace the built-in model list. Unset: the built-in list.",
+          "description": "Model ids added to the built-in model list, such as a new model before efr\nknows it. A prompt may then name them; their efforts are not checked.",
           "items": {
             "type": "string"
           },
@@ -282,7 +312,7 @@
         "mode": {
           "$ref": "#/$defs/Mode",
           "default": "cautious",
-          "description": "The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt\nmay choose another one for its turn.\n\nNOTE: read and validated, but not applied yet: every turn runs with the\n`cautious` rules until the modes are wired."
+          "description": "The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt\nmay choose another one for its turn. A turn from the phone runs with at most\n`cautious`."
         },
         "rules": {
           "$ref": "#/$defs/Policy",
@@ -357,12 +387,12 @@
         },
         {
           "const": "project",
-          "description": "Every path inside the root of the turn's registered project. It matches nothing\nwhen the scope is not a registered project, or when that root is `~`, `/` or a\ndirectory above `~`.",
+          "description": "Every path inside the root of the turn's registered project: a read of the root\nor below it, a write strictly below it. It matches nothing when the scope is not\na registered project, or when that root is `~`, `/` or a directory above `~`.",
           "type": "string"
         },
         {
           "additionalProperties": false,
-          "description": "Every simple command that matches the pattern.",
+          "description": "Every simple command that matches the pattern. With the action `network`, the\nnetwork access of such a command; the action `any` does not open the network.",
           "properties": {
             "command": {
               "$ref": "#/$defs/CommandPattern"
@@ -445,7 +475,7 @@
         "sudo_cache": {
           "$ref": "#/$defs/SudoCache",
           "default": "keep",
-          "description": "`keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell\nforget the credentials after each call that ran sudo or doas.\n\nNOTE: read and validated, but not applied yet: sudo keeps its own cache."
+          "description": "`keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell\nforget sudo's and doas's credentials after each call, before anything else runs\nthere. Read at each call."
         }
       },
       "type": "object"
@@ -460,10 +490,14 @@
         },
         {
           "const": "per_call",
-          "description": "The hidden shell forgets the credentials after each call, so the next sudo asks\nfor the password again.",
+          "description": "The hidden shell forgets the credentials after each call (`sudo -k`, `doas -L`),\nso the next sudo asks for the password again.",
           "type": "string"
         }
       ]
+    },
+    "Under": {
+      "description": "Where a command must run for a [`CommandPattern`] to match it: below a directory,\nin the turn's registered project, or in the conversation's `$SCRATCH`.\n\nIn the configuration it is one string: `\"project\"`, `\"scratch\"`, or a directory that\nis absolute or starts with `~`.",
+      "type": "string"
     }
   },
   "$id": "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json",
@@ -489,7 +523,7 @@
       "$ref": "#/$defs/ModelSettings",
       "default": {
         "provider": "openai-subscription",
-        "system_prompt": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. Every tool call is checked against the user's permission policy: writes outside $SCRATCH may need the user's approval, and secrets are never readable. Read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH."
+        "system_prompt": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. The user does not see your tools' output. For each tool call they see one dim line, such as shell: <command>, the last line of its output while it runs, and any approval question or input prompt. Say in your reply what the output showed that matters to them, and never refer to output as \"above\" or \"shown\". Every tool call is checked against the user's permission policy and the turn's permission mode, which the live state names: writes outside $SCRATCH may need the user's approval, and secrets are never readable. In the cautious mode, read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH."
       },
       "description": "The provider, the default model of a turn and what each request carries."
     },

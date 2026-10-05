@@ -49,7 +49,7 @@ The OpenAI providers.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `originator` | `"efr"` | restart | The `originator` of the subscription login and of every subscription request. Needs a restart. |
-| `models` | unset | live | Model ids that replace the built-in model list. Unset: the built-in list. |
+| `models` | unset | live | Model ids added to the built-in model list, such as a new model before efr knows it. A prompt may then name them; their efforts are not checked. |
 | `subscription_base_url` | unset | restart | Replaces the subscription backend's base URL. Needs a restart. |
 | `api_base_url` | unset | restart | Replaces the public API's base URL. Needs a restart. |
 
@@ -59,7 +59,7 @@ The permission mode, extra secrets and the user's rules.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `mode` | `"cautious"` | live | The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt may choose another one for its turn. NOTE: read and validated, but not applied yet: every turn runs with the `cautious` rules until the modes are wired. |
+| `mode` | `"cautious"` | live | The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt may choose another one for its turn. A turn from the phone runs with at most `cautious`. |
 | `secret_paths` | `[]` | live | Files and directories that count as secrets on top of the built-in ones, so the model may never read or write them: absolute, or below the home directory as `~/...`. |
 | `rules` | `[]` | live | The user's rules, `[[permissions.rules]]`, after the built-in rules: the last rule that matches wins. |
 
@@ -72,7 +72,7 @@ How hidden shells start and when idle ones stop.
 | `program` | unset | live | The shell, an absolute path. Unset: `zsh` on the `PATH`. |
 | `login` | `true` | live | Start the hidden shell as a login shell. |
 | `idle_minutes` | `60` | live | Minutes without output or input, at a prompt and unwatched, before a hidden shell is closed; 0 keeps idle shells. |
-| `sudo_cache` | `"keep"` | live | `keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell forget the credentials after each call that ran sudo or doas. NOTE: read and validated, but not applied yet: sudo keeps its own cache. |
+| `sudo_cache` | `"keep"` | live | `keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell forget sudo's and doas's credentials after each call, before anything else runs there. Read at each call. |
 
 ## [conversation]
 
