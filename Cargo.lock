@@ -743,6 +743,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-config"
+version = "0.1.0"
+dependencies = [
+ "efr-permissions",
+ "efr-protocol",
+ "efr-stdx",
+ "insta",
+ "pretty_assertions",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "toml_edit",
+]
+
+[[package]]
 name = "efr-conversation"
 version = "0.1.0"
 dependencies = [
@@ -911,6 +930,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "rstest",
+ "schemars",
  "serde",
  "thiserror",
  "toml",
@@ -3312,8 +3332,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1340ea94a5856333492c9064b02c778b191dd2c853778d9609debdcdfea3a614"
 dependencies = [
  "indexmap",
+ "serde_core",
+ "serde_spanned",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

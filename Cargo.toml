@@ -9,7 +9,7 @@ default-members = [
   "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
-  "crates/efr-test-daemon", "xtask",
+  "crates/efr-test-daemon", "crates/efr-config", "xtask",
 ]
 
 [workspace.package]
@@ -37,6 +37,8 @@ serde = { version = "1.0.229", default-features = false, features = ["std", "der
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
 schemars = { version = "1.2.2", default-features = false, features = ["std", "derive"] }
 toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "display"] }
+# The format-preserving writer of config.toml (efr-config): comments and layout stay.
+toml_edit = { version = "0.25.15", default-features = false, features = ["parse", "display", "serde"] }
 
 # Errors
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
@@ -137,6 +139,7 @@ efr-shell = { path = "crates/efr-shell" }
 efr-tools = { path = "crates/efr-tools" }
 efr-provider-openai = { path = "crates/efr-provider-openai" }
 efr-oauth-openai = { path = "crates/efr-oauth-openai" }
+efr-config = { path = "crates/efr-config" }
 efr-conversation = { path = "crates/efr-conversation" }
 efr-transport = { path = "crates/efr-transport" }
 efr-client = { path = "crates/efr-client" }

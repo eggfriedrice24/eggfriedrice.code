@@ -1,0 +1,28 @@
+---
+source: crates/efr-config/src/effective/tests.rs
+expression: settings.effective()
+---
+# /home/u/.config/efr/config.toml
+log = "debug"  # env EFR_LOG
+screen = "vt100"  # flag --screen
+model.provider = "openai-subscription"  # default
+model.name = "gpt-6-sol"  # file
+model.effort = (unset)  # default
+model.system_prompt = <810 bytes>  # default
+model.max_output_tokens = (unset)  # default
+openai.originator = "efr"  # default
+openai.models = (built in)  # default
+openai.subscription_base_url = (unset)  # default
+openai.api_base_url = (unset)  # default
+permissions.mode = "cautious"  # default
+permissions.secret_paths = []  # default
+permissions.rules = [{ action = "execute", resource = { command = { program = "cargo", args = ["test"] } }, effect = "allow" }]  # file
+shell.program = (unset)  # default
+shell.login = true  # default
+shell.idle_minutes = 30  # file
+shell.sudo_cache = "keep"  # default
+conversation.max_queued = 16  # default
+conversation.approval_timeout_secs = (unset)  # default
+conversation.update_interval_ms = 200  # default
+conversation.tty_idle_hours = 12  # default
+render.theme = "catppuccin-mocha"  # file

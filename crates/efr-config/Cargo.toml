@@ -1,0 +1,33 @@
+[package]
+name = "efr-config"
+description = "The efr config file: its schema, defaults, validation, sources, JSON schema, example and the format-preserving writer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-permissions.workspace = true
+efr-protocol.workspace = true
+efr-stdx.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The content hash the writer compares right before it writes.
+sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

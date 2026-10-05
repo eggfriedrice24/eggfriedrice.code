@@ -47,6 +47,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-tools", &["efr-shell", "efr-scope", "efr-protocol", "efr-stdx"]),
     ("efr-provider-openai", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
     ("efr-oauth-openai", &["efr-http", "efr-credentials", "efr-provider", "efr-stdx"]),
+    // The config file's schema, shared by efrd and efr; efr-tools must never reach it,
+    // because it reaches efr-permissions.
+    ("efr-config", &["efr-permissions", "efr-protocol", "efr-stdx"]),
     // Tier 3
     (
         "efr-conversation",
@@ -79,11 +82,12 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-tools",
             "efr-provider-openai",
             "efr-oauth-openai",
+            "efr-config",
             "efr-conversation",
             "efr-transport",
         ],
     ),
-    ("efr-cli", &["efr-client", "efr-render", "efr-protocol", "efr-stdx"]),
+    ("efr-cli", &["efr-client", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
     // Tier T
     ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-client", "efr-protocol"]),
     // Tooling

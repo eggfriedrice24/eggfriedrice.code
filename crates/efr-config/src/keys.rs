@@ -1,0 +1,220 @@
+//! Every key of the file, derived from the typed tables: their order, their kind and
+//! the JSON schema.
+//!
+//! The tables are the one place a key is written. The JSON schema comes from their
+//! `JsonSchema` derives, and the order of the keys from their `Deserialize` derives,
+//! which name the fields in the order they are declared. A test keeps the two lists
+//! equal, so a table that [`table_fields`] forgets fails it.
+
+use std::fmt;
+
+use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
+use serde_json::Value as Json;
+
+use crate::{
+    ConversationSettings, ModelSettings, OpenAiSettings, PermissionSettings, RenderSettings,
+    Settings, ShellSettings,
+};
+
+/// Where the JSON schema of the file is published. The first line of the example file
+/// names it, so editors that read `#:schema` lines check the file as it is typed.
+pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json";
+
+/// The keys a change applies to only after the daemon restarts. Every other key of the
+/// daemon applies to the next turn, prompt or tool call; `render.theme` belongs to
+/// `efr`.
+pub const RESTART_KEYS: &[&str] = &[
+    "screen",
+    "model.provider",
+    "openai.originator",
+    "openai.subscription_base_url",
+    "openai.api_base_url",
+];
+
+/// What a key holds, as the JSON schema says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Kind {
+    /// A string.
+    String,
+    /// One of these names.
+    Choice(Vec<String>),
+    /// A whole number.
+    Integer,
+    /// `true` or `false`.
+    Boolean,
+    /// A list of strings.
+    List,
+    /// `[[permissions.rules]]`: tables, which only an editor or the rule operations
+    /// change.
+    Rules,
+}
+
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Kind::String => f.write_str("a string"),
+            Kind::Choice(names) => match names.split_last() {
+                Some((last, [])) => write!(f, "{last}"),
+                Some((last, rest)) => write!(f, "{} or {last}", rest.join(", ")),
+                None => f.write_str("nothing"),
+            },
+            Kind::Integer => f.write_str("a whole number"),
+            Kind::Boolean => f.write_str("true or false"),
+            Kind::List => f.write_str("a list of strings"),
+            Kind::Rules => f.write_str("a list of rules"),
+        }
+    }
+}
+
+/// Every dotted key of the file, in the order the tables declare them: `log`, `screen`,
+/// then `model.provider` and the rest of each table.
+pub fn keys() -> Vec<String> {
+    let mut keys = Vec::new();
+    for field in fields::<Settings>() {
+        match table_fields(field) {
+            Some(names) => keys.extend(names.iter().map(|name| format!("{field}.{name}"))),
+            None => keys.push((*field).to_owned()),
+        }
+    }
+    keys
+}
+
+/// The fields of the table named `table`, or `None` for a key outside a table.
+fn table_fields(table: &str) -> Option<&'static [&'static str]> {
+    Some(match table {
+        "model" => fields::<ModelSettings>(),
+        "openai" => fields::<OpenAiSettings>(),
+        "permissions" => fields::<PermissionSettings>(),
+        "shell" => fields::<ShellSettings>(),
+        "conversation" => fields::<ConversationSettings>(),
+        "render" => fields::<RenderSettings>(),
+        _ => return None,
+    })
+}
+
+/// The JSON schema of the file.
+pub fn json_schema() -> Json {
+    let mut schema = schemars::schema_for!(Settings).to_value();
+    if let Some(object) = schema.as_object_mut() {
+        object.insert("$id".to_owned(), Json::String(SCHEMA_URL.to_owned()));
+        object.insert("title".to_owned(), Json::String("efr config.toml".to_owned()));
+    }
+    schema
+}
+
+/// What `key` holds, or `None` when the file has no such key.
+pub fn kind(key: &str) -> Option<Kind> {
+    let schema = json_schema();
+    let mut node = &schema;
+    for part in key.split('.') {
+        node = resolve(&schema, node).get("properties")?.get(part)?;
+    }
+    kind_of(&schema, resolve(&schema, node))
+}
+
+/// The schema `node` points to with `$ref`, or `node` itself.
+fn resolve<'a>(schema: &'a Json, node: &'a Json) -> &'a Json {
+    let Some(reference) = node.get("$ref").and_then(Json::as_str) else {
+        return node;
+    };
+    reference
+        .strip_prefix("#/")
+        .map(|path| path.split('/').try_fold(schema, |at, part| at.get(part)))
+        .and_then(|found| found)
+        .unwrap_or(node)
+}
+
+fn kind_of(schema: &Json, node: &Json) -> Option<Kind> {
+    let names: Option<Vec<String>> = match (node.get("enum"), node.get("oneOf")) {
+        (Some(Json::Array(values)), _) => {
+            values.iter().map(|value| value.as_str().map(str::to_owned)).collect()
+        }
+        (_, Some(Json::Array(variants))) => variants
+            .iter()
+            .map(|variant| variant.get("const").and_then(Json::as_str).map(str::to_owned))
+            .collect(),
+        _ => None,
+    };
+    if let Some(names) = names {
+        return Some(Kind::Choice(names));
+    }
+    let types: Vec<&str> = match node.get("type") {
+        Some(Json::String(kind)) => vec![kind.as_str()],
+        Some(Json::Array(kinds)) => kinds.iter().filter_map(Json::as_str).collect(),
+        _ => Vec::new(),
+    };
+    match types.iter().find(|kind| **kind != "null").copied() {
+        Some("string") => Some(Kind::String),
+        Some("integer") => Some(Kind::Integer),
+        Some("boolean") => Some(Kind::Boolean),
+        Some("array") => {
+            let items = node.get("items").map(|items| resolve(schema, items));
+            match items.and_then(|items| items.get("type")).and_then(Json::as_str) {
+                Some("string") => Some(Kind::List),
+                _ => Some(Kind::Rules),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The names of the fields of `T`, in the order it declares them.
+///
+/// NOTE: serde's derive hands the field names to `deserialize_struct`; this
+/// deserializer only records them and stops. It is the one way to read the declared
+/// order, because the JSON schema keeps its properties sorted.
+fn fields<T: DeserializeOwned>() -> &'static [&'static str] {
+    let mut found = None;
+    // The deserializer always stops with an error, after it recorded the names.
+    let _ = T::deserialize(FieldNames { found: &mut found });
+    found.unwrap_or(&[])
+}
+
+struct FieldNames<'a> {
+    found: &'a mut Option<&'static [&'static str]>,
+}
+
+#[derive(Debug)]
+struct Stop;
+
+impl fmt::Display for Stop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("only the field names were read")
+    }
+}
+
+impl std::error::Error for Stop {}
+
+impl de::Error for Stop {
+    fn custom<T: fmt::Display>(_: T) -> Self {
+        Stop
+    }
+}
+
+impl<'de> Deserializer<'de> for FieldNames<'_> {
+    type Error = Stop;
+
+    fn deserialize_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Stop> {
+        Err(Stop)
+    }
+
+    fn deserialize_struct<V: Visitor<'de>>(
+        self,
+        _: &'static str,
+        fields: &'static [&'static str],
+        _: V,
+    ) -> Result<V::Value, Stop> {
+        *self.found = Some(fields);
+        Err(Stop)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes
+        byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map enum
+        identifier ignored_any
+    }
+}
+
+#[cfg(test)]
+mod tests;
