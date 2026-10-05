@@ -10,7 +10,7 @@ I live in the terminal. I want to type a line to an agent in the same shell wher
 
 ## What it is
 
-- **It lives in zsh.** A line that starts with a comma goes to the agent. Comma alone, or Ctrl+Space, switches the prompt into agent mode. Everything else is your normal shell.
+- **It lives in zsh.** A line that starts with a comma goes to the agent, exactly as you typed it: zsh never reads it as shell syntax, and history keeps it as typed. Comma alone, or Ctrl+Space, switches to sticky agent mode. Everything else is your normal shell.
 - **A daemon owns the state.** It runs as a systemd user service. It holds the conversations, the hidden shells and the memory. Close the terminal, open it again, and nothing is lost.
 - **The agent runs commands in real shells.** Each conversation has a persistent hidden zsh with a terminal engine behind it, the same engine that Ghostty uses. The agent sees rendered screens, not raw escape codes. Interactive prompts work, and you can attach to the shell to type a password yourself.
 - **Scope follows you, permissions follow the path.** The shell sends the current directory with each message. The daemon decides the scope for each turn: the machine, a path, or a project. What the agent may change depends on the class of the target path, never on where you happen to stand.
@@ -39,7 +39,7 @@ The daemon starts one hidden zsh for each conversation, and that zsh reads your 
 ## Use
 
 - `, <prompt>` sends a prompt with the current directory, the terminal and the last command, and the reply streams below it. A prompt sent while a turn runs waits for it.
-- `,` alone, or Ctrl+Space, switches sticky agent mode on: the prompt starts with `efr> ` and every line goes to the agent. `!<command>` runs one shell command, a line that starts with `,` runs that command, and `,` alone switches sticky mode off.
+- `,` alone, or Ctrl+Space, switches sticky agent mode on: `efr> ` stands before the text you type, and every line goes to the agent. Your prompt itself does not change. `!<command>` runs one shell command, a line that starts with `,` runs that command, and `,` alone switches sticky mode off.
 - `,new [prompt]` starts a new conversation in this terminal. Without a prompt, the next `,` line starts it.
 - `,! <text>` steers the running turn instead of waiting for it.
 - When the agent asks for approval, `y` allows and `n` denies. Ctrl+C interrupts the turn.
