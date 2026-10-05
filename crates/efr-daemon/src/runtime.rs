@@ -20,8 +20,8 @@ pub(crate) fn worker_threads(cores: NonZeroUsize) -> usize {
     cores.get().min(MAX_WORKER_THREADS)
 }
 
-/// The multi-thread runtime that `efrd` runs on, with [`worker_threads`] workers for
-/// the cores this process may use.
+/// The multi-thread runtime that `efrd` runs on, with one worker for each core this
+/// process may use, and at most four.
 pub fn build_runtime() -> std::io::Result<Runtime> {
     let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
     Builder::new_multi_thread()
