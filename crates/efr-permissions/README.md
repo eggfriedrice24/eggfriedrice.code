@@ -129,11 +129,14 @@ declare them, and the daemon adds what each declared path reaches through a symb
 link (`ToolRequirements::with_real_paths`), so the shell tool's `cat notes`, where
 `notes` links into `~/.ssh`, also declares the key. A link that a glob expands to, or
 one below the root of a recursive search that the program follows, is not seen. A
-pattern trusts that a program name means in the hidden shell what it says:
-no alias or function of that name from the user's startup files, and no repository
-configuration that runs a program for `git status`. A `.git` is user config, so the
-model cannot write one without approval; configuration that a repository already has,
-or includes from its work tree, still runs.
+pattern trusts that a program name means in the hidden shell what it says. The
+hidden zsh removes global and suffix aliases, and every alias or function named like
+a program of a command rule (the daemon passes them as
+`efr_shell::ShellConfig::trusted_programs`); a program earlier on the `PATH` under
+that name still runs instead. No repository configuration may run a program for
+`git status` either: a `.git` is user config, so the model cannot write one without
+approval, but configuration that a repository already has, or includes from its work
+tree, still runs.
 
 ## Tests
 

@@ -304,6 +304,7 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
         settings: config.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
         env: shell_env,
+        trusted_programs: shells::trusted_programs(&config.permissions.policy()),
         holder: holder.unwrap_or_else(shells::default_holder),
         screens,
         recording: Arc::clone(&recording),

@@ -229,10 +229,17 @@ path reaches through a symbolic link, so `cat notes`, where `notes` links to
 `~/.ssh/id_ed25519`, is denied like `cat ~/.ssh/id_ed25519`, and a recursive search
 whose root is a link is judged by its target too. It does not see a link that a glob
 expands to, a link below the root of a recursive search that the program follows
-(`rg -L`, `grep -R`, `find -L`), or a link that the same line creates. A rule trusts that a program name means what it says: an alias or a function of the
-same name in your startup files changes what runs, and so can configuration that a
-repository already has for `git`, or includes from its work tree. A script or a build
-reads files that the line does not name.
+(`rg -L`, `grep -R`, `find -L`), or a link that the same line creates.
+
+A rule trusts that a program name means what it says. The hidden shell sources your
+startup files, and then removes every global alias (`alias -g`), every suffix alias
+(`alias -s`), and every alias or function named like a program that a command rule
+names (the built-in table and your rules), again before each command it runs. So
+`ls` runs `ls` there even when your `.zshrc` aliases it to `eza`, and your other
+aliases stay. A program that comes first on your `PATH` under the same name still
+runs instead, and configuration that a repository already has for `git`, or includes
+from its work tree, still changes what `git` runs. A script or a build reads files
+that the line does not name.
 
 ## Your rules
 

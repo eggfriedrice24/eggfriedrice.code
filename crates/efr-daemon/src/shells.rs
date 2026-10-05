@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_holder::PtyHolder;
+use efr_permissions::{Policy, Resource};
 use efr_shell::{ScreenFactory, ShellConfig, ShellDeps, ShellError, ShellSessions};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -47,6 +48,8 @@ pub(crate) struct ShellParts {
     pub(crate) settings: ShellSettings,
     pub(crate) integration_dir: PathBuf,
     pub(crate) env: BTreeMap<String, String>,
+    /// The programs that the machine policy's command rules name.
+    pub(crate) trusted_programs: Vec<String>,
     pub(crate) holder: Arc<dyn PtyHolder>,
     pub(crate) screens: Arc<dyn ScreenFactory>,
     pub(crate) recording: Arc<StoreRecording>,
@@ -62,6 +65,7 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
         settings,
         integration_dir,
         env,
+        trusted_programs,
         holder,
         screens,
         recording,
@@ -72,6 +76,7 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
     let mut config = ShellConfig::new(integration_dir, env);
     config.program.clone_from(&settings.program);
     config.login = settings.login;
+    config.trusted_programs = trusted_programs;
     let deps = ShellDeps::new(holder, screens, clock, rng)
         .with_recording(recording)
         .with_observer(notices);
@@ -90,3 +95,21 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
 pub(crate) fn integration_dir(runtime: &Path) -> PathBuf {
     runtime.join("zsh")
 }
+
+/// The programs that a command rule of `policy` names, each once, in the order of the
+/// rules. A rule judges a command by its program's name, so the hidden zsh removes an
+/// alias or a function of that name that the user's startup files define.
+pub(crate) fn trusted_programs(policy: &Policy) -> Vec<String> {
+    let mut programs: Vec<String> = Vec::new();
+    for rule in policy.rules() {
+        if let Resource::Command(pattern) = &rule.resource
+            && !programs.contains(&pattern.program)
+        {
+            programs.push(pattern.program.clone());
+        }
+    }
+    programs
+}
+
+#[cfg(test)]
+mod tests;
