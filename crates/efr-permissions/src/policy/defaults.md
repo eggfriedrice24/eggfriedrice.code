@@ -41,7 +41,7 @@
 | 48 | `tr` |  |  |  |  |  |
 | 49 | `column` |  |  |  |  |  |
 | 50 | `jq` |  | `-i` `--in-place` `-f` `--from-file` `-L` `--library-path` `env` `ENV` `include` `import` |  |  |  |
-| 51 | `ps` |  | `e` `-e` |  |  |  |
+| 51 | `ps` |  | `e` `-e` `--format` |  |  |  |
 | 52 | `ps` | `-e\|-ef\|-eF\|-ely\|-eLf\|-ejH` |  |  | 0 | 0 |
 | 53 | `pgrep` |  |  |  |  |  |
 | 54 | `ss` |  | `-K` `--kill` `-D` `--diag` |  |  |  |

@@ -108,7 +108,7 @@ most `max` operands and at most `options` options after `args`:
 | 48 | `tr` |  |  |  |  |  |
 | 49 | `column` |  |  |  |  |  |
 | 50 | `jq` |  | `-i` `--in-place` `-f` `--from-file` `-L` `--library-path` `env` `ENV` `include` `import` |  |  |  |
-| 51 | `ps` |  | `e` `-e` |  |  |  |
+| 51 | `ps` |  | `e` `-e` `--format` |  |  |  |
 | 52 | `ps` | `-e\|-ef\|-eF\|-ely\|-eLf\|-ejH` |  |  | 0 | 0 |
 | 53 | `pgrep` |  |  |  |  |  |
 | 54 | `ss` |  | `-K` `--kill` `-D` `--diag` |  |  |  |
@@ -147,6 +147,7 @@ waits forever and keeps the hidden shell busy (`tail -f`, `journalctl -f`). `env
 For the same reason no argument of `ps` but a long option may hold an `e`: in BSD
 syntax `e` shows each process's environment, and `ps` reads the whole line as BSD
 syntax when one word is not valid UNIX syntax, so `ps -ex` and `ps -e -x` show it too.
+The `environ` output field shows it as well, so `--format` may not appear either.
 The UNIX forms `ps -e`, `ps -ef`, `ps -eF`, `ps -ely`, `ps -eLf` and `ps -ejH` run
 alone, with nothing after them. A `jq` program may not use `env` or `$ENV`, nor come
 from a file (`-f`) or a module (`include`, `import`, `-L`) that the line does not

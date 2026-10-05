@@ -132,8 +132,9 @@ const ROWS: &[Row] = &[
     // BSD-style `e` shows the environment of each process. procps reads the whole line
     // again as BSD syntax when one word is not valid UNIX syntax, dashed clusters
     // included, so `ps -ex` and `ps -e -x` show it too: an `e` may stand in no word but
-    // a long option.
-    ("ps", &[], &["e", "-e"], Any),
+    // a long option. The `environ` field shows it as well; `-o environ` holds an `e`,
+    // and `--format=environ` is the long option that would hide one.
+    ("ps", &[], &["e", "-e", "--format"], Any),
     // The UNIX forms with `-e`, alone: nothing after them can send the line to BSD.
     ("ps", &["-e|-ef|-eF|-ely|-eLf|-ejH"], &[], Alone),
     ("pgrep", &[], &[], Any),
