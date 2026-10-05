@@ -1,6 +1,6 @@
 [package]
 name = "efr-test-support"
-description = "Test helpers for efr: a manual clock, a seeded generator, temporary XDG roots, an in-memory store, fixtures, NDJSON transcripts and the replay provider"
+description = "Test helpers for efr: a manual clock, a seeded generator, temporary XDG roots, an in-memory store, fixtures, NDJSON transcripts, the replay provider and a wait with a real time limit"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

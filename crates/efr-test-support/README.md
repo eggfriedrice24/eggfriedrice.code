@@ -65,6 +65,14 @@ directories, a store and provider traffic from one place and never from the mach
   when the provider is built, so a broken fixture fails before the test runs. A
   provider's own wire format, such as the Responses API, is replayed at the HTTP level
   with wiremock instead.
+- `wait`: `Wait`, a poll of a condition that another task or thread makes true:
+  `Wait::new("the notice").until(|| ...)`, `until_some` for a value, `until_some_async`
+  for a check that awaits, and `until_blocking` for a thread outside the runtime. The
+  first polls only yield, later ones sleep 2 ms, and after a real time limit
+  (`WAIT_LIMIT`, 10 s, or `limit(..)`) the wait fails with `TestSupportError::TimedOut`,
+  which names what it waited for. A test uses it in place of a loop that counts yields,
+  which passes on a fast machine and fails on a busy CI runner. A check that something
+  did not happen still lets the other tasks run for a while and then looks once.
 - `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
@@ -86,7 +94,9 @@ Third-party crates: `async-trait`, `base64`, `futures`, `jiff`, `serde`, `serde_
   through another crate (a forbidden edge in `xtask/src/deps.rs`). `TestDaemon` and the
   scenario driver live in `efr-test-daemon`, so a leaf crate's tests never compile the
   daemon and never link two copies of a library.
-- Nothing here reads the wall clock or waits on real time.
+- Nothing here reads the wall clock. The one wait on real time is the limit of `Wait`,
+  which decides only when a test that would fail stops waiting, never the result of a
+  test that passes; code under test still takes a `Clock`.
 - The `TestRng` sequence never changes: fixtures hold ids made from it, and a test pins
   its first values.
 - The transcript format is defined here, in `ndjson`. A recorder in a shipped binary
@@ -111,5 +121,7 @@ append through the real writer and read events and a recording back. The redacti
 cover whole-name matching, the timestamp grammar in both directions, and a proptest that
 `restore` undoes `redact`. The replay provider tests replay the fixture through
 `Arc<dyn Provider>`, check the failure reports, map every error event, validate broken
-transcripts, and step a paced answer with `handled_through`. They use no network, no
-real-time sleeps and no Zig.
+transcripts, and step a paced answer with `handled_through`. The wait tests see a
+condition made true by a task, by a thread after real time and through an awaited
+check, and check the error at a short limit. They use no network and no Zig, and only
+the wait tests sleep, for at most a third of a second.

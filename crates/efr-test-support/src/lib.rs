@@ -10,6 +10,8 @@
 //!   and timestamps, and back.
 //! - [`ReplayProvider`]: an `efr_provider::Provider` that answers from a transcript and
 //!   checks every request against it.
+//! - [`Wait`]: polls a condition that another task or thread makes true, and gives up
+//!   after a real time limit ([`WAIT_LIMIT`]) with an error that names it.
 //!
 //! This is a dev crate: a crate names it under `[dev-dependencies]` only, and no
 //! shipped binary links it.
@@ -35,6 +37,7 @@ mod redact;
 mod replay_provider;
 mod rng;
 mod store;
+mod wait;
 
 pub use clock::TestClock;
 pub use dirs::TestDirs;
@@ -44,3 +47,4 @@ pub use redact::Redactor;
 pub use replay_provider::ReplayProvider;
 pub use rng::TestRng;
 pub use store::TestStore;
+pub use wait::{WAIT_LIMIT, Wait};

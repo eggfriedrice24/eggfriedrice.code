@@ -2,6 +2,7 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use efr_stdx::StdxError;
 use efr_store::StoreError;
@@ -162,6 +163,15 @@ pub enum TestSupportError {
         remaining: usize,
         /// The line of the next `provider_request` record.
         next_line: usize,
+    },
+
+    /// A condition a test waited for did not hold within the real time limit.
+    #[error("gave up waiting for {what} after {limit:?}")]
+    TimedOut {
+        /// What the test waited for.
+        what: String,
+        /// The real time it waited.
+        limit: Duration,
     },
 
     /// A fixture was looked up from a source file that is not inside a crate on disk.

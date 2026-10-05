@@ -37,7 +37,7 @@ shipped binary.
 | `efr-http` | lib | 1 | the reqwest client, SSE parser, Unix-socket HTTP client, header redaction | `efr-stdx` |
 | `efr-screen` | lib | 1 | the `Screen` trait, `ScreenActor` and `ScreenHandle`, the OSC 133 and OSC 7 scanner, the conformance suite | `efr-protocol`, `efr-stdx` |
 | `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages | `efr-protocol`, `efr-stdx` |
-| `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
+| `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider`, `Wait` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
 | `efr-render` | lib | 1 | markdown and render events to ANSI: committed and live zones, syntax colours, OSC 8 links; no IO, the CLI passes `RenderOptions` | none |
 | `efr-screen-vt100` | lib | 2 | `Screen` over vt100; the Zig-free default | `efr-screen` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
