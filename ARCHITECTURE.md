@@ -50,7 +50,7 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method | every library crate above except `efr-client` and the test crates |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools` | every library crate above except `efr-client` and the test crates |
 | `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `paths`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
@@ -171,6 +171,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - The permission check point: `crates/efr-conversation/src/turn.rs`. The permission
   modes, the built-in read-only commands, the `auto` table, config protection and how a
   command line is read: `docs/permissions.md`.
+- The settings tool, the model's only way to change `config.toml`, after an approval
+  with the diff: `crates/efr-daemon/src/tools/settings_tool.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

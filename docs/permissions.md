@@ -55,7 +55,9 @@ Some floors hold in every mode, whatever the rules say:
 - secrets are denied unless a rule of yours names them, and the daemon's own
   `secrets/` is denied even then;
 - the rules of a conversation only make a decision stricter;
-- no tool writes efr's config; see "Config protection".
+- no tool writes efr's config; see "Config protection";
+- a change of efr's settings through the settings tool asks, and a turn from the
+  phone cannot make one; see "The settings tool".
 
 ## Path classes
 
@@ -480,8 +482,41 @@ runs the project's own code, and that code can write any file you can, efr's con
 included. This is one more reason to choose `auto` only in projects whose code you
 trust.
 
-You change the file yourself, in your editor or with `efr config`. The daemon reads the
-links in the directory each time it builds the engine.
+You change the file yourself, in your editor or with `efr config`, or you approve a
+change of the settings tool. The daemon reads the links in the directory each time it
+builds the engine.
+
+## The settings tool
+
+The model reads and changes efr's settings with its `settings` tool, never with
+`write_file` or the shell, which config protection denies.
+
+- `read` lists every setting with its source, the rules of `config.toml` with their
+  numbers, the models with their efforts, and the last reload's error. It needs no
+  approval for a turn from your terminal.
+- `set` and `unset` change one key, `add_rule` appends a rule after your rules, and
+  `remove_rule` removes one by its number. efr checks the whole new file first, as a
+  load would: an unknown key, a value of the wrong kind, a model that is not in the
+  model list or an effort the default model does not take goes back to the model, and
+  you are not asked.
+- Every valid change asks, in every mode, also in `auto`, and also when a rule of yours
+  would allow writing the file. No rule can turn the question into an allow. The
+  question shows a one-line summary and the unified diff of the file, which keeps your
+  comments and layout; for a missing file, the diff from the example that the new file
+  starts as.
+- A change that loosens permissions is marked "loosens permissions": a new `allow`
+  rule, a removed `deny` or `ask` rule, a mode toward `auto`, `shell.sudo_cache` from
+  `per_call` to `keep`, or a removed secret path.
+- The tool refuses every rule that names secrets (the class `secrets`, or an `under`
+  path at or below a secret location), to add and to remove. You write such rules by
+  hand.
+- A turn from the phone can read the settings, after your approval as for every call
+  of a remote turn, but a change is denied.
+- When the file changes between the question and your answer, nothing is written; the
+  model calls the tool again, which plans against the new file and asks again.
+- After the write the daemon reloads at once. The change applies from the next turn
+  (a rule from the next tool call); the tool's answer says so, and names a key that
+  needs a restart.
 
 ## Your rules
 
