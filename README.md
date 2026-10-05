@@ -51,6 +51,7 @@ The plugin hands the context, the last command and the prompt to `efr` in its en
 
 - Without a login, the first prompt fails as `unauthorized`, and `efr` says to run `efr login openai`.
 - Without a daemon, `efr` exits with 3 and says to run `systemctl --user start efrd`.
+- Which client name and models the ChatGPT backend accepts from efr is known only after the first real request. When it refuses the model, `efr` says so and names the line to change: `name` under `[model]` in `~/.config/efr/config.toml`. When it refuses the client, the error shows the backend's message; `originator` under `[openai]` changes the name that efr sends (`efr` by default). The daemon reads the file at start, so run `systemctl --user restart efrd` after a change. `efrd --print-config` shows every setting and where it comes from.
 - To try efr without installing it, `just run` starts a daemon in the foreground with throwaway directories. In the shell that you test from, export the `EFR_RUNTIME_DIR` that it prints and put `target/debug` on `PATH` after `cargo build -p efr-cli`; the plugin then shows that daemon's notices too.
 
 ## Repository map
