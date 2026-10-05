@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 
 use super::{
     CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputUpdate, RunRequest, marked_line,
-    screen_tail, waits_for_input,
+    screen_tail, timed_out,
 };
 
 fn row(text: &str) -> RowCells {
@@ -102,21 +102,25 @@ fn a_continuation_prompt_inside_the_output_is_output() {
 
 #[test]
 fn a_prompt_with_text_before_the_cursor_waits_for_input() {
-    assert!(waits_for_input(&screen(&["$ sudo true", "[sudo] password for u: "], (1, 23))));
-    assert!(waits_for_input(&screen(&["Proceed? [Y/n] "], (0, 15))));
+    let password = screen(&["$ sudo true", "[sudo] password for u: "], (1, 23));
+    assert_eq!(timed_out(&password, true), Completion::Interactive);
+    assert_eq!(timed_out(&screen(&["Proceed? [Y/n] "], (0, 15)), true), Completion::Interactive);
+    // Output that has not been quiet long enough is still running.
+    assert_eq!(timed_out(&password, false), Completion::StillRunning);
 }
 
 #[test]
 fn a_cursor_at_the_start_of_a_line_does_not_wait() {
-    assert!(!waits_for_input(&screen(&["compiling", ""], (1, 0))));
-    assert!(!waits_for_input(&screen(&["   "], (0, 3))));
+    assert_eq!(timed_out(&screen(&["compiling", ""], (1, 0)), true), Completion::StillRunning);
+    assert_eq!(timed_out(&screen(&["   "], (0, 3)), true), Completion::StillRunning);
 }
 
 #[test]
-fn a_full_screen_program_waits() {
-    let mut snapshot = screen(&[""], (0, 0));
+fn a_full_screen_program_is_its_own_completion_quiet_or_not() {
+    let mut snapshot = screen(&["top - 12:00"], (0, 11));
     snapshot.alternate_screen = true;
-    assert!(waits_for_input(&snapshot));
+    assert_eq!(timed_out(&snapshot, true), Completion::FullScreen);
+    assert_eq!(timed_out(&snapshot, false), Completion::FullScreen);
 }
 
 #[test]

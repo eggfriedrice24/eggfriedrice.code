@@ -22,7 +22,7 @@ use crate::input::{self, InputWatch, Look, Quiet};
 use crate::modes::Terminal;
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
-use crate::run::{Progress, screen_tail, waits_for_input};
+use crate::run::{Progress, screen_tail, timed_out};
 use crate::session::{
     Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
     SessionHandle, until,
@@ -130,6 +130,7 @@ impl ShellSessions {
     /// waits at a continuation prompt.
     ///
     /// At the timeout the command keeps running; the result is
+    /// [`Completion::FullScreen`] for a program on the alternate screen,
     /// [`Completion::Interactive`] when it waits for input at the terminal and
     /// [`Completion::StillRunning`] otherwise, with the screen's last lines.
     ///
@@ -492,11 +493,7 @@ impl ShellSessions {
                     Duration::try_from(now.duration_since(at))
                         .is_ok_and(|silence| silence >= self.inner.config.quiet_period)
                 });
-                let completion = if quiet && waits_for_input(&capture.snapshot) {
-                    Completion::Interactive
-                } else {
-                    Completion::StillRunning
-                };
+                let completion = timed_out(&capture.snapshot, quiet);
                 let captured = self.replayer(session).render(&kept).await;
                 Ok(CommandResult {
                     completion,

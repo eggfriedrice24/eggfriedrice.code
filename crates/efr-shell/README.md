@@ -47,10 +47,11 @@ prompts such as `sudo` stay visible.
   cancels it with a key the integration binds to `send-break` and returns
   `Completion::NotStarted`. A line that does not parse is `NotStarted` too, with the
   shell's complaint as its output.
-- When no `D` arrives before the timeout, the command keeps running and the result
-  is `Completion::Interactive` with the screen's last lines when it waits for input
-  (it has been quiet for `quiet_period` and the cursor sits after some text, or a
-  full-screen program is on the alternate screen), and `Completion::StillRunning`
+- When no `D` arrives before the timeout, the command keeps running and the result,
+  with the screen's last lines, is `Completion::FullScreen` when a full-screen program
+  is on the alternate screen (quiet or not: nobody can reach it until an attach
+  exists), `Completion::Interactive` when it waits for input (it has been quiet for
+  `quiet_period` and the cursor sits after some text), and `Completion::StillRunning`
   otherwise.
 
 Waiting for input (`input.rs`, `modes.rs`), while a run's command runs (between `C`

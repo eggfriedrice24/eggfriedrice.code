@@ -762,6 +762,20 @@ async fn a_full_screen_program_is_not_a_visible_prompt() {
 }
 
 #[tokio::test]
+async fn the_timeout_reports_a_full_screen_program_as_one() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run) = typed(&harness, "vim notes.txt").await;
+    terminal.print(b"\r\n\x1b]133;C\x07\x1b[?1049h\x1b[H~\r\n~\r\n\"notes.txt\" 0L").await;
+    screen_shows(&harness.sessions, conversation(1), "notes.txt").await;
+    harness.clock.advance(RunRequest::DEFAULT_TIMEOUT);
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::FullScreen);
+    assert!(result.interactive());
+    assert_eq!(result.exit_code, None);
+    terminal.print(b"\x1b[?1049l\x1b]133;D;0\x07").await;
+}
+
+#[tokio::test]
 async fn nothing_is_looked_at_before_the_command_runs_or_without_modes() {
     let harness = Harness::new(ZSH);
     let (mut listener, heard) = listener(false);

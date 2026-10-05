@@ -8,7 +8,8 @@
 //!   [`RunRequest`], waits for the output to start and end, and returns a
 //!   [`CommandResult`] with the exit status, the output, the truncation flag and the
 //!   directory after; or, at the timeout, [`Completion::Interactive`] with the screen's
-//!   last lines when the command waits for input. Output that moves the cursor is
+//!   last lines when the command waits for input ([`Completion::FullScreen`] for a
+//!   full-screen program). Output that moves the cursor is
 //!   replayed on a short-lived capture screen from the same factory, so the text is
 //!   what the screen shows. [`RunProgress`] hears the output as it grows. Shells
 //!   without the integration are driven with random-token sentinels ([`RunMode`],

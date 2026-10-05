@@ -122,6 +122,11 @@ pub enum Completion {
     /// a password or a `[Y/n]` prompt. The command keeps running; nothing can answer
     /// it through this run any more, and the next run waits for its prompt.
     Interactive,
+    /// The timeout passed while a full-screen program (an editor, a pager, `top`) runs
+    /// on the alternate screen. Nobody can reach it until something attaches to the
+    /// shell, so it keeps running until it ends by itself; the next run waits for its
+    /// prompt.
+    FullScreen,
     /// The timeout passed while the command still runs and does not look like it is
     /// waiting for input.
     StillRunning,
@@ -214,9 +219,10 @@ impl CommandResult {
         self
     }
 
-    /// True when the command waits for input at the terminal.
+    /// True when the command waits for input at the terminal: a prompt or a
+    /// full-screen program.
     pub fn interactive(&self) -> bool {
-        self.completion == Completion::Interactive
+        matches!(self.completion, Completion::Interactive | Completion::FullScreen)
     }
 }
 
@@ -474,12 +480,20 @@ impl MarkRun {
     }
 }
 
-/// True when a screen looks like it waits for input: a full-screen program on the
-/// alternate screen, or the cursor after some text on its row, as after `Password:` or
-/// `[Y/n] `. A command that is merely slow has usually ended its last line, which
-/// leaves the cursor at the start of the next.
-pub(crate) fn waits_for_input(snapshot: &ScreenSnapshot) -> bool {
-    snapshot.alternate_screen || cursor_after_text(snapshot)
+/// How a run whose command still runs at its timeout ended, from the screen and
+/// whether the output was `quiet` for `quiet_period`. A full-screen program on the
+/// alternate screen counts whether or not it redraws: nobody can reach it either way.
+/// A quiet command waits for input when the cursor sits after some text on its row,
+/// as after `Password:` or `[Y/n] `; a command that is merely slow has usually ended
+/// its last line, which leaves the cursor at the start of the next.
+pub(crate) fn timed_out(snapshot: &ScreenSnapshot, quiet: bool) -> Completion {
+    if snapshot.alternate_screen {
+        Completion::FullScreen
+    } else if quiet && cursor_after_text(snapshot) {
+        Completion::Interactive
+    } else {
+        Completion::StillRunning
+    }
 }
 
 /// True when the cursor sits after some text on its row.

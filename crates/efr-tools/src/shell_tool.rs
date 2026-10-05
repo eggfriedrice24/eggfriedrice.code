@@ -127,6 +127,19 @@ impl ShellTool {
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
             }
+            // NOTE: the user is never asked about a full-screen program, so the text
+            // must not say that they could have answered it.
+            Completion::FullScreen => {
+                text.push_str(&format!(
+                    "[still running after {seconds}s: a full-screen program (an editor, a \
+                     pager, top) waits at the terminal. The user cannot reach it from their \
+                     terminal yet, so it runs until it ends by itself, and the next call \
+                     waits for that. Tell the user. Prefer commands that do not take over the \
+                     screen. cwd {cwd}. The screen ends with:]\n"
+                ));
+                text.push_str(result.screen_tail.as_deref().unwrap_or_default());
+                false
+            }
             Completion::Unanswered => {
                 text.push_str(&format!(
                     "[stopped: the command asked for hidden input, such as a password, and no \

@@ -67,7 +67,10 @@ The tools:
   tool passes the run's input waits and the question who can answer to its
   `ToolOutputSink`. The texts the model reads never promise a screen: the user does
   not see the hidden shell, and can answer a waiting command in their terminal only
-  while they follow the turn. A command that waited for hidden input that nobody could
+  while they follow the turn. A full-screen program at the timeout
+  (`Completion::FullScreen`) has its own text: the user is never asked about one and
+  cannot reach it yet, so the model reads that, not that the user missed a question.
+  A command that waited for hidden input that nobody could
   answer (`Completion::Unanswered`) is an error result that says efr interrupted it and
   that the user should run it in their own terminal or follow the turn while the model
   tries again. A busy shell, a

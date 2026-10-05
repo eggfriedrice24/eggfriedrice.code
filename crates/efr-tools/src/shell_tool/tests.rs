@@ -184,6 +184,34 @@ async fn a_command_waiting_for_input_shows_the_screen() {
 }
 
 #[tokio::test]
+async fn a_full_screen_program_is_not_called_a_question_the_user_missed() {
+    let fixture = Fixture::new();
+    let outcome = CommandResult::finished(None, "", "/home/u")
+        .with_completion(Completion::FullScreen)
+        .with_screen_tail("~\n\"notes.txt\" 0L");
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome)));
+    let result = tool
+        .invoke(
+            fixture.context(),
+            json!({"command": "vim notes.txt", "timeout_seconds": 5}),
+            &mut NoOutput,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(
+        result.output.starts_with("[still running after 5s: a full-screen program"),
+        "{}",
+        result.output
+    );
+    assert!(result.output.contains("cannot reach it from their terminal yet"), "{}", result.output);
+    assert!(result.output.contains("the next call waits"), "{}", result.output);
+    assert!(!result.output.contains("follow the turn"), "{}", result.output);
+    assert!(!result.output.contains("nobody did in time"), "{}", result.output);
+    assert!(result.output.ends_with("\"notes.txt\" 0L"), "{}", result.output);
+}
+
+#[tokio::test]
 async fn a_password_nobody_could_answer_is_an_error_that_says_what_to_do() {
     let fixture = Fixture::new();
     let outcome = CommandResult::finished(None, "[sudo] password for u: ", "/home/u")
