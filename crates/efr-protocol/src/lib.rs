@@ -58,7 +58,9 @@ pub use methods::conversations_list::{
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};
 pub use methods::lease_report::{LeaseReport, LeaseReportResult};
-pub use methods::models_list::{ModelInfo, ModelSource, ModelsList, ModelsListResult};
+pub use methods::models_list::{
+    EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList, ModelsListResult, is_effort_word,
+};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};

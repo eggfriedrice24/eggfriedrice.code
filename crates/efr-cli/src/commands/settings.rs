@@ -12,7 +12,7 @@
 
 use std::fmt::Write as _;
 
-use efr_protocol::{Method, Mode, ModelInfo, ModelsList, ModelsListResult, Origin};
+use efr_protocol::{Method, Mode, ModelInfo, ModelsList, ModelsListResult, Origin, is_effort_word};
 
 use crate::cli::TurnSettingsArgs;
 use crate::context::Context;
@@ -111,12 +111,17 @@ pub(crate) fn resolve(
             None => (None, SettingSource::Backend { model: model_name() }),
         },
     };
-    // NOTE: a model whose efforts efr does not know takes any effort; the backend
-    // decides then.
+    // NOTE: the daemon's own test, so a value that efr keeps is one the daemon takes.
     if let Some(effort) = &effort
-        && !efforts.is_empty()
-        && !efforts.contains(effort)
+        && !info.map_or_else(|| is_effort_word(effort), |info| info.takes_effort(effort))
     {
+        if efforts.is_empty() {
+            return Err(CliError::EffortNotAWord {
+                model: model_name(),
+                effort: effort.clone(),
+                from: effort_source,
+            });
+        }
         return Err(CliError::UnknownEffort {
             model: model_name(),
             effort: effort.clone(),

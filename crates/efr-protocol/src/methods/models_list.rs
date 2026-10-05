@@ -46,3 +46,34 @@ pub enum ModelSource {
     /// The `[openai] models` list of the config file.
     Config,
 }
+
+/// The longest reasoning effort, in bytes, that a model whose efforts are not known
+/// takes.
+pub const EFFORT_MAX_LEN: usize = 32;
+
+impl ModelInfo {
+    /// True when the model takes `effort`: one of its [`efforts`](Self::efforts), or,
+    /// when they are not known, any [effort word](is_effort_word). The daemon, the CLI
+    /// and the config all decide with it, so a value that one of them keeps never fails
+    /// in another.
+    pub fn takes_effort(&self, effort: &str) -> bool {
+        if self.efforts.is_empty() {
+            is_effort_word(effort)
+        } else {
+            self.efforts.iter().any(|known| known == effort)
+        }
+    }
+}
+
+/// True for 1 to [`EFFORT_MAX_LEN`] bytes of lowercase ASCII letters, digits, `-` and
+/// `_`: the form of every effort a backend names, so a new effort needs no change of
+/// efr. It is what a model whose efforts are not known, or no model, takes.
+pub fn is_effort_word(effort: &str) -> bool {
+    (1..=EFFORT_MAX_LEN).contains(&effort.len())
+        && effort.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
+        })
+}
+
+#[cfg(test)]
+mod tests;

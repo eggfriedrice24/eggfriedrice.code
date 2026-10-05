@@ -100,6 +100,11 @@ pub(crate) enum CliError {
     #[error("{model} does not take the effort {effort:?} ({from}); choose one of: {}", .choices.join(", "))]
     UnknownEffort { model: String, effort: String, from: SettingSource, choices: Vec<String> },
 
+    /// The effort, for a model whose efforts efr does not know, is not one word of an
+    /// effort's form, which the daemon refuses for every model.
+    #[error("{model} does not take the effort {effort:?} ({from}); an effort is one word of at most {max} lowercase letters, digits, - and _", max = efr_protocol::EFFORT_MAX_LEN)]
+    EffortNotAWord { model: String, effort: String, from: SettingSource },
+
     /// The daemon's model list marks no model as the default, so a prompt that names
     /// none has no model.
     #[error("the daemon marks no model as its default")]
@@ -205,6 +210,7 @@ impl CliError {
             | CliError::UnknownMode { .. }
             | CliError::UnknownModel { .. }
             | CliError::UnknownEffort { .. }
+            | CliError::EffortNotAWord { .. }
             | CliError::EmptyPrompt
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation

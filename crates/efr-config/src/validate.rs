@@ -32,7 +32,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         non_empty("model.name", name, "a model id such as gpt-5.5")?;
     }
     if let Some(effort) = &model.effort
-        && !is_effort(effort)
+        && !efr_protocol::is_effort_word(effort)
     {
         return Err(invalid(
             "model.effort",
@@ -106,15 +106,6 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
     Ok(())
-}
-
-/// A reasoning effort is one lowercase word, so a new effort of the backend needs no
-/// change here; the daemon checks it against the efforts of the model.
-fn is_effort(effort: &str) -> bool {
-    !effort.is_empty()
-        && effort.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
-        })
 }
 
 fn non_empty(key: &'static str, value: &str, expected: &'static str) -> Result<(), Invalid> {

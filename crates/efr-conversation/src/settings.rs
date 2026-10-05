@@ -12,13 +12,11 @@
 
 use efr_protocol::{
     EffectiveSettings, ErrorBody, ErrorCode, ModelInfo, Origin, OverriddenSettings, TurnSettings,
+    is_effort_word,
 };
 use serde_json::{Value, json};
 
 use crate::{ConversationConfig, ConversationError};
-
-/// The longest effort name, in bytes, for a model whose efforts are not known.
-const EFFORT_MAX_LEN: usize = 32;
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
 /// `config`. A turn from a remote origin runs with at most `cautious`
@@ -70,23 +68,20 @@ fn check_model<'a>(
     })
 }
 
-/// Checks `effort` against the efforts of `info`, the turn's model. A model whose
-/// efforts are not known takes any effort that is one lowercase word.
+/// Checks `effort` against the efforts of `info`, the turn's model
+/// ([`ModelInfo::takes_effort`]). A model that is not in the list takes any effort
+/// word.
 fn check_effort(
     effort: &str,
     from_config: bool,
     model: &str,
     info: Option<&ModelInfo>,
 ) -> Result<(), ConversationError> {
-    let efforts = info.map_or(&[][..], |info| info.efforts.as_slice());
-    let fits = if efforts.is_empty() {
-        is_effort_word(effort)
-    } else {
-        efforts.iter().any(|known| known == effort)
-    };
+    let fits = info.map_or_else(|| is_effort_word(effort), |info| info.takes_effort(effort));
     if fits {
         return Ok(());
     }
+    let efforts = info.map_or(&[][..], |info| info.efforts.as_slice());
     Err(ConversationError::InvalidSetting {
         setting: "effort",
         value: effort.to_owned(),
@@ -94,15 +89,6 @@ fn check_effort(
         choices: efforts.to_vec(),
         from_config,
     })
-}
-
-/// True for 1 to [`EFFORT_MAX_LEN`] bytes of lowercase ASCII letters, digits, `-` and
-/// `_`, the form of every effort a backend names.
-fn is_effort_word(effort: &str) -> bool {
-    (1..=EFFORT_MAX_LEN).contains(&effort.len())
-        && effort
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
 
 /// The `turn_failed` body of a turn whose settings no longer fit: code `invalid`, the

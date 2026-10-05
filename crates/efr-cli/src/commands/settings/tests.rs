@@ -204,6 +204,30 @@ fn an_empty_model_list_takes_any_model_as_the_daemon_does() {
 }
 
 #[test]
+fn a_model_whose_efforts_are_unknown_takes_only_an_effort_word_as_the_daemon_does() {
+    // `my-model` comes from `[openai] models`, so its efforts are not known.
+    let asked = |effort: &str| Asked {
+        model: given("my-model", SettingSource::Flag("--model")),
+        effort: given(effort, SettingSource::Flag("--effort")),
+        ..Asked::default()
+    };
+    let lines = resolve(&asked("x-high"), &TurnDefaults::default(), &models().models).unwrap();
+    assert_eq!(lines[2].value.as_deref(), Some("x-high"));
+    for effort in ["High", "very high", &"a".repeat(33)] {
+        let error =
+            resolve(&asked(effort), &TurnDefaults::default(), &models().models).unwrap_err();
+        assert!(matches!(error, CliError::EffortNotAWord { .. }), "{effort:?}: {error:?}");
+        assert_eq!(error.exit(), Exit::Usage);
+    }
+    // No list at all: the same rule.
+    let none = Asked { effort: given("High", SettingSource::Flag("--effort")), ..Asked::default() };
+    assert!(matches!(
+        resolve(&none, &TurnDefaults::default(), &[]),
+        Err(CliError::EffortNotAWord { .. })
+    ));
+}
+
+#[test]
 fn each_setting_is_one_line_with_its_source_and_choices() {
     let lines = resolve(
         &Asked { model: given("gpt-5.4", SettingSource::Flag("--model")), ..Asked::default() },

@@ -1,6 +1,6 @@
 use crate::Settings;
 
-use super::{check, is_effort};
+use super::check;
 
 #[test]
 fn the_defaults_pass_every_check() {
@@ -8,12 +8,21 @@ fn the_defaults_pass_every_check() {
 }
 
 #[test]
-fn an_effort_is_one_lowercase_word() {
-    for effort in ["low", "medium", "high", "xhigh", "minimal", "none", "very-high", "max_2"] {
-        assert!(is_effort(effort), "{effort}");
+fn an_effort_is_one_lowercase_word_of_at_most_32_bytes() {
+    let with = |effort: &str| {
+        let mut settings = Settings::default();
+        settings.model.effort = Some(effort.to_owned());
+        check(&settings)
+    };
+    let longest = "a".repeat(32);
+    for effort in
+        ["low", "medium", "high", "xhigh", "minimal", "none", "very-high", "max_2", &longest]
+    {
+        assert_eq!(with(effort), Ok(()), "{effort}");
     }
-    for effort in ["", "High", "very high", "high!", "\u{e9}"] {
-        assert!(!is_effort(effort), "{effort}");
+    let too_long = "a".repeat(33);
+    for effort in ["", "High", "very high", "high!", "\u{e9}", &too_long] {
+        assert_eq!(with(effort).map_err(|invalid| invalid.key), Err("model.effort"), "{effort}");
     }
 }
 

@@ -596,8 +596,7 @@ fn check_models(settings: &Settings) -> Result<(), String> {
         ));
     };
     if let Some(effort) = &settings.model.effort
-        && !info.efforts.is_empty()
-        && !info.efforts.contains(effort)
+        && !info.takes_effort(effort)
     {
         return Err(format!(
             "The change was not made: {model} does not take the effort {effort}; it takes {}.",
