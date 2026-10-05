@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use efr_permissions::{ConversationPolicy, DecisionInput, Effect, Requirements};
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CommandId,
-    ConfigFileError, Method, PromptSend, PromptSendResult, RootSource, ShellContext, TurnSettings,
+    ConfigFileError, Method, Mode, Origin, PromptSend, PromptSendResult, RootSource, Scope,
+    ShellContext, TurnSettings,
 };
 use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
@@ -289,5 +291,43 @@ async fn sighup_reloads() {
     settings.changed().await.unwrap();
 
     assert_eq!(settings.borrow().conversation.tty_idle_hours, 2);
+    daemon.stop().await;
+}
+
+/// What `engine` decides for `requirements` in `mode`, for a turn on this machine.
+fn decide(
+    engine: &efr_permissions::Engine,
+    dirs: &TestDirs,
+    mode: Mode,
+    requirements: Requirements,
+) -> Effect {
+    let input = DecisionInput {
+        requirements,
+        scope: Scope::Machine,
+        origin: Origin::Shell,
+        mode,
+        conversation_policy: ConversationPolicy::new(dirs.home().join("scratch")),
+    };
+    engine.decide(&input).effect()
+}
+
+#[tokio::test]
+async fn a_reload_reaches_the_rules_of_every_mode_at_the_next_tool_call() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let rm = || Requirements::none().with_command("rm build.log");
+    let effects = |daemon: &Running| {
+        let engine = Arc::clone(&daemon.engine.borrow());
+        Mode::ALL.map(|mode| decide(&engine, &dirs, mode, rm()))
+    };
+    // Manual asks for everything; cautious asks for a writer program; auto runs it.
+    assert_eq!(effects(&daemon), [Effect::Ask, Effect::Ask, Effect::Allow]);
+
+    let rule = "[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"rm\" } }\neffect = \"deny\"\n";
+    std::fs::write(config_file(&dirs), rule).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+
+    assert_eq!(effects(&daemon), [Effect::Deny; 3], "the user's rule follows every mode");
     daemon.stop().await;
 }
