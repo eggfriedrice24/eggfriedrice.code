@@ -50,6 +50,7 @@ use efr_protocol::{
 };
 use efr_test_support::{
     Inbound, Outbound, Record, Redactor, ReplayProvider, TestDirs, TestSupportError, Transcript,
+    Wait,
 };
 use futures::StreamExt as _;
 use serde_json::Value;
@@ -68,10 +69,6 @@ pub const REFRESHED_ACCESS_TOKEN: &str = "efr-test-access-2";
 
 /// The refresh token it rotates to.
 pub const REFRESHED_REFRESH_TOKEN: &str = "efr-test-refresh-2";
-
-/// How often a replay yields while it waits for the provider to get a request,
-/// before it gives up.
-const MAX_REQUEST_POLLS: usize = 10_000_000;
 
 /// How many runs a bless may take: each provider request that changed costs one.
 const MAX_BLESS_RUNS: usize = 16;
@@ -760,16 +757,20 @@ impl Replay {
         let Some(provider) = &self.provider else {
             return Ok(());
         };
-        for _ in 0..MAX_REQUEST_POLLS {
-            if provider.served() >= self.requests {
-                return Ok(());
-            }
-            if let Err(error @ TestSupportError::RequestMismatch { .. }) = provider.finish() {
-                return Err(error.into());
-            }
-            tokio::task::yield_now().await;
-        }
-        Err(TestDaemonError::RequestNeverCame { line })
+        Wait::new("the provider requests before a restart")
+            .until_some(|| {
+                if provider.served() >= self.requests {
+                    return Some(Ok(()));
+                }
+                match provider.finish() {
+                    Err(error @ TestSupportError::RequestMismatch { .. }) => {
+                        Some(Err(error.into()))
+                    }
+                    _ => None,
+                }
+            })
+            .await
+            .map_err(|_| TestDaemonError::RequestNeverCame { line })?
     }
 }
 

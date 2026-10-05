@@ -159,7 +159,8 @@ pub enum TestDaemonError {
     #[error("pty_bytes records need the fake PTY holder, and the daemon runs real shells")]
     NoFakeHolder,
 
-    /// The replay provider never got the request a record waits for.
+    /// The replay provider did not get the request a record waits for within the
+    /// real time limit of `efr_test_support::Wait`.
     #[error("line {line} of the transcript waits for a provider request that never came")]
     RequestNeverCame {
         /// The line of the `provider_request` record.
