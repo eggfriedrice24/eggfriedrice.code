@@ -35,6 +35,41 @@ fn only_events_that_name_the_file_or_its_target_concern_it() {
     assert!(watched.concerns(&Err(notify::Error::generic("lost"))));
 }
 
+#[test]
+fn a_read_of_the_file_is_no_change_but_a_close_after_a_write_is() {
+    use notify::event::{AccessKind, AccessMode};
+
+    let dir = tempfile::tempdir().unwrap();
+    let watched = watched(&FileState::of(&dir.path().join("config.toml")));
+    let access = |kind| {
+        Ok(notify::Event::new(notify::EventKind::Access(kind))
+            .add_path("/c/efr/config.toml".into()))
+    };
+
+    assert!(!watched.concerns(&access(AccessKind::Open(AccessMode::Any))));
+    assert!(!watched.concerns(&access(AccessKind::Close(AccessMode::Read))));
+    assert!(watched.concerns(&access(AccessKind::Close(AccessMode::Write))));
+}
+
+#[tokio::test]
+async fn reading_the_file_never_reloads_it() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let path = dirs.dirs().config().join("config.toml");
+    std::fs::write(&path, "[shell]\nidle_minutes = 9\n").unwrap();
+    let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_config_watch()).await;
+
+    for _ in 0..20 {
+        std::fs::read_to_string(&path).unwrap();
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    assert!(!clock.requested_sleeps().contains(&DEBOUNCE), "{:?}", clock.requested_sleeps());
+    daemon.stop().await;
+}
+
 /// Moves the clock past each quiet time the watcher starts until the settings change.
 async fn until_reloaded(clock: &TestClock, settings: &mut watch::Receiver<Arc<Settings>>) {
     let mut seen = 0;

@@ -5,9 +5,10 @@
 //! Directories are watched, not the file: an editor that saves by writing a new file
 //! and renaming it over the old one (vim, nvim) replaces the file the watch would hold.
 //! A burst of events (a save is often several) becomes one reload after
-//! [`DEBOUNCE`] of quiet, timed by the injected clock. After each reload the link is
-//! resolved again and the watched directories follow it. A removed file reloads as no
-//! file, as at start, and a file created again reloads as itself.
+//! [`DEBOUNCE`] of quiet, timed by the injected clock; a read of the file is no event.
+//! Before each reload the link is resolved again and the watched directories follow it.
+//! A removed file reloads as no file, as at start, and a file created again reloads as
+//! itself.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -16,7 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::{CONFIG_FILE, FileState};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::event::{AccessKind, AccessMode};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -39,16 +41,25 @@ pub(crate) struct Watched {
 }
 
 impl Watched {
-    /// True when `event` may change the config file: it names one of the file's names,
-    /// or the watcher lost track and asks for a fresh look.
+    /// True when `event` may change the config file: it names one of the file's names
+    /// and is not a read, or the watcher lost track and asks for a fresh look.
     pub(crate) fn concerns(&self, event: &notify::Result<notify::Event>) -> bool {
         match event {
             Ok(event) => {
+                // NOTE: notify reports every open and every close after a read. Each `efr`
+                // command and each reload reads the file, so a read must not start a
+                // reload: the daemon would reload itself in a loop, and a busy reader
+                // would keep the quiet time from ever ending. A close after a write is a
+                // save.
+                let read = matches!(
+                    event.kind,
+                    EventKind::Access(access) if access != AccessKind::Close(AccessMode::Write)
+                );
                 event.need_rescan()
-                    || event
-                        .paths
-                        .iter()
-                        .any(|path| path.file_name().is_some_and(|name| self.names.contains(name)))
+                    || !read
+                        && event.paths.iter().any(|path| {
+                            path.file_name().is_some_and(|name| self.names.contains(name))
+                        })
             }
             // NOTE: an error may hide a change; a reload of an unchanged file is cheap.
             Err(_) => true,
@@ -155,12 +166,14 @@ pub(crate) async fn follow(state: Arc<State>, watching: Watching, stop: Cancella
                 },
             }
         }
+        // NOTE: the link is resolved and its directory watched before the reload reads
+        // the file, so a change made after the read is always seen.
+        watched.follow(&mut watcher, &file_state(&path).await);
         // The outcome is logged and kept for admin.status; a stopped task means the
         // daemon drains.
         if reload(&state, "file").await.is_err() {
             return;
         }
-        watched.follow(&mut watcher, &file_state(&path).await);
     }
 }
 
