@@ -656,10 +656,12 @@ async fn e2e_a_sentinel_run_reports_a_hidden_wait_but_not_a_nested_shell_prompt(
     assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
 
     // A shell named through a variable, which the reading of the command line does not
-    // follow: only the sentinel run's own rule keeps its prompt from being offered.
-    let request = zsh.request("shell=sh; $shell").with_mode(RunMode::Sentinel);
+    // follow: only the sentinel run's own rule keeps its prompt from being offered. Its
+    // prompt comes from the environment, because `sh` is bash on some systems and dash,
+    // whose prompt is a bare `$ `, on Ubuntu.
+    let request = zsh.request("shell=sh; PS1='sh-nested$ ' $shell").with_mode(RunMode::Sentinel);
     let (run, heard) = zsh.start_for_call(request, true);
-    zsh.screen_row_starts("sh-").await;
+    zsh.screen_row_starts("sh-nested").await;
     let result = zsh.no_wait_until_exit(run, &heard, 6).await;
     assert_eq!(result.delimiter, Delimiter::Sentinel);
     assert_eq!(result.exit_code, Some(0));
