@@ -894,6 +894,23 @@ fn a_manual_line_under_a_password_prompt_echoes_nothing() {
 }
 
 #[test]
+fn ctrl_backslash_again_closes_the_manual_line_and_offers_it_again() {
+    let (mut view, size) = silent_shell();
+    assert_eq!(view.manual_cancelled(size), Step::default(), "no line is open");
+    view.silent(call(), size);
+    view.manual(call(), size);
+    assert!(view.manual_open());
+    let step = view.manual_cancelled(size);
+    assert!(step.settled, "the keys stop");
+    assert_eq!(step.ask, None);
+    let shown = readable(&step.out);
+    assert!(shown.contains("the input was not sent"), "{shown}");
+    assert!(shown.contains(HINT), "the offer comes back: {shown}");
+    assert!(!view.manual_open());
+    assert_eq!(view.manual_offer(), Some(call()));
+}
+
+#[test]
 fn ctrl_backslash_for_a_call_that_no_longer_offers_it_does_nothing() {
     let (mut view, size) = silent_shell();
     assert_eq!(view.manual(call(), size), Step::default(), "the hint was not shown");

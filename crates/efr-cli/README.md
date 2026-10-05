@@ -174,8 +174,11 @@ nothing tells whether the command asks for a password (behind `ssh`, a remote `s
 prompt reports no wait), and the program's own echo still shows in its output tail.
 Only a call whose `tool_call_started` carries `manual_input` offers the line; the
 daemon leaves it off for a call whose command types into a shell that reads command
-lines, where a manual answer would run as a command line. Output, a wait or an approval
-takes the line away. Any other SIGQUIT keeps its default meaning: tokio's handler
+lines, where a manual answer would run as a command line. `Ctrl+\` again closes the
+line unsent and brings the offer back. Output, a wait or an approval takes the offer
+away. `efr` also takes SIGQUIT while it reads keys (an approval, an answer line), where
+the default action would end it with the terminal left without echo; a press there
+does nothing. Any other SIGQUIT keeps its default meaning: tokio's handler
 stays installed once the key was first offered, so the listener does the default
 action itself (`signal_hook::low_level::emulate_default_handler`), and `efr` ends by
 SIGQUIT as it would without a handler. The terminal throws away typeahead when it
@@ -246,7 +249,8 @@ and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventio
   to stdout or stderr, never logged and never handed to the view; they leave the
   process only inside `input.respond`.
 - No key is read while a command is merely silent: only `Ctrl+\`, while the view offers
-  it, opens an answer line; other SIGQUITs end `efr` as they would without a handler.
+  it, opens an answer line; a SIGQUIT while no key is read and nothing is offered ends
+  `efr` as it would without a handler.
 - The last command line never reaches the shell context, and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
   reaches no child process and no log.

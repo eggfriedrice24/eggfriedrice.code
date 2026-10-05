@@ -264,11 +264,13 @@ impl Interrupt for TestInterrupt {
     }
 }
 
-/// A `Ctrl+\` that the test triggers; it counts how many waits for it live.
+/// A `Ctrl+\` that the test triggers; it counts how many waits for it live and how many
+/// presses a wait took.
 #[derive(Debug, Default)]
 pub(crate) struct TestQuit {
     pressed: Arc<Notify>,
     armed: Arc<AtomicUsize>,
+    taken: Arc<AtomicUsize>,
 }
 
 impl TestQuit {
@@ -289,16 +291,26 @@ impl TestQuit {
             .await
             .unwrap();
     }
+
+    /// Waits until waits for the key have taken `count` presses in all.
+    pub(crate) async fn until_taken(&self, count: usize) {
+        Wait::new(&format!("{count} presses taken"))
+            .until(|| self.taken.load(Ordering::SeqCst) == count)
+            .await
+            .unwrap();
+    }
 }
 
 impl Quit for TestQuit {
     fn wait(&self) -> Stop {
         let pressed = Arc::clone(&self.pressed);
         let armed = Arc::clone(&self.armed);
+        let taken = Arc::clone(&self.taken);
         Box::pin(async move {
             armed.fetch_add(1, Ordering::SeqCst);
             let _live = Live(Arc::clone(&armed));
             pressed.notified().await;
+            taken.fetch_add(1, Ordering::SeqCst);
         })
     }
 }

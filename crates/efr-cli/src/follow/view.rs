@@ -31,7 +31,7 @@
 //! opens an answer line ([`TurnView::manual`]), which goes as a manual answer. That line
 //! is never shown as it is typed: nothing reported a prompt, so nothing tells whether
 //! the command asks for a password, and the program's own echo still shows in its
-//! output.
+//! output. `Ctrl+\` again closes the line unsent ([`TurnView::manual_cancelled`]).
 
 use std::collections::{HashMap, HashSet};
 
@@ -75,7 +75,10 @@ const SILENCE_HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input f
 
 /// The line under a manual answer, which is not shown: no prompt was reported, so it
 /// may be a password. The program's own echo, if any, shows in the output.
-const MANUAL_INPUT: &str = "type the input and press Enter; your typing is not shown here, and the agent sees it only if the program shows it";
+const MANUAL_INPUT: &str = "type the input and press Enter, or Ctrl+\\ to cancel; your typing is not shown here, and the agent sees it only if the program shows it";
+
+/// The note when the user closed a manual answer line unsent.
+const MANUAL_CANCELLED: &str = "the input was not sent";
 
 /// The note when a command waits for hidden input and no key can be read here.
 const HIDDEN_INPUT_ELSEWHERE: &str =
@@ -536,6 +539,25 @@ impl TurnView {
             running.hinted = false;
         }
         self.ask_for(call_id, AnswerKind::Manual, size)
+    }
+
+    /// True while a manual answer line is open, which `Ctrl+\` closes.
+    pub(crate) fn manual_open(&self) -> bool {
+        self.running.as_ref().is_some_and(|running| running.asking == Some(AnswerKind::Manual))
+    }
+
+    /// The user pressed `Ctrl+\` again while a manual answer line was open: the line
+    /// closes unsent, its keys stop, and the line that offers `Ctrl+\` comes back.
+    pub(crate) fn manual_cancelled(&mut self, size: Size) -> Step {
+        if !self.manual_open() {
+            return Step::default();
+        }
+        if let Some(running) = &mut self.running {
+            running.asking = None;
+            running.typed.clear();
+            running.hinted = true;
+        }
+        Step { settled: true, ..self.note(MANUAL_CANCELLED, size) }
     }
 
     /// Call `call_id` began or stopped waiting for input; `looks_secret` when a visible

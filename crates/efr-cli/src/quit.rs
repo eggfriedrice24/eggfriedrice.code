@@ -6,10 +6,13 @@
 //! SIGQUIT for `efr`, the foreground job, without `efr` reading anything.
 //!
 //! The key counts only while a [`Quit::wait`] future lives, which the follow loop keeps
-//! exactly while that line is shown. Any other SIGQUIT keeps its default meaning: the
-//! process ends as it would without a handler. tokio installs a handler once and never
-//! removes it, so the listener task, started at the first wait, takes every SIGQUIT and
-//! does the default action itself for one that comes while nothing waits.
+//! while that line is shown and while it reads keys: the key reader turns echo and line
+//! mode off, and the default action would end the process with the terminal left so.
+//! A press then closes an open answer line, or does nothing. Any other SIGQUIT keeps
+//! its default meaning: the process ends as it would without a handler. tokio installs a
+//! handler once and never removes it, so the listener task, started at the first wait,
+//! takes every SIGQUIT and does the default action itself for one that comes while
+//! nothing waits.
 
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};

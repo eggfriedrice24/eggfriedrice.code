@@ -903,6 +903,99 @@ async fn ctrl_backslash_after_a_silence_types_a_manual_answer() {
     assert_eq!(quit.armed(), 0, "the key is let go when the turn ends");
 }
 
+/// Waits until `keys` has started `count` readers.
+async fn started(keys: &ScriptedKeys, count: usize) {
+    Wait::new(&format!("{count} key readers")).until(|| keys.starts() == count).await.unwrap();
+}
+
+#[tokio::test]
+async fn ctrl_backslash_again_closes_the_manual_line_unsent_and_efr_goes_on() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let quit = Arc::new(TestQuit::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx =
+        Context { keys: keys.clone(), quit: quit.clone(), clock: clock.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (pressing, timing) = (Arc::clone(&quit), Arc::clone(&clock));
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("./deploy"))).await;
+        timing.until_slept(super::SILENCE).await;
+        timing.open();
+        shows(&seen, HINT).await;
+        pressing.until_armed(1).await;
+        pressing.trigger();
+        started(&presser, 1).await;
+        // The key is still taken while the line reads keys: a second press must not end
+        // efr with the terminal left in the key reader's modes.
+        pressing.until_taken(1).await;
+        pressing.until_armed(1).await;
+        presser.type_bytes(b"ye").await;
+        pressing.trigger();
+        presser.stopped().await;
+        assert!(presser.discarded(), "what was typed is thrown away");
+        shows(&seen, "the input was not sent").await;
+        pressing.until_taken(2).await;
+        pressing.until_armed(1).await;
+        // The line is offered again, and a third press opens it anew.
+        pressing.trigger();
+        started(&presser, 2).await;
+        presser.type_bytes(b"yes\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "yes", "the closed line sent nothing");
+        conn.reply(id, &InputRespondResult {}).await;
+        presser.stopped().await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("ye"), "{out}");
+    assert_eq!(quit.armed(), 0);
+}
+
+#[tokio::test]
+async fn ctrl_backslash_during_an_approval_is_taken_and_does_nothing() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let quit = Arc::new(TestQuit::default());
+    let ctx = Context { keys: keys.clone(), quit: quit.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let pressing = Arc::clone(&quit);
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "run rm -rf build".to_owned(),
+            diff_preview: None,
+        };
+        conn.item(sub, &item(11, request)).await;
+        started(&presser, 1).await;
+        pressing.until_armed(1).await;
+        pressing.trigger();
+        pressing.until_taken(1).await;
+        pressing.until_armed(1).await;
+        // The approval still reads its key.
+        presser.press(b'y').await;
+        let (id, method) = conn.request().await;
+        let Method::ApprovalRespond(params) = method else {
+            panic!("expected approval.respond, got {}", method.name());
+        };
+        assert_eq!(params.decision, ApprovalDecision::Allow);
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(12) }).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert!(err.ends_with("allowed\n"), "{err}");
+    assert_eq!(quit.armed(), 0, "the key is let go when the keys stop");
+}
+
 #[tokio::test]
 async fn a_silent_call_without_ctrl_backslash_reads_no_keys_and_lets_go_of_the_key() {
     let env = TestEnv::new();

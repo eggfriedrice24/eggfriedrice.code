@@ -13,11 +13,14 @@
 //! never logged, and both are zeroed once it is sent or dropped (the README lists the
 //! copies that are not).
 //!
-//! A shell call that reports no wait and prints nothing for [`SILENCE`] gets a line that
-//! offers `Ctrl+\`, and only while that line is shown does the loop wait for the key
-//! (`crate::quit`). No key is read before it: what the user types meanwhile stays
-//! typeahead for their shell. `Ctrl+\` opens an answer line, which goes as a manual
-//! answer.
+//! A call that takes a manual input, reports no wait and prints nothing for [`SILENCE`]
+//! gets a line that offers `Ctrl+\`, and the loop waits for the key (`crate::quit`)
+//! while that line is shown. No key is read before it: what the user types meanwhile
+//! stays typeahead for their shell. `Ctrl+\` opens an answer line, which goes as a
+//! manual answer. The loop also waits for the key while it reads keys, because the key
+//! reader holds the terminal in modes of its own that the key's default action, the
+//! end of the process, would leave behind: a press then closes an open manual line
+//! unsent, and does nothing while an approval or another answer is asked.
 
 mod view;
 
@@ -252,10 +255,7 @@ impl Follower<'_> {
                     }
                     () = pressed(&mut self.quit) => {
                         self.quit = None;
-                        if let Some(call_id) = view.manual_offer() {
-                            let step = view.manual(call_id, self.ctx.screen.size());
-                            self.apply(step, out).await?;
-                        }
+                        self.pressed(out, view).await?;
                     }
                     item = stream.next() => match item {
                         Some(Ok(value)) => {
@@ -283,18 +283,32 @@ impl Follower<'_> {
         }
     }
 
-    /// Times the silence of the shell call that may offer `Ctrl+\`, from its last sign of
-    /// life, and waits for the key exactly while the view offers it. Without a terminal
-    /// to read keys from, nothing is offered.
+    /// Times the silence of the call that may offer `Ctrl+\`, from its last sign of
+    /// life, and waits for the key while the view offers it or keys are read. Without a
+    /// terminal to read keys from, nothing is offered.
     fn watch_silence(&mut self, view: &TurnView) {
         let candidate = if self.ctx.keys.available() { view.silence() } else { None };
         if self.silence.as_ref().map(|(key, _)| *key) != candidate {
             self.silence = candidate.map(|key| (key, self.ctx.clock.sleep(SILENCE)));
         }
-        let offered = view.manual_offer().is_some();
-        if offered != self.quit.is_some() {
-            self.quit = offered.then(|| self.ctx.quit.wait());
+        let wanted = view.manual_offer().is_some() || self.keys.is_some();
+        if wanted != self.quit.is_some() {
+            self.quit = wanted.then(|| self.ctx.quit.wait());
         }
+    }
+
+    /// `Ctrl+\` was pressed: it opens a manual answer line while the view offers one,
+    /// closes an open one unsent, and does nothing while anything else reads keys.
+    async fn pressed(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        let size = self.ctx.screen.size();
+        let step = if let Some(call_id) = view.manual_offer() {
+            view.manual(call_id, size)
+        } else if view.manual_open() {
+            view.manual_cancelled(size)
+        } else {
+            return Ok(());
+        };
+        self.apply(step, out).await.map(drop)
     }
 
     async fn subscribe(&self) -> Result<ItemStream<Value>, CliError> {
