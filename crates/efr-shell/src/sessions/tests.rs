@@ -1533,6 +1533,13 @@ async fn a_manual_answer_reaches_a_silent_command_that_reported_no_wait() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run, heard) = waiting(&harness, "./deploy", true, b"deploying\r\n").await;
     screen_shows(&harness.sessions, conversation(1), "deploying").await;
+    // Before any look, no job is known that a manual answer may reach.
+    let early = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("go"), false)
+        .await;
+    assert!(matches!(early, Err(ShellError::NotWaiting { .. })), "{early:?}");
+    looked(&harness).await;
     // The command printed nothing, so no look reports a wait, and a plain answer has
     // nothing to answer.
     let plain =
@@ -1569,6 +1576,81 @@ async fn a_manual_answer_reaches_a_silent_command_that_reported_no_wait() {
         .answer_manual(conversation(1), call(), &SecretText::new("go"), false)
         .await;
     assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+}
+
+/// Lets one look pass and waits until it is over, so the session knows the job that
+/// it saw.
+async fn looked(harness: &Harness) {
+    one_look(harness).await;
+    harness.clock.wait_for_sleeps(3).await;
+}
+
+#[tokio::test]
+async fn a_manual_answer_is_refused_while_a_job_that_no_look_saw_holds_the_terminal() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, _heard) = waiting(&harness, "./deploy", true, b"deploying\r\n").await;
+    screen_shows(&harness.sessions, conversation(1), "deploying").await;
+    looked(&harness).await;
+    // The command ended, and a precmd hook after the integration's runs an external
+    // command in a group of its own; the command's `D` has not arrived.
+    harness.modes.set_foreground(OTHER_JOB);
+    let refused = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("rm -rf ~"), false)
+        .await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    terminal.prompt().await;
+    run.await.unwrap().unwrap();
+    // Nothing was typed after the line of the run.
+    let next = spawn_run(&harness.sessions, request("true"));
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    terminal.run(b"", 0).await;
+    next.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_manual_answer_is_refused_for_a_run_that_starts_a_shell() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, _heard) = waiting(&harness, "bash", true, b"$ ").await;
+    screen_shows(&harness.sessions, conversation(1), "$").await;
+    looked(&harness).await;
+    // The answer would be the started shell's next command line.
+    let refused = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("rm -rf ~"), false)
+        .await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    terminal.print(b"exit\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_manual_answer_is_refused_for_a_sentinel_run() {
+    let harness = Harness::new(ZSH);
+    let (mut listener, _heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = request("sleep 60")
+        .with_call(call())
+        .with_mode(RunMode::Sentinel)
+        .with_timeout(Duration::from_secs(600));
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    let token = sentinel_token(&terminal.typed_line().await);
+    terminal.print(format!("__efr_{token}_b\r\n").as_bytes()).await;
+    looked(&harness).await;
+    // The line goes to a shell inside the hidden one, which reads what the command
+    // leaves unread as its next command line, with no drain.
+    let refused = harness
+        .sessions
+        .answer_manual(conversation(1), call(), &SecretText::new("rm -rf ~"), false)
+        .await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    terminal.print(format!("\r\n__efr_{token}_e:0:/home/u\r\n").as_bytes()).await;
+    run.await.unwrap().unwrap();
 }
 
 #[tokio::test]

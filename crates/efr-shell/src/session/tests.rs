@@ -10,7 +10,8 @@ use pretty_assertions::assert_eq;
 use tokio::sync::{oneshot, watch};
 
 use super::{Detached, RunEnd, RunOrder, SessionCore};
-use crate::input::Waiting;
+use crate::input::{Offer, Waiting};
+use crate::modes::{InputModes, Job};
 use crate::run::{Completion, Progress, RunMode};
 use crate::testing::{Notices, conversation};
 use crate::{Phase, ShellError, ShellNotice, ShellState};
@@ -403,23 +404,23 @@ fn a_probe_tells_whether_the_command_runs_and_when_it_last_printed() {
     let (mut core, _) = core(true);
     let mut at = 0;
     ready(&mut core, &mut at);
-    assert_eq!(core.probe(1), None);
+    assert_eq!(core.probe(1, None), None);
     let (order, mut answer, _) = order(1, "sudo true", RunMode::Auto);
     core.submit(order);
-    let before = core.probe(1).unwrap();
+    let before = core.probe(1, None).unwrap();
     assert!(!before.running);
     assert_eq!(before.job, None, "the actor reads the job");
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
-    let running = core.probe(1).unwrap();
+    let running = core.probe(1, None).unwrap();
     assert!(running.running);
     assert_eq!(running.last_output, Some(TestClock::START));
     assert_eq!(running.answers, 0);
     core.answered();
-    assert_eq!(core.probe(1).unwrap().answers, 1);
-    assert_eq!(core.probe(2), None, "another run");
+    assert_eq!(core.probe(1, None).unwrap().answers, 1);
+    assert_eq!(core.probe(2, None), None, "another run");
     feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07");
     assert!(answer.try_recv().is_ok());
-    assert_eq!(core.probe(1), None, "the run ended");
+    assert_eq!(core.probe(1, None), None, "the run ended");
 }
 
 #[test]
@@ -448,14 +449,52 @@ fn an_answer_learns_the_job_whose_wait_its_run_reported_last() {
     let (order, _answer, _) = order(1, "sudo true", RunMode::Auto);
     core.submit(order);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
-    assert_eq!(core.answerable(call_id(1)).unwrap(), None, "no wait was reported yet");
+    let waiting = |core: &SessionCore| core.answerable(call_id(1)).unwrap().waiting;
+    assert_eq!(waiting(&core), None, "no wait was reported yet");
     let hidden = Waiting { group: 4242, hidden: true };
     core.waiting(1, Some(hidden));
-    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(hidden));
+    assert_eq!(waiting(&core), Some(hidden));
     core.waiting(2, Some(Waiting { group: 4343, hidden: false }));
-    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(hidden), "another run's report");
+    assert_eq!(waiting(&core), Some(hidden), "another run's report");
     core.waiting(1, None);
-    assert_eq!(core.answerable(call_id(1)).unwrap(), None, "the wait ended");
+    assert_eq!(waiting(&core), None, "the wait ended");
+}
+
+#[test]
+fn a_run_keeps_the_job_that_its_last_look_saw_while_the_command_ran() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = order(1, "./deploy", RunMode::Auto);
+    core.submit(order);
+    let job = |group| Some(Job { group, modes: InputModes::new(true, true) });
+    // A look before the command's `C` sees the line editor's terminal, not the command.
+    core.probe(1, job(4343));
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    let looked = |core: &SessionCore| core.answerable(call_id(1)).unwrap().looked;
+    assert_eq!(looked(&core), None, "no look while the command ran");
+    core.probe(1, job(4242));
+    assert_eq!(looked(&core), Some(4242));
+    core.probe(2, job(4343));
+    assert_eq!(looked(&core), Some(4242), "a look at another run");
+    core.probe(1, None);
+    assert_eq!(looked(&core), None, "the shell itself held the terminal");
+}
+
+#[test]
+fn a_run_into_a_shell_that_reads_command_lines_reports_hidden_waits_only() {
+    for (command, mode, offer) in [
+        ("./deploy", RunMode::Auto, Offer::All),
+        ("bash", RunMode::Auto, Offer::Hidden),
+        ("sleep 60", RunMode::Sentinel, Offer::Hidden),
+    ] {
+        let (mut core, _) = core(false);
+        let mut at = 0;
+        let (order, _answer, _) = order(1, command, mode);
+        core.submit(order);
+        feed(&mut core, &mut at, b"__efr_0123456789abcdef_b\r\n");
+        assert_eq!(core.answerable(call_id(1)).unwrap().offer, offer, "{command} {mode:?}");
+    }
 }
 
 #[test]

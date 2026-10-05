@@ -14,7 +14,10 @@ use crate::{CallId, ConversationId, SecretText};
 /// (hidden with `hidden`, visible without) and the job that waited still holds the
 /// terminal, and with `hidden` only while the PTY also reads a line with echo off. A
 /// `manual` answer needs no reported wait: it is written while that call's command runs
-/// and a job of it, not the shell itself, holds the terminal. The daemon answers
+/// and the job that the daemon's last look saw, not the shell itself, holds the
+/// terminal, and never for a call whose command types into a shell that reads command
+/// lines (a `nested_shell` call, or a command that starts a shell or a REPL), where it
+/// would run as a command line. The daemon answers
 /// `not_found` for an unknown conversation or when no call's command runs in it (the
 /// call ended, so an answer after its `tool_call_completed` always gets `not_found`, or
 /// its command was left at its timeout and goes on without a call), `conflict` when

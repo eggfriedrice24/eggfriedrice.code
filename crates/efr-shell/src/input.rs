@@ -109,6 +109,32 @@ pub(crate) fn check_job(
     }
 }
 
+/// Refuses a manual answer for a run that reports hidden waits only. Such a run types
+/// into a shell or a REPL that reads command lines: a sentinel run's line, or a command
+/// that starts one. Once the command ends, that shell reads what is still unread as its
+/// next command line, and nothing drains it there, so a manual answer that the command
+/// did not read would run as a command.
+pub(crate) fn check_manual(offer: Offer) -> Result<(), &'static str> {
+    match offer {
+        Offer::All => Ok(()),
+        Offer::Hidden => Err("the run types into a shell that reads command lines"),
+    }
+}
+
+/// Refuses a manual answer unless `foreground`, the process group in the terminal's
+/// foreground now, is `looked`, the group that the last look saw while the command
+/// ran. A group that appeared after that look, such as a precmd hook's command once the
+/// command ended, does not read the answer, and the line editor would run it.
+pub(crate) fn check_looked(looked: Option<u32>, foreground: u32) -> Result<(), &'static str> {
+    match looked {
+        None => Err("no look has seen the command's job yet"),
+        Some(group) if group != foreground => {
+            Err("the job that the last look saw no longer holds the terminal")
+        }
+        Some(_) => Ok(()),
+    }
+}
+
 /// Refuses a hidden answer for a visible wait and a visible one for a hidden wait. The
 /// modes alone let both through: a visible answer takes any modes, and a program that
 /// asked a visible question can turn echo off before the answer comes.

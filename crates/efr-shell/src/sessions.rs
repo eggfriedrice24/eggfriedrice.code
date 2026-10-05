@@ -264,10 +264,12 @@ impl ShellSessions {
     /// Types `text` and a carriage return for the running command of `call` without a
     /// reported wait: the user chose to type an input, such as for a command that has
     /// printed nothing for a while. The answer is written only while that call's
-    /// command runs and a job of it, not the shell itself, holds the terminal, with
-    /// `hidden` only while the terminal reads a line with echo off; the check against a
-    /// reported wait and its kind does not apply. The errors are those of
-    /// [`answer`](Self::answer).
+    /// command runs, the run reports visible waits (a sentinel run, or one whose command
+    /// starts a shell or a REPL, types into a shell that reads command lines, and takes
+    /// none), and the job that the last look saw while the command ran, not the shell
+    /// itself, holds the terminal; with `hidden` only while the terminal reads a line
+    /// with echo off. The check against a reported wait and its kind does not apply.
+    /// The errors are those of [`answer`](Self::answer).
     pub async fn answer_manual(
         &self,
         conversation: ConversationId,

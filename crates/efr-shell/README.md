@@ -149,8 +149,13 @@ and `D`, or the two sentinels):
   that printed nothing for a while). It skips the check against the reported wait and
   its kind, and keeps the rest of the checks below: the text rules, this call's command
   runs, a job and not the shell itself holds the terminal, and for a hidden answer a
-  line read with echo off. A visible manual answer can reach whatever runs in the
-  foreground, also a nested shell's prompt; the user typed it there.
+  line read with echo off. In place of the wait's checks, the run must report visible
+  waits (`NotWaiting` for a sentinel run and for a run whose command starts a shell or a
+  REPL: the answer would be that shell's next command line once the command ends, and
+  nothing drains it there), and the job in the foreground must be the one that the last
+  look saw while the command ran (`NotWaiting` before the first look and for a group
+  that appeared after it, such as a later precmd hook's command once the command
+  ended).
 - `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the
   tool call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters
@@ -398,8 +403,10 @@ clock and the seeded generator.
   answer's kind, the job in the foreground is the one that was there at the look that
   reported it (by its process group), and, for a hidden answer, the terminal reads a
   line with echo off, all as read right before the write. A manual answer needs no
-  reported wait and no kind, but still a job, not the shell itself, in the foreground. A sentinel run and a run
-  whose command line starts a shell or a REPL report no visible wait. The stop of an
+  reported wait and no kind, but a run that reports visible waits and, in the
+  foreground, the job that the last look saw while the command ran. A sentinel run and
+  a run whose command line starts a shell or a REPL report no visible wait and take no
+  manual answer. The stop of an
   unanswered hidden wait signals only while that job holds the terminal, as read right
   before the signal.
 

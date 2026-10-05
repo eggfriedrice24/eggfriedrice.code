@@ -21,8 +21,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::capture::Kept;
-use crate::input::{self, Probe, Waiting};
-use crate::modes::Terminal;
+use crate::input::{self, Offer, Probe, Waiting};
+use crate::modes::{Job, Terminal};
 use crate::run::{
     Delimiter, FORGET_CREDENTIALS, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line,
 };
@@ -55,7 +55,7 @@ pub(crate) enum Msg {
     /// the job that waits, as the look read it, or `None` when nothing waits.
     Waiting { id: u64, waiting: Option<Waiting> },
     /// Type `text` for the running command of `call`, if it waits for such input, or,
-    /// with `manual`, if a job of it holds the terminal. `Debug` shows no text:
+    /// with `manual`, if the job that the last look saw holds the terminal. `Debug` shows no text:
     /// `SecretText` hides it.
     Answer {
         call: CallId,
@@ -115,6 +115,18 @@ pub(crate) enum Life {
     Ended(Option<ChildStatus>),
 }
 
+/// What an answer for the running command of a call is checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Answerable {
+    /// The wait that the run reported last with the process group of its job.
+    pub(crate) waiting: Option<Waiting>,
+    /// Which waits the run reports.
+    pub(crate) offer: Offer,
+    /// The process group in the terminal's foreground at the last look while the
+    /// command ran.
+    pub(crate) looked: Option<u32>,
+}
+
 /// Where [`SessionCore::submit`] puts a run.
 enum Placement {
     Now(Delimiter),
@@ -135,6 +147,13 @@ struct Active {
     /// The wait that the run reported last with the process group of its job; `None`
     /// while it reports none. Only that job gets an answer, and only of that kind.
     waiting: Option<Waiting>,
+    /// Which waits the run reports. A run that reports hidden waits only types into a
+    /// shell or a REPL that reads command lines, so it takes no manual answer.
+    offer: Offer,
+    /// The process group of the job in the terminal's foreground at the last look while
+    /// the command ran; `None` before the first such look and while the shell itself
+    /// held the terminal then. A manual answer reaches only that job.
+    looked: Option<u32>,
 }
 
 impl Active {
@@ -310,16 +329,17 @@ impl SessionCore {
         writes
     }
 
-    /// What a look at run `id` needs from the session, without the terminal's modes,
-    /// which the actor reads; `None` once the run ended or was left.
-    pub(crate) fn probe(&self, id: u64) -> Option<Probe> {
-        let active = self.active.as_ref().filter(|active| active.id == id)?;
-        Some(Probe {
-            running: active.machine.running(),
-            last_output: self.last_output,
-            job: None,
-            answers: active.answers,
-        })
+    /// What a look at run `id` needs from the session, with `job`, the job in the
+    /// terminal's foreground that the actor read; `None` once the run ended or was left.
+    /// While the command runs, the job's group is kept as the one a manual answer may
+    /// reach.
+    pub(crate) fn probe(&mut self, id: u64, job: Option<Job>) -> Option<Probe> {
+        let active = self.active.as_mut().filter(|active| active.id == id)?;
+        let running = active.machine.running();
+        if running {
+            active.looked = job.map(|job| job.group);
+        }
+        Some(Probe { running, last_output: self.last_output, job, answers: active.answers })
     }
 
     /// Records the wait that run `id` reported with the process group of its job, or
@@ -330,9 +350,9 @@ impl SessionCore {
         }
     }
 
-    /// Refuses an answer for `call` unless that call's command runs now; returns the
-    /// wait that the run reports, if it reports one.
-    pub(crate) fn answerable(&self, call: CallId) -> Result<Option<Waiting>, ShellError> {
+    /// Refuses an answer for `call` unless that call's command runs now; returns what an
+    /// answer to it is checked against.
+    pub(crate) fn answerable(&self, call: CallId) -> Result<Answerable, ShellError> {
         let conversation = self.conversation;
         let Some(active) = &self.active else {
             return Err(ShellError::NoCall { conversation });
@@ -346,7 +366,7 @@ impl SessionCore {
                 reason: "the command does not run now",
             });
         }
-        Ok(active.waiting)
+        Ok(Answerable { waiting: active.waiting, offer: active.offer, looked: active.looked })
     }
 
     /// An answer was typed for the active run.
@@ -445,6 +465,8 @@ impl SessionCore {
                     started: false,
                     answers: 0,
                     waiting: None,
+                    offer: Offer::of(order.mode, &order.command),
+                    looked: None,
                 });
                 vec![line]
             }
@@ -628,11 +650,8 @@ impl SessionActor {
                     let _ = reply.send(self.core.state().clone());
                 }
                 Msg::Probe { id, reply } => {
-                    let probe = self
-                        .core
-                        .probe(id)
-                        .map(|probe| Probe { job: self.terminal.job().ok().flatten(), ..probe });
-                    let _ = reply.send(probe);
+                    let job = self.terminal.job().ok().flatten();
+                    let _ = reply.send(self.core.probe(id, job));
                 }
                 Msg::Waiting { id, waiting } => self.core.waiting(id, waiting),
                 Msg::Answer { call, text, hidden, manual, reply } => {
@@ -682,7 +701,16 @@ impl SessionActor {
 /// A `manual` answer is one that the user chose to type while no wait was reported, such
 /// as for a command that printed nothing for a while. It skips the check against the
 /// reported wait and its kind, and keeps the rest: the call's command runs, a job and
-/// not the shell itself holds the terminal, and the modes suit the answer.
+/// not the shell itself holds the terminal, and the modes suit the answer. Two checks
+/// take the place of the wait's. The run must report visible waits: a run that reports
+/// hidden waits only types into a shell or a REPL started inside the hidden one, which
+/// reads the next line as a command line once the command ends, with no drain of its
+/// own. And the job in the foreground must be the one that the last look saw while the
+/// command ran, as the wait's job is for an answer to a wait: a precmd hook's command
+/// that holds the terminal after the command ended is a group that no look saw, and
+/// the line editor would run an answer typed for it. What is left is a look that ran
+/// while such a hook's command held the terminal, which is the window that the answer
+/// to a new wait has too.
 fn answer(
     core: &mut SessionCore,
     terminal: &Terminal,
@@ -691,23 +719,23 @@ fn answer(
     hidden: bool,
     manual: bool,
 ) -> Result<(), ShellError> {
-    let waiting = core.answerable(call)?;
+    let run = core.answerable(call)?;
     let conversation = core.conversation;
+    let refused = |reason| ShellError::NotWaiting { conversation, reason };
+    if manual {
+        input::check_manual(run.offer).map_err(refused)?;
+    }
     let job = terminal.job().map_err(|source| ShellError::Terminal { conversation, source })?;
     // The shell holds the terminal again as soon as the command's job ended, and `D`
     // may still be on its way here: an answer then would wait for the line editor.
-    let job = job.ok_or(ShellError::NotWaiting {
-        conversation,
-        reason: "the shell itself holds the terminal",
-    })?;
-    if !manual {
-        let waiting = input::check_job(waiting, job.group)
-            .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
-        input::check_kind(waiting, hidden)
-            .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    let job = job.ok_or(refused("the shell itself holds the terminal"))?;
+    if manual {
+        input::check_looked(run.looked, job.group).map_err(refused)?;
+    } else {
+        let waiting = input::check_job(run.waiting, job.group).map_err(refused)?;
+        input::check_kind(waiting, hidden).map_err(refused)?;
     }
-    input::check_modes(job.modes, hidden)
-        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    input::check_modes(job.modes, hidden).map_err(refused)?;
     // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to
     // a terminal query) can arrive after the answer; they cannot split it, because the
     // answer is a single write of its own. Nothing locks the terminal between the read
