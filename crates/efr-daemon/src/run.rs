@@ -476,8 +476,9 @@ impl Daemon {
 }
 
 /// The permission engine: the home directory and its resolved form, the daemon's own
-/// secrets, the secret paths of the config (`~/` below the home directory), and the
-/// registered projects, deciding by the built-in rules followed by the user's.
+/// secrets (sealed, so no rule opens them), the secret paths of the config (`~/` below
+/// the home directory), and the registered projects, deciding by the built-in rules
+/// followed by the user's.
 ///
 /// NOTE: the user's rules belong to the engine, the machine policy, and not to
 /// `ConversationConfig::policy`: a conversation's rules may never open a secret or a
@@ -508,7 +509,9 @@ async fn engine(
             locations
         }
     };
-    locations = locations.with_secret_root(secrets).map_err(invalid)?;
+    // NOTE: the daemon's own tokens would let the model act as the user at the
+    // provider, so no rule of the user's may open them, not even `class = "secrets"`.
+    locations = locations.with_sealed_root(secrets).map_err(invalid)?;
     for path in &permissions.secret_paths {
         let root = match path.strip_prefix("~") {
             Ok(below) => home.path().join(below),

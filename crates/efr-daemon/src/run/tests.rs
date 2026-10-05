@@ -6,7 +6,11 @@ use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 
 use crate::config::{Config, PermissionSettings};
-use efr_permissions::{Action, CommandPattern, Effect, PathClass, Policy, Resource, Rule};
+use efr_permissions::{
+    Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, PathClass, Policy,
+    Requirements, Resource, Rule,
+};
+use efr_protocol::{Origin, Scope};
 
 use crate::run::{conversation_config, engine, os_name};
 
@@ -80,6 +84,34 @@ async fn the_engine_decides_by_the_built_in_rules_then_the_users() {
     let rules = engine.policy().rules();
     assert_eq!(&rules[..defaults.rules().len()], defaults.rules());
     assert_eq!(rules[defaults.rules().len()..], [rule]);
+}
+
+#[tokio::test]
+async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    let home = efr_scope::Home::new(&home).unwrap();
+    let every_secret = Rule::new(Action::Read, Resource::Class(PathClass::Secrets), Effect::Allow);
+    let permissions = PermissionSettings {
+        rules: Policy::new(vec![every_secret]).unwrap(),
+        ..PermissionSettings::default()
+    };
+    let secrets = home.path().join(".local/share/efr/secrets");
+
+    let engine =
+        engine(&home, &secrets, &permissions, &home.path().join("projects.toml")).await.unwrap();
+
+    let decide = |path: PathBuf| {
+        let input = DecisionInput {
+            requirements: Requirements::none().with_read(path),
+            scope: Scope::Machine,
+            origin: Origin::Shell,
+            conversation_policy: ConversationPolicy::new(home.path().join("scratch")),
+        };
+        engine.decide(&input).effect()
+    };
+    assert_eq!(decide(home.path().join(".ssh/id_ed25519")), Effect::Allow);
+    assert_eq!(decide(secrets.join("openai-subscription.json")), Effect::Deny);
 }
 
 #[test]
