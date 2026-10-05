@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_conversation::{ConfigSource as _, HostInfo};
+use efr_protocol::Mode;
 use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
@@ -19,6 +20,7 @@ fn the_conversation_settings_follow_the_config() {
     config.conversation.approval_timeout_secs = Some(90);
     config.conversation.update_interval_ms = 50;
     config.model.system_prompt = "be brief".to_owned();
+    config.permissions.mode = Mode::Auto;
     let host = HostInfo::new(Some("box".to_owned()), Some("Arch Linux".to_owned()));
 
     let settings =
@@ -32,6 +34,7 @@ fn the_conversation_settings_follow_the_config() {
     assert_eq!(settings.approval_timeout, Some(Duration::from_secs(90)));
     assert_eq!(settings.update_interval, Duration::from_millis(50));
     assert_eq!(settings.host, host);
+    assert_eq!(settings.mode, Mode::Auto);
 }
 
 #[test]
@@ -46,11 +49,14 @@ fn the_conversations_read_the_latest_settings() {
     let mut changed = Settings::default();
     changed.model.name = Some("gpt-6-sol".to_owned());
     changed.conversation.max_queued = 2;
+    changed.permissions.mode = Mode::Manual;
     sender.send_replace(Arc::new(changed));
 
     let after = live.current();
     assert_eq!(after.model, "gpt-6-sol");
     assert_eq!(after.max_queued, 2);
+    assert_eq!(before.mode, Mode::Cautious);
+    assert_eq!(after.mode, Mode::Manual);
     assert_eq!(after.scratch_root, PathBuf::from("/d/scratch"));
     assert_eq!(before.model, efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL, "a value read stays");
 }

@@ -1,23 +1,42 @@
-//! The read-only commands of [`Policy::defaults`](super::Policy::defaults), as data.
+//! The read-only commands of [`Policy::defaults`](super::Policy::defaults), the
+//! `cautious` mode, as data.
 //!
 //! Each row is a program, the words that must follow it, the words that must not
-//! appear, and the fewest and most operands, or nothing at all after the args. A row allows only what cannot change the
-//! machine or print the environment:
-//! options that write a file, run another program, wait forever or change a setting
-//! are forbidden, so a command that uses one needs approval. `defaults.md` beside this
-//! file is the same table for the docs, and a test keeps the two equal.
+//! appear, and the fewest and most operands, or nothing at all after the args. A row
+//! allows only what cannot change the machine or print the environment: options that
+//! write a file, run another program, wait forever or change a setting are forbidden,
+//! so a command that uses one needs approval. `defaults.md` beside this file is the
+//! same table for the docs, and a test keeps the two equal.
 
 use self::Operands::{Alone, Any, AtLeast, AtMost};
-use crate::CommandPattern;
+use crate::{Check, CommandPattern};
 
 /// The fewest and the most operands of a row, or nothing at all after its args.
 #[derive(Debug, Clone, Copy)]
-enum Operands {
+pub(super) enum Operands {
     Any,
     AtMost(usize),
     AtLeast(usize),
     /// No operand and no option after the args.
     Alone,
+}
+
+/// The pattern of one row.
+pub(super) fn pattern(
+    program: &str,
+    args: &[&str],
+    forbid: &[&str],
+    operands: Operands,
+) -> CommandPattern {
+    let pattern = CommandPattern::new(program)
+        .with_args(args.iter().copied())
+        .with_forbid(forbid.iter().copied());
+    match operands {
+        Any => pattern,
+        AtMost(max) => pattern.with_max_operands(max),
+        AtLeast(min) => pattern.with_min_operands(min),
+        Alone => pattern.with_max_operands(0).with_max_options(0),
+    }
 }
 
 /// One row: program, args, forbid, operands.
@@ -191,21 +210,26 @@ const ROWS: &[Row] = &[
     ("sensors", &[], &["-s", "--set"], Any),
     ("nproc", &[], &[], Any),
     ("find", &[], &["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"], Any),
+    // A change of directory reads nothing but its target, which the shell tool declares
+    // as a read; the engine follows it for the rest of the line.
+    ("cd", &[], &[], Any),
+    ("pushd", &[], &[], Any),
+    ("popd", &[], &[], Any),
+];
+
+/// Rows whose words a [`Check`] judges, after the plain rows.
+const CHECKED: &[(&str, Check)] = &[
+    // Printing lines of a file. The check refuses every option and command that writes,
+    // reads a script file or runs a program.
+    ("sed", Check::SedPrintOnly),
 ];
 
 /// The read-only commands, in order.
 pub(super) fn read_only() -> Vec<CommandPattern> {
-    ROWS.iter()
-        .map(|(program, args, forbid, operands)| {
-            let pattern = CommandPattern::new(*program)
-                .with_args(args.iter().copied())
-                .with_forbid(forbid.iter().copied());
-            match operands {
-                Any => pattern,
-                AtMost(max) => pattern.with_max_operands(*max),
-                AtLeast(min) => pattern.with_min_operands(*min),
-                Alone => pattern.with_max_operands(0).with_max_options(0),
-            }
-        })
-        .collect()
+    let plain = ROWS
+        .iter()
+        .map(|(program, args, forbid, operands)| pattern(program, args, forbid, *operands));
+    let checked =
+        CHECKED.iter().map(|(program, check)| CommandPattern::new(*program).with_check(*check));
+    plain.chain(checked).collect()
 }

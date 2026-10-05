@@ -150,8 +150,16 @@ pub enum Cause {
         /// The first secret below the path that no rule allows.
         secret: PathBuf,
     },
+    /// A rule allowed writing the path, but efr's configuration lies below it, so the
+    /// user must approve.
+    ReachesWriteSealed {
+        /// The write-sealed location below the path.
+        root: PathBuf,
+    },
     /// The path holds efr's own credentials, which no rule opens.
     Sealed,
+    /// The call writes efr's configuration, which no tool may write and no rule opens.
+    WriteSealed,
     /// No rule matched, so the engine refused.
     NoRule,
     /// The path is relative, so its class is unknown.
@@ -171,7 +179,8 @@ pub enum Cause {
 /// The policy that a rule belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Layer {
-    /// The engine's policy: the defaults plus the user's configured rules.
+    /// The engine's policy: the built-in policy of the turn's permission mode, then the
+    /// user's configured rules.
     Machine,
     /// The rules of one conversation.
     Conversation,
@@ -207,9 +216,15 @@ impl fmt::Display for Reason {
             Cause::ReachesSecret { secret } => {
                 write!(f, ", because the secret {} lies below it", secret.display())
             }
+            Cause::ReachesWriteSealed { root } => {
+                write!(f, ", because efr's configuration at {} lies below it", root.display())
+            }
             Cause::Sealed => {
                 f.write_str(", because efr keeps its own credentials there and no rule opens them")
             }
+            Cause::WriteSealed => f.write_str(
+                ", because efr's configuration is there, and only the user changes it, not a tool",
+            ),
             Cause::NoRule => f.write_str(", because no rule matched"),
             Cause::NotAbsolute => f.write_str(", because the path is not absolute"),
             Cause::RemoteOrigin { origin } if self.subject == Subject::Nothing => write!(

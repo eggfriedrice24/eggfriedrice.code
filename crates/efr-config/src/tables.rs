@@ -152,10 +152,8 @@ impl Default for OpenAiSettings {
 #[non_exhaustive]
 pub struct PermissionSettings {
     /// The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt
-    /// may choose another one for its turn.
-    ///
-    /// NOTE: read and validated, but not applied yet: every turn runs with the
-    /// `cautious` rules until the modes are wired.
+    /// may choose another one for its turn. A turn from the phone runs with at most
+    /// `cautious`.
     pub mode: Mode,
     /// Files and directories that count as secrets on top of the built-in ones, so the
     /// model may never read or write them: absolute, or below the home directory as
@@ -171,9 +169,9 @@ pub struct PermissionSettings {
 }
 
 impl PermissionSettings {
-    /// The machine policy: the built-in rules, then the user's.
-    pub fn policy(&self) -> Policy {
-        Policy::defaults().then(self.rules.clone())
+    /// The machine policy of `mode`: its built-in rules, then the user's.
+    pub fn policy(&self, mode: Mode) -> Policy {
+        Policy::base(mode).then(self.rules.clone())
     }
 }
 

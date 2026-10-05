@@ -55,7 +55,8 @@
 # The default permission mode of a turn: manual (every call asks, except what your
 # rules allow), cautious (read-only commands and reads run at once) or auto (cautious
 # plus writes, builds and tests in the project). A prompt may choose another one for
-# its turn. Read but not applied yet: every turn runs with the cautious rules.
+# its turn. A turn from the phone runs with at most cautious. docs/permissions.md
+# lists what each mode allows.
 # mode = "cautious"
 
 # Files and directories that count as secrets on top of the built-in ones, so the model

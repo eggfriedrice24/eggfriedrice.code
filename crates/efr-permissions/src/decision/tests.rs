@@ -74,6 +74,30 @@ fn a_decision_without_reasons_fails_closed() {
     ),
     "run \"ls -la\": ask, by rule 0 of the machine policy"
 )]
+#[case::write_sealed(
+    reason(
+        Subject::Path {
+            path: PathBuf::from("/home/u/.config/efr/config.toml"),
+            access: Access::Write,
+            class: Some(PathClass::UserConfig),
+        },
+        Effect::Deny,
+        Cause::WriteSealed
+    ),
+    "write /home/u/.config/efr/config.toml (user config): deny, because efr's configuration is there, and only the user changes it, not a tool"
+)]
+#[case::reaches_write_sealed(
+    reason(
+        Subject::Path {
+            path: PathBuf::from("/home/u/.config"),
+            access: Access::Write,
+            class: Some(PathClass::UserConfig),
+        },
+        Effect::Ask,
+        Cause::ReachesWriteSealed { root: PathBuf::from("/home/u/.config/efr") }
+    ),
+    "write /home/u/.config (user config): ask, because efr's configuration at /home/u/.config/efr lies below it"
+)]
 #[case::interactive(
     reason(Subject::Interactive, Effect::Ask, Cause::Interactive),
     "input at the terminal: ask, because the user must answer at the terminal"

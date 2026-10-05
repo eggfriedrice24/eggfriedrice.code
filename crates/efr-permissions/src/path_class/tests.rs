@@ -491,3 +491,34 @@ fn a_sealed_root_is_a_secret_in_every_form_of_home() {
         [PathBuf::from("/home/u/.local/share/efr/secrets")]
     );
 }
+
+#[test]
+fn write_sealed_roots_seal_themselves_and_what_lies_below() {
+    let locations = Locations::new("/home/u")
+        .unwrap()
+        .with_write_sealed_root("/home/u/.config/efr")
+        .unwrap()
+        .with_write_sealed_root("/home/u/.config/efr")
+        .unwrap();
+    assert!(locations.is_write_sealed(Path::new("/home/u/.config/efr")));
+    assert!(locations.is_write_sealed(Path::new("/home/u/.config/efr/config.toml")));
+    assert!(!locations.is_write_sealed(Path::new("/home/u/.config/efrx")));
+    assert!(!locations.is_write_sealed(Path::new("/home/u/.config")));
+    assert_eq!(
+        locations.write_sealed_below(Path::new("/home/u/.config")),
+        Some(Path::new("/home/u/.config/efr"))
+    );
+    assert_eq!(locations.write_sealed_below(Path::new("/home/u/.config/efr")), None);
+    assert_eq!(locations.write_sealed_below(Path::new("/home/u/p")), None);
+    // The class of a write-sealed path stays its own: reading follows its rules.
+    let class = locations.classify(Path::new("/home/u/.config/efr/config.toml"), Path::new("/s"));
+    assert_eq!(class, Some(PathClass::UserConfig));
+}
+
+#[test]
+fn a_write_sealed_root_must_be_absolute() {
+    assert_eq!(
+        Locations::new("/home/u").unwrap().with_write_sealed_root("efr").unwrap_err(),
+        PermissionsError::NotAbsolute { path: "efr".into() }
+    );
+}

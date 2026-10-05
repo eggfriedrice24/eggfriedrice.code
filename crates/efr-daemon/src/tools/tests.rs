@@ -13,7 +13,7 @@ use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, Locations,
     Requirements, Resource, Rule,
 };
-use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
+use efr_protocol::{CallId, ConversationId, Mode, Origin, Scope, TurnId};
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
 use efr_test_support::{TestClock, TestRng};
@@ -223,7 +223,7 @@ async fn a_shell_call_through_a_link_into_the_secrets_declares_and_meets_the_sec
     std::os::unix::fs::symlink(home.join(".ssh"), cwd.join("keys")).unwrap();
     let toolbox = toolbox(&home);
     let engine =
-        Engine::new(Locations::new(&home).unwrap(), Settings::default().permissions.policy());
+        Engine::with_rules(Locations::new(&home).unwrap(), Settings::default().permissions.rules);
 
     let cat = call("shell", json!({"command": "cat notes"}), &cwd);
     let requirements = toolbox.requirements(&cat).await.unwrap();
@@ -246,6 +246,7 @@ async fn a_shell_call_through_a_link_into_the_secrets_declares_and_meets_the_sec
             requirements: toolbox.requirements(&shell_call).await.unwrap(),
             scope: Scope::Machine,
             origin: Origin::Shell,
+            mode: Mode::Cautious,
             conversation_policy: ConversationPolicy::new(home.join(".local/share/efr/scratch/x")),
         };
         assert_eq!(engine.decide(&input).effect(), expected, "{command:?}");
@@ -273,11 +274,12 @@ async fn shell_decision(
     let requirements = toolbox.requirements(&shell_call).await.unwrap();
     let mut permissions = Settings::default().permissions;
     permissions.rules = efr_permissions::Policy::new(rules).unwrap();
-    let engine = Engine::new(Locations::new(&home).unwrap(), permissions.policy());
+    let engine = Engine::with_rules(Locations::new(&home).unwrap(), permissions.rules);
     let input = DecisionInput {
         requirements,
         scope: Scope::Machine,
         origin,
+        mode: Mode::Cautious,
         conversation_policy: ConversationPolicy::new(home.join(".local/share/efr/scratch/x")),
     };
     engine.decide(&input).effect()

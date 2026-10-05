@@ -3,7 +3,7 @@ use std::path::Path;
 use efr_permissions::{
     ConversationPolicy, Decision, DecisionInput, Engine, Locations, Requirements,
 };
-use efr_protocol::{ApprovalDecision, CallId, Origin, Scope, TurnId};
+use efr_protocol::{ApprovalDecision, CallId, Mode, Origin, Scope, TurnId};
 use efr_stdx::id::uuid_v7;
 use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
@@ -24,6 +24,7 @@ fn decide(requirements: Requirements) -> Decision {
         requirements,
         scope: Scope::Machine,
         origin: Origin::Shell,
+        mode: Mode::Cautious,
         conversation_policy: ConversationPolicy::new("/home/u/.local/share/efr/scratch/s"),
     })
 }

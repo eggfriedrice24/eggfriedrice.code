@@ -148,6 +148,9 @@ pub struct Locations {
     secret_roots: Vec<PathBuf>,
     /// The secret roots that no rule opens; each is in `secret_roots` too.
     sealed_roots: Vec<PathBuf>,
+    /// The roots that no tool may write and no rule opens for writing, such as efr's
+    /// config directory. Reading them follows the rules of their class.
+    write_sealed_roots: Vec<PathBuf>,
     user_config_roots: Vec<PathBuf>,
     projects: BTreeMap<ProjectId, PathBuf>,
 }
@@ -167,6 +170,7 @@ impl Locations {
             home_aliases: Vec::new(),
             secret_roots: Vec::new(),
             sealed_roots: Vec::new(),
+            write_sealed_roots: Vec::new(),
             user_config_roots: Vec::new(),
             projects: BTreeMap::new(),
         })
@@ -199,10 +203,15 @@ impl Locations {
             home_aliases,
             secret_roots,
             sealed_roots,
+            write_sealed_roots,
             user_config_roots,
             projects,
         } = &mut self;
-        let roots = secret_roots.iter_mut().chain(sealed_roots).chain(user_config_roots);
+        let roots = secret_roots
+            .iter_mut()
+            .chain(sealed_roots)
+            .chain(write_sealed_roots)
+            .chain(user_config_roots);
         for root in roots.chain(projects.values_mut()) {
             if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
                 *root = rehomed;
@@ -226,6 +235,27 @@ impl Locations {
         let root = self.absolute_root(root.into())?;
         self.secret_roots.push(root.clone());
         self.sealed_roots.push(root);
+        Ok(self)
+    }
+
+    /// Adds a directory or file that no tool may write and no rule opens for writing,
+    /// not even the user's: efr's config directory, and the real file or directory
+    /// behind each symbolic link in it, such as a `config.toml` in a dotfiles
+    /// repository. The config sets the permission rules and the project registry there
+    /// defines the project that the `auto` mode trusts, so only the user, or the
+    /// settings tool with the user's approval, may change them. Reading follows the
+    /// rules of the path's class.
+    ///
+    /// A write of a path above such a root, which could replace or remove it, needs at
+    /// least approval.
+    pub fn with_write_sealed_root(
+        mut self,
+        root: impl Into<PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        if !self.write_sealed_roots.contains(&root) {
+            self.write_sealed_roots.push(root);
+        }
         Ok(self)
     }
 
@@ -354,6 +384,22 @@ impl Locations {
     pub(crate) fn is_sealed(&self, path: &Path) -> bool {
         let path = self.rehome(path);
         self.sealed_roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// True when `path`, in normal form, is a write-sealed root or lies below one, in
+    /// any form of the home directory.
+    pub(crate) fn is_write_sealed(&self, path: &Path) -> bool {
+        let path = self.rehome(path);
+        self.write_sealed_roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// The first write-sealed root strictly below `dir`, a path in normal form.
+    pub(crate) fn write_sealed_below(&self, dir: &Path) -> Option<&Path> {
+        let dir = self.rehome(dir);
+        self.write_sealed_roots
+            .iter()
+            .find(|root| root.starts_with(dir.as_ref()) && root.as_path() != dir.as_ref())
+            .map(PathBuf::as_path)
     }
 
     fn is_secret(&self, path: &Path) -> bool {

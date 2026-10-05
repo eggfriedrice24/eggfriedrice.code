@@ -2,24 +2,33 @@
 //! a requirement decides it.
 //!
 //! Last match wins, as in a firewall's ordered rule list, so a policy reads from the
-//! general to the specific and the user's own rules go after the defaults. In the
+//! general to the specific and the user's own rules go after the built-in ones. In the
 //! configuration a rule looks like this:
 //!
 //! ```toml
 //! { action = "write", resource = { under = "~/.config/nvim" }, effect = "allow" }
 //! { action = "execute", resource = { command = { program = "git", args = ["status"] } }, effect = "allow" }
 //! { action = "execute", resource = { command = { program = "find", forbid = ["-delete"] } }, effect = "allow" }
+//! { action = "network", resource = { command = { program = "cargo", args = ["fetch"], under = "project" } }, effect = "allow" }
 //! ```
+//!
+//! [`Policy::base`] is the built-in policy of each permission mode: `manual` asks for
+//! everything, `cautious` allows reading and the read-only commands of `defaults.rs`,
+//! and `auto` adds the table of `auto.rs`.
 
+mod auto;
+mod check;
 mod defaults;
 
 use std::borrow::Cow;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
+use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub use self::check::Check;
 use crate::command::{self, is_plain_char};
 use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError};
@@ -56,7 +65,11 @@ pub enum Action {
     Write,
     /// Running a command line.
     Execute,
-    /// Network access.
+    /// Network access: by any call with the resource `any`, or by one simple command
+    /// of a command line that the resource's command pattern matches. A line reaches
+    /// the network without a question only when every simple command in it may: by
+    /// such a rule, or because only a built-in rule lets it run, as for `tail` in
+    /// `npm ci | tail`.
     Network,
 }
 
@@ -83,12 +96,70 @@ pub enum Resource {
     /// A path and everything below it. It is absolute or starts with `~`, which stands
     /// for the home directory.
     Under(PathBuf),
-    /// Every path inside the root of the turn's registered project. It matches nothing
-    /// when the scope is not a registered project, or when that root is `~`, `/` or a
-    /// directory above `~`.
+    /// Every path inside the root of the turn's registered project: a read of the root
+    /// or below it, a write strictly below it. It matches nothing when the scope is not
+    /// a registered project, or when that root is `~`, `/` or a directory above `~`.
     Project,
-    /// Every simple command that matches the pattern.
+    /// Every simple command that matches the pattern. With the action `network`, the
+    /// network access of such a command; the action `any` does not open the network.
     Command(CommandPattern),
+}
+
+/// Where a command must run for a [`CommandPattern`] to match it: below a directory,
+/// in the turn's registered project, or in the conversation's `$SCRATCH`.
+///
+/// In the configuration it is one string: `"project"`, `"scratch"`, or a directory that
+/// is absolute or starts with `~`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(from = "PathBuf", into = "PathBuf")]
+pub enum Under {
+    /// A directory, absolute or starting with `~`, and everything below it.
+    Path(PathBuf),
+    /// The root of the turn's registered project and everything below it. It matches
+    /// nothing when the scope is not a registered project, or when that root is `~`,
+    /// `/` or a directory above `~`.
+    Project,
+    /// The conversation's `$SCRATCH` and everything below it.
+    Scratch,
+}
+
+impl Under {
+    /// The word for [`Under::Project`] in the configuration.
+    const PROJECT: &'static str = "project";
+    /// The word for [`Under::Scratch`] in the configuration.
+    const SCRATCH: &'static str = "scratch";
+}
+
+impl From<PathBuf> for Under {
+    fn from(path: PathBuf) -> Self {
+        if path.as_os_str() == Under::PROJECT {
+            Under::Project
+        } else if path.as_os_str() == Under::SCRATCH {
+            Under::Scratch
+        } else {
+            Under::Path(path)
+        }
+    }
+}
+
+impl From<Under> for PathBuf {
+    fn from(under: Under) -> Self {
+        match under {
+            Under::Path(path) => path,
+            Under::Project => PathBuf::from(Under::PROJECT),
+            Under::Scratch => PathBuf::from(Under::SCRATCH),
+        }
+    }
+}
+
+impl fmt::Display for Under {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Under::Path(path) => write!(f, "{}", path.display()),
+            Under::Project => f.write_str(Under::PROJECT),
+            Under::Scratch => f.write_str(Under::SCRATCH),
+        }
+    }
 }
 
 /// A command that a rule names: a program, the words that must follow it, the words
@@ -106,8 +177,9 @@ pub enum Resource {
 ///
 /// Words are compared after quotes are removed, so `git 'status'` is `git status`. A
 /// command with a pattern outside quotes, such as `src/*.rs`, matches only a pattern
-/// that sets no operand bound, forbids no word without a dash and has no wildcard
-/// alternative without one, because zsh replaces the pattern with the names it matches.
+/// that sets no operand bound, forbids no word without a dash, has no check and no
+/// wildcard alternative without a dash, because zsh replaces the pattern with the
+/// names it matches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommandPattern {
@@ -148,12 +220,18 @@ pub struct CommandPattern {
     /// alone: one more option could make the program read the whole line another way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_options: Option<usize>,
-    /// A directory the command must run in, or below: absolute or starting with `~`.
-    /// The directory is where the hidden shell is when the line starts; after a `cd`,
-    /// `pushd` or `popd` earlier in the line it is unknown, and the pattern matches
-    /// nothing.
+    /// Where the command must run: a directory or below it (absolute or starting with
+    /// `~`), `"project"` for the turn's registered project, or `"scratch"` for the
+    /// conversation's `$SCRATCH`. The directory is where the hidden shell is when the
+    /// line starts; after a `cd`, `pushd` or `popd` earlier in the line it is unknown,
+    /// and the pattern matches nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub under: Option<PathBuf>,
+    pub under: Option<Under>,
+    /// A check of the words after `args` that a list of words cannot express, such as
+    /// `sed_print_only` for a `sed` script that only prints. What the check cannot
+    /// prove matches nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<Check>,
 }
 
 impl CommandPattern {
@@ -167,6 +245,7 @@ impl CommandPattern {
             min_operands: None,
             max_options: None,
             under: None,
+            check: None,
         }
     }
 
@@ -213,10 +292,18 @@ impl CommandPattern {
         self
     }
 
-    /// Requires the command to run in `dir` or below it.
+    /// Requires the command to run in `dir` or below it. `"project"` and `"scratch"`
+    /// stand for [`Under::Project`] and [`Under::Scratch`], as in the configuration.
     #[must_use]
     pub fn with_under(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.under = Some(dir.into());
+        self.under = Some(Under::from(dir.into()));
+        self
+    }
+
+    /// Requires the words after `args` to pass `check`.
+    #[must_use]
+    pub fn with_check(mut self, check: Check) -> Self {
+        self.check = Some(check);
         self
     }
 
@@ -246,10 +333,10 @@ impl CommandPattern {
     /// so one word may become several operands, none at all (under `NULL_GLOB`), or a
     /// forbidden word taken from a file name: `uniq in*` may name an output file, and
     /// `ps ax?` may become `ps axe`. Only a pattern that counts no operands, forbids no
-    /// word without a dash and has no wildcard alternative without one can still judge
-    /// such a command. Options are safe: an expanded name starts with the plain
-    /// character that the word starts with, and the lexer refuses a pattern in a word
-    /// that starts with `-`.
+    /// word without a dash, checks nothing and has no wildcard alternative without one
+    /// can still judge such a command. Options are safe: an expanded name starts with
+    /// the plain character that the word starts with, and the lexer refuses a pattern
+    /// in a word that starts with `-`.
     fn takes_patterns(&self) -> bool {
         let operand_wildcard = self
             .args
@@ -258,6 +345,7 @@ impl CommandPattern {
             .any(|alternative| alternative.ends_with('*') && !alternative.starts_with('-'));
         self.max_operands.is_none()
             && self.min_operands.is_none()
+            && self.check.is_none()
             && !self.forbid.iter().any(|entry| !entry.starts_with('-'))
             && !operand_wildcard
     }
@@ -284,6 +372,7 @@ impl CommandPattern {
         self.max_operands.is_none_or(|max| count <= max)
             && self.min_operands.is_none_or(|min| count >= min)
             && self.max_options.is_none_or(|max| options(after) <= max)
+            && self.check.is_none_or(|check| check.accepts(after))
     }
 }
 
@@ -356,8 +445,8 @@ impl Policy {
     /// A policy of the given rules, in order.
     ///
     /// Fails on the first rule that names a relative path, a program, argument or
-    /// forbidden word that is not a plain word, or an action that its resource can
-    /// never match.
+    /// forbidden word that is not a plain word, a check made for another program, or an
+    /// action that its resource can never match.
     pub fn new(rules: Vec<Rule>) -> Result<Self, PermissionsError> {
         for (index, rule) in rules.iter().enumerate() {
             check(index, rule)?;
@@ -370,8 +459,43 @@ impl Policy {
         Policy::default()
     }
 
-    /// The built-in policy: the path-class table of the design, then read-only
-    /// commands that run without approval.
+    /// The built-in policy of `mode`, which the user's rules follow:
+    ///
+    /// - `manual`: rule 0 (`any any ask`) and rule 1 (`any`, class secrets, `deny`).
+    ///   Every requirement asks, reading included, and secrets are denied.
+    /// - `cautious`: [`Policy::defaults`].
+    /// - `auto`: [`Policy::defaults`], then the table of `policy/auto.rs`: the writer
+    ///   programs, whose declared writes the path rules judge, the project's build,
+    ///   test, format and lint tools when the shell is in the project or `$SCRATCH`,
+    ///   and local git. Only the rows that fetch packages, and `git fetch` and
+    ///   `git pull`, allow network access. Each row becomes one rule for each place it
+    ///   may run in, and one more for the network:
+    ///
+    /// | # | Program | Args | Forbid | Min | Max | Options | Check | Where | Network |
+    /// |---|---|---|---|---|---|---|---|---|---|
+    #[doc = include_str!("policy/auto.md")]
+    ///
+    /// A mode newer than this crate gets the `manual` policy, so it fails closed.
+    pub fn base(mode: Mode) -> Self {
+        match mode {
+            Mode::Cautious => Policy::defaults(),
+            Mode::Auto => {
+                let mut policy = Policy::defaults();
+                policy.rules.extend(auto::rules());
+                policy
+            }
+            // NOTE: manual, and any mode added to the protocol after this crate.
+            _ => Policy {
+                rules: vec![
+                    Rule::new(Action::Any, Resource::Any, Effect::Ask),
+                    Rule::new(Action::Any, Resource::Class(PathClass::Secrets), Effect::Deny),
+                ],
+            },
+        }
+    }
+
+    /// The built-in policy of the `cautious` mode, the default: the path-class table of
+    /// the design, then read-only commands that run without approval.
     ///
     /// | # | Action | Resource | Effect |
     /// |---|---|---|---|
@@ -389,10 +513,10 @@ impl Policy {
     /// project are free to write, network access needs approval, and a command line
     /// needs approval unless every simple command in it is one of these (`args` must
     /// follow the program, `forbid` must not appear, `min` and `max` bound the
-    /// operands and `options` the options after `args`):
+    /// operands and `options` the options after `args`, and `check` must pass):
     ///
-    /// | # | Program | Args | Forbid | Min | Max | Options |
-    /// |---|---|---|---|---|---|---|
+    /// | # | Program | Args | Forbid | Min | Max | Options | Check |
+    /// |---|---|---|---|---|---|---|---|
     #[doc = include_str!("policy/defaults.md")]
     ///
     /// `env` and `printenv` are left out on purpose, because they print every variable,
@@ -495,6 +619,19 @@ impl From<Policy> for Vec<Rule> {
     }
 }
 
+/// One simple command of a line as rules match it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Part<'a> {
+    /// The words, program first, unquoted.
+    pub(crate) words: &'a [String],
+    /// True when one of the words holds a pattern outside quotes.
+    pub(crate) pattern: bool,
+    /// True when it runs as another user, which no command pattern allows.
+    pub(crate) privileged: bool,
+    /// The directory it runs in, in normal form, when it is known.
+    pub(crate) dir: Option<&'a Path>,
+}
+
 /// What a rule is matched against: one path, one simple command, a command line that
 /// cannot be split, or network access.
 #[derive(Debug, Clone, Copy)]
@@ -508,22 +645,17 @@ pub(crate) enum Target<'a> {
         /// Its class.
         class: PathClass,
     },
-    /// One simple command of a line, program first, unquoted.
-    Command {
-        /// The words.
-        words: &'a [String],
-        /// True when one of the words holds a pattern outside quotes.
-        pattern: bool,
-        /// True when it runs as another user, which no command pattern allows.
-        privileged: bool,
-        /// The directory it runs in, in normal form, when it is known.
-        dir: Option<&'a Path>,
-    },
+    /// One simple command of a line.
+    Command(Part<'a>),
     /// A line that cannot be split into simple commands: only the rules for every
     /// command line match it.
     Opaque,
-    /// Network access by the call itself.
-    Network,
+    /// Network access by the call itself: for one simple command of its command line,
+    /// or for the call as a whole when it has no line that could be split.
+    Network {
+        /// The simple command.
+        part: Option<Part<'a>>,
+    },
 }
 
 /// What rule matching needs beyond the target.
@@ -537,6 +669,9 @@ pub(crate) struct MatchContext<'a> {
     /// The root of the turn's project, when it may widen permissions, already under
     /// `home` when it lies under an alias.
     pub(crate) project_root: Option<&'a Path>,
+    /// The conversation's `$SCRATCH`, when it may count as scratch, already under
+    /// `home` when it lies under an alias.
+    pub(crate) scratch: Option<&'a Path>,
 }
 
 impl MatchContext<'_> {
@@ -553,24 +688,27 @@ impl Rule {
                     Access::Read | Access::ReadTree => Action::Read,
                     Access::Write => Action::Write,
                 };
-                self.action_is(action) && self.matches_path(path, class, cx)
+                self.action_is(action) && self.matches_path(path, access, class, cx)
             }
-            Target::Command { words, pattern: globbed, privileged, dir } => {
+            Target::Command(part) => {
                 self.action_is(Action::Execute)
                     && match &self.resource {
                         Resource::Any => true,
-                        Resource::Command(pattern) => {
-                            !privileged
-                                && pattern.matches_command(words, globbed)
-                                && pattern.under.as_deref().is_none_or(|root| {
-                                    dir.is_some_and(|dir| self.contains(root, dir, cx))
-                                })
-                        }
+                        Resource::Command(pattern) => self.runs(pattern, &part, cx),
                         Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
                     }
             }
             Target::Opaque => self.action_is(Action::Execute) && self.resource == Resource::Any,
-            Target::Network => self.action_is(Action::Network) && self.resource == Resource::Any,
+            // NOTE: only a rule that says `network` matches the network access of a
+            // command, so a rule written as `any` for a command never opens the network.
+            Target::Network { part } => match &self.resource {
+                Resource::Any => self.action_is(Action::Network),
+                Resource::Command(pattern) => {
+                    self.action == Action::Network
+                        && part.is_some_and(|part| self.runs(pattern, &part, cx))
+                }
+                Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
+            },
         }
     }
 
@@ -578,19 +716,50 @@ impl Rule {
         self.action == Action::Any || self.action == action
     }
 
-    /// True when `path` is `root`, an `under` path, or below it, in any form of `~`.
-    fn contains(&self, root: &Path, path: &Path, cx: &MatchContext<'_>) -> bool {
-        expand(root, cx.home).is_some_and(|root| cx.rehome(path).starts_with(cx.rehome(&root)))
+    /// True when the simple command `part` matches `pattern`, in the place the pattern
+    /// names.
+    fn runs(&self, pattern: &CommandPattern, part: &Part<'_>, cx: &MatchContext<'_>) -> bool {
+        !part.privileged
+            && pattern.matches_command(part.words, part.pattern)
+            && pattern.under.as_ref().is_none_or(|under| {
+                part.dir.is_some_and(|dir| match under {
+                    Under::Path(root) => self.contains(root, dir, cx),
+                    Under::Project => {
+                        cx.project_root.is_some_and(|root| self.inside(root, dir, cx))
+                    }
+                    Under::Scratch => cx.scratch.is_some_and(|root| self.inside(root, dir, cx)),
+                })
+            })
     }
 
-    fn matches_path(&self, path: &Path, class: PathClass, cx: &MatchContext<'_>) -> bool {
+    /// True when `path` is `root`, an `under` path, or below it, in any form of `~`.
+    fn contains(&self, root: &Path, path: &Path, cx: &MatchContext<'_>) -> bool {
+        expand(root, cx.home).is_some_and(|root| self.inside(&root, path, cx))
+    }
+
+    /// True when `path` is `root`, a directory in normal form under `home`, or below
+    /// it, in any form of `~`.
+    fn inside(&self, root: &Path, path: &Path, cx: &MatchContext<'_>) -> bool {
+        cx.rehome(path).starts_with(cx.rehome(root))
+    }
+
+    fn matches_path(
+        &self,
+        path: &Path,
+        access: Access,
+        class: PathClass,
+        cx: &MatchContext<'_>,
+    ) -> bool {
         match &self.resource {
             Resource::Any => true,
             Resource::Class(wanted) => *wanted == class,
             Resource::Under(root) => self.contains(root, path, cx),
-            Resource::Project => {
-                cx.project_root.is_some_and(|root| cx.rehome(path).starts_with(root))
-            }
+            // NOTE: writing the project's root itself would remove or replace the whole
+            // project, so only the paths below it count for a write.
+            Resource::Project => cx.project_root.is_some_and(|root| {
+                let path = cx.rehome(path);
+                path.starts_with(root) && (access != Access::Write || path != root)
+            }),
             Resource::Command(_) => false,
         }
     }
@@ -610,7 +779,9 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
         Resource::Class(_) | Resource::Under(_) | Resource::Project => {
             matches!(rule.action, Action::Any | Action::Read | Action::Write)
         }
-        Resource::Command(_) => matches!(rule.action, Action::Any | Action::Execute),
+        Resource::Command(_) => {
+            matches!(rule.action, Action::Any | Action::Execute | Action::Network)
+        }
     };
     if !fits {
         return Err(PermissionsError::RuleNeverMatches { index, action: rule.action });
@@ -637,10 +808,18 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
             if let Some(word) = pattern.forbid.iter().find(|word| !is_valid_forbid(word)) {
                 return Err(PermissionsError::RuleForbidInvalid { index, word: word.clone() });
             }
-            if let Some(path) = pattern.under.as_deref().filter(|path| !is_rooted(path)) {
-                return Err(PermissionsError::RulePathNotAbsolute {
+            if let Some(Under::Path(path)) = &pattern.under
+                && !is_rooted(path)
+            {
+                return Err(PermissionsError::RulePathNotAbsolute { index, path: path.clone() });
+            }
+            if let Some(check) = pattern.check
+                && check.program().is_some_and(|program| program != pattern.program)
+            {
+                return Err(PermissionsError::RuleCheckInvalid {
                     index,
-                    path: path.to_path_buf(),
+                    check,
+                    program: pattern.program.clone(),
                 });
             }
         }

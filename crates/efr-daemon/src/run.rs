@@ -22,7 +22,7 @@ use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{DaemonId, DaemonRoots, PROTOCOL_VERSION, RootDir, RootSource};
+use efr_protocol::{DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
 use efr_stdx::env::Var;
@@ -366,7 +366,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings: settings.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
         env: shell_env,
-        trusted_programs: shells::trusted_programs(&settings.permissions.policy()),
+        // NOTE: the auto policy names the programs of every mode, because a turn in any
+        // mode may run in this shell.
+        trusted_programs: shells::trusted_programs(&settings.permissions.policy(Mode::Auto)),
         holder: holder.unwrap_or_else(shells::default_holder),
         screens,
         recording: Arc::clone(&recording),
@@ -398,7 +400,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let (engine_sender, engine_receiver) = watch::channel(engine);
     // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`
     // changed, a new engine on the channel above. Turns read the settings when they
-    // start; tool calls read the engine.
+    // start; tool calls read the engine. A change of the mode alone needs no new
+    // engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
     let toolbox = DaemonToolbox::new(

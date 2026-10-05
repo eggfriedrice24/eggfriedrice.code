@@ -1,10 +1,12 @@
 //! Decision tables: inputs as literals, one expected effect per row.
 
 mod commands;
+mod modes;
+mod protection;
 
 use std::path::PathBuf;
 
-use efr_protocol::{Origin, ProjectId, Scope};
+use efr_protocol::{Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use rstest::rstest;
@@ -78,6 +80,7 @@ fn input(requirements: Requirements, scope: Scope, origin: Origin) -> DecisionIn
         requirements,
         scope,
         origin,
+        mode: Mode::Cautious,
         conversation_policy: ConversationPolicy::new(SCRATCH),
     }
 }
@@ -156,7 +159,8 @@ fn shell_turn_in_machine_scope(#[case] requirements: Requirements, #[case] expec
 // User data inside the turn's registered project is free to write.
 #[case::source(Scope::Project(app()), "/home/u/p/app/src/main.rs", Effect::Allow)]
 #[case::dot_entry_in_project(Scope::Project(app()), "/home/u/p/app/.envrc", Effect::Allow)]
-#[case::project_root(Scope::Project(app()), "/home/u/p/app", Effect::Allow)]
+// Writing the root itself would replace or remove the whole project.
+#[case::project_root(Scope::Project(app()), "/home/u/p/app", Effect::Ask)]
 #[case::other_project_dir(Scope::Project(app()), "/home/u/p/other/a", Effect::Ask)]
 #[case::sibling_prefix(Scope::Project(app()), "/home/u/p/application/a", Effect::Ask)]
 #[case::config_from_project(Scope::Project(app()), "/home/u/.zshrc", Effect::Ask)]
@@ -558,7 +562,7 @@ fn the_machine_policy_may_open_a_secret_explicitly() {
         Effect::Allow,
     )])
     .unwrap();
-    let engine = Engine::new(locations(), Policy::defaults().then(configured));
+    let engine = Engine::with_rules(locations(), configured);
     let decide =
         |path: &str, origin| engine.decide(&input(read(path), Scope::Machine, origin)).effect();
     assert_eq!(decide("/home/u/.ssh/config", Origin::Shell), Effect::Allow);
@@ -569,7 +573,7 @@ fn the_machine_policy_may_open_a_secret_explicitly() {
 /// The defaults followed by `rules`, as the daemon builds the machine policy from the
 /// configuration.
 fn configured(rules: Vec<Rule>) -> Engine {
-    Engine::new(locations(), Policy::defaults().then(Policy::new(rules).unwrap()))
+    Engine::with_rules(locations(), Policy::new(rules).unwrap())
 }
 
 #[rstest]
@@ -706,7 +710,7 @@ fn a_broad_conversation_rule_makes_an_opened_secret_stricter() {
 
 #[test]
 fn an_empty_machine_policy_denies_what_no_rule_names() {
-    let engine = Engine::new(locations(), Policy::empty());
+    let engine = Engine::with_policy(locations(), Policy::empty());
     let decision = engine.decide(&input(read(&scratch_file()), Scope::Machine, Origin::Shell));
     assert_eq!(decision.effect(), Effect::Deny);
     assert_eq!(decision.reasons()[0].cause, Cause::NoRule);
@@ -725,7 +729,9 @@ fn an_empty_machine_policy_denies_what_no_rule_names() {
 fn the_engine_exposes_what_it_was_built_from() {
     let engine = engine();
     assert_eq!(engine.locations(), &locations());
-    assert_eq!(engine.policy(), &Policy::defaults());
+    assert_eq!(engine.policy(Mode::Cautious), &Policy::defaults());
+    assert_eq!(engine.policy(Mode::Manual), &Policy::base(Mode::Manual));
+    assert_eq!(engine.policy(Mode::Auto), &Policy::base(Mode::Auto));
 }
 
 fn any_path() -> impl Strategy<Value = PathBuf> {

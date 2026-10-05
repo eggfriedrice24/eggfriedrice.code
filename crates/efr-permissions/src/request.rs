@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{Origin, Scope};
+use efr_protocol::{Mode, Origin, Scope};
 
 use crate::Policy;
 
@@ -21,6 +21,10 @@ pub struct DecisionInput {
     pub scope: Scope,
     /// The surface that the turn came from.
     pub origin: Origin,
+    /// The permission mode the turn runs with, which picks the built-in policy. The
+    /// engine caps it at `cautious` for a remote origin
+    /// ([`effective_mode`](crate::effective_mode)).
+    pub mode: Mode,
     /// The conversation's `$SCRATCH` and its own rules.
     pub conversation_policy: ConversationPolicy,
 }

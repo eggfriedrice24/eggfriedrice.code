@@ -57,8 +57,10 @@ Modules:
   fails with `ConfigError::Changed` and the caller plans the change again. The new
   text is checked like a load before anything is written.
 
-Two settings are read and checked here but not applied yet: `permissions.mode` (every
-turn runs with the `cautious` rules) and `shell.sudo_cache` (sudo keeps its own cache).
+One setting is read and checked here but not applied yet: `shell.sudo_cache` (sudo
+keeps its own cache). `permissions.mode` is the mode of a turn whose prompt names none;
+`PermissionSettings::policy(mode)` is that mode's built-in policy followed by the
+user's rules.
 `render.theme` is checked for a non-empty name only: the theme list lives in
 `efr-render`, which this crate may not depend on, so `efr` checks the name.
 

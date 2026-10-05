@@ -185,6 +185,7 @@ async fn a_denied_tool_call_never_runs_and_the_model_reads_the_path_class() {
         requirements: Requirements::none().with_read(&key),
         scope: Scope::Machine,
         origin: Origin::Shell,
+        mode: Mode::Cautious,
         conversation_policy: ConversationPolicy::new(setup.scratch("read my key")),
     });
     assert_eq!(decision.effect(), Effect::Deny);
@@ -671,6 +672,64 @@ async fn the_check_point_judges_a_command_from_where_the_hidden_shell_is() {
     assert_eq!(judged.len(), 1);
     assert_eq!(judged[0].shell_cwd, Some(PathBuf::from("/var/log")));
     assert_eq!(judged[0].cwd, cwd);
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
+    // `rm` is a writer program: the auto table lets it run, and the path rules judge
+    // what it writes (here nothing is declared), while cautious asks for it.
+    let mut setup = Setup::new();
+    setup.config.mode = Mode::Auto;
+    let state = setup.live_state(&setup.cwd, "clean up");
+    let input = json!({ "command": "rm build.log" });
+    let first = setup.prompt(&state, "clean up");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "done", false),
+        ])),
+        answer(&text_answer("Removed.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("clean up").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(h.toolbox.invoked(), vec![("shell".to_owned(), input)]);
+    let events = h.events().await;
+    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_cautious_mode_asks_for_a_writer_program() {
+    let setup = Setup::new();
+    assert_eq!(setup.config.mode, Mode::Cautious, "cautious is the default");
+    let state = setup.live_state(&setup.cwd, "clean up");
+    let input = json!({ "command": "rm build.log" });
+    let first = setup.prompt(&state, "clean up");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&tool_answer("call_1", "shell", &input)),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "shell", &input),
+            result_message("call_1", "The user denied the shell call; it did not run.", true),
+        ])),
+        answer(&text_answer("Kept.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("clean up").await;
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.invoked().is_empty());
     h.finish();
 }
 

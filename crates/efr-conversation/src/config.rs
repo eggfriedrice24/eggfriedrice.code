@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_permissions::{Engine, Policy};
-use efr_protocol::Origin;
+use efr_protocol::{Mode, Origin};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -39,6 +39,9 @@ pub struct ConversationConfig {
     pub time_zone: TimeZone,
     /// The machine facts for the preamble.
     pub host: HostInfo,
+    /// The permission mode a turn runs with: it picks the built-in policy that the
+    /// user's rules follow. The engine caps it at `cautious` for a remote origin.
+    pub mode: Mode,
     /// The conversation's own permission rules, read after the machine policy.
     pub policy: Policy,
     /// How much history a request carries.
@@ -57,8 +60,8 @@ pub struct ConversationConfig {
 
 impl ConversationConfig {
     /// Settings for `model` with scratch directories under `scratch_root`, and the
-    /// defaults for the rest: no system prompt, UTC dates, no machine facts, no
-    /// conversation rules, [`HistoryLimits::default`], 200 ms between updates, no
+    /// defaults for the rest: no system prompt, UTC dates, no machine facts, the
+    /// `cautious` permission mode, no conversation rules, [`HistoryLimits::default`], 200 ms between updates, no
     /// approval timeout, 64 model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
@@ -69,6 +72,7 @@ impl ConversationConfig {
             scratch_root: scratch_root.into(),
             time_zone: TimeZone::UTC,
             host: HostInfo::default(),
+            mode: Mode::default(),
             policy: Policy::empty(),
             history: HistoryLimits::default(),
             update_interval: Duration::from_millis(200),

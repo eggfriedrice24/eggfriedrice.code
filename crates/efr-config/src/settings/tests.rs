@@ -259,7 +259,7 @@ fn permission_rules_come_from_the_file_in_order() {
     .unwrap();
     assert_eq!(settings.permissions.rules, expected);
     assert_eq!(settings.source("permissions.rules"), Source::File);
-    let policy = settings.permissions.policy();
+    let policy = settings.permissions.policy(Mode::Cautious);
     let defaults = Policy::defaults();
     assert_eq!(&policy.rules()[..defaults.rules().len()], defaults.rules());
     assert_eq!(&policy.rules()[defaults.rules().len()..], expected.rules());
@@ -280,7 +280,9 @@ fn without_permission_rules_the_policy_is_the_built_in_one() {
     let settings = Settings::parse(path(), None).unwrap();
 
     assert_eq!(settings.permissions.rules, Policy::empty());
-    assert_eq!(settings.permissions.policy(), Policy::defaults());
+    assert_eq!(settings.permissions.policy(Mode::Cautious), Policy::defaults());
+    assert_eq!(settings.permissions.policy(Mode::Auto), Policy::base(Mode::Auto));
+    assert_eq!(settings.permissions.policy(Mode::Manual), Policy::base(Mode::Manual));
 }
 
 #[test]

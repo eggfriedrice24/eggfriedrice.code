@@ -60,6 +60,7 @@ pub(crate) fn conversation_config(
         .with_time_zone(time_zone)
         .with_host(host);
     config.max_output_tokens = settings.model.max_output_tokens;
+    config.mode = settings.permissions.mode;
     config.max_queued = settings.conversation.max_queued;
     config.approval_timeout = settings.conversation.approval_timeout_secs.map(Duration::from_secs);
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);

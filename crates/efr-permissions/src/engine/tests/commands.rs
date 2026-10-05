@@ -24,7 +24,7 @@ fn effect_of(line: &str) -> Effect {
 /// The engine with the defaults and then `rules`, as the daemon builds it from the
 /// configuration.
 fn configured(rules: Vec<Rule>) -> Engine {
-    Engine::new(locations(), Policy::defaults().then(Policy::new(rules).unwrap()))
+    Engine::with_rules(locations(), Policy::new(rules).unwrap())
 }
 
 fn allow_command(pattern: CommandPattern) -> Rule {
@@ -583,7 +583,8 @@ fn cargo_test_in_app() -> Engine {
 #[case::unknown_directory("cargo test", None, Effect::Ask)]
 #[case::relative_directory("cargo test", Some("p/app"), Effect::Ask)]
 #[case::after_a_cd("cd ../other && cargo test", Some("/home/u/p/app"), Effect::Ask)]
-#[case::a_later_cd_asks_for_itself("cargo test; cd ..", Some("/home/u/p/app"), Effect::Ask)]
+// cd itself runs freely in the cautious mode.
+#[case::a_later_cd_runs_too("cargo test; cd ..", Some("/home/u/p/app"), Effect::Allow)]
 #[case::with_a_read_only_part("cargo test && git status", Some("/home/u/p/app"), Effect::Allow)]
 fn a_command_rule_may_name_the_directory_it_runs_in(
     #[case] line: &str,

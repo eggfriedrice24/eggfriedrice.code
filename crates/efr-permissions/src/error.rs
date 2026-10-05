@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::policy::Action;
+use crate::policy::{Action, Check};
 
 /// Every way that building the engine's inputs can fail.
 ///
@@ -65,6 +65,20 @@ pub enum PermissionsError {
         index: usize,
         /// The forbidden word.
         word: String,
+    },
+
+    /// A rule's command pattern names a check that reads the words of another program,
+    /// such as `sed_print_only` for `rm`.
+    #[error(
+        "rule {index} checks {program:?} with {check}, which reads the words of another program"
+    )]
+    RuleCheckInvalid {
+        /// The position of the rule in its policy, counted from 0.
+        index: usize,
+        /// The check.
+        check: Check,
+        /// The program the rule names.
+        program: String,
     },
 
     /// A rule pairs an action with a resource that no requirement can match, such as

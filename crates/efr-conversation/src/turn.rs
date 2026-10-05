@@ -476,6 +476,10 @@ impl Turn {
             requirements,
             scope: call.context.scope.clone(),
             origin: call.context.origin,
+            // NOTE: the mode of the settings the turn read when it started, so a change
+            // of the config never reaches a running turn. The prompt's own mode joins
+            // here when turn settings apply.
+            mode: self.config.mode,
             conversation_policy: ConversationPolicy::new(&call.context.scratch)
                 .with_rules(self.config.policy.clone()),
         };

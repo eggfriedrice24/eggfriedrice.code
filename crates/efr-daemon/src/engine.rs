@@ -3,10 +3,10 @@
 //!
 //! The engine holds the home directory and its resolved form, the daemon's own secrets
 //! (sealed, so no rule opens them), the secret paths of the settings (`~/` below the
-//! home directory) and the registered projects, and decides by the built-in rules
-//! followed by the user's. A tool call reads the latest engine from the watch channel in
-//! `State`; whatever changes the rules, the secret paths, the projects or (later) the
-//! mode builds a new one here and sends it there.
+//! home directory) and the registered projects. It decides by the built-in policy of
+//! each turn's permission mode followed by the user's rules. A tool call reads the
+//! latest engine from the watch channel in `State`; whatever changes the rules, the
+//! secret paths or the projects builds a new one here and sends it there.
 
 use std::path::{Path, PathBuf};
 
@@ -54,7 +54,8 @@ pub(crate) async fn load_registry(path: &Path) -> Registry {
 ///
 /// NOTE: the user's rules belong to the engine, the machine policy, and not to
 /// `ConversationConfig::policy`: a conversation's rules may never open a secret or a
-/// system path, and the user's explicit rules must be able to.
+/// system path, and the user's explicit rules must be able to. The mode is not part of
+/// the engine: each turn passes its own, and the engine holds the policy of every mode.
 pub(crate) fn build(
     home: &Home,
     secrets: &Path,
@@ -85,9 +86,7 @@ pub(crate) fn build(
     for project in projects.projects() {
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
-    // NOTE: `permissions.mode` is not applied yet; every turn decides by the cautious
-    // rules, which are the built-in ones.
-    Ok(Engine::new(locations, settings.permissions.policy()))
+    Ok(Engine::with_rules(locations, settings.permissions.rules.clone()))
 }
 
 #[cfg(test)]

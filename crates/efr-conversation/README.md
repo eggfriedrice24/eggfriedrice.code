@@ -156,7 +156,8 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
 - `turn.rs::authorize_tool_call` is the only place where a tool call meets the
   permission engine, and nothing reaches `Toolbox::invoke` without passing it. A
   toolbox declares, `efr_permissions::Engine::decide` decides with the turn's scope,
-  origin and the conversation's policy, and the turn enforces: `Allow` runs, `Deny`
+  origin, permission mode (`ConversationConfig::mode`, read when the turn starts) and
+  the conversation's policy, and the turn enforces: `Allow` runs, `Deny`
   gives the model an error that names each refused path with its class, `Ask` parks
   the turn on a `oneshot` until the user answers.
 - The scope is derived again on every turn; it is never cached.

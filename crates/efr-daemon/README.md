@@ -32,20 +32,25 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    or an action its resource never matches stops the start with an error that names
    `permissions.rules[N]`, counted from 0 (`docs/permissions.md`). `[model] effort`
    becomes the provider's default reasoning effort. A `[model] name` that is not in
-   the model list costs a warning at start. `permissions.mode` and `shell.sudo_cache`
-   are read and checked but not applied yet.
+   the model list costs a warning at start. `permissions.mode` is the permission mode
+   of every turn until a prompt can choose its own; `shell.sudo_cache` is read and
+   checked but not applied yet.
 3. The store: the backup copy in `backups/`, the forward-only migrations.
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    held, running shells recorded as exited, process-bound outbox items cancelled.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
    tool registry (`tools.rs`), the permission engine and the conversation registry.
    The engine is built in one place, `engine.rs`, from the settings and the project
-   registry. It decides by `Policy::defaults()` followed by the user's rules, so a user
-   rule wins where both match; the user's rules are the machine policy and not a
-   conversation's, because only the machine policy may open a secret or a system path.
+   registry. It holds one machine policy for each permission
+   mode, `Policy::base(mode)` followed by the user's rules, so a user rule wins where
+   both match; the user's rules are the machine policy and not a conversation's,
+   because only the machine policy may open a secret or a system path. Each turn passes
+   its mode (today `permissions.mode`, through `LiveSettings`). The hidden shells trust the programs of
+   the `auto` policy, which names those of every mode.
    `State` holds the settings in a `watch` of `Arc<Settings>` and the engine in
    another: the conversations read the settings through `settings.rs` (`LiveSettings`)
    when a turn starts or a prompt arrives, and each tool call reads the engine.
+   A change of the mode needs no new engine: a turn passes its own.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`), the
    idle shell collector (`gc.rs`, which reads `shell.idle_minutes` at each look), the
    reload task (`reload.rs`), the config file watcher (`reload/watcher.rs`) and the
@@ -120,8 +125,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   terminal has exited, so a new tab that reuses a closed tab's `/dev/pts` number
   starts fresh.
   A prompt's `settings` (mode, model, effort) are accepted but not applied yet:
-  every turn runs with the config's model and the built-in rules, and no event or
-  result reports settings.
+  every turn runs with the config's model and the config's permission mode, and no
+  event or result reports settings.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue.
