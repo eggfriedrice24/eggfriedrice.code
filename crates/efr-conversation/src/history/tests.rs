@@ -14,7 +14,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    CachedTurn, HistoryLimits, ModelKey, Snapshot, UNFINISHED_CALL, close_open_calls, rebuild,
+    CachedTurn, HistoryLimits, ModelKey, Snapshot, UNFINISHED_CALL, close_open_calls, decode,
+    rebuild,
 };
 
 fn turn(seed: u64) -> TurnId {
@@ -547,4 +548,57 @@ async fn a_saved_turn_that_cannot_be_read_back_is_rebuilt() {
 
     assert!(snapshot.saved.is_empty());
     assert_eq!(history, vec![Message::user("first"), Message::assistant("One.")]);
+}
+
+/// What a test's log lines say, as plain text.
+#[derive(Debug, Clone, Default)]
+struct LogText(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogText {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogText {
+    type Writer = LogText;
+
+    fn make_writer(&'a self) -> LogText {
+        self.clone()
+    }
+}
+
+#[tokio::test]
+async fn saved_messages_that_cannot_be_read_are_logged_without_their_text() {
+    let secret = "ghp_the_token_that_a_tool_printed";
+    let a = turn(2);
+    let store = store_with(vec![whole_turn(
+        a,
+        "first",
+        vec![completed(a, 0, "One.")],
+        Event::TurnCompleted { turn_id: a, usage: None },
+    )])
+    .await;
+    // A string where the content's list belongs, as after a change of the schema.
+    save(&store, a, "openai", vec![json!({ "role": "user", "content": secret })]).await;
+    let saved = store
+        .readers()
+        .with(|conn| efr_store::turn_messages::of_conversation(conn, conversation()))
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let log = LogText::default();
+    let subscriber = tracing_subscriber::fmt().with_writer(log.clone()).with_ansi(false).finish();
+    let decoded = tracing::subscriber::with_default(subscriber, || decode(saved));
+    assert!(decoded.is_none());
+    let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    assert!(text.contains("the saved messages of a turn could not be read"), "{text}");
+    assert!(!text.contains(secret), "{text}");
 }

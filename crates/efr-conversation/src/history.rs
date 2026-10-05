@@ -219,8 +219,10 @@ fn decode(saved: TurnMessages) -> Option<(TurnId, CachedTurn)> {
         Ok(messages) => {
             Some((turn_id, CachedTurn { key: ModelKey::new(provider, saved.model), messages }))
         }
+        // NOTE: the error's text can quote a value of the message, such as a line of a
+        // tool's output, so only its category goes to the log.
         Err(error) => {
-            tracing::warn!(error = %error, %turn_id, "the saved messages of a turn could not be read");
+            tracing::warn!(category = ?error.classify(), %turn_id, "the saved messages of a turn could not be read");
             None
         }
     }
