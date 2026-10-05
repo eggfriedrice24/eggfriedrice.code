@@ -23,13 +23,17 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
 1. `lock.rs`: the exclusive `flock` on `$XDG_DATA_HOME/efr/daemon.lock`; a second
    daemon exits with "another efrd is running". The config is loaded just before, in
    `main.rs`, because tracing needs its `log` value; reading it changes nothing.
-2. `config.rs`: one file, `$XDG_CONFIG_HOME/efr/config.toml`, unknown keys refused;
-   defaults, then the file, then `EFR_LOG` and `EFR_SCREEN`, then the flags.
+2. `config.rs`: a thin layer over `efr-config`, which owns the file
+   (`$XDG_CONFIG_HOME/efr/config.toml`), its keys, defaults and checks, with unknown
+   keys refused; this layer applies `EFR_LOG` and `EFR_SCREEN`, then the flags.
    `efrd --print-config` prints every value with its source. `[[permissions.rules]]`
    holds the user's permission rules in the `efr_permissions::Rule` form; a rule of
    the wrong shape or one that names a relative path, a program that is not one word
    or an action its resource never matches stops the start with an error that names
-   `permissions.rules[N]`, counted from 0 (`docs/permissions.md`).
+   `permissions.rules[N]`, counted from 0 (`docs/permissions.md`). `[model] effort`
+   becomes the provider's default reasoning effort. A `[model] name` that is not in
+   the model list costs a warning at start. `permissions.mode` and `shell.sudo_cache`
+   are read and checked but not applied yet.
 3. The store: the backup copy in `backups/`, the forward-only migrations.
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    held, running shells recorded as exited, process-bound outbox items cancelled.
@@ -152,12 +156,12 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-oauth-openai`, `efr-conversation` and `efr-transport`.
-`xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
+`efr-provider-openai`, `efr-oauth-openai`, `efr-config`, `efr-conversation` and
+`efr-transport`. `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
-`serde`, `serde_json`, `toml` (the config), `jiff`, `nix` (`flock`), `base64` (the hello
+`serde`, `serde_json`, `jiff`, `nix` (`flock`), `base64` (the hello
 challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `tracing`,
 `tracing-subscriber`, `tracing-journald`, `thiserror`, and `anyhow` in `main.rs` only.
 
@@ -186,8 +190,9 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-daemon
 ```
 
-Unit tests cover the config (precedence, refused keys and values, an insta snapshot of
-the effective dump), the error mapping, the scope table, prompt routing, receipts,
+Unit tests cover the config layer (precedence of the variables and flags, refused
+values, an insta snapshot of the effective dump; the file's own checks are tested in
+`efr-config`), the error mapping, the scope table, prompt routing, receipts,
 reconciliation against the real store in memory, the idle collector's rule, the PTY
 fan-out with overflow, the connection table, notices, the lock, `daemon.json`, the
 providers, the tool adapter and its answer to who can answer hidden input. The tests

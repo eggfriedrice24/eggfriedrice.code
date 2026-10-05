@@ -41,9 +41,12 @@ mod telemetry;
 mod testing;
 mod tools;
 
-pub use config::{
-    CONFIG_FILE, Config, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER,
-    DEFAULT_SYSTEM_PROMPT, Flags, OpenAiSettings, PermissionSettings, ScreenChoice, ShellSettings,
+pub use config::{Flags, load_settings, resolve_settings};
+// NOTE: the settings types come with the daemon, so efr-test-daemon, whose allowlist
+// has no efr-config edge, can start a daemon with settings of its own.
+pub use efr_config::{
+    CONFIG_FILE, ConversationSettings, DEFAULT_LOG, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
+    ModelSettings, OpenAiSettings, PermissionSettings, ScreenChoice, Settings, ShellSettings,
     Source,
 };
 pub use efr_conversation::HostInfo;

@@ -19,6 +19,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use efr_config::{OpenAiSettings, Settings};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
@@ -31,7 +32,6 @@ use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
-use crate::config::{Config, OpenAiSettings};
 
 /// The subscription provider and its credential.
 pub const SUBSCRIPTION: &str = "openai-subscription";
@@ -58,7 +58,7 @@ impl Providers {
     /// The providers of `config`, with credentials in `store`. `factory` replaces how
     /// the conversations' provider is built, and `issuer` the authorization server.
     pub(crate) fn build(
-        config: &Config,
+        config: &Settings,
         store: Arc<dyn SecretStore>,
         http: HttpClient,
         clock: Arc<dyn Clock>,
@@ -90,14 +90,20 @@ impl Providers {
             Some(factory) => factory,
             None => Arc::new(CredentialProviders {
                 openai: config.openai.clone(),
+                effort: config.model.effort.clone(),
                 http,
                 subscription: Arc::clone(&subscription),
                 store: Arc::clone(&store),
                 clock,
             }),
         };
-        let active = factory.provider(&config.provider)?;
+        let active = factory.provider(&config.model.provider)?;
         let model = default_model(config);
+        let known = known_models(config);
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
+        if let Some(name) = config.unknown_model(&known) {
+            tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so the backend may refuse it");
+        }
         tracing::info!(provider = %active.id(), model = %model, "provider ready");
         Ok(Providers { store, subscription, login, active, model })
     }
@@ -156,12 +162,27 @@ pub(crate) fn provider_status(id: &str, record: Option<&CredentialRecord>) -> Pr
 
 /// The model of new conversations: the configured one, else the first of a configured
 /// model list, else the subscription's default.
-pub(crate) fn default_model(config: &Config) -> String {
+pub(crate) fn default_model(config: &Settings) -> String {
     config
         .model
+        .name
         .clone()
         .or_else(|| config.openai.models.as_ref().and_then(|models| models.first().cloned()))
         .unwrap_or_else(|| efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL.to_owned())
+}
+
+/// The model ids the provider of `config` offers: `openai.models` when the config names
+/// them, else the built-in list of that provider.
+pub(crate) fn known_models(config: &Settings) -> Vec<String> {
+    if let Some(models) = &config.openai.models {
+        return models.clone();
+    }
+    let builtin = if config.model.provider == API {
+        efr_provider_openai::api_models()
+    } else {
+        efr_provider_openai::subscription_models()
+    };
+    builtin.into_iter().map(|model| model.id).collect()
 }
 
 fn credential(id: &str) -> Result<CredentialId, DaemonError> {
@@ -172,6 +193,7 @@ fn credential(id: &str) -> Result<CredentialId, DaemonError> {
 #[derive(Debug)]
 struct CredentialProviders {
     openai: OpenAiSettings,
+    effort: Option<String>,
     http: HttpClient,
     subscription: Arc<OpenAiTokenSource>,
     store: Arc<dyn SecretStore>,
@@ -185,11 +207,22 @@ impl ProviderFactory for CredentialProviders {
             let tokens: Arc<dyn TokenSource> =
                 Arc::new(StoredApiKey { store: Arc::clone(&self.store), id: credential(API)? });
             let base_url = self.openai.api_base_url.as_deref();
-            (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
+            (
+                openai_config(OpenAiConfig::api(), &self.openai, self.effort.as_deref(), base_url)?,
+                tokens,
+            )
         } else {
             let tokens: Arc<dyn TokenSource> = self.subscription.clone();
             let base_url = self.openai.subscription_base_url.as_deref();
-            (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
+            (
+                openai_config(
+                    OpenAiConfig::subscription(),
+                    &self.openai,
+                    self.effort.as_deref(),
+                    base_url,
+                )?,
+                tokens,
+            )
         };
         Ok(Arc::new(OpenAiProvider::new(
             provider_id,
@@ -201,10 +234,12 @@ impl ProviderFactory for CredentialProviders {
     }
 }
 
-/// `config` with the user's settings applied.
+/// `config` with the user's settings applied. `effort`, `[model] effort`, becomes the
+/// provider's default reasoning effort.
 pub(crate) fn openai_config(
     config: OpenAiConfig,
     settings: &OpenAiSettings,
+    effort: Option<&str>,
     base_url: Option<&str>,
 ) -> Result<OpenAiConfig, DaemonError> {
     let invalid = |source| DaemonError::OpenAi { source };
@@ -215,8 +250,8 @@ pub(crate) fn openai_config(
     if let Some(models) = &settings.models {
         config = config.with_models(models.iter().map(ModelInfo::new).collect());
     }
-    if settings.reasoning_effort.is_some() {
-        config = config.with_reasoning_effort(settings.reasoning_effort.clone());
+    if let Some(effort) = effort {
+        config = config.with_reasoning_effort(Some(effort.to_owned()));
     }
     Ok(config)
 }

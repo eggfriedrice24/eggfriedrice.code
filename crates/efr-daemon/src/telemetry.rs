@@ -6,11 +6,10 @@
 
 use std::io::Write as _;
 
+use efr_config::DEFAULT_LOG;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
-
-use crate::config::DEFAULT_LOG;
 
 /// Set by systemd for a service whose stdout or stderr is connected to the journal.
 const JOURNAL_STREAM: &str = "JOURNAL_STREAM";

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use efr_config::Settings;
 use efr_protocol::DaemonId;
 use efr_shell::ShellSessions;
 use efr_stdx::paths::Dirs;
@@ -11,7 +12,6 @@ use efr_store::recording::Recordings;
 use efr_store::{Readers, WriterHandle};
 use jiff::Timestamp;
 
-use crate::config::Config;
 use crate::connections::Connections;
 use crate::conversations::Conversations;
 use crate::providers::Providers;
@@ -24,7 +24,7 @@ pub(crate) const SCRATCH_DIR: &str = "scratch";
 /// tables inside keep their own locks, none held across an await.
 #[derive(Debug)]
 pub(crate) struct State {
-    pub(crate) config: Config,
+    pub(crate) config: Settings,
     pub(crate) dirs: Dirs,
     pub(crate) daemon_id: DaemonId,
     pub(crate) pid: u32,

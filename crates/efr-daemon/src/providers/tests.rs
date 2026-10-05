@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use efr_config::Settings;
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
@@ -8,9 +9,9 @@ use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use crate::config::Config;
 use crate::providers::{
-    API, Providers, SUBSCRIPTION, StoredApiKey, default_model, openai_config, provider_status,
+    API, Providers, SUBSCRIPTION, StoredApiKey, default_model, known_models, openai_config,
+    provider_status,
 };
 
 fn store(dir: &std::path::Path) -> Arc<FileStore> {
@@ -43,26 +44,46 @@ fn status_reports_a_login_and_its_expiry() {
 
 #[test]
 fn the_model_is_the_configured_one_then_the_first_listed_then_the_default() {
-    let mut config = Config::default();
+    let mut config = Settings::default();
     assert_eq!(default_model(&config), efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
 
     config.openai.models = Some(vec!["gpt-6-sol".to_owned(), "gpt-5.5".to_owned()]);
     assert_eq!(default_model(&config), "gpt-6-sol");
 
-    config.model = Some("gpt-6-luna".to_owned());
+    config.model.name = Some("gpt-6-luna".to_owned());
     assert_eq!(default_model(&config), "gpt-6-luna");
 }
 
 #[test]
+fn the_known_models_are_the_configured_list_else_the_providers_own() {
+    let mut config = Settings::default();
+    let builtin = known_models(&config);
+    assert!(builtin.iter().any(|id| id == efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL));
+    assert_eq!(config.unknown_model(&builtin.iter().map(String::as_str).collect::<Vec<_>>()), None);
+
+    config.openai.models = Some(vec!["gpt-6-sol".to_owned()]);
+    assert_eq!(known_models(&config), ["gpt-6-sol"]);
+    config.model.name = Some("gpt-9".to_owned());
+    let known = known_models(&config);
+    assert_eq!(
+        config.unknown_model(&known.iter().map(String::as_str).collect::<Vec<_>>()),
+        Some("gpt-9")
+    );
+}
+
+#[test]
 fn the_openai_settings_reach_the_provider_config() {
-    let mut settings = Config::default().openai;
+    let mut settings = Settings::default().openai;
     settings.originator = "efr-test".to_owned();
     settings.models = Some(vec!["m1".to_owned()]);
-    settings.reasoning_effort = Some("high".to_owned());
 
-    let config =
-        openai_config(OpenAiConfig::subscription(), &settings, Some("http://127.0.0.1:9/codex/"))
-            .unwrap();
+    let config = openai_config(
+        OpenAiConfig::subscription(),
+        &settings,
+        Some("high"),
+        Some("http://127.0.0.1:9/codex/"),
+    )
+    .unwrap();
 
     assert_eq!(config.originator(), "efr-test");
     assert_eq!(config.base_url(), "http://127.0.0.1:9/codex");
@@ -71,11 +92,25 @@ fn the_openai_settings_reach_the_provider_config() {
 }
 
 #[test]
+fn without_an_effort_the_provider_keeps_the_backend_default() {
+    let settings = Settings::default().openai;
+
+    let config = openai_config(OpenAiConfig::subscription(), &settings, None, None).unwrap();
+
+    assert_eq!(config.reasoning_effort(), None);
+}
+
+#[test]
+fn the_config_default_originator_is_the_provider_default() {
+    assert_eq!(Settings::default().openai.originator, efr_provider_openai::DEFAULT_ORIGINATOR);
+}
+
+#[test]
 fn an_originator_that_is_not_a_header_value_is_refused() {
-    let mut settings = Config::default().openai;
+    let mut settings = Settings::default().openai;
     settings.originator = "bad\nvalue".to_owned();
 
-    assert!(openai_config(OpenAiConfig::subscription(), &settings, None).is_err());
+    assert!(openai_config(OpenAiConfig::subscription(), &settings, None, None).is_err());
 }
 
 #[tokio::test]
@@ -97,8 +132,8 @@ async fn the_api_key_is_read_from_its_credential_at_each_request() {
 async fn the_configured_provider_is_built_without_touching_the_network() {
     let dir = tempfile::tempdir().unwrap();
     let clock = TestClock::new();
-    let mut config = Config::default();
-    config.provider = API.to_owned();
+    let mut config = Settings::default();
+    config.model.provider = API.to_owned();
 
     let providers = Providers::build(
         &config,

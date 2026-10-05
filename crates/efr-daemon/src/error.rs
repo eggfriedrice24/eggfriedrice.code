@@ -8,6 +8,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use efr_config::ConfigError;
 use efr_conversation::ConversationError;
 use efr_credentials::CredentialsError;
 use efr_http::HttpError;
@@ -47,58 +48,13 @@ pub enum DaemonError {
         #[source]
         source: StdxError,
     },
-    /// The config file exists but could not be read.
-    #[error("could not read the config file {}", .path.display())]
-    ReadConfig {
-        /// The file.
-        path: PathBuf,
-        /// The error from the file system.
+    /// The config file could not be read, is not valid, or a variable or flag gives a
+    /// value its key cannot hold.
+    #[error("the config could not be loaded")]
+    Config {
+        /// The error from `efr-config`, which names the file, the place and the key.
         #[source]
-        source: io::Error,
-    },
-    /// The config file is not valid TOML or has unknown keys.
-    #[error("the config file {} is not valid", .path.display())]
-    ParseConfig {
-        /// The file.
-        path: PathBuf,
-        /// The parser's error, which names the line.
-        #[source]
-        source: Box<toml::de::Error>,
-    },
-    /// A permission rule in the config file does not have the shape of a rule: an
-    /// unknown key, a missing one, or a value outside its set.
-    #[error("permissions.rules[{index}] in {} is not a rule", .path.display())]
-    ParseRule {
-        /// The config file.
-        path: PathBuf,
-        /// The rule's place in `permissions.rules`, counted from 0.
-        index: usize,
-        /// The parser's error.
-        #[source]
-        source: Box<toml::de::Error>,
-    },
-    /// A permission rule in the config file names a relative path, a program, argument
-    /// or forbidden word that is not one plain word, or an action its resource never
-    /// matches.
-    #[error("permissions.rules[{index}] in {} is invalid", .path.display())]
-    InvalidRule {
-        /// The config file.
-        path: PathBuf,
-        /// The rule's place in `permissions.rules`, counted from 0.
-        index: usize,
-        /// The error from `efr-permissions`.
-        #[source]
-        source: PermissionsError,
-    },
-    /// A config value is outside its allowed set.
-    #[error("the config value {key} = {value:?} is not {expected}")]
-    InvalidConfig {
-        /// The dotted key.
-        key: &'static str,
-        /// The value.
-        value: String,
-        /// What the value must be.
-        expected: &'static str,
+        source: ConfigError,
     },
     /// The operating system's random source could not seed the generator.
     #[error("the random number generator could not be seeded")]
@@ -376,7 +332,6 @@ impl DaemonError {
             }
             DaemonError::InvalidParams { .. }
             | DaemonError::InvalidCursor { .. }
-            | DaemonError::InvalidConfig { .. }
             | DaemonError::InvalidAnswer { .. } => ErrorCode::Invalid,
             DaemonError::ConversationNotFound { .. }
             | DaemonError::ApprovalNotPending { .. }
@@ -391,10 +346,7 @@ impl DaemonError {
             DaemonError::Respond { source: TransportError::Overflow { .. } } => ErrorCode::Overflow,
             DaemonError::Paths { .. }
             | DaemonError::Env { .. }
-            | DaemonError::ReadConfig { .. }
-            | DaemonError::ParseConfig { .. }
-            | DaemonError::ParseRule { .. }
-            | DaemonError::InvalidRule { .. }
+            | DaemonError::Config { .. }
             | DaemonError::Random { .. }
             | DaemonError::HomeUnknown
             | DaemonError::Home { .. }

@@ -1,16 +1,15 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use efr_config::{PermissionSettings, Settings};
 use efr_conversation::HostInfo;
-use jiff::tz::TimeZone;
-use pretty_assertions::assert_eq;
-
-use crate::config::{Config, PermissionSettings};
 use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, PathClass, Policy,
     Requirements, Resource, Rule,
 };
 use efr_protocol::{Origin, Scope};
+use jiff::tz::TimeZone;
+use pretty_assertions::assert_eq;
 
 use crate::run::{conversation_config, engine, os_name};
 
@@ -32,13 +31,9 @@ async fn the_secret_paths_of_the_config_classify_as_secrets() {
     let root = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(root.path()).unwrap();
     let home = efr_scope::Home::new(&home).unwrap();
-    let permissions = PermissionSettings {
-        secret_paths: vec![
-            PathBuf::from("~/.config/rclone/rclone.conf"),
-            PathBuf::from("/srv/vault"),
-        ],
-        ..PermissionSettings::default()
-    };
+    let mut permissions = PermissionSettings::default();
+    permissions.secret_paths =
+        vec![PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")];
 
     let engine = engine(
         &home,
@@ -66,10 +61,8 @@ async fn the_engine_decides_by_the_built_in_rules_then_the_users() {
         Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
         Effect::Allow,
     );
-    let permissions = PermissionSettings {
-        rules: Policy::new(vec![rule.clone()]).unwrap(),
-        ..PermissionSettings::default()
-    };
+    let mut permissions = PermissionSettings::default();
+    permissions.rules = Policy::new(vec![rule.clone()]).unwrap();
 
     let engine = engine(
         &home,
@@ -92,10 +85,8 @@ async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
     let home = std::fs::canonicalize(root.path()).unwrap();
     let home = efr_scope::Home::new(&home).unwrap();
     let every_secret = Rule::new(Action::Read, Resource::Class(PathClass::Secrets), Effect::Allow);
-    let permissions = PermissionSettings {
-        rules: Policy::new(vec![every_secret]).unwrap(),
-        ..PermissionSettings::default()
-    };
+    let mut permissions = PermissionSettings::default();
+    permissions.rules = Policy::new(vec![every_secret]).unwrap();
     let secrets = home.path().join(".local/share/efr/secrets");
 
     let engine =
@@ -116,12 +107,12 @@ async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
 
 #[test]
 fn the_conversation_settings_follow_the_config() {
-    let mut config = Config::default();
-    config.max_output_tokens = Some(2048);
+    let mut config = Settings::default();
+    config.model.max_output_tokens = Some(2048);
     config.conversation.max_queued = 3;
     config.conversation.approval_timeout_secs = Some(90);
     config.conversation.update_interval_ms = 50;
-    config.system_prompt = "be brief".to_owned();
+    config.model.system_prompt = "be brief".to_owned();
     let host = HostInfo::new(Some("box".to_owned()), Some("Arch Linux".to_owned()));
 
     let settings = conversation_config(
@@ -504,7 +495,7 @@ mod daemon {
             .with_shell_env(env)
             .with_providers(Arc::new(RunsOneCommandFactory("echo efr-e2e-$((40+2))".to_owned())));
         deps.holder = None;
-        let mut config = crate::Config::default();
+        let mut config = crate::Settings::default();
         config.shell.login = false;
         let daemon = serve_with(config, deps).await;
         let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
@@ -578,7 +569,7 @@ mod daemon {
     /// Runs one prompt whose model asks for `line` in a real hidden zsh in the home
     /// directory, which holds `notes.txt`, and answers every approval with allow. The
     /// answer: whether the call needed approval, and its output.
-    async fn run_in_zsh(line: &str, config: crate::Config) -> (bool, Option<String>) {
+    async fn run_in_zsh(line: &str, config: crate::Settings) -> (bool, Option<String>) {
         use std::collections::BTreeMap;
         use std::sync::Arc;
 
@@ -655,7 +646,7 @@ mod daemon {
             return;
         }
 
-        let (asked, output) = run_in_zsh("ls && cat notes.txt", crate::Config::default()).await;
+        let (asked, output) = run_in_zsh("ls && cat notes.txt", crate::Settings::default()).await;
 
         assert!(!asked, "ls and cat run without approval");
         let output = output.unwrap_or_default();
@@ -669,7 +660,7 @@ mod daemon {
         if !zsh_enabled("e2e_a_rule_in_the_config_lets_a_command_run_without_approval") {
             return;
         }
-        let mut config = crate::Config::default();
+        let mut config = crate::Settings::default();
         config.permissions.rules = Policy::new(vec![Rule::new(
             Action::Execute,
             Resource::Command(CommandPattern::new("seq").with_args(["3"])),
@@ -731,7 +722,7 @@ mod daemon {
         let clock = TestClock::new();
         let daemon = serve(&dirs, &clock).await;
 
-        let second = crate::start(crate::Config::default(), deps(&dirs, &clock)).await;
+        let second = crate::start(crate::Settings::default(), deps(&dirs, &clock)).await;
 
         assert!(matches!(second, Err(DaemonError::AlreadyRunning { .. })), "{second:?}");
         daemon.shutdown.cancel();

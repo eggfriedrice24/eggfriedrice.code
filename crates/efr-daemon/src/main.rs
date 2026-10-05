@@ -7,7 +7,7 @@ use std::io::Write as _;
 use std::process::ExitCode;
 
 use clap::Parser;
-use efr_daemon::{Config, DaemonError, Deps, Flags};
+use efr_daemon::{DaemonError, Deps, Flags};
 use efr_stdx::env::Env;
 
 /// The efr daemon. It runs as the systemd user unit `efrd.service`.
@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 fn daemon(args: Args) -> anyhow::Result<()> {
     let deps = Deps::from_process()?;
     let flags = Flags::new(args.log, args.screen);
-    let config = Config::load(deps.dirs.config(), &Env::process(), &flags)?;
+    let config = efr_daemon::load_settings(deps.dirs.config(), &Env::process(), &flags)?;
     if args.print_config {
         std::io::stdout().write_all(config.effective().as_bytes())?;
         return Ok(());

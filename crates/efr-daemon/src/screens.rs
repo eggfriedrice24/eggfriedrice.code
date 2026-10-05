@@ -8,11 +8,10 @@
 
 use std::sync::Arc;
 
+use efr_config::ScreenChoice;
 use efr_holder::Size;
 use efr_screen::{ScreenActor, ScreenError, ScreenEvents, ScreenHandle};
 use efr_shell::ScreenFactory;
-
-use crate::config::ScreenChoice;
 
 /// A screen backend this build can run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_client::{Client, ConnectOptions, ItemStream};
-use efr_daemon::{Config, DaemonError, Deps, HostInfo, Provider, ProviderFactory, ScreenChoice};
+use efr_daemon::{DaemonError, Deps, HostInfo, Provider, ProviderFactory, ScreenChoice, Settings};
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
@@ -119,8 +119,8 @@ enum ProviderChoice {
 
 /// What a start needs, kept for a restart.
 #[derive(Debug, Clone)]
-struct Settings {
-    config: Config,
+struct Launch {
+    config: Settings,
     seed: u64,
     holder: HolderChoice,
     provider: ProviderChoice,
@@ -133,21 +133,21 @@ struct Settings {
 pub struct TestDaemonBuilder {
     dirs: Option<Arc<TestDirs>>,
     clock: Option<TestClock>,
-    settings: Settings,
+    settings: Launch,
 }
 
 impl Default for TestDaemonBuilder {
     fn default() -> Self {
-        let mut config = Config::default();
+        let mut config = Settings::default();
         config.screen = ScreenChoice::Vt100;
-        config.system_prompt = SYSTEM_PROMPT.to_owned();
+        config.model.system_prompt = SYSTEM_PROMPT.to_owned();
         config.shell.login = false;
         // Idle shells stay unless a test turns the collector on.
         config.shell.idle_minutes = 0;
         TestDaemonBuilder {
             dirs: None,
             clock: None,
-            settings: Settings {
+            settings: Launch {
                 config,
                 seed: DEFAULT_SEED,
                 holder: HolderChoice::Fake(FakePtyHolder::new()),
@@ -185,7 +185,7 @@ impl TestDaemonBuilder {
     /// Changes the daemon's config. The builder has already chosen vt100 screens,
     /// [`SYSTEM_PROMPT`], a non-login shell and no idle collector.
     #[must_use]
-    pub fn config(mut self, change: impl FnOnce(&mut Config)) -> Self {
+    pub fn config(mut self, change: impl FnOnce(&mut Settings)) -> Self {
         change(&mut self.settings.config);
         self
     }
@@ -277,7 +277,7 @@ pub struct TestDaemon {
     clock: TestClock,
     cwd: PathBuf,
     redactor: Redactor,
-    settings: Settings,
+    settings: Launch,
     generation: u64,
     socket: PathBuf,
     daemon_id: DaemonId,
@@ -299,7 +299,7 @@ impl TestDaemon {
     async fn launch(
         dirs: Arc<TestDirs>,
         clock: TestClock,
-        settings: Settings,
+        settings: Launch,
         generation: u64,
     ) -> Result<TestDaemon, TestDaemonError> {
         let (cwd, redactor) = working_dir(&dirs)?;
@@ -344,12 +344,12 @@ impl TestDaemon {
                 deps = deps.with_providers(Arc::new(FixedProvider(Arc::clone(provider))));
             }
             ProviderChoice::Responses(base_url) => {
-                config.provider = efr_daemon::API.to_owned();
+                config.model.provider = efr_daemon::API.to_owned();
                 config.openai.api_base_url = Some(base_url.clone());
                 store_api_key(dirs.dirs().data())?;
             }
             ProviderChoice::Subscription { base_url, issuer } => {
-                config.provider = efr_daemon::SUBSCRIPTION.to_owned();
+                config.model.provider = efr_daemon::SUBSCRIPTION.to_owned();
                 config.openai.subscription_base_url = Some(base_url.clone());
                 deps = deps.with_oauth_issuer(issuer.clone());
                 store_login(dirs.dirs().data())?;

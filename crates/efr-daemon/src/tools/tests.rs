@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use efr_config::Settings;
 use efr_conversation::{CallContext, ToolCall, Toolbox as _};
 use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyId, PtyInfo, Signal, SignalTarget, Size,
@@ -20,7 +21,6 @@ use efr_tools::{ToolError, ToolRequirements, ToolResult};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::config::Config;
 use crate::connections::Connections;
 use crate::screens::ScreenBackend;
 use crate::tools::{DaemonToolbox, for_model, outcome, permission_requirements, registry};
@@ -223,7 +223,7 @@ async fn a_shell_call_through_a_link_into_the_secrets_declares_and_meets_the_sec
     std::os::unix::fs::symlink(home.join(".ssh"), cwd.join("keys")).unwrap();
     let toolbox = toolbox(&home);
     let engine =
-        Engine::new(Locations::new(&home).unwrap(), Config::default().permissions.policy());
+        Engine::new(Locations::new(&home).unwrap(), Settings::default().permissions.policy());
 
     let cat = call("shell", json!({"command": "cat notes"}), &cwd);
     let requirements = toolbox.requirements(&cat).await.unwrap();
@@ -271,7 +271,7 @@ async fn shell_decision(
         .with_shell_cwd(shell_cwd.map(|below| home.join(below)))
         .with_origin(origin);
     let requirements = toolbox.requirements(&shell_call).await.unwrap();
-    let mut permissions = Config::default().permissions;
+    let mut permissions = Settings::default().permissions;
     permissions.rules = efr_permissions::Policy::new(rules).unwrap();
     let engine = Engine::new(Locations::new(&home).unwrap(), permissions.policy());
     let input = DecisionInput {
@@ -381,13 +381,8 @@ fn documented_rules() -> Vec<Vec<Rule>> {
         .skip(1)
         .map(|block| {
             let text = block.split("```").next().unwrap_or_default();
-            let config = Config::resolve(
-                Path::new("/home/u/.config/efr/config.toml"),
-                Some(text),
-                &efr_stdx::env::Env::fixed(Vec::<(efr_stdx::env::Var, &str)>::new()),
-                &crate::config::Flags::default(),
-            )
-            .unwrap();
+            let config =
+                Settings::parse(Path::new("/home/u/.config/efr/config.toml"), Some(text)).unwrap();
             config.permissions.rules.rules().to_vec()
         })
         .collect()

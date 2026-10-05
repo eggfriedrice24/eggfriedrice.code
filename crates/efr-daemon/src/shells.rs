@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use efr_config::ShellSettings;
 use efr_holder::PtyHolder;
 use efr_permissions::{Policy, Resource};
 use efr_shell::{ScreenFactory, ShellConfig, ShellDeps, ShellError, ShellSessions};
@@ -17,7 +18,6 @@ use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
-use crate::config::ShellSettings;
 
 #[cfg(not(feature = "local-pty"))]
 mod no_holder;

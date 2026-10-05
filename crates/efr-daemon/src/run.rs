@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use efr_config::{PermissionSettings, Settings};
 use efr_conversation::{ConversationConfig, ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
@@ -36,7 +37,6 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{Config, PermissionSettings};
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
@@ -239,7 +239,7 @@ pub struct Daemon {
 /// Starts the daemon, serves until `shutdown` is cancelled and drains. systemd hears
 /// `READY=1` once the socket is open and `STOPPING=1` when the drain begins.
 pub async fn run(
-    config: Config,
+    config: Settings,
     deps: Deps,
     shutdown: CancellationToken,
 ) -> Result<(), DaemonError> {
@@ -250,7 +250,7 @@ pub async fn run(
 }
 
 /// Runs the startup sequence up to the open socket.
-pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
+pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> {
     let Deps {
         dirs,
         home,
@@ -537,17 +537,17 @@ async fn engine(
 
 /// The conversations' settings from the config.
 pub(crate) fn conversation_config(
-    config: &Config,
+    config: &Settings,
     model: &str,
     scratch_root: PathBuf,
     host: HostInfo,
     time_zone: TimeZone,
 ) -> ConversationConfig {
     let mut settings = ConversationConfig::new(model, scratch_root)
-        .with_system_prompt(config.system_prompt.clone())
+        .with_system_prompt(config.model.system_prompt.clone())
         .with_time_zone(time_zone)
         .with_host(host);
-    settings.max_output_tokens = config.max_output_tokens;
+    settings.max_output_tokens = config.model.max_output_tokens;
     settings.max_queued = config.conversation.max_queued;
     settings.approval_timeout = config.conversation.approval_timeout_secs.map(Duration::from_secs);
     settings.update_interval = Duration::from_millis(config.conversation.update_interval_ms);

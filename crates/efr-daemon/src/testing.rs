@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::connections::Connections;
 use crate::screens::ScreenBackend;
-use crate::{Config, DaemonError, Deps, HostInfo, ProviderFactory};
+use crate::{DaemonError, Deps, HostInfo, ProviderFactory, Settings};
 
 /// What the fake model answers to every request.
 pub(crate) const ANSWER: &str = "hello from the test model";
@@ -173,11 +173,11 @@ pub(crate) struct Running {
 
 /// Starts a daemon on `dirs` and serves it.
 pub(crate) async fn serve(dirs: &TestDirs, clock: &TestClock) -> Running {
-    serve_with(Config::default(), deps(dirs, clock)).await
+    serve_with(Settings::default(), deps(dirs, clock)).await
 }
 
 /// Starts a daemon with `config` and `deps` and serves it.
-pub(crate) async fn serve_with(config: Config, deps: Deps) -> Running {
+pub(crate) async fn serve_with(config: Settings, deps: Deps) -> Running {
     let daemon = crate::start(config, deps).await.unwrap();
     let socket = daemon.socket_path().to_path_buf();
     let connections = daemon.connections();
