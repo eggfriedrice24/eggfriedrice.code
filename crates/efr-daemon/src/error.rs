@@ -422,24 +422,13 @@ impl DaemonError {
                     other => other.to_string(),
                 };
                 let body = ErrorBody::new(code, message);
+                // The choices of an invalid setting travel as data, so a client can
+                // offer them.
                 match &error {
-                    // The choices travel as data, so a client can offer them.
-                    DaemonError::Conversation {
-                        source:
-                            ConversationError::InvalidSetting { setting, value, model, choices, .. },
-                    } => {
-                        let mut data = serde_json::json!({
-                            "setting": setting,
-                            "value": value,
-                            "choices": choices,
-                        });
-                        if let (Some(model), serde_json::Value::Object(members)) =
-                            (model, &mut data)
-                        {
-                            members.insert("model".to_owned(), model.clone().into());
-                        }
-                        body.with_data(data)
-                    }
+                    DaemonError::Conversation { source } => match source.data() {
+                        Some(data) => body.with_data(data),
+                        None => body,
+                    },
                     _ => body,
                 }
             }

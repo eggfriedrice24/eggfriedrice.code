@@ -10,13 +10,11 @@
 //! from the prompt, so a default that no longer fits fails the turn with the choices
 //! instead of reaching the backend.
 
+use crate::{ConversationConfig, ConversationError};
 use efr_protocol::{
     EffectiveSettings, ErrorBody, ErrorCode, ModelInfo, Origin, OverriddenSettings, TurnSettings,
     is_effort_word,
 };
-use serde_json::{Value, json};
-
-use crate::{ConversationConfig, ConversationError};
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
 /// `config`. A turn from a remote origin runs with at most `cautious`
@@ -96,15 +94,9 @@ fn check_effort(
 /// can offer them.
 pub(crate) fn failure(error: &ConversationError) -> ErrorBody {
     let body = ErrorBody::new(ErrorCode::Invalid, error.to_string());
-    match error {
-        ConversationError::InvalidSetting { setting, value, model, choices, .. } => {
-            let mut data = json!({ "setting": setting, "value": value, "choices": choices });
-            if let (Some(model), Value::Object(members)) = (model, &mut data) {
-                members.insert("model".to_owned(), Value::String(model.clone()));
-            }
-            body.with_data(data)
-        }
-        _ => body,
+    match error.data() {
+        Some(data) => body.with_data(data),
+        None => body,
     }
 }
 

@@ -185,6 +185,21 @@ impl ConversationError {
             source => ConversationError::Store { source },
         }
     }
+
+    /// The data of the wire error, for an [`InvalidSetting`](Self::InvalidSetting): the
+    /// setting, its value, the choices and, for an effort, the model, so a client can
+    /// offer the choices. `None` for every other error.
+    pub fn data(&self) -> Option<serde_json::Value> {
+        let ConversationError::InvalidSetting { setting, value, model, choices, .. } = self else {
+            return None;
+        };
+        let mut data =
+            serde_json::json!({ "setting": setting, "value": value, "choices": choices });
+        if let (Some(model), serde_json::Value::Object(members)) = (model, &mut data) {
+            members.insert("model".to_owned(), serde_json::Value::String(model.clone()));
+        }
+        Some(data)
+    }
 }
 
 #[cfg(test)]
