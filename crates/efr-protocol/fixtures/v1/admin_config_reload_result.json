@@ -1,0 +1,12 @@
+{
+  "applied": false,
+  "error": {
+    "message": "unknown variant `maybe`, expected one of `allow`, `ask`, `deny`",
+    "line": 42,
+    "column": 10,
+    "key": "permissions.rules[2].effect"
+  },
+  "restart_needed": [
+    "screen"
+  ]
+}

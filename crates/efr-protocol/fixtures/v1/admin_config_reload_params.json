@@ -1,0 +1,4 @@
+{
+  "method": "admin.config_reload",
+  "params": {}
+}

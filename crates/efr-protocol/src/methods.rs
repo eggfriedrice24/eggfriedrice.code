@@ -14,6 +14,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 
+pub(crate) mod admin_config_reload;
 pub(crate) mod admin_login_openai;
 pub(crate) mod admin_status;
 pub(crate) mod approval_respond;
@@ -47,6 +48,24 @@ impl PageCursor {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// What is wrong with `config.toml`, as `admin.status` and `admin.config_reload` report
+/// it. The daemon keeps its old settings until the file is valid again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ConfigFileError {
+    /// What is wrong, in one sentence.
+    pub message: String,
+    /// The line of the error, counted from 1, when the error has a place in the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// The column of the error, counted from 1, when the error has a place in the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    /// The dotted path of the key that holds the error, such as `model.effort` or
+    /// `permissions.rules[2].effect`, when the error belongs to one key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 /// Raw bytes, such as PTY input and output, carried as a standard base64 string because

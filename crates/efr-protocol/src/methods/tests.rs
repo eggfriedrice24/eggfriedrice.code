@@ -2,9 +2,9 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    Base64Bytes, ConversationId, ConversationSubscribe, EffectiveSettings, InputRespond, Mode,
-    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, PromptSend,
-    PromptSendResult, Seq, TurnSettings,
+    AdminConfigReloadResult, Base64Bytes, ConfigFileError, ConversationId, ConversationSubscribe,
+    EffectiveSettings, InputRespond, Mode, ModelInfo, ModelSource, ModelsListResult,
+    OverriddenSettings, PageCursor, PromptSend, PromptSendResult, Seq, TurnSettings,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -190,4 +190,45 @@ fn a_model_needs_an_id_and_a_known_source() {
     assert!(serde_json::from_value::<ModelInfo>(json!({ "id": "x" })).is_err());
     let unknown = json!({ "id": "x", "source": "remote" });
     assert!(serde_json::from_value::<ModelInfo>(unknown).is_err());
+}
+
+#[test]
+fn a_reload_that_applied_is_one_flag() {
+    let result = AdminConfigReloadResult { applied: true, error: None, restart_needed: Vec::new() };
+    let value = serde_json::to_value(&result).unwrap();
+    assert_eq!(value, json!({ "applied": true }));
+    let back: AdminConfigReloadResult = serde_json::from_value(value).unwrap();
+    assert_eq!(back, result);
+}
+
+#[test]
+fn a_reload_names_the_keys_that_wait_for_a_restart() {
+    let result = AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+    };
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        json!({ "applied": true, "restart_needed": ["screen", "model.provider"] })
+    );
+}
+
+#[test]
+fn a_config_error_without_a_place_is_only_its_message() {
+    let error = ConfigFileError {
+        message: "config.toml is not readable".to_owned(),
+        line: None,
+        column: None,
+        key: None,
+    };
+    let value = serde_json::to_value(&error).unwrap();
+    assert_eq!(value, json!({ "message": "config.toml is not readable" }));
+    let back: ConfigFileError = serde_json::from_value(value).unwrap();
+    assert_eq!(back, error);
+}
+
+#[test]
+fn a_reload_result_needs_its_applied_flag() {
+    assert!(serde_json::from_value::<AdminConfigReloadResult>(json!({})).is_err());
 }

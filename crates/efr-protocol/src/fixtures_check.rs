@@ -16,12 +16,13 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, json};
 
 use crate::{
-    AdminLoginOpenAi, AdminLoginOpenAiItem, AdminStatus, AdminStatusResult, ApprovalDecision,
-    ApprovalRespond, ApprovalRespondResult, Base64Bytes, CallId, Capabilities, Cell, ClientFrame,
-    Color, CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
-    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
-    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult,
+    AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
+    AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
+    Base64Bytes, CallId, Capabilities, Cell, ClientFrame, Color, CommandId, ConfigFileError,
+    ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSnapshot,
+    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
+    ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths, DeviceId,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult,
     InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Mode,
     ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
     PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
@@ -164,6 +165,16 @@ fn effective_settings() -> EffectiveSettings {
         model: "gpt-5.4".into(),
         effort: Some("high".into()),
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
+    }
+}
+
+/// A broken rule: the config's error has every member.
+fn config_file_error() -> ConfigFileError {
+    ConfigFileError {
+        message: "unknown variant `maybe`, expected one of `allow`, `ask`, `deny`".into(),
+        line: Some(42),
+        column: Some(10),
+        key: Some("permissions.rules[2].effect".into()),
     }
 }
 
@@ -314,6 +325,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
         }),
         Method::ModelsList(ModelsList {}),
         Method::AdminStatus(AdminStatus {}),
+        Method::AdminConfigReload(AdminConfigReload {}),
         Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
     ]
 }
@@ -427,6 +439,14 @@ fn answer_fixtures() -> Vec<Fixture> {
                     logged_in: true,
                     expires_at: Some(at("2026-10-03T20:00:00Z")),
                 }],
+            },
+        ),
+        fixture(
+            "admin_config_reload_result.json",
+            &AdminConfigReloadResult {
+                applied: false,
+                error: Some(config_file_error()),
+                restart_needed: vec!["screen".into()],
             },
         ),
         fixture(

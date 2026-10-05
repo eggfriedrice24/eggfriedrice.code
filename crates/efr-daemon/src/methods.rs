@@ -23,6 +23,7 @@ use tracing::Instrument as _;
 use crate::DaemonError;
 use crate::state::State;
 
+mod admin_config_reload;
 mod admin_login_openai;
 mod admin_status;
 mod approval_respond;
@@ -77,6 +78,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::PtyResize(_) => ScopeName::Terminal,
         Method::InputRespond(_) => ScopeName::Terminal,
         Method::AdminStatus(_) => ScopeName::Admin,
+        Method::AdminConfigReload(_) => ScopeName::Admin,
         Method::AdminLoginOpenAi(_) => ScopeName::Admin,
     }
 }
@@ -192,6 +194,9 @@ impl Dispatcher for Methods {
                 Method::ModelsList(params) => models_list::handle(state, params, &responder).await,
                 Method::AdminStatus(params) => {
                     admin_status::handle(state, params, &responder).await
+                }
+                Method::AdminConfigReload(params) => {
+                    admin_config_reload::handle(state, params, &responder).await
                 }
                 Method::AdminLoginOpenAi(params) => {
                     Box::pin(admin_login_openai::handle(state, params, &responder)).await

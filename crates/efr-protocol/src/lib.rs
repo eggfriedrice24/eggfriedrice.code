@@ -42,6 +42,7 @@ pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
 };
 pub use method::Method;
+pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
 pub use methods::admin_status::{AdminStatus, AdminStatusResult, ProviderStatus};
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
@@ -62,7 +63,7 @@ pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
 pub use methods::turn_interrupt::{TurnInterrupt, TurnInterruptResult};
 pub use methods::turn_steer::{TurnSteer, TurnSteerResult};
-pub use methods::{Base64Bytes, PageCursor};
+pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_text::SecretText;

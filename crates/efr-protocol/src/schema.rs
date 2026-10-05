@@ -9,14 +9,14 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde_json::{Value, json};
 
 use crate::{
-    AdminLoginOpenAi, AdminLoginOpenAiItem, AdminStatus, AdminStatusResult, ApprovalRespond,
-    ApprovalRespondResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
-    ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
-    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
-    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, PromptSend,
-    PromptSendResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, RequestId, ScopeName, TurnInterrupt, TurnInterruptResult, TurnSteer,
-    TurnSteerResult,
+    AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
+    AdminStatus, AdminStatusResult, ApprovalRespond, ApprovalRespondResult, ConversationHistory,
+    ConversationHistoryResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
+    ConversationsListResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
+    InputRespond, InputRespondResult, LeaseReport, LeaseReportResult, ModelsList, ModelsListResult,
+    PROTOCOL_VERSION, PromptSend, PromptSendResult, PtyAttach, PtyAttachItem, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, ScopeName, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -67,6 +67,11 @@ pub fn document() -> Value {
         unary::<LeaseReport, LeaseReportResult>(&mut generator, "lease.report", ScopeName::Read),
         unary::<ModelsList, ModelsListResult>(&mut generator, "models.list", ScopeName::Read),
         unary::<AdminStatus, AdminStatusResult>(&mut generator, "admin.status", ScopeName::Admin),
+        unary::<AdminConfigReload, AdminConfigReloadResult>(
+            &mut generator,
+            "admin.config_reload",
+            ScopeName::Admin,
+        ),
         stream::<AdminLoginOpenAi, AdminLoginOpenAiItem>(
             &mut generator,
             "admin.login_openai",

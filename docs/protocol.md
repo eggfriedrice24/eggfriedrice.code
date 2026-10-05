@@ -43,3 +43,8 @@ No protocol version has shipped yet.
   `default_effort`, a `default` flag for the model that a turn uses when the prompt
   names none, and its `source` (`builtin` or `config`). New fixtures
   `models_list_params.json` and `models_list_result.json`.
+- Before version 1 ships: new method `admin.config_reload` (scope `admin`, no params)
+  whose result says whether the config was `applied`, and carries an optional `error`
+  (`message`, optional `line`, `column` and dotted `key`) and the `restart_needed` keys,
+  absent when empty. New fixtures `admin_config_reload_params.json` and
+  `admin_config_reload_result.json`.

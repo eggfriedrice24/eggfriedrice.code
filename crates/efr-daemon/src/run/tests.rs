@@ -146,7 +146,7 @@ mod daemon {
     use std::path::PathBuf;
 
     use efr_protocol::{
-        AdminStatus, AdminStatusResult, CommandId, ConversationSubscribe,
+        AdminConfigReload, AdminStatus, AdminStatusResult, CommandId, ConversationSubscribe,
         ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, Event,
         Method, ModelsList, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq,
         ShellContext, Size, TurnSteer,
@@ -692,7 +692,10 @@ mod daemon {
         let daemon = serve(&dirs, &clock).await;
         let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
 
-        for (method, name) in [(Method::ModelsList(ModelsList::default()), "models.list")] {
+        for (method, name) in [
+            (Method::ModelsList(ModelsList::default()), "models.list"),
+            (Method::AdminConfigReload(AdminConfigReload::default()), "admin.config_reload"),
+        ] {
             let error = client.call::<serde_json::Value>(method).await.unwrap_err();
             assert_eq!(error.code, ErrorCode::Internal, "{name}");
             assert_eq!(error.message, format!("{name} is not wired in this daemon yet"));

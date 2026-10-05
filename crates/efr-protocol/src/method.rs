@@ -4,9 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AdminLoginOpenAi, AdminStatus, ApprovalRespond, CommandId, ConversationHistory,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, ModelsList,
-    PromptSend, PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
+    AdminConfigReload, AdminLoginOpenAi, AdminStatus, ApprovalRespond, CommandId,
+    ConversationHistory, ConversationSubscribe, ConversationsList, Hello, InputRespond,
+    LeaseReport, ModelsList, PromptSend, PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt,
+    TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -67,6 +68,9 @@ pub enum Method {
     /// `admin.status`: the daemon's health (Unix socket only).
     #[serde(rename = "admin.status")]
     AdminStatus(AdminStatus),
+    /// `admin.config_reload`: read the config file again now (Unix socket only).
+    #[serde(rename = "admin.config_reload")]
+    AdminConfigReload(AdminConfigReload),
     /// `admin.login_openai`: log in to the OpenAI subscription (streaming, Unix socket
     /// only).
     #[serde(rename = "admin.login_openai")]
@@ -93,6 +97,7 @@ impl Method {
             Method::LeaseReport(_) => "lease.report",
             Method::ModelsList(_) => "models.list",
             Method::AdminStatus(_) => "admin.status",
+            Method::AdminConfigReload(_) => "admin.config_reload",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
         }
     }
@@ -117,6 +122,7 @@ impl Method {
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
             | Method::AdminStatus(_)
+            | Method::AdminConfigReload(_)
             | Method::AdminLoginOpenAi(_) => None,
         }
     }
@@ -140,7 +146,8 @@ impl Method {
             | Method::InputRespond(_)
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
-            | Method::AdminStatus(_) => false,
+            | Method::AdminStatus(_)
+            | Method::AdminConfigReload(_) => false,
         }
     }
 }
@@ -167,7 +174,9 @@ impl ScopeName {
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
             | Method::InputRespond(_) => ScopeName::Terminal,
-            Method::AdminStatus(_) | Method::AdminLoginOpenAi(_) => ScopeName::Admin,
+            Method::AdminStatus(_) | Method::AdminConfigReload(_) | Method::AdminLoginOpenAi(_) => {
+                ScopeName::Admin
+            }
         }
     }
 }
