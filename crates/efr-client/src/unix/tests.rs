@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use efr_stdx::paths::MAX_SOCKET_PATH;
 use efr_stdx::time::Clock;
 
 use super::{classify, connect};
@@ -30,6 +31,17 @@ async fn a_stale_socket_means_no_daemon_is_running() {
     drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
     let error = connect(&socket, &clock(), TIMEOUT).await.unwrap_err();
     assert!(matches!(error, ClientError::DaemonNotRunning { .. }));
+}
+
+#[tokio::test]
+async fn a_socket_path_too_long_for_an_address_is_refused_with_the_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir.path().join("x".repeat(MAX_SOCKET_PATH));
+    let socket = long.join("daemon.sock");
+    let error = connect(&socket, &clock(), TIMEOUT).await.unwrap_err();
+    assert!(matches!(error, ClientError::SocketPathTooLong { socket: ref s } if *s == socket));
+    let message = error.to_string();
+    assert!(message.contains(&format!("more than the {MAX_SOCKET_PATH}")), "{message}");
 }
 
 #[tokio::test]

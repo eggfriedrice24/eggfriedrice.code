@@ -11,7 +11,9 @@ tests use it too.
   falls back to the default socket path when the file is missing. A daemon of another
   protocol version is refused before connecting.
 - `unix`: connects to the socket with a timeout on the injected clock. A missing socket
-  and a refused connection both mean `DaemonNotRunning`.
+  and a refused connection both mean `DaemonNotRunning`. A socket path longer than a
+  socket address holds (`efr_stdx::paths::MAX_SOCKET_PATH`) is `SocketPathTooLong`
+  before any connect, because the operating system's error does not name the limit.
 - `client`: `Client::connect` connects and says hello (`ConnectOptions` carries the
   origin, the client name, the tty and the timeout). Both a refused hello and an answer
   with another version are `ProtocolMismatch`. `call` runs a unary method and decodes

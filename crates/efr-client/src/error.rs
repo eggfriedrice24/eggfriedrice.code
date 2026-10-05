@@ -52,6 +52,19 @@ pub enum ClientError {
         socket: PathBuf,
     },
 
+    /// The socket path is longer than a Unix socket address holds, so no daemon can
+    /// listen there; the operating system's own error does not name the limit.
+    #[error(
+        "the socket path {} is {} bytes, more than the {} a Unix socket holds",
+        .socket.display(),
+        .socket.as_os_str().len(),
+        efr_stdx::paths::MAX_SOCKET_PATH
+    )]
+    SocketPathTooLong {
+        /// The socket.
+        socket: PathBuf,
+    },
+
     /// Connecting to the socket failed for another reason, such as missing permission.
     #[error("could not connect to {}", .socket.display())]
     Connect {
