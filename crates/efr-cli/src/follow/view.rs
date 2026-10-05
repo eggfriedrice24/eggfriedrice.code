@@ -40,9 +40,10 @@ const APPROVAL: &str = "approval needed:";
 /// The heading of an approval of the turn that the followed one waits behind.
 const BLOCKING_APPROVAL: &str = "the running turn needs approval:";
 
-/// The line under the prompt of a command that waits for hidden input.
-const HIDDEN_INPUT: &str =
-    "type the answer and press Enter; it is not shown and the agent does not see it";
+/// The line under the prompt of a command that waits for hidden input. It promises no
+/// more than echo being off: the prompt text comes from the command, and the program
+/// that reads the answer can print it, so a fake password prompt would get it.
+const HIDDEN_INPUT: &str = "type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it";
 
 /// The line under the prompt of a command that waits for visible input. The answer
 /// reaches the command's output through the terminal's echo, and so the model.

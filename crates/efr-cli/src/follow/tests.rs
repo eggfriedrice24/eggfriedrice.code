@@ -518,7 +518,7 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
     result.unwrap();
     assert_eq!(keys.starts(), 1);
     assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
-    assert!(out.contains("it is not shown and the agent does not see it"), "{out}");
+    assert!(out.contains("the agent sees it only if the program prints it"), "{out}");
     assert!(out.contains("answer sent"), "{out}");
     // Not the answer, not a piece of it, in any frame or note.
     for written in [&out, &err] {

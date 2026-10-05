@@ -28,7 +28,7 @@ pub struct InputRespond {
     pub text: SecretText,
     /// True when the client asked the user for hidden input, because the event said
     /// `hidden`. The daemon then requires the PTY's echo to be off when it writes, so the
-    /// text never reaches the output that the model reads.
+    /// terminal does not put the text in the output that the model reads.
     pub hidden: bool,
 }
 

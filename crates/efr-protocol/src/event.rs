@@ -417,8 +417,8 @@ pub enum InputWait {
     /// answer is shown on the terminal and reaches the output that the model reads.
     Visible,
     /// The command reads a line with echo off, such as the password prompt of `sudo` or
-    /// `ssh`. The user's answer is never shown and never reaches the output, so the model
-    /// never sees it.
+    /// `ssh`. The user's answer is not shown and the terminal does not put it in the
+    /// output; the model sees it only if the program that reads it prints it.
     Hidden,
 }
 

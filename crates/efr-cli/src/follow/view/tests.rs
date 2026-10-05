@@ -589,7 +589,8 @@ fn a_raw_view_asks_on_stderr() {
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
-        "Password:\ntype the answer and press Enter; it is not shown and the agent does not see it\n"
+        "Password:\ntype the answer and press Enter; it is not shown, and the agent sees it only if the \
+         program prints it\n"
     );
     assert_eq!(view.typed("visible?", SIZE), Step::default());
 }

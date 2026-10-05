@@ -71,8 +71,10 @@ person here can type. When `tool_call_input_changed` says that the running call 
 for input, the key thread starts (and discards typeahead), and the live zone shows the
 command's prompt (its last output line) and how to answer:
 
-- `hidden` (echo off: `sudo`, `ssh`, `passwd`): nothing typed is shown, and the agent
-  never sees it.
+- `hidden` (echo off: `sudo`, `ssh`, `passwd`): nothing typed is shown, and the note
+  says that the agent sees it only if the program prints it. Echo being off is all
+  that is checked: the prompt text comes from the command, so a program that fakes a
+  `sudo` prompt would read the answer and could print it.
 - `visible` (a `[Y/n]` question): the CLI echoes what is typed, and says that the agent
   sees it, because the command's echo puts it in the output.
 
