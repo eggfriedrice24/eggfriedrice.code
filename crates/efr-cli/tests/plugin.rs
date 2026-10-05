@@ -438,19 +438,96 @@ fn e2e_enter_works_after_a_plugin_rebinds_the_builtin_widgets() {
 }
 
 #[test]
+fn e2e_a_typed_prompt_stays_as_typed_on_screen_and_in_history() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let prompt = "what's in /etc? list it; then | sort $HOME";
+    let screen = type_lines(&home, &[&format!(", {prompt}"), "fc -ln -1 > history.txt"]);
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some(prompt.to_owned())]);
+    // No quoting ever reaches the screen or the history.
+    assert!(!screen.contains(r"what\'s") && !screen.contains(r"\ "), "{screen}");
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), format!(", {prompt}"));
+}
+
+#[test]
+fn e2e_a_prompt_line_leaves_the_users_own_options_as_they_were() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let save = r#"print -r -- "$options[interactivecomments] $options[banghist]" >> options.txt"#;
+    type_lines(
+        &home,
+        &[
+            "setopt interactive_comments",
+            ", one",
+            save,
+            "unsetopt interactive_comments",
+            ", two",
+            save,
+        ],
+    );
+    let saved = std::fs::read_to_string(home.path().join("options.txt")).unwrap();
+    assert_eq!(saved.lines().collect::<Vec<_>>(), ["on on", "off on"]);
+    assert_eq!(home.calls().len(), 2);
+}
+
+#[test]
+fn e2e_a_prompt_over_several_lines_never_runs_its_later_lines() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // ESC Return inserts a newline into the line being edited. interactive_comments is on,
+    // the setting under which a comment would end at the newline and run the next line.
+    type_lines(&home, &["setopt interactive_comments", ", first line\u{1b}\rtouch ran-marker"]);
+    assert!(!home.path().join("ran-marker").exists(), "the second line ran as a command");
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some("first line\ntouch ran-marker".to_owned())]);
+}
+
+#[test]
+fn e2e_sticky_mode_shows_its_indicator_without_changing_the_prompt() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let screen = type_lines(
+        &home,
+        &[
+            r#"print -r -- "$PROMPT" > before.txt"#,
+            "<C-Space>",
+            r#"!print -r -- "$PROMPT" > during.txt"#,
+            "<C-Space>",
+        ],
+    );
+    let before = std::fs::read_to_string(home.path().join("before.txt")).unwrap();
+    let during = std::fs::read_to_string(home.path().join("during.txt")).unwrap();
+    assert_eq!(before, during, "sticky mode must not change PROMPT");
+    // The indicator is drawn while sticky mode is on. The raw bytes cannot show it next
+    // to the typed text: ZLE writes a key, steps back and writes it again with colour.
+    assert!(screen.contains("efr> "), "{screen}");
+    assert!(home.calls().is_empty(), "{:?}", home.calls());
+}
+
+#[test]
 fn e2e_a_prompt_with_shell_syntax_reaches_efr_as_typed() {
     if !zsh_tests_enabled() {
         return;
     }
     let prompts = SHELL_SYNTAX;
-    // The accept-line widget runs `_efr_rewrite_line` on the typed line; zsh then parses
-    // what it returns, as eval does here.
-    let script: String = prompts
-        .iter()
-        .map(|prompt| {
-            format!("_efr_rewrite_line {}; eval \"$REPLY\"\n", quoted(&format!(", {prompt}")))
-        })
-        .collect();
+    // For a prompt over several lines the accept-line widget runs `_efr_rewrite_line` on
+    // the typed line; zsh then parses what it returns, as eval does here. Aliases are off
+    // because eval always reads `#` as a comment, while the widget turns
+    // interactive_comments off for such a line so the alias's `#` stays a word.
+    let mut script = String::from("unsetopt aliases\n");
+    script.extend(prompts.iter().map(|prompt| {
+        format!("_efr_rewrite_line {}; eval \"$REPLY\"\n", quoted(&format!(", {prompt}")))
+    }));
     let calls = run(&script);
     assert_eq!(calls.len(), prompts.len(), "{calls:?}");
     for (call, prompt) in calls.iter().zip(prompts) {
