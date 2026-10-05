@@ -36,6 +36,23 @@ fn a_second_integration_test_binary_fails() {
 }
 
 #[test]
+fn a_snapshot_of_the_integration_tests_outside_tests_it_snapshots_fails() {
+    assert_eq!(check_path("crates/efr-cli/tests/snapshots/smoke__help.snap").len(), 1);
+    assert_eq!(check_path("crates/efr-cli/tests/it/smoke__help.snap").len(), 1);
+    assert_eq!(check_path("crates/efr-cli/tests/it/snapshots/deeper/x.snap").len(), 1);
+    assert!(check_path("crates/efr-cli/src/snapshots/efr__x.snap").is_empty());
+}
+
+#[test]
+fn the_root_of_the_integration_test_binary_needs_its_cfg_test_line() {
+    let root = "crates/efr-daemon/tests/it/main.rs";
+    assert_eq!(rules(root, "mod hello;\n"), ["tests/it/main.rs holds the #![cfg(test)] line"]);
+    assert!(rules(root, "//! Tests.\n\n#![cfg(test)]\n\nmod hello;\n").is_empty());
+    assert!(rules("crates/efr-daemon/tests/it/hello.rs", "use x;\n").is_empty());
+    assert!(fast_rules(root, "mod hello;\n").is_empty(), "a full rule");
+}
+
+#[test]
 fn modules_of_the_one_integration_test_binary_are_clean() {
     assert!(check_path("crates/efr-daemon/tests/it/main.rs").is_empty());
     assert!(check_path("crates/efr-daemon/tests/it/hello.rs").is_empty());

@@ -95,7 +95,34 @@ pub(crate) fn check_path(path: &str) -> Vec<Violation> {
             "one integration test binary per crate: a module of tests/it/main.rs",
         ));
     }
+    if is_stray_test_snapshot(path) {
+        found.push(violation(
+            path,
+            None,
+            "insta snapshots of the integration tests live in tests/it/snapshots/",
+        ));
+    }
     found
+}
+
+/// An insta snapshot under a crate's `tests/` outside `tests/it/snapshots/`, where the
+/// modules of the one test binary keep theirs.
+fn is_stray_test_snapshot(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        ["crates", _, "tests", rest @ ..] if path.ends_with(".snap") => {
+            !matches!(rest, ["it", "snapshots", _])
+        }
+        _ => false,
+    }
+}
+
+/// The root of a crate's one integration test binary, which holds its `#![cfg(test)]`.
+fn is_test_binary_root(path: &str) -> bool {
+    matches!(
+        path.split('/').collect::<Vec<_>>().as_slice(),
+        ["crates", _, "tests", "it", "main.rs"]
+    )
 }
 
 /// Cargo makes a test binary of every `tests/*.rs` and `tests/*/main.rs`, and each one
@@ -165,6 +192,12 @@ pub(crate) fn check_contents(path: &str, contents: &str, fast: bool) -> Vec<Viol
 
     if !fast && (path == "Cargo.toml" || path.ends_with("/Cargo.toml")) {
         found.extend(check_anyhow(path, contents));
+    }
+    if !fast
+        && is_test_binary_root(path)
+        && !contents.lines().any(|line| line.trim() == "#![cfg(test)]")
+    {
+        found.push(violation(path, None, "tests/it/main.rs holds the #![cfg(test)] line"));
     }
     found
 }
