@@ -92,34 +92,36 @@ fn the_model_is_offered_the_shell_and_the_two_file_tools() {
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
 }
 
-#[test]
-fn a_read_declares_its_resolved_path_for_reading() {
+#[tokio::test]
+async fn a_read_declares_its_resolved_path_for_reading() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
 
     let requirements =
-        toolbox.requirements(&call("read_file", json!({"path": "notes.txt"}), home.path()));
+        toolbox.requirements(&call("read_file", json!({"path": "notes.txt"}), home.path())).await;
 
     assert_eq!(requirements, Ok(Requirements::none().with_read(home.path().join("notes.txt"))));
 }
 
-#[test]
-fn a_shell_call_declares_its_command_line() {
+#[tokio::test]
+async fn a_shell_call_declares_its_command_line() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
 
-    let requirements =
-        toolbox.requirements(&call("shell", json!({"command": "ls -la"}), home.path())).unwrap();
+    let requirements = toolbox
+        .requirements(&call("shell", json!({"command": "ls -la"}), home.path()))
+        .await
+        .unwrap();
 
     assert_eq!(requirements.command.as_deref(), Some("ls -la"));
 }
 
-#[test]
-fn an_unknown_tool_is_text_for_the_model() {
+#[tokio::test]
+async fn an_unknown_tool_is_text_for_the_model() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
 
-    let requirements = toolbox.requirements(&call("rm_rf", json!({}), home.path()));
+    let requirements = toolbox.requirements(&call("rm_rf", json!({}), home.path())).await;
 
     assert!(requirements.unwrap_err().contains("rm_rf"));
 }
@@ -190,14 +192,14 @@ fn every_declared_requirement_is_copied() {
     );
 }
 
-#[test]
-fn a_shell_call_resolves_relative_paths_where_the_hidden_shell_is() {
+#[tokio::test]
+async fn a_shell_call_resolves_relative_paths_where_the_hidden_shell_is() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
     let mut shell_call = call("shell", json!({"command": "cat notes.txt"}), home.path());
     shell_call.context = shell_call.context.with_shell_cwd(Some(PathBuf::from("/var/log")));
 
-    let requirements = toolbox.requirements(&shell_call).unwrap();
+    let requirements = toolbox.requirements(&shell_call).await.unwrap();
 
     assert_eq!(requirements.paths, Requirements::none().with_read("/var/log/notes.txt").paths);
 }
@@ -205,7 +207,7 @@ fn a_shell_call_resolves_relative_paths_where_the_hidden_shell_is() {
 /// What the check point decides for a shell call with `command`, from the shell in
 /// `~/p/app` (or the hidden shell's `shell_cwd` below the home directory), with the
 /// built-in rules followed by `rules`, as the daemon composes them.
-fn shell_decision(
+async fn shell_decision(
     command: &str,
     shell_cwd: Option<&str>,
     rules: Vec<Rule>,
@@ -220,7 +222,7 @@ fn shell_decision(
         .context
         .with_shell_cwd(shell_cwd.map(|below| home.join(below)))
         .with_origin(origin);
-    let requirements = toolbox.requirements(&shell_call).unwrap();
+    let requirements = toolbox.requirements(&shell_call).await.unwrap();
     let mut permissions = Config::default().permissions;
     permissions.rules = efr_permissions::Policy::new(rules).unwrap();
     let engine = Engine::new(Locations::new(&home).unwrap(), permissions.policy());
@@ -233,8 +235,8 @@ fn shell_decision(
     engine.decide(&input).effect()
 }
 
-#[test]
-fn shell_calls_decide_by_the_command_and_the_paths_it_names() {
+#[tokio::test]
+async fn shell_calls_decide_by_the_command_and_the_paths_it_names() {
     let cases = [
         // Read-only commands run.
         ("ls -la", None, Effect::Allow),
@@ -275,13 +277,13 @@ fn shell_calls_decide_by_the_command_and_the_paths_it_names() {
         ("cat notes.txt", Some("p/app"), Effect::Allow),
     ];
     for (command, shell_cwd, expected) in cases {
-        let effect = shell_decision(command, shell_cwd, Vec::new(), Origin::Shell);
+        let effect = shell_decision(command, shell_cwd, Vec::new(), Origin::Shell).await;
         assert_eq!(effect, expected, "{command:?} from {shell_cwd:?}");
     }
 }
 
-#[test]
-fn the_users_rules_come_after_the_built_in_ones() {
+#[tokio::test]
+async fn the_users_rules_come_after_the_built_in_ones() {
     let cargo_test = Rule::new(
         Action::Execute,
         Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
@@ -292,36 +294,36 @@ fn the_users_rules_come_after_the_built_in_ones() {
     let open_ssh_config =
         Rule::new(Action::Read, Resource::Under("~/.ssh/config".into()), Effect::Allow);
     let rules = vec![cargo_test, deny_cat, open_ssh_config];
-    let decide = |line: &str| shell_decision(line, None, rules.clone(), Origin::Shell);
+    let decide = async |line: &str| shell_decision(line, None, rules.clone(), Origin::Shell).await;
 
-    assert_eq!(decide("cargo test --workspace"), Effect::Allow);
-    assert_eq!(decide("cargo build"), Effect::Ask);
-    assert_eq!(decide("cat README.md"), Effect::Deny);
-    assert_eq!(decide("ls ~/.ssh/config"), Effect::Allow);
-    assert_eq!(decide("ls ~/.ssh/id_ed25519"), Effect::Deny);
+    assert_eq!(decide("cargo test --workspace").await, Effect::Allow);
+    assert_eq!(decide("cargo build").await, Effect::Ask);
+    assert_eq!(decide("cat README.md").await, Effect::Deny);
+    assert_eq!(decide("ls ~/.ssh/config").await, Effect::Allow);
+    assert_eq!(decide("ls ~/.ssh/id_ed25519").await, Effect::Deny);
     assert_eq!(
-        shell_decision("cargo test", None, rules.clone(), Origin::Phone),
+        shell_decision("cargo test", None, rules.clone(), Origin::Phone).await,
         Effect::Ask,
         "the phone asks even when a rule allows"
     );
 }
 
-#[test]
-fn a_rule_may_allow_a_command_in_one_project_only() {
+#[tokio::test]
+async fn a_rule_may_allow_a_command_in_one_project_only() {
     // `shell_decision` runs from `~/p/app` in a home of its own.
     let rule = Rule::new(
         Action::Execute,
         Resource::Command(CommandPattern::new("cargo").with_args(["test"]).with_under("~/p/app")),
         Effect::Allow,
     );
-    let decide = |line: &str, shell_cwd: Option<&str>| {
-        shell_decision(line, shell_cwd, vec![rule.clone()], Origin::Shell)
+    let decide = async |line: &str, shell_cwd: Option<&str>| {
+        shell_decision(line, shell_cwd, vec![rule.clone()], Origin::Shell).await
     };
 
-    assert_eq!(decide("cargo test", None), Effect::Allow, "the shell starts in ~/p/app");
-    assert_eq!(decide("cargo test", Some("p/app/crates/x")), Effect::Allow);
-    assert_eq!(decide("cargo test", Some("p/other")), Effect::Ask);
-    assert_eq!(decide("cd ../other && cargo test", None), Effect::Ask);
+    assert_eq!(decide("cargo test", None).await, Effect::Allow, "the shell starts in ~/p/app");
+    assert_eq!(decide("cargo test", Some("p/app/crates/x")).await, Effect::Allow);
+    assert_eq!(decide("cargo test", Some("p/other")).await, Effect::Ask);
+    assert_eq!(decide("cd ../other && cargo test", None).await, Effect::Ask);
 }
 
 /// The rules of each `toml` example in `docs/permissions.md`, as the config reads them.
@@ -343,21 +345,22 @@ fn documented_rules() -> Vec<Vec<Rule>> {
         .collect()
 }
 
-#[test]
-fn the_examples_in_the_permissions_doc_do_what_it_says() {
+#[tokio::test]
+async fn the_examples_in_the_permissions_doc_do_what_it_says() {
     let [cargo_test, restart_nginx] = documented_rules().try_into().unwrap();
-    let cargo = |line: &str, shell_cwd: Option<&str>| {
-        shell_decision(line, shell_cwd, cargo_test.clone(), Origin::Shell)
+    let cargo = async |line: &str, shell_cwd: Option<&str>| {
+        shell_decision(line, shell_cwd, cargo_test.clone(), Origin::Shell).await
     };
-    assert_eq!(cargo("cargo test", None), Effect::Allow);
-    assert_eq!(cargo("cargo test --workspace", Some("p/app/crates/x")), Effect::Allow);
-    assert_eq!(cargo("cargo test", Some("p/other")), Effect::Ask);
-    assert_eq!(cargo("cd ../other && cargo test", None), Effect::Ask);
+    assert_eq!(cargo("cargo test", None).await, Effect::Allow);
+    assert_eq!(cargo("cargo test --workspace", Some("p/app/crates/x")).await, Effect::Allow);
+    assert_eq!(cargo("cargo test", Some("p/other")).await, Effect::Ask);
+    assert_eq!(cargo("cd ../other && cargo test", None).await, Effect::Ask);
 
-    let nginx = |line: &str| shell_decision(line, None, restart_nginx.clone(), Origin::Shell);
-    assert_eq!(nginx("systemctl restart nginx"), Effect::Allow);
-    assert_eq!(nginx("systemctl restart nginx sshd"), Effect::Ask);
-    assert_eq!(nginx("sudo systemctl restart nginx"), Effect::Ask);
+    let nginx =
+        async |line: &str| shell_decision(line, None, restart_nginx.clone(), Origin::Shell).await;
+    assert_eq!(nginx("systemctl restart nginx").await, Effect::Allow);
+    assert_eq!(nginx("systemctl restart nginx sshd").await, Effect::Ask);
+    assert_eq!(nginx("sudo systemctl restart nginx").await, Effect::Ask);
 }
 
 #[test]

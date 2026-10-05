@@ -30,10 +30,11 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     fn definitions(&self) -> Vec<ToolDefinition>;
 
     /// What `call` needs: every path with its access, the command line it runs, network
-    /// and terminal input. Pure: nothing runs and no file is touched. `Err` is the text
-    /// the model reads when the call cannot be judged, such as an unknown tool or an
-    /// input that does not match the tool's schema.
-    fn requirements(&self, call: &ToolCall) -> Result<Requirements, String>;
+    /// and terminal input. Nothing runs and nothing is written; a toolbox may read the
+    /// file system to find what a path reaches through a symbolic link, off the async
+    /// workers. `Err` is the text the model reads when the call cannot be judged, such
+    /// as an unknown tool or an input that does not match the tool's schema.
+    async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String>;
 
     /// A diff of the change that `call` would make, for an approval request. Only a
     /// tool that writes a file has one; the default has none.

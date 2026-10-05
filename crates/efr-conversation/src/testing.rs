@@ -107,7 +107,7 @@ impl Toolbox for FakeToolbox {
         FakeToolbox::tools()
     }
 
-    fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
+    async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         self.judged.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
         match call.name.as_str() {
             "read_file" => Ok(Requirements::none().with_read(text_input(&call.input, "path")?)),

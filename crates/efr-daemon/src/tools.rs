@@ -94,7 +94,7 @@ impl Toolbox for DaemonToolbox {
             .collect()
     }
 
-    fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
+    async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         let context = self.context(&call.context);
         self.registry
             .requirements(&call.name, &context, &call.input)

@@ -453,7 +453,7 @@ impl Turn {
         &mut self,
         call: &ToolCall,
     ) -> Result<Authorization, ConversationError> {
-        let requirements = match self.shared.deps.toolbox.requirements(call) {
+        let requirements = match self.shared.deps.toolbox.requirements(call).await {
             Ok(requirements) => requirements,
             Err(message) => return Ok(Authorization::Refused { message }),
         };
