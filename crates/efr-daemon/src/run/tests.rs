@@ -148,9 +148,10 @@ mod daemon {
     use efr_protocol::{
         AdminStatus, AdminStatusResult, CommandId, ConversationSubscribe,
         ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, Event,
-        Method, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, ShellContext, Size,
+        Method, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq, ShellContext, Size,
         TurnSteer,
     };
+    use efr_stdx::time::Clock as _;
     use efr_test_support::{TestClock, TestDirs};
     use pretty_assertions::assert_eq;
 
@@ -353,6 +354,77 @@ mod daemon {
         assert_eq!(notice.as_deref(), Some("efr: turn finished: say hello\n"));
 
         drop((terminal, watcher));
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_terminal_that_followed_its_turn_to_the_end_gets_no_notice() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let daemon = serve(&dirs, &clock).await;
+        let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        let sent: PromptSendResult = terminal
+            .call(Method::PromptSend(prompt(1, "say hello", dirs.home().to_path_buf())))
+            .await
+            .unwrap();
+        let stream = terminal
+            .send(Method::ConversationSubscribe(ConversationSubscribe {
+                conversation_id: sent.conversation_id,
+                after_seq: Some(sent.seq),
+            }))
+            .await;
+        let mut completed = None;
+        while let Some(item) = terminal.next(stream).await.unwrap() {
+            if item["event"]["kind"] == "turn_completed" {
+                completed = item["seq"].as_u64().map(Seq::new);
+                break;
+            }
+        }
+        let completed = completed.unwrap();
+        // As efr does: it leaves as soon as it has shown the end of the turn, which
+        // may be before the notices decide on that event.
+        drop(terminal);
+        // Here the notices task usually decides before the connection goes, so the
+        // record that covers the other order is checked directly. No subscription was
+        // handed the last possible event, so that one is attached only while the
+        // request is open.
+        let attached =
+            |seq| daemon.connections.attached(TTY, sent.conversation_id, clock.now(), seq);
+        let mut open = true;
+        for _ in 0..100_000 {
+            open = attached(Seq::new(u64::MAX));
+            if !open {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(!open, "the subscription ends with its connection");
+        assert!(attached(completed), "the ended subscription was handed the turn's last event");
+
+        // A turn in another terminal that nobody follows. Notices are decided in commit
+        // order, so once its notice is there, the first terminal's turn was decided.
+        let (mut other, _) = RawClient::hello(&daemon.socket, Some("/dev/pts/8")).await;
+        let mut elsewhere = prompt(2, "say hello again", dirs.home().to_path_buf());
+        if let Some(context) = elsewhere.context.as_mut() {
+            context.tty = Some("/dev/pts/8".to_owned());
+        }
+        let _: PromptSendResult = other.call(Method::PromptSend(elsewhere)).await.unwrap();
+        let file = dirs.dirs().runtime().join("notices/pts-8");
+        let mut notice = None;
+        for _ in 0..100_000 {
+            if let Ok(text) = std::fs::read_to_string(&file)
+                && !text.is_empty()
+            {
+                notice = Some(text);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(notice.as_deref(), Some("efr: turn finished: say hello again\n"));
+        assert!(!dirs.dirs().runtime().join("notices/pts-7").exists());
+
+        drop(other);
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
     }

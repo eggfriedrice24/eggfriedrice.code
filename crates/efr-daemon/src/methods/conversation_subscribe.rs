@@ -35,10 +35,11 @@ pub(crate) const MAX_EVENTS: usize = 128;
 pub(crate) const MAX_BYTES: usize = 1024 * 1024;
 
 /// How far the live side got, for the `overflow` of a subscriber the broadcast left
-/// behind.
-#[derive(Debug, Default)]
+/// behind. `last` is the subscription guard's, so the notices learn how far this
+/// terminal followed the conversation once the subscription ends.
+#[derive(Debug)]
 struct Progress {
-    last: AtomicU64,
+    last: Arc<AtomicU64>,
     lagged: AtomicBool,
 }
 
@@ -66,11 +67,11 @@ pub(crate) async fn handle(
     cancelled: CancellationToken,
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
-    let _attached = state.connections.subscribe(context.conn_id(), conversation_id);
+    let attached = state.connections.subscribe(context.conn_id(), conversation_id);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();
     let (sender, mut receiver) = efr_transport::subscription();
-    let progress = Arc::new(Progress::default());
+    let progress = Arc::new(Progress { last: attached.reached(), lagged: AtomicBool::new(false) });
     let _producer = AbortOnDrop(tokio::spawn(produce(
         committed,
         sender,

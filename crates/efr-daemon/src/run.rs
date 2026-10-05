@@ -430,6 +430,13 @@ impl Daemon {
         self.state.daemon_id
     }
 
+    /// The connection table, for the tests that check what it keeps after a client
+    /// left.
+    #[cfg(test)]
+    pub(crate) fn connections(&self) -> Arc<Connections> {
+        Arc::clone(&self.state.connections)
+    }
+
     /// Answers clients until `shutdown` is cancelled, then drains and stops.
     pub async fn serve(self, shutdown: CancellationToken) -> Result<(), DaemonError> {
         let Daemon {

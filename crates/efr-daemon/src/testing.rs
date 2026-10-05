@@ -31,6 +31,7 @@ use tokio::net::UnixStream;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::connections::Connections;
 use crate::screens::ScreenBackend;
 use crate::{Config, DaemonError, Deps, HostInfo, ProviderFactory};
 
@@ -167,6 +168,7 @@ pub(crate) struct Running {
     pub(crate) socket: std::path::PathBuf,
     pub(crate) shutdown: CancellationToken,
     pub(crate) served: JoinHandle<Result<(), DaemonError>>,
+    pub(crate) connections: Arc<Connections>,
 }
 
 /// Starts a daemon on `dirs` and serves it.
@@ -178,9 +180,10 @@ pub(crate) async fn serve(dirs: &TestDirs, clock: &TestClock) -> Running {
 pub(crate) async fn serve_with(config: Config, deps: Deps) -> Running {
     let daemon = crate::start(config, deps).await.unwrap();
     let socket = daemon.socket_path().to_path_buf();
+    let connections = daemon.connections();
     let shutdown = CancellationToken::new();
     let served = tokio::spawn(daemon.serve(shutdown.clone()));
-    Running { socket, shutdown, served }
+    Running { socket, shutdown, served, connections }
 }
 
 /// A protocol client that speaks raw frames.

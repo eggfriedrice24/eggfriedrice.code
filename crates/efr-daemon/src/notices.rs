@@ -1,7 +1,8 @@
 //! Notices for terminals that do not show their conversation right now.
 //!
 //! When a turn finishes or fails, or an approval waits, and no client in the
-//! conversation's terminal follows it, the daemon appends one line to
+//! conversation's terminal follows it or was handed the event before it stopped
+//! following, the daemon appends one line to
 //! `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`). The zsh plugin prints and
 //! removes the file at its next prompt. `<tty>` is `$TTY` without `/dev/`, with `/` as
 //! `-`, so `/dev/pts/3` is `pts-3`.
@@ -128,7 +129,7 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
     let Some(tty) = summary.tty else {
         return;
     };
-    if state.connections.attached(&tty, conversation_id, state.clock.now()) {
+    if state.connections.attached(&tty, conversation_id, state.clock.now(), envelope.seq) {
         return;
     }
     let Some(text) = line(&envelope.event, summary.title.as_deref()) else {

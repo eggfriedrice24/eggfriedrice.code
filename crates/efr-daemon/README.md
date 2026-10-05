@@ -82,7 +82,10 @@ When a turn finishes or fails, or an approval waits, and no client in the
 conversation's terminal follows it (an open subscription or a live lease from a
 connection whose hello named that tty), the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
-its next prompt.
+its next prompt. A subscription that ends leaves the highest sequence number it was
+handed for its terminal, and an event at or below it gets no notice: `efr` exits as
+soon as it has shown the end of a turn, often before the notices decide on that event,
+and its terminal must not hear about a turn it just showed.
 
 ### Features
 
@@ -146,8 +149,8 @@ providers and the tool adapter. The tests in `run/tests.rs` start the real daemo
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
 raw frames: a prompt followed to the end of its turn, routing and receipts, refusals,
-a notice for a terminal that does not follow its conversation, and a second daemon
-refused by the lock. The tool adapter's tests run shell calls through the real
+a notice for a terminal that does not follow its conversation and none for one that
+followed its turn to the end, and a second daemon refused by the lock. The tool adapter's tests run shell calls through the real
 toolbox and the engine with the defaults and with user rules: read-only commands run,
 other commands ask, a named secret is denied, and relative paths resolve where the
 hidden shell is. The `e2e_` tests run an approved command in a real hidden zsh and
