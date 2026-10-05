@@ -392,6 +392,7 @@ impl Follower<'_> {
             call_id,
             text,
             hidden,
+            manual: false,
         });
         let size = self.ctx.screen.size();
         let step = match self.client.call::<InputRespondResult>(method).await {

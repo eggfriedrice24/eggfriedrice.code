@@ -327,7 +327,8 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             call_id: call_id(),
             text: SecretText::new("hunter2"),
-            hidden: true,
+            hidden: false,
+            manual: true,
         }),
         Method::LeaseReport(LeaseReport {
             conversations: vec![conversation_id()],
@@ -554,7 +555,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::ToolCallInputChanged {
             turn_id: turn_id(),
             call_id: call_id(),
-            input: InputWait::Hidden,
+            input: InputWait::Visible,
+            looks_secret: true,
         },
         Event::ToolCallCompleted {
             turn_id: turn_id(),

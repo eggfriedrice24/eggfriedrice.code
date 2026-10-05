@@ -166,6 +166,14 @@ pub enum Event {
         call_id: CallId,
         /// What the call waits for now.
         input: InputWait,
+        /// True for a `visible` wait whose prompt line looks like a password prompt
+        /// (`password`, `passphrase`, `passcode`, `PIN`, `verification code` or
+        /// `one-time code`) while the terminal is not in line mode, as behind a relay such
+        /// as `sudo`'s own pty, `ssh` or `docker exec`. The program on the inner terminal
+        /// decides whether the answer is shown, so a client hides what the user types
+        /// and says so; the answer is still sent as a visible one. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        looks_secret: bool,
     },
 
     /// A tool call finished.

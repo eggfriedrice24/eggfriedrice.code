@@ -695,6 +695,7 @@ impl Turn {
             turn_id: self.turn_id(),
             call_id: context.call_id,
             input,
+            looks_secret: false,
         });
         self.record(events).await?;
         Ok(())

@@ -22,7 +22,7 @@ pub(crate) async fn handle(
     params: InputRespond,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let InputRespond { conversation_id, call_id, text, hidden } = params;
+    let InputRespond { conversation_id, call_id, text, hidden, manual: _ } = params;
     state
         .shells
         .answer(conversation_id, call_id, &text, hidden)

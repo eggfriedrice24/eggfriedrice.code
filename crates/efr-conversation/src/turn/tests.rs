@@ -1272,14 +1272,24 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
         steps,
         [
             Event::ToolCallOutputUpdated { turn_id, call_id, tail: "pw: ".to_owned(), bytes: 4 },
-            Event::ToolCallInputChanged { turn_id, call_id, input: InputWait::Hidden },
+            Event::ToolCallInputChanged {
+                turn_id,
+                call_id,
+                input: InputWait::Hidden,
+                looks_secret: false,
+            },
             Event::ToolCallOutputUpdated {
                 turn_id,
                 call_id,
                 tail: "pw: \nok\n".to_owned(),
                 bytes: 8
             },
-            Event::ToolCallInputChanged { turn_id, call_id, input: InputWait::None },
+            Event::ToolCallInputChanged {
+                turn_id,
+                call_id,
+                input: InputWait::None,
+                looks_secret: false,
+            },
             Event::ToolCallCompleted {
                 turn_id,
                 call_id,

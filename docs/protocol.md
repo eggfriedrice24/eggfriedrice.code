@@ -72,3 +72,15 @@ No protocol version has shipped yet.
   its terminal that names it and says to send it again; nothing runs it later.
   `prompt_held` stays in the protocol for older logs, and no daemon writes it any more.
   No wire type changed.
+- Before version 1 ships: answers at the edges. The `tool_call_input_changed` event
+  gains an optional `looks_secret` flag, false when absent: a `visible` wait whose
+  prompt line looks like a password prompt while the terminal is not in line mode, as
+  behind a relay such as `sudo`'s own pty, `ssh` or `docker exec`; a client hides what
+  the user types and still sends a visible answer. `input.respond` gains an optional
+  `manual` flag, false when absent: an answer that the user chose to type for a
+  command that reported no wait, which the daemon takes while that call's command runs
+  and a job of it holds the terminal, without the check against a reported wait and
+  its kind. An answer after the call's `tool_call_completed` gets `not_found`. The
+  fixtures `events/tool_call_input_changed.json` (now a `visible` wait that looks
+  secret) and `input_respond_params.json` (now a manual visible answer) set the new
+  flags.

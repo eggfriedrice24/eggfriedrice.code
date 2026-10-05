@@ -70,6 +70,7 @@ fn every_method() -> Vec<Method> {
             call_id: CallId::from_uuid(id(4)),
             text: SecretText::new("y"),
             hidden: false,
+            manual: false,
         }),
         Method::LeaseReport(LeaseReport::default()),
         Method::ModelsList(ModelsList::default()),

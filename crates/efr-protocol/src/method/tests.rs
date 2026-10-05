@@ -154,6 +154,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 call_id: CallId::from_str(CALL).unwrap(),
                 text: SecretText::new("y"),
                 hidden: false,
+                manual: false,
             }),
             "input.respond",
             ScopeName::Terminal,

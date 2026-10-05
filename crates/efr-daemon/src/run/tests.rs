@@ -271,6 +271,7 @@ mod daemon {
                 call_id: efr_protocol::CallId::from_uuid(uuid::Uuid::from_u128(5)),
                 text: efr_protocol::SecretText::new(text),
                 hidden: true,
+                manual: false,
             })
         };
 

@@ -317,7 +317,12 @@ fn an_envelope_reads_an_offset_time_and_writes_it_in_utc() {
 }
 
 fn input_changed(input: InputWait) -> Event {
-    Event::ToolCallInputChanged { turn_id: turn(), call_id: CallId::from_str(CALL).unwrap(), input }
+    Event::ToolCallInputChanged {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        input,
+        looks_secret: false,
+    }
 }
 
 #[test]
@@ -341,6 +346,28 @@ fn every_input_wait_is_a_snake_case_string_and_reads_back_as_itself() {
         let back: Event = serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
         assert_eq!(back, event);
     }
+}
+
+#[test]
+fn a_wait_that_looks_secret_says_so_and_an_old_one_does_not() {
+    let event = Event::ToolCallInputChanged {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        input: InputWait::Visible,
+        looks_secret: true,
+    };
+    let wire = json!({
+        "kind": "tool_call_input_changed",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "input": "visible",
+        "looks_secret": true,
+    });
+    assert_eq!(serde_json::to_value(&event).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), event);
+    // An event from before the flag reads as not secret.
+    let old = json!({ "kind": "tool_call_input_changed", "turn_id": TURN, "call_id": CALL, "input": "visible" });
+    assert_eq!(serde_json::from_value::<Event>(old).unwrap(), input_changed(InputWait::Visible));
 }
 
 #[test]

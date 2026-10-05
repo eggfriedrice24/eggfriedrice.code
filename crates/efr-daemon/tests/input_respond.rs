@@ -303,6 +303,7 @@ async fn shell_a_password_typed_through_input_respond_reaches_only_the_program()
         call_id,
         text: SecretText::new(SECRET),
         hidden: true,
+        manual: false,
     });
     let _: InputRespondResult = client.call(answer).await.unwrap();
     let rest = events_until(&mut stream, |event| {
@@ -483,6 +484,7 @@ async fn shell_a_hidden_wait_goes_on_when_one_of_two_clients_that_can_answer_lea
         call_id,
         text: SecretText::new(SECRET),
         hidden: true,
+        manual: false,
     });
     let _: InputRespondResult = client.call(answer).await.unwrap();
     let rest = events_until(&mut stream, |event| {

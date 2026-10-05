@@ -409,7 +409,12 @@ fn output(tail: &str) -> Event {
 }
 
 fn input(wait: InputWait) -> Event {
-    Event::ToolCallInputChanged { turn_id: turn(), call_id: call(), input: wait }
+    Event::ToolCallInputChanged {
+        turn_id: turn(),
+        call_id: call(),
+        input: wait,
+        looks_secret: false,
+    }
 }
 
 fn call_completed(exit_code: i32) -> Event {
@@ -650,8 +655,12 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
     view.queue();
     let running: TurnId = "0192f0c1-7a00-7000-8000-000000000077".parse().unwrap();
     let other: CallId = "0192f0c1-7a00-7000-8000-000000000078".parse().unwrap();
-    let wait =
-        Event::ToolCallInputChanged { turn_id: running, call_id: other, input: InputWait::Hidden };
+    let wait = Event::ToolCallInputChanged {
+        turn_id: running,
+        call_id: other,
+        input: InputWait::Hidden,
+        looks_secret: false,
+    };
     let step = view.event(&wait, SIZE, true);
     assert_eq!(step.ask, Some(Ask::Input { call_id: other, hidden: true }));
 

@@ -463,7 +463,7 @@ fn shell_output(tail: &str) -> Event {
 }
 
 fn input_changed(input: InputWait) -> Event {
-    Event::ToolCallInputChanged { turn_id: turn(), call_id: call(), input }
+    Event::ToolCallInputChanged { turn_id: turn(), call_id: call(), input, looks_secret: false }
 }
 
 fn shell_completed(exit_code: i32) -> Event {
@@ -741,8 +741,12 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             tail: tail.to_owned(),
             bytes: 1,
         };
-        let wait =
-            |call_id, input| Event::ToolCallInputChanged { turn_id: running, call_id, input };
+        let wait = |call_id, input| Event::ToolCallInputChanged {
+            turn_id: running,
+            call_id,
+            input,
+            looks_secret: false,
+        };
         let page = ConversationHistoryResult {
             events: vec![
                 envelope(3, output(earlier, "Proceed? [Y/n] ")),

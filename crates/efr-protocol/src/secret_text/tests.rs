@@ -14,6 +14,7 @@ fn answer(text: &str, hidden: bool) -> InputRespond {
         call_id: CallId::from_str(CALL).unwrap(),
         text: SecretText::new(text),
         hidden,
+        manual: false,
     }
 }
 
@@ -90,6 +91,19 @@ fn an_answer_reads_back_as_itself() {
         let back: Method = serde_json::from_value(serde_json::to_value(&method).unwrap()).unwrap();
         assert_eq!(back, method);
     }
+}
+
+#[test]
+fn a_manual_answer_says_so_and_an_answer_without_the_flag_is_not_manual() {
+    let manual = InputRespond { manual: true, ..answer("y", false) };
+    let wire = serde_json::to_value(Method::InputRespond(manual.clone())).unwrap();
+    assert_eq!(wire["params"]["manual"], json!(true));
+    let back: Method = serde_json::from_value(wire).unwrap();
+    assert_eq!(back, Method::InputRespond(manual));
+
+    let params =
+        json!({ "conversation_id": CONVERSATION, "call_id": CALL, "text": "y", "hidden": false });
+    assert!(!serde_json::from_value::<InputRespond>(params).unwrap().manual);
 }
 
 #[test]
