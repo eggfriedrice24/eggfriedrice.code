@@ -28,6 +28,10 @@ use crate::{Access, Construct, DecisionInput, Locations, PathAccess, PathClass, 
 ///    with at most the `cautious` mode, and needs approval for everything outside
 ///    `$SCRATCH`: an `Allow` becomes `Ask`. An interactive call always needs approval.
 ///
+/// A change of efr's own settings ([`Requirements::settings`](crate::Requirements),
+/// declared only by the settings tool) needs approval in every mode, whatever the
+/// rules say, and is denied for a remote origin.
+///
 /// A command line is judged one simple command at a time, and its effect is the
 /// strictest of theirs, so a line is allowed only when every simple command in it is.
 /// A line that cannot be split (a command substitution, an output redirection to a
@@ -116,6 +120,20 @@ impl Engine {
         }
     }
 
+    /// True when `resource` names secrets: the class itself, or an `under` path at or
+    /// below a secret location. `any`, the project and an `under` path above a secret
+    /// only reach secrets on the way to everything else. Only such a rule decides a
+    /// secret, so the settings tool refuses to write one.
+    pub fn names_secrets(&self, resource: &Resource) -> bool {
+        match resource {
+            Resource::Class(class) => *class == PathClass::Secrets,
+            Resource::Under(root) => expand(root, self.locations.home()).is_some_and(|root| {
+                self.locations.classify_normal(&root, None) == PathClass::Secrets
+            }),
+            Resource::Any | Resource::Project | Resource::Command(_) => false,
+        }
+    }
+
     /// Decides whether the tool call described by `input` runs, waits for approval or
     /// is refused.
     pub fn decide(&self, input: &DecisionInput) -> Decision {
@@ -173,6 +191,19 @@ impl Engine {
                 effect: Effect::Ask,
                 cause: Cause::Interactive,
             });
+        }
+        if let Some(change) = &requirements.settings {
+            // NOTE: no rule is read: a rule that allows writing the file must not let
+            // the model change its own permissions without the user, and a remote turn
+            // never changes them.
+            let (effect, cause) = if is_local(input.origin) {
+                (Effect::Ask, Cause::SettingsChange)
+            } else {
+                (Effect::Deny, Cause::RemoteSettings { origin: input.origin })
+            };
+            let subject =
+                Subject::Settings { summary: change.summary.clone(), loosens: change.loosens };
+            reasons.push(Reason { subject, effect, cause });
         }
         if reasons.is_empty() {
             let (effect, cause) =
@@ -396,19 +427,8 @@ impl Judge<'_> {
         }
     }
 
-    /// True when `resource` names secrets: the class itself, or an `under` path at or
-    /// below a secret location. `any`, the project and an `under` path above a secret
-    /// only reach secrets on the way to everything else.
     fn names_secrets(&self, resource: &Resource) -> bool {
-        match resource {
-            Resource::Class(class) => *class == PathClass::Secrets,
-            Resource::Under(root) => {
-                expand(root, self.engine.locations.home()).is_some_and(|root| {
-                    self.engine.locations.classify_normal(&root, None) == PathClass::Secrets
-                })
-            }
-            Resource::Any | Resource::Project | Resource::Command(_) => false,
-        }
+        self.engine.names_secrets(resource)
     }
 }
 

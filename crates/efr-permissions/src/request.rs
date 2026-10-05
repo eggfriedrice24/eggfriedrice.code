@@ -48,6 +48,10 @@ pub struct Requirements {
     pub network: bool,
     /// True when the call may wait for input at the terminal, such as a `sudo` prompt.
     pub interactive: bool,
+    /// The change of efr's own settings that the call makes, which only the settings
+    /// tool declares. It asks in every mode and is denied for a remote origin, whatever
+    /// the rules say.
+    pub settings: Option<SettingsChange>,
 }
 
 impl Requirements {
@@ -99,9 +103,39 @@ impl Requirements {
         self
     }
 
+    /// Marks the call as one that changes efr's own settings with `change`.
+    pub fn with_settings_change(mut self, change: SettingsChange) -> Self {
+        self.settings = Some(change);
+        self
+    }
+
     /// True when the call declared nothing.
     pub fn is_empty(&self) -> bool {
-        self.paths.is_empty() && self.command.is_none() && !self.network && !self.interactive
+        self.paths.is_empty()
+            && self.command.is_none()
+            && !self.network
+            && !self.interactive
+            && self.settings.is_none()
+    }
+}
+
+/// A change of efr's own settings (`config.toml`), as the settings tool plans it.
+///
+/// The engine never reads the file; the summary is what the approval shows, and
+/// `loosens` marks a change that lets more run without a question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsChange {
+    /// What changes, in plain words, such as `set model.name = "gpt-5.4"`.
+    pub summary: String,
+    /// True when the change loosens permissions: a new allow rule, a mode toward
+    /// `auto`, `per_call` to `keep`, a removed deny or ask rule, a removed secret path.
+    pub loosens: bool,
+}
+
+impl SettingsChange {
+    /// A change described by `summary`.
+    pub fn new(summary: impl Into<String>, loosens: bool) -> Self {
+        SettingsChange { summary: summary.into(), loosens }
     }
 }
 

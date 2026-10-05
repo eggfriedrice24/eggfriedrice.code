@@ -42,7 +42,8 @@ Modules:
   forms.
 - `request`: `DecisionInput`, `Requirements` (paths with `Access`: `Read`, `ReadTree`
   for a path read with everything below it, or `Write`; a command line and the
-  directory it starts in; network; interactive) and `ConversationPolicy` (the
+  directory it starts in; network; interactive; a `SettingsChange`, which only the
+  daemon's settings tool declares) and `ConversationPolicy` (the
   conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
   crates apart, so the daemon's toolbox copies one into the other.
 - `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,
@@ -105,12 +106,17 @@ those rules, which `efr-config` publishes) and `thiserror`.
 The engine is a pure function: no file system, no git, no clock, no environment. Its
 decisions follow these rules, each covered by a decision table in
 `src/engine/tests.rs`, `src/engine/tests/commands.rs`, `src/engine/tests/modes.rs` or
-`src/engine/tests/protection.rs` and, where marked, a proptest property:
+`src/engine/tests/protection.rs`, `src/engine/tests/settings.rs` and, where marked, a
+proptest property:
 
 - The floors hold in every mode: an interactive call and a privileged program ask, a
   remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
+- A change of efr's settings (the settings tool) asks in every mode, also in `auto`
+  and also when every rule allows everything; no rule is read for it. A turn from a
+  remote origin is denied it. `Engine::names_secrets` says whether a rule's resource
+  names secrets, the rules the settings tool refuses to write.
 - A write-sealed root (efr's config) is denied for writing whatever any rule says,
   the user's and the conversation's included; a write of a directory above it, or
   above a secret no rule opens, asks even when a rule allows it.

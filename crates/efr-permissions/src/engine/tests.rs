@@ -3,6 +3,7 @@
 mod commands;
 mod modes;
 mod protection;
+mod settings;
 
 use std::path::PathBuf;
 

@@ -60,7 +60,7 @@ impl Decision {
     }
 
     /// One reason per requirement, in the order the requirements were declared, then
-    /// the reason for an interactive call.
+    /// the reasons for an interactive call and for a change of efr's settings.
     pub fn reasons(&self) -> &[Reason] {
         &self.reasons
     }
@@ -104,6 +104,13 @@ pub enum Subject {
     Network,
     /// The call may wait for input at the terminal.
     Interactive,
+    /// The call changes efr's own settings.
+    Settings {
+        /// What changes, in plain words.
+        summary: String,
+        /// True when the change loosens permissions.
+        loosens: bool,
+    },
     /// The call declared no requirement.
     Nothing,
 }
@@ -172,6 +179,15 @@ pub enum Cause {
     },
     /// The call may wait for input at the terminal, so the user must be there.
     Interactive,
+    /// The call changes efr's own settings, which only the user approves, in every
+    /// mode and whatever the rules say.
+    SettingsChange,
+    /// The call changes efr's own settings, and the turn comes from a remote origin,
+    /// which may read the settings but never change them.
+    RemoteSettings {
+        /// The origin.
+        origin: Origin,
+    },
     /// The call declared nothing that needs a decision.
     NoRequirements,
 }
@@ -240,6 +256,14 @@ impl fmt::Display for Reason {
                 )
             }
             Cause::Interactive => f.write_str(", because the user must answer at the terminal"),
+            Cause::SettingsChange => {
+                f.write_str(", because only the user approves a change of efr's settings")
+            }
+            Cause::RemoteSettings { origin } => write!(
+                f,
+                ", because a turn from {} may read efr's settings but not change them",
+                origin_name(*origin)
+            ),
             Cause::NoRequirements => Ok(()),
         }
     }
@@ -255,6 +279,12 @@ impl fmt::Display for Subject {
             Subject::Command { line } => write!(f, "run {line:?}"),
             Subject::Network => f.write_str("network access"),
             Subject::Interactive => f.write_str("input at the terminal"),
+            Subject::Settings { summary, loosens: false } => {
+                write!(f, "change settings: {summary}")
+            }
+            Subject::Settings { summary, loosens: true } => {
+                write!(f, "change settings: {summary} (loosens permissions)")
+            }
             Subject::Nothing => f.write_str("no requirements"),
         }
     }

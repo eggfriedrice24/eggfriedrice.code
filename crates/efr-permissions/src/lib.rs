@@ -45,4 +45,6 @@ pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
 pub use path_class::{Locations, PathClass};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
-pub use request::{Access, ConversationPolicy, DecisionInput, PathAccess, Requirements};
+pub use request::{
+    Access, ConversationPolicy, DecisionInput, PathAccess, Requirements, SettingsChange,
+};
