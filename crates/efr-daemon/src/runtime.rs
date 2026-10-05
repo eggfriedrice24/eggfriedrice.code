@@ -12,11 +12,11 @@ use tokio::runtime::{Builder, Runtime};
 
 /// The most worker threads the daemon's runtime starts. Four keep a slow handler from
 /// stalling the others while costing a few threads on any machine.
-pub const MAX_WORKER_THREADS: usize = 4;
+pub(crate) const MAX_WORKER_THREADS: usize = 4;
 
 /// How many workers the runtime starts on a machine with `cores` cores: one per core,
 /// at most [`MAX_WORKER_THREADS`].
-pub fn worker_threads(cores: NonZeroUsize) -> usize {
+pub(crate) fn worker_threads(cores: NonZeroUsize) -> usize {
     cores.get().min(MAX_WORKER_THREADS)
 }
 

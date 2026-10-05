@@ -65,6 +65,6 @@ pub use efr_shell::ScreenFactory;
 pub use error::DaemonError;
 pub use providers::{API, ProviderFactory, SUBSCRIPTION};
 pub use run::{Daemon, Deps, run, start};
-pub use runtime::{MAX_WORKER_THREADS, build_runtime, worker_threads};
+pub use runtime::build_runtime;
 pub use signals::shutdown_on_signals;
 pub use telemetry::{LogFilter, LogTarget, init as init_telemetry};
