@@ -375,7 +375,7 @@ impl ShellSessions {
             session: inbox.clone(),
             screen: screen.clone(),
         };
-        let terminal = Terminal::new(Arc::clone(&master), Arc::clone(&deps.modes));
+        let terminal = Terminal::new(Arc::clone(&master), Arc::clone(&deps.modes), pid);
         let tasks = vec![
             tokio::spawn(writer::write_loop(Arc::clone(&master), writes)),
             tokio::spawn(reader::read_loop(master, targets)),

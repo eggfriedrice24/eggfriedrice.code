@@ -549,10 +549,10 @@ impl SessionActor {
                     let _ = reply.send(self.core.state().clone());
                 }
                 Msg::Probe { id, reply } => {
-                    let probe = self
-                        .core
-                        .probe(id)
-                        .map(|probe| Probe { modes: self.terminal.modes().ok(), ..probe });
+                    let probe = self.core.probe(id).map(|probe| Probe {
+                        modes: self.terminal.job_modes().ok().flatten(),
+                        ..probe
+                    });
                     let _ = reply.send(probe);
                 }
                 Msg::Answer { call, text, hidden, reply } => {
@@ -574,11 +574,11 @@ impl SessionActor {
     }
 }
 
-/// Types an answer for `call` when its command runs and the terminal reads a line in
-/// the right modes. The modes are read right before the one write, with no await
-/// between them, so the terminal cannot change hands in between as far as this task
-/// can tell: a getpass-style read that ended, or the shell's line editor back at its
-/// prompt, is seen and refused.
+/// Types an answer for `call` when its command runs, a job of it holds the terminal,
+/// and the terminal reads a line in the right modes. The group and the modes are read
+/// right before the one write, with no await between them, so the terminal cannot
+/// change hands in between as far as this task can tell: a getpass-style read that
+/// ended, or the shell back in its hooks or at its prompt, is seen and refused.
 fn answer(
     core: &mut SessionCore,
     terminal: &Terminal,
@@ -588,7 +588,14 @@ fn answer(
 ) -> Result<(), ShellError> {
     core.answerable(call)?;
     let conversation = core.conversation;
-    let modes = terminal.modes().map_err(|source| ShellError::Terminal { conversation, source })?;
+    let modes =
+        terminal.job_modes().map_err(|source| ShellError::Terminal { conversation, source })?;
+    // NOTE: the shell holds the terminal again as soon as the command's job ended, and
+    // `D` may still be on its way here: an answer then would wait for the line editor.
+    let modes = modes.ok_or(ShellError::NotWaiting {
+        conversation,
+        reason: "the shell itself holds the terminal",
+    })?;
     input::check_modes(modes, hidden)
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
     // NOTE: this write bypasses the writer task, so bytes still queued there (a reply to

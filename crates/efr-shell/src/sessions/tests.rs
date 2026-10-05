@@ -907,3 +907,33 @@ async fn answers_reach_only_the_running_command_of_their_call() {
     terminal.print(b"\r\n\x1b]133;D;0\x07").await;
     run.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn nothing_is_asked_or_typed_while_the_shell_itself_holds_the_terminal() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) = waiting(&harness, "sudo true", true, b"pw: ").await;
+    harness.modes.set(Some(HIDDEN));
+    // The job ended and zsh took the terminal back for its precmd hooks, which run in
+    // cooked mode; the command's `D` has not arrived yet.
+    let shell = harness.sessions.state(conversation(1)).await.unwrap().pid;
+    harness.modes.set_foreground(shell);
+    for _ in 0..3 {
+        one_look(&harness).await;
+    }
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    for hidden in [true, false] {
+        let refused =
+            harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), hidden).await;
+        assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    }
+
+    // Back with the job: the same answer goes through, and it is the first one typed.
+    harness.modes.set_foreground(crate::testing::JOB);
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("ok"), true).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"ok\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}

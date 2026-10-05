@@ -459,7 +459,7 @@ async fn e2e_a_hidden_answer_while_echo_is_on_is_refused_and_writes_nothing() {
     else {
         return;
     };
-    let command = r#"printf 'name? '; IFS= read -r line; printf 'got=%s\n' "$line""#;
+    let command = r#"sh -c 'printf "name? "; IFS= read -r line; printf "got=%s\n" "$line"'"#;
     let (run, _heard) = zsh.run_waiting(command, true, "name? ").await;
     let secret = SecretText::new("secret");
     let refused = zsh.sessions.answer(zsh.conversation, call(), &secret, true).await;
@@ -478,7 +478,7 @@ async fn e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output()
     else {
         return;
     };
-    let command = r#"printf 'name? '; IFS= read -r n; printf 'hi %s\n' "$n""#;
+    let command = r#"sh -c 'printf "name? "; IFS= read -r n; printf "hi %s\n" "$n"'"#;
     let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
     let looks = zsh.look_until(&mut heard, &[InputWait::Visible]).await;
     assert!(looks >= 3, "visible input waits for three quiet seconds, not {looks}");
@@ -487,6 +487,30 @@ async fn e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output()
     let result = run.await.unwrap().unwrap();
     assert_eq!(result.output, "name? bob\nhi bob\n");
     assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+#[tokio::test]
+async fn e2e_a_read_that_the_shell_runs_itself_is_neither_offered_nor_answered() {
+    let Some(zsh) =
+        Zsh::start("e2e_a_read_that_the_shell_runs_itself_is_neither_offered_nor_answered")
+    else {
+        return;
+    };
+    // zsh's own `read` keeps the terminal in the shell's process group, as its precmd
+    // hooks do after a command: input typed then reaches the shell.
+    let command = r#"printf 'name? '; IFS= read -r n; printf 'hi %s\n' "$n""#;
+    let (run, heard) = zsh.run_waiting(command, true, "name? ").await;
+    for _ in 0..5 {
+        zsh.one_look().await;
+    }
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    let refused =
+        zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("bob"), false).await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"eve\r")).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert!(result.output.ends_with("hi eve\n"), "{:?}", result.output);
 }
 
 #[tokio::test]

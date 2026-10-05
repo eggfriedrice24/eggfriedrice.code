@@ -431,13 +431,18 @@ impl ShellObserver for Notices {
 #[derive(Debug)]
 pub(crate) struct FakeModes {
     modes: Mutex<Option<InputModes>>,
+    foreground: Mutex<u32>,
     reads: AtomicUsize,
 }
+
+/// The process group of a command's job in [`FakeModes`], never a fake shell's pid.
+pub(crate) const JOB: u32 = 4242;
 
 impl Default for FakeModes {
     fn default() -> Self {
         FakeModes {
             modes: Mutex::new(Some(InputModes::new(true, true))),
+            foreground: Mutex::new(JOB),
             reads: AtomicUsize::new(0),
         }
     }
@@ -447,6 +452,11 @@ impl FakeModes {
     /// Sets the modes; `None` makes every read fail, as on a socket.
     pub(crate) fn set(&self, modes: Option<InputModes>) {
         *self.modes.lock().unwrap() = modes;
+    }
+
+    /// Puts process group `group` in the foreground; [`JOB`] until then.
+    pub(crate) fn set_foreground(&self, group: u32) {
+        *self.foreground.lock().unwrap() = group;
     }
 
     /// How many times the modes were read.
@@ -459,6 +469,10 @@ impl TerminalModes for FakeModes {
     fn read(&self, _master: BorrowedFd<'_>) -> std::io::Result<InputModes> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         self.modes.lock().unwrap().ok_or_else(|| std::io::Error::from_raw_os_error(25))
+    }
+
+    fn foreground(&self, _master: BorrowedFd<'_>) -> std::io::Result<u32> {
+        Ok(*self.foreground.lock().unwrap())
     }
 }
 

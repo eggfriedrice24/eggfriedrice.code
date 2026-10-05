@@ -39,10 +39,15 @@ pub(crate) fn check_answer(text: &str) -> Result<(), ShellError> {
     Ok(())
 }
 
-/// Refuses to type an answer into a terminal in `modes`. Both kinds need canonical
-/// input: a program that reads a line has it, and the shell's own line editor does
-/// not, so an answer that comes just after the command ended can never run as a
-/// command line. A hidden answer also needs echo off, so it never reaches the output.
+/// Refuses to type an answer into a terminal in `modes`, the modes of the job in its
+/// foreground. Both kinds need canonical input: a program that reads a line has it,
+/// and a full-screen program does not. A hidden answer also needs echo off, so it
+/// never reaches the output.
+///
+/// NOTE: the modes alone cannot keep an answer from the shell: zsh runs its precmd
+/// hooks in cooked mode, before its line editor goes raw. The caller refuses while the
+/// shell itself holds the terminal, and the integration's line editor runs no line
+/// that efr did not type.
 pub(crate) fn check_modes(modes: InputModes, hidden: bool) -> Result<(), &'static str> {
     if !modes.canonical {
         return Err("the terminal is not reading a line");

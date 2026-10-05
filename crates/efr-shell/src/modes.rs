@@ -1,10 +1,13 @@
-//! The input modes of a hidden shell's terminal, read from the PTY master, and the one
-//! write that types an answer for a command that waits for input.
+//! The input modes of a hidden shell's terminal and who holds it, read from the PTY
+//! master, and the one write that types an answer for a command that waits for input.
 //!
 //! On Linux `tcgetattr` on a PTY master returns the termios of its slave, which is what
 //! the program in the foreground set: a getpass-style read (`sudo`, `ssh`, `su`,
 //! `passwd`) turns echo off and keeps canonical line input, and the line editor of the
-//! shell itself turns both off.
+//! shell itself turns both off. `tcgetpgrp` on the master returns the slave's
+//! foreground process group: a command's job while it runs, and the shell's own group
+//! once the job has ended, which zsh takes back before it runs its precmd hooks. The
+//! terminal is cooked again there, so only the group tells that window apart.
 
 use std::fmt;
 use std::io;
@@ -38,13 +41,16 @@ impl InputModes {
     }
 }
 
-/// Reads the input modes of a PTY from its master.
+/// Reads the input modes of a PTY and its foreground process group from its master.
 ///
 /// [`Termios`] is the real one. The shell manager calls it from a synchronous step that
 /// also writes, so it must not block.
 pub trait TerminalModes: Send + Sync + fmt::Debug {
     /// The modes of the terminal whose master is `master`.
     fn read(&self, master: BorrowedFd<'_>) -> io::Result<InputModes>;
+
+    /// The process group in the foreground of the terminal whose master is `master`.
+    fn foreground(&self, master: BorrowedFd<'_>) -> io::Result<u32>;
 }
 
 /// [`TerminalModes`] through `tcgetattr` on the master.
@@ -59,6 +65,12 @@ impl TerminalModes for Termios {
             canonical: termios.local_modes.contains(LocalModes::ICANON),
         })
     }
+
+    fn foreground(&self, master: BorrowedFd<'_>) -> io::Result<u32> {
+        let group = rustix::termios::tcgetpgrp(master)?;
+        u32::try_from(group.as_raw_nonzero().get())
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+    }
 }
 
 /// The master of one shell with the reader of its modes: what the session's actor
@@ -67,16 +79,25 @@ impl TerminalModes for Termios {
 pub(crate) struct Terminal {
     master: Master,
     modes: Arc<dyn TerminalModes>,
+    /// The shell's process group, which is its pid: the PTY holder starts it with
+    /// `setsid`.
+    shell: u32,
 }
 
 impl Terminal {
-    pub(crate) fn new(master: Master, modes: Arc<dyn TerminalModes>) -> Self {
-        Terminal { master, modes }
+    pub(crate) fn new(master: Master, modes: Arc<dyn TerminalModes>, shell: u32) -> Self {
+        Terminal { master, modes, shell }
     }
 
-    /// The terminal's input modes now.
-    pub(crate) fn modes(&self) -> io::Result<InputModes> {
-        self.modes.read(self.master.get_ref().as_fd())
+    /// The input modes of the job in the terminal's foreground now; `None` while the
+    /// shell itself holds the terminal, at its prompt, in its hooks, or running a
+    /// builtin or a function. Input typed then would reach the shell, not a command.
+    pub(crate) fn job_modes(&self) -> io::Result<Option<InputModes>> {
+        let master = self.master.get_ref().as_fd();
+        if self.modes.foreground(master)? == self.shell {
+            return Ok(None);
+        }
+        self.modes.read(master).map(Some)
     }
 
     /// Writes `text` and a carriage return in one system call, as Enter would end the

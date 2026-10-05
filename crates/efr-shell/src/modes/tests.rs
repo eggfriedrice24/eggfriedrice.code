@@ -59,3 +59,9 @@ fn only_echo_off_with_line_input_is_hidden() {
     assert!(!InputModes::new(false, false).hidden());
     assert!(!InputModes::new(true, false).hidden());
 }
+
+#[test]
+fn a_pty_without_a_session_has_no_foreground_group() {
+    let (master, _slave) = pty();
+    assert!(Termios.foreground(master.as_fd()).is_err());
+}

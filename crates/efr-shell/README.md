@@ -69,8 +69,12 @@ and `D`, or the two sentinels):
   while it waits reports `None` last.
 - The modes come from `tcgetattr` on the master (Linux returns the slave's termios
   there) through `ShellDeps::modes`, a `TerminalModes` (`Termios` by default; a test
-  injects a fake, because its PTY is a socketpair). Modes that cannot be read never
-  count as waiting.
+  injects a fake, because its PTY is a socketpair). The same trait reads the
+  terminal's foreground process group (`tcgetpgrp` on the master). Only a job's modes
+  count: while the shell's own group holds the terminal (its prompt, its hooks, or a
+  builtin such as `read` or a function that it runs itself), nothing waits, because
+  input typed then reaches the shell. Modes that cannot be read never count as
+  waiting.
 - While the command waits for hidden input, the run asks
   `RunProgress::can_answer_hidden` at the change and at every look. `false` (the daemon
   says it when no client that can type answers follows the conversation) detaches the
@@ -83,11 +87,13 @@ and `D`, or the two sentinels):
   without control characters (U+0000 to U+001F, U+007F), else `InvalidAnswer`; the
   session's actor checks that this call's command runs now (`NoCall` when nothing runs,
   `NotWaiting` for another call, a run left at its timeout, or a command not yet
-  started), reads the modes and refuses unless canonical input is on and, for a hidden
-  answer, echo is off (`NotWaiting`), then writes the text and `\r` in one `writev` on
-  the master. Nothing awaits between the check and the write. Canonical input is what
-  the shell's own line editor never has, so an answer that arrives just after the
-  command ended is refused instead of typed at the prompt. An answer counts as activity:
+  started), reads the foreground group and the modes and refuses while the shell's own
+  group holds the terminal, unless canonical input is on and, for a hidden answer,
+  unless echo is off (`NotWaiting`), then writes the text and `\r` in one `writev` on
+  the master. Nothing awaits between the check and the write. The group check matters
+  because zsh takes the terminal back when the job ends and runs its precmd hooks in
+  cooked mode, before `D` reaches the session: canonical input alone would let an
+  answer through there, to be read by the line editor. An answer counts as activity:
   the next look reports `None`, so a prompt that is asked again (`Sorry, try again.`)
   is a new change. The text is a `SecretText` throughout: no error, `Debug` output or
   log carries it, and a hidden answer never reaches the output or the recording.
