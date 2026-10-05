@@ -74,6 +74,37 @@ fn removing_a_project_keeps_the_comments_of_the_others() {
 }
 
 #[test]
+fn removing_the_first_project_keeps_the_comment_at_the_top_of_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = file(dir.path(), COMMENTED);
+
+    let mut edit = RegistryEdit::open(&path).unwrap();
+    edit.remove_root(Path::new("/home/u/p/efr")).unwrap().unwrap();
+    edit.save().unwrap();
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("# My projects.\n\n# Infrastructure.\n[[project]]\n"), "{text}");
+    assert!(!text.contains("harness"), "the comment right above the table went with it");
+    assert_eq!(roots(&path), [PathBuf::from("/etc/nixos")]);
+}
+
+#[test]
+fn removing_the_only_project_keeps_the_comment_at_the_top_of_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "# Mine.\n\n# The app.\n[[project]]\nid = \"0192f0c1-7a00-7000-8000-000000000001\"\nroot = \"/a\"\n# end\n";
+    let path = file(dir.path(), text);
+
+    let mut edit = RegistryEdit::open(&path).unwrap();
+    edit.remove_root(Path::new("/a")).unwrap().unwrap();
+    edit.save().unwrap();
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("# Mine.\n\n"), "{text}");
+    assert!(!text.contains("The app"), "{text}");
+    assert!(Registry::load(&path).unwrap().is_empty());
+}
+
+#[test]
 fn removing_a_root_that_is_not_registered_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let path = file(dir.path(), COMMENTED);
@@ -163,8 +194,7 @@ fn a_root_or_an_id_that_is_registered_already_is_refused() {
 #[test]
 fn a_file_with_an_error_is_never_changed() {
     let dir = tempfile::tempdir().unwrap();
-    let text =
-        "[[project]]\nid = \"0192f0c1-7a00-7000-8000-000000000001\"\nroot = \"/a\"\nnmae = \"a\"\n";
+    let text = "[[project]]\nid = \"0192f0c1-7a00-7000-8000-000000000001\"\nroot = \"/a\"\ntitle = \"a\"\n";
     let path = file(dir.path(), text);
     let error = RegistryEdit::open(&path).unwrap_err();
     assert!(matches!(error, ScopeError::ParseRegistry { .. }), "{error:?}");

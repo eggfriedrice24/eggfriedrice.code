@@ -157,7 +157,9 @@ impl RegistryEdit {
 
     /// Removes the project whose root is `root`, compared in lexical normal form, from
     /// the registry and from the file, and returns it; `None` when no project has that
-    /// root. The comments inside the removed table go with it.
+    /// root. The comments inside the removed table, and those right above it, go with
+    /// it; comments above it that a blank line separates from it stay, such as the
+    /// comment at the top of the file.
     pub fn remove_root(&mut self, root: &Path) -> Result<Option<Project>, ScopeError> {
         let Some(root) = normalize(root) else {
             return Err(ScopeError::NotAbsolute { path: root.to_path_buf() });
@@ -171,13 +173,36 @@ impl RegistryEdit {
         let is_it = |entry_id: Option<&str>| {
             entry_id.and_then(|text| text.parse::<ProjectId>().ok()) == Some(id)
         };
+        let mut orphaned = String::new();
         match self.document.get_mut(PROJECTS) {
             Some(Item::ArrayOfTables(projects)) => {
                 let index = projects
                     .iter()
                     .position(|table| is_it(table.get("id").and_then(Item::as_str)))
                     .ok_or_else(shape)?;
+                let prefix = projects
+                    .get(index)
+                    .and_then(|table| table.decor().prefix())
+                    .and_then(|raw| raw.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
                 projects.remove(index);
+                let kept = kept_comments(&prefix);
+                if !kept.trim().is_empty() {
+                    match projects.get_mut(index) {
+                        Some(next) => {
+                            let own = next
+                                .decor()
+                                .prefix()
+                                .and_then(|raw| raw.as_str())
+                                .unwrap_or_default()
+                                .trim_start_matches('\n')
+                                .to_owned();
+                            next.decor_mut().set_prefix(format!("{kept}{own}"));
+                        }
+                        None => orphaned = kept,
+                    }
+                }
             }
             Some(Item::Value(Value::Array(projects))) => {
                 let index = projects
@@ -194,6 +219,10 @@ impl RegistryEdit {
                 projects.remove(index);
             }
             _ => return Err(shape()),
+        }
+        if !orphaned.is_empty() {
+            let after = self.document.trailing().as_str().unwrap_or_default().to_owned();
+            self.document.set_trailing(format!("{orphaned}{after}"));
         }
         Ok(self.registry.remove(&id))
     }
@@ -228,6 +257,17 @@ impl RegistryEdit {
         }
         efr_stdx::fs::write_atomic(&self.target, text.as_bytes())
             .map_err(|source| ScopeError::WriteRegistry { path: self.target.clone(), source })
+    }
+}
+
+/// The part of the comments and blank lines before a table that stays when the table
+/// goes: everything up to its last blank line. The lines after that blank line sit
+/// right above the table and belong to it.
+fn kept_comments(prefix: &str) -> String {
+    let lines: Vec<&str> = prefix.split_inclusive('\n').collect();
+    match lines.iter().rposition(|line| line.trim().is_empty()) {
+        Some(last_blank) => lines[..=last_blank].concat(),
+        None => String::new(),
     }
 }
 
