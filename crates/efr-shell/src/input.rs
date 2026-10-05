@@ -5,10 +5,13 @@
 //!
 //! - [`InputWait::Hidden`]: the terminal has echo off and canonical input on, as a
 //!   getpass-style read leaves it, and the output has been quiet for `quiet_period`.
-//! - [`InputWait::Visible`]: echo and canonical input are on, the output has been quiet
-//!   for `visible_input_quiet`, and the main screen has the cursor after some text, as
-//!   after `[Y/n] `. Only then is the screen read. A command whose last line is merely
-//!   unfinished looks the same, so this is a guess, and it never stops a command.
+//! - [`InputWait::Visible`]: the terminal is in any other modes, raw or cooked, echo on
+//!   or off, the output has been quiet for `visible_input_quiet`, and the main screen
+//!   has the cursor after some text, as after `[Y/n] `. Only then is the screen read. A
+//!   command whose last line is merely unfinished looks the same, so this is a guess,
+//!   and it never stops a command. The modes cannot narrow it: a relay such as `sudo`
+//!   (with `use_pty`, its default) or `script` puts the terminal in raw mode and runs
+//!   the program on a terminal of its own, whose modes are not read here.
 //! - [`InputWait::None`] otherwise, and when the modes cannot be read. A full-screen
 //!   program on the alternate screen is judged only at the run's timeout, as before.
 //!
@@ -46,21 +49,25 @@ pub(crate) fn check_answer(text: &str) -> Result<(), ShellError> {
 }
 
 /// Refuses to type an answer into a terminal in `modes`, the modes of the job in its
-/// foreground. Both kinds need canonical input: a program that reads a line has it,
-/// and a full-screen program does not. A hidden answer also needs echo off, so it
-/// never reaches the output.
+/// foreground. A hidden answer needs a getpass-style read, a line with echo off, so it
+/// never reaches the output. A visible answer takes any modes: behind a relay such as
+/// `sudo`'s own terminal they are the relay's raw ones, and the program on the inner
+/// terminal decides what the text does there.
 ///
-/// NOTE: the modes alone cannot keep an answer from the shell: zsh runs its precmd
-/// hooks in cooked mode, before its line editor goes raw, and an external command that
-/// a later hook starts is cooked too. The caller also refuses while the shell's own
-/// process group holds the terminal, and while any job other than the one whose wait
-/// was reported does ([`check_job`]); the integration drains unread input before `D`.
-/// The session's `answer` names what is left.
+/// NOTE: the modes cannot keep an answer from the shell: zsh runs its precmd hooks in
+/// cooked mode and its line editor in raw mode, and an external command that a later
+/// hook starts is cooked too. The caller refuses while the shell's own process group
+/// holds the terminal, and while any job other than the one whose wait was reported
+/// does ([`check_job`]); the integration drains unread input before `D`. The session's
+/// `answer` names what is left.
 pub(crate) fn check_modes(modes: InputModes, hidden: bool) -> Result<(), &'static str> {
+    if !hidden {
+        return Ok(());
+    }
     if !modes.canonical {
         return Err("the terminal is not reading a line");
     }
-    if hidden && modes.echo {
+    if modes.echo {
         return Err("the terminal echoes what is typed");
     }
     Ok(())
@@ -112,7 +119,7 @@ pub(crate) enum Look {
 }
 
 /// Judges a probe at `now`. The screen is read only when the output is quiet and the
-/// modes allow a visible prompt.
+/// modes are not a getpass-style read's.
 pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet) -> Look {
     let Some(Job { modes, .. }) = probe.job.filter(|_| probe.running) else {
         return Look::Settled(InputWait::None);
@@ -131,7 +138,7 @@ pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet) -> Look {
             InputWait::None
         });
     }
-    if modes.echo && modes.canonical && quiet_for(quiet.visible) {
+    if quiet_for(quiet.visible) {
         return Look::ReadScreen;
     }
     Look::Settled(InputWait::None)

@@ -34,6 +34,7 @@ fn probe(modes: InputModes) -> Probe {
 const HIDDEN: InputModes = InputModes { echo: false, canonical: true };
 const COOKED: InputModes = InputModes { echo: true, canonical: true };
 const RAW: InputModes = InputModes { echo: false, canonical: false };
+const ECHOING_RAW: InputModes = InputModes { echo: true, canonical: false };
 
 #[test]
 fn echo_off_with_line_input_is_hidden_once_the_output_is_quiet() {
@@ -48,10 +49,13 @@ fn a_cooked_terminal_reads_the_screen_only_after_the_visible_quiet() {
 }
 
 #[test]
-fn a_raw_terminal_never_waits() {
-    assert_eq!(look(&probe(RAW), at(60_000), QUIET), Look::Settled(InputWait::None));
-    let echoing_raw = InputModes { echo: true, canonical: false };
-    assert_eq!(look(&probe(echoing_raw), at(60_000), QUIET), Look::Settled(InputWait::None));
+fn a_raw_terminal_reads_the_screen_after_the_visible_quiet_too() {
+    // A relay such as sudo's own terminal leaves the hidden shell's terminal raw while
+    // the program behind it asks a question.
+    for modes in [RAW, ECHOING_RAW] {
+        assert_eq!(look(&probe(modes), at(2999), QUIET), Look::Settled(InputWait::None));
+        assert_eq!(look(&probe(modes), at(3000), QUIET), Look::ReadScreen);
+    }
 }
 
 #[test]
@@ -159,11 +163,12 @@ fn an_answer_is_one_short_line() {
 }
 
 #[test]
-fn an_answer_needs_line_input_and_a_hidden_one_needs_echo_off() {
+fn a_hidden_answer_needs_a_getpass_read_and_a_visible_one_takes_any_modes() {
     check_modes(HIDDEN, true).unwrap();
-    check_modes(HIDDEN, false).unwrap();
-    check_modes(COOKED, false).unwrap();
     assert!(check_modes(COOKED, true).is_err());
     assert!(check_modes(RAW, true).is_err());
-    assert!(check_modes(RAW, false).is_err());
+    assert!(check_modes(ECHOING_RAW, true).is_err());
+    for modes in [HIDDEN, COOKED, RAW, ECHOING_RAW] {
+        check_modes(modes, false).unwrap();
+    }
 }
