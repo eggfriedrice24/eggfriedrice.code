@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -265,6 +266,44 @@ async fn e2e_the_integration_loads_when_the_users_zshenv_sets_no_unset() {
     let result = zsh.run("echo marked").await;
     assert_eq!(result.delimiter, Delimiter::Marks);
     assert_eq!(result.output, "marked\n");
+}
+
+/// compinit asks before it loads completions from a directory that other users can
+/// write to, and waits for a key that nobody types. Ubuntu's /etc/zsh/zshrc calls it in
+/// every interactive shell, and GitHub's Ubuntu runner makes /usr/share writable by
+/// everyone. The .zshrc here calls it twice, as Ubuntu's file and then the user's own
+/// call would.
+#[tokio::test]
+async fn e2e_compinit_never_waits_for_an_answer_about_an_insecure_directory() {
+    let test = "e2e_compinit_never_waits_for_an_answer_about_an_insecure_directory";
+    let Some(zsh) = Zsh::start(test) else {
+        return;
+    };
+    let open = zsh.dir("open");
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let zshrc =
+        format!("fpath=('{}' $fpath)\nautoload -Uz compinit\ncompinit\ncompinit\n", open.display());
+    std::fs::write(zsh.home().join(".zshrc"), zshrc).unwrap();
+    let info = zsh.sessions.open(zsh.conversation, zsh.start_dir()).await.unwrap();
+
+    // Without a run, nothing waits for the first prompt, so a question shows up here
+    // instead of as a run that never ends.
+    let start = std::time::Instant::now();
+    let shown = loop {
+        let shown = String::from_utf8_lossy(&zsh.recorded.stream(info.pty_id)).into_owned();
+        if shown.contains("\x1b]133;A") || shown.contains("insecure") {
+            break shown;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "no prompt came: {shown:?}");
+        tokio::task::yield_now().await;
+    };
+    assert!(!shown.contains("insecure"), "compinit asked: {shown:?}");
+
+    // The completion system is loaded, without the directory, as after the answer y.
+    let check = format!("print -r -- ${{+functions[compdef]}} ${{fpath[(Ie){}]}}", open.display());
+    let result = zsh.run(&check).await;
+    assert_eq!(result.delimiter, Delimiter::Marks);
+    assert_eq!(result.output, "1 0\n");
 }
 
 /// The zsh plugin of the user's terminals, which a real .zshrc sources.
