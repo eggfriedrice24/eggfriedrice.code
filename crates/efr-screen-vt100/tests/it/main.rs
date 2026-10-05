@@ -1,4 +1,8 @@
 //! The integration tests of this screen backend: one test binary (CONVENTIONS.md,
 //! tests).
 
+// NOTE: an integration test crate is always built with cfg(test); saying so lets
+// clippy treat its helpers as test code, as it does for unit tests.
+#![cfg(test)]
+
 mod conformance;
