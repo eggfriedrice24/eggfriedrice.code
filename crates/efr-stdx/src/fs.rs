@@ -4,6 +4,8 @@
 //!   and the new content survives a crash once the call returns.
 //! - [`create_private`]: a new file that only its owner can read (mode 0600).
 //! - [`claim_dir`]: a directory that exactly one of many callers creates.
+//! - [`LinkedFile`]: a file read for a change and written back, through a symbolic link,
+//!   only when nobody changed it meanwhile.
 //!
 //! These functions block. Async code calls them inside `spawn_blocking`.
 
@@ -15,6 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::StdxError;
+
+mod linked_file;
+
+pub use linked_file::LinkedFile;
 
 const PRIVATE_FILE_MODE: u32 = 0o600;
 const PRIVATE_DIR_MODE: u32 = 0o700;

@@ -48,13 +48,15 @@ Modules:
 - `example`: `EXAMPLE`, `examples/config.toml`: every key with a comment and its default
   or an example value commented out.
 - `writer`: `ConfigFile` and `Edit`, the format-preserving writer of `efr config set`
-  and the settings tool. Comments and layout stay (`toml_edit`). A symbolic link is
-  followed and the file behind it is written: a temporary file in the target's
-  directory, flushed, renamed (`efr_stdx::fs::write_atomic`, so the new file has mode
-  0600); the link stays. A missing file is created from the example, with its
-  directory; a link to nothing is refused. A hash of the file read before the change is
-  compared right before the write, so a change made meanwhile is never lost: the write
-  fails with `ConfigError::Changed` and the caller plans the change again. The new
+  and the settings tool. Comments and layout stay (`toml_edit`). The file is read and
+  written through `efr_stdx::fs::LinkedFile`, which the project registry shares: a
+  symbolic link is followed and the file behind it is written: a temporary file in the
+  target's directory, flushed, renamed (`efr_stdx::fs::write_atomic`, so the new file
+  has mode 0600); the link stays. A missing file is created from the example, with its
+  directory; a link to nothing is refused. The file as read before the change is
+  compared with the file right before the write, so a change made meanwhile is never
+  lost: the write fails with `ConfigError::Changed` and the caller plans the change
+  again. The new
   text is checked like a load before anything is written. `Edit::add_rule` appends a
   rule after the rules of the file (`[[permissions.rules]]` right below
   `[permissions]`, or the inline array the file already uses) and
@@ -81,8 +83,7 @@ the allowlist. `efr-tools` must never depend on this crate: it reaches
 `efr-permissions`, and `efr-tools -> efr-permissions` is forbidden through any chain.
 
 Third-party crates: `serde`, `toml` and `toml_edit` (reading and the writer),
-`schemars` and `serde_json` (the JSON schema), `sha2` (the writer's content hash) and
-`thiserror`.
+`schemars` and `serde_json` (the JSON schema) and `thiserror`.
 
 ## Invariant
 

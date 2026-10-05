@@ -25,8 +25,9 @@ Modules:
   `RegistryEdit` (`registry/edit.rs`) changes the file for `efr project add` and
   `remove`, which the daemon runs: it reads and checks the whole file first and never
   changes one with an error, edits the TOML document in place so every comment and the
-  layout stay, writes the file behind a symbolic link (a link to nothing is refused),
-  and writes nothing when the file changed since it was read. A new file starts with a
+  layout stay, and goes through `efr_stdx::fs::LinkedFile`, as `config.toml` does: it
+  writes the file behind a symbolic link (a link to nothing is refused), and writes
+  nothing when the file changed since it was read. A new file starts with a
   comment that says what it is.
 - `git`: `Git::discover`, guarded discovery. git runs in the working directory through
   `efr_stdx::process::command` with `GIT_CEILING_DIRECTORIES=$HOME:/`, without

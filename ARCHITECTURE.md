@@ -27,7 +27,7 @@ shipped binary.
 
 | Crate | Kind | Tier | Owns | Allowed workspace dependencies |
 |---|---|---|---|---|
-| `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, named threads, UUIDv7 | none |
+| `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |

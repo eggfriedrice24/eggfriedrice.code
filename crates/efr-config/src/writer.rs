@@ -1,11 +1,12 @@
 //! The format-preserving writer: `efr config set` and the settings tool change the file
 //! through it.
 //!
-//! [`ConfigFile::open`] reads the file and a hash of its bytes. [`ConfigFile::edit`]
-//! returns an [`Edit`] of the parsed document, which keeps comments and layout
-//! (`toml_edit`). [`ConfigFile::write`] checks the whole new file like a load would,
-//! compares the hash again right before it writes, and writes atomically: a temporary
-//! file in the same directory, flushed, then renamed over the file. When `config.toml`
+//! [`ConfigFile::open`] reads the file ([`LinkedFile`], shared with the project
+//! registry). [`ConfigFile::edit`] returns an [`Edit`] of the parsed document, which
+//! keeps comments and layout (`toml_edit`). [`ConfigFile::write`] checks the whole new
+//! file like a load would, compares the file with what was read right before it writes,
+//! and writes atomically: a temporary file in the same directory, flushed, then renamed
+//! over the file. When `config.toml`
 //! is a symbolic link (into a dotfiles repository, say), the file behind it is written
 //! and the link stays. A missing file is created, with its directory, from
 //! [`EXAMPLE`]; a link to nothing is refused, because the new file would appear
@@ -13,12 +14,13 @@
 //!
 //! The functions block. Async code calls them in `spawn_blocking`.
 
-use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use efr_stdx::StdxError;
+use efr_stdx::fs::LinkedFile;
 
 use efr_permissions::Rule;
-use sha2::{Digest as _, Sha256};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, TableLike, Value};
 
 use crate::keys::{self, Kind};
@@ -34,59 +36,47 @@ const RULES: &str = "rules";
 /// The config file as the writer read it.
 #[derive(Debug, Clone)]
 pub struct ConfigFile {
-    /// `config.toml` as named, which may be a symbolic link.
-    path: PathBuf,
-    /// The file that is written: the end of the link, or `path` itself.
-    target: PathBuf,
-    /// The contents; `None` when the file does not exist.
-    text: Option<String>,
-    /// The hash of the contents, compared again right before a write.
-    hash: Option<[u8; 32]>,
+    /// `config.toml` as named and read, through a symbolic link.
+    file: LinkedFile,
 }
 
 impl ConfigFile {
     /// Reads the config file at `path`. A missing file is not an error: a write creates
     /// it from the example. A symbolic link to nothing is.
     pub fn open(path: &Path) -> Result<ConfigFile, ConfigError> {
-        let read_error = |source| ConfigError::Read { path: path.to_path_buf(), source };
-        let target = match fs::symlink_metadata(path) {
-            Ok(meta) if meta.file_type().is_symlink() => match fs::canonicalize(path) {
-                Ok(target) => target,
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    let target = fs::read_link(path).map_err(read_error)?;
-                    return Err(ConfigError::DanglingSymlink { path: path.to_path_buf(), target });
-                }
-                Err(source) => return Err(read_error(source)),
-            },
-            Ok(_) => path.to_path_buf(),
-            Err(source) if source.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
-            Err(source) => return Err(read_error(source)),
-        };
-        let text = read(&target)?;
-        let hash = text.as_deref().map(|text| hash(text.as_bytes()));
-        Ok(ConfigFile { path: path.to_path_buf(), target, text, hash })
+        let file = LinkedFile::open(path).map_err(|error| match error {
+            StdxError::DanglingLink { path, target } => {
+                ConfigError::DanglingSymlink { path, target }
+            }
+            StdxError::ReadFile { path, source } => ConfigError::Read { path, source },
+            // NOTE: an open fails only to read; any other error is kept as the source.
+            other => {
+                ConfigError::Read { path: path.to_path_buf(), source: io::Error::other(other) }
+            }
+        })?;
+        Ok(ConfigFile { file })
     }
 
     /// `config.toml` as named.
     pub fn path(&self) -> &Path {
-        &self.path
+        self.file.path()
     }
 
     /// The file a write replaces: the end of the symbolic link, or the file itself.
     pub fn target(&self) -> &Path {
-        &self.target
+        self.file.target()
     }
 
     /// The contents as read; `None` when the file does not exist.
     pub fn text(&self) -> Option<&str> {
-        self.text.as_deref()
+        self.file.text()
     }
 
     /// An edit of the file as read, or of the example when the file does not exist.
     /// The file must be TOML; its values need not be valid yet, so a change can fix
     /// one.
     pub fn edit(&self) -> Result<Edit, ConfigError> {
-        let text = self.text.as_deref().unwrap_or(EXAMPLE);
+        let text = self.text().unwrap_or(EXAMPLE);
         let document = text.parse::<DocumentMut>().map_err(|_| self.syntax_error(text))?;
         Ok(Edit { document })
     }
@@ -96,25 +86,13 @@ impl ConfigFile {
     /// file changed since [`open`](Self::open), so the caller plans the change again.
     pub fn write(&self, edit: &Edit) -> Result<Settings, ConfigError> {
         let text = edit.text();
-        let settings = Settings::parse(&self.path, Some(&text))?;
-        let changed = || ConfigError::Changed { path: self.target.clone() };
-        let now = read(&self.target)?;
-        if now.as_deref().map(|now| hash(now.as_bytes())) != self.hash {
-            return Err(changed());
-        }
-        if self.text.is_none() {
-            // A link or file that appeared since the read is somebody else's change.
-            match fs::symlink_metadata(&self.path) {
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {}
-                _ => return Err(changed()),
-            }
-            if let Some(dir) = self.target.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-                fs::create_dir_all(dir)
-                    .map_err(|source| ConfigError::CreateDir { path: dir.to_path_buf(), source })?;
-            }
-        }
-        efr_stdx::fs::write_atomic(&self.target, text.as_bytes())
-            .map_err(|source| ConfigError::Write { path: self.target.clone(), source })?;
+        let settings = Settings::parse(self.path(), Some(&text))?;
+        self.file.write_if_unchanged(text.as_bytes()).map_err(|error| match error {
+            StdxError::FileChanged { path } => ConfigError::Changed { path },
+            StdxError::CreateDir { path, source } => ConfigError::CreateDir { path, source },
+            StdxError::ReadFile { path, source } => ConfigError::Read { path, source },
+            other => ConfigError::Write { path: self.target().to_path_buf(), source: other },
+        })?;
         Ok(settings)
     }
 
@@ -126,7 +104,7 @@ impl ConfigFile {
             Ok(_) => serde::de::Error::custom("the file could not be read as a document"),
         };
         ConfigError::Parse {
-            path: self.path.clone(),
+            path: self.path().to_path_buf(),
             location: source.span().map(|span| crate::location::location(text, span.start)),
             key: None,
             source: Box::new(source),
@@ -330,19 +308,6 @@ fn writable(key: &str) -> Result<Kind, ConfigError> {
         Some(Kind::Rules) | None => Err(unknown()),
         Some(kind) => Ok(kind),
     }
-}
-
-/// The contents of `path`; `None` when it does not exist.
-fn read(path: &Path) -> Result<Option<String>, ConfigError> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(source) => Err(ConfigError::Read { path: path.to_path_buf(), source }),
-    }
-}
-
-fn hash(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
 }
 
 #[cfg(test)]

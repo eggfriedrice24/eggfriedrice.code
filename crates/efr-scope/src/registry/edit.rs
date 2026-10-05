@@ -7,11 +7,12 @@
 //! The write goes to the file behind a symbolic link, so a registry kept in a dotfiles
 //! repository stays a link, and it is refused when the file changed since it was read.
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use efr_protocol::ProjectId;
+use efr_stdx::StdxError;
+use efr_stdx::fs::LinkedFile;
 use toml_edit::{ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
 use crate::ScopeError;
@@ -32,12 +33,8 @@ const HEADER: &str = "\
 /// The registry file as read, and the change made to it so far.
 #[derive(Debug, Clone)]
 pub struct RegistryEdit {
-    /// The registry file as named, which may be a symbolic link.
-    path: PathBuf,
-    /// The file that is written: the end of the link, or `path` itself.
-    target: PathBuf,
-    /// The contents as read; `None` when the file does not exist.
-    text: Option<String>,
+    /// The registry file as named and read, through a symbolic link.
+    file: LinkedFile,
     /// The registry with the change applied.
     registry: Registry,
     /// The file with the change applied.
@@ -51,45 +48,38 @@ impl RegistryEdit {
     ///
     /// This blocks on the file system; async callers run it in `spawn_blocking`.
     pub fn open(path: &Path) -> Result<Self, ScopeError> {
-        let read_error = |source| ScopeError::ReadRegistry { path: path.to_path_buf(), source };
-        let target = match fs::symlink_metadata(path) {
-            Ok(meta) if meta.file_type().is_symlink() => match fs::canonicalize(path) {
-                Ok(target) => target,
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    let target = fs::read_link(path).map_err(read_error)?;
-                    return Err(ScopeError::DanglingRegistryLink {
-                        path: path.to_path_buf(),
-                        target,
-                    });
-                }
-                Err(source) => return Err(read_error(source)),
+        let file = LinkedFile::open(path).map_err(|error| match error {
+            StdxError::DanglingLink { path, target } => {
+                ScopeError::DanglingRegistryLink { path, target }
+            }
+            StdxError::ReadFile { path, source } => ScopeError::ReadRegistry { path, source },
+            // NOTE: an open fails only to read; any other error is kept as the source.
+            other => ScopeError::ReadRegistry {
+                path: path.to_path_buf(),
+                source: io::Error::other(other),
             },
-            Ok(_) => path.to_path_buf(),
-            Err(source) if source.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
-            Err(source) => return Err(read_error(source)),
-        };
-        let text = read(&target).map_err(read_error)?;
-        let registry = match &text {
+        })?;
+        let registry = match file.text() {
             Some(text) => Registry::from_toml(text, path)?,
             None => Registry::empty(),
         };
-        let document = text
-            .as_deref()
+        let document = file
+            .text()
             .unwrap_or(HEADER)
             .parse::<DocumentMut>()
             .map_err(|_| ScopeError::RegistryShape { path: path.to_path_buf() })?;
-        Ok(RegistryEdit { path: path.to_path_buf(), target, text, registry, document })
+        Ok(RegistryEdit { file, registry, document })
     }
 
     /// The registry file as named.
     pub fn path(&self) -> &Path {
-        &self.path
+        self.file.path()
     }
 
     /// The file that [`save`](Self::save) writes: the end of the symbolic link, or the
     /// file itself.
     pub fn target(&self) -> &Path {
-        &self.target
+        self.file.target()
     }
 
     /// The registry with the changes made so far.
@@ -115,7 +105,8 @@ impl RegistryEdit {
             Some(root) => root.to_owned(),
             None => unreachable!("the registry refuses a root that is not UTF-8"),
         };
-        let shape = || ScopeError::RegistryShape { path: self.path.clone() };
+        let path = self.file.path().to_path_buf();
+        let shape = || ScopeError::RegistryShape { path: path.clone() };
         // NOTE: a file of comments alone keeps them after its last table, so they would
         // end up below the first project; they go before it instead.
         let leading = if self.document.as_table().is_empty() {
@@ -169,7 +160,8 @@ impl RegistryEdit {
         else {
             return Ok(None);
         };
-        let shape = || ScopeError::RegistryShape { path: self.path.clone() };
+        let path = self.file.path().to_path_buf();
+        let shape = || ScopeError::RegistryShape { path: path.clone() };
         let is_it = |entry_id: Option<&str>| {
             entry_id.and_then(|text| text.parse::<ProjectId>().ok()) == Some(id)
         };
@@ -237,26 +229,13 @@ impl RegistryEdit {
         let text = self.text();
         // NOTE: the text is read back as a load reads it, so a change never writes a
         // file that the daemon would refuse.
-        Registry::from_toml(&text, &self.path)?;
-        let changed = || ScopeError::RegistryChanged { path: self.target.clone() };
-        let now = read(&self.target)
-            .map_err(|source| ScopeError::ReadRegistry { path: self.target.clone(), source })?;
-        if now != self.text {
-            return Err(changed());
-        }
-        if self.text.is_none() {
-            // A link or a file that appeared since the read is somebody else's change.
-            match fs::symlink_metadata(&self.path) {
-                Err(source) if source.kind() == io::ErrorKind::NotFound => {}
-                _ => return Err(changed()),
-            }
-            if let Some(dir) = self.target.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-                fs::create_dir_all(dir)
-                    .map_err(|source| ScopeError::CreateDir { path: dir.to_path_buf(), source })?;
-            }
-        }
-        efr_stdx::fs::write_atomic(&self.target, text.as_bytes())
-            .map_err(|source| ScopeError::WriteRegistry { path: self.target.clone(), source })
+        Registry::from_toml(&text, self.path())?;
+        self.file.write_if_unchanged(text.as_bytes()).map_err(|error| match error {
+            StdxError::FileChanged { path } => ScopeError::RegistryChanged { path },
+            StdxError::CreateDir { path, source } => ScopeError::CreateDir { path, source },
+            StdxError::ReadFile { path, source } => ScopeError::ReadRegistry { path, source },
+            other => ScopeError::WriteRegistry { path: self.target().to_path_buf(), source: other },
+        })
     }
 }
 
@@ -268,15 +247,6 @@ fn kept_comments(prefix: &str) -> String {
     match lines.iter().rposition(|line| line.trim().is_empty()) {
         Some(last_blank) => lines[..=last_blank].concat(),
         None => String::new(),
-    }
-}
-
-/// The contents of `path`; `None` when it does not exist.
-fn read(path: &Path) -> io::Result<Option<String>> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(source) => Err(source),
     }
 }
 

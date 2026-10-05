@@ -24,8 +24,11 @@ Modules, in the order of the milestone 1 file map:
   sets the working directory and `PWD`, and removes the systemd variables of the
   daemon's own unit and the private variables below.
 - `fs`: `write_atomic` (temporary file, flush, rename, flush the directory),
-  `create_private` (a new file with mode 0600) and `claim_dir` (a non-recursive
-  `mkdir` with mode 0700, where an existing entry means taken).
+  `create_private` (a new file with mode 0600), `claim_dir` (a non-recursive
+  `mkdir` with mode 0700, where an existing entry means taken) and `LinkedFile`, the
+  file that `config.toml` and the project registry are changed through: read and
+  written behind a symbolic link (a link to nothing is refused), and written only when
+  it did not change since it was read.
 - `env`: typed access to the `EFR_*` variables below; the only reader of the process
   environment.
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.

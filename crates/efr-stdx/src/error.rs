@@ -146,6 +146,34 @@ pub enum StdxError {
         source: io::Error,
     },
 
+    /// A file or a symbolic link could not be read.
+    #[error("could not read {}", .path.display())]
+    ReadFile {
+        /// The file or the link.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A file that is changed through a symbolic link is a link to nothing, so a new
+    /// file would appear somewhere the user may not expect.
+    #[error("{} is a link to {}, which does not exist", .path.display(), .target.display())]
+    DanglingLink {
+        /// The link.
+        path: PathBuf,
+        /// What it points to.
+        target: PathBuf,
+    },
+
+    /// A file changed between the read for a change and its write, so nothing was
+    /// written.
+    #[error("{} changed since it was read", .path.display())]
+    FileChanged {
+        /// The file that was to be written: the end of a link.
+        path: PathBuf,
+    },
+
     /// A thread name holds a NUL byte, which the operating system cannot store.
     #[error("the thread name {name:?} holds a NUL byte")]
     InvalidThreadName {
