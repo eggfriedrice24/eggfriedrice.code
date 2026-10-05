@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::capture::Kept;
-use crate::input::{self, Probe};
+use crate::input::{self, Probe, Waiting};
 use crate::modes::Terminal;
 use crate::run::{
     Delimiter, FORGET_CREDENTIALS, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line,
@@ -51,9 +51,9 @@ pub(crate) enum Msg {
     State { reply: oneshot::Sender<ShellState> },
     /// Tell what a look at run `id` needs; `None` once the run ended or was left.
     Probe { id: u64, reply: oneshot::Sender<Option<Probe>> },
-    /// The wait that run `id` reported last changed: `group` is the process group of
+    /// The wait that run `id` reported last changed: its kind and the process group of
     /// the job that waits, as the look read it, or `None` when nothing waits.
-    Waiting { id: u64, group: Option<u32> },
+    Waiting { id: u64, waiting: Option<Waiting> },
     /// Type `text` for the running command of `call`, if it waits for such input.
     /// `Debug` shows no text: `SecretText` hides it.
     Answer {
@@ -130,9 +130,9 @@ struct Active {
     started: bool,
     /// How many answers were typed for this run.
     answers: u64,
-    /// The process group of the job whose wait the run reported last; `None` while it
-    /// reports none. Only that job gets an answer.
-    waiting: Option<u32>,
+    /// The wait that the run reported last with the process group of its job; `None`
+    /// while it reports none. Only that job gets an answer, and only of that kind.
+    waiting: Option<Waiting>,
 }
 
 impl Active {
@@ -310,17 +310,17 @@ impl SessionCore {
         })
     }
 
-    /// Records the job whose wait run `id` reported, by its process group, or that
-    /// nothing waits.
-    pub(crate) fn waiting(&mut self, id: u64, group: Option<u32>) {
+    /// Records the wait that run `id` reported with the process group of its job, or
+    /// that nothing waits.
+    pub(crate) fn waiting(&mut self, id: u64, waiting: Option<Waiting>) {
         if let Some(active) = self.active.as_mut().filter(|active| active.id == id) {
-            active.waiting = group;
+            active.waiting = waiting;
         }
     }
 
     /// Refuses an answer for `call` unless that call's command runs now; returns the
-    /// process group of the job whose wait the run reported, if it reports one.
-    pub(crate) fn answerable(&self, call: CallId) -> Result<Option<u32>, ShellError> {
+    /// wait that the run reports, if it reports one.
+    pub(crate) fn answerable(&self, call: CallId) -> Result<Option<Waiting>, ShellError> {
         let conversation = self.conversation;
         let Some(active) = &self.active else {
             return Err(ShellError::NoCall { conversation });
@@ -622,7 +622,7 @@ impl SessionActor {
                         .map(|probe| Probe { job: self.terminal.job().ok().flatten(), ..probe });
                     let _ = reply.send(probe);
                 }
-                Msg::Waiting { id, group } => self.core.waiting(id, group),
+                Msg::Waiting { id, waiting } => self.core.waiting(id, waiting),
                 Msg::Answer { call, text, hidden, reply } => {
                     let _ = reply.send(answer(&mut self.core, &self.terminal, call, &text, hidden));
                 }
@@ -679,7 +679,9 @@ fn answer(
         conversation,
         reason: "the shell itself holds the terminal",
     })?;
-    input::check_job(waiting, job.group)
+    let waiting = input::check_job(waiting, job.group)
+        .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
+    input::check_kind(waiting, hidden)
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;
     input::check_modes(job.modes, hidden)
         .map_err(|reason| ShellError::NotWaiting { conversation, reason })?;

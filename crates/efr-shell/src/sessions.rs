@@ -564,7 +564,7 @@ impl ShellSessions {
                         }
                     };
                     if stop {
-                        let waiting = watch.waiting();
+                        let waiting = watch.waiting().map(|waiting| waiting.group);
                         let result = self
                             .stop_unanswered(session, id, waiting, &mut guard, &mut answer)
                             .await;
@@ -653,7 +653,7 @@ impl ShellSessions {
             // answer sent for it is checked against that job. The client hears of the
             // change even when the actor is gone, so the `None` that the caller reports
             // then follows a wait that the client heard.
-            let told = session.send(Msg::Waiting { id, group: watch.waiting() }).await;
+            let told = session.send(Msg::Waiting { id, waiting: watch.waiting() }).await;
             progress.input_changed(changed);
             told?;
         }

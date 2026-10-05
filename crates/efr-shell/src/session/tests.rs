@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::{oneshot, watch};
 
 use super::{Detached, RunEnd, RunOrder, SessionCore};
+use crate::input::Waiting;
 use crate::run::{Completion, Progress, RunMode};
 use crate::testing::{Notices, conversation};
 use crate::{Phase, ShellError, ShellNotice, ShellState};
@@ -405,10 +406,11 @@ fn an_answer_learns_the_job_whose_wait_its_run_reported_last() {
     core.submit(order);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
     assert_eq!(core.answerable(call_id(1)).unwrap(), None, "no wait was reported yet");
-    core.waiting(1, Some(4242));
-    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(4242));
-    core.waiting(2, Some(4343));
-    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(4242), "another run's report");
+    let hidden = Waiting { group: 4242, hidden: true };
+    core.waiting(1, Some(hidden));
+    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(hidden));
+    core.waiting(2, Some(Waiting { group: 4343, hidden: false }));
+    assert_eq!(core.answerable(call_id(1)).unwrap(), Some(hidden), "another run's report");
     core.waiting(1, None);
     assert_eq!(core.answerable(call_id(1)).unwrap(), None, "the wait ended");
 }

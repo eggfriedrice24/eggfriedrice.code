@@ -921,6 +921,45 @@ async fn answers_reach_only_the_running_command_of_their_call() {
 }
 
 #[tokio::test]
+async fn an_answer_is_refused_unless_it_is_of_the_kind_of_the_reported_wait() {
+    // A hidden wait: a visible answer would pass the modes, which only a hidden answer
+    // needs, and could reach a relay that runs it as a command line.
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "sudo true", true, b"[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Hidden]).await;
+    let visible =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("leak"), false).await;
+    assert!(matches!(visible, Err(ShellError::NotWaiting { .. })), "{visible:?}");
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), true).await.unwrap();
+    // Nothing of the refused answer was typed before this one.
+    assert_eq!(terminal.typed_line().await, b"pw\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+
+    // A visible wait whose program turned echo off since the look: a hidden answer would
+    // pass the modes, though the user was asked for a visible one.
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
+    screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
+    for _ in 0..3 {
+        one_look(&harness).await;
+    }
+    heard.inputs(&[InputWait::Visible]).await;
+    harness.modes.set(Some(HIDDEN));
+    let hidden =
+        harness.sessions.answer(conversation(1), call(), &SecretText::new("secret"), true).await;
+    assert!(matches!(hidden, Err(ShellError::NotWaiting { .. })), "{hidden:?}");
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn nothing_is_asked_or_typed_while_the_shell_itself_holds_the_terminal() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run, mut heard) = waiting(&harness, "sudo true", true, b"pw: ").await;

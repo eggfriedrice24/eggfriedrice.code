@@ -5,8 +5,8 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{
-    InputWatch, Look, Offer, Probe, Quiet, check_answer, check_job, check_modes, look,
-    visible_prompt,
+    InputWatch, Look, Offer, Probe, Quiet, Waiting, check_answer, check_job, check_kind,
+    check_modes, look, visible_prompt,
 };
 use crate::modes::{InputModes, Job};
 use crate::{RunMode, ShellError};
@@ -131,8 +131,9 @@ fn each_change_is_reported_once() {
     assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 0), Some(InputWait::Hidden));
     assert_eq!(watch.settle(InputWait::Hidden, Some(JOB), 0), None);
     assert_eq!(watch.current(), InputWait::Hidden);
-    assert_eq!(watch.waiting(), Some(JOB));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: true }));
     assert_eq!(watch.settle(InputWait::Visible, Some(JOB), 0), Some(InputWait::Visible));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
     assert_eq!(watch.end(), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
     assert_eq!(watch.end(), None);
@@ -152,24 +153,35 @@ fn an_answer_makes_the_next_look_none_so_a_prompt_asked_again_is_new() {
 fn another_job_in_the_foreground_ends_a_wait_and_its_own_wait_is_new() {
     let mut watch = InputWatch::default();
     assert_eq!(watch.settle(InputWait::Visible, Some(JOB), 0), Some(InputWait::Visible));
-    assert_eq!(watch.waiting(), Some(JOB));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
     // The job ended and a command that a later precmd hook started holds the terminal,
     // cooked, with the old prompt still on the screen.
     assert_eq!(watch.settle(InputWait::Visible, Some(OTHER_JOB), 0), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
     assert_eq!(watch.settle(InputWait::Visible, Some(OTHER_JOB), 0), Some(InputWait::Visible));
-    assert_eq!(watch.waiting(), Some(OTHER_JOB));
+    assert_eq!(watch.waiting(), Some(Waiting { group: OTHER_JOB, hidden: false }));
     // A wait without a job to answer is none.
     assert_eq!(watch.settle(InputWait::Hidden, None, 0), Some(InputWait::None));
     assert_eq!(watch.settle(InputWait::Hidden, None, 0), None);
     assert_eq!(watch.waiting(), None);
 }
 
+const HIDDEN_WAIT: Waiting = Waiting { group: JOB, hidden: true };
+const VISIBLE_WAIT: Waiting = Waiting { group: JOB, hidden: false };
+
 #[test]
 fn an_answer_reaches_only_the_job_whose_wait_was_reported() {
-    check_job(Some(JOB), JOB).unwrap();
-    assert!(check_job(Some(JOB), OTHER_JOB).is_err(), "a later job holds the terminal");
+    assert_eq!(check_job(Some(HIDDEN_WAIT), JOB), Ok(HIDDEN_WAIT));
+    assert!(check_job(Some(HIDDEN_WAIT), OTHER_JOB).is_err(), "a later job holds the terminal");
     assert!(check_job(None, JOB).is_err(), "no wait was reported");
+}
+
+#[test]
+fn an_answer_is_of_the_kind_of_the_reported_wait() {
+    check_kind(HIDDEN_WAIT, true).unwrap();
+    check_kind(VISIBLE_WAIT, false).unwrap();
+    assert!(check_kind(HIDDEN_WAIT, false).is_err(), "a visible answer for a hidden wait");
+    assert!(check_kind(VISIBLE_WAIT, true).is_err(), "a hidden answer for a visible wait");
 }
 
 #[test]

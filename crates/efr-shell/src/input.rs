@@ -25,8 +25,10 @@
 //! -i`, `ssh` or `su`, or of a command in a nested shell, is still reported.
 //!
 //! A wait belongs to the job that was in the terminal's foreground at the look that
-//! reported it, by its process group, and an answer reaches only that job. An answer
-//! resets the wait to `None` for one look, so the same prompt asked again (`Sorry, try
+//! reported it, by its process group, and an answer reaches only that job. It must also
+//! be of the wait's kind, which is what a client asked the user for: once `sudo -i` took
+//! its password, its relay would run a visible answer as a command line until the next
+//! look ends the hidden wait. An answer resets the wait to `None` for one look, so the same prompt asked again (`Sorry, try
 //! again.`) is a new change that a client asks the user about again; so does another
 //! job in the foreground, whose own wait is a new change at the look after.
 //!
@@ -83,18 +85,41 @@ pub(crate) fn check_modes(modes: InputModes, hidden: bool) -> Result<(), &'stati
 }
 
 /// Refuses to type an answer unless a wait was reported and `foreground`, the process
-/// group in the terminal's foreground now, is `waiting`, the group of the job that was
-/// there at the look that reported it. Typed for a job that ended, an answer stays in
-/// the terminal for whatever reads next: a later job, or the line editor, which would
-/// run it as a command line.
-pub(crate) fn check_job(waiting: Option<u32>, foreground: u32) -> Result<(), &'static str> {
+/// group in the terminal's foreground now, is the group of the job that was there at
+/// the look that reported it; returns that wait. Typed for a job that ended, an answer
+/// stays in the terminal for whatever reads next: a later job, or the line editor,
+/// which would run it as a command line.
+pub(crate) fn check_job(
+    waiting: Option<Waiting>,
+    foreground: u32,
+) -> Result<Waiting, &'static str> {
     match waiting {
         None => Err("no wait was reported for the command"),
-        Some(group) if group != foreground => {
+        Some(waiting) if waiting.group != foreground => {
             Err("the job that waited no longer holds the terminal")
         }
-        Some(_) => Ok(()),
+        Some(waiting) => Ok(waiting),
     }
+}
+
+/// Refuses a hidden answer for a visible wait and a visible one for a hidden wait. The
+/// modes alone let both through: a visible answer takes any modes, and a program that
+/// asked a visible question can turn echo off before the answer comes.
+pub(crate) fn check_kind(waiting: Waiting, hidden: bool) -> Result<(), &'static str> {
+    match (waiting.hidden, hidden) {
+        (true, false) => Err("the command waits for hidden input"),
+        (false, true) => Err("the command waits for visible input"),
+        _ => Ok(()),
+    }
+}
+
+/// A wait that a run reported, as an answer is checked against it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Waiting {
+    /// The process group of the job in the terminal's foreground at the look.
+    pub(crate) group: u32,
+    /// True for [`InputWait::Hidden`].
+    pub(crate) hidden: bool,
 }
 
 /// What the session knows about a run when it is asked to look.
@@ -196,10 +221,15 @@ impl InputWatch {
         self.current
     }
 
-    /// The process group of the job whose wait was reported last, as it was at that
+    /// The wait reported last with the process group of its job, as it was at that
     /// look; `None` while no wait is reported.
-    pub(crate) fn waiting(&self) -> Option<u32> {
-        self.group.filter(|_| self.current != InputWait::None)
+    pub(crate) fn waiting(&self) -> Option<Waiting> {
+        let hidden = match self.current {
+            InputWait::Hidden => true,
+            InputWait::Visible => false,
+            _ => return None,
+        };
+        self.group.map(|group| Waiting { group, hidden })
     }
 
     /// Takes the wait of a look that saw `answers` answers and the job of process group
