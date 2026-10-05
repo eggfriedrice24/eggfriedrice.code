@@ -1,5 +1,7 @@
-//! The built `efr` binary against a real daemon: `efr --help`, `efr status` and an
-//! `efr send` round trip with a `TestDaemon` serving in this process.
+//! The built `efr` binary against a real daemon: `efr --help`, `efr status`, an
+//! `efr send` round trip, and the model list and turn settings as `efr models`,
+//! `efr settings`, `efr send` and `efr config reload` meet them, with a `TestDaemon`
+//! serving in this process.
 //!
 //! The process gets a cleared environment that names only the test daemon's temporary
 //! roots, so it never sees the real home, config or runtime directory. The daemon's
@@ -13,7 +15,9 @@
 use std::process::Output;
 
 use assert_cmd::Command;
-use efr_protocol::{ConversationsList, ConversationsListResult, Method};
+use efr_protocol::{
+    ConversationsList, ConversationsListResult, Method, ModelsList, ModelsListResult,
+};
 use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon};
 use pretty_assertions::assert_eq;
 
@@ -118,5 +122,88 @@ async fn new_starts_a_conversation_only_with_a_first_prompt() {
     assert_eq!(conversations.len(), 1);
     assert_eq!(conversations[0].tty.as_deref(), Some(TTY));
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn models_and_settings_read_the_model_list_as_the_daemon_writes_it() {
+    let daemon = TestDaemon::start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let list: ModelsListResult =
+        client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+    drop(client);
+    let efr_with = |args: &[&str]| {
+        let mut command = efr(&daemon);
+        command.args(args);
+        command
+    };
+
+    let names = run(efr_with(&["models", "--names"])).await;
+    assert!(names.status.success(), "{}", text(&names.stderr));
+    let ids: Vec<&str> = list.models.iter().map(|model| model.id.as_str()).collect();
+    assert_eq!(text(&names.stdout).lines().collect::<Vec<_>>(), ids);
+
+    // A model other than the default, and the last effort it takes.
+    let other = list.models.iter().find(|model| !model.default && !model.efforts.is_empty());
+    let other = other.expect("the built-in list holds more than the default");
+    let effort = other.efforts.last().unwrap();
+    let accepted = run(efr_with(&["settings", "--model", &other.id, "--effort", effort])).await;
+    assert!(accepted.status.success(), "{}", text(&accepted.stderr));
+    let shown = text(&accepted.stdout);
+    assert!(shown.contains(&format!("model = {}", other.id)), "{shown}");
+    assert!(shown.contains(&format!("effort = {effort}")), "{shown}");
+
+    let unknown = run(efr_with(&["settings", "--model", &other.id, "--effort", "nonesuch"])).await;
+    assert_eq!(unknown.status.code(), Some(2), "{}", text(&unknown.stderr));
+    assert!(text(&unknown.stderr).contains(effort.as_str()), "the choices are named");
+    let model = run(efr_with(&["settings", "--model", "no-such-model"])).await;
+    assert_eq!(model.status.code(), Some(2), "{}", text(&model.stderr));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() {
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::text("First."));
+    server.push(ResponsesAnswer::text("Second."));
+    let daemon = TestDaemon::builder().subscription(&server).start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let list: ModelsListResult =
+        client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+    drop(client);
+    let default = list.models.iter().find(|model| model.default).unwrap();
+    let other = list.models.iter().find(|model| !model.default && model.efforts.len() > 1);
+    let other = other.expect("a second model with efforts");
+    let (asked, reloaded) = (&other.efforts[1], &default.efforts[0]);
+    let context = serde_json::json!({ "pwd": daemon.cwd(), "tty": TTY }).to_string();
+    let send = |words: &[&str]| {
+        let mut command = efr(&daemon);
+        command.args(["send", "--context-json", &context]).args(words);
+        command
+    };
+
+    let first =
+        run(send(&["--mode", "auto", "--model", &other.id, "--effort", asked, "--", "one"])).await;
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let note = format!("mode auto, model {}, effort {asked}", other.id);
+    assert!(text(&first.stderr).contains(&note), "{}", text(&first.stderr));
+
+    let file = daemon.dirs().dirs().config().join("config.toml");
+    std::fs::write(&file, format!("[model]\neffort = \"{reloaded}\"\n")).unwrap();
+    let reload = run({
+        let mut command = efr(&daemon);
+        command.args(["config", "reload"]);
+        command
+    })
+    .await;
+    assert!(reload.status.success(), "{}", text(&reload.stderr));
+    let second = run(send(&["--", "two"])).await;
+    assert!(second.status.success(), "{}", text(&second.stderr));
+
+    let [one, two] = server.received().try_into().unwrap();
+    assert_eq!(one.body["model"], other.id.as_str());
+    assert_eq!(one.body["reasoning"]["effort"], asked.as_str());
+    assert_eq!(two.body["model"], default.id.as_str(), "the config's model");
+    assert_eq!(two.body["reasoning"]["effort"], reloaded.as_str(), "the reloaded effort");
     daemon.stop().await.unwrap();
 }
