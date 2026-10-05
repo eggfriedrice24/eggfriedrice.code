@@ -367,6 +367,7 @@ fn the_description_promises_no_screen_the_user_cannot_see() {
     assert!(description.contains("the program on that inner terminal decides"), "{description}");
     assert!(description.contains("up to their interactive limit"), "{description}");
     assert!(description.contains("no editor works there"), "{description}");
+    assert!(description.contains("fails at once with a message"), "{description}");
 }
 
 #[tokio::test]

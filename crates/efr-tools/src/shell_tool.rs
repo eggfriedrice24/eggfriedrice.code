@@ -180,8 +180,10 @@ impl Tool for ShellTool {
              as long as the conversation: cd, exported variables and aliases carry over \
              between calls, and it has the user's environment and startup files. It \
              starts in the user's working directory. The user does not see this shell, \
-             and nobody can use a full-screen program in it: no editor works there, so \
-             give a command its text yourself (git commit -m) or use write_file. The \
+             and nobody can use a full-screen program in it: no editor works there, and \
+             a command that opens one (git commit without -m, crontab -e) fails at once \
+             with a message that says so. Give a command its text yourself (git commit \
+             -m) or use write_file. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout keeps running, and the next call waits \
              for it to end. When a command waits for input (a sudo password, a [Y/n] \
