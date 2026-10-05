@@ -195,25 +195,28 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   exists, a symbolic link's target, the last reload's error and `restart_needed`.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
-  while that call's command runs, a wait of it was reported, the job that waited (by
-  its process group) still holds the terminal and the terminal reads a line, and for a
-  hidden answer only while echo is off, all checked by the shell's actor right before
-  its one write;
-  the shell appends `\r`. A text that is not one line of at most
-  `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters is
-  `invalid`; a conversation without a shell, or in which no call's command runs (the
-  call's command ended, or was left at its timeout and goes on without a call), is
-  `not_found`; and a command that does not wait for that input (another call's command,
-  one not started yet, one with no wait reported, a terminal that does not read a line,
-  echo on for a hidden answer, the shell itself or another job than the one that waited
+  while that call's command runs, a wait of it of the answer's kind was reported
+  (`hidden` for a hidden wait, not for a visible one) and the job that waited (by its
+  process group) still holds the terminal, and for a hidden answer only while the
+  terminal reads a line with echo off, all checked by the shell's actor right before
+  its one write. A visible answer takes any terminal modes, because behind a relay
+  such as `sudo`'s own pty they are the relay's; the shell appends `\r`. A text that
+  is not one line of at most `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes
+  without control characters is `invalid`; a conversation without a shell, or in which
+  no call's command runs (the call's command ended, or was left at its timeout and
+  goes on without a call), is `not_found`; and a command that does not wait for that
+  input (another call's command, one not started yet, one with no wait reported, an
+  answer of the other kind than the wait, a hidden answer while the terminal does not
+  read a line or echoes, the shell itself or another job than the one that waited
   holding the terminal, as when the command's job ended and zsh's precmd hooks, or a
   command one of them started, run before the command's `D` arrived) is `conflict`;
   nothing is written then. There is no receipt. The text is a `SecretText`: it reaches
-  no log, error message, event or receipt, and the handler logs only its length. The transport zeroes the frame's bytes once it has read and decoded
-  them, the `SecretText` and the clone that the shell's actor gets are zeroed when they
-  drop, and the shell writes the answer to the PTY from that clone's buffer;
-  serde_json's scratch buffer for a text that holds an escape (a quote, a backslash,
-  `\u`) is not zeroed.
+  no log, error message, event or receipt, and the handler logs only its length. The
+  transport zeroes the frame's bytes once it has read and decoded them, the
+  `SecretText` and the clone that the shell's actor gets are zeroed when they drop,
+  and the shell writes the answer to the PTY from that clone's buffer; serde_json's
+  scratch buffer for a text that holds an escape (a quote, a backslash, `\u`) is not
+  zeroed.
 - `conversation.subscribe` with `answers_input` from a connection that holds the
   `terminal` scope counts, while its stream lasts, as a client at which a person can
   answer a waiting command (`Connections::answerers`); the count drops when the stream

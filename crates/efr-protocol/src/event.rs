@@ -422,8 +422,12 @@ pub enum InputWait {
     /// The call does not wait for input now, so a client stops asking the user.
     #[default]
     None,
-    /// The command waits for a line with echo on, such as a `[Y/n]` question. The user's
-    /// answer is shown on the terminal and reaches the output that the model reads.
+    /// The command waits for an answer that is not read like a password, such as a
+    /// `[Y/n]` question. On a plain terminal the answer is echoed and reaches the output
+    /// that the model reads. Through a relay such as `sudo`'s own pty, the program on
+    /// the inner terminal decides whether the answer is shown, and the model then reads
+    /// what is shown; a password prompt of a program behind such a relay is reported
+    /// as visible too.
     Visible,
     /// The command reads a line with echo off, such as the password prompt of `sudo` or
     /// `ssh`. The user's answer is not shown and the terminal does not put it in the
