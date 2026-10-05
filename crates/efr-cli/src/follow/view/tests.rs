@@ -939,3 +939,9 @@ fn without_a_terminal_the_offer_is_a_note_on_stderr() {
     assert!(step.err.contains(HINT), "{:?}", step.err);
     assert_eq!(step.out, "");
 }
+
+#[test]
+fn the_hint_names_the_silence_that_the_follow_loop_waits_for() {
+    let seconds = format!("no output for {} s;", crate::follow::SILENCE.as_secs());
+    assert!(super::SILENCE_HINT.starts_with(&seconds), "{}", super::SILENCE_HINT);
+}
