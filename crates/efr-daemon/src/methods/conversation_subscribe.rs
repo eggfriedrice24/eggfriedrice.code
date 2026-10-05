@@ -10,13 +10,18 @@
 //! Live events go through the transport's bounded subscriber queue (64 items). A
 //! subscriber that falls behind, at the queue or at the store's broadcast, is closed
 //! with `overflow` and the last sequence number it received.
+//!
+//! A subscription with `answers_input`, from a connection that holds the `terminal`
+//! scope (the one `input.respond` needs), counts as one at which a person can answer a
+//! waiting command, for as long as the request lasts. A command that waits for hidden
+//! input while its conversation has none is stopped (`tools.rs`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use efr_protocol::{
     ConversationId, ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem,
-    EventEnvelope, Seq,
+    EventEnvelope, ScopeName, Seq,
 };
 use efr_store::Committed;
 use efr_transport::{ConnectionContext, Offer, Responder, SubscriptionSender, TransportError};
@@ -26,7 +31,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
-use crate::methods::cursor;
+use crate::methods::{cursor, granted};
 use crate::state::State;
 
 /// The most events a resume replays, and the most a snapshot carries.
@@ -67,7 +72,9 @@ pub(crate) async fn handle(
     cancelled: CancellationToken,
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
-    let attached = state.connections.subscribe(context.conn_id(), conversation_id);
+    let answering =
+        params.answers_input && granted(context.surface()).contains(&ScopeName::Terminal);
+    let attached = state.connections.subscribe(context.conn_id(), conversation_id, answering);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();
     let (sender, mut receiver) = efr_transport::subscription();

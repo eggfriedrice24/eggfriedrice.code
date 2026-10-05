@@ -1,5 +1,6 @@
 //! What the daemon keeps per connection: the hello's tty and client, the open
-//! conversation subscriptions, and the lease of `lease.report`.
+//! conversation subscriptions (and which of them can type answers for a waiting
+//! command), and the lease of `lease.report`.
 //!
 //! The transport carries only `{surface, uid, pid, conn_id}` with each request; the rest
 //! of the hello lives here from the accepted hello until `Dispatcher::closed`. The
@@ -50,6 +51,8 @@ struct Conn {
     hello: HelloInfo,
     /// Open `conversation.subscribe` requests per conversation.
     subscriptions: HashMap<ConversationId, usize>,
+    /// Of those, the ones at which a person can type answers (`answers_input`).
+    answering: HashMap<ConversationId, usize>,
     lease: Option<Lease>,
 }
 
@@ -65,7 +68,10 @@ pub(crate) struct Connections {
 impl Connections {
     /// Records the hello of `conn_id`.
     pub(crate) fn opened(&self, conn_id: ConnId, hello: HelloInfo) {
-        self.lock().insert(conn_id, Conn { hello, subscriptions: HashMap::new(), lease: None });
+        self.lock().insert(
+            conn_id,
+            Conn { hello, subscriptions: HashMap::new(), answering: HashMap::new(), lease: None },
+        );
     }
 
     /// Forgets `conn_id` and its lease.
@@ -81,26 +87,43 @@ impl Connections {
     /// Records an open subscription of `conn_id` to `conversation` until the guard is
     /// dropped, which happens when the request ends however it ends. The subscription
     /// raises [`SubscriptionGuard::reached`] as it hands events over; when the guard
-    /// drops, that sequence number is kept for the hello's terminal.
+    /// drops, that sequence number is kept for the hello's terminal. With `answering`,
+    /// a person at the subscriber can type answers for a waiting command, and the
+    /// subscription counts in [`answerers`](Self::answerers) until the guard drops.
     pub(crate) fn subscribe(
         self: &Arc<Self>,
         conn_id: ConnId,
         conversation: ConversationId,
+        answering: bool,
     ) -> SubscriptionGuard {
-        let tty = match self.lock().get_mut(&conn_id) {
+        let (tty, answering) = match self.lock().get_mut(&conn_id) {
             Some(conn) => {
                 *conn.subscriptions.entry(conversation).or_default() += 1;
-                conn.hello.tty.clone()
+                if answering {
+                    *conn.answering.entry(conversation).or_default() += 1;
+                }
+                (conn.hello.tty.clone(), answering)
             }
-            None => None,
+            None => (None, false),
         };
         SubscriptionGuard {
             connections: Arc::clone(self),
             conn_id,
             conversation,
             tty,
+            answering,
             reached: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// How many live subscriptions of `conversation` can type answers for a command
+    /// that waits for input. A command that waits for hidden input while there are none
+    /// is stopped.
+    pub(crate) fn answerers(&self, conversation: ConversationId) -> usize {
+        self.lock()
+            .values()
+            .filter_map(|conn| conn.answering.get(&conversation))
+            .fold(0, |total, open| total.saturating_add(*open))
     }
 
     /// Replaces the lease of `conn_id`.
@@ -145,13 +168,11 @@ impl Connections {
         })
     }
 
-    fn unsubscribe(&self, conn_id: ConnId, conversation: ConversationId) {
-        if let Some(conn) = self.lock().get_mut(&conn_id)
-            && let Some(open) = conn.subscriptions.get_mut(&conversation)
-        {
-            *open = open.saturating_sub(1);
-            if *open == 0 {
-                conn.subscriptions.remove(&conversation);
+    fn unsubscribe(&self, conn_id: ConnId, conversation: ConversationId, answering: bool) {
+        if let Some(conn) = self.lock().get_mut(&conn_id) {
+            release(&mut conn.subscriptions, conversation);
+            if answering {
+                release(&mut conn.answering, conversation);
             }
         }
     }
@@ -181,6 +202,16 @@ impl Connections {
     }
 }
 
+/// Takes one from the count of `conversation`, and forgets a count that reaches 0.
+fn release(counts: &mut HashMap<ConversationId, usize>, conversation: ConversationId) {
+    if let Some(open) = counts.get_mut(&conversation) {
+        *open = open.saturating_sub(1);
+        if *open == 0 {
+            counts.remove(&conversation);
+        }
+    }
+}
+
 /// An open subscription, counted until it is dropped.
 #[derive(Debug)]
 pub(crate) struct SubscriptionGuard {
@@ -190,6 +221,8 @@ pub(crate) struct SubscriptionGuard {
     /// The hello's terminal, kept here because the connection may be forgotten before
     /// the request that holds this guard ends.
     tty: Option<String>,
+    /// True when the subscription counts as one that can type answers.
+    answering: bool,
     reached: Arc<AtomicU64>,
 }
 
@@ -203,7 +236,7 @@ impl SubscriptionGuard {
 
 impl Drop for SubscriptionGuard {
     fn drop(&mut self) {
-        self.connections.unsubscribe(self.conn_id, self.conversation);
+        self.connections.unsubscribe(self.conn_id, self.conversation, self.answering);
         let reached = Seq::new(self.reached.load(Ordering::Acquire));
         if let Some(tty) = self.tty.take()
             && reached.get() > 0

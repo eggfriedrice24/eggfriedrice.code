@@ -332,11 +332,13 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
     let registry_path = Registry::path_in(dirs.config());
     let engine = Arc::new(engine(&home, &secret_root, &config.permissions, &registry_path).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
+    let connections = Arc::new(Connections::default());
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
         shells.clone(),
         home.clone(),
         Arc::clone(&clock),
+        Arc::clone(&connections),
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
@@ -377,7 +379,7 @@ pub async fn start(config: Config, deps: Deps) -> Result<Daemon, DaemonError> {
         readers,
         recordings,
         conversations: Conversations::new(conversation_config, conversation_deps, ttys),
-        connections: Arc::new(Connections::default()),
+        connections,
         shells,
         ptys,
         providers,

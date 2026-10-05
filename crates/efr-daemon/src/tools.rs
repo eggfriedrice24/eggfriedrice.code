@@ -5,6 +5,12 @@
 //! forbidden edge), so [`DaemonToolbox`] copies between the two, field by field: specs
 //! to tool definitions, tool requirements to permission requirements, results to
 //! outcomes. It never decides a permission; the conversation's check point does.
+//!
+//! It also decides who can answer a command that waits for hidden input, such as a
+//! password: a call's sink says yes while the conversation has a live subscription
+//! with `answers_input` (see `connections.rs`), so a command that asks for a password
+//! while nobody who can type it follows the turn is stopped at once instead of waiting
+//! for its timeout.
 
 use std::error::Error;
 use std::fmt::Write as _;
@@ -14,17 +20,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
 use efr_permissions::Requirements;
-use efr_protocol::ConversationId;
+use efr_protocol::{ConversationId, InputWait};
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
 use efr_shell::ShellSessions;
 use efr_stdx::time::Clock;
 use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
-    ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
+    ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
 };
 
 use crate::DaemonError;
+use crate::connections::Connections;
 
 /// The registry of milestone 1: the shell, `read_file` and `write_file`.
 pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonError> {
@@ -48,6 +55,8 @@ pub(crate) struct DaemonToolbox {
     home: Home,
     clock: Arc<dyn Clock>,
     journal: Arc<dyn WriteJournal>,
+    /// The live subscriptions, which say whether a person can answer a waiting command.
+    connections: Arc<Connections>,
 }
 
 impl DaemonToolbox {
@@ -56,8 +65,9 @@ impl DaemonToolbox {
         shells: ShellSessions,
         home: Home,
         clock: Arc<dyn Clock>,
+        connections: Arc<Connections>,
     ) -> Self {
-        DaemonToolbox { registry, shells, home, clock, journal: Arc::new(LogJournal) }
+        DaemonToolbox { registry, shells, home, clock, journal: Arc::new(LogJournal), connections }
     }
 
     fn context(&self, call: &CallContext) -> ToolContext {
@@ -122,7 +132,11 @@ impl Toolbox for DaemonToolbox {
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
         let context = self.context(&call.context);
-        let mut sink = |tail: &str, bytes: u64| out.update(tail, bytes);
+        let mut sink = CallSink {
+            out,
+            connections: &self.connections,
+            conversation_id: call.context.conversation_id,
+        };
         match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
             Ok(result) => outcome(result),
             Err(error) => ToolOutcome::error(for_model(&error)),
@@ -140,6 +154,30 @@ impl Toolbox for DaemonToolbox {
         if let Err(error) = self.shells.interrupt(call.conversation_id).await {
             tracing::debug!(error = %error, call_id = %call.call_id, "nothing to interrupt in the hidden shell");
         }
+    }
+}
+
+/// A call's sink as the tools see it: output and input waits go to the conversation,
+/// and whether a person can answer hidden input comes from the live subscriptions.
+pub(crate) struct CallSink<'a> {
+    pub(crate) out: &'a mut dyn OutputSink,
+    pub(crate) connections: &'a Connections,
+    pub(crate) conversation_id: ConversationId,
+}
+
+impl ToolOutputSink for CallSink<'_> {
+    fn update(&mut self, tail: &str, bytes: u64) {
+        self.out.update(tail, bytes);
+    }
+
+    fn input_changed(&mut self, wait: InputWait) {
+        self.out.input_changed(wait);
+    }
+
+    fn can_answer_hidden(&mut self) -> bool {
+        // NOTE: asked at every look while a command waits for hidden input, so a client
+        // that goes away mid-wait stops the command at the next look.
+        self.connections.answerers(self.conversation_id) > 0
     }
 }
 

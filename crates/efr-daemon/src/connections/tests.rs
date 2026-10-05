@@ -30,7 +30,7 @@ fn a_subscription_from_the_same_tty_attaches_until_its_guard_drops() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(Some(TTY)));
 
-    let guard = connections.subscribe(ConnId::new(1), conversation(1));
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
     assert!(connections.attached(TTY, conversation(1), at(0), EVENT));
     assert!(!connections.attached(TTY, conversation(2), at(0), EVENT), "another conversation");
     assert!(!connections.attached("/dev/pts/4", conversation(1), at(0), EVENT), "another tty");
@@ -43,7 +43,7 @@ fn a_subscription_from_the_same_tty_attaches_until_its_guard_drops() {
 fn a_subscription_from_a_connection_without_a_tty_attaches_nothing() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(None));
-    let _guard = connections.subscribe(ConnId::new(1), conversation(1));
+    let _guard = connections.subscribe(ConnId::new(1), conversation(1), false);
 
     assert!(!connections.attached(TTY, conversation(1), at(0), EVENT));
 }
@@ -73,7 +73,7 @@ fn a_lease_attaches_until_it_expires() {
 fn a_closed_connection_attaches_nothing() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(Some(TTY)));
-    let _guard = connections.subscribe(ConnId::new(1), conversation(1));
+    let _guard = connections.subscribe(ConnId::new(1), conversation(1), false);
 
     connections.closed(ConnId::new(1));
 
@@ -85,7 +85,7 @@ fn a_closed_connection_attaches_nothing() {
 fn an_ended_subscription_attaches_the_events_it_was_handed() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(Some(TTY)));
-    let guard = connections.subscribe(ConnId::new(1), conversation(1));
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
     guard.reached().store(10, Ordering::Release);
 
     // efr shows the turn's last event, exits, and its connection goes before the
@@ -105,8 +105,8 @@ fn the_furthest_ended_subscription_of_a_terminal_counts() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(Some(TTY)));
     connections.opened(ConnId::new(2), hello(Some(TTY)));
-    let further = connections.subscribe(ConnId::new(1), conversation(1));
-    let behind = connections.subscribe(ConnId::new(2), conversation(1));
+    let further = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let behind = connections.subscribe(ConnId::new(2), conversation(1), false);
     further.reached().store(20, Ordering::Release);
     behind.reached().store(5, Ordering::Release);
 
@@ -121,9 +121,9 @@ fn an_ended_subscription_without_a_tty_or_an_event_attaches_nothing() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(None));
     connections.opened(ConnId::new(2), hello(Some(TTY)));
-    let without_tty = connections.subscribe(ConnId::new(1), conversation(1));
+    let without_tty = connections.subscribe(ConnId::new(1), conversation(1), false);
     without_tty.reached().store(10, Ordering::Release);
-    let without_event = connections.subscribe(ConnId::new(2), conversation(2));
+    let without_event = connections.subscribe(ConnId::new(2), conversation(2), false);
 
     drop((without_tty, without_event));
 
@@ -137,7 +137,7 @@ fn only_the_newest_ended_subscriptions_are_remembered() {
     connections.opened(ConnId::new(1), hello(Some(TTY)));
     let count = u128::try_from(super::MAX_FOLLOWED).unwrap() + 1;
     for n in 1..=count {
-        let guard = connections.subscribe(ConnId::new(1), conversation(n));
+        let guard = connections.subscribe(ConnId::new(1), conversation(n), false);
         guard.reached().store(u64::try_from(n).unwrap(), Ordering::Release);
     }
 
@@ -145,4 +145,44 @@ fn only_the_newest_ended_subscriptions_are_remembered() {
     assert!(!connections.attached(TTY, conversation(1), at(0), seq(1)), "the oldest went");
     assert!(connections.attached(TTY, conversation(2), at(0), seq(2)));
     assert!(connections.attached(TTY, conversation(count), at(0), seq(count)));
+}
+
+#[test]
+fn answering_subscriptions_are_counted_per_conversation_until_their_guards_drop() {
+    let connections = Arc::new(Connections::default());
+    connections.opened(ConnId::new(1), hello(Some(TTY)));
+    connections.opened(ConnId::new(2), hello(None));
+    assert_eq!(connections.answerers(conversation(1)), 0);
+
+    let watching = connections.subscribe(ConnId::new(1), conversation(1), false);
+    assert_eq!(connections.answerers(conversation(1)), 0, "a viewer cannot answer");
+    let first = connections.subscribe(ConnId::new(1), conversation(1), true);
+    let second = connections.subscribe(ConnId::new(2), conversation(1), true);
+    let other = connections.subscribe(ConnId::new(2), conversation(2), true);
+    assert_eq!(connections.answerers(conversation(1)), 2);
+    assert_eq!(connections.answerers(conversation(2)), 1);
+
+    drop(first);
+    assert_eq!(connections.answerers(conversation(1)), 1);
+    drop((second, watching, other));
+    assert_eq!(connections.answerers(conversation(1)), 0);
+    assert_eq!(connections.answerers(conversation(2)), 0);
+}
+
+#[test]
+fn a_closed_connection_answers_nothing_even_before_its_requests_end() {
+    let connections = Arc::new(Connections::default());
+    connections.opened(ConnId::new(1), hello(Some(TTY)));
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), true);
+    connections.closed(ConnId::new(1));
+    assert_eq!(connections.answerers(conversation(1)), 0);
+    drop(guard);
+    assert_eq!(connections.answerers(conversation(1)), 0);
+}
+
+#[test]
+fn a_subscription_without_a_hello_never_counts() {
+    let connections = Arc::new(Connections::default());
+    let _guard = connections.subscribe(ConnId::new(7), conversation(1), true);
+    assert_eq!(connections.answerers(conversation(1)), 0);
 }
