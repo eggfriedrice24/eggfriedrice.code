@@ -42,9 +42,9 @@ pub(crate) fn check_answer(text: &str) -> Result<(), ShellError> {
 /// never reaches the output.
 ///
 /// NOTE: the modes alone cannot keep an answer from the shell: zsh runs its precmd
-/// hooks in cooked mode, before its line editor goes raw. The caller refuses while the
-/// shell itself holds the terminal, and the integration's line editor runs no line
-/// that efr did not type.
+/// hooks in cooked mode, before its line editor goes raw. The caller also refuses while
+/// the shell's own process group holds the terminal, and the integration drains unread
+/// input before `D`; the session's `answer` names the one window that is left.
 pub(crate) fn check_modes(modes: InputModes, hidden: bool) -> Result<(), &'static str> {
     if !modes.canonical {
         return Err("the terminal is not reading a line");

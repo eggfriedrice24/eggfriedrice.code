@@ -104,10 +104,17 @@ and `D`, or the two sentinels):
   between the check and the write. The group check matters because zsh takes the
   terminal back when the job ends and runs its precmd hooks in cooked mode, before `D`
   reaches the session: canonical input alone would let an answer through there, to be
-  read by the line editor. An answer counts as activity: the next look reports `None`,
-  so a prompt that is asked again (`Sorry, try again.`) is a new change. The text is a
-  `SecretText` throughout: no error, `Debug` output or log carries it, and a hidden
-  answer never reaches the output or the recording.
+  read by the line editor. An answer written before zsh takes the terminal back is
+  thrown away by the integration's drain (below), which runs first among the precmd
+  hooks. One window is left: a precmd hook that runs after the integration's and starts
+  an external command puts it in the foreground, in a process group of its own and in
+  cooked mode, after the drain; a visible answer tried then, before the session has read
+  `D`, passes both checks (a hidden one is refused unless that command turned echo off),
+  and the line editor reads it as the next command line once the hook ends. It lasts
+  from zsh's write of `D` until the session reads it. An answer counts as activity: the
+  next look reports `None`, so a prompt that is asked again (`Sorry, try again.`) is a
+  new change. The text is a `SecretText` throughout: no error, `Debug` output or log
+  carries it, and a hidden answer never reaches the output or the recording.
 - `sudo` keeps its usual credential cache on the hidden shell's terminal (about five
   minutes), so a `sudo` soon after an answered one may not ask again. Nothing here
   clears it (no `sudo -k`); a later setting will control that.
@@ -237,8 +244,9 @@ clock and the seeded generator.
   and sentinel tokens come from the `Rng`.
 - No error, notice or `Debug` output carries a command line or an environment value,
   or the text of an answer.
-- An answer reaches a terminal only while the same call's command runs and the
-  terminal reads a line; a hidden one only while echo is off.
+- An answer reaches a terminal only while the same call's command runs, as far as the
+  session has read the stream (`D` not yet read), and the terminal reads a line; a
+  hidden one only while echo is off.
 
 ## Tests
 

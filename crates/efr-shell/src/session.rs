@@ -576,9 +576,20 @@ impl SessionActor {
 
 /// Types an answer for `call` when its command runs, a job of it holds the terminal,
 /// and the terminal reads a line in the right modes. The group and the modes are read
-/// right before the one write, with no await between them, so the terminal cannot
-/// change hands in between as far as this task can tell: a getpass-style read that
+/// right before the one write, with no await between them: a getpass-style read that
 /// ended, or the shell back in its hooks or at its prompt, is seen and refused.
+///
+/// NOTE: zsh takes the terminal back as soon as the command's job ends, before its
+/// precmd hooks run, and the integration's hook, the first of them, drains unread input
+/// before it prints `D`. An answer written before zsh takes the terminal back is
+/// drained, and one tried after it, while `D` is still on its way here, finds the
+/// shell's own group in the foreground and is refused. One window is left: a precmd
+/// hook that runs after the integration's and starts an external command puts that
+/// command in the foreground, in a process group of its own and in cooked mode, after
+/// the drain. A visible answer tried then, before this actor has read `D`, passes both
+/// checks (a hidden one is refused unless that command turned echo off), and the line
+/// editor reads it as the next command line once the hook ends. The window lasts from
+/// zsh's write of `D` until the chunk that holds it reaches this actor.
 fn answer(
     core: &mut SessionCore,
     terminal: &Terminal,
@@ -590,8 +601,8 @@ fn answer(
     let conversation = core.conversation;
     let modes =
         terminal.job_modes().map_err(|source| ShellError::Terminal { conversation, source })?;
-    // NOTE: the shell holds the terminal again as soon as the command's job ended, and
-    // `D` may still be on its way here: an answer then would wait for the line editor.
+    // The shell holds the terminal again as soon as the command's job ended, and `D`
+    // may still be on its way here: an answer then would wait for the line editor.
     let modes = modes.ok_or(ShellError::NotWaiting {
         conversation,
         reason: "the shell itself holds the terminal",
