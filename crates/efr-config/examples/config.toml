@@ -1,11 +1,12 @@
 #:schema https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json
 
 # The efr config file, read by efrd and efr from $XDG_CONFIG_HOME/efr/config.toml
-# (EFR_CONFIG_DIR moves it). Every key is optional: a key that is left out has the
-# value of its commented line, or none when the comment says so. An unknown key is an
-# error, so a typo never silently does nothing. The file holds no secrets, so it can
-# live in a dotfiles repository behind a symbolic link. A key marked (restart) applies
-# only after efrd restarts.
+# (EFR_CONFIG_DIR or EFR_HOME moves it; efr paths shows where). Every key is optional:
+# a key that is left out has the value of its commented line, or none when the comment
+# says so. An unknown key is an error, so a typo never silently does nothing. The file
+# holds no secrets, so it can live in a dotfiles repository behind a symbolic link.
+# efrd reads it again when it changes; a file with an error keeps the old settings. A
+# key marked (restart) applies only after efrd restarts. efr config check checks it.
 
 # The daemon's tracing filter, in EnvFilter syntax. EFR_LOG and efrd --log win over
 # it.
