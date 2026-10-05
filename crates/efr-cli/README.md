@@ -10,9 +10,11 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
-| `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup |
-| `efr new [--context-json <json>] [--last-command <text>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
+| `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
+| `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
+| `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices |
+| `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the efforts of each; `--names` prints only the ids, for completion |
 | `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error and the keys that wait for a restart |
 | `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more) |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
@@ -36,6 +38,22 @@ hand, and each wins over its variable. The variables reach no child process (`ef
 starts only `xdg-open`, through `efr_stdx::process::command`, which removes them) and
 no log: `LastCommand` and `efr_stdx::env::Env` show them in `Debug` by length only.
 
+Turn settings: `efr send` and `efr new` ask for a permission mode, a model and a
+reasoning effort with `--mode`, `--model` and `--effort`, else with `EFR_MODE`,
+`EFR_MODEL` and `EFR_EFFORT`, in which the plugin hands over the terminal's choice. A
+flag wins over its variable, and an empty variable counts as unset. Each value left
+out is not sent, and the daemon's config decides it when the turn starts
+(`prompt.send` `params.settings`). The CLI checks only the mode's name, before it
+connects (exit 2 with the choices); the daemon checks the model and the effort against
+its model list. `efr send --steer` takes no settings, because a running turn keeps its
+own, and it ignores the variables. `efr settings` shows what a prompt would get: the
+model list and the default model come from the daemon (`models.list`), the default
+mode and effort from `config.toml` as `efr` reads it, so they match the daemon's when
+both read the same config root. Each line names its source: a flag, a variable, the
+file's path, `default`, `the daemon's default`, the model's default effort, or none
+sent (the backend chooses). A model whose efforts `models.list` leaves empty takes any
+effort.
+
 The last command travels as `prompt.send` `params.last_command`, never inside the
 context: the daemon gives it to the turn's preamble and records it in no event. The
 context is decoded as a `ShellContext`, so a `last_command` member that a caller puts
@@ -45,6 +63,11 @@ directory and the terminal on stdin, and the connection's origin is `cli` instea
 
 Replies:
 
+- When the daemon says that a setting of the turn came from the prompt
+  (`PromptSendResult.settings`, `overridden`), the reply's first line is a dim note
+  with those values, such as `mode auto, model gpt-5.4`. It comes from the
+  `prompt.send` result, so it shows before the first event. Settings that the config
+  gave are left out, and a daemon that sends no settings gets no note.
 - When stdout is a terminal (and `TERM` is not `dumb`), each assistant message streams
   through an `efr_render::Renderer`. Committed output is written once; the live zone is
   redrawn in place: carriage return, cursor up over the old live zone's rows (counted
@@ -67,7 +90,8 @@ Replies:
   ```
 
   `efr-config` reads and checks the whole file with the schema the daemon uses, unknown
-  keys refused; the CLI uses only `[render]` and warns, without failing, when the file
+  keys refused; the CLI uses `[render]`, and for `efr settings` `permissions.mode`,
+  `model.name` and `model.effort`, and warns, without failing, when the file
   is not valid or names a theme `efr-render` does not have. The defaults apply then.
 
 Approvals show inline. When stdin is a terminal, `y` allows and `n` denies with one key:
@@ -197,7 +221,14 @@ codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` 
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
 variables it was handed, so a test can prove that no typed text reaches a command
 line; one test runs the built `efr` behind the plugin against a `TestDaemon`. The
-widgets (the lone `,` and Ctrl+Space toggles, sticky mode) are tested by typing into
+fake prints canned output for `efr settings` and `efr models`, so the tests cover
+`,mode`, `,model` and `,effort` (a value is kept only when `efr settings` accepts it,
+`default` clears it, a bare one prints its line), the handover of `EFR_MODE`,
+`EFR_MODEL` and `EFR_EFFORT` to `,` and `,new` and not to `,!`, completion after
+`compinit`, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
+`XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
+temporary tree). The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
+tag of the terminal's settings before the robot) are tested by typing into
 an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
 so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
 with a message unless `EFR_TEST_ZSH=1`:

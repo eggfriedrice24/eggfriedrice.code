@@ -41,14 +41,16 @@ pub enum Var {
     RecordTranscript,
     /// `EFR_TEST_ZSH`: a flag; tests that drive a real zsh run only when it is on.
     TestZsh,
-    /// `EFR_MODE`: the permission mode that `efr send` and `efr new` ask for, `manual`,
-    /// `cautious` or `auto`; a flag wins over it. Not read yet.
+    /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
+    /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
+    /// over the terminal's choice in it.
     Mode,
-    /// `EFR_MODEL`: the model that `efr send` and `efr new` ask for; a flag wins over it.
-    /// Not read yet.
+    /// `EFR_MODEL`: the model that `efr send`, `efr new` and `efr settings` ask for; a
+    /// flag wins over it. The zsh plugin hands over the terminal's choice in it.
     Model,
-    /// `EFR_EFFORT`: the reasoning effort that `efr send` and `efr new` ask for; a flag
-    /// wins over it. Not read yet.
+    /// `EFR_EFFORT`: the reasoning effort that `efr send`, `efr new` and `efr settings`
+    /// ask for; a flag wins over it. The zsh plugin hands over the terminal's choice in
+    /// it.
     Effort,
     /// `EFR_CONTEXT`: the shell context JSON that the zsh plugin hands to `efr send`
     /// and `efr new`. Private: see [`Var::PRIVATE`].
