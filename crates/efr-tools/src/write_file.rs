@@ -86,9 +86,9 @@ impl Tool for WriteFileTool {
         let target = path.clone();
         let snapshot = blocking(&path, move || snapshot(&home, &target)).await.ok()?;
         match &snapshot.original {
-            Original::Missing => Some(diff::unified(&path, None, &input.content)),
+            Original::Missing => Some(diff::unified_diff(&path, None, &input.content)),
             Original::File { content, .. } => match std::str::from_utf8(content) {
-                Ok(old) => Some(diff::unified(&path, Some(old), &input.content)),
+                Ok(old) => Some(diff::unified_diff(&path, Some(old), &input.content)),
                 Err(_) => Some(format!(
                     "{} is not a text file ({} bytes); all of it would be replaced with {} bytes",
                     path.display(),

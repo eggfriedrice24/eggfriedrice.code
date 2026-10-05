@@ -11,7 +11,8 @@
 //!   [`WriteFileTool`], which records each original in a [`WriteJournal`]
 //!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes, and
 //!   previews a write as a bounded unified diff for its approval
-//!   ([`Tool::preview`]).
+//!   ([`Tool::preview`], [`unified_diff`], which the daemon's settings tool shows
+//!   too).
 //! - [`ToolContext`] and [`CallIds`]: where a call runs.
 //! - [`truncate_middle`]: head and tail with a marker, [`DEFAULT_OUTPUT_LIMIT`]
 //!   (32 KiB) unless a tool says otherwise.
@@ -36,6 +37,7 @@ mod tool;
 mod write_file;
 
 pub use context::{CallIds, ToolContext};
+pub use diff::unified_diff;
 pub use error::ToolError;
 pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJournal};
 pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};

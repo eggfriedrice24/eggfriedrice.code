@@ -45,8 +45,10 @@ struct Step<'a> {
 }
 
 /// The unified diff from `old` (`None` for a file that does not exist yet) to `new`
-/// for the file at `path`, bounded as the module docs say.
-pub(crate) fn unified(path: &Path, old: Option<&str>, new: &str) -> String {
+/// for the file at `path`, as an approval shows it: three lines of context around each
+/// change, at most 200 lines or 16 KiB below the two header lines, then a line that
+/// says how much is left out. The same text as `write_file`'s preview.
+pub fn unified_diff(path: &Path, old: Option<&str>, new: &str) -> String {
     if old == Some(new) {
         return UNCHANGED.to_owned();
     }

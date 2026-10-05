@@ -2,10 +2,10 @@ use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::{MAX_LINES, UNCHANGED, unified};
+use super::{MAX_LINES, UNCHANGED, unified_diff};
 
 fn diff(old: Option<&str>, new: &str) -> String {
-    unified(Path::new("/home/u/.zshrc"), old, new)
+    unified_diff(Path::new("/home/u/.zshrc"), old, new)
 }
 
 #[test]
