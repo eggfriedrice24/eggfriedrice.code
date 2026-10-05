@@ -24,14 +24,19 @@ The tools the model calls, and the registry that offers them.
   tool shows a change of `config.toml` the same way.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
-  the home directory (`efr_scope::Home`), the clock, the write journal and
+  the home directory (`efr_scope::Home`), the clock, the write journal,
   `forget_credentials`, which the shell tool passes on to the run so the hidden shell
-  forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`).
+  forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`), and
+  `interactive_limit`, set for a call that the user approved because it may wait for
+  input (`shell.interactive_timeout_minutes`), which the shell tool passes on as
+  `RunRequest::interactive_limit`.
 - `ToolResult`: the output the model sees, the truncation flag, the error flag and the
   exit code; `ToolOutputSink` hears a call's output while it runs, each change of
-  whether its command waits for input (`input_changed`, ignored by default), and is
-  asked whether a person can answer hidden input now (`can_answer_hidden`, true by
-  default; the daemon answers it).
+  whether its command waits for input with whether a visible prompt looks like a
+  password prompt behind a relay (`input_changed`, ignored by default), and is asked
+  whether a person can answer hidden input now (`can_answer_hidden`, true by default)
+  and whether a person who can answer follows the call (`can_answer`, false by
+  default, which keeps a call's timeout); the daemon answers both.
 - `truncate_middle`: the head and the tail of a long output with a
   `[... N bytes omitted ...]` line between them, cut on character boundaries and near
   line ends; `DEFAULT_OUTPUT_LIMIT` is 32 KiB.
@@ -77,10 +82,13 @@ The tools:
   ends with `[exit code N, cwd DIR]`; a command still running at the timeout gets the
   screen's last lines and a note that the next call waits for it. The run names the
   call (`RunRequest::call`), so only answers for this call reach its command, and the
-  tool passes the run's input waits and the question who can answer to its
+  tool passes the run's input waits and the questions who can answer to its
   `ToolOutputSink`. The texts the model reads never promise a screen: the user does
   not see the hidden shell, and can answer a waiting command in their terminal only
-  while they follow the turn. A full-screen program at the timeout
+  while they follow the turn; behind a relay (`sudo`, `ssh`, `docker exec`) the program
+  on the inner terminal decides whether an answer is shown; an approved interactive
+  call may run up to the user's interactive limit, and the timeout text names how long
+  the call really ran; no editor works in the hidden shell. A full-screen program at the timeout
   (`Completion::FullScreen`) has its own text: the user is never asked about one and
   cannot reach it yet, so the model reads that, not that the user missed a question.
   A command that waited for hidden input that nobody could

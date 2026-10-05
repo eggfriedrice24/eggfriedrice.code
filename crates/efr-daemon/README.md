@@ -207,13 +207,18 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   is not one line of at most `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes
   without control characters is `invalid`; a conversation without a shell, or in which
   no call's command runs (the call's command ended, or was left at its timeout and
-  goes on without a call), is `not_found`; and a command that does not wait for that
+  goes on without a call, so an answer after the call's `tool_call_completed` always
+  is), is `not_found`; and a command that does not wait for that
   input (another call's command, one not started yet, one with no wait reported, an
   answer of the other kind than the wait, a hidden answer while the terminal does not
   read a line or echoes, the shell itself or another job than the one that waited
   holding the terminal, as when the command's job ended and zsh's precmd hooks, or a
   command one of them started, run before the command's `D` arrived) is `conflict`;
-  nothing is written then. There is no receipt. The text is a `SecretText`: it reaches
+  nothing is written then. A `manual` answer, which the user typed after `Ctrl+\` for a
+  command that reported no wait, goes through `ShellSessions::answer_manual`: it needs
+  no reported wait and skips the kind check, and keeps the rest (that call's command
+  runs, a job and not the shell itself holds the terminal, the modes for a hidden
+  answer, the text rules). There is no receipt. The text is a `SecretText`: it reaches
   no log, error message, event or receipt, and the handler logs only its length. The
   transport zeroes the frame's bytes once it has read and decoded them, the
   `SecretText` and the clone that the shell's actor gets are zeroed when they drop,
@@ -231,7 +236,15 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   that nobody could answer it, with the advice to have the user run it in their own
   terminal or follow the turn while it retries. With one, the
   command waits until it ends or its timeout passes. A visible wait (a `[Y/n]`
-  question) never stops a command.
+  question) never stops a command. The same count keeps a call that the user approved
+  because it may wait for input (`CallContext::approved_interactive`) running past the
+  model's `timeout_seconds`: `tools.rs` sets `ToolContext::interactive_limit` from
+  `shell.interactive_timeout_minutes` of the latest settings (60 by default), and the
+  shell asks once per quiet period past the timeout whether such a client still
+  follows. Without one, or once the limit passes, the call answers as at its timeout
+  (`Interactive` or `StillRunning`), and its command goes on without a call. A visible
+  wait whose prompt looks like a password prompt behind a relay carries `looks_secret`
+  on its `tool_call_input_changed` event.
 - `shell.sudo_cache` decides what happens to sudo's credential cache on the hidden
   shell's terminal, read from the latest settings at each call (`tools.rs` sets
   `ToolContext::forget_credentials`). `keep`, the default, leaves it to sudo (about

@@ -56,7 +56,9 @@ effect. The strictest effect decides the call, in the order `allow < ask < deny`
 
 Some floors hold in every mode, whatever the rules say:
 
-- a call that can wait for input at the terminal, such as `sudo`, asks;
+- a call that can wait for input at the terminal, such as `sudo`, asks; once you
+  approve it, it may run past the model's timeout while you follow the turn in a
+  terminal, up to `interactive_timeout_minutes` under `[shell]` (60 by default);
 - a program that runs commands as another user (`sudo`, `doas`, `su`, `pkexec`,
   `run0`) asks;
 - a turn from the phone runs with at most `cautious` and asks outside `$SCRATCH`;

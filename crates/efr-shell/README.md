@@ -60,6 +60,13 @@ prompts such as `sudo` stay visible.
   exists), `Completion::Interactive` when it waits for input (it has been quiet for
   `quiet_period` and the cursor sits after some text), and `Completion::StillRunning`
   otherwise.
+- A run with `RunRequest::interactive_limit` (the daemon sets it for a call that the
+  user approved because it may wait for input) whose command runs keeps waiting past
+  its timeout while `RunProgress::can_answer` says that a person who can type answers
+  follows it, asked at the timeout and then once per `quiet_period`, up to the limit
+  counted from the run's start. Once nobody follows, or the limit passes, the result
+  is the one above. A run still waiting for its prompt is never kept past its timeout,
+  and the stop of an unanswered hidden wait is the same with or without a limit.
 - Without the integration (a shell that is not a zsh, or a zsh whose first marked
   prompt did not come within `startup_timeout`), and for `RunMode::Sentinel` (a shell
   started inside the hidden one: `sudo -i`, `bash`, `ssh`), the command is delimited
@@ -87,7 +94,12 @@ and `D`, or the two sentinels):
   there. The program on the inner terminal decides whether an answer is shown. So a
   password prompt that a program behind such a relay reads on its own terminal is
   `Visible` too, and its answer is shown only if that program echoes it; `sudo`'s own
-  password prompt comes before the relay and is `Hidden`.
+  password prompt comes before the relay and is `Hidden`. A visible wait looks secret
+  (`RunProgress::input_changed`'s `looks_secret`) when the terminal is not in line mode
+  and the cursor's row names a password, a passphrase, a passcode, a PIN (as a word of
+  its own), a verification code or a one-time code, in any case (`input::looks_secret`),
+  so a client hides what the user types; the answer still goes as a visible one, so the
+  kind check below holds. A change of the flag alone is a change too.
 - A prompt that reads command lines (a shell's `$ `, a REPL's `>>> `) looks like a
   visible question, and an answer there would run as a command line. So two kinds of
   run report hidden waits only (`input::Offer`):
@@ -132,6 +144,13 @@ and `D`, or the two sentinels):
   is the moment between that read and the holder's own read of the group as it
   signals. A visible wait never stops a command: it is a guess, and a slow command whose
   last line is unfinished looks the same.
+- `ShellSessions::answer_manual(conversation, call, text, hidden)` types an answer the
+  user chose to type for a command that reported no wait (after `Ctrl+\` at a command
+  that printed nothing for a while). It skips the check against the reported wait and
+  its kind, and keeps the rest of the checks below: the text rules, this call's command
+  runs, a job and not the shell itself holds the terminal, and for a hidden answer a
+  line read with echo off. A visible manual answer can reach whatever runs in the
+  foreground, also a nested shell's prompt; the user typed it there.
 - `ShellSessions::answer(conversation, call, text, hidden)` types an answer for the
   tool call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters
@@ -378,7 +397,8 @@ clock and the seeded generator.
   session has read the stream (`D` not yet read), the run reports a wait of the
   answer's kind, the job in the foreground is the one that was there at the look that
   reported it (by its process group), and, for a hidden answer, the terminal reads a
-  line with echo off, all as read right before the write. A sentinel run and a run
+  line with echo off, all as read right before the write. A manual answer needs no
+  reported wait and no kind, but still a job, not the shell itself, in the foreground. A sentinel run and a run
   whose command line starts a shell or a REPL report no visible wait. The stop of an
   unanswered hidden wait signals only while that job holds the terminal, as read right
   before the signal.

@@ -111,7 +111,10 @@ by field:
   `interactive`); a `ToolError` becomes its `Display` text for the model. The turn
   asks the toolbox's `shell_cwd` before each call and puts it in
   `CallContext::shell_cwd`, so a command's relative paths are declared from where the
-  hidden shell is, which an earlier call may have moved;
+  hidden shell is, which an earlier call may have moved. Once the user approved a call
+  whose requirements are `interactive`, the check point sets
+  `CallContext::approved_interactive`, from which the daemon lets the call run past the
+  model's timeout while someone who can answer follows it;
 - `invoke`: `ToolRegistry::invoke` with the `OutputSink` passed through as the
   `ToolOutputSink` (output and input waits; the daemon itself answers whether a person
   can answer hidden input), and `ToolResult` copied into `ToolOutcome`; a `ToolError`

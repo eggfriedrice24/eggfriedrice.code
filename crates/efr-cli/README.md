@@ -114,6 +114,12 @@ command's prompt (its last output line) and how to answer:
   behind a relay such as `sudo`'s own pty, the program on the inner terminal decides
   whether it is shown, and a password prompt of a program there counts as `visible`
   too.
+- `visible` with `looks_secret` (a password prompt behind a relay, such as `ssh` or a
+  `sudo -u` that runs `passwd`): the CLI shows nothing of what is typed and says "this
+  looks like a password prompt behind another program: your typing is not shown here,
+  and the agent sees it only if that program shows it". The answer still goes as a
+  visible one, and keys typed while the call asks nothing more are thrown away until it
+  completes, as for a hidden answer.
 
 Printable text is added, Backspace removes one character, Ctrl+U clears the line, arrow
 keys and other escape sequences are ignored, and Enter sends the line with
@@ -142,6 +148,26 @@ the running turn's last output line and asks for the input that turn's command w
 for, also one asked before the prompt (found on the newest page of the log, as approvals
 are). Without a terminal on stdin, one dim note says that the command waits for input
 that `efr` cannot ask for here. Full-screen programs need an attach, which comes later.
+
+A command can also wait for input without a prompt that the daemon can see, such as a
+program that reads a line after printing a newline. `efr` must not read keys just
+because a command is silent: text typed then stays typeahead for the user's shell. So
+while a shell call of the followed turn runs, reports no wait, no key is read for it
+and keys can be read here, ten seconds without output (`follow::SILENCE`, timed on the
+injected clock from the call's last output, wait or answer) bring one dim line: "no
+output for 10 s; press `Ctrl+\` to type an input for the command". Only while that line
+is shown does `efr` take SIGQUIT (`quit.rs`): `Ctrl+\` opens an answer line, shown as it
+is typed under the visible note, which goes with `input.respond` `manual: true`; after
+one answer the keys stop and the silence starts again. Output, a wait or an approval
+takes the line away. Any other SIGQUIT keeps its default meaning: tokio's handler
+stays installed once the key was first offered, so the listener does the default
+action itself (`signal_hook::low_level::emulate_default_handler`), and `efr` ends by
+SIGQUIT as it would without a handler. The terminal throws away typeahead when it
+turns `Ctrl+\` into the signal, as it does for Ctrl+C. A call that the user approved
+because it may wait for input keeps running past the model's timeout while this
+terminal follows (`shell.interactive_timeout_minutes`); an answer after the call
+completed is refused as `not_found`, which the CLI shows as the note that the command
+no longer waits.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
 130); the daemon stops the model and any running command. A prompt that still waits
@@ -180,7 +206,8 @@ threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (strings
 in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
 (row counting), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
-line).
+line), `signal-hook` (the default action of SIGQUIT once `efr`'s own handler is
+installed, without unsafe code).
 
 `NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`,
 and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventions that
@@ -197,8 +224,11 @@ and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventio
 - Text from the daemon or the model cannot drive the terminal: markdown goes through
   `efr-render`, and everything else the CLI prints passes through `format::one_line` or
   `format::lines`, which turn control characters into visible stand-ins.
-- A hidden answer is never written to stdout or stderr, never logged and never handed
-  to the view; it leaves the process only inside `input.respond`.
+- A hidden answer, and one whose prompt looks secret, is never written to stdout or
+  stderr, never logged and never handed to the view; it leaves the process only inside
+  `input.respond`.
+- No key is read while a command is merely silent: only `Ctrl+\`, while the view offers
+  it, opens an answer line; other SIGQUITs end `efr` as they would without a handler.
 - The last command line never reaches the shell context, and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
   reaches no child process and no log.
@@ -218,7 +248,11 @@ count agrees with the renderer's), the key thread on a real pseudo-terminal, and
 editing of an answer line. The end-to-end tests run whole commands against a fake
 daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
 Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
-byte written to the fake terminal holds a hidden answer.
+byte written to the fake terminal holds a hidden answer. The silence tests use a clock
+whose sleeps end when the test opens a gate and a `Ctrl+\` the test presses, and check
+that no key reader starts before the key and that the key is waited for only while the
+line offers it. `quit.rs` is tested with SIGQUITs that the test sends to its own process,
+with a stand-in for the default action, which would end it.
 `tests/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
 codes and the environment. `tests/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
