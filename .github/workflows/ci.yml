@@ -228,4 +228,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-hack@0.6.45
-      - run: cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty
+      # efr-daemon's screen-ghostty feature pulls in the ghostty crate even though it is
+      # excluded, and its build needs Zig; the ghostty job covers that feature. As in
+      # `just hack`.
+      - run: cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty --exclude-features screen-ghostty

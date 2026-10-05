@@ -80,8 +80,8 @@ test-shell:
     # tests over a TestDaemon need for a real zsh.
     EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon
 
-# Formatting, clippy, cargo-deny, tidy and the dependency rule.
-lint: fmt-check clippy deny tidy deps
+# Formatting, clippy, cargo-deny, tidy, the dependency rule and every feature combination.
+lint: fmt-check clippy deny tidy deps hack
 
 # The pre-push gate: lint plus the leaf tests.
 check: lint test-leaf
@@ -113,6 +113,12 @@ tidy:
 # The dependency rule of ARCHITECTURE.md.
 deps:
     cargo xtask deps
+
+# screen-ghostty is left out: it builds the ghostty crate, which needs Zig, and the
+# ghostty job checks it.
+# Every feature combination of every crate without Zig, as in CI's hack job.
+hack:
+    cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty --exclude-features screen-ghostty
 
 # Spelling.
 typos:
