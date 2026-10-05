@@ -142,16 +142,32 @@ async fn a_socket_path_too_long_for_a_socket_fails_with_its_path_and_creates_not
     assert!(!dir.exists(), "nothing is created for a path that cannot work");
 }
 
-#[tokio::test]
+// NOTE: every socket of this process in one directory stages under the same name, so
+// the binds run on threads of their own and start together, round after round: two
+// binds whose staging overlapped would remove each other's staged socket.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn sockets_in_one_directory_bind_at_once() {
+    const BINDS: usize = 8;
+    const ROUNDS: usize = 25;
     let dir = tempfile::tempdir().unwrap();
-    let paths: Vec<_> = (0..8).map(|n| dir.path().join(format!("{n}.sock"))).collect();
-
-    let bound = futures::future::join_all(paths.iter().map(UnixListener::bind)).await;
-
-    for (path, listener) in paths.iter().zip(&bound) {
-        assert!(listener.is_ok(), "{}: {listener:?}", path.display());
-        assert_eq!(mode(path), 0o600);
+    for round in 0..ROUNDS {
+        let start = Arc::new(tokio::sync::Barrier::new(BINDS));
+        let binds: Vec<_> = (0..BINDS)
+            .map(|n| {
+                let path = dir.path().join(format!("{round}-{n}.sock"));
+                let start = Arc::clone(&start);
+                tokio::spawn(async move {
+                    start.wait().await;
+                    let bound = UnixListener::bind(&path).await;
+                    (path, bound)
+                })
+            })
+            .collect();
+        for bind in binds {
+            let (path, listener) = bind.await.unwrap();
+            assert!(listener.is_ok(), "round {round}, {}: {listener:?}", path.display());
+            assert_eq!(mode(&path), 0o600);
+        }
     }
 }
 
