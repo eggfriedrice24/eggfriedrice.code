@@ -47,6 +47,7 @@ fn every_method() -> Vec<Method> {
             text: "hi".to_owned(),
             context: None,
             last_command: None,
+            settings: efr_protocol::TurnSettings::default(),
         }),
         Method::TurnInterrupt(TurnInterrupt { command_id, conversation_id, turn_id: None }),
         Method::TurnSteer(TurnSteer {

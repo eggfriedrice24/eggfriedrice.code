@@ -340,6 +340,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             turn_id: turn(),
             cwd: std::path::PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
+            settings: None,
         };
         conn.item(sub, &item(13, started)).await;
         // Once the prompt's own turn runs, other turns' approvals are not this view's.
@@ -786,6 +787,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             turn_id: turn(),
             cwd: std::path::PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
+            settings: None,
         };
         conn.item(sub, &item(14, started)).await;
         conn.item(sub, &item(15, turn_completed())).await;

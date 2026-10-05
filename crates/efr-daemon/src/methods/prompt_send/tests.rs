@@ -27,6 +27,7 @@ fn prompt(tty: Option<&str>) -> PromptSend {
         text: "what is using port 8080".to_owned(),
         context,
         last_command: None,
+        settings: efr_protocol::TurnSettings::default(),
     }
 }
 

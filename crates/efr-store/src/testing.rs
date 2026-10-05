@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use efr_protocol::{
     CallId, CommandId, ConversationId, Event, Origin, PtyId, Scope, ShellContext, TurnId,
+    TurnSettings,
 };
 use efr_stdx::time::{Clock, Sleep};
 use jiff::{SignedDuration, Timestamp};
@@ -106,6 +107,7 @@ pub(crate) fn queued(turn: u64, text: &str) -> Event {
         text: text.to_owned(),
         origin: Origin::Shell,
         context: Some(ShellContext::new("/etc/nixos")),
+        settings: TurnSettings::default(),
     }
 }
 
@@ -115,6 +117,7 @@ pub(crate) fn started(turn: u64, cwd: &str) -> Event {
         turn_id: self::turn(turn),
         cwd: cwd.into(),
         scope: Scope::Path(cwd.into()),
+        settings: None,
     }
 }
 

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::{
-    CallId, CommandId, ConversationId, ErrorBody, Origin, PtyId, Scope, Seq, ShellContext, TurnId,
+    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, Origin, PtyId, Scope, Seq,
+    ShellContext, TurnId, TurnSettings,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -65,6 +66,10 @@ pub enum Event {
         /// never carries the last command of `prompt.send`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ShellContext>,
+        /// The settings that the prompt asked for, kept with it while it waits, so a held
+        /// prompt runs with them too. Absent means none.
+        #[serde(default, skip_serializing_if = "TurnSettings::is_empty")]
+        settings: TurnSettings,
     },
 
     /// A queued prompt is held after a daemon restart until the user confirms it. Nothing
@@ -82,6 +87,10 @@ pub enum Event {
         cwd: PathBuf,
         /// The scope derived from that directory.
         scope: Scope,
+        /// The settings that the turn runs with until it ends. Absent in turns recorded
+        /// before turn settings, whose model and effort no event names.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        settings: Option<EffectiveSettings>,
     },
 
     /// The scope of the conversation changed between turns, because the user moved.

@@ -10,7 +10,7 @@
 use efr_client::Client;
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, Method, Origin, PromptSend,
-    PromptSendResult, ShellContext, TurnSteer, TurnSteerResult,
+    PromptSendResult, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
 };
 use efr_render::render_trace;
 use efr_stdx::env::Var;
@@ -137,6 +137,8 @@ pub(crate) async fn send_prompt(
         text: prompt.text,
         context: Some(prompt.context),
         last_command: prompt.last_command.map(LastCommand::into_string),
+        // NOTE: no flag or variable sets turn settings yet, so the config decides.
+        settings: TurnSettings::default(),
     });
     Ok(client.call(method).await?)
 }

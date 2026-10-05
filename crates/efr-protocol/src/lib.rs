@@ -1,8 +1,8 @@
 //! The efr wire contract: everything that the daemon and its clients exchange.
 //!
 //! Frames, the `Method` enum with one params type per method, results and stream items,
-//! `Event` and its envelope, ids, `Scope`, `ShellContext`, screen snapshots, wire errors,
-//! the pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
+//! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, screen
+//! snapshots, wire errors, the pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
 //! reads `docs/protocol.md` and the frozen fixtures in `fixtures/v1/`.
 //!
@@ -30,6 +30,7 @@ pub mod schema;
 mod scope;
 mod screen;
 mod secret_text;
+mod settings;
 mod shell_context;
 mod version;
 
@@ -64,5 +65,6 @@ pub use methods::{Base64Bytes, PageCursor};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_text::SecretText;
+pub use settings::{EffectiveSettings, Mode, OverriddenSettings, TurnSettings};
 pub use shell_context::ShellContext;
 pub use version::PROTOCOL_VERSION;

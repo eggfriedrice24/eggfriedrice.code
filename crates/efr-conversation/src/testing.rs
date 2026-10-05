@@ -15,6 +15,7 @@ use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CallId, CommandId, ConversationId, Event, EventEnvelope,
     InputWait, Origin, ProjectId, PromptSend, PromptSendResult, Seq, ShellContext, TurnId,
+    TurnSettings,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -403,6 +404,7 @@ impl Harness {
             text: text.to_owned(),
             context: Some(ShellContext::new(cwd)),
             last_command: None,
+            settings: TurnSettings::default(),
         }
     }
 

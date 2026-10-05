@@ -6,8 +6,9 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, InputWait,
-    Origin, PromptSend, PtyId, Scope, Seq, ShellContext, TurnId,
+    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
+    ShellContext, TurnId, TurnSettings,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -21,7 +22,12 @@ fn turn() -> TurnId {
 
 #[test]
 fn a_known_event_is_one_object_tagged_by_kind() {
-    let event = Event::TurnStarted { turn_id: turn(), cwd: "/etc".into(), scope: Scope::Machine };
+    let event = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: "/etc".into(),
+        scope: Scope::Machine,
+        settings: None,
+    };
     assert_eq!(
         serde_json::to_value(&event).unwrap(),
         json!({ "kind": "turn_started", "turn_id": TURN, "cwd": "/etc", "scope": { "kind": "machine" } })
@@ -56,6 +62,7 @@ fn a_prompt_queued_event_never_contains_the_last_command() {
         text: prompt.text.clone(),
         origin: Origin::Shell,
         context: prompt.context.clone(),
+        settings: prompt.settings.clone(),
     };
     let envelope = EventEnvelope {
         seq: Seq::new(1),
@@ -94,12 +101,99 @@ fn the_last_command_of_a_prompt_is_a_member_of_the_params_not_of_the_context() {
         text: "why".to_owned(),
         context: Some(ShellContext::new("/srv")),
         last_command: Some("make".to_owned()),
+        settings: TurnSettings::default(),
     };
     let value = serde_json::to_value(&prompt).unwrap();
     assert_eq!(value["last_command"], json!("make"));
     assert_eq!(value["context"], json!({ "pwd": "/srv" }));
     let back: PromptSend = serde_json::from_value(value).unwrap();
     assert_eq!(back, prompt);
+}
+
+#[test]
+fn a_prompt_queued_event_from_before_turn_settings_still_parses_without_settings() {
+    let old = json!({
+        "kind": "prompt_queued",
+        "turn_id": TURN,
+        "command_id": "01928c4e-7a3b-7c1d-8e2f-000000000004",
+        "text": "why",
+        "origin": "shell",
+    });
+    let event: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::PromptQueued { settings, .. } = &event else {
+        panic!("{event:?}");
+    };
+    assert!(settings.is_empty());
+    assert_eq!(serde_json::to_value(&event).unwrap(), old, "no settings are written");
+}
+
+#[test]
+fn a_prompt_queued_event_keeps_the_settings_the_prompt_asked_for() {
+    let settings = TurnSettings {
+        mode: Some(Mode::Auto),
+        model: Some("gpt-5.4".to_owned()),
+        effort: Some("high".to_owned()),
+    };
+    let event = Event::PromptQueued {
+        turn_id: turn(),
+        command_id: CommandId::from_str("01928c4e-7a3b-7c1d-8e2f-000000000004").unwrap(),
+        text: "why".to_owned(),
+        origin: Origin::Shell,
+        context: None,
+        settings: settings.clone(),
+    };
+    let value = serde_json::to_value(&event).unwrap();
+    assert_eq!(value["settings"], json!({ "mode": "auto", "model": "gpt-5.4", "effort": "high" }));
+    let back: Event = serde_json::from_value(value).unwrap();
+    assert_eq!(back, event);
+}
+
+#[test]
+fn a_turn_started_event_from_before_turn_settings_parses_without_settings() {
+    let old = json!({ "kind": "turn_started", "turn_id": TURN, "cwd": "/etc", "scope": { "kind": "machine" } });
+    let event: Event = serde_json::from_value(old.clone()).unwrap();
+    assert!(matches!(&event, Event::TurnStarted { settings: None, .. }), "{event:?}");
+    assert_eq!(serde_json::to_value(&event).unwrap(), old);
+}
+
+#[test]
+fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
+    let settings = EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "gpt-5.5".to_owned(),
+        effort: Some("medium".to_owned()),
+        overridden: OverriddenSettings { effort: true, ..OverriddenSettings::default() },
+    };
+    let event = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: "/etc".into(),
+        scope: Scope::Machine,
+        settings: Some(settings),
+    };
+    let value = serde_json::to_value(&event).unwrap();
+    assert_eq!(
+        value["settings"],
+        json!({
+            "mode": "cautious",
+            "model": "gpt-5.5",
+            "effort": "medium",
+            "overridden": { "effort": true },
+        })
+    );
+    let back: Event = serde_json::from_value(value).unwrap();
+    assert_eq!(back, event);
+}
+
+#[test]
+fn a_turn_started_event_with_malformed_settings_is_an_error_not_unknown() {
+    let bad = json!({
+        "kind": "turn_started",
+        "turn_id": TURN,
+        "cwd": "/etc",
+        "scope": { "kind": "machine" },
+        "settings": { "mode": "yolo", "model": "gpt-5.5" },
+    });
+    assert!(serde_json::from_value::<Event>(bad).is_err());
 }
 
 #[test]

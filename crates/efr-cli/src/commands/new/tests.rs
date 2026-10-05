@@ -13,6 +13,7 @@ fn sent() -> PromptSendResult {
         turn_id: turn(),
         seq: Seq::new(5),
         queued: false,
+        settings: None,
     }
 }
 

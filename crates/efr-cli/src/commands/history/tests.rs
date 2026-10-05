@@ -39,6 +39,7 @@ fn events() -> Vec<EventEnvelope> {
                 text: "is nginx\nhealthy?".to_owned(),
                 origin: Origin::Shell,
                 context: None,
+                settings: efr_protocol::TurnSettings::default(),
             },
         ),
         envelope(

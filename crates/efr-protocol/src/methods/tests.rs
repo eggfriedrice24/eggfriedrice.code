@@ -1,9 +1,14 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::{Base64Bytes, ConversationId, ConversationSubscribe, InputRespond, PageCursor, Seq};
+use crate::{
+    Base64Bytes, ConversationId, ConversationSubscribe, EffectiveSettings, InputRespond, Mode,
+    OverriddenSettings, PageCursor, PromptSend, PromptSendResult, Seq, TurnSettings,
+};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
+const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
+const COMMAND: &str = "019a9b1c-3d00-7a10-8b20-000000000003";
 
 #[test]
 fn bytes_are_written_as_standard_base64_with_padding() {
@@ -81,4 +86,61 @@ fn answers_input_must_be_a_boolean() {
 fn the_longest_answer_is_frozen_with_the_wire_contract() {
     // Clients cap the line they read at this length, so a change is a protocol change.
     assert_eq!(InputRespond::MAX_TEXT_BYTES, 1024);
+}
+
+#[test]
+fn a_prompt_from_before_turn_settings_parses_as_one_that_asks_for_none() {
+    let old = json!({ "command_id": COMMAND, "text": "why" });
+    let params: PromptSend = serde_json::from_value(old.clone()).unwrap();
+    assert!(params.settings.is_empty());
+    assert_eq!(serde_json::to_value(&params).unwrap(), old, "no settings are written");
+}
+
+#[test]
+fn a_prompt_carries_the_settings_it_asks_for() {
+    let mut params: PromptSend =
+        serde_json::from_value(json!({ "command_id": COMMAND, "text": "why" })).unwrap();
+    params.settings = TurnSettings { mode: Some(Mode::Manual), ..TurnSettings::default() };
+    let value = serde_json::to_value(&params).unwrap();
+    assert_eq!(value["settings"], json!({ "mode": "manual" }));
+    let back: PromptSend = serde_json::from_value(value).unwrap();
+    assert_eq!(back, params);
+    assert!(format!("{params:?}").contains("Manual"), "{params:?}");
+}
+
+#[test]
+fn a_prompt_with_an_unknown_mode_is_rejected() {
+    let params = json!({ "command_id": COMMAND, "text": "why", "settings": { "mode": "yolo" } });
+    assert!(serde_json::from_value::<PromptSend>(params).is_err());
+}
+
+#[test]
+fn a_prompt_send_result_from_before_turn_settings_parses_without_settings() {
+    let old = json!({ "conversation_id": CONVERSATION, "turn_id": TURN, "seq": 3, "queued": true });
+    let result: PromptSendResult = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(result.settings, None);
+    assert_eq!(serde_json::to_value(&result).unwrap(), old);
+}
+
+#[test]
+fn a_prompt_send_result_reports_the_settings_of_its_turn() {
+    let result = PromptSendResult {
+        conversation_id: CONVERSATION.parse().unwrap(),
+        turn_id: TURN.parse().unwrap(),
+        seq: Seq::new(3),
+        queued: false,
+        settings: Some(EffectiveSettings {
+            mode: Mode::Auto,
+            model: "gpt-5.4".to_owned(),
+            effort: None,
+            overridden: OverriddenSettings { model: true, ..OverriddenSettings::default() },
+        }),
+    };
+    let value = serde_json::to_value(&result).unwrap();
+    assert_eq!(
+        value["settings"],
+        json!({ "mode": "auto", "model": "gpt-5.4", "overridden": { "model": true } })
+    );
+    let back: PromptSendResult = serde_json::from_value(value).unwrap();
+    assert_eq!(back, result);
 }

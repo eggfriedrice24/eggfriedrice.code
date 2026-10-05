@@ -28,3 +28,13 @@ No protocol version has shipped yet.
   method `input.respond` (scope `terminal`, no command id) whose `text` is a plain
   string, and a new optional `answers_input` flag on `conversation.subscribe`, false
   when absent. The `conversation_subscribe_params.json` fixture now sets it.
+- Before version 1 ships: turn settings. New wire enum `mode` (`manual`, `cautious`,
+  `auto`). `prompt.send` and the `prompt_queued` event carry an optional `settings`
+  object with an optional `mode`, `model` and `effort`, where the effort is a plain
+  string; absent means none. The `turn_started` event and the `prompt.send` result carry
+  an optional `settings` object with the effective `mode`, `model` and optional
+  `effort`, and an `overridden` object whose `mode`, `model` and `effort` flags say which
+  values came from the prompt; absent means not recorded, as in turns from before. The
+  fixtures `prompt_send_params.json`, `prompt_send_result.json`,
+  `events/prompt_queued.json` and `events/turn_started.json` now set them, and the new
+  `modes.json` freezes every mode.

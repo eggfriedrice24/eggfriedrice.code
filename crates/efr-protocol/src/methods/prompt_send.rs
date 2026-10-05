@@ -5,7 +5,9 @@ use std::fmt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{CommandId, ConversationId, Seq, ShellContext, TurnId};
+use crate::{
+    CommandId, ConversationId, EffectiveSettings, Seq, ShellContext, TurnId, TurnSettings,
+};
 
 /// The params of `prompt.send`.
 ///
@@ -39,6 +41,10 @@ pub struct PromptSend {
     /// it in an event, which the event log keeps forever and every subscriber receives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_command: Option<String>,
+    /// The mode, model and effort that the prompt asks for its turn; the config gives
+    /// the rest. Absent means none, as from a client older than turn settings.
+    #[serde(default, skip_serializing_if = "TurnSettings::is_empty")]
+    pub settings: TurnSettings,
 }
 
 impl fmt::Debug for PromptSend {
@@ -50,6 +56,7 @@ impl fmt::Debug for PromptSend {
             .field("new_conversation", &self.new_conversation)
             .field("text", &self.text)
             .field("context", &self.context)
+            .field("settings", &self.settings)
             .finish_non_exhaustive()
     }
 }
@@ -66,4 +73,10 @@ pub struct PromptSendResult {
     pub seq: Seq,
     /// True when another turn was running, so the prompt waits behind it.
     pub queued: bool,
+    /// The settings that the turn would run with if it started now. A queued turn
+    /// resolves them again when it starts, so its `turn_started` can differ after the
+    /// config changed. Absent when the daemon does not report them, as before turn
+    /// settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<EffectiveSettings>,
 }

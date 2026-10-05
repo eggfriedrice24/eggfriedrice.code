@@ -13,5 +13,10 @@
     "shlvl": 1,
     "ssh_connection": "192.0.2.10 51234 192.0.2.20 22",
     "hostname": "desk"
+  },
+  "settings": {
+    "mode": "auto",
+    "model": "gpt-5.4",
+    "effort": "high"
   }
 }

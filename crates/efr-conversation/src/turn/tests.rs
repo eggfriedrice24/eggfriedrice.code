@@ -6,8 +6,8 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{
-    ApprovalDecision, ErrorCode, Event, InputWait, Origin, ProjectId, Scope, TurnInterrupt,
-    TurnSteer, Usage,
+    ApprovalDecision, ErrorCode, Event, InputWait, Mode, Origin, ProjectId, Scope, TurnInterrupt,
+    TurnSettings, TurnSteer, Usage,
 };
 use efr_provider::{Message, ProviderEvent, StopReason, TokenUsage};
 use efr_scope::{Basis, Derivation, Repo};
@@ -23,6 +23,35 @@ use crate::testing::{
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[tokio::test]
+async fn a_prompts_settings_change_nothing_until_turn_settings_apply() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "hello");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hello")])),
+        answer(&text_answer("Hi there.")),
+    ];
+    let mut h = setup.start(records).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "hello");
+    params.settings = TurnSettings {
+        mode: Some(Mode::Auto),
+        model: Some("gpt-5.4".to_owned()),
+        effort: Some("high".to_owned()),
+    };
+
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(sent.settings, None);
+    let events = h.events().await;
+    let queued = find(&events, |e| matches!(e, Event::PromptQueued { .. }));
+    assert!(matches!(&queued, Event::PromptQueued { settings, .. } if settings.is_empty()));
+    let started = find(&events, |e| matches!(e, Event::TurnStarted { .. }));
+    assert!(matches!(started, Event::TurnStarted { settings: None, .. }));
+    h.finish();
 }
 
 #[tokio::test]
@@ -64,7 +93,12 @@ async fn a_text_turn_records_the_answer_and_completes() {
     let events = h.events().await;
     assert_eq!(
         find(&events, |e| matches!(e, Event::TurnStarted { .. })),
-        Event::TurnStarted { turn_id: sent.turn_id, cwd: h.cwd.clone(), scope: Scope::Machine }
+        Event::TurnStarted {
+            turn_id: sent.turn_id,
+            cwd: h.cwd.clone(),
+            scope: Scope::Machine,
+            settings: None,
+        }
     );
     assert_eq!(
         find(&events, |e| matches!(e, Event::AssistantMessageCompleted { .. })),
@@ -542,7 +576,12 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
             &events,
             |e| matches!(e, Event::TurnStarted { turn_id, .. } if *turn_id == second.turn_id)
         ),
-        Event::TurnStarted { turn_id: second.turn_id, cwd: elsewhere, scope: Scope::Machine }
+        Event::TurnStarted {
+            turn_id: second.turn_id,
+            cwd: elsewhere,
+            scope: Scope::Machine,
+            settings: None,
+        }
     );
     h.finish();
 }

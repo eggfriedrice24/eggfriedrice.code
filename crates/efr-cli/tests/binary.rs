@@ -238,6 +238,7 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                 turn_id,
                 seq: Seq::new(3),
                 queued: false,
+                settings: None,
             },
         );
         let (sub, _) = conn.request();

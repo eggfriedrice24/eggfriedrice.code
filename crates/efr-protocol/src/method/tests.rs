@@ -7,7 +7,8 @@ use crate::{
     AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId,
     Capabilities, CommandId, ConversationHistory, ConversationId, ConversationSubscribe,
     ConversationsList, Hello, InputRespond, LeaseReport, Method, Origin, PromptSend, PtyAttach,
-    PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size, TurnInterrupt, TurnSteer,
+    PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings,
+    TurnSteer,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -84,6 +85,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 text: "why is the disk full".to_owned(),
                 context: None,
                 last_command: None,
+                settings: TurnSettings::default(),
             }),
             "prompt.send",
             ScopeName::Operate,

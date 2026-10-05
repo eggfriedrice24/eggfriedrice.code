@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use efr_protocol::{
     ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, ErrorBody,
     ErrorCode, Event, Origin, PromptSend, PromptSendResult, Seq, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -97,7 +97,8 @@ type Reply<T> = oneshot::Sender<Result<T, ConversationError>>;
 
 #[derive(Debug)]
 enum Request {
-    Prompt { params: PromptSend, origin: Origin, reply: Reply<PromptSendResult> },
+    // NOTE: boxed so the other requests stay small; a prompt's params are the largest.
+    Prompt { params: Box<PromptSend>, origin: Origin, reply: Reply<PromptSendResult> },
     Steer { params: TurnSteer, reply: Reply<TurnSteerResult> },
     Interrupt { params: TurnInterrupt, origin: Origin, reply: Reply<TurnInterruptResult> },
     Approval { params: ApprovalRespond, origin: Origin, reply: Reply<ApprovalRespondResult> },
@@ -173,7 +174,7 @@ impl ConversationActor {
         // A caller that stopped waiting does not need the answer; the work is done.
         match request {
             Request::Prompt { params, origin, reply } => {
-                let _ = reply.send(self.prompt(params, origin).await);
+                let _ = reply.send(self.prompt(*params, origin).await);
             }
             Request::Steer { params, reply } => {
                 let _ = reply.send(self.steer(params).await);
@@ -220,12 +221,16 @@ impl ConversationActor {
             text: params.text.clone(),
             origin,
             context: params.context.clone(),
+            // NOTE: turn settings are not applied yet, so a prompt's own are not recorded
+            // either: every turn runs with the config's model and today's rules.
+            settings: TurnSettings::default(),
         });
         let result = PromptSendResult {
             conversation_id: self.conversation_id(),
             turn_id,
             seq: Seq::ZERO,
             queued,
+            settings: None,
         };
         let receipt = receipt(params.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
         let committed = self.append(events, receipt).await?;
@@ -453,7 +458,7 @@ impl ConversationHandle {
         params: PromptSend,
         origin: Origin,
     ) -> Result<PromptSendResult, ConversationError> {
-        self.request(|reply| Request::Prompt { params, origin, reply }).await
+        self.request(|reply| Request::Prompt { params: Box::new(params), origin, reply }).await
     }
 
     /// Adds guidance to the running turn; the model reads it at its next step.

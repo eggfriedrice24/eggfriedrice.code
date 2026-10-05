@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 use super::{
     FIXTURES_DIR, all, event_path, event_samples, input_wait_samples, method_samples, method_stem,
 };
-use crate::{Event, InputWait, Method};
+use crate::{Event, InputWait, Method, Mode};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -100,6 +100,17 @@ fn input_wait_index(input: InputWait) -> usize {
 
 const INPUT_WAIT_COUNT: usize = 3;
 
+/// The position of a mode in the enum, for the same purpose as `method_index`.
+fn mode_index(mode: Mode) -> usize {
+    match mode {
+        Mode::Manual => 0,
+        Mode::Cautious => 1,
+        Mode::Auto => 2,
+    }
+}
+
+const MODE_COUNT: usize = 3;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -182,6 +193,12 @@ fn every_event_kind_has_a_sample() {
 fn every_input_wait_has_a_sample() {
     let covered: Vec<usize> = input_wait_samples().into_iter().map(input_wait_index).collect();
     assert_eq!(covered, (0..INPUT_WAIT_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_mode_has_a_sample() {
+    let covered: Vec<usize> = Mode::ALL.into_iter().map(mode_index).collect();
+    assert_eq!(covered, (0..MODE_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

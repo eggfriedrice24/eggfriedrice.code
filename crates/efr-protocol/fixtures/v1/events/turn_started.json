@@ -5,5 +5,15 @@
   "scope": {
     "kind": "path",
     "value": "/var/log"
+  },
+  "settings": {
+    "mode": "auto",
+    "model": "gpt-5.4",
+    "effort": "high",
+    "overridden": {
+      "mode": true,
+      "model": true,
+      "effort": true
+    }
   }
 }

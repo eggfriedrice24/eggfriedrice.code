@@ -21,13 +21,13 @@ use crate::{
     Color, CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, InputRespond,
-    InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Origin,
-    PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
-    PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult,
-    RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
-    Usage,
+    DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult,
+    InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Mode,
+    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend,
+    PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
+    PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText,
+    Seq, ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -86,6 +86,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
+    fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
     fixtures.push(fixture("error_codes.json", &ErrorCode::ALL.to_vec()));
     fixtures.push(fixture("scope_names.json", &ScopeName::ALL.to_vec()));
     fixtures
@@ -144,6 +145,24 @@ fn shell_context() -> ShellContext {
         shlvl: Some(1),
         ssh_connection: Some("192.0.2.10 51234 192.0.2.20 22".into()),
         hostname: Some("desk".into()),
+    }
+}
+
+fn turn_settings() -> TurnSettings {
+    TurnSettings {
+        mode: Some(Mode::Auto),
+        model: Some("gpt-5.4".into()),
+        effort: Some("high".into()),
+    }
+}
+
+/// What [`turn_settings`] runs with: every value comes from the prompt.
+fn effective_settings() -> EffectiveSettings {
+    EffectiveSettings {
+        mode: Mode::Auto,
+        model: "gpt-5.4".into(),
+        effort: Some("high".into()),
+        overridden: OverriddenSettings { mode: true, model: true, effort: true },
     }
 }
 
@@ -252,6 +271,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             text: "why is the disk full".into(),
             context: Some(shell_context()),
             last_command: Some("du -sh /var/log".into()),
+            settings: turn_settings(),
         }),
         Method::TurnInterrupt(TurnInterrupt {
             command_id: command_id(),
@@ -357,6 +377,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                 turn_id: turn_id(),
                 seq: Seq::new(43),
                 queued: false,
+                settings: Some(effective_settings()),
             },
         ),
         fixture(
@@ -432,12 +453,14 @@ pub(crate) fn event_samples() -> Vec<Event> {
             text: "why is the disk full".into(),
             origin: Origin::Shell,
             context: Some(shell_context()),
+            settings: turn_settings(),
         },
         Event::PromptHeld { turn_id: turn_id() },
         Event::TurnStarted {
             turn_id: turn_id(),
             cwd: "/var/log".into(),
             scope: Scope::Path("/var/log".into()),
+            settings: Some(effective_settings()),
         },
         Event::ScopeChanged {
             turn_id: turn_id(),

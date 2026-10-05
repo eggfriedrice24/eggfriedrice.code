@@ -14,6 +14,11 @@
       "ssh_connection": "192.0.2.10 51234 192.0.2.20 22",
       "hostname": "desk"
     },
-    "last_command": "du -sh /var/log"
+    "last_command": "du -sh /var/log",
+    "settings": {
+      "mode": "auto",
+      "model": "gpt-5.4",
+      "effort": "high"
+    }
   }
 }

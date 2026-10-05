@@ -21,7 +21,13 @@ use crate::testing::{
 const CONTEXT: &str = r#"{"pwd":"/etc/nginx","oldpwd":"/home/user","tty":"/dev/pts/3","shell_pid":4100,"last_status":1,"shlvl":1,"ssh_connection":null,"hostname":"box"}"#;
 
 fn sent(queued: bool) -> PromptSendResult {
-    PromptSendResult { conversation_id: conversation(), turn_id: turn(), seq: Seq::new(10), queued }
+    PromptSendResult {
+        conversation_id: conversation(),
+        turn_id: turn(),
+        seq: Seq::new(10),
+        queued,
+        settings: None,
+    }
 }
 
 /// Answers the prompt with `result` and the turn with `reply`, then waits for the

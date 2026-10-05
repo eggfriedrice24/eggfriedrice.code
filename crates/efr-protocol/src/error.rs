@@ -201,6 +201,13 @@ pub enum ProtocolError {
         #[source]
         source: uuid::Error,
     },
+
+    /// A string is not the name of a permission mode.
+    #[error("{value:?} is not a permission mode")]
+    UnknownMode {
+        /// The string that failed to parse.
+        value: String,
+    },
 }
 
 #[cfg(test)]

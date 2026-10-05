@@ -161,7 +161,7 @@ pub(crate) fn apply(
                 params![turn_id.to_string(), TurnStatus::Held.as_str()],
             )?;
         }
-        Event::TurnStarted { turn_id, cwd, scope } => {
+        Event::TurnStarted { turn_id, cwd, scope, .. } => {
             conn.execute(
                 "UPDATE turns SET status = ?2, started_at = ?3 WHERE id = ?1",
                 params![turn_id.to_string(), TurnStatus::Running.as_str(), at],

@@ -28,7 +28,7 @@ use efr_daemon::{Config, DaemonError, Deps, HostInfo, Provider, ProviderFactory,
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
-    Origin, PromptSend, Seq, ShellContext,
+    Origin, PromptSend, Seq, ShellContext, TurnSettings,
 };
 use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript};
 use futures::StreamExt as _;
@@ -462,6 +462,7 @@ impl TestDaemon {
             text: text.to_owned(),
             context: Some(context),
             last_command: None,
+            settings: TurnSettings::default(),
         })
     }
 

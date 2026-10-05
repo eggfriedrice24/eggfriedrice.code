@@ -66,6 +66,9 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   activity, and when a prompt comes from another shell while the shell that took the
   terminal has exited, so a new tab that reuses a closed tab's `/dev/pts` number
   starts fresh.
+  A prompt's `settings` (mode, model, effort) are accepted but not applied yet:
+  every turn runs with the config's model and the built-in rules, and no event or
+  result reports settings.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue.

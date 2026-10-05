@@ -1,4 +1,4 @@
-use efr_protocol::{Origin, ShellContext};
+use efr_protocol::{Origin, ShellContext, TurnSettings};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -17,6 +17,7 @@ fn prompt(turn: u64, text: &str) -> Event {
         text: text.to_owned(),
         origin: Origin::Shell,
         context: Some(ShellContext::new("/etc/nixos")),
+        settings: TurnSettings::default(),
     }
 }
 

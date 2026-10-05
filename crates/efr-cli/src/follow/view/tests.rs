@@ -282,8 +282,12 @@ fn events_of_other_turns_change_nothing() {
         delta: "x".to_owned(),
     };
     assert_eq!(view.event(&event, SIZE, true), Step::default());
-    let started =
-        Event::TurnStarted { turn_id: turn(), cwd: PathBuf::from("/etc"), scope: Scope::Machine };
+    let started = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: PathBuf::from("/etc"),
+        scope: Scope::Machine,
+        settings: None,
+    };
     assert_eq!(view.event(&started, SIZE, true), Step::default());
 }
 
@@ -651,6 +655,7 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
         turn_id: turn(),
         cwd: PathBuf::from("/home/u"),
         scope: Scope::Machine,
+        settings: None,
     };
     let step = view.event(&started, SIZE, true);
     assert!(step.settled, "the question of the turn ahead goes once this one runs");

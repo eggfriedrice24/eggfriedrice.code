@@ -4,8 +4,8 @@
 
 The contract. Everything that crosses the daemon's sockets is defined here: frames,
 the `Method` enum with one params type per method, results and stream items, `Event`
-and its envelope, ids, `Scope`, `ShellContext`, screen snapshots, wire errors, the
-length-prefix framing and `PROTOCOL_VERSION`. The daemon, `efr`, the tests, the PTY
+and its envelope, ids, `Scope`, `ShellContext`, turn settings, screen snapshots, wire
+errors, the length-prefix framing and `PROTOCOL_VERSION`. The daemon, `efr`, the tests, the PTY
 proxy and the WebSocket clients compile against these types. The phone app reads
 `docs/protocol.md` and the frozen fixtures in `fixtures/v1/`.
 
@@ -19,6 +19,7 @@ Where things are:
 | `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
 | `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state |
+| `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
@@ -55,8 +56,8 @@ Where things are:
 
 `fixtures/v1/` holds one JSON file per method's params (the `method` and `params`
 members of a request frame), per result or stream item variant, per event kind, per
-frame shape, every kind of input wait, and the closed sets of error codes and scope
-names. Two tests guard them:
+frame shape, every kind of input wait, every mode, and the closed sets of error codes
+and scope names. Two tests guard them:
 
 - every sample in `src/fixtures_check.rs` encodes to exactly the bytes of its file;
 - every file decodes as its type and encodes back to exactly the same bytes.

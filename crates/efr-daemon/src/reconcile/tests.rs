@@ -24,11 +24,17 @@ fn queued(turn: TurnId, n: u128) -> Event {
         text: format!("prompt {n}"),
         origin: Origin::Shell,
         context: None,
+        settings: efr_protocol::TurnSettings::default(),
     }
 }
 
 fn started(turn: TurnId) -> Event {
-    Event::TurnStarted { turn_id: turn, cwd: PathBuf::from("/home/u"), scope: Scope::Machine }
+    Event::TurnStarted {
+        turn_id: turn,
+        cwd: PathBuf::from("/home/u"),
+        scope: Scope::Machine,
+        settings: None,
+    }
 }
 
 fn call_started(turn: TurnId, call: CallId) -> Event {

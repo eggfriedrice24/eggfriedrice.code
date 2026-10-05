@@ -231,8 +231,13 @@ impl Turn {
         };
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
         self.scope = derivation.scope.clone();
-        let mut started =
-            vec![Event::TurnStarted { turn_id, cwd: self.cwd.clone(), scope: self.scope.clone() }];
+        // NOTE: the effective settings are left out until turn settings are applied.
+        let mut started = vec![Event::TurnStarted {
+            turn_id,
+            cwd: self.cwd.clone(),
+            scope: self.scope.clone(),
+            settings: None,
+        }];
         if let Some(previous) = summary.and_then(|summary| summary.scope.clone())
             && previous != self.scope
         {

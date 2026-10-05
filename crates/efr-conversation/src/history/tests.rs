@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use efr_protocol::{
     CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, Origin, PtyId, Scope, TurnId,
+    TurnSettings,
 };
 use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
@@ -215,8 +216,14 @@ fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Even
             text: prompt.to_owned(),
             origin: Origin::Shell,
             context: None,
+            settings: TurnSettings::default(),
         },
-        Event::TurnStarted { turn_id: t, cwd: PathBuf::from("/home/u"), scope: Scope::Machine },
+        Event::TurnStarted {
+            turn_id: t,
+            cwd: PathBuf::from("/home/u"),
+            scope: Scope::Machine,
+            settings: None,
+        },
     ];
     events.extend(body);
     events.push(end);
@@ -263,8 +270,14 @@ async fn only_finished_turns_other_than_the_current_one_count() {
                 text: "third".to_owned(),
                 origin: Origin::Shell,
                 context: None,
+                settings: TurnSettings::default(),
             },
-            Event::TurnStarted { turn_id: current, cwd: PathBuf::from("/"), scope: Scope::Machine },
+            Event::TurnStarted {
+                turn_id: current,
+                cwd: PathBuf::from("/"),
+                scope: Scope::Machine,
+                settings: None,
+            },
         ],
     ])
     .await;
