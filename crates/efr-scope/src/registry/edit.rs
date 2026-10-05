@@ -25,9 +25,10 @@ const PROJECTS: &str = "project";
 /// The first lines of a registry file that a change creates.
 const HEADER: &str = "\
 # The projects that efr knows. A turn whose shell is in a project's root, or below it,
-# runs in that project: the auto mode writes freely below the root and runs the
-# project's build, test and git commands there. `efr project add`, `efr project list`
-# and `efr project remove` change this file and keep your comments.
+# runs in that project: the cautious and auto modes write freely below the root, and
+# the auto mode also runs the project's build, test and git commands there.
+# `efr project add` and `efr project remove` change this file and keep your comments;
+# `efr project list` shows it.
 ";
 
 /// The registry file as read, and the change made to it so far.

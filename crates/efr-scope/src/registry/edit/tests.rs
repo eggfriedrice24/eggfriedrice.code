@@ -125,6 +125,8 @@ fn a_missing_file_starts_with_a_comment_that_says_what_it_is() {
 
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("# The projects that efr knows."), "{text}");
+    assert!(text.contains("the cautious and auto modes write freely below the root"), "{text}");
+    assert!(text.contains("`efr project list` shows it."), "{text}");
     assert!(
         text.ends_with(
             "\n[[project]]\nid = \"0192f0c1-7a00-7000-8000-000000000001\"\nroot = \"/home/u/p/app\"\n"
