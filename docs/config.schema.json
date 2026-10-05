@@ -1,0 +1,534 @@
+{
+  "$defs": {
+    "Action": {
+      "description": "What a requirement does, as a rule matches it.",
+      "oneOf": [
+        {
+          "const": "any",
+          "description": "Every requirement.",
+          "type": "string"
+        },
+        {
+          "const": "read",
+          "description": "Reading a path, or everything below it.",
+          "type": "string"
+        },
+        {
+          "const": "write",
+          "description": "Writing a path.",
+          "type": "string"
+        },
+        {
+          "const": "execute",
+          "description": "Running a command line.",
+          "type": "string"
+        },
+        {
+          "const": "network",
+          "description": "Network access.",
+          "type": "string"
+        }
+      ]
+    },
+    "CommandPattern": {
+      "additionalProperties": false,
+      "description": "A command that a rule names: a program, the words that must follow it, the words\nthat must not appear, and how many operands it may have.\n\nA pattern judges one simple command at a time. The engine splits a line on `;`,\n`&&`, `||`, `|` and newlines, reading quotes as zsh does, and allows a line only\nwhen it allows every simple command in it. A line with a command substitution, a\nparameter expansion, a here-document, an output redirection to anything but\n`/dev/null`, a group, a background job, an assignment that could change what runs,\nor a builtin such as `eval` matches no pattern at all, and falls through to the\nrules for every command line. A program that runs commands as another user (`sudo`,\n`doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper\nsuch as `env`.\n\nWords are compared after quotes are removed, so `git 'status'` is `git status`. A\ncommand with a pattern outside quotes, such as `src/*.rs`, matches only a pattern\nthat sets no operand bound, forbids no word without a dash and has no wildcard\nalternative without one, because zsh replaces the pattern with the names it matches.",
+      "properties": {
+        "args": {
+          "description": "The words that must follow the program, in order, such as `[\"status\"]`. A word\nmay list alternatives separated by `|`, as in `\"status|diff|log\"`, and an\nalternative that ends in `*` matches every word that starts with what comes\nbefore it, as `-Q*` matches `-Qi`. No words matches every invocation.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "forbid": {
+          "description": "Words that must not appear anywhere after the program:\n\n- `--name` matches `--name`, `--name=value`, and every abbreviation of it down\n  to `--n`, because GNU programs accept any unambiguous abbreviation;\n- `-x`, one letter, matches every word that starts with one `-` and holds the\n  letter, so `-o` also matches `-uo`;\n- `-name`, several letters after one `-`, matches that word, the way `find`\n  reads its predicates;\n- an option that ends in `*` matches every word that starts with it;\n- a word without a leading `-` matches every word without one that contains it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_operands": {
+          "description": "The most operands after the words of `args`. An operand is `-`, a word that\ndoes not start with `-`, or any word after `--`. A value given to an option as a\nseparate word counts too, so the limit errs towards asking.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_options": {
+          "description": "The most options after the words of `args`. An option is a word that starts with\n`-`, other than `-` itself, up to and including `--`. With `max_operands`, a\nlimit of 0 allows the words of `args` and nothing after them, such as `ps -ef`\nalone: one more option could make the program read the whole line another way.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min_operands": {
+          "description": "The fewest operands after the words of `args`, counted like `max_operands`, such\nas the unit that `systemctl show` must name, because without one it shows the\nservice manager's environment.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "program": {
+          "description": "The first word of the simple command, such as `git`. A path such as `/bin/ls`\nnames a different program.",
+          "type": "string"
+        },
+        "under": {
+          "description": "A directory the command must run in, or below: absolute or starting with `~`.\nThe directory is where the hidden shell is when the line starts; after a `cd`,\n`pushd` or `popd` earlier in the line it is unknown, and the pattern matches\nnothing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "program"
+      ],
+      "type": "object"
+    },
+    "ConversationSettings": {
+      "additionalProperties": false,
+      "description": "`[conversation]`: queues, approvals, streaming and terminals.",
+      "properties": {
+        "approval_timeout_secs": {
+          "description": "Seconds an approval request waits before it expires. Unset: it waits until the\nuser answers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_queued": {
+          "default": 16,
+          "description": "The most prompts that may wait behind a running turn.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tty_idle_hours": {
+          "default": 12,
+          "description": "Hours without activity after which a terminal's next `,` line starts a new\nconversation instead of continuing the old one; 0 continues it forever.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "update_interval_ms": {
+          "default": 200,
+          "description": "The shortest time between two streamed text updates, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Effect": {
+      "description": "What happens to a tool call, ordered from the least to the most strict, so the\nstrictest of several effects is their maximum.\n\nThe enum is deliberately exhaustive: the check point in `efr-conversation` must\nhandle every effect, and a new one must not fall into a wildcard arm.",
+      "oneOf": [
+        {
+          "const": "allow",
+          "description": "The call runs.",
+          "type": "string"
+        },
+        {
+          "const": "ask",
+          "description": "The call waits until the user approves or denies it.",
+          "type": "string"
+        },
+        {
+          "const": "deny",
+          "description": "The call does not run; the model gets an error that names the reason.",
+          "type": "string"
+        }
+      ]
+    },
+    "Mode": {
+      "description": "The permission mode of a turn: the base policy, which the user's own rules follow and\nwin over where they match.\n\nThe floors hold in every mode: an interactive call asks, a privileged program asks,\nsecrets are denied unless a user rule names them, and no tool writes efr's config. A\nturn from a remote origin runs with at most [`Mode::Cautious`].\n\nThe variants are ordered from the strictest to the loosest, so the remote cap is\n`mode.min(Mode::Cautious)`.",
+      "oneOf": [
+        {
+          "const": "manual",
+          "description": "Every call asks, except what the user's own rules allow.",
+          "type": "string"
+        },
+        {
+          "const": "cautious",
+          "description": "The built-in rules that let commands and files be read without a question. The\ndefault.",
+          "type": "string"
+        },
+        {
+          "const": "auto",
+          "description": "`cautious` plus a curated list: writes in the project and `$SCRATCH`, the\nproject's builds and tests, and local git. General network access still asks.",
+          "type": "string"
+        }
+      ]
+    },
+    "ModelSettings": {
+      "additionalProperties": false,
+      "description": "`[model]`: the provider, the default model of a turn and what each request carries.",
+      "properties": {
+        "effort": {
+          "description": "The default reasoning effort, such as `low`, `medium` or `high`. Unset: the\nbackend's own default for the model.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_output_tokens": {
+          "description": "The most tokens one model call may produce. Unset: the provider's default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The default model of a turn, such as `gpt-5.5`. Unset: the first of\n`openai.models`, else the provider's default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "default": "openai-subscription",
+          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan) or\n`openai-api` (an API key). Needs a restart.",
+          "type": "string"
+        },
+        "system_prompt": {
+          "default": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. Every tool call is checked against the user's permission policy: writes outside $SCRATCH may need the user's approval, and secrets are never readable. Read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH.",
+          "description": "The system prompt of every request.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAiSettings": {
+      "additionalProperties": false,
+      "description": "`[openai]`: the OpenAI providers.",
+      "properties": {
+        "api_base_url": {
+          "description": "Replaces the public API's base URL. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "models": {
+          "description": "Model ids that replace the built-in model list. Unset: the built-in list.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "originator": {
+          "default": "efr",
+          "description": "The `originator` of the subscription login and of every subscription request.\nNeeds a restart.",
+          "type": "string"
+        },
+        "subscription_base_url": {
+          "description": "Replaces the subscription backend's base URL. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PathClass": {
+      "description": "Where a path lives, which sets how freely a call may use it.\n\n| Class | Examples | Read | Write |\n|---|---|---|---|\n| `Scratch` | the conversation's `$SCRATCH` | free | free |\n| `UserConfig` | `~/.config`, `~/.zshrc`, other dot entries in `~`, a repository's `.git` in `~` or `$SCRATCH` | free | approval |\n| `UserData` | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, or free inside the turn's registered project |\n| `System` | everything outside `~`: `/etc`, `/usr`, `/srv` | free | approval |\n| `Secrets` | `~/.ssh`, `~/.gnupg`, password stores, credential files such as `~/.aws/credentials`, the daemon's `secrets/` | denied | denied |\n\nThe enum is deliberately exhaustive: a new class must make every consumer decide\nwhat it means, instead of falling into a wildcard arm.",
+      "oneOf": [
+        {
+          "const": "scratch",
+          "description": "The conversation's own `$SCRATCH` directory.",
+          "type": "string"
+        },
+        {
+          "const": "user_config",
+          "description": "The user's configuration: dot entries in `~`, the configured config roots, and\nthe `.git` of a repository that would otherwise be user data or scratch, whose\nconfig names programs that git runs.",
+          "type": "string"
+        },
+        {
+          "const": "user_data",
+          "description": "The user's files: everything else in `~`.",
+          "type": "string"
+        },
+        {
+          "const": "system",
+          "description": "Everything outside `~`.",
+          "type": "string"
+        },
+        {
+          "const": "secrets",
+          "description": "Keys, password stores and credentials. The default policy denies them.",
+          "type": "string"
+        }
+      ]
+    },
+    "PermissionSettings": {
+      "additionalProperties": false,
+      "description": "`[permissions]`: the permission mode, extra secrets and the user's rules.",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/Mode",
+          "default": "cautious",
+          "description": "The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt\nmay choose another one for its turn.\n\nNOTE: read and validated, but not applied yet: every turn runs with the\n`cautious` rules until the modes are wired."
+        },
+        "rules": {
+          "$ref": "#/$defs/Policy",
+          "default": [],
+          "description": "The user's rules, `[[permissions.rules]]`, after the built-in rules: the last\nrule that matches wins."
+        },
+        "secret_paths": {
+          "default": [],
+          "description": "Files and directories that count as secrets on top of the built-in ones, so the\nmodel may never read or write them: absolute, or below the home directory as\n`~/...`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Policy": {
+      "description": "An ordered list of rules in which the last match wins.\n\nEvery rule is checked when the policy is built, from code or from the configuration,\nso a policy never holds a rule that cannot match.",
+      "items": {
+        "$ref": "#/$defs/Rule"
+      },
+      "type": "array"
+    },
+    "RenderSettings": {
+      "additionalProperties": false,
+      "description": "`[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it\nso one file serves both.",
+      "properties": {
+        "theme": {
+          "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Resource": {
+      "description": "What a requirement acts on, as a rule matches it.",
+      "oneOf": [
+        {
+          "const": "any",
+          "description": "Every path, command line and network access.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every path of one class.",
+          "properties": {
+            "class": {
+              "$ref": "#/$defs/PathClass"
+            }
+          },
+          "required": [
+            "class"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A path and everything below it. It is absolute or starts with `~`, which stands\nfor the home directory.",
+          "properties": {
+            "under": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "under"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "project",
+          "description": "Every path inside the root of the turn's registered project. It matches nothing\nwhen the scope is not a registered project, or when that root is `~`, `/` or a\ndirectory above `~`.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every simple command that matches the pattern.",
+          "properties": {
+            "command": {
+              "$ref": "#/$defs/CommandPattern"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Rule": {
+      "additionalProperties": false,
+      "description": "One rule: when a requirement matches `action` and `resource`, its effect is\n`effect`, unless a later rule matches too.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action",
+          "description": "What the requirement does."
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect",
+          "description": "The effect when the rule decides."
+        },
+        "resource": {
+          "$ref": "#/$defs/Resource",
+          "description": "What it does it to."
+        }
+      },
+      "required": [
+        "action",
+        "resource",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "ScreenChoice": {
+      "description": "Which screen backend the hidden shells get.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "ghostty when this build has it, otherwise vt100.",
+          "type": "string"
+        },
+        {
+          "const": "vt100",
+          "description": "The Zig-free vt100 backend.",
+          "type": "string"
+        },
+        {
+          "const": "ghostty",
+          "description": "The libghostty-vt backend.",
+          "type": "string"
+        }
+      ]
+    },
+    "ShellSettings": {
+      "additionalProperties": false,
+      "description": "`[shell]`: how hidden shells start and when idle ones stop.",
+      "properties": {
+        "idle_minutes": {
+          "default": 60,
+          "description": "Minutes without output or input, at a prompt and unwatched, before a hidden\nshell is closed; 0 keeps idle shells.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "login": {
+          "default": true,
+          "description": "Start the hidden shell as a login shell.",
+          "type": "boolean"
+        },
+        "program": {
+          "description": "The shell, an absolute path. Unset: `zsh` on the `PATH`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sudo_cache": {
+          "$ref": "#/$defs/SudoCache",
+          "default": "keep",
+          "description": "`keep` leaves sudo's credential cache to sudo; `per_call` makes the hidden shell\nforget the credentials after each call that ran sudo or doas.\n\nNOTE: read and validated, but not applied yet: sudo keeps its own cache."
+        }
+      },
+      "type": "object"
+    },
+    "SudoCache": {
+      "description": "What a hidden shell does with sudo's cached credentials after a call that ran sudo\nor doas.",
+      "oneOf": [
+        {
+          "const": "keep",
+          "description": "sudo's own cache stays, for as long as sudoers keeps it (5 minutes by default).",
+          "type": "string"
+        },
+        {
+          "const": "per_call",
+          "description": "The hidden shell forgets the credentials after each call, so the next sudo asks\nfor the password again.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The effective settings: the built-in defaults, then `config.toml`, then whatever\nenvironment variables and flags the program applies with\n[`apply_override`](Self::apply_override).\n\nA missing file is an empty one, so every value is its default. The fields are\npublic so a test can start from [`Settings::default`] and change what it needs; a\nchanged field keeps the source it had.",
+  "properties": {
+    "conversation": {
+      "$ref": "#/$defs/ConversationSettings",
+      "default": {
+        "max_queued": 16,
+        "tty_idle_hours": 12,
+        "update_interval_ms": 200
+      },
+      "description": "Queues, approvals, streaming and terminals."
+    },
+    "log": {
+      "default": "info",
+      "description": "The tracing filter of the daemon, in `EnvFilter` syntax, such as `info` or\n`info,efr_=debug`.",
+      "type": "string"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelSettings",
+      "default": {
+        "provider": "openai-subscription",
+        "system_prompt": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. Every tool call is checked against the user's permission policy: writes outside $SCRATCH may need the user's approval, and secrets are never readable. Read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH."
+      },
+      "description": "The provider, the default model of a turn and what each request carries."
+    },
+    "openai": {
+      "$ref": "#/$defs/OpenAiSettings",
+      "default": {
+        "originator": "efr"
+      },
+      "description": "The OpenAI providers."
+    },
+    "permissions": {
+      "$ref": "#/$defs/PermissionSettings",
+      "default": {
+        "mode": "cautious",
+        "rules": [],
+        "secret_paths": []
+      },
+      "description": "The permission mode, extra secrets and the user's rules."
+    },
+    "render": {
+      "$ref": "#/$defs/RenderSettings",
+      "default": {},
+      "description": "How `efr` shows replies."
+    },
+    "screen": {
+      "$ref": "#/$defs/ScreenChoice",
+      "default": "auto",
+      "description": "The screen backend of the hidden shells: `auto`, `vt100` or `ghostty`. Needs a\nrestart."
+    },
+    "shell": {
+      "$ref": "#/$defs/ShellSettings",
+      "default": {
+        "idle_minutes": 60,
+        "login": true,
+        "sudo_cache": "keep"
+      },
+      "description": "How hidden shells start and when idle ones stop."
+    }
+  },
+  "title": "efr config.toml",
+  "type": "object"
+}

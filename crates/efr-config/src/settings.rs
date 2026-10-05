@@ -35,7 +35,7 @@ pub struct Settings {
     #[serde(skip)]
     pub path: PathBuf,
     /// The tracing filter of the daemon, in `EnvFilter` syntax, such as `info` or
-    /// `info,efr_=debug`. Needs a restart.
+    /// `info,efr_=debug`.
     pub log: String,
     /// The screen backend of the hidden shells: `auto`, `vt100` or `ghostty`. Needs a
     /// restart.

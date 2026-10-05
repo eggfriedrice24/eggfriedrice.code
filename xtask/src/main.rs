@@ -2,6 +2,7 @@
 //! (`tidy`) and, from milestone 1, protocol docs, fixture blessing and projection
 //! rebuilds. The justfile composes these; it never reimplements them.
 
+mod config_docs;
 mod deps;
 mod fixtures;
 mod output;
@@ -38,6 +39,12 @@ enum Command {
     },
     /// Regenerate docs/protocol.md from efr-protocol.
     ProtocolDocs,
+    /// Write docs/config.md and docs/config.schema.json from efr-config.
+    ConfigDocs {
+        /// Fail when either file is not current instead of writing it.
+        #[arg(long)]
+        check: bool,
+    },
     /// Verify the frozen protocol fixtures, or rewrite them with --bless.
     Fixtures {
         /// Rewrite the fixtures instead of verifying them.
@@ -69,6 +76,7 @@ fn run(command: Command) -> anyhow::Result<bool> {
         Command::Deps { json } => deps::run(&root, json),
         Command::Tidy { fast } => tidy::run(&root, fast),
         Command::ProtocolDocs => Ok(protocol_docs::run()),
+        Command::ConfigDocs { check } => config_docs::run(&root, check),
         Command::Fixtures { bless } => Ok(fixtures::run(bless)),
         Command::RebuildProjections => Ok(rebuild_projections::run()),
     }

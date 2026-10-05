@@ -3905,7 +3905,9 @@ dependencies = [
  "anyhow",
  "cargo_metadata",
  "clap",
+ "efr-config",
  "serde_json",
+ "tempfile",
  "walkdir",
 ]
 

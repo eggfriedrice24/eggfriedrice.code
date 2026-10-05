@@ -36,6 +36,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask tidy
       - run: cargo xtask deps
+      # docs/config.md and docs/config.schema.json come from efr-config; a key changed
+      # without `cargo xtask config-docs` fails here.
+      - run: cargo xtask config-docs --check
       - name: negative cargo tree checks
         shell: bash
         # The same rules as xtask/src/deps.rs, through a second implementation, so the
