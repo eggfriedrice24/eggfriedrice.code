@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, ErrorBody, ErrorCode, Event, InputWait, Origin, Scope, TurnId,
+    ApprovalDecision, CallId, ErrorBody, ErrorCode, Event, InputWait, Origin, Scope, TurnId,
 };
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
@@ -610,4 +610,28 @@ fn the_end_of_the_turn_settles_an_input() {
     let step = view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, true);
     assert!(step.settled);
     assert!(!readable(&step.out).contains("type the answer"));
+}
+
+#[test]
+fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_starts() {
+    let mut view = terminal_view();
+    view.queue();
+    let running: TurnId = "0192f0c1-7a00-7000-8000-000000000077".parse().unwrap();
+    let other: CallId = "0192f0c1-7a00-7000-8000-000000000078".parse().unwrap();
+    let wait =
+        Event::ToolCallInputChanged { turn_id: running, call_id: other, input: InputWait::Hidden };
+    let step = view.event(&wait, SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: other, hidden: true }));
+
+    let started = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: PathBuf::from("/home/u"),
+        scope: Scope::Machine,
+    };
+    let step = view.event(&started, SIZE, true);
+    assert!(step.settled, "the question of the turn ahead goes once this one runs");
+    assert!(!readable(&step.out).contains("type the answer"));
+
+    // From now on another turn's waits are not this view's.
+    assert_eq!(view.event(&wait, SIZE, true), Step::default());
 }

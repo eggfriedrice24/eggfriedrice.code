@@ -678,3 +678,87 @@ async fn a_turn_that_ends_while_a_password_is_asked_throws_away_what_was_typed()
     assert!(matches!(result, Err(CliError::TurnInterrupted)), "{result:?}");
     assert!(keys.discarded(), "the half-typed password never reaches the shell");
 }
+
+#[tokio::test]
+async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let mut view = terminal_view();
+    view.queue();
+    let running: TurnId = "0192f0c1-7a00-7000-8000-000000000077".parse().unwrap();
+    let earlier: CallId = "0192f0c1-7a00-7000-8000-000000000078".parse().unwrap();
+    let sudo: CallId = "0192f0c1-7a00-7000-8000-000000000079".parse().unwrap();
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, view, |mut conn, _| async move {
+        // The running turn's command asked before the prompt queued, so only the
+        // newest page of the log has the wait.
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationHistory(_)), "{}", method.name());
+        let output = |call_id, tail: &str| Event::ToolCallOutputUpdated {
+            turn_id: running,
+            call_id,
+            tail: tail.to_owned(),
+            bytes: 1,
+        };
+        let wait =
+            |call_id, input| Event::ToolCallInputChanged { turn_id: running, call_id, input };
+        let page = ConversationHistoryResult {
+            events: vec![
+                envelope(3, output(earlier, "Proceed? [Y/n] ")),
+                envelope(4, wait(earlier, InputWait::Visible)),
+                envelope(
+                    5,
+                    Event::ToolCallCompleted {
+                        turn_id: running,
+                        call_id: earlier,
+                        output: String::new(),
+                        truncated: false,
+                        is_error: false,
+                        exit_code: Some(0),
+                    },
+                ),
+                envelope(6, output(sudo, "[sudo] password for egg: ")),
+                envelope(7, wait(sudo, InputWait::Hidden)),
+            ],
+            next_cursor: None,
+        };
+        conn.reply(id, &page).await;
+        let (sub, params) = subscription(&mut conn, 10).await;
+        assert!(params.answers_input);
+        presser.type_bytes(b"hunter2\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.call_id, sudo, "the call that waits, not the finished one");
+        assert!(params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(11, wait(sudo, InputWait::None))).await;
+        let completed = Event::ToolCallCompleted {
+            turn_id: running,
+            call_id: sudo,
+            output: String::new(),
+            truncated: false,
+            is_error: false,
+            exit_code: Some(0),
+        };
+        conn.item(sub, &item(12, completed)).await;
+        presser.stopped().await;
+        conn.item(sub, &item(13, Event::TurnCompleted { turn_id: running, usage: None })).await;
+        let started = Event::TurnStarted {
+            turn_id: turn(),
+            cwd: std::path::PathBuf::from("/home/u"),
+            scope: efr_protocol::Scope::Machine,
+        };
+        conn.item(sub, &item(14, started)).await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert!(keys.discarded());
+    assert!(out.contains("[sudo] password for egg:"), "{out}");
+    assert!(!out.contains("Proceed?"), "a finished call is not shown: {out}");
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter"), "{written}");
+    }
+}

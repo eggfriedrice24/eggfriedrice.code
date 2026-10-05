@@ -10,9 +10,11 @@
 //! is not a terminal, the messages are written as raw markdown and everything else
 //! goes to stderr, so stdout holds the reply alone.
 //!
-//! While the turn waits behind another one, the other turn's approvals show too: that
-//! turn may be parked on a question nobody else will answer, and the prompt runs only
-//! once it is answered.
+//! While the turn waits behind another one, the other turn's approvals show too, and so
+//! do its running call's last output line and the input it waits for: that turn may be
+//! parked on a question nobody else will answer, and the prompt runs only once it is
+//! answered. This client tells the daemon that a person here can answer, so it must
+//! ask for the running turn's input as well.
 //!
 //! While a tool call runs, the last line of its output with text in it sits dim in the
 //! live zone, cut to the width, and goes when the call completes; it is never
@@ -240,7 +242,13 @@ impl TurnView {
         match event {
             Event::TurnStarted { .. } => {
                 self.queued = false;
-                Step::default()
+                // A call of the turn ahead that is still shown is over now.
+                match self.running.take() {
+                    Some(running) => {
+                        Step { settled: running.reads_keys(), ..self.commit(String::new(), size) }
+                    }
+                    None => Step::default(),
+                }
             }
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 self.message_delta(*index, *offset, delta, size)
@@ -296,7 +304,7 @@ impl TurnView {
     }
 
     /// An event of another turn: only the approvals of the turn this one waits behind
-    /// show, and only until this one starts.
+    /// and its running call show, and only until this one starts.
     fn other_turn(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         if !self.queued {
             return Step::default();
@@ -315,6 +323,16 @@ impl TurnView {
             }
             Event::ApprovalExpired { call_id, .. } if self.blocking.contains(call_id) => {
                 self.expired(*call_id, size)
+            }
+            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
+            Event::ToolCallInputChanged { call_id, input, .. } => {
+                self.input_changed(*call_id, *input, size, can_ask)
+            }
+            Event::ToolCallCompleted { call_id, .. }
+                if self.running.as_ref().is_some_and(|running| running.call_id == *call_id) =>
+            {
+                let settled = self.call_ended(*call_id);
+                Step { settled, ..self.commit(String::new(), size) }
             }
             _ => Step::default(),
         }

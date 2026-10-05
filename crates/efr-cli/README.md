@@ -90,7 +90,11 @@ line is an
 `answer::AnswerLine`: at most 1024 bytes, allocated once at that size, never in
 `Debug`, and zeroed when it is cleared, sent or dropped; a hidden one never reaches
 the view, a log or a note. When stdout is not a terminal, the prompt and how to answer
-go to stderr once, and nothing typed is echoed. Without a terminal on stdin, one dim
+go to stderr once, and nothing typed is echoed. A prompt that waits behind another
+turn counts as a person who can answer, so until its own turn starts it shows the
+running turn's last output line and asks for the input that turn's command waits for,
+also one asked before the prompt (found on the newest page of the log, as approvals
+are). Without a terminal on stdin, one dim
 note says that the command waits for input that `efr` cannot ask for here. Full-screen
 programs need an attach, which comes later.
 

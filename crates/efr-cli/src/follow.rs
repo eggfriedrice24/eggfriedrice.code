@@ -139,10 +139,10 @@ async fn stop(keys: KeyReader, asking: &Asking) {
 }
 
 impl Follower<'_> {
-    /// Shows the approvals that the turn ahead of a queued prompt waits for, so the
-    /// user can answer them here. They were asked before the prompt's event, where
-    /// the subscription starts, so they come from the newest page of the log; one
-    /// older than that page is not found.
+    /// Shows the approvals that the turn ahead of a queued prompt waits for, and the
+    /// input its running call waits for, so the user can answer them here. They were
+    /// asked before the prompt's event, where the subscription starts, so they come
+    /// from the newest page of the log; one older than that page is not found.
     async fn blocking(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
         if !view.is_queued() {
             return Ok(());
@@ -160,11 +160,35 @@ impl Follower<'_> {
             }
         };
         let mut pending: Vec<Event> = Vec::new();
+        // The running call's last output and input wait; tool calls run one at a time.
+        let mut call: Option<CallId> = None;
+        let mut output: Option<Event> = None;
+        let mut input: Option<Event> = None;
         for envelope in page.events.into_iter().filter(|envelope| envelope.seq <= self.target.after)
         {
             match &envelope.event {
                 Event::ApprovalRequested { turn_id, .. } if *turn_id != self.target.turn => {
                     pending.push(envelope.event);
+                }
+                Event::ToolCallOutputUpdated { turn_id, call_id, .. }
+                | Event::ToolCallInputChanged { turn_id, call_id, .. }
+                    if *turn_id != self.target.turn =>
+                {
+                    if call != Some(*call_id) {
+                        call = Some(*call_id);
+                        output = None;
+                        input = None;
+                    }
+                    if matches!(envelope.event, Event::ToolCallInputChanged { .. }) {
+                        input = Some(envelope.event);
+                    } else {
+                        output = Some(envelope.event);
+                    }
+                }
+                Event::ToolCallCompleted { call_id, .. } if call == Some(*call_id) => {
+                    call = None;
+                    output = None;
+                    input = None;
                 }
                 Event::ApprovalResolved { call_id, .. }
                 | Event::ApprovalExpired { call_id, .. } => {
@@ -175,7 +199,7 @@ impl Follower<'_> {
                 _ => {}
             }
         }
-        for event in pending {
+        for event in pending.into_iter().chain(output).chain(input) {
             let step = view.event(&event, self.ctx.screen.size(), self.ctx.keys.available());
             self.apply(step, out).await?;
         }
