@@ -144,6 +144,19 @@ pub enum Event {
         bytes: u64,
     },
 
+    /// A running tool call began or stopped waiting for the user to type a line. The
+    /// daemon reports each change once. A client that can read keys asks the user while
+    /// the call's latest `input` is not `none`, and sends the answer with
+    /// `input.respond`; the call's `tool_call_completed` ends the wait as well.
+    ToolCallInputChanged {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// What the call waits for now.
+        input: InputWait,
+    },
+
     /// A tool call finished.
     ToolCallCompleted {
         /// The turn.
@@ -317,6 +330,7 @@ impl Event {
             | Event::AssistantMessageCompleted { turn_id, .. }
             | Event::ToolCallStarted { turn_id, .. }
             | Event::ToolCallOutputUpdated { turn_id, .. }
+            | Event::ToolCallInputChanged { turn_id, .. }
             | Event::ToolCallCompleted { turn_id, .. }
             | Event::ApprovalRequested { turn_id, .. }
             | Event::ApprovalResolved { turn_id, .. }
@@ -388,6 +402,24 @@ pub enum ApprovalDecision {
     Allow,
     /// Do not run it; the model sees a denied call.
     Deny,
+}
+
+/// Whether a running tool call's command waits for the user to type a line, and what
+/// happens to that line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InputWait {
+    /// The call does not wait for input now, so a client stops asking the user.
+    #[default]
+    None,
+    /// The command waits for a line with echo on, such as a `[Y/n]` question. The user's
+    /// answer is shown on the terminal and reaches the output that the model reads.
+    Visible,
+    /// The command reads a line with echo off, such as the password prompt of `sudo` or
+    /// `ssh`. The user's answer is never shown and never reaches the output, so the model
+    /// never sees it.
+    Hidden,
 }
 
 /// Tokens that a turn used, as the provider reported them.

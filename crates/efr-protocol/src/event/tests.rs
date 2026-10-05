@@ -6,13 +6,14 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PromptSend,
-    PtyId, Scope, Seq, ShellContext, TurnId,
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, InputWait,
+    Origin, PromptSend, PtyId, Scope, Seq, ShellContext, TurnId,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
 const CONVERSATION: &str = "01928c4e-7a3b-7c1d-8e2f-000000000002";
 const PTY: &str = "01928c4e-7a3b-7c1d-8e2f-000000000003";
+const CALL: &str = "01928c4e-7a3b-7c1d-8e2f-000000000004";
 
 fn turn() -> TurnId {
     TurnId::from_str(TURN).unwrap()
@@ -219,4 +220,42 @@ fn an_envelope_reads_an_offset_time_and_writes_it_in_utc() {
     .unwrap();
     assert_eq!(envelope.conversation_id, None);
     assert_eq!(serde_json::to_value(&envelope).unwrap()["at"], json!("2026-10-03T12:00:00Z"));
+}
+
+fn input_changed(input: InputWait) -> Event {
+    Event::ToolCallInputChanged { turn_id: turn(), call_id: CallId::from_str(CALL).unwrap(), input }
+}
+
+#[test]
+fn an_input_change_names_the_call_and_what_it_waits_for() {
+    let event = input_changed(InputWait::Hidden);
+    assert_eq!(event.kind(), "tool_call_input_changed");
+    assert_eq!(event.turn_id(), Some(turn()));
+    assert_eq!(
+        serde_json::to_value(&event).unwrap(),
+        json!({ "kind": "tool_call_input_changed", "turn_id": TURN, "call_id": CALL, "input": "hidden" })
+    );
+}
+
+#[test]
+fn every_input_wait_is_a_snake_case_string_and_reads_back_as_itself() {
+    for (input, wire) in
+        [(InputWait::None, "none"), (InputWait::Visible, "visible"), (InputWait::Hidden, "hidden")]
+    {
+        assert_eq!(serde_json::to_value(input).unwrap(), json!(wire));
+        let event = input_changed(input);
+        let back: Event = serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
+        assert_eq!(back, event);
+    }
+}
+
+#[test]
+fn no_input_wait_is_the_default() {
+    assert_eq!(InputWait::default(), InputWait::None);
+}
+
+#[test]
+fn an_input_change_with_an_unknown_wait_is_an_error_not_unknown() {
+    let event = json!({ "kind": "tool_call_input_changed", "turn_id": TURN, "call_id": CALL, "input": "loud" });
+    assert!(serde_json::from_value::<Event>(event).is_err());
 }

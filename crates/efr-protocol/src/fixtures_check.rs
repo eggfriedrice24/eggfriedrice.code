@@ -21,12 +21,12 @@ use crate::{
     Color, CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, LeaseReport,
-    LeaseReportResult, Method, Origin, PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend,
-    PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
-    PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, Seq,
-    ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSteer,
-    TurnSteerResult, Usage,
+    DeviceId, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult, InputWait,
+    LeaseReport, LeaseReportResult, Method, Origin, PROTOCOL_VERSION, PageCursor, ProjectId,
+    PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName,
+    ScreenSnapshot, Seq, ServerFrame, ShellContext, Size, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult, Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -84,6 +84,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.extend(answer_fixtures());
     fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
     fixtures.extend(frame_fixtures());
+    fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("error_codes.json", &ErrorCode::ALL.to_vec()));
     fixtures.push(fixture("scope_names.json", &ScopeName::ALL.to_vec()));
     fixtures
@@ -453,6 +454,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
             tail: "3.1G\t/var/log/journal\n".into(),
             bytes: 4096,
         },
+        Event::ToolCallInputChanged {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            input: InputWait::Hidden,
+        },
         Event::ToolCallCompleted {
             turn_id: turn_id(),
             call_id: call_id(),
@@ -493,6 +499,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::LoginCompleted { provider: "openai".into() },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]
+}
+
+/// Every kind of input wait, so `input_waits.json` freezes the wire form of each.
+pub(crate) fn input_wait_samples() -> Vec<InputWait> {
+    vec![InputWait::None, InputWait::Visible, InputWait::Hidden]
 }
 
 /// One sample of every frame shape.

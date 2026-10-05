@@ -4,8 +4,10 @@ use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::{FIXTURES_DIR, all, event_path, event_samples, method_samples, method_stem};
-use crate::{Event, Method};
+use super::{
+    FIXTURES_DIR, all, event_path, event_samples, input_wait_samples, method_samples, method_stem,
+};
+use crate::{Event, InputWait, Method};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -65,25 +67,37 @@ fn event_index(event: &Event) -> usize {
         Event::AssistantMessageCompleted { .. } => 6,
         Event::ToolCallStarted { .. } => 7,
         Event::ToolCallOutputUpdated { .. } => 8,
-        Event::ToolCallCompleted { .. } => 9,
-        Event::ApprovalRequested { .. } => 10,
-        Event::ApprovalResolved { .. } => 11,
-        Event::ApprovalExpired { .. } => 12,
-        Event::TurnSteered { .. } => 13,
-        Event::TurnInterruptRequested { .. } => 14,
-        Event::TurnInterrupted { .. } => 15,
-        Event::TurnCompleted { .. } => 16,
-        Event::TurnFailed { .. } => 17,
-        Event::TurnCancelled { .. } => 18,
-        Event::ShellStarted { .. } => 19,
-        Event::ShellExited { .. } => 20,
-        Event::CwdChanged { .. } => 21,
-        Event::LoginCompleted { .. } => 22,
-        Event::Unknown { .. } => 23,
+        Event::ToolCallInputChanged { .. } => 9,
+        Event::ToolCallCompleted { .. } => 10,
+        Event::ApprovalRequested { .. } => 11,
+        Event::ApprovalResolved { .. } => 12,
+        Event::ApprovalExpired { .. } => 13,
+        Event::TurnSteered { .. } => 14,
+        Event::TurnInterruptRequested { .. } => 15,
+        Event::TurnInterrupted { .. } => 16,
+        Event::TurnCompleted { .. } => 17,
+        Event::TurnFailed { .. } => 18,
+        Event::TurnCancelled { .. } => 19,
+        Event::ShellStarted { .. } => 20,
+        Event::ShellExited { .. } => 21,
+        Event::CwdChanged { .. } => 22,
+        Event::LoginCompleted { .. } => 23,
+        Event::Unknown { .. } => 24,
     }
 }
 
-const EVENT_COUNT: usize = 24;
+const EVENT_COUNT: usize = 25;
+
+/// The position of an input wait in the enum, for the same purpose as `method_index`.
+fn input_wait_index(input: InputWait) -> usize {
+    match input {
+        InputWait::None => 0,
+        InputWait::Visible => 1,
+        InputWait::Hidden => 2,
+    }
+}
+
+const INPUT_WAIT_COUNT: usize = 3;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -161,6 +175,12 @@ fn params_files_decode_as_their_method() {
 fn every_event_kind_has_a_sample() {
     let covered: BTreeSet<usize> = event_samples().iter().map(event_index).collect();
     assert_eq!(covered, (0..EVENT_COUNT).collect());
+}
+
+#[test]
+fn every_input_wait_has_a_sample() {
+    let covered: Vec<usize> = input_wait_samples().into_iter().map(input_wait_index).collect();
+    assert_eq!(covered, (0..INPUT_WAIT_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

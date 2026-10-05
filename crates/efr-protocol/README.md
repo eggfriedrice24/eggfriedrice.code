@@ -22,7 +22,7 @@ Where things are:
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
-| `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `Usage` |
+| `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage` |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
 | `src/methods/*.rs` | one file per method: its params, and its result or stream item |
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |
@@ -54,7 +54,8 @@ Where things are:
 
 `fixtures/v1/` holds one JSON file per method's params (the `method` and `params`
 members of a request frame), per result or stream item variant, per event kind, per
-frame shape, and the closed sets of error codes and scope names. Two tests guard them:
+frame shape, every kind of input wait, and the closed sets of error codes and scope
+names. Two tests guard them:
 
 - every sample in `src/fixtures_check.rs` encodes to exactly the bytes of its file;
 - every file decodes as its type and encodes back to exactly the same bytes.

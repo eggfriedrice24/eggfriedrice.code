@@ -34,7 +34,7 @@ mod version;
 
 pub use capabilities::Capabilities;
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
-pub use event::{ApprovalDecision, Event, EventEnvelope, Usage};
+pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, Usage};
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
     CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
