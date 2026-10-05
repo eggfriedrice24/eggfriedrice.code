@@ -1036,27 +1036,31 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
     drop(order);
 }
 
-/// A listener at whose question nobody can answer, and at which the command's job ends
-/// and the shell takes the terminal back, as when `sudo` gives up right then.
-struct EndsAtTheQuestion {
+/// A listener at whose question nobody can answer, and at which the command's job
+/// leaves the terminal to process group `group`: the shell's own, as when `sudo` gives up
+/// right then, or another job's, such as a command that a later precmd hook starts.
+struct LeavesAtTheQuestion {
     modes: Arc<FakeModes>,
-    shell: u32,
+    group: u32,
 }
 
-impl RunProgress for EndsAtTheQuestion {
+impl RunProgress for LeavesAtTheQuestion {
     fn update(&mut self, _update: &OutputUpdate) {}
 
     fn can_answer_hidden(&mut self) -> bool {
-        self.modes.set_foreground(self.shell);
+        self.modes.set_foreground(self.group);
         false
     }
 }
 
-#[tokio::test]
-async fn a_stop_sends_no_signal_once_the_shell_holds_the_terminal_again() {
+/// Stops a hidden wait that nobody can answer after the job left the terminal to the
+/// group that `next` picks from the shell's pid, and checks that no signal was sent and
+/// that the command's own `D` still frees the shell.
+async fn a_stop_after_the_job_left(next: impl FnOnce(u32) -> u32) {
     let harness = Harness::new(ZSH);
     let shell = harness.sessions.open(conversation(1), Path::new("/home/u")).await.unwrap().pid;
-    let mut progress = EndsAtTheQuestion { modes: Arc::clone(&harness.modes), shell };
+    let mut progress =
+        LeavesAtTheQuestion { modes: Arc::clone(&harness.modes), group: next(shell) };
     let sessions = harness.sessions.clone();
     let sudo = request("sudo true").with_call(call()).with_timeout(Duration::from_secs(600));
     let run =
@@ -1071,14 +1075,25 @@ async fn a_stop_sends_no_signal_once_the_shell_holds_the_terminal_again() {
     one_look(&harness).await;
     let result = run.await.unwrap().unwrap();
     assert_eq!(result.completion, Completion::Unanswered);
-    // A SIGINT now would reach zsh in its precmd hooks.
     assert_eq!(harness.holder.signals(), []);
 
-    // The command's own `D` still frees the shell for the next run.
     let next = spawn_run(&harness.sessions, request("true"));
     terminal.print(b"\r\nsudo: timed out\r\n\x1b]133;D;1\x07").await;
     terminal.prompt().await;
     assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
     terminal.run(b"", 0).await;
     assert_eq!(next.await.unwrap().unwrap().exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn a_stop_sends_no_signal_once_the_shell_holds_the_terminal_again() {
+    // A SIGINT now would reach zsh in its precmd hooks.
+    a_stop_after_the_job_left(|shell| shell).await;
+}
+
+#[tokio::test]
+async fn a_stop_sends_no_signal_once_another_job_holds_the_terminal() {
+    // A SIGINT now would reach a command that never waited, such as one that a precmd
+    // hook after efr's runs.
+    a_stop_after_the_job_left(|_| OTHER_JOB).await;
 }

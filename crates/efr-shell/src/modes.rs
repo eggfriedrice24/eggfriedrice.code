@@ -113,10 +113,10 @@ impl Terminal {
         Ok(Some(Job { group, modes }))
     }
 
-    /// True while the shell's own process group is in the terminal's foreground, so
-    /// typed input and a signal to the foreground group would reach the shell.
-    pub(crate) fn shell_holds(&self) -> io::Result<bool> {
-        Ok(self.foreground()? == self.shell)
+    /// True while process group `group` is in the terminal's foreground, so typed input
+    /// and a signal to the foreground group would reach it.
+    pub(crate) fn holds(&self, group: u32) -> io::Result<bool> {
+        Ok(self.foreground()? == group)
     }
 
     fn foreground(&self) -> io::Result<u32> {

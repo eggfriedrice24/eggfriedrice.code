@@ -480,8 +480,10 @@ impl ShellSessions {
                         }
                     };
                     if stop {
-                        let result =
-                            self.stop_unanswered(session, id, &mut guard, &mut answer).await;
+                        let waiting = watch.waiting();
+                        let result = self
+                            .stop_unanswered(session, id, waiting, &mut guard, &mut answer)
+                            .await;
                         end_watch(&mut watch, progress);
                         return result;
                     }
@@ -574,11 +576,13 @@ impl ShellSessions {
     }
 
     /// Interrupts run `id`, whose command waits for hidden input that nobody can
-    /// answer, and returns its output so far as [`Completion::Unanswered`].
+    /// answer, and returns its output so far as [`Completion::Unanswered`]. `waiting` is
+    /// the process group of the job whose wait the run reported; only it is signalled.
     async fn stop_unanswered(
         &self,
         session: &SessionHandle,
         id: u64,
+        waiting: Option<u32>,
         guard: &mut DetachOnDrop,
         answer: &mut oneshot::Receiver<Result<RunEnd, ShellError>>,
     ) -> Result<CommandResult, ShellError> {
@@ -589,18 +593,24 @@ impl ShellSessions {
         // NOTE: the command may have ended since the look. zsh then holds the terminal
         // again and runs its precmd hooks, and a SIGINT to the foreground group would
         // reach zsh and could cut short the hook that prints `D`, which the orphan waits
-        // for. So the group is read right before the signal, and nothing is sent while
-        // the shell holds the terminal. What is left is the moment between this read
-        // and the holder's own read of the group as it signals.
-        match session.terminal.shell_holds() {
-            Ok(false) => {
+        // for; a hook after the integration's may also have started a command of its
+        // own, which never waited. So the group is read right before the signal, and it
+        // goes out only while the job whose wait was reported holds the terminal. What
+        // is left is the moment between this read and the holder's own read of the
+        // group as it signals.
+        let still_waiting = match waiting {
+            Some(group) => session.terminal.holds(group),
+            None => Ok(false),
+        };
+        match still_waiting {
+            Ok(true) => {
                 tracing::info!(%conversation, "a command waits for hidden input that no client can answer; interrupting it");
                 if let Err(error) = self.interrupt(conversation).await {
                     tracing::warn!(%conversation, error = %error, "could not interrupt a command that waits for hidden input");
                 }
             }
-            Ok(true) => {
-                tracing::debug!(%conversation, "a command that waited for hidden input ended before the stop; nothing is interrupted");
+            Ok(false) => {
+                tracing::debug!(%conversation, "the job that waited for hidden input no longer holds the terminal; nothing is interrupted");
             }
             Err(error) => {
                 tracing::warn!(%conversation, error = %error, "could not read who holds the terminal; a command that waits for hidden input is not interrupted");
