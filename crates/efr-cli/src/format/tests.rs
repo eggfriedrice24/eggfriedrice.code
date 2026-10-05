@@ -10,8 +10,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, code_block, conversations, lines, one_line, paint, status,
-    tool_call, tool_result, until,
+    Block, Spacing, Tone, ago, approval_summary, code_block, conversations, lines, one_line, paint,
+    status, tool_call, tool_result, until,
 };
 use crate::testing::{conversation, now};
 
@@ -188,4 +188,24 @@ fn conversations_list_newest_first_with_status_and_age() {
 #[test]
 fn an_empty_list_says_so() {
     assert_eq!(conversations(&ConversationsListResult::default(), now()), "no conversations yet\n");
+}
+
+#[test]
+fn an_approval_summary_splits_off_the_parts_that_ask() {
+    assert_eq!(
+        approval_summary("shell: run \"uptime; hostnamectl\"\nasks for: hostnamectl"),
+        ("shell: run \"uptime; hostnamectl\"".to_owned(), Some("asks for: hostnamectl".to_owned()))
+    );
+    assert_eq!(approval_summary("write /etc/hosts"), ("write /etc/hosts".to_owned(), None));
+}
+
+#[test]
+fn an_approval_summary_keeps_a_line_that_is_not_a_list_of_names() {
+    for summary in
+        ["write /a\nasks for: x (user data)", "run x\nasks for: \u{1b}[31mx", "x\nasks for: "]
+    {
+        let (first, asking) = approval_summary(summary);
+        assert_eq!(asking, None, "{summary:?}");
+        assert_eq!(first, one_line(summary));
+    }
 }

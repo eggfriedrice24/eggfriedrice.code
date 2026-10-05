@@ -95,6 +95,30 @@ pub(crate) fn one_line(text: &str) -> String {
         .collect()
 }
 
+/// What starts the line of an approval summary that names the parts of a command line
+/// that ask, as the daemon writes it.
+const ASKS_FOR: &str = "\nasks for: ";
+
+/// An approval summary as one line for the question and, when the daemon named them,
+/// the parts of a command line that ask, as a line `asks for: hostnamectl, ...`. Both
+/// are safe to print.
+///
+/// NOTE: the daemon escapes every other newline of a summary, and names a part only
+/// with letters, digits, spaces and `._/:@%+,-`. A line with anything else is not
+/// split off, so a file name with a newline in an older summary cannot pass for it.
+pub(crate) fn approval_summary(summary: &str) -> (String, Option<String>) {
+    let named = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, ' ' | '.' | '_' | '/' | ':' | '@' | '%' | '+' | ',' | '-')
+    };
+    match summary.rsplit_once(ASKS_FOR) {
+        Some((first, parts)) if !parts.is_empty() && parts.chars().all(named) => {
+            (one_line(first), Some(format!("asks for: {parts}")))
+        }
+        _ => (one_line(summary), None),
+    }
+}
+
 /// `text` safe to print as lines: newlines stay, tabs become a space, other control
 /// characters visible stand-ins.
 pub(crate) fn lines(text: &str) -> Cow<'_, str> {

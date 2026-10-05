@@ -258,6 +258,53 @@ fn a_raw_approval_goes_to_stderr_with_the_question() {
     assert_eq!(step.ask, Some(Ask::Approval(call())));
 }
 
+/// An approval of a long line in which two parts ask, as the daemon summarises it.
+fn approval_of_parts() -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
+                  asks for: hostnamectl, systemctl --failed"
+            .to_owned(),
+        diff_preview: None,
+    }
+}
+
+#[test]
+fn an_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
+    let mut view = terminal_view();
+    let step = view.event(&approval_of_parts(), SIZE, true);
+    insta::assert_snapshot!(readable(&step.out));
+}
+
+#[test]
+fn a_raw_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
+    let mut view = raw_view();
+    let step = view.event(&approval_of_parts(), SIZE, true);
+    assert_eq!(
+        step.err,
+        "approval needed: shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
+         asks for: hostnamectl, systemctl --failed\nallow? y = yes, n = no\n"
+    );
+}
+
+#[test]
+fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
+    let mut view = raw_view();
+    let event = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "write_file: write /home/u/a\nasks for: ls (user data)".to_owned(),
+        diff_preview: None,
+    };
+    let step = view.event(&event, SIZE, true);
+    assert_eq!(
+        step.err,
+        "approval needed: write_file: write /home/u/a asks for: ls (user data)\n\
+         allow? y = yes, n = no\n"
+    );
+}
+
 #[test]
 fn approval_summaries_cannot_drive_the_terminal() {
     let mut view = terminal_view();

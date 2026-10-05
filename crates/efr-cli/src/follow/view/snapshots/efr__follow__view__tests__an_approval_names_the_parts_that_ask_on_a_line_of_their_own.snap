@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\e[1;33mapproval needed:\e[0m shell: run "printf x; hostnamectl; uptime; systemctl --failed"
+\e[1;33masks for: hostnamectl, systemctl --failed\e[0m
+\e[2mallow? y = yes, n = no\e[0m
+\e[?2026l

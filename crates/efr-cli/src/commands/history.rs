@@ -178,7 +178,11 @@ impl<'a> Transcript<'a> {
                 }
             }
             Event::ApprovalRequested { summary, .. } => {
-                self.note(&format!("approval needed: {}", format::one_line(summary)));
+                let (summary, asking) = format::approval_summary(summary);
+                match asking {
+                    Some(asking) => self.note(&format!("approval needed: {summary}; {asking}")),
+                    None => self.note(&format!("approval needed: {summary}")),
+                }
             }
             Event::ApprovalResolved { decision, origin, .. } => {
                 let line =

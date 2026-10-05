@@ -78,6 +78,11 @@ Replies:
   call runs, the last line of its output with text in it (from `tool_call_output_updated`)
   sits dim in the live zone, cut to the width; it goes when the call completes and is
   never committed.
+- An approval question shows the daemon's summary on one line and, when the daemon
+  named the simple commands of a long line that ask, a second line
+  `asks for: hostnamectl, systemctl --failed`. Only a last line of plain names counts
+  as that line; anything else stays on the first line. `efr history` joins both with
+  `; `, as the daemon's notices do.
 - When stdout is not a terminal, the raw markdown is written, and notes and approval
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`

@@ -806,11 +806,13 @@ impl TurnView {
     ) -> Step {
         let before = self.finish_message();
         let options = self.options_at(size);
-        let mut text = format!(
-            "{} {}\n",
-            format::paint(request.heading, Tone::Attention, &options),
-            format::one_line(request.summary)
-        );
+        let (summary, asking) = format::approval_summary(request.summary);
+        let mut text =
+            format!("{} {summary}\n", format::paint(request.heading, Tone::Attention, &options));
+        if let Some(asking) = asking {
+            text.push_str(&format::paint(&asking, Tone::Attention, &options));
+            text.push('\n');
+        }
         if let Some(diff) = request.diff {
             if self.terminal() {
                 text.push_str(&render(&format::code_block("diff", diff), &options));
