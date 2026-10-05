@@ -164,7 +164,8 @@ impl ShellSessions {
     /// `hidden`, the terminal must also have echo off, so the text never reaches the
     /// output. The modes are read right before the one write that types the answer.
     /// It fails with [`ShellError::InvalidAnswer`] for text that is not one line of at
-    /// most 1024 bytes without control characters, [`ShellError::NoShell`] or
+    /// most [`InputRespond::MAX_TEXT_BYTES`](efr_protocol::InputRespond::MAX_TEXT_BYTES)
+    /// bytes without control characters, [`ShellError::NoShell`] or
     /// [`ShellError::NoCall`] when nothing runs, and [`ShellError::NotWaiting`] when the
     /// command does not wait for that input; then nothing is written. The text never
     /// reaches an error, a log or the recording (unless the terminal echoes it).

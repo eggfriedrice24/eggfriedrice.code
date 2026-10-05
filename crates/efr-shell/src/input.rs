@@ -17,21 +17,18 @@
 
 use std::time::Duration;
 
-use efr_protocol::{InputWait, ScreenSnapshot};
+use efr_protocol::{InputRespond, InputWait, ScreenSnapshot};
 use jiff::Timestamp;
 
 use crate::ShellError;
 use crate::modes::InputModes;
 use crate::run::cursor_after_text;
 
-/// The longest answer, in bytes, without the carriage return that ends it.
-pub(crate) const MAX_ANSWER: usize = 1024;
-
-/// Refuses an answer that is not one line of at most [`MAX_ANSWER`] bytes. The reason
-/// never quotes the text, which can be a password.
+/// Refuses an answer that is not one line of at most [`InputRespond::MAX_TEXT_BYTES`]
+/// bytes. The reason never quotes the text, which can be a password.
 pub(crate) fn check_answer(text: &str) -> Result<(), ShellError> {
-    if text.len() > MAX_ANSWER {
-        return Err(ShellError::InvalidAnswer { reason: "it is longer than 1024 bytes" });
+    if text.len() > InputRespond::MAX_TEXT_BYTES {
+        return Err(ShellError::InvalidAnswer { reason: "it is longer than input.respond allows" });
     }
     if text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
         return Err(ShellError::InvalidAnswer { reason: "it contains a control character" });

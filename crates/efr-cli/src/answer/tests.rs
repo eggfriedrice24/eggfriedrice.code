@@ -1,6 +1,7 @@
+use efr_protocol::InputRespond;
 use pretty_assertions::assert_eq;
 
-use super::{AnswerLine, Edit, MAX_ANSWER_BYTES};
+use super::{AnswerLine, Edit};
 
 /// Types `bytes` and returns the edit of each key.
 fn type_bytes(line: &mut AnswerLine, bytes: &[u8]) -> Vec<Edit> {
@@ -109,20 +110,20 @@ fn bytes_that_are_not_utf8_are_dropped() {
 #[test]
 fn the_line_stops_growing_at_the_limit() {
     let mut line = AnswerLine::new();
-    type_bytes(&mut line, &[b'a'; MAX_ANSWER_BYTES]);
-    assert_eq!(line.text().len(), MAX_ANSWER_BYTES);
+    type_bytes(&mut line, &[b'a'; InputRespond::MAX_TEXT_BYTES]);
+    assert_eq!(line.text().len(), InputRespond::MAX_TEXT_BYTES);
     assert_eq!(line.key(b'b'), Edit::Unchanged);
     // A multibyte character that would cross the limit is not cut either.
     line.key(0x7f);
     assert_eq!(type_bytes(&mut line, "\u{20ac}".as_bytes()).last(), Some(&Edit::Unchanged));
-    assert_eq!(line.text().len(), MAX_ANSWER_BYTES - 1);
+    assert_eq!(line.text().len(), InputRespond::MAX_TEXT_BYTES - 1);
 }
 
 #[test]
 fn the_buffer_never_moves_while_it_grows() {
     let mut line = AnswerLine::new();
     let start = line.text().as_ptr();
-    type_bytes(&mut line, &[b'x'; MAX_ANSWER_BYTES + 10]);
+    type_bytes(&mut line, &[b'x'; InputRespond::MAX_TEXT_BYTES + 10]);
     assert_eq!(line.text().as_ptr(), start);
     line.key(0x15);
     type_bytes(&mut line, b"again");

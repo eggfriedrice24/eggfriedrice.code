@@ -77,17 +77,18 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `login_completed` and makes the running provider forget its cached token.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
-  while that call's command runs and the terminal reads a line, and for a hidden
-  answer only while echo is off, all checked by the shell's actor right before its one
-  write; the shell appends `\r`. A text that is not one line of at most 1024 bytes
-  without control characters is `invalid`; a conversation without a shell, or in which
-  no call's command runs (the call's command ended, or was left at its timeout and goes
-  on without a call), is `not_found`; and a command that does not wait for that input
-  (another call's command, one not started yet, a terminal that does not read a line,
-  echo on for a hidden answer, the shell itself holding the terminal again before the
-  command's `D` arrived) is `conflict`; nothing is written then. There is no
-  receipt. The text is a `SecretText`: it reaches no log, error message, event or
-  receipt, and the handler logs only its length.
+  while that call's command runs and the terminal reads a line, and for a hidden answer
+  only while echo is off, all checked by the shell's actor right before its one write;
+  the shell appends `\r`. A text that is not one line of at most
+  `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters is
+  `invalid`; a conversation without a shell, or in which no call's command runs (the
+  call's command ended, or was left at its timeout and goes on without a call), is
+  `not_found`; and a command that does not wait for that input (another call's command,
+  one not started yet, a terminal that does not read a line, echo on for a hidden
+  answer, the shell itself holding the terminal again before the command's `D` arrived)
+  is `conflict`; nothing is written then. There is no receipt. The text is a
+  `SecretText`: it reaches no log, error message, event or receipt, and the handler logs
+  only its length.
 - `conversation.subscribe` with `answers_input` from a connection that holds the
   `terminal` scope counts, while its stream lasts, as a client at which a person can
   answer a waiting command (`Connections::answerers`); the count drops when the stream

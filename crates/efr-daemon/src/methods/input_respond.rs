@@ -2,7 +2,8 @@
 //! input, typed into the conversation's hidden shell.
 //!
 //! The shell manager does the checks and the write in one step of the shell's actor:
-//! the text is one line of at most 1024 bytes without control characters, the call's
+//! the text is one line of at most [`InputRespond::MAX_TEXT_BYTES`] bytes without
+//! control characters, the call's
 //! command runs now, the terminal reads a line, and for a hidden answer echo is off.
 //! Anything else writes nothing. The text is a `SecretText`, so it never reaches a log,
 //! an error message, the event log or a receipt; this handler logs only its length.

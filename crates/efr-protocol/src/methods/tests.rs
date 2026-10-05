@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::{Base64Bytes, ConversationId, ConversationSubscribe, PageCursor, Seq};
+use crate::{Base64Bytes, ConversationId, ConversationSubscribe, InputRespond, PageCursor, Seq};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 
@@ -75,4 +75,10 @@ fn answers_input_is_written_only_when_true() {
 fn answers_input_must_be_a_boolean() {
     let params = json!({ "conversation_id": CONVERSATION, "answers_input": "yes" });
     assert!(serde_json::from_value::<ConversationSubscribe>(params).is_err());
+}
+
+#[test]
+fn the_longest_answer_is_frozen_with_the_wire_contract() {
+    // Clients cap the line they read at this length, so a change is a protocol change.
+    assert_eq!(InputRespond::MAX_TEXT_BYTES, 1024);
 }

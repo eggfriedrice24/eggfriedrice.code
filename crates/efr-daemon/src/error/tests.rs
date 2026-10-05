@@ -65,7 +65,10 @@ fn request_errors_map_to_the_code_a_client_acts_on() {
             },
             ErrorCode::Conflict,
         ),
-        (DaemonError::InvalidAnswer { reason: "it is longer than 1024 bytes" }, ErrorCode::Invalid),
+        (
+            DaemonError::InvalidAnswer { reason: "it is longer than input.respond allows" },
+            ErrorCode::Invalid,
+        ),
     ];
     for (error, expected) in cases {
         let message = error.to_string();

@@ -14,11 +14,8 @@
 
 use std::fmt;
 
-use efr_protocol::SecretText;
+use efr_protocol::{InputRespond, SecretText};
 use zeroize::{Zeroize as _, Zeroizing};
-
-/// The longest answer in bytes, the limit of `input.respond`.
-pub(crate) const MAX_ANSWER_BYTES: usize = 1024;
 
 /// What one key did to the line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,7 +66,7 @@ impl AnswerLine {
     /// An empty line.
     pub(crate) fn new() -> AnswerLine {
         AnswerLine {
-            text: Zeroizing::new(String::with_capacity(MAX_ANSWER_BYTES)),
+            text: Zeroizing::new(String::with_capacity(InputRespond::MAX_TEXT_BYTES)),
             pending: Zeroizing::new([0; 4]),
             pending_len: 0,
             escape: Escape::None,
@@ -86,7 +83,8 @@ impl AnswerLine {
     pub(crate) fn take(&mut self) -> SecretText {
         self.drop_pending();
         self.escape = Escape::None;
-        let text = std::mem::replace(&mut *self.text, String::with_capacity(MAX_ANSWER_BYTES));
+        let text =
+            std::mem::replace(&mut *self.text, String::with_capacity(InputRespond::MAX_TEXT_BYTES));
         SecretText::new(text)
     }
 
@@ -162,7 +160,7 @@ impl AnswerLine {
     }
 
     fn push_char(&mut self, c: char) -> Edit {
-        if c.is_control() || self.text.len() + c.len_utf8() > MAX_ANSWER_BYTES {
+        if c.is_control() || self.text.len() + c.len_utf8() > InputRespond::MAX_TEXT_BYTES {
             return Edit::Unchanged;
         }
         self.text.push(c);

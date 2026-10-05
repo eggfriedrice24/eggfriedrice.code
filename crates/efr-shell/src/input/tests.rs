@@ -1,12 +1,10 @@
 use std::time::Duration;
 
-use efr_protocol::{Cell, Cursor, InputWait, RowCells, ScreenSnapshot};
+use efr_protocol::{Cell, Cursor, InputRespond, InputWait, RowCells, ScreenSnapshot};
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
-use super::{
-    InputWatch, Look, MAX_ANSWER, Probe, Quiet, check_answer, check_modes, look, visible_prompt,
-};
+use super::{InputWatch, Look, Probe, Quiet, check_answer, check_modes, look, visible_prompt};
 use crate::ShellError;
 use crate::modes::InputModes;
 
@@ -110,14 +108,14 @@ fn an_answer_is_one_short_line() {
     check_answer("hunter2").unwrap();
     check_answer("").unwrap();
     check_answer("p\u{e4}ss w\u{f6}rd").unwrap();
-    check_answer(&"x".repeat(MAX_ANSWER)).unwrap();
+    check_answer(&"x".repeat(InputRespond::MAX_TEXT_BYTES)).unwrap();
     for bad in ["a\rb", "a\nb", "\u{1b}[A", "tab\there", "nul\0", "del\u{7f}"] {
         let error = check_answer(bad).unwrap_err();
         assert!(matches!(error, ShellError::InvalidAnswer { .. }), "{error:?}");
         assert!(!error.to_string().contains(bad), "the reason never quotes the text");
     }
     assert!(matches!(
-        check_answer(&"x".repeat(MAX_ANSWER + 1)),
+        check_answer(&"x".repeat(InputRespond::MAX_TEXT_BYTES + 1)),
         Err(ShellError::InvalidAnswer { .. })
     ));
 }

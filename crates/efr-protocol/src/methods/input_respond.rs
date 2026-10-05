@@ -25,13 +25,21 @@ pub struct InputRespond {
     pub conversation_id: ConversationId,
     /// The call that waits for input.
     pub call_id: CallId,
-    /// The line without its line ending: at most 1024 bytes and no control characters
-    /// (U+0000 to U+001F and U+007F). The daemon never logs or records it.
+    /// The line without its line ending: at most [`InputRespond::MAX_TEXT_BYTES`] bytes
+    /// and no control characters (U+0000 to U+001F and U+007F). The daemon never logs or
+    /// records it.
     pub text: SecretText,
     /// True when the client asked the user for hidden input, because the event said
     /// `hidden`. The daemon then requires the PTY's echo to be off when it writes, so the
     /// terminal does not put the text in the output that the model reads.
     pub hidden: bool,
+}
+
+impl InputRespond {
+    /// The longest `text` in bytes, without the carriage return that the daemon adds.
+    /// Part of the wire contract: the daemon refuses a longer one as `invalid`, and a
+    /// client that reads the line caps it here.
+    pub const MAX_TEXT_BYTES: usize = 1024;
 }
 
 /// The result of `input.respond`: the line was written to the call's PTY.

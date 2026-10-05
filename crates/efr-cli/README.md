@@ -88,16 +88,15 @@ a hidden answer is the exception: until it completes, the key thread keeps runni
 throws keys away, so a password typed again while `sudo` checks a wrong one neither
 shows nor waits for the shell. A key thread that read an answer line discards unread
 input before it restores echo, also when the turn ends or Ctrl+C ends the command. The
-line is an
-`answer::AnswerLine`: at most 1024 bytes, allocated once at that size, never in
-`Debug`, and zeroed when it is cleared, sent or dropped; a hidden one never reaches
-the view, a log or a note. When stdout is not a terminal, the prompt and how to answer
-go to stderr once, and nothing typed is echoed. A prompt that waits behind another
-turn counts as a person who can answer, so until its own turn starts it shows the
-running turn's last output line and asks for the input that turn's command waits for,
-also one asked before the prompt (found on the newest page of the log, as approvals
-are). Without a terminal on stdin, one dim
-note says that the command waits for input that `efr` cannot ask for here. Full-screen
+line is an `answer::AnswerLine`: at most `efr_protocol::InputRespond::MAX_TEXT_BYTES`
+bytes, allocated once at that size, never in `Debug`, and zeroed when it is cleared,
+sent or dropped; a hidden one never reaches the view, a log or a note. When stdout is
+not a terminal, the prompt and how to answer go to stderr once, and nothing typed is
+echoed. A prompt that waits behind another turn counts as a person who can answer, so
+until its own turn starts it shows the running turn's last output line and asks for the
+input that turn's command waits for, also one asked before the prompt (found on the
+newest page of the log, as approvals are). Without a terminal on stdin, one dim note
+says that the command waits for input that `efr` cannot ask for here. Full-screen
 programs need an attach, which comes later.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
