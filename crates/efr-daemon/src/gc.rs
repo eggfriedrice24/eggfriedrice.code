@@ -60,14 +60,24 @@ pub(crate) fn at_prompt(phase: Phase) -> bool {
     matches!(phase, Phase::Ready | Phase::Prompting { .. } | Phase::Unmarked)
 }
 
+/// The idle time of `shell.idle_minutes`, or `None` when it is 0 and idle shells stay.
+pub(crate) fn idle_time(minutes: u64) -> Option<Duration> {
+    (minutes > 0).then(|| Duration::from_secs(minutes.saturating_mul(60)))
+}
+
 /// Looks every [`INTERVAL`] until `stop`, and closes the shells that [`decide`] picks.
-pub(crate) async fn collect(state: Arc<State>, idle: Duration, stop: CancellationToken) {
+/// The idle time is read from the settings at each look, so a reload changes it.
+pub(crate) async fn collect(state: Arc<State>, stop: CancellationToken) {
     let mut seen: HashMap<PtyId, Seen> = HashMap::new();
     loop {
         tokio::select! {
             () = stop.cancelled() => return,
             () = state.clock.sleep(INTERVAL) => {}
         }
+        let Some(idle) = idle_time(state.settings.borrow().shell.idle_minutes) else {
+            seen.clear();
+            continue;
+        };
         let now = state.clock.now();
         let activity = state.ptys.activity();
         seen.retain(|pty_id, _| activity.iter().any(|pty| pty.pty_id == *pty_id));

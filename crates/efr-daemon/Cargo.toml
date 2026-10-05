@@ -53,6 +53,7 @@ efr-tools.workspace = true
 efr-transport.workspace = true
 jiff.workspace = true
 nix.workspace = true
+notify.workspace = true
 sd-notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1,10 +1,11 @@
-//! `admin.status`: the daemon's health, for `efr status`.
+//! `admin.status`: the daemon's health, for `efr status`, and its roots and config
+//! file, for `efr paths` and `efr config show`.
 
 use efr_protocol::{AdminStatus, AdminStatusResult, PROTOCOL_VERSION};
 use efr_transport::Responder;
 
-use crate::DaemonError;
 use crate::state::State;
+use crate::{DaemonError, reload};
 
 pub(crate) async fn handle(
     state: &State,
@@ -22,9 +23,8 @@ pub(crate) async fn handle(
         conversations: count(state.conversations.count()),
         shells: count(state.ptys.count()),
         providers: state.providers.status().await,
-        // NOTE: left out until the roots know their sources and the config reloads.
-        roots: None,
-        config: None,
+        roots: Some(state.roots.clone()),
+        config: Some(reload::status(state).await),
     };
     responder.item(&result).await?;
     Ok(())

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use efr_config::Settings;
 use efr_permissions::Engine;
-use efr_protocol::DaemonId;
+use efr_protocol::{DaemonId, DaemonRoots};
 use efr_shell::ShellSessions;
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
@@ -19,6 +19,8 @@ use crate::conversations::Conversations;
 use crate::engine::EngineParts;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
+use crate::reload::Reloads;
+use crate::telemetry::LogFilter;
 
 /// The parent of every conversation's `$SCRATCH`, under the data directory.
 pub(crate) const SCRATCH_DIR: &str = "scratch";
@@ -28,15 +30,20 @@ pub(crate) const SCRATCH_DIR: &str = "scratch";
 #[derive(Debug)]
 pub(crate) struct State {
     /// The settings. Readers take the latest value when a unit of work starts: a turn
-    /// when it starts, a prompt when it arrives.
+    /// when it starts, a prompt when it arrives. A reload sends the new value.
     pub(crate) settings: watch::Sender<Arc<Settings>>,
     /// The permission engine that each tool call reads. The conversations hold its
-    /// receiver.
-    #[expect(dead_code, reason = "the live reload sends a new engine on it")]
+    /// receiver; a reload that changes `[permissions]` sends a new one.
     pub(crate) engine: watch::Sender<Arc<Engine>>,
     /// What the engine is built from besides the settings.
-    #[expect(dead_code, reason = "the live reload builds the new engine from it")]
     pub(crate) engine_parts: EngineParts,
+    /// The running log filter, which a reload replaces; `None` when the caller set up
+    /// tracing itself, as a test does.
+    pub(crate) log: Option<LogFilter>,
+    /// The last reload's outcome, and the lock that runs reloads one at a time.
+    pub(crate) reloads: Reloads,
+    /// The four roots and where each came from, for `admin.status`.
+    pub(crate) roots: DaemonRoots,
     pub(crate) dirs: Dirs,
     pub(crate) daemon_id: DaemonId,
     pub(crate) pid: u32,

@@ -207,6 +207,15 @@ pub(crate) struct Running {
     pub(crate) served: JoinHandle<Result<(), DaemonError>>,
     pub(crate) connections: Arc<Connections>,
     pub(crate) settings: watch::Sender<Arc<Settings>>,
+    pub(crate) engine: watch::Sender<Arc<efr_permissions::Engine>>,
+}
+
+impl Running {
+    /// Stops the daemon and waits until it has drained.
+    pub(crate) async fn stop(self) {
+        self.shutdown.cancel();
+        self.served.await.unwrap().unwrap();
+    }
 }
 
 /// Starts a daemon on `dirs` and serves it.
@@ -220,9 +229,10 @@ pub(crate) async fn serve_with(config: Settings, deps: Deps) -> Running {
     let socket = daemon.socket_path().to_path_buf();
     let connections = daemon.connections();
     let settings = daemon.settings();
+    let engine = daemon.engine();
     let shutdown = CancellationToken::new();
     let served = tokio::spawn(daemon.serve(shutdown.clone()));
-    Running { socket, shutdown, served, connections, settings }
+    Running { socket, shutdown, served, connections, settings, engine }
 }
 
 /// A protocol client that speaks raw frames.

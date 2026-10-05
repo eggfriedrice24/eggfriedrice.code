@@ -4,7 +4,14 @@ use efr_shell::Phase;
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use crate::gc::{Look, Seen, at_prompt, decide};
+use crate::gc::{Look, Seen, at_prompt, decide, idle_time};
+
+#[test]
+fn zero_idle_minutes_keep_idle_shells() {
+    assert_eq!(idle_time(0), None);
+    assert_eq!(idle_time(60), Some(Duration::from_secs(3600)));
+    assert_eq!(idle_time(u64::MAX), Some(Duration::from_secs(u64::MAX)));
+}
 
 const IDLE: Duration = Duration::from_secs(3600);
 

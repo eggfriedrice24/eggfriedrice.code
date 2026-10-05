@@ -22,10 +22,11 @@ use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{DaemonId, PROTOCOL_VERSION};
+use efr_protocol::{DaemonId, DaemonRoots, PROTOCOL_VERSION, RootDir, RootSource};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
-use efr_stdx::paths::Dirs;
+use efr_stdx::env::Var;
+use efr_stdx::paths::{Dirs, RootSource as StdxRootSource, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 use efr_store::recording::Recordings;
@@ -44,11 +45,13 @@ use crate::lock::DaemonLock;
 use crate::methods::Methods;
 use crate::providers::{ProviderFactory, Providers};
 use crate::ptys::Ptys;
+use crate::reload::{self, Reloads};
 use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
+use crate::telemetry::LogFilter;
 use crate::tools::{self, DaemonToolbox};
-use crate::{DaemonError, gc, notices, reconcile, screens};
+use crate::{DaemonError, gc, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
 const RECORDINGS_DIR: &str = "recordings";
@@ -87,6 +90,15 @@ pub struct Deps {
     pub in_memory_store: bool,
     /// Run git for scope derivation without the system and global git configuration.
     pub isolated_git: bool,
+    /// Where each root in `dirs` came from, for `admin.status`.
+    pub root_sources: RootSources,
+    /// The running log filter, which a config reload replaces; `None` leaves the logs
+    /// to whoever set up tracing.
+    pub log: Option<LogFilter>,
+    /// Reload when `config.toml` changes on disk.
+    pub watch_config: bool,
+    /// Reload at each SIGHUP, which `systemctl --user reload efrd` sends.
+    pub reload_on_hangup: bool,
 }
 
 impl fmt::Debug for Deps {
@@ -103,13 +115,18 @@ impl fmt::Debug for Deps {
             .field("host", &self.host)
             .field("in_memory_store", &self.in_memory_store)
             .field("isolated_git", &self.isolated_git)
+            .field("root_sources", &self.root_sources)
+            .field("log", &self.log.is_some())
+            .field("watch_config", &self.watch_config)
+            .field("reload_on_hangup", &self.reload_on_hangup)
             .finish_non_exhaustive()
     }
 }
 
 impl Deps {
     /// Dependencies on `dirs` and `home` with `clock` and `rng`, an empty shell
-    /// environment, and the build's own holder, screens and providers.
+    /// environment, and the build's own holder, screens and providers. The roots count
+    /// as named by their own variables, and nothing watches the config file or SIGHUP.
     pub fn new(
         dirs: Dirs,
         home: impl Into<PathBuf>,
@@ -130,13 +147,19 @@ impl Deps {
             time_zone: None,
             in_memory_store: false,
             isolated_git: false,
+            root_sources: RootSources::all(StdxRootSource::Variable(Var::DataDir)),
+            log: None,
+            watch_config: false,
+            reload_on_hangup: false,
         }
     }
 
     /// The process's own: the XDG and `EFR_*` roots, `HOME`, the system clock, an
-    /// OS-seeded generator and the process environment for the shells.
+    /// OS-seeded generator and the process environment for the shells. The config
+    /// reloads when the file changes and at each SIGHUP.
     pub fn from_process() -> Result<Self, DaemonError> {
-        let dirs = Dirs::resolve().map_err(|source| DaemonError::Paths { source })?;
+        let (dirs, root_sources) =
+            Dirs::resolve_with_sources().map_err(|source| DaemonError::Paths { source })?;
         // NOTE: HOME is a POSIX convention, not an efr setting, so it is read here and
         // not through efr_stdx::env::Var.
         let home = std::env::var_os("HOME")
@@ -147,7 +170,39 @@ impl Deps {
         let shell_env = std::env::vars_os()
             .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
             .collect();
-        Ok(Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng)).with_shell_env(shell_env))
+        Ok(Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng))
+            .with_shell_env(shell_env)
+            .with_root_sources(root_sources)
+            .with_config_watch()
+            .with_reload_on_hangup())
+    }
+
+    /// Says where each root came from.
+    #[must_use]
+    pub fn with_root_sources(mut self, sources: RootSources) -> Self {
+        self.root_sources = sources;
+        self
+    }
+
+    /// Replaces `filter` at each config reload that changes `log`.
+    #[must_use]
+    pub fn with_log_filter(mut self, filter: LogFilter) -> Self {
+        self.log = Some(filter);
+        self
+    }
+
+    /// Reloads the config when `config.toml` changes on disk.
+    #[must_use]
+    pub fn with_config_watch(mut self) -> Self {
+        self.watch_config = true;
+        self
+    }
+
+    /// Reloads the config at each SIGHUP.
+    #[must_use]
+    pub fn with_reload_on_hangup(mut self) -> Self {
+        self.reload_on_hangup = true;
+        self
     }
 
     /// Sets the hidden shells' environment.
@@ -264,7 +319,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         time_zone,
         in_memory_store,
         isolated_git,
+        root_sources,
+        log,
+        watch_config,
+        reload_on_hangup,
     } = deps;
+    // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
+    // before anything else happens.
+    let socket = dirs.checked_socket_path().map_err(|source| DaemonError::SocketPath { source })?;
     let lock = DaemonLock::acquire(&dirs.lock_path())?;
     let settings = Arc::new(config);
     let daemon_id = discovery::daemon_id(dirs.data(), &*clock, &*rng)?;
@@ -334,11 +396,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         EngineParts { home: home.clone(), secrets: secret_root, registry: registry_path.clone() };
     let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
-    // NOTE: nothing sends a new value yet. The live reload (admin.config_reload, the
-    // file watcher, SIGHUP) will parse the file with efr-config, send the new settings
-    // on `State::settings`, and, when the rules, the secret paths or the mode changed,
-    // send `state.engine_parts.engine(&new)` on `State::engine`. Turns read the
-    // settings when they start; tool calls read the engine.
+    // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`
+    // changed, a new engine on the channel above. Turns read the settings when they
+    // start; tool calls read the engine.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
     let toolbox = DaemonToolbox::new(
@@ -373,10 +433,15 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         home,
     };
     let ttys = conversations::load_ttys(&readers).await?;
+    let roots = roots(&dirs, root_sources);
+    let (reloads, reload_requests) = Reloads::new();
     let state = Arc::new(State {
         settings: settings_sender,
         engine: engine_sender,
         engine_parts,
+        log,
+        reloads,
+        roots,
         dirs,
         daemon_id,
         pid: std::process::id(),
@@ -395,7 +460,6 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     });
 
     // The socket opens only now, after migrations and reconciliation.
-    let socket = state.dirs.socket_path();
     let listener =
         UnixListener::bind(&socket).await.map_err(|source| DaemonError::Transport { source })?;
     let info = DaemonInfo {
@@ -411,13 +475,18 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let stop = CancellationToken::new();
     let shell_events =
         tokio::spawn(shells::follow_notices(notice_queue, writer, Arc::clone(&recording)));
-    let mut background = vec![tokio::spawn(notices::follow(Arc::clone(&state), stop.clone()))];
-    // NOTE: read once; the collector follows a change of shell.idle_minutes only after a
-    // restart until it watches the settings.
-    let idle_minutes = state.settings.borrow().shell.idle_minutes;
-    if idle_minutes > 0 {
-        let idle = Duration::from_secs(idle_minutes.saturating_mul(60));
-        background.push(tokio::spawn(gc::collect(Arc::clone(&state), idle, stop.clone())));
+    let mut background = vec![
+        tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
+        tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
+        tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
+    ];
+    if watch_config && let Some(watching) = reload::watcher::watch(&state).await {
+        let follow = reload::watcher::follow(Arc::clone(&state), watching, stop.clone());
+        background.push(tokio::spawn(follow));
+    }
+    if reload_on_hangup {
+        let hangups = signals::hangups()?;
+        background.push(tokio::spawn(reload::on_hangup(Arc::clone(&state), hangups, stop.clone())));
     }
     Ok(Daemon { state, listener, store, recording, stop, background, shell_events, socket, lock })
 }
@@ -440,10 +509,16 @@ impl Daemon {
         Arc::clone(&self.state.connections)
     }
 
-    /// The settings watch, for the tests that send new settings as a reload will.
+    /// The settings watch, for the tests that send new settings as a reload does.
     #[cfg(test)]
     pub(crate) fn settings(&self) -> watch::Sender<Arc<Settings>> {
         self.state.settings.clone()
+    }
+
+    /// The engine watch, for the tests that check what a reload sends on it.
+    #[cfg(test)]
+    pub(crate) fn engine(&self) -> watch::Sender<Arc<efr_permissions::Engine>> {
+        self.state.engine.clone()
     }
 
     /// Answers clients until `shutdown` is cancelled, then drains and stops.
@@ -487,6 +562,27 @@ impl Daemon {
         tracing::info!(lock = %lock.path().display(), "stopped");
         drop(lock);
         Ok(())
+    }
+}
+
+/// The roots in `dirs` with their `sources`, as `admin.status` reports them.
+fn roots(dirs: &Dirs, sources: RootSources) -> DaemonRoots {
+    let root = |path: &Path, source: StdxRootSource| RootDir {
+        path: path.to_path_buf(),
+        source: match source {
+            StdxRootSource::EfrHome => RootSource::EfrHome,
+            StdxRootSource::Xdg => RootSource::Xdg,
+            StdxRootSource::RunUser => RootSource::RunUser,
+            // NOTE: a source added to efr-stdx later reads as the root's own variable,
+            // the one that names a path outright.
+            _ => RootSource::DirVariable,
+        },
+    };
+    DaemonRoots {
+        config: root(dirs.config(), sources.config),
+        data: root(dirs.data(), sources.data),
+        state: root(dirs.state(), sources.state),
+        runtime: root(dirs.runtime(), sources.runtime),
     }
 }
 

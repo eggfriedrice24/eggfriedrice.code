@@ -19,10 +19,10 @@ mod daemon {
     use std::path::PathBuf;
 
     use efr_protocol::{
-        AdminConfigReload, AdminStatus, AdminStatusResult, CommandId, ConversationSubscribe,
-        ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, Event,
-        Method, ModelsList, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq,
-        ShellContext, Size, TurnSteer,
+        AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CommandId,
+        ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
+        ConversationsListResult, ErrorCode, Event, Method, ModelsList, PromptSend,
+        PromptSendResult, PtyAttach, PtyId, PtyResize, Seq, ShellContext, Size, TurnSteer,
     };
     use efr_stdx::time::Clock as _;
     use efr_test_support::{TestClock, TestDirs};
@@ -631,10 +631,7 @@ mod daemon {
         let daemon = serve(&dirs, &clock).await;
         let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
 
-        for (method, name) in [
-            (Method::ModelsList(ModelsList::default()), "models.list"),
-            (Method::AdminConfigReload(AdminConfigReload::default()), "admin.config_reload"),
-        ] {
+        for (method, name) in [(Method::ModelsList(ModelsList::default()), "models.list")] {
             let error = client.call::<serde_json::Value>(method).await.unwrap_err();
             assert_eq!(error.code, ErrorCode::Internal, "{name}");
             assert_eq!(error.message, format!("{name} is not wired in this daemon yet"));
@@ -646,18 +643,23 @@ mod daemon {
     }
 
     #[tokio::test]
-    async fn the_status_leaves_out_the_roots_and_the_config_until_they_are_reported() {
+    async fn the_status_reports_the_roots_and_the_config_file_and_a_reload_answers() {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
         let daemon = serve(&dirs, &clock).await;
         let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
 
-        let status: serde_json::Value =
+        let status: AdminStatusResult =
             client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
-        assert_eq!(status.get("roots"), None, "{status}");
-        assert_eq!(status.get("config"), None, "{status}");
-        let status: AdminStatusResult = serde_json::from_value(status).unwrap();
-        assert_eq!((status.roots, status.config), (None, None));
+        let roots = status.roots.unwrap();
+        assert_eq!(roots.config.path, dirs.dirs().config());
+        assert_eq!(roots.state.path, dirs.dirs().state());
+        let config = status.config.unwrap();
+        assert_eq!(config.path, dirs.dirs().config().join("config.toml"));
+        assert!(!config.exists);
+        let reloaded: AdminConfigReloadResult =
+            client.call(Method::AdminConfigReload(AdminConfigReload::default())).await.unwrap();
+        assert!(reloaded.applied);
 
         drop(client);
         daemon.shutdown.cancel();
@@ -675,5 +677,32 @@ mod daemon {
         assert!(matches!(second, Err(DaemonError::AlreadyRunning { .. })), "{second:?}");
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_socket_path_too_long_for_a_socket_fails_the_start_with_the_fix() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let deep = dirs.root().join("x".repeat(120));
+        let roots = efr_stdx::paths::Dirs::new(
+            dirs.dirs().config(),
+            dirs.dirs().data(),
+            dirs.dirs().state(),
+            &deep,
+        )
+        .unwrap();
+        let mut deps = deps(&dirs, &clock);
+        deps.dirs = roots;
+
+        let error = crate::start(crate::Settings::default(), deps).await.unwrap_err();
+
+        assert!(matches!(error, DaemonError::SocketPath { .. }), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            "the socket path cannot be used; set EFR_RUNTIME_DIR to a shorter directory"
+        );
+        let cause = std::error::Error::source(&error).unwrap().to_string();
+        assert!(cause.contains(&deep.join("daemon.sock").display().to_string()), "{cause}");
+        assert!(!dirs.dirs().data().join("daemon.lock").exists(), "nothing else happened");
     }
 }

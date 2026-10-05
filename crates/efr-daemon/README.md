@@ -46,16 +46,53 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    `State` holds the settings in a `watch` of `Arc<Settings>` and the engine in
    another: the conversations read the settings through `settings.rs` (`LiveSettings`)
    when a turn starts or a prompt arrives, and each tool call reads the engine.
-   Nothing sends a new value yet; the live reload will send the new settings and, when
-   the rules, the secret paths or the mode change, a new engine from `engine.rs`.
-6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`) and
-   the idle shell collector (`gc.rs`).
+6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`), the
+   idle shell collector (`gc.rs`, which reads `shell.idle_minutes` at each look), the
+   reload task (`reload.rs`), the config file watcher (`reload/watcher.rs`) and the
+   SIGHUP listener.
 7. The Unix socket (0600) and `daemon.json` (`discovery.rs`), then `READY=1` through
-   `sd-notify`.
+   `sd-notify`. The socket path is checked first of all: a path longer than the 107
+   bytes a Unix socket holds, as a runtime root deep below `EFR_HOME` can make it,
+   stops the start with an error that names the path and says to set
+   `EFR_RUNTIME_DIR` to a shorter directory.
 
 SIGTERM or SIGINT (`signals.rs`) cancels the serve: the connections end, the background
 tasks stop, the conversation actors and the shells are shut down, the recordings are
 closed, `daemon.json` is removed, the database is closed, and the lock is released last.
+
+### Live reload
+
+`reload.rs` reads `config.toml` again while the daemon runs. Three triggers ask its one
+task for a reload: `admin.config_reload` (`efr config reload`), SIGHUP
+(`systemctl --user reload efrd`, through `ExecReload` in the unit) and the file
+watcher. The watcher (`notify`) watches the config root and, when `config.toml` is a
+symbolic link, the directory of its resolved target; it resolves the link again after
+each reload, and a burst of events becomes one reload after 200 ms of quiet on the
+injected clock. Saves by rename, a removed file (no file: the defaults) and a file
+created again all reload.
+
+A reload checks the whole file with `efr-config`. A file with an error changes nothing:
+the old settings stay, the error (with its line, column and key) is kept for
+`admin.status`, and each terminal with a conversation active within
+`conversation.tty_idle_hours` gets the notice "efr: config.toml has an error; the old
+settings stay: ...", once per new error. A valid file is laid over the running settings
+with `Settings::reloaded`: a restart key (`screen`, `model.provider`,
+`openai.originator`, `openai.subscription_base_url`, `openai.api_base_url`) keeps its
+running value and is listed in `restart_needed` (and in the notice "efr: restart efrd
+to apply: ..."), and a value from `EFR_LOG`, `EFR_SCREEN` or a flag still wins. Then
+the appliers take the new values:
+
+- the settings watch: the next turn's model, effort, system prompt, output limit and
+  approval and streaming settings, the queue limit and the terminal idle hours of the
+  next prompt, and the idle time of the shell collector;
+- the permission engine, built again (with the project registry) when `[permissions]`
+  changed, and the hidden shells' trusted programs with it: a running zsh with the old
+  set restarts in its directory before its next command (`efr-shell`);
+- `shell.program` and `shell.login` for the hidden shells started from then on;
+- `log`, through the reload layer of the tracing filter (`telemetry.rs`). An invalid
+  filter is an error of the file.
+
+Everything that can fail runs before the first send, so a refused file changes nothing.
 
 ### Methods
 
@@ -90,9 +127,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `login_completed` and makes the running provider forget its cached token.
 - `models.list` is a stub for now: it answers `internal` until the verified model list
   and its handler land.
-- `admin.config_reload` is a stub for now: it answers `internal` until live reload
-  lands; the daemon reads the config once, at start. `admin.status` leaves out its
-  `roots` and `config` until then.
+- `admin.config_reload` reloads at once and answers with the outcome: applied, or the
+  file's error with the old settings kept, and the keys that wait for a restart.
+- `admin.status` reports the four roots with where each came from (its own variable,
+  `EFR_HOME`, XDG, or `/run/user/<uid>`), and the config file: its path, whether it
+  exists, a symbolic link's target, the last reload's error and `restart_needed`.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
   while that call's command runs, a wait of it was reported, the job that waited (by
@@ -168,8 +207,10 @@ and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
 `serde`, `serde_json`, `jiff`, `nix` (`flock`), `base64` (the hello
-challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `tracing`,
-`tracing-subscriber`, `tracing-journald`, `thiserror`, and `anyhow` in `main.rs` only.
+challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `notify`
+8.2.0 (the config file watcher), `tracing`, `tracing-subscriber` (with its reload
+layer for the log filter), `tracing-journald`, `thiserror`, and `anyhow` in `main.rs`
+only.
 
 `HOME`, `JOURNAL_STREAM` and the shells' environment are read with `std::env` here, the
 one crate besides `efr-stdx` that may read the environment: they are POSIX and systemd
@@ -199,7 +240,10 @@ cargo nextest run -p efr-daemon
 Unit tests cover the config layer (precedence of the variables and flags, refused
 values, an insta snapshot of the effective dump; the file's own checks are tested in
 `efr-config`), the error mapping, the scope table, prompt routing, receipts,
-reconciliation against the real store in memory, the idle collector's rule, the PTY
+reconciliation against the real store in memory, the idle collector's rule, live
+reload (applied files, refused files with their place, restart keys, the engine sent on
+a rules change, the notices, the status, SIGHUP, and the watcher on real inotify events
+with saves by rename, a removed and recreated file and a symlinked file), the PTY
 fan-out with overflow, the connection table, notices, the lock, `daemon.json`, the
 providers, the tool adapter and its answer to who can answer hidden input. The tests
 in `run/tests.rs` start the real daemon

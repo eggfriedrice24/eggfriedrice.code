@@ -124,15 +124,20 @@ dependencies of its own, or a second binary needs it.
 - The daemon's settings live in a `watch` of `Arc<Settings>` (`efr-config`), and the
   permission engine in another. A reader takes the latest value when its unit of work
   starts and keeps it: a turn when it starts, a prompt when it arrives, a tool call for
-  the engine. A running turn never changes its settings.
+  the engine. A running turn never changes its settings. One reload task
+  (`efr-daemon/src/reload.rs`) sends new values: the file watcher, SIGHUP and
+  `admin.config_reload` ask it, so reloads never interleave. A file with an error
+  changes nothing, and the keys that need a restart keep their running values.
 - Every fan-out has a bounded queue per consumer. Overflow closes that consumer with
   `Overflow { last_seq }`; it never slows the producer.
 
 ## Startup and restart order
 
 At milestone 1 there is one unit, `efrd.service` (`Type=notify`, `Restart=always`,
-`RestartSec=5`, `OOMPolicy=continue`). The hidden shells are children of the daemon,
-so they end when the daemon stops. `efrd` starts in this order:
+`RestartSec=5`, `OOMPolicy=continue`, and `ExecReload` sending SIGHUP, which reloads
+the config). The hidden shells are children of the daemon, so they end when the daemon
+stops. `efrd` starts in this order (the roots come from `EFR_<ROOT>_DIR`, else
+`$EFR_HOME/<root>`, else XDG; the socket path is checked first):
 
 1. Take the exclusive `flock` on `$XDG_DATA_HOME/efr/daemon.lock`; exit if another
    daemon holds it. The lock, not `daemon.json`, decides single instance.

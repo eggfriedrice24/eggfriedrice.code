@@ -52,7 +52,8 @@ fn daemon(args: Args) -> anyhow::Result<()> {
         std::io::stdout().write_all(config.effective().as_bytes())?;
         return Ok(());
     }
-    efr_daemon::init_telemetry(&config.log);
+    let (_, log) = efr_daemon::init_telemetry(&config.log);
+    let deps = deps.with_log_filter(log);
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async {
         let shutdown = efr_daemon::shutdown_on_signals()?;

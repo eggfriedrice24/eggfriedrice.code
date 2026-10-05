@@ -55,6 +55,7 @@ fn request_errors_map_to_the_code_a_client_acts_on() {
         (DaemonError::AlreadyRunning { path: PathBuf::from("/d/daemon.lock") }, ErrorCode::Busy),
         (DaemonError::TaskPanicked { task: "x" }, ErrorCode::Internal),
         (DaemonError::NotWired { method: "models.list" }, ErrorCode::Internal),
+        (DaemonError::ReloadStopped, ErrorCode::Internal),
         (
             DaemonError::CallNotRunning { conversation_id, call_id: CallId::from_uuid(id(5)) },
             ErrorCode::NotFound,

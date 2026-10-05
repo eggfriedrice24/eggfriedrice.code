@@ -131,6 +131,42 @@ pub enum DaemonError {
         #[source]
         source: io::Error,
     },
+    /// The socket path is longer than a Unix socket address holds, which a runtime root
+    /// deep below `EFR_HOME` can make it.
+    #[error("the socket path cannot be used; set EFR_RUNTIME_DIR to a shorter directory")]
+    SocketPath {
+        /// The error from `efr-stdx`, which names the path and its length.
+        #[source]
+        source: StdxError,
+    },
+    /// The config file watcher could not start or watch a directory.
+    #[error("could not watch {} for config changes", .path.display())]
+    Watch {
+        /// The directory.
+        path: PathBuf,
+        /// The error from the watcher.
+        #[source]
+        source: notify::Error,
+    },
+    /// A tracing filter in `EnvFilter` syntax does not parse.
+    #[error("the log filter {filter:?} is not valid")]
+    LogFilter {
+        /// The filter.
+        filter: String,
+        /// The parser's error.
+        #[source]
+        source: tracing_subscriber::filter::ParseError,
+    },
+    /// The reload task has stopped, because the daemon drains.
+    #[error("the config reload task has stopped")]
+    ReloadStopped,
+    /// The running log filter could not be replaced.
+    #[error("the log filter could not be replaced")]
+    LogReload {
+        /// The error from the reload layer.
+        #[source]
+        source: tracing_subscriber::reload::Error,
+    },
     /// The store failed.
     #[error("the store failed")]
     Store {
@@ -357,6 +393,11 @@ impl DaemonError {
             | DaemonError::WriteFile { .. }
             | DaemonError::EncodeDiscovery { .. }
             | DaemonError::Signals { .. }
+            | DaemonError::SocketPath { .. }
+            | DaemonError::Watch { .. }
+            | DaemonError::LogFilter { .. }
+            | DaemonError::LogReload { .. }
+            | DaemonError::ReloadStopped
             | DaemonError::Transport { .. }
             | DaemonError::Respond { .. }
             | DaemonError::Screen { .. }
