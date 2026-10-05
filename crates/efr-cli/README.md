@@ -110,7 +110,10 @@ command's prompt (its last output line) and how to answer:
   that is checked: the prompt text comes from the command, so a program that fakes a
   `sudo` prompt would read the answer and could print it.
 - `visible` (a `[Y/n]` question): the CLI echoes what is typed, and says that the agent
-  sees it, because the command's echo puts it in the output.
+  sees it if the program shows it. On a plain terminal the echo puts it in the output;
+  behind a relay such as `sudo`'s own pty, the program on the inner terminal decides
+  whether it is shown, and a password prompt of a program there counts as `visible`
+  too.
 
 Printable text is added, Backspace removes one character, Ctrl+U clears the line, arrow
 keys and other escape sequences are ignored, and Enter sends the line with

@@ -551,7 +551,7 @@ async fn a_visible_answer_is_echoed_and_sent_as_typed() {
     })
     .await;
     result.unwrap();
-    assert!(out.contains("the agent sees it"), "{out}");
+    assert!(out.contains("the agent sees it if the program shows it"), "{out}");
     assert!(out.contains("> n\u{e4}"), "the echo grows as the user types: {out}");
     assert!(out.contains("> yes"), "{out}");
     assert!(out.contains("answer sent"), "{out}");

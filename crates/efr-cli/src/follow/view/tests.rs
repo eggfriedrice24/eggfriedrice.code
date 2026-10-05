@@ -606,7 +606,11 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     let step = view.event(&input(InputWait::Visible), SIZE, true);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: false }));
     assert_eq!(step.out, "");
-    assert_eq!(step.err, "Proceed? [Y/n]\ntype the answer and press Enter; the agent sees it\n> ");
+    assert_eq!(
+        step.err,
+        "Proceed? [Y/n]\ntype the answer and press Enter; the agent sees it if the program shows \
+         it\n> "
+    );
     assert_eq!(view.typed("y", SIZE).err, "y");
     assert_eq!(view.typed("ye", SIZE).err, "e");
     assert_eq!(view.typed("y", SIZE).err, "\u{8} \u{8}");

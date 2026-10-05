@@ -46,9 +46,12 @@ const BLOCKING_APPROVAL: &str = "the running turn needs approval:";
 /// that reads the answer can print it, so a fake password prompt would get it.
 const HIDDEN_INPUT: &str = "type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it";
 
-/// The line under the prompt of a command that waits for visible input. The answer
-/// reaches the command's output through the terminal's echo, and so the model.
-const VISIBLE_INPUT: &str = "type the answer and press Enter; the agent sees it";
+/// The line under the prompt of a command that waits for visible input. It promises no
+/// more than this: on a plain terminal the echo puts the answer in the output that the
+/// model reads, but behind a relay such as `sudo`'s own pty the program on the inner
+/// terminal decides whether the answer is shown.
+const VISIBLE_INPUT: &str =
+    "type the answer and press Enter; the agent sees it if the program shows it";
 
 /// The note when a command waits for hidden input and no key can be read here.
 const HIDDEN_INPUT_ELSEWHERE: &str =
