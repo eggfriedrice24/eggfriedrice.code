@@ -5,7 +5,9 @@
 //! - `run`: dispatch, exit codes and error messages; `commands/*`: one file per command.
 //! - `follow`: following a turn's events, with `follow/view` deciding what they look
 //!   like and `live` redrawing the live zone of a streaming reply.
-//! - `keys`: one-key answers to approvals; `terminal`: the terminal facts and size.
+//! - `keys`: the key thread, for one-key answers to approvals and for answer lines;
+//!   `answer`: the line typed for a command that waits for input; `terminal`: the
+//!   terminal facts and size.
 //! - `context`: what every command runs with; `settings`: the `[render]` table of
 //!   `config.toml`; `format`: the CLI's own lines; `output`: the only writer.
 //!
@@ -17,6 +19,7 @@
 //! This file parses the arguments, sets up tracing to stderr and starts the runtime;
 //! everything else happens in `run`.
 
+mod answer;
 mod cli;
 mod commands;
 mod context;

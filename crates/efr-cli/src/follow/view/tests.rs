@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
-use efr_protocol::{ApprovalDecision, ErrorBody, ErrorCode, Event, Origin, Scope, TurnId};
+use efr_protocol::{
+    ApprovalDecision, ErrorBody, ErrorCode, Event, InputWait, Origin, Scope, TurnId,
+};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{Step, TurnEnd, TurnView, last_line};
+use super::{Ask, Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
 use crate::testing::{call, readable, turn};
 
@@ -156,7 +158,7 @@ fn a_long_trace_is_cut_to_the_screen_width() {
 fn an_approval_asks_below_the_live_zone_when_keys_can_be_read() {
     let mut view = terminal_view();
     let step = view.event(&approval(Some("-a\n+b\n")), SIZE, true);
-    assert_eq!(step.ask, Some(call()));
+    assert_eq!(step.ask, Some(Ask::Approval(call())));
     insta::assert_snapshot!(readable(&step.out));
 
     let step = view.answered(call(), ApprovalDecision::Deny, SIZE);
@@ -253,7 +255,7 @@ fn a_raw_approval_goes_to_stderr_with_the_question() {
     let step = view.event(&approval(Some("-a\n+b")), SIZE, true);
     assert_eq!(step.out, "");
     assert_eq!(step.err, "approval needed: write ~/.zshrc\n-a\n+b\nallow? y = yes, n = no\n");
-    assert_eq!(step.ask, Some(call()));
+    assert_eq!(step.ask, Some(Ask::Approval(call())));
 }
 
 #[test]
@@ -402,6 +404,10 @@ fn output(tail: &str) -> Event {
     }
 }
 
+fn input(wait: InputWait) -> Event {
+    Event::ToolCallInputChanged { turn_id: turn(), call_id: call(), input: wait }
+}
+
 fn call_completed(exit_code: i32) -> Event {
     Event::ToolCallCompleted {
         turn_id: turn(),
@@ -476,4 +482,112 @@ fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
     view.event(&tool_started("make"), SIZE, false);
     assert_eq!(view.event(&output("building\n"), SIZE, false), Step::default());
     assert_eq!(view.event(&call_completed(0), SIZE, false), Step::default());
+}
+
+#[test]
+fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
+    view.event(&output("[sudo] password for egg: "), SIZE, true);
+    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    insta::assert_snapshot!(readable(&step.out));
+    // Text passed for a hidden answer would never be shown.
+    assert_eq!(view.typed("hunter2", SIZE), Step::default());
+
+    let out = readable(&view.answer_sent(SIZE).out);
+    assert!(out.contains("answer sent"), "{out}");
+    assert!(out.contains("it is not shown"), "the question stays for the next line: {out}");
+
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert!(step.settled);
+    let out = readable(&step.out);
+    assert!(!out.contains("type the answer"), "the question is gone: {out}");
+    assert!(out.contains("[sudo] password for egg:"), "the tail stays: {out}");
+}
+
+#[test]
+fn a_visible_input_echoes_what_is_typed_until_it_is_sent() {
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
+    view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true);
+    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: false }));
+    let typed = view.typed("y", SIZE);
+    insta::assert_snapshot!(readable(&typed.out));
+
+    let sent = readable(&view.answer_sent(SIZE).out);
+    assert!(sent.contains("answer sent"), "{sent}");
+    assert!(!sent.contains("> y"), "the echo goes with the send: {sent}");
+}
+
+#[test]
+fn a_completed_call_settles_its_input_and_drops_the_question() {
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo true"), SIZE, true);
+    view.event(&output("[sudo] password for egg: "), SIZE, true);
+    view.event(&input(InputWait::Hidden), SIZE, true);
+    let step = view.event(&call_completed(1), SIZE, true);
+    assert!(step.settled);
+    let out = readable(&step.out);
+    assert!(!out.contains("password") && !out.contains("type the answer"), "{out}");
+    assert!(out.contains("shell exited with 1"), "{out}");
+}
+
+#[test]
+fn a_refused_answer_is_a_note() {
+    let mut view = terminal_view();
+    view.event(&input(InputWait::Hidden), SIZE, true);
+    let out = readable(&view.answer_refused(SIZE).out);
+    assert!(out.contains("the command no longer waits"), "{out}");
+    let out = readable(&view.answer_failed("boom \u{1b}[2J", SIZE).out);
+    assert!(out.contains("the answer was not sent: boom"), "{out}");
+    assert!(!out.contains("\\e[2J"), "{out}");
+}
+
+#[test]
+fn without_keys_a_wait_is_one_note() {
+    let mut view = raw_view();
+    let step = view.event(&input(InputWait::Hidden), SIZE, false);
+    assert_eq!(step.ask, None);
+    assert_eq!(
+        step.err,
+        "the command waits for hidden input, such as a password; efr cannot ask for it here\n"
+    );
+    let step = view.event(&input(InputWait::None), SIZE, false);
+    assert_eq!(step, Step::default());
+    let step = view.event(&input(InputWait::Visible), SIZE, false);
+    assert_eq!(step.err, "the command waits for input; efr cannot ask for it here\n");
+}
+
+#[test]
+fn a_raw_view_asks_on_stderr() {
+    let mut view = raw_view();
+    view.event(&output("Password: "), SIZE, true);
+    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), hidden: true }));
+    assert_eq!(step.out, "");
+    assert_eq!(
+        step.err,
+        "Password:\ntype the answer and press Enter; it is not shown and the agent does not see it\n"
+    );
+    assert_eq!(view.typed("visible?", SIZE), Step::default());
+}
+
+#[test]
+fn an_input_does_not_ask_over_a_pending_approval() {
+    let mut view = terminal_view();
+    view.event(&approval(None), SIZE, true);
+    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    assert_eq!(step.ask, None);
+    assert!(!step.settled, "the approval keeps its keys");
+}
+
+#[test]
+fn the_end_of_the_turn_settles_an_input() {
+    let mut view = terminal_view();
+    view.event(&input(InputWait::Visible), SIZE, true);
+    let step = view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, true);
+    assert!(step.settled);
+    assert!(!readable(&step.out).contains("type the answer"));
 }

@@ -1,15 +1,19 @@
-//! One-key answers from the terminal, for approval requests.
+//! Keys from the terminal: one-key answers to approval requests, and the bytes of an
+//! answer line for a command that waits for input (`crate::answer` edits the line).
 //!
-//! While an approval waits, a named thread puts the terminal on stdin into
+//! While a question waits, a named thread puts the terminal on stdin into
 //! non-canonical mode without echo, so a single key arrives without Enter and does not
-//! show. The read times out every tenth of a second (`VMIN` 0, `VTIME` 1), so the
-//! thread notices a stop request without a signal, restores the terminal's settings
-//! itself, and only then reports that it is done. Nothing therefore exits while the
-//! terminal is still in that mode, and no read is left behind to swallow a line the
-//! user types into the shell later.
+//! show: a password typed for a command never appears, and the CLI echoes a visible
+//! answer itself. Signals stay on, so Ctrl+C still interrupts the turn. The read times
+//! out every tenth of a second (`VMIN` 0, `VTIME` 1), so the thread notices a stop
+//! request without a signal, restores the terminal's settings itself, and only then
+//! reports that it is done. Nothing therefore exits while the terminal is still in that
+//! mode, and no read is left behind to swallow a line the user types into the shell
+//! later.
 //!
-//! Keys typed before the question appeared are discarded first, so a stray key from
-//! earlier never answers an approval.
+//! Keys typed before the question appeared are discarded first: a stray key from
+//! earlier never answers it, and text typed earlier, such as a password typed blind
+//! while a command waited, is not left for the shell to read after `efr` exits.
 
 use std::fmt;
 use std::io;

@@ -6,6 +6,11 @@
 //! followed turn) and then ends the command; a closed connection alone would leave the
 //! turn running in its conversation. A subscription that falls behind is resumed from
 //! the last event shown, so a slow terminal loses nothing.
+//!
+//! When the running call's command waits for input, the same key thread reads an
+//! answer line, which goes to the daemon with `input.respond`. A hidden answer stays in
+//! an [`AnswerLine`] and the [`SecretText`] it becomes: it is never handed to the view,
+//! never logged, and zeroed once it is sent or dropped.
 
 mod view;
 
@@ -15,18 +20,20 @@ use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, Method, Seq, TurnId, TurnInterrupt, TurnInterruptResult,
+    ErrorCode, Event, InputRespond, InputRespondResult, Method, SecretText, Seq, TurnId,
+    TurnInterrupt, TurnInterruptResult,
 };
 use efr_stdx::time::Clock as _;
 use futures::StreamExt as _;
 use serde_json::Value;
 
+use crate::answer::{AnswerLine, Edit};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::keys::{self, KeyReader};
 use crate::output::Output;
 
-pub(crate) use view::{Step, TurnEnd, TurnView};
+pub(crate) use view::{Ask, Step, TurnEnd, TurnView};
 
 /// How often in a row a subscription may fall behind before the command gives up.
 const MAX_RESUBSCRIBES: u32 = 8;
@@ -106,8 +113,17 @@ struct Follower<'a> {
     client: &'a Client,
     target: Target,
     last_seen: Seq,
-    /// Reads keys while an approval question is pending.
-    keys: Option<(KeyReader, CallId)>,
+    /// Reads keys while an approval question or an input is pending.
+    keys: Option<(KeyReader, Asking)>,
+}
+
+/// What the keys being read answer.
+#[derive(Debug)]
+enum Asking {
+    /// An approval, with one key.
+    Approval(CallId),
+    /// The input that a running call waits for, with a line.
+    Input { call_id: CallId, hidden: bool, line: AnswerLine },
 }
 
 impl Follower<'_> {
@@ -197,7 +213,10 @@ impl Follower<'_> {
         let method = Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id: self.target.conversation,
             after_seq: Some(self.last_seen),
-            answers_input: false,
+            // A person at this terminal can type an answer exactly when approvals can be
+            // answered here; without one, the daemon stops a command that waits for a
+            // password nobody can type.
+            answers_input: self.ctx.keys.available(),
         });
         Ok(self.client.stream(method).await?)
     }
@@ -247,8 +266,16 @@ impl Follower<'_> {
         {
             keys.stop().await;
         }
-        if let Some(call_id) = step.ask {
-            self.keys = Some((self.ctx.keys.start()?, call_id));
+        if let Some(ask) = step.ask {
+            let asking = match ask {
+                Ask::Approval(call_id) => Asking::Approval(call_id),
+                Ask::Input { call_id, hidden } => {
+                    Asking::Input { call_id, hidden, line: AnswerLine::new() }
+                }
+            };
+            // Starting the reader discards typeahead, so nothing typed before the
+            // question answers it or stays queued for the shell.
+            self.keys = Some((self.ctx.keys.start()?, asking));
         }
         Ok(step.end)
     }
@@ -260,21 +287,72 @@ impl Follower<'_> {
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
-        let Some((reader, call_id)) = self.keys.take() else {
+        let Some((reader, asking)) = self.keys.take() else {
             return Ok(());
         };
-        let Some(decision) = key.and_then(keys::decision) else {
-            if key.is_some() {
-                self.keys = Some((reader, call_id));
-            } else {
+        let Some(key) = key else {
+            reader.stop().await;
+            return Ok(());
+        };
+        match asking {
+            Asking::Approval(call_id) => {
+                let Some(decision) = keys::decision(key) else {
+                    self.keys = Some((reader, Asking::Approval(call_id)));
+                    return Ok(());
+                };
                 reader.stop().await;
+                let step = view.answered(call_id, decision, self.ctx.screen.size());
+                write(out, &step)?;
+                self.respond(call_id, decision, out, view).await
             }
-            return Ok(());
+            Asking::Input { call_id, hidden, mut line } => {
+                let edit = line.key(key);
+                let shown = (!hidden && edit == Edit::Changed).then(|| line.text().to_owned());
+                let text = (edit == Edit::Submit).then(|| line.take());
+                // NOTE: the reader goes back before anything can fail, so the exit path
+                // still stops it and restores the terminal.
+                self.keys = Some((reader, Asking::Input { call_id, hidden, line }));
+                if let Some(shown) = shown {
+                    write(out, &view.typed(&shown, self.ctx.screen.size()))?;
+                }
+                match text {
+                    Some(text) => self.answer(call_id, hidden, text, out, view).await,
+                    None => Ok(()),
+                }
+            }
+        }
+    }
+
+    /// Sends the answer line `text` to the running call `call_id`, and says how that
+    /// went. The text is dropped, and so zeroed, once the call returns.
+    async fn answer(
+        &self,
+        call_id: CallId,
+        hidden: bool,
+        text: SecretText,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::InputRespond(InputRespond {
+            conversation_id: self.target.conversation,
+            call_id,
+            text,
+            hidden,
+        });
+        let size = self.ctx.screen.size();
+        let step = match self.client.call::<InputRespondResult>(method).await {
+            Ok(_) => view.answer_sent(size),
+            // The command ended or stopped reading, or the call is gone: the daemon
+            // wrote nothing.
+            Err(ClientError::Server { body })
+                if matches!(body.code, ErrorCode::NotFound | ErrorCode::Conflict) =>
+            {
+                view.answer_refused(size)
+            }
+            Err(ClientError::Server { body }) => view.answer_failed(&body.message, size),
+            Err(error) => return Err(error.into()),
         };
-        reader.stop().await;
-        let step = view.answered(call_id, decision, self.ctx.screen.size());
-        write(out, &step)?;
-        self.respond(call_id, decision, out, view).await
+        write(out, &step)
     }
 
     async fn respond(
@@ -305,8 +383,8 @@ impl Follower<'_> {
     }
 }
 
-/// The next key while a question is pending; never resolves otherwise.
-async fn next_key(keys: &mut Option<(KeyReader, CallId)>) -> Option<u8> {
+/// The next key while a question or an input is pending; never resolves otherwise.
+async fn next_key(keys: &mut Option<(KeyReader, Asking)>) -> Option<u8> {
     match keys {
         Some((reader, _)) => reader.next().await,
         None => std::future::pending().await,

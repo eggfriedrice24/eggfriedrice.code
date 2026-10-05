@@ -16,11 +16,13 @@
 //!
 //! While a tool call runs, the last line of its output with text in it sits dim in the
 //! live zone, cut to the width, and goes when the call completes; it is never
-//! committed.
+//! committed. When the call's command waits for input and keys can be read, the view
+//! asks for an answer line below it: a hidden answer (a password) never reaches the
+//! view at all, and a visible one is echoed here as the user types it.
 
 use std::collections::{HashMap, HashSet};
 
-use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, Origin, TurnId};
+use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, InputWait, Origin, TurnId};
 use efr_render::{RenderOptions, Renderer, render, render_trace};
 
 use crate::format::{self, Block, Spacing, Tone};
@@ -35,6 +37,30 @@ const APPROVAL: &str = "approval needed:";
 
 /// The heading of an approval of the turn that the followed one waits behind.
 const BLOCKING_APPROVAL: &str = "the running turn needs approval:";
+
+/// The line under the prompt of a command that waits for hidden input.
+const HIDDEN_INPUT: &str =
+    "type the answer and press Enter; it is not shown and the agent does not see it";
+
+/// The line under the prompt of a command that waits for visible input. The answer
+/// reaches the command's output through the terminal's echo, and so the model.
+const VISIBLE_INPUT: &str = "type the answer and press Enter; the agent sees it";
+
+/// The note when a command waits for hidden input and no key can be read here.
+const HIDDEN_INPUT_ELSEWHERE: &str =
+    "the command waits for hidden input, such as a password; efr cannot ask for it here";
+
+/// The note when a command waits for visible input and no key can be read here.
+const VISIBLE_INPUT_ELSEWHERE: &str = "the command waits for input; efr cannot ask for it here";
+
+/// The note after an answer reached the command.
+const ANSWER_SENT: &str = "answer sent";
+
+/// The note when the daemon refused an answer because the wait was over.
+const ANSWER_REFUSED: &str = "the command no longer waits for that input; nothing was sent";
+
+/// What the echo of a visible answer starts with.
+const ECHO_PREFIX: &str = "> ";
 
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,12 +82,22 @@ pub(crate) struct Step {
     pub(crate) out: String,
     /// Text for stderr.
     pub(crate) err: String,
-    /// An approval to ask the user about with one key.
-    pub(crate) ask: Option<CallId>,
-    /// The question that was asked is settled elsewhere; stop reading keys.
+    /// Something to ask the user: read keys for it.
+    pub(crate) ask: Option<Ask>,
+    /// What was asked is settled elsewhere or no longer waits; stop reading keys.
     pub(crate) settled: bool,
     /// The turn ended.
     pub(crate) end: Option<TurnEnd>,
+}
+
+/// What the user is asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Ask {
+    /// An approval, answered with one key.
+    Approval(CallId),
+    /// A line for the running call `call_id`, whose command waits for input. `hidden`
+    /// when the terminal's echo is off: the answer must never show.
+    Input { call_id: CallId, hidden: bool },
 }
 
 /// The tool call whose output is arriving now.
@@ -70,6 +106,33 @@ struct Running {
     call_id: CallId,
     /// The last line of its output with text in it.
     tail: String,
+    /// What its command waits for, as the daemon said last.
+    wait: InputWait,
+    /// The user is being asked for that input now.
+    asking: bool,
+    /// What the user typed so far, for a visible answer only.
+    typed: String,
+}
+
+impl Running {
+    fn new(call_id: CallId) -> Running {
+        Running {
+            call_id,
+            tail: String::new(),
+            wait: InputWait::None,
+            asking: false,
+            typed: String::new(),
+        }
+    }
+
+    /// The input asked for, if the user is asked for one now; true when hidden.
+    fn asked(&self) -> Option<bool> {
+        match self.wait {
+            _ if !self.asking => None,
+            InputWait::Visible => Some(false),
+            _ => Some(true),
+        }
+    }
 }
 
 /// The assistant message that is streaming now.
@@ -109,7 +172,7 @@ pub(crate) struct TurnView {
     /// Calls whose approval was denied or expired: a note said so already, so their
     /// failed end needs no second one.
     refused: HashSet<CallId>,
-    /// The tool call that runs, once its output arrived.
+    /// The tool call that runs, once its output or an input wait arrived.
     running: Option<Running>,
 }
 
@@ -179,16 +242,20 @@ impl TurnView {
                 self.note_after(before, &format::tool_call(tool, input), size)
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
+            Event::ToolCallInputChanged { call_id, input, .. } => {
+                self.input_changed(*call_id, *input, size, can_ask)
+            }
             Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
-                self.call_ended(*call_id);
+                let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let line = format::tool_result(tool, *is_error, *exit_code)
                     .filter(|_| !self.refused.contains(call_id));
-                match line {
+                let step = match line {
                     Some(line) => self.note(&line, size),
                     // The live tail goes either way.
                     None => self.commit(String::new(), size),
-                }
+                };
+                Step { settled, ..step }
             }
             Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
                 let request = Request { heading: APPROVAL, summary, diff: diff_preview.as_deref() };
@@ -282,19 +349,120 @@ impl TurnView {
 
     /// The output of call `call_id` grew and now ends in `tail`.
     fn output(&mut self, call_id: CallId, tail: &str, size: Size) -> Step {
-        let tail = last_line(tail);
-        match &mut self.running {
-            Some(running) if running.call_id == call_id => running.tail = tail,
-            _ => self.running = Some(Running { call_id, tail }),
+        let (running, settled) = self.running(call_id);
+        running.tail = last_line(tail);
+        Step { settled, ..self.commit(String::new(), size) }
+    }
+
+    /// Call `call_id` began or stopped waiting for input.
+    fn input_changed(
+        &mut self,
+        call_id: CallId,
+        input: InputWait,
+        size: Size,
+        can_ask: bool,
+    ) -> Step {
+        let approval_pending = self.asking.is_some();
+        let (running, replaced) = self.running(call_id);
+        let settled = replaced || running.asking;
+        running.wait = input;
+        running.asking = false;
+        running.typed.clear();
+        let hidden = match input {
+            InputWait::Hidden => true,
+            InputWait::Visible => false,
+            // No wait, or one this build does not know: nothing to ask.
+            _ => return Step { settled, ..self.commit(String::new(), size) },
+        };
+        if !can_ask {
+            let note = if hidden { HIDDEN_INPUT_ELSEWHERE } else { VISIBLE_INPUT_ELSEWHERE };
+            return Step { settled, ..self.note(note, size) };
         }
+        // One question at a time, so an approval and an input never overlap. Tool calls
+        // run one after another, so an approval does not come while a command runs.
+        if approval_pending {
+            return Step { settled, ..Step::default() };
+        }
+        running.asking = true;
+        let prompt = format::one_line(&running.tail);
+        let mut step = if self.terminal() {
+            self.commit(String::new(), size)
+        } else {
+            let options = self.options_at(size);
+            let mut err = String::new();
+            if !prompt.is_empty() {
+                err.push_str(&render_trace(&prompt, &options));
+            }
+            err.push_str(input_line(hidden));
+            err.push('\n');
+            Step { err, ..Step::default() }
+        };
+        step.ask = Some(Ask::Input { call_id, hidden });
+        step
+    }
+
+    /// The running call, made `call_id` when it was another one or none; true when
+    /// another one was asking for input, which therefore stops.
+    fn running(&mut self, call_id: CallId) -> (&mut Running, bool) {
+        let mut replaced = false;
+        if let Some(running) = &self.running
+            && running.call_id != call_id
+        {
+            replaced = running.asking;
+            self.running = None;
+        }
+        (self.running.get_or_insert_with(|| Running::new(call_id)), replaced)
+    }
+
+    /// Call `call_id` completed: its tail and any question for it go. True when it
+    /// was asking for input.
+    fn call_ended(&mut self, call_id: CallId) -> bool {
+        match self.running.take() {
+            Some(running) if running.call_id == call_id => running.asking,
+            other => {
+                self.running = other;
+                false
+            }
+        }
+    }
+
+    /// What the user typed so far for a visible answer, echoed below the prompt. A
+    /// hidden answer is never passed here, and text passed while no visible answer is
+    /// asked for is dropped.
+    pub(crate) fn typed(&mut self, text: &str, size: Size) -> Step {
+        let terminal = self.terminal();
+        let Some(running) = &mut self.running else {
+            return Step::default();
+        };
+        if !terminal || running.asked() != Some(false) {
+            return Step::default();
+        }
+        text.clone_into(&mut running.typed);
         self.commit(String::new(), size)
     }
 
-    /// Call `call_id` completed: its tail goes.
-    fn call_ended(&mut self, call_id: CallId) {
-        if self.running.as_ref().is_some_and(|running| running.call_id == call_id) {
-            self.running = None;
+    /// The answer reached the command.
+    pub(crate) fn answer_sent(&mut self, size: Size) -> Step {
+        self.answer_note(ANSWER_SENT, size)
+    }
+
+    /// The daemon refused the answer because the command no longer waits for it.
+    pub(crate) fn answer_refused(&mut self, size: Size) -> Step {
+        self.answer_note(ANSWER_REFUSED, size)
+    }
+
+    /// The daemon refused the answer for another reason, which `message` gives.
+    pub(crate) fn answer_failed(&mut self, message: &str, size: Size) -> Step {
+        let line = format!("the answer was not sent: {}", format::one_line(message));
+        self.answer_note(&line, size)
+    }
+
+    /// A note about an answer; the echo of what was typed goes with it.
+    fn answer_note(&mut self, text: &str, size: Size) -> Step {
+        if let Some(running) = &mut self.running {
+            running.typed.clear();
         }
+        self.note(text, size)
     }
 
     /// The user answered the approval `call_id` with a key.
@@ -426,7 +594,12 @@ impl TurnView {
         let mut step = Step { out: before, ..Step::default() };
         if can_ask {
             self.asking = Some(call_id);
-            step.ask = Some(call_id);
+            step.ask = Some(Ask::Approval(call_id));
+            // One question at a time: the approval's key reader replaces the input's.
+            if let Some(running) = &mut self.running {
+                running.asking = false;
+                running.typed.clear();
+            }
             if !self.terminal() {
                 text.push_str(QUESTION);
                 text.push('\n');
@@ -455,7 +628,8 @@ impl TurnView {
     }
 
     fn end(&mut self, end: TurnEnd, note: Option<&str>, size: Size) -> Step {
-        let settled = self.asking.take().is_some();
+        let input = self.running.as_ref().is_some_and(|running| running.asking);
+        let settled = self.asking.take().is_some() || input;
         let mut step = self.close(size);
         if let Some(note) = note {
             let noted = self.note(note, size);
@@ -476,16 +650,31 @@ impl TurnView {
     }
 
     /// Redraws the live zone with `committed` written above it: the current message's
-    /// live text, the running call's tail, then the question when one is pending.
+    /// live text, the running call's tail and the input it waits for, then the
+    /// question when one is pending.
     fn redraw(&mut self, committed: &str, size: Size) -> String {
         let (mut live, mut measured) = match &self.message {
             Some(message) => (message.live.clone(), message.measured),
             None => (String::new(), None),
         };
-        if let Some(running) = self.running.as_ref().filter(|running| !running.tail.is_empty()) {
+        if let Some(running) = &self.running {
             let options = self.options_at(size);
-            live.push_str(&render_trace(&format::one_line(&running.tail), &options));
-            measured = None;
+            let before = live.len();
+            if !running.tail.is_empty() {
+                live.push_str(&render_trace(&format::one_line(&running.tail), &options));
+            }
+            if let Some(hidden) = running.asked() {
+                live.push_str(&format::paint(input_line(hidden), Tone::Attention, &options));
+                live.push('\n');
+                if !hidden {
+                    live.push_str(ECHO_PREFIX);
+                    live.push_str(&format::one_line(&running.typed));
+                    live.push('\n');
+                }
+            }
+            if live.len() != before {
+                measured = None;
+            }
         }
         if self.asking.is_some() {
             let options = self.options_at(size);
@@ -495,6 +684,11 @@ impl TurnView {
         }
         self.live.redraw(committed, &live, measured, size)
     }
+}
+
+/// The line under the prompt of a command that waits for input.
+fn input_line(hidden: bool) -> &'static str {
+    if hidden { HIDDEN_INPUT } else { VISIBLE_INPUT }
 }
 
 /// The last line of `tail` with text in it, without the spaces around it; empty when

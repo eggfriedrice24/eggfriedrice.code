@@ -718,6 +718,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-width",
+ "zeroize",
 ]
 
 [[package]]

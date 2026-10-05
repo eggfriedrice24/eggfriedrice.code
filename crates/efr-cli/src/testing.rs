@@ -169,6 +169,21 @@ impl ScriptedKeys {
         }
     }
 
+    /// Types `text`, one byte at a time, into the newest reader.
+    pub(crate) async fn type_bytes(&self, text: &[u8]) {
+        for key in text {
+            self.press(*key).await;
+        }
+    }
+
+    /// Waits until the newest reader is stopped or dropped.
+    pub(crate) async fn stopped(&self) {
+        let sender = self.senders.lock().unwrap().last().cloned();
+        if let Some(sender) = sender {
+            sender.closed().await;
+        }
+    }
+
     /// How many readers were started.
     pub(crate) fn starts(&self) -> usize {
         self.senders.lock().unwrap().len()

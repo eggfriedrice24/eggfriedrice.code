@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, CallId, ClientFrame, ConversationHistoryResult,
-    ConversationSnapshot, ConversationStatus, ConversationSubscribeItem, ConversationSummary,
-    ErrorBody, ErrorCode, Event, Method, Origin, RequestId, Seq, TurnId, TurnInterruptResult,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSummary, ErrorBody, ErrorCode, Event, InputRespond, InputRespondResult, InputWait,
+    Method, Origin, RequestId, Seq, TurnId, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -34,13 +35,18 @@ fn turn_completed() -> Event {
 
 /// Reads the subscribe request and checks where it starts.
 async fn subscribed(conn: &mut Conn, after: u64) -> RequestId {
+    subscription(conn, after).await.0
+}
+
+/// Reads the subscribe request, checks where it starts and returns its params.
+async fn subscription(conn: &mut Conn, after: u64) -> (RequestId, ConversationSubscribe) {
     let (id, method) = conn.request().await;
     let Method::ConversationSubscribe(params) = method else {
         panic!("expected a subscribe, got {}", method.name());
     };
     assert_eq!(params.conversation_id, conversation());
     assert_eq!(params.after_seq, Some(Seq::new(after)));
-    id
+    (id, params)
 }
 
 /// The next request, after the cancels of streams the client dropped.
@@ -430,5 +436,176 @@ async fn ctrl_c_on_a_queued_prompt_says_it_was_not_interrupted() {
             "not interrupted: the turn is not running; a queued prompt still runs in its turn\n"
         ),
         "{err:?}"
+    );
+}
+
+fn terminal_view() -> TurnView {
+    TurnView::new(turn(), RenderOptions::new(80))
+}
+
+fn shell_started(command: &str) -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: serde_json::json!({ "command": command }),
+    }
+}
+
+fn shell_output(tail: &str) -> Event {
+    Event::ToolCallOutputUpdated {
+        turn_id: turn(),
+        call_id: call(),
+        tail: tail.to_owned(),
+        bytes: tail.len() as u64,
+    }
+}
+
+fn input_changed(input: InputWait) -> Event {
+    Event::ToolCallInputChanged { turn_id: turn(), call_id: call(), input }
+}
+
+fn shell_completed(exit_code: i32) -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: String::new(),
+        truncated: false,
+        is_error: exit_code != 0,
+        exit_code: Some(exit_code),
+    }
+}
+
+/// Reads the next request, which must be `input.respond`.
+async fn input_respond(conn: &mut Conn) -> (RequestId, InputRespond) {
+    let (id, method) = conn.request().await;
+    let Method::InputRespond(params) = method else {
+        panic!("expected input.respond, got {}", method.name());
+    };
+    (id, params)
+}
+
+#[tokio::test]
+async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let (sub, params) = subscription(&mut conn, 10).await;
+        assert!(params.answers_input, "keys can be read, so a person here can answer");
+        conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
+        conn.item(sub, &item(12, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
+        // A typo taken back, an arrow key that means nothing, then Enter.
+        presser.type_bytes(b"hunter22\x7f\x1b[D\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.conversation_id, conversation());
+        assert_eq!(params.call_id, call());
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        assert!(params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        while !seen.stdout().contains("answer sent") {
+            tokio::task::yield_now().await;
+        }
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(15, shell_completed(0))).await;
+        conn.item(sub, &item(16, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert!(out.contains("it is not shown and the agent does not see it"), "{out}");
+    assert!(out.contains("answer sent"), "{out}");
+    // Not the answer, not a piece of it, in any frame or note.
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter"), "{written}");
+        assert!(!written.contains("ter2"), "{written}");
+    }
+}
+
+#[tokio::test]
+async fn a_visible_answer_is_echoed_and_sent_as_typed() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
+        conn.item(sub, &item(12, shell_output(":: Proceed with installation? [Y/n] "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Visible))).await;
+        presser.type_bytes("n\u{e4}\x15yes\r".as_bytes()).await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "yes");
+        assert!(!params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(14, shell_completed(0))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("the agent sees it"), "{out}");
+    assert!(out.contains("> n\u{e4}"), "the echo grows as the user types: {out}");
+    assert!(out.contains("> yes"), "{out}");
+    assert!(out.contains("answer sent"), "{out}");
+}
+
+#[tokio::test]
+async fn an_answer_the_daemon_refuses_is_a_note_and_completion_stops_the_keys() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("ssh host"))).await;
+        conn.item(sub, &item(12, shell_output("egg@host's password: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
+        presser.type_bytes(b"secret\r").await;
+        let (id, _) = input_respond(&mut conn).await;
+        conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "the call does not wait for input"))
+            .await;
+        while !seen.stdout().contains("nothing was sent") {
+            tokio::task::yield_now().await;
+        }
+        // The command ends without a word about the wait first.
+        conn.item(sub, &item(14, shell_completed(255))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("the command no longer waits for that input; nothing was sent"), "{out}");
+    assert!(!out.contains("secret"), "{out}");
+    let last_frame = out.rsplit("\x1b[?2026h").next().unwrap_or_default();
+    assert!(!last_frame.contains("type the answer"), "the question is gone: {last_frame:?}");
+}
+
+#[tokio::test]
+async fn without_keys_a_hidden_wait_is_a_note_and_nobody_answers() {
+    let env = TestEnv::new();
+    let ctx = env.context();
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        let (sub, params) = subscription(&mut conn, 10).await;
+        assert!(!params.answers_input, "no terminal on stdin, so nobody here can answer");
+        conn.item(sub, &item(11, shell_started("sudo true"))).await;
+        conn.item(sub, &item(12, input_changed(InputWait::Hidden))).await;
+        conn.item(sub, &item(13, shell_completed(1))).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(
+        err,
+        "shell: sudo true\n\
+         the command waits for hidden input, such as a password; efr cannot ask for it here\n\
+         shell exited with 1\n"
     );
 }

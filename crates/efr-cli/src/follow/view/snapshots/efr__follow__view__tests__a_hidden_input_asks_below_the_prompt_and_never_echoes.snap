@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\r\e[1A\e[J\e[2m[sudo] password for egg:\e[0m
+\e[1;33mtype the answer and press Enter; it is not shown and the agent does not see it\e[0m
+\e[?2026l
