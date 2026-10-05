@@ -7,8 +7,11 @@
 #   ,! <text>      steer the running turn instead of queueing
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
-#                  commands above); `efr> ` stands before the typed text while it
+#                  commands above); a robot stands before the typed text while it
 #                  is on (shown with PREDISPLAY, so the prompt itself never changes)
+#   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
+#                  an alias of `,`, so the screen and history keep the line that ran,
+#                  and the line still goes to the agent when history recalls it
 #
 # A prompt is never parsed as shell syntax, and the line stays exactly as typed on the
 # screen and in history. The accept-line widget saves the prompt text, and `,`,
@@ -34,7 +37,7 @@
 # there, and its hooks must stay out of the way of the hidden shell's integration.
 [[ -n $EFR_HIDDEN_SHELL ]] && return 0
 
-zmodload zsh/zleparameter 2>/dev/null
+zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 autoload -Uz add-zsh-hook
 
@@ -53,9 +56,18 @@ typeset -gi _efr_stash_set
 # line runs with its own settings, or empty.
 typeset -ga _efr_saved_options
 # Override before sourcing to change how sticky mode shows before the typed text:
-# plain text, and a region_highlight style for it.
-: ${EFR_STICKY_INDICATOR:='efr> '}
+# plain text, and a region_highlight style for it (a colour emoji keeps its colours).
+# The robot needs a UTF-8 locale; any other locale gets plain text.
+if [[ -o multibyte && ${LC_ALL:-${LC_CTYPE:-$LANG}} == *.[Uu][Tt][Ff](-|)8* ]]; then
+  : ${EFR_STICKY_INDICATOR:='🤖 '}
+else
+  : ${EFR_STICKY_INDICATOR:='efr> '}
+fi
 : ${EFR_STICKY_STYLE:='fg=magenta'}
+# What the sticky word (see _efr_sticky_word) expands to. The backslash keeps zsh from
+# expanding the `,` alias inside it again, which would leave a second `#` among the
+# words of a quoted prompt.
+typeset -g _efr_sticky_alias='\, #'
 # The indicator that versions before PREDISPLAY put in front of PROMPT, removed once
 # when such a shell sources this version.
 typeset -g _efr_old_prompt_indicator='%F{magenta}efr>%f '
@@ -118,11 +130,43 @@ _efr_context_json() {
   REPLY="{${(j:,:)fields}}"
 }
 
-# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`), which is not a
-# shell command worth reporting as the last command.
+# Sets REPLY to the sticky word: the indicator without its trailing blanks, such as
+# the robot. A prompt line sent in sticky mode starts with it, where the indicator
+# stood, and it is an alias of `,`. It must be one plain word that names nothing else;
+# returns 1 when the indicator is no such word (`efr> ` holds a redirection), and a
+# prompt line then starts with `, ` instead.
+_efr_sticky_word() {
+  emulate -L zsh -o extended_glob
+  REPLY=${EFR_STICKY_INDICATOR%%[[:space:]]##}
+  [[ -n $REPLY && $REPLY != -* ]] || return 1
+  # What zsh reads as syntax in a command word, and the `,` of the plugin's commands.
+  [[ $REPLY != *[[:space:]\\\'\"\`\$\;\&\|\<\>\(\)\[\]\{\}\*\?\~\^\#\=\!,%]* ]] || return 1
+  [[ ${aliases[$REPLY]-$_efr_sticky_alias} == "$_efr_sticky_alias" ]] || return 1
+  (( ! $+commands[$REPLY] && ! $+functions[$REPLY] && ! $+builtins[$REPLY] && ! ${reswords[(Ie)$REPLY]} ))
+}
+
+# Makes the sticky word an alias of `,`. Runs when the plugin is sourced and on every
+# prompt line in sticky mode, so a new indicator works at once.
+_efr_alias_sticky_word() {
+  _efr_sticky_word || return 0
+  [[ ${aliases[$REPLY]-} == "$_efr_sticky_alias" ]] || alias -- "$REPLY=$_efr_sticky_alias"
+}
+
+# Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,!`, `,` or
+# the sticky word.
+_efr_command_pattern() {
+  local word=
+  _efr_sticky_word && word="|${(b)REPLY}"
+  REPLY=",new|,!|,$word"
+}
+
+# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, the sticky
+# word), which is not a shell command worth reporting as the last command.
 _efr_is_plugin_line() {
   emulate -L zsh -o extended_glob
-  [[ $1 == [[:space:]]#,* ]]
+  local REPLY
+  [[ $1 == [[:space:]]#,* ]] && return 0
+  _efr_sticky_word && [[ $1 == [[:space:]]#"$REPLY"([[:space:]]*|) ]]
 }
 
 # Sets REPLY to the line that runs for the line $1. A line that calls one of this
@@ -132,8 +176,10 @@ _efr_is_plugin_line() {
 # line comes back as it is.
 _efr_rewrite_line() {
   emulate -L zsh -o extended_glob
+  _efr_command_pattern
+  local commands=$REPLY
   REPLY=$1
-  [[ $1 == (#b)([[:space:]]#)(,new|,!|,)([[:space:]]##(*)|) ]] || return 0
+  [[ $1 == (#b)([[:space:]]#)(${~commands})([[:space:]]##(*)|) ]] || return 0
   # The leading blanks stay: with hist_ignore_space they keep the line out of history.
   local lead=$match[1] cmd=$match[2] rest=${match[4]%%[[:space:]]##}
   if [[ -z $rest ]]; then
@@ -256,14 +302,16 @@ function ,! {
 
 # --- sticky agent mode ------------------------------------------------------------
 
-# Shows the indicator before the typed text while sticky mode is on. PREDISPLAY is not
-# part of the buffer and leaves PROMPT alone, so it works with any prompt theme,
-# including one whose prompt starts with a newline. Runs from the line-init hook and
-# on every toggle.
+# Shows the indicator before the typed text while sticky mode is on, and hides it
+# when sticky mode is off or $1 is `hide`. PREDISPLAY is not part of the buffer and
+# leaves PROMPT alone, so it works with any prompt theme, including one whose prompt
+# starts with a newline. Only a command line gets it, never a continuation line or a
+# value that vared edits. Runs from the line-init hook, on every toggle and when a
+# line is accepted.
 _efr_show_indicator() {
   local style="P0 ${#EFR_STICKY_INDICATOR} $EFR_STICKY_STYLE"
   region_highlight=(${region_highlight:#$style})
-  if (( _efr_sticky )); then
+  if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
     PREDISPLAY=$EFR_STICKY_INDICATOR
     region_highlight+=($style)
   else
@@ -296,31 +344,38 @@ _efr_is_toggle_line() {
 }
 
 # Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a
-# line goes to the agent unless it starts with `,` (one of the plugin's commands) or
-# `!` (an escape hatch for one shell command), or is empty; it gets `, ` in front, and
-# nothing else changes. Outside sticky mode every line runs as typed.
+# line goes to the agent unless it is a plugin line (`,` and the commands above, or a
+# line that history recalled with the sticky word in front), starts with `!` (an
+# escape hatch for one shell command), or is empty. Such a prompt line gets the
+# indicator's own text in front, so the line looks on the screen as it did while it
+# was typed; when the indicator is no sticky word, it gets `, ` instead. Nothing else
+# changes. Outside sticky mode every line runs as typed.
 _efr_line_to_run() {
   emulate -L zsh -o extended_glob
   local line=$1
-  if (( ! _efr_sticky )) || [[ $line == [[:space:]]#,* ]]; then
+  if (( ! _efr_sticky )) || _efr_is_plugin_line "$line"; then
     REPLY=$line
   elif [[ $line == '!'* ]]; then
     REPLY=${line#!}
   elif [[ -z ${line//[[:space:]]/} ]]; then
     REPLY=$line
+  elif _efr_sticky_word; then
+    local gap=${EFR_STICKY_INDICATOR#"$REPLY"}
+    REPLY="$REPLY${gap:- }$line"
   else
     REPLY=", $line"
   fi
 }
 
-# For a one-line plugin line $1 (`,`, `,new` or `,!` followed by a prompt): saves the
-# prompt for the command and the user's two options for _efr_restore_options, and
-# returns 0. The caller then sets the options, because an emulate here would undo
-# them. Any other line returns 1 and changes nothing.
+# For a one-line plugin line $1 (`,`, `,new`, `,!` or the sticky word, followed by a
+# prompt): saves the prompt for the command and the user's two options for
+# _efr_restore_options, and returns 0. The caller then sets the options, because an
+# emulate here would undo them. Any other line returns 1 and changes nothing.
 _efr_stash_line() {
   emulate -L zsh -o extended_glob
   [[ $1 == *$'\n'* ]] && return 1
-  [[ $1 == (#b)[[:space:]]#(,new|,!|,)[[:space:]]##(*) ]] || return 1
+  _efr_command_pattern
+  [[ $1 == (#b)[[:space:]]#(${~REPLY})[[:space:]]##(*) ]] || return 1
   local rest=${match[2]%%[[:space:]]##}
   [[ -n $rest ]] || return 1
   _efr_stash=$rest
@@ -333,14 +388,27 @@ _efr_stash_line() {
 # so loading order with other plugins keeps working. The wrapped widget runs outside
 # any emulate, with the user's own options.
 _efr_accept_line() {
+  # Only a command line is the plugin's: a continuation line (PS2) or a value that
+  # vared edits is accepted as it is.
+  if [[ $CONTEXT != start ]]; then
+    zle _efr_orig_accept_line
+    return
+  fi
   # A line of just `,` toggles sticky agent mode, as Ctrl+Space does: nothing runs and
   # nothing lands in history. Without efr it runs, and `,` says what is missing.
   if _efr_is_toggle_line "$BUFFER" && _efr_set_sticky $(( ! _efr_sticky )); then
     BUFFER=''
     return 0
   fi
-  _efr_line_to_run "$BUFFER"
-  [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
+  if (( _efr_sticky )); then
+    _efr_line_to_run "$BUFFER"
+    [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
+    # The line that runs takes the indicator's place on the screen: a prompt line
+    # starts with the sticky word where the indicator stood, so nothing moves, and a
+    # `!` line shows the command that runs.
+    _efr_show_indicator hide
+    _efr_alias_sticky_word
+  fi
   if _efr_stash_line "$BUFFER"; then
     # The line stays as typed. The alias ends in `#`, which starts a comment only with
     # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.
@@ -440,6 +508,7 @@ add-zle-hook-widget line-init _efr_line_init
 # not expand an alias again inside its own expansion, so `,` reaches the function.
 alias ,=', #' ,new=',new #'
 alias ',!=,! #'
+_efr_alias_sticky_word
 # A shell that ran a version before PREDISPLAY still has its indicator in PROMPT.
 [[ $PROMPT == "$_efr_old_prompt_indicator"* ]] && PROMPT=${PROMPT#"$_efr_old_prompt_indicator"}
 # Ctrl+Space sends NUL (^@) in common terminals.
