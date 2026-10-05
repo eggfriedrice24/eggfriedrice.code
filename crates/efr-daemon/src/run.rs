@@ -17,12 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_config::{PermissionSettings, Settings};
-use efr_conversation::{ConversationConfig, ConversationDeps, GitScopeResolver, HostInfo};
+use efr_config::Settings;
+use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
-use efr_permissions::{Engine, Locations};
 use efr_protocol::{DaemonId, PROTOCOL_VERSION};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
@@ -40,10 +39,12 @@ use tokio_util::sync::CancellationToken;
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
+use crate::engine::EngineParts;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
 use crate::providers::{ProviderFactory, Providers};
 use crate::ptys::Ptys;
+use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::tools::{self, DaemonToolbox};
@@ -231,8 +232,6 @@ pub struct Daemon {
     background: Vec<JoinHandle<()>>,
     shell_events: JoinHandle<()>,
     socket: PathBuf,
-    // NOTE: kept so the conversations' engine receiver always has a live sender.
-    _engine: watch::Sender<Arc<Engine>>,
     lock: DaemonLock,
 }
 
@@ -267,6 +266,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         isolated_git,
     } = deps;
     let lock = DaemonLock::acquire(&dirs.lock_path())?;
+    let settings = Arc::new(config);
     let daemon_id = discovery::daemon_id(dirs.data(), &*clock, &*rng)?;
     tracing::info!(%daemon_id, version = env!("CARGO_PKG_VERSION"), data = %dirs.data().display(), "starting");
 
@@ -296,15 +296,15 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let (screens, screen_backend) = match screens {
         Some((factory, backend)) => (factory, backend),
         None => {
-            let backend = screens::choose(config.screen);
+            let backend = screens::choose(settings.screen);
             (backend.factory(), backend.as_str().to_owned())
         }
     };
     let shells = shells::sessions(ShellParts {
-        settings: config.shell.clone(),
+        settings: settings.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
         env: shell_env,
-        trusted_programs: shells::trusted_programs(&config.permissions.policy()),
+        trusted_programs: shells::trusted_programs(&settings.permissions.policy()),
         holder: holder.unwrap_or_else(shells::default_holder),
         screens,
         recording: Arc::clone(&recording),
@@ -319,7 +319,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
     let providers = Providers::build(
-        &config,
+        &settings,
         secrets,
         http,
         Arc::clone(&clock),
@@ -330,8 +330,16 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
-    let engine = Arc::new(engine(&home, &secret_root, &config.permissions, &registry_path).await?);
+    let engine_parts =
+        EngineParts { home: home.clone(), secrets: secret_root, registry: registry_path.clone() };
+    let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
+    // NOTE: nothing sends a new value yet. The live reload (admin.config_reload, the
+    // file watcher, SIGHUP) will parse the file with efr-config, send the new settings
+    // on `State::settings`, and, when the rules, the secret paths or the mode changed,
+    // send `state.engine_parts.engine(&new)` on `State::engine`. Turns read the
+    // settings when they start; tool calls read the engine.
+    let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
@@ -347,9 +355,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Some(host) => host,
         None => tokio::task::spawn_blocking(host_info).await.unwrap_or_default(),
     };
-    let conversation_config = conversation_config(
-        &config,
-        providers.model(),
+    let live_settings = LiveSettings::new(
+        settings_receiver,
         dirs.data().join(SCRATCH_DIR),
         host,
         time_zone.unwrap_or_else(TimeZone::system),
@@ -367,7 +374,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let state = Arc::new(State {
-        config,
+        settings: settings_sender,
+        engine: engine_sender,
+        engine_parts,
         dirs,
         daemon_id,
         pid: std::process::id(),
@@ -378,7 +387,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         writer: writer.clone(),
         readers,
         recordings,
-        conversations: Conversations::new(conversation_config, conversation_deps, ttys),
+        conversations: Conversations::new(Arc::new(live_settings), conversation_deps, ttys),
         connections,
         shells,
         ptys,
@@ -403,22 +412,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let shell_events =
         tokio::spawn(shells::follow_notices(notice_queue, writer, Arc::clone(&recording)));
     let mut background = vec![tokio::spawn(notices::follow(Arc::clone(&state), stop.clone()))];
-    if state.config.shell.idle_minutes > 0 {
-        let idle = Duration::from_secs(state.config.shell.idle_minutes.saturating_mul(60));
+    // NOTE: read once; the collector follows a change of shell.idle_minutes only after a
+    // restart until it watches the settings.
+    let idle_minutes = state.settings.borrow().shell.idle_minutes;
+    if idle_minutes > 0 {
+        let idle = Duration::from_secs(idle_minutes.saturating_mul(60));
         background.push(tokio::spawn(gc::collect(Arc::clone(&state), idle, stop.clone())));
     }
-    Ok(Daemon {
-        state,
-        listener,
-        store,
-        recording,
-        stop,
-        background,
-        shell_events,
-        socket,
-        _engine: engine_sender,
-        lock,
-    })
+    Ok(Daemon { state, listener, store, recording, stop, background, shell_events, socket, lock })
 }
 
 impl Daemon {
@@ -439,6 +440,12 @@ impl Daemon {
         Arc::clone(&self.state.connections)
     }
 
+    /// The settings watch, for the tests that send new settings as a reload will.
+    #[cfg(test)]
+    pub(crate) fn settings(&self) -> watch::Sender<Arc<Settings>> {
+        self.state.settings.clone()
+    }
+
     /// Answers clients until `shutdown` is cancelled, then drains and stops.
     pub async fn serve(self, shutdown: CancellationToken) -> Result<(), DaemonError> {
         let Daemon {
@@ -450,7 +457,6 @@ impl Daemon {
             background,
             shell_events,
             socket: _,
-            _engine,
             lock,
         } = self;
         let methods = Arc::new(Methods::new(Arc::clone(&state)));
@@ -475,7 +481,6 @@ impl Daemon {
         if clock.timeout(CLOSE_GRACE, shell_events).await.is_err() {
             tracing::warn!("the shell events did not finish in time");
         }
-        drop(_engine);
         if clock.timeout(CLOSE_GRACE, store.close()).await.is_err() {
             tracing::warn!("the database did not close in time; something still holds it");
         }
@@ -483,75 +488,6 @@ impl Daemon {
         drop(lock);
         Ok(())
     }
-}
-
-/// The permission engine: the home directory and its resolved form, the daemon's own
-/// secrets (sealed, so no rule opens them), the secret paths of the config (`~/` below
-/// the home directory), and the registered projects, deciding by the built-in rules
-/// followed by the user's.
-///
-/// NOTE: the user's rules belong to the engine, the machine policy, and not to
-/// `ConversationConfig::policy`: a conversation's rules may never open a secret or a
-/// system path, and the user's explicit rules must be able to.
-async fn engine(
-    home: &Home,
-    secrets: &Path,
-    permissions: &PermissionSettings,
-    registry: &Path,
-) -> Result<Engine, DaemonError> {
-    let invalid = |source| DaemonError::Locations { source };
-    let path = registry.to_path_buf();
-    let projects = match tokio::task::spawn_blocking(move || Registry::load(&path)).await {
-        Ok(Ok(registry)) => registry,
-        Ok(Err(error)) => {
-            tracing::warn!(error = %error, "the project registry could not be read; no project is registered");
-            Registry::empty()
-        }
-        Err(_) => Registry::empty(),
-    };
-    let mut locations = Locations::new(home.path()).map_err(invalid)?;
-    // NOTE: an alias the engine refuses (one inside or above the home directory) only
-    // costs the resolved form; paths under the home directory itself still classify.
-    locations = match locations.clone().with_home_alias(home.canonical()) {
-        Ok(aliased) => aliased,
-        Err(error) => {
-            tracing::warn!(error = %error, alias = %home.canonical().display(), "the resolved home directory is not used as an alias");
-            locations
-        }
-    };
-    // NOTE: the daemon's own tokens would let the model act as the user at the
-    // provider, so no rule of the user's may open them, not even `class = "secrets"`.
-    locations = locations.with_sealed_root(secrets).map_err(invalid)?;
-    for path in &permissions.secret_paths {
-        let root = match path.strip_prefix("~") {
-            Ok(below) => home.path().join(below),
-            Err(_) => path.clone(),
-        };
-        locations = locations.with_secret_root(root).map_err(invalid)?;
-    }
-    for project in projects.projects() {
-        locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
-    }
-    Ok(Engine::new(locations, permissions.policy()))
-}
-
-/// The conversations' settings from the config.
-pub(crate) fn conversation_config(
-    config: &Settings,
-    model: &str,
-    scratch_root: PathBuf,
-    host: HostInfo,
-    time_zone: TimeZone,
-) -> ConversationConfig {
-    let mut settings = ConversationConfig::new(model, scratch_root)
-        .with_system_prompt(config.model.system_prompt.clone())
-        .with_time_zone(time_zone)
-        .with_host(host);
-    settings.max_output_tokens = config.model.max_output_tokens;
-    settings.max_queued = config.conversation.max_queued;
-    settings.approval_timeout = config.conversation.approval_timeout_secs.map(Duration::from_secs);
-    settings.update_interval = Duration::from_millis(config.conversation.update_interval_ms);
-    settings
 }
 
 /// The host name and the distribution, read once; a fact that cannot be read is left

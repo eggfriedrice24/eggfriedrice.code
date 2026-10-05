@@ -57,7 +57,7 @@ impl Turn {
             Err(error) => return Ok(Response::Failed(error)),
         };
         let mut builder = CompletionBuilder::new();
-        let mut updates = Coalescer::new(self.shared.config.update_interval);
+        let mut updates = Coalescer::new(self.config.update_interval);
         self.streamed = 0;
         let streamed = loop {
             let flush = updates.flush_after(clock.now());

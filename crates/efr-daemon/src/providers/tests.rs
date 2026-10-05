@@ -147,7 +147,6 @@ async fn the_configured_provider_is_built_without_touching_the_network() {
     .unwrap();
 
     assert_eq!(providers.active().id().as_str(), "openai-api");
-    assert_eq!(providers.model(), efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
     let status = providers.status().await;
     assert_eq!(
         status.iter().map(|s| (s.provider.as_str(), s.logged_in)).collect::<Vec<_>>(),

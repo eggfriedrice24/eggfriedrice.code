@@ -1,17 +1,6 @@
-use std::path::PathBuf;
-use std::time::Duration;
-
-use efr_config::{PermissionSettings, Settings};
-use efr_conversation::HostInfo;
-use efr_permissions::{
-    Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, PathClass, Policy,
-    Requirements, Resource, Rule,
-};
-use efr_protocol::{Origin, Scope};
-use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 
-use crate::run::{conversation_config, engine, os_name};
+use crate::run::os_name;
 
 #[test]
 fn the_os_name_is_the_pretty_name_then_the_name() {
@@ -24,113 +13,6 @@ fn the_os_name_is_the_pretty_name_then_the_name() {
     assert_eq!(os_name(bare).as_deref(), Some("Alpine"));
     assert_eq!(os_name("ID=x\n"), None);
     assert_eq!(os_name("PRETTY_NAME=\"\"\n"), None);
-}
-
-#[tokio::test]
-async fn the_secret_paths_of_the_config_classify_as_secrets() {
-    let root = tempfile::tempdir().unwrap();
-    let home = std::fs::canonicalize(root.path()).unwrap();
-    let home = efr_scope::Home::new(&home).unwrap();
-    let mut permissions = PermissionSettings::default();
-    permissions.secret_paths =
-        vec![PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")];
-
-    let engine = engine(
-        &home,
-        &home.path().join("secrets"),
-        &permissions,
-        &home.path().join("projects.toml"),
-    )
-    .await
-    .unwrap();
-
-    let scratch = home.path().join("scratch");
-    let class = |path: PathBuf| engine.locations().classify(&path, &scratch);
-    assert_eq!(class(home.path().join(".config/rclone/rclone.conf")), Some(PathClass::Secrets));
-    assert_eq!(class(PathBuf::from("/srv/vault/token")), Some(PathClass::Secrets));
-    assert_eq!(class(home.path().join(".config/rclone/other.conf")), Some(PathClass::UserConfig));
-}
-
-#[tokio::test]
-async fn the_engine_decides_by_the_built_in_rules_then_the_users() {
-    let root = tempfile::tempdir().unwrap();
-    let home = std::fs::canonicalize(root.path()).unwrap();
-    let home = efr_scope::Home::new(&home).unwrap();
-    let rule = Rule::new(
-        Action::Execute,
-        Resource::Command(CommandPattern::new("cargo").with_args(["test"])),
-        Effect::Allow,
-    );
-    let mut permissions = PermissionSettings::default();
-    permissions.rules = Policy::new(vec![rule.clone()]).unwrap();
-
-    let engine = engine(
-        &home,
-        &home.path().join("secrets"),
-        &permissions,
-        &home.path().join("projects.toml"),
-    )
-    .await
-    .unwrap();
-
-    let defaults = Policy::defaults();
-    let rules = engine.policy().rules();
-    assert_eq!(&rules[..defaults.rules().len()], defaults.rules());
-    assert_eq!(rules[defaults.rules().len()..], [rule]);
-}
-
-#[tokio::test]
-async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
-    let root = tempfile::tempdir().unwrap();
-    let home = std::fs::canonicalize(root.path()).unwrap();
-    let home = efr_scope::Home::new(&home).unwrap();
-    let every_secret = Rule::new(Action::Read, Resource::Class(PathClass::Secrets), Effect::Allow);
-    let mut permissions = PermissionSettings::default();
-    permissions.rules = Policy::new(vec![every_secret]).unwrap();
-    let secrets = home.path().join(".local/share/efr/secrets");
-
-    let engine =
-        engine(&home, &secrets, &permissions, &home.path().join("projects.toml")).await.unwrap();
-
-    let decide = |path: PathBuf| {
-        let input = DecisionInput {
-            requirements: Requirements::none().with_read(path),
-            scope: Scope::Machine,
-            origin: Origin::Shell,
-            conversation_policy: ConversationPolicy::new(home.path().join("scratch")),
-        };
-        engine.decide(&input).effect()
-    };
-    assert_eq!(decide(home.path().join(".ssh/id_ed25519")), Effect::Allow);
-    assert_eq!(decide(secrets.join("openai-subscription.json")), Effect::Deny);
-}
-
-#[test]
-fn the_conversation_settings_follow_the_config() {
-    let mut config = Settings::default();
-    config.model.max_output_tokens = Some(2048);
-    config.conversation.max_queued = 3;
-    config.conversation.approval_timeout_secs = Some(90);
-    config.conversation.update_interval_ms = 50;
-    config.model.system_prompt = "be brief".to_owned();
-    let host = HostInfo::new(Some("box".to_owned()), Some("Arch Linux".to_owned()));
-
-    let settings = conversation_config(
-        &config,
-        "gpt-6-sol",
-        PathBuf::from("/d/scratch"),
-        host.clone(),
-        TimeZone::UTC,
-    );
-
-    assert_eq!(settings.model, "gpt-6-sol");
-    assert_eq!(settings.scratch_root, PathBuf::from("/d/scratch"));
-    assert_eq!(settings.system_prompt.as_deref(), Some("be brief"));
-    assert_eq!(settings.max_output_tokens, Some(2048));
-    assert_eq!(settings.max_queued, 3);
-    assert_eq!(settings.approval_timeout, Some(Duration::from_secs(90)));
-    assert_eq!(settings.update_interval, Duration::from_millis(50));
-    assert_eq!(settings.host, host);
 }
 
 mod daemon {
@@ -229,6 +111,72 @@ mod daemon {
         daemon.served.await.unwrap().unwrap();
         assert!(!dirs.dirs().daemon_json_path().exists());
         assert!(!daemon.socket.exists());
+    }
+
+    /// Follows the turn of `sent` to its end, on a connection of its own.
+    async fn follow_to_the_end(socket: &std::path::Path, sent: &PromptSendResult) {
+        let (mut client, _) = RawClient::hello(socket, None).await;
+        let stream = client
+            .send(Method::ConversationSubscribe(ConversationSubscribe {
+                conversation_id: sent.conversation_id,
+                after_seq: Some(sent.seq),
+                answers_input: false,
+            }))
+            .await;
+        loop {
+            let item = client.next(stream).await.unwrap().unwrap();
+            let ConversationSubscribeItem::Event(envelope) = serde_json::from_value(item).unwrap()
+            else {
+                panic!("a resume right after the prompt replays events");
+            };
+            match envelope.event {
+                Event::TurnCompleted { turn_id, .. } if turn_id == sent.turn_id => break,
+                Event::TurnFailed { error, .. } => panic!("{error:?}"),
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn new_settings_on_the_watch_reach_the_next_turn() {
+        use std::sync::{Arc, Mutex};
+
+        use crate::Settings;
+        use crate::testing::{RecordingFactory, serve_with};
+
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let deps =
+            deps(&dirs, &clock).with_providers(Arc::new(RecordingFactory(Arc::clone(&requests))));
+        let daemon = serve_with(Settings::default(), deps).await;
+        let (mut client, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        let home = dirs.home().to_path_buf();
+
+        let first: PromptSendResult =
+            client.call(Method::PromptSend(prompt(1, "one", home.clone()))).await.unwrap();
+        follow_to_the_end(&daemon.socket, &first).await;
+        let mut changed = Settings::default();
+        changed.model.name = Some("gpt-6-sol".to_owned());
+        changed.model.system_prompt = "be brief".to_owned();
+        changed.model.max_output_tokens = Some(512);
+        daemon.settings.send_replace(Arc::new(changed));
+        let second: PromptSendResult =
+            client.call(Method::PromptSend(prompt(2, "two", home))).await.unwrap();
+        follow_to_the_end(&daemon.socket, &second).await;
+
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].model, efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
+        assert_eq!(requests[0].system.as_deref(), Some(crate::DEFAULT_SYSTEM_PROMPT));
+        assert_eq!(requests[0].max_output_tokens, None);
+        assert_eq!(requests[1].model, "gpt-6-sol");
+        assert_eq!(requests[1].system.as_deref(), Some("be brief"));
+        assert_eq!(requests[1].max_output_tokens, Some(512));
+
+        drop(client);
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
     }
 
     #[tokio::test]

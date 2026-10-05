@@ -45,8 +45,8 @@ use crate::preamble::LiveState;
 use crate::scratch::Scratch;
 use crate::steer::Steering;
 use crate::{
-    CallContext, ConversationConfig, ConversationDeps, ConversationError, OutputSink, ToolCall,
-    ToolOutcome, Toolbox,
+    CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, OutputSink,
+    ToolCall, ToolOutcome, Toolbox,
 };
 
 /// The longest output tail in a `tool_call_output_updated` event, in bytes.
@@ -71,7 +71,8 @@ const EXPIRED: &str = "The approval request expired before the user answered; th
 #[derive(Debug)]
 pub(crate) struct Shared {
     pub(crate) conversation_id: ConversationId,
-    pub(crate) config: ConversationConfig,
+    /// Read once per turn, when it starts.
+    pub(crate) config: Arc<dyn ConfigSource>,
     pub(crate) deps: ConversationDeps,
     pub(crate) scratch: Mutex<Scratch>,
     pub(crate) approvals: Approvals,
@@ -177,6 +178,9 @@ enum Authorization {
 /// One running turn.
 struct Turn {
     shared: Arc<Shared>,
+    /// The settings of the turn, read when it started; a later change waits for the
+    /// next turn.
+    config: Arc<ConversationConfig>,
     spec: TurnSpec,
     control: Control,
     cwd: PathBuf,
@@ -195,9 +199,11 @@ struct Turn {
 impl Turn {
     fn new(shared: Arc<Shared>, spec: TurnSpec, control: Control) -> Self {
         let cwd = shared.deps.home.path().to_path_buf();
-        let scratch = shared.config.scratch_root.clone();
+        let config = shared.config.current();
+        let scratch = config.scratch_root.clone();
         Turn {
             shared,
+            config,
             spec,
             control,
             cwd,
@@ -219,10 +225,10 @@ impl Turn {
         cache: &HashMap<TurnId, Arc<CachedTurn>>,
     ) -> Result<Ending, ConversationError> {
         let shared = Arc::clone(&self.shared);
+        let config = Arc::clone(&self.config);
         let turn_id = self.turn_id();
         let snapshot =
-            Snapshot::read(&shared.deps.readers, shared.conversation_id, shared.config.history)
-                .await?;
+            Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history).await?;
         let summary = snapshot.summary.as_ref();
         self.cwd = match (&self.spec.context, summary.and_then(|summary| summary.cwd.as_ref())) {
             (Some(context), _) => context.pwd.clone(),
@@ -260,7 +266,7 @@ impl Turn {
         };
         let preamble = self.live_state(derivation.repo, agent_cwd).render();
         let mut messages =
-            snapshot.history(turn_id, cache, shared.deps.provider.id(), shared.config.history);
+            snapshot.history(turn_id, cache, shared.deps.provider.id(), config.history);
         messages.push(Message::new(
             Role::User,
             vec![
@@ -270,7 +276,7 @@ impl Turn {
         ));
         let tools = shared.deps.toolbox.definitions();
 
-        for _ in 0..shared.config.max_model_calls {
+        for _ in 0..config.max_model_calls {
             if self.control.interrupt.is_raised() {
                 return Ok(Ending::Interrupted);
             }
@@ -278,12 +284,12 @@ impl Turn {
                 self.push(&mut messages, Message::user(text));
             }
             let request = Request {
-                model: shared.config.model.clone(),
-                system: shared.config.system_prompt.clone().filter(|system| !system.is_empty()),
+                model: config.model.clone(),
+                system: config.system_prompt.clone().filter(|system| !system.is_empty()),
                 messages: messages.clone(),
                 tools: tools.clone(),
-                max_output_tokens: shared.config.max_output_tokens,
-                provider_options: shared.config.provider_options.clone(),
+                max_output_tokens: config.max_output_tokens,
+                provider_options: config.provider_options.clone(),
             };
             let message = match self.respond(request).await? {
                 Response::Done(message) => message,
@@ -310,7 +316,7 @@ impl Turn {
                 return Ok(Ending::Interrupted);
             }
         }
-        let limit = shared.config.max_model_calls;
+        let limit = config.max_model_calls;
         Ok(Ending::Failed(ErrorBody::new(
             ErrorCode::Internal,
             format!("the turn stopped after {limit} model calls without a final answer"),
@@ -347,7 +353,7 @@ impl Turn {
 
     fn live_state(&self, repo: Option<efr_scope::Repo>, agent_cwd: Option<PathBuf>) -> LiveState {
         let context = self.spec.context.as_ref();
-        let host = &self.shared.config.host;
+        let host = &self.config.host;
         LiveState {
             cwd: self.cwd.clone(),
             oldpwd: context.and_then(|context| context.oldpwd.clone()),
@@ -369,7 +375,7 @@ impl Turn {
     async fn ensure_scratch(&self, snapshot: &Snapshot) -> Result<PathBuf, ConversationError> {
         let summary = snapshot.summary.as_ref();
         let began = summary.map_or_else(|| self.shared.deps.clock.now(), |s| s.created_at);
-        let began = began.to_zoned(self.shared.config.time_zone.clone()).date();
+        let began = began.to_zoned(self.config.time_zone.clone()).date();
         let title = summary.and_then(|summary| summary.title.clone()).or_else(|| {
             self.spec.text.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
         });
@@ -471,7 +477,7 @@ impl Turn {
             scope: call.context.scope.clone(),
             origin: call.context.origin,
             conversation_policy: ConversationPolicy::new(&call.context.scratch)
-                .with_rules(self.shared.config.policy.clone()),
+                .with_rules(self.config.policy.clone()),
         };
         // NOTE: the engine is cloned out so the watch's read lock is not held while
         // the turn records events or waits for an answer.
@@ -506,7 +512,7 @@ impl Turn {
         }
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
-        let timeout = self.shared.config.approval_timeout;
+        let timeout = self.config.approval_timeout;
         let waited = tokio::select! {
             biased;
             () = interrupt.raised() => Waited::Interrupted,
@@ -552,7 +558,7 @@ impl Turn {
         let (sender, mut output) = watch::channel(None);
         let (inputs, mut waits) = mpsc::channel(INPUT_CAPACITY);
         let mut sink = WatchSink { sender, inputs };
-        let mut updates = Coalescer::new(self.shared.config.update_interval);
+        let mut updates = Coalescer::new(self.config.update_interval);
         let mut invoked = Box::pin(toolbox.invoke(call, &mut sink));
         let outcome = loop {
             let flush = updates.flush_after(clock.now());

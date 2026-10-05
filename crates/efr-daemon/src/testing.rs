@@ -7,8 +7,8 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use efr_holder::{
@@ -28,6 +28,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -51,11 +52,7 @@ impl Provider for OneAnswer {
     }
 
     async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
-        let events = vec![
-            Ok(ProviderEvent::TextDelta { text: ANSWER.to_owned() }),
-            Ok(ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None }),
-        ];
-        Ok(Box::pin(futures::stream::iter(events)))
+        self.stream_answer()
     }
 }
 
@@ -67,6 +64,46 @@ impl ProviderFactory for OneAnswerFactory {
     fn provider(&self, _id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
         let id = ProviderId::new("test").map_err(|source| DaemonError::Provider { source })?;
         Ok(Arc::new(OneAnswer { id }))
+    }
+}
+
+/// A model that answers like [`OneAnswer`] and keeps every request it gets.
+#[derive(Debug)]
+pub(crate) struct Recording {
+    id: ProviderId,
+    requests: Arc<Mutex<Vec<Request>>>,
+}
+
+#[async_trait]
+impl Provider for Recording {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).push(request);
+        OneAnswer { id: self.id.clone() }.stream_answer()
+    }
+}
+
+impl OneAnswer {
+    fn stream_answer(&self) -> Result<ProviderStream, ProviderError> {
+        let events = vec![
+            Ok(ProviderEvent::TextDelta { text: ANSWER.to_owned() }),
+            Ok(ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None }),
+        ];
+        Ok(Box::pin(futures::stream::iter(events)))
+    }
+}
+
+/// Builds [`Recording`] for any provider id; its requests land in the shared list.
+#[derive(Debug)]
+pub(crate) struct RecordingFactory(pub(crate) Arc<Mutex<Vec<Request>>>);
+
+impl ProviderFactory for RecordingFactory {
+    fn provider(&self, _id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
+        let id = ProviderId::new("test").map_err(|source| DaemonError::Provider { source })?;
+        Ok(Arc::new(Recording { id, requests: Arc::clone(&self.0) }))
     }
 }
 
@@ -169,6 +206,7 @@ pub(crate) struct Running {
     pub(crate) shutdown: CancellationToken,
     pub(crate) served: JoinHandle<Result<(), DaemonError>>,
     pub(crate) connections: Arc<Connections>,
+    pub(crate) settings: watch::Sender<Arc<Settings>>,
 }
 
 /// Starts a daemon on `dirs` and serves it.
@@ -181,9 +219,10 @@ pub(crate) async fn serve_with(config: Settings, deps: Deps) -> Running {
     let daemon = crate::start(config, deps).await.unwrap();
     let socket = daemon.socket_path().to_path_buf();
     let connections = daemon.connections();
+    let settings = daemon.settings();
     let shutdown = CancellationToken::new();
     let served = tokio::spawn(daemon.serve(shutdown.clone()));
-    Running { socket, shutdown, served, connections }
+    Running { socket, shutdown, served, connections, settings }
 }
 
 /// A protocol client that speaks raw frames.

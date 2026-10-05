@@ -39,9 +39,15 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    held, running shells recorded as exited, process-bound outbox items cancelled.
 5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
    tool registry (`tools.rs`), the permission engine and the conversation registry.
-   The engine decides by `Policy::defaults()` followed by the user's rules, so a user
+   The engine is built in one place, `engine.rs`, from the settings and the project
+   registry. It decides by `Policy::defaults()` followed by the user's rules, so a user
    rule wins where both match; the user's rules are the machine policy and not a
    conversation's, because only the machine policy may open a secret or a system path.
+   `State` holds the settings in a `watch` of `Arc<Settings>` and the engine in
+   another: the conversations read the settings through `settings.rs` (`LiveSettings`)
+   when a turn starts or a prompt arrives, and each tool call reads the engine.
+   Nothing sends a new value yet; the live reload will send the new settings and, when
+   the rules, the secret paths or the mode change, a new engine from `engine.rs`.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`) and
    the idle shell collector (`gc.rs`).
 7. The Unix socket (0600) and `daemon.json` (`discovery.rs`), then `READY=1` through

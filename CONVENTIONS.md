@@ -68,8 +68,8 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 
 ## Config
 
-- One file, `$XDG_CONFIG_HOME/efr/config.toml`, parsed by `efr-daemon/src/config.rs` into `Config` with `#[serde(deny_unknown_fields)]` (`toml` 1.1.6, `serde` 1.0.229). Precedence: built-in defaults, then the file, then `EFR_*` environment variables, then flags. `efr config show` prints the effective result with the source of each value.
-- Other crates receive plain config structs (`ShellConfig`, `ProviderConfig`, `StoreConfig`) by value from the daemon. No global config, no `once_cell` config, no crate reads the environment except `efr-stdx::env` and the daemon.
+- One file, `$XDG_CONFIG_HOME/efr/config.toml`, owned by `efr-config`: one schema for `efrd` and `efr`, parsed into `Settings` with `#[serde(deny_unknown_fields)]` on every table (`toml` 1.1.6, `serde` 1.0.229), then checked. A new key is a field of its table there, with its doc comment, its default and, when it needs one, its check; the JSON schema, the key list and the effective dump follow from the types. Precedence: built-in defaults, then the file, then `EFR_*` environment variables, then flags (`efr-daemon/src/config.rs`). `efrd --print-config` and `efr config show` print the effective result with the source of each value.
+- The daemon keeps its `Settings` in a `watch` of `Arc<Settings>`; a reader takes the latest value when its unit of work starts (a turn, a prompt, a tool call) and keeps it. Other crates receive plain config structs (`ShellConfig`, `ProviderConfig`, `StoreConfig`) by value, or read through a trait the daemon implements (`efr_conversation::ConfigSource`). No global config, no `once_cell` config, no crate reads the environment except `efr-stdx::env` and the daemon.
 - Paths come from `efr_stdx::paths` (`etcetera` 0.11.0 for XDG): config `$XDG_CONFIG_HOME/efr/`, data `$XDG_DATA_HOME/efr/` (database, recordings, scratch, secrets, memory later), state `$XDG_STATE_HOME/efr/` (logs), runtime `$XDG_RUNTIME_DIR/efr/` (socket, `daemon.json`). `EFR_DATA_DIR` and friends override each root for tests.
 
 ## Async and actor rules

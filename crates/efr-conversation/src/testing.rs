@@ -308,10 +308,12 @@ impl Setup {
             rng: Arc::new(TestRng::new(self.rng_seed)),
             home,
         };
+        let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
         let handle =
-            ConversationActor::spawn(self.conversation_id, start, self.config.clone(), deps);
+            ConversationActor::spawn(self.conversation_id, start, Arc::new(receiver), deps);
         Harness {
             config: self.config,
+            settings,
             dirs: self.dirs,
             clock: self.clock,
             store,
@@ -339,6 +341,8 @@ pub(crate) struct Harness {
     pub(crate) conversation_id: ConversationId,
     pub(crate) cwd: PathBuf,
     config: ConversationConfig,
+    /// Sends new settings, as the daemon does after a reload.
+    pub(crate) settings: watch::Sender<Arc<ConversationConfig>>,
     next_command: u64,
 }
 

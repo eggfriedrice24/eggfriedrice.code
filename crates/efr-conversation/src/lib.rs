@@ -2,7 +2,8 @@
 //! turns.
 //!
 //! - [`ConversationActor::spawn`] starts the actor of one conversation
-//!   ([`ConversationStart`], [`ConversationConfig`], [`ConversationDeps`]) and returns
+//!   ([`ConversationStart`], a [`ConfigSource`] of [`ConversationConfig`]s,
+//!   [`ConversationDeps`]) and returns
 //!   its [`ConversationHandle`], the only way in: send a prompt (a second one queues
 //!   behind the running turn), steer the running turn, interrupt it in two phases,
 //!   answer an approval, read its [`ConversationState`].
@@ -42,7 +43,7 @@ mod toolbox;
 mod turn;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState};
-pub use config::{ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
+pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
 pub use error::ConversationError;
 pub use history::HistoryLimits;
 pub use resolver::{GitScopeResolver, ScopeResolver};

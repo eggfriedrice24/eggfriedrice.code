@@ -11,10 +11,10 @@
 //! terminal in the log.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_conversation::{
-    ConversationActor, ConversationConfig, ConversationDeps, ConversationHandle, ConversationStart,
+    ConfigSource, ConversationActor, ConversationDeps, ConversationHandle, ConversationStart,
 };
 use efr_protocol::{ConversationId, Event, Origin};
 use efr_store::Readers;
@@ -39,17 +39,17 @@ pub(crate) struct ActiveTty {
 /// The conversation actors and the terminals' active conversations.
 #[derive(Debug)]
 pub(crate) struct Conversations {
-    config: ConversationConfig,
+    config: Arc<dyn ConfigSource>,
     deps: ConversationDeps,
     live: Mutex<HashMap<ConversationId, ConversationHandle>>,
     ttys: Mutex<HashMap<String, ActiveTty>>,
 }
 
 impl Conversations {
-    /// Starts actors with `config` and `deps`, with the terminals' active conversations
-    /// from `ttys`.
+    /// Starts actors that read their settings from `config`, with `deps`, and the
+    /// terminals' active conversations from `ttys`.
     pub(crate) fn new(
-        config: ConversationConfig,
+        config: Arc<dyn ConfigSource>,
         deps: ConversationDeps,
         ttys: HashMap<String, ActiveTty>,
     ) -> Self {
@@ -79,7 +79,7 @@ impl Conversations {
         let handle = ConversationActor::spawn(
             conversation_id,
             ConversationStart::Existing,
-            self.config.clone(),
+            Arc::clone(&self.config),
             self.deps.clone(),
         );
         live.insert(conversation_id, handle.clone());
@@ -97,7 +97,7 @@ impl Conversations {
         let handle = ConversationActor::spawn(
             conversation_id,
             ConversationStart::New { origin, tty },
-            self.config.clone(),
+            Arc::clone(&self.config),
             self.deps.clone(),
         );
         self.lock_live().insert(conversation_id, handle.clone());

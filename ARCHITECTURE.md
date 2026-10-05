@@ -121,6 +121,10 @@ dependencies of its own, or a second binary needs it.
   inside the main runtime, no `Screen` built outside its actor thread.
 - Blocking work (SQLite reads, file hashing) runs in `spawn_blocking`. Time and
   randomness are injected through `Clock` and `Rng`.
+- The daemon's settings live in a `watch` of `Arc<Settings>` (`efr-config`), and the
+  permission engine in another. A reader takes the latest value when its unit of work
+  starts and keeps it: a turn when it starts, a prompt when it arrives, a tool call for
+  the engine. A running turn never changes its settings.
 - Every fan-out has a bounded queue per consumer. Overflow closes that consumer with
   `Overflow { last_seq }`; it never slows the producer.
 
@@ -132,7 +136,8 @@ so they end when the daemon stops. `efrd` starts in this order:
 
 1. Take the exclusive `flock` on `$XDG_DATA_HOME/efr/daemon.lock`; exit if another
    daemon holds it. The lock, not `daemon.json`, decides single instance.
-2. Load the config (defaults, then `config.toml`, then `EFR_*` variables, then flags).
+2. Load the config with `efr-config` (defaults, then `config.toml`, then `EFR_*`
+   variables, then flags).
 3. Copy the database to `backups/efr.sqlite.<user_version>`, then run the forward-only
    migrations.
 4. Reconcile: mark in-flight turns cancelled, expire pending approvals as not

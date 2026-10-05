@@ -85,6 +85,32 @@ async fn a_full_queue_refuses_a_prompt_without_recording_it() {
 }
 
 #[tokio::test]
+async fn the_queue_limit_is_read_when_each_prompt_arrives() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&[]),
+        hold(),
+        answer(&text_answer("One.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    h.prompt("first").await;
+    h.wait_for(|e| matches!(e, Event::TurnStarted { .. })).await;
+    h.prompt("second").await;
+    let mut smaller = (**h.settings.borrow()).clone();
+    smaller.max_queued = 1;
+    h.settings.send_replace(std::sync::Arc::new(smaller));
+    let cwd = h.cwd.clone();
+    let third = h.prompt_params(&cwd, "third");
+    let refused = h.handle.send_prompt(third, Origin::Shell).await;
+
+    assert!(matches!(refused, Err(ConversationError::QueueFull { limit: 1, .. })), "{refused:?}");
+    h.handle.shutdown().await.expect("the actor stops");
+}
+
+#[tokio::test]
 async fn a_new_conversation_is_recorded_once_with_its_first_prompt() {
     let mut setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "first");

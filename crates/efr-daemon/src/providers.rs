@@ -51,7 +51,6 @@ pub(crate) struct Providers {
     subscription: Arc<OpenAiTokenSource>,
     login: OpenAiLogin,
     active: Arc<dyn Provider>,
-    model: String,
 }
 
 impl Providers {
@@ -105,17 +104,12 @@ impl Providers {
             tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so the backend may refuse it");
         }
         tracing::info!(provider = %active.id(), model = %model, "provider ready");
-        Ok(Providers { store, subscription, login, active, model })
+        Ok(Providers { store, subscription, login, active })
     }
 
     /// The provider of new conversations.
     pub(crate) fn active(&self) -> Arc<dyn Provider> {
         Arc::clone(&self.active)
-    }
-
-    /// The model of new conversations.
-    pub(crate) fn model(&self) -> &str {
-        &self.model
     }
 
     /// Binds the login callback and returns the login to complete.

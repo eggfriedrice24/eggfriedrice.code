@@ -6,7 +6,11 @@ The conversation engine: one actor per conversation that queues prompts and runs
 turns.
 
 - `ConversationActor::spawn` starts the actor of one conversation and returns its
-  `ConversationHandle`, the only way in. `ConversationStart::New` records
+  `ConversationHandle`, the only way in. The actor reads its settings from a
+  `ConfigSource` (the daemon's settings watch; a `watch::Receiver` of
+  `ConversationConfig` is one too): a turn takes the latest settings when it starts
+  and keeps them until it ends, so a change never reaches a running turn; a prompt
+  reads the queue limit when it arrives. `ConversationStart::New` records
   `conversation_created` together with the first prompt, so a conversation never
   exists without one; `ConversationStart::Existing` picks up a conversation from the
   log, as after a restart.

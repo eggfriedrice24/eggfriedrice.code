@@ -34,7 +34,7 @@ use crate::approvals::Approvals;
 use crate::history::CachedTurn;
 use crate::scratch::Scratch;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
-use crate::{ConversationConfig, ConversationDeps, ConversationError, ConversationStart};
+use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart};
 
 /// Requests waiting for the actor; senders wait when it is full.
 const MAILBOX: usize = 64;
@@ -115,11 +115,11 @@ impl ConversationActor {
     pub fn spawn(
         conversation_id: ConversationId,
         start: ConversationStart,
-        config: ConversationConfig,
+        config: Arc<dyn ConfigSource>,
         deps: ConversationDeps,
     ) -> ConversationHandle {
         let (sender, mailbox) = mpsc::channel(MAILBOX);
-        let scratch = Mutex::new(Scratch::new(&config.scratch_root, conversation_id));
+        let scratch = Mutex::new(Scratch::new(&config.current().scratch_root, conversation_id));
         let shared = Arc::new(Shared {
             conversation_id,
             config,
@@ -201,7 +201,7 @@ impl ConversationActor {
         origin: Origin,
     ) -> Result<PromptSendResult, ConversationError> {
         self.check_conversation(params.conversation_id)?;
-        let limit = self.shared.config.max_queued;
+        let limit = self.shared.config.current().max_queued;
         if self.queue.len() >= limit {
             return Err(ConversationError::QueueFull {
                 conversation_id: self.conversation_id(),
@@ -394,7 +394,8 @@ impl ConversationActor {
         };
         self.cache.insert(end.turn_id, Arc::new(cached));
         self.cache_order.push_back(end.turn_id);
-        while self.cache_order.len() > self.shared.config.history.max_turns {
+        let keep = self.shared.config.current().history.max_turns;
+        while self.cache_order.len() > keep {
             if let Some(oldest) = self.cache_order.pop_front() {
                 self.cache.remove(&oldest);
             }

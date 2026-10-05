@@ -1,5 +1,7 @@
-//! What the daemon hands a conversation: settings by value, collaborators by handle.
+//! What the daemon hands a conversation: settings through a [`ConfigSource`],
+//! collaborators by handle.
 
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -95,6 +97,25 @@ impl ConversationConfig {
     pub fn with_host(mut self, host: HostInfo) -> Self {
         self.host = host;
         self
+    }
+}
+
+/// Where a conversation reads its settings: the latest value each time a unit of work
+/// starts.
+///
+/// A turn reads the settings once, when it starts, and keeps them until it ends, so a
+/// change never reaches a running turn. A prompt reads them when it arrives (the queue
+/// limit), and the actor when a turn ends (how many turns it keeps for the history).
+/// The daemon implements it over its settings watch; a `watch::Receiver` of the
+/// settings is one too.
+pub trait ConfigSource: Send + Sync + fmt::Debug {
+    /// The latest settings.
+    fn current(&self) -> Arc<ConversationConfig>;
+}
+
+impl ConfigSource for watch::Receiver<Arc<ConversationConfig>> {
+    fn current(&self) -> Arc<ConversationConfig> {
+        Arc::clone(&self.borrow())
     }
 }
 

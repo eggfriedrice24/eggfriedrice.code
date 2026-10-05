@@ -748,6 +748,59 @@ async fn steering_reaches_the_model_at_its_next_step() {
 }
 
 #[tokio::test]
+async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "tidy up");
+    let first = setup.prompt(&state, "tidy up");
+    let mut next = request(vec![
+        Message::user("tidy up"),
+        Message::assistant("Working."),
+        Message::user("also empty the trash"),
+        Message::assistant("Done."),
+        setup.prompt(&state, "next"),
+    ]);
+    next.model = "test-model-2".to_owned();
+    next.system = Some("new rules".to_owned());
+    next.max_output_tokens = Some(64);
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&[ProviderEvent::TextDelta { text: "Working.".to_owned() }]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+        expect_request(request(vec![
+            first,
+            Message::assistant("Working."),
+            Message::user("also empty the trash"),
+        ])),
+        answer(&text_answer("Done.")),
+        expect_request(next),
+        answer(&text_answer("Next.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("tidy up").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+    let mut changed = (**h.settings.borrow()).clone();
+    changed.model = "test-model-2".to_owned();
+    changed.system_prompt = Some("new rules".to_owned());
+    changed.max_output_tokens = Some(64);
+    h.settings.send_replace(std::sync::Arc::new(changed));
+    let steer = TurnSteer {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        turn_id: Some(sent.turn_id),
+        text: "also empty the trash".to_owned(),
+    };
+    h.handle.steer(steer).await.expect("steer accepted");
+    h.provider.handled_through(3);
+    h.wait_end(sent.turn_id).await;
+    let second = h.prompt("next").await;
+    h.wait_end(second.turn_id).await;
+
+    h.finish();
+}
+
+#[tokio::test]
 async fn text_updates_are_coalesced_on_the_clock() {
     let mut setup = Setup::new();
     setup.config.update_interval = Duration::from_millis(200);

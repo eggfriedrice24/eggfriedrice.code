@@ -110,7 +110,7 @@ async fn routed(
         .with(move |conn| efr_store::conversations::get(conn, conversation_id))
         .await?
         .map(|summary| summary.updated_at);
-    let hours = state.config.conversation.tty_idle_hours;
+    let hours = state.settings.borrow().conversation.tty_idle_hours;
     let idle_limit = (hours > 0).then(|| Duration::from_secs(hours.saturating_mul(3600)));
     let now = state.clock.now();
     if continues(active, shell_pid, updated_at, now, idle_limit, process_alive) {
