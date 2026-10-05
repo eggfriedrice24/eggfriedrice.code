@@ -17,7 +17,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
-use crate::{StoreError, events, projection, reader, receipts, sql};
+use crate::{StoreError, events, projection, reader, receipts, sql, turn_messages};
 
 mod batch;
 
@@ -220,6 +220,9 @@ impl WriterState {
         }
         for item in &batch.outbox {
             outbox::enqueue(&tx, item, at)?;
+        }
+        for item in &batch.turn_messages {
+            turn_messages::save(&tx, item, Seq::new(next))?;
         }
         tx.commit()?;
         self.last_seq = Seq::new(next);

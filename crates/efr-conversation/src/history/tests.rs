@@ -484,3 +484,61 @@ async fn a_shell_that_exited_has_no_directory_until_the_next_one_starts() {
         Some(PathBuf::from("/srv"))
     );
 }
+
+/// Saves `messages` as turn `t`'s, answered by `provider` and `model`.
+async fn save(store: &TestStore, t: TurnId, provider: &str, messages: Vec<serde_json::Value>) {
+    let saved = efr_store::turn_messages::NewTurnMessages::new(
+        conversation(),
+        t,
+        provider,
+        "m",
+        messages,
+        HistoryLimits::default().max_turns,
+    );
+    store.writer().append(Batch::new().turn_messages(saved)).await.expect("save");
+}
+
+#[tokio::test]
+async fn a_saved_turn_takes_the_place_of_the_cache_after_a_restart() {
+    let a = turn(2);
+    let store = store_with(vec![whole_turn(
+        a,
+        "first",
+        vec![completed(a, 0, "One.")],
+        Event::TurnCompleted { turn_id: a, usage: None },
+    )])
+    .await;
+    let raw = json!([{ "type": "reasoning", "encrypted_content": "opaque" }]);
+    let exact = vec![Message::user("first"), Message::assistant("One.").with_provider_raw(raw)];
+    let json = exact.iter().map(|message| serde_json::to_value(message).unwrap()).collect();
+    save(&store, a, "replay", json).await;
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+
+    let same =
+        snapshot.history(turn(9), &HashMap::new(), &key("replay", "m"), HistoryLimits::default());
+    let other =
+        snapshot.history(turn(9), &HashMap::new(), &key("other", "m"), HistoryLimits::default());
+
+    assert_eq!(same, exact, "the same provider and model get their items back");
+    assert_eq!(other, vec![Message::user("first"), Message::assistant("One.")]);
+}
+
+#[tokio::test]
+async fn a_saved_turn_that_cannot_be_read_back_is_rebuilt() {
+    let a = turn(2);
+    let store = store_with(vec![whole_turn(
+        a,
+        "first",
+        vec![completed(a, 0, "One.")],
+        Event::TurnCompleted { turn_id: a, usage: None },
+    )])
+    .await;
+    save(&store, a, "replay", vec![json!({ "role": "nobody" })]).await;
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+
+    let history =
+        snapshot.history(turn(9), &HashMap::new(), &key("replay", "m"), HistoryLimits::default());
+
+    assert!(snapshot.saved.is_empty());
+    assert_eq!(history, vec![Message::user("first"), Message::assistant("One.")]);
+}

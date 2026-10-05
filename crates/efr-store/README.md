@@ -32,6 +32,13 @@ across a restart:
   number of its batch's last event, or of the event that `NewReceipt::seq_of_event`
   names, such as `prompt_queued` when `turn_started` follows it, so a retry gets the
   number the first answer reported.
+- `turn_messages`: the exact messages of finished turns as the provider saw them,
+  with its own items (encrypted reasoning, item ids) that no event holds, keyed by
+  turn and position with the provider and the model. A batch saves them with the
+  event that ends the turn (`Batch::turn_messages`), keeps the newest turns of the
+  conversation that the history may carry, and `of_conversation` reads them back, so
+  a conversation that goes on after a restart sends the same request. They are not a
+  projection: a rebuild leaves them alone.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by
@@ -72,8 +79,8 @@ the channels and `spawn_blocking`), `serde`, `serde_json`, `jiff`, `thiserror`.
 - The event log is append-only (triggers refuse `UPDATE` and `DELETE`), `seq` starts at
   1 and only grows, and events carry full state, so projections are a function of the
   log and can be rebuilt at any time.
-- A batch is all or nothing: events, projections, receipts and outbox rows commit in
-  one transaction or not at all, and a failed batch does not use up sequence numbers.
+- A batch is all or nothing: events, projections, receipts, outbox rows and turn
+  messages commit in one transaction or not at all, and a failed batch does not use up sequence numbers.
 - An approval is answered at most once: the writer applies `approval_resolved` only to
   a pending approval of the event's conversation and otherwise fails the batch with
   `StoreError::ApprovalNotPending`, so two racing answers cannot both commit and an

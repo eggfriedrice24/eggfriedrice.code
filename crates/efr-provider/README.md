@@ -12,8 +12,9 @@ Modules:
   assistant) and `ContentBlock` (text, tool call, tool result, reasoning, image).
   `provider_raw` is native passthrough: the provider's own items for an assistant
   message (for the Responses API, the encrypted `reasoning` item and the exact
-  `function_call` items), stored verbatim in the event log and sent back unchanged on
-  the next request to the same provider. Only that provider reads it; when the
+  `function_call` items), saved verbatim with the turn's messages in `efr-store`
+  (`turn_messages`, not the event log) and sent back unchanged on the next request to
+  the same provider and model. Only that provider reads it; when the
   conversation switches providers the history assembler drops it.
 - `request`: `Request { model, system, messages, tools, max_output_tokens,
   provider_options }` and `ToolDefinition`, the tool as the model sees it.

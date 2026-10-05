@@ -6,16 +6,19 @@ use efr_protocol::{ConversationId, Event, EventEnvelope, Seq};
 
 use crate::outbox::NewOutboxItem;
 use crate::receipts::NewReceipt;
+use crate::turn_messages::NewTurnMessages;
 
 /// Everything that one transaction writes: events in order, the receipts of the
-/// commands that produced them, and outbox items for the effects they decided. The
-/// projections follow from the events and are written in the same transaction.
+/// commands that produced them, outbox items for the effects they decided, and the
+/// messages of the turns they end. The projections follow from the events and are
+/// written in the same transaction.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[must_use]
 pub struct Batch {
     pub(crate) events: Vec<(Option<ConversationId>, Event)>,
     pub(crate) receipts: Vec<NewReceipt>,
     pub(crate) outbox: Vec<NewOutboxItem>,
+    pub(crate) turn_messages: Vec<NewTurnMessages>,
 }
 
 impl Batch {
@@ -50,9 +53,19 @@ impl Batch {
         self
     }
 
+    /// Adds the messages of a turn whose terminal event is the batch's last; they are
+    /// saved only if the batch commits.
+    pub fn turn_messages(mut self, item: NewTurnMessages) -> Self {
+        self.turn_messages.push(item);
+        self
+    }
+
     /// True when the batch writes nothing.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.receipts.is_empty() && self.outbox.is_empty()
+        self.events.is_empty()
+            && self.receipts.is_empty()
+            && self.outbox.is_empty()
+            && self.turn_messages.is_empty()
     }
 }
 

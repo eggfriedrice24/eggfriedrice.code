@@ -957,13 +957,12 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
     h.wait_end(sent.turn_id).await;
     h.finish();
 
-    // After a restart the cache is gone and another provider answers: the history is
-    // rebuilt from the log, with the daemon's call ids and without provider items.
-    let call_id = h.call_ids().await[0].to_string();
+    // After a restart the cache is gone and another provider answers: the history comes
+    // from the saved messages, as it would from the cache, without provider items.
     let third = vec![
         Message::user("first"),
-        tool_message(&call_id, "read_file", &input),
-        result_message(&call_id, &output, false),
+        tool_message("call_1", "read_file", &input),
+        result_message("call_1", &output, false),
         Message::assistant("One."),
         Message::user("second"),
         Message::assistant("Two."),
@@ -978,6 +977,67 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
     let created =
         h.events().await.iter().filter(|e| matches!(e, Event::ConversationCreated { .. })).count();
     assert_eq!(created, 1, "an existing conversation is not created again");
+    h.finish();
+}
+
+/// The second request of a conversation whose first turn called a tool and answered
+/// with provider items: the first turn exactly as the model saw it, then the prompt.
+fn second_request_after_raw_items(
+    setup: &Setup,
+    state: &crate::preamble::LiveState,
+    input: &serde_json::Value,
+    output: &str,
+    raw: &serde_json::Value,
+) -> Vec<Message> {
+    vec![
+        Message::user("first"),
+        tool_message("call_1", "read_file", input).with_provider_raw(json!([{ "id": "fc_1" }])),
+        result_message("call_1", output, false),
+        Message::assistant("One.").with_provider_raw(raw.clone()),
+        setup.prompt(state, "second"),
+    ]
+}
+
+#[tokio::test]
+async fn a_restart_between_turns_sends_the_same_provider_items_as_no_restart() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let raw = json!([{ "type": "reasoning", "id": "rs_1", "encrypted_content": "opaque" }]);
+    let notes = setup.home().join("notes.txt");
+    let input = json!({ "path": notes });
+    let output = format!("contents of {}", notes.display());
+    let mut call_answer = tool_answer("call_1", "read_file", &input);
+    let last = call_answer.len() - 1;
+    call_answer[last] = done(StopReason::ToolUse, Some(json!([{ "id": "fc_1" }])));
+    let mut final_answer = text_answer("One.");
+    final_answer[1] = done(StopReason::EndTurn, Some(raw.clone()));
+    let first = setup.prompt(&state, "first");
+    let second = second_request_after_raw_items(&setup, &state, &input, &output, &raw);
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&call_answer),
+        expect_request(request(vec![
+            first,
+            tool_message("call_1", "read_file", &input)
+                .with_provider_raw(json!([{ "id": "fc_1" }])),
+            result_message("call_1", &output, false),
+        ])),
+        answer(&final_answer),
+    ];
+    let mut h = setup.start(records).await;
+    let sent = h.prompt("first").await;
+    h.wait_end(sent.turn_id).await;
+    h.finish();
+    let cwd = h.cwd.clone();
+
+    // The same provider and model answer after the restart, so the request carries the
+    // first turn's items exactly as the cache would have.
+    let records = vec![expect_request(request(second)), answer(&text_answer("Two."))];
+    let mut h = h.restart(records, "replay").await;
+    let sent = h.prompt_in(&cwd, "second").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "got {end:?}");
     h.finish();
 }
 

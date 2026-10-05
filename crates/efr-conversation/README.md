@@ -132,11 +132,11 @@ else changes.
   receipt. Rejected commands (an error before anything was recorded) get their
   rejected receipt from the daemon, which owns the mapping to wire errors.
 - It reconciles after a restart (cancels in-flight turns, expires pending approvals,
-  holds queued prompts); the actor starts with an empty queue.
+  records queued prompts as not run); the actor starts with an empty queue.
 - It routes `prompt.send` to the tty's active conversation and spawns or reuses its
   actor.
 
-### Provider items do not survive a restart
+### Provider items survive a restart
 
 `provider_raw` must go back unchanged to the model that made it, but no event in
 `efr-protocol` carries it. The actor keeps the exact messages of the turns it ran (as
@@ -144,9 +144,13 @@ many as the history may carry), each with the provider and the model that answer
 it, and uses them while both are the same; with another provider or another model
 (a prompt that names one, or a new default in the config) they lose `provider_raw`:
 the other model's encrypted reasoning and item ids go, the text, the tool calls and
-their results stay, as opencode does. After a restart, history is rebuilt from the
-events with the daemon's call ids and without provider items, which costs the
-encrypted reasoning of earlier turns but nothing else.
+their results stay, as opencode does. A turn also saves its exact messages in
+`efr_store::turn_messages`, in the batch that records its end, and the store keeps the
+newest `history.max_turns` turns of each conversation. After a restart the snapshot
+reads them back in place of the empty cache, so the next request is the same as
+without the restart. Only a turn with no saved messages (one from before the table,
+or one whose saved messages cannot be read back) is rebuilt from the events, with the
+daemon's call ids and without provider items.
 
 ## Tier
 
@@ -196,8 +200,8 @@ the one the test expects, a fake toolbox and a fake scope resolver: a text turn,
 call allowed, denied, asked then approved or denied, a phone turn that asks, the scope
 of each turn deciding a write, an interrupt mid-stream, during an approval and during
 a tool call, an approval that times out, a provider 401, a cwd move between turns,
-provider items passed back to the same provider and dropped after a restart with
-another provider, steering, coalesced updates, a queued second prompt, receipts and
+provider items passed back to the same provider, also after a restart, and dropped
+for another provider, steering, coalesced updates, a queued second prompt, receipts and
 the refusals. The preamble is covered by insta snapshots. The scratch and resolver
 tests use temporary directories; the resolver tests run git, isolated from the user's
 configuration. No test uses the network, a real model, real time or the user's home.

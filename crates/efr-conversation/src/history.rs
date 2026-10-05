@@ -14,7 +14,11 @@
 //! their `provider_raw`, and the model works from the canonical content: the text, the
 //! tool calls and their results stay, the other model's encrypted reasoning and item
 //! ids do not. opencode does the same (`session/message-v2.ts`, `differentModel`).
-//! After a restart the cache is empty and every turn is rebuilt.
+//!
+//! A turn also saves its exact messages in the store (`efr_store::turn_messages`) with
+//! the batch that records its end, and the snapshot reads them back, so after a restart,
+//! when the cache is empty, a saved turn takes the cache's place and the request is
+//! the same as without the restart. Only a turn with neither is rebuilt.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -25,6 +29,7 @@ use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_store::Readers;
 use efr_store::conversations::{self, Turn};
 use efr_store::events;
+use efr_store::turn_messages::{self, TurnMessages};
 
 use crate::ConversationError;
 
@@ -94,6 +99,8 @@ pub(crate) struct Snapshot {
     pub(crate) turns: Vec<Turn>,
     /// The newest events of the conversation, oldest first.
     pub(crate) page: Vec<EventEnvelope>,
+    /// The exact messages that earlier turns saved, by turn.
+    pub(crate) saved: HashMap<TurnId, CachedTurn>,
 }
 
 impl Snapshot {
@@ -109,6 +116,10 @@ impl Snapshot {
                     summary: conversations::get(conn, conversation_id)?,
                     turns: conversations::turns(conn, conversation_id)?,
                     page: events::read_turn_history(conn, conversation_id, limits.max_events)?,
+                    saved: turn_messages::of_conversation(conn, conversation_id)?
+                        .into_iter()
+                        .filter_map(decode)
+                        .collect(),
                 })
             })
             .await
@@ -162,10 +173,14 @@ impl Snapshot {
             turn.id != current && turn.status.is_finished() && started.contains(&turn.id)
         });
         let mut turns: Vec<Vec<Message>> = eligible
-            .map(|turn| match cache.get(&turn.id) {
-                Some(cached) if cached.key == *key => cached.messages.clone(),
-                Some(cached) => cached.messages.iter().cloned().map(without_raw).collect(),
-                None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
+            .map(|turn| {
+                let exact =
+                    cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
+                match exact {
+                    Some(exact) if exact.key == *key => exact.messages.clone(),
+                    Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
+                    None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
+                }
             })
             .collect();
 
@@ -180,6 +195,34 @@ impl Snapshot {
         }
         turns.drain(..first);
         turns.into_iter().flatten().collect()
+    }
+}
+
+/// A turn's saved messages as the cache holds them, or `None` when they cannot be read
+/// back, such as after a provider was renamed: the turn is then rebuilt from its events,
+/// which costs the provider's items and nothing else.
+fn decode(saved: TurnMessages) -> Option<(TurnId, CachedTurn)> {
+    let turn_id = saved.turn_id;
+    let provider = match ProviderId::new(saved.provider) {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::warn!(error = %error, %turn_id, "a saved turn names an invalid provider");
+            return None;
+        }
+    };
+    let messages = saved
+        .messages
+        .into_iter()
+        .map(serde_json::from_value::<Message>)
+        .collect::<Result<Vec<_>, _>>();
+    match messages {
+        Ok(messages) => {
+            Some((turn_id, CachedTurn { key: ModelKey::new(provider, saved.model), messages }))
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, %turn_id, "the saved messages of a turn could not be read");
+            None
+        }
     }
 }
 

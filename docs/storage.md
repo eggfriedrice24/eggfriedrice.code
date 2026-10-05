@@ -60,6 +60,13 @@ link.
   rows survive a restart; process-bound rows are cancelled at startup.
 - `recording_segments(pty_id, start_seq, path, bytes, started_at, closed_at)` indexes
   the recording files.
+- `turn_messages(conversation_id, turn_id, position, provider, model, message JSON,
+  turn_seq)`, keyed by `(turn_id, position)`: the exact messages of a finished turn
+  with the provider's own items (`provider_raw`), which no event holds. Saved in the
+  batch of the turn's terminal event (`turn_seq` is its sequence number); each
+  conversation keeps its newest `history.max_turns` turns. Not a projection: the log
+  cannot rebuild it, so a rebuild leaves it alone and it has no foreign key to
+  `turns`.
 
 ## Migrations
 
@@ -69,7 +76,8 @@ link.
 - Before migrating, the daemon copies the database to `backups/`. The socket opens only
   after migrations finish.
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
-  `0003_receipts_outbox.sql` and `0004_shells_recordings.sql`. The devices and scopes
+  `0003_receipts_outbox.sql`, `0004_shells_recordings.sql` and
+  `0005_turn_messages.sql`. The devices and scopes
   table waits for the phone milestone, because a forward-only migration makes an unused
   table permanent.
 - A migration never edits an earlier file. New columns use `ALTER TABLE ... ADD COLUMN`

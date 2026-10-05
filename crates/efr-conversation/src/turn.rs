@@ -31,6 +31,7 @@ use efr_protocol::{
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
+use efr_store::turn_messages::NewTurnMessages;
 use efr_store::{Batch, Committed};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
@@ -343,9 +344,10 @@ impl Turn {
         )))
     }
 
-    /// Records the terminal event and hands the turn's messages back. A turn that
-    /// stopped between a tool call and its result (a store error, say) leaves a call
-    /// without a result, which later turns could not send; it gets an error result.
+    /// Records the terminal event, with the turn's exact messages for the history of
+    /// later turns in the same batch, and hands the messages back. A turn that stopped
+    /// between a tool call and its result (a store error, say) leaves a call without a
+    /// result, which later turns could not send; it gets an error result.
     async fn finish(mut self, ending: Ending) -> TurnEnd {
         let turn_id = self.turn_id();
         let event = match ending {
@@ -355,14 +357,44 @@ impl Turn {
             Ending::Failed(error) => Event::TurnFailed { turn_id, error },
             Ending::Interrupted => Event::TurnInterrupted { turn_id },
         };
-        if let Err(error) = self.record(vec![event]).await {
-            tracing::error!(error = %error, "the end of the turn could not be recorded");
-        }
         let key = self.model_key();
         close_open_calls(&mut self.transcript);
+        let mut batch = Batch::new().event(self.shared.conversation_id, event);
+        if let Some(messages) = self.saved_messages(&key) {
+            batch = batch.turn_messages(messages);
+        }
+        if let Err(error) = self.shared.deps.writer.append(batch).await {
+            tracing::error!(error = %error, "the end of the turn could not be recorded");
+        }
         let cached =
             (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
         TurnEnd { turn_id, cached }
+    }
+
+    /// The turn's messages as the store saves them, or `None` for a turn that never
+    /// started.
+    fn saved_messages(&self, key: &ModelKey) -> Option<NewTurnMessages> {
+        if self.transcript.is_empty() {
+            return None;
+        }
+        let messages = self.transcript.iter().map(serde_json::to_value).collect();
+        let messages = match messages {
+            Ok(messages) => messages,
+            Err(error) => {
+                // NOTE: the turn's end matters more than its provider items; a later turn
+                // rebuilds this one from its events.
+                tracing::warn!(error = %error, "the turn's messages could not be saved");
+                return None;
+            }
+        };
+        Some(NewTurnMessages::new(
+            self.shared.conversation_id,
+            self.turn_id(),
+            key.provider.as_str(),
+            key.model.as_str(),
+            messages,
+            self.config.history.max_turns,
+        ))
     }
 
     /// The provider and the model that answer this turn.
