@@ -23,6 +23,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+# A client frame can carry a password typed for input.respond; its bytes are zeroed
+# once it is decoded.
+zeroize.workspace = true
 
 [dev-dependencies]
 jiff.workspace = true

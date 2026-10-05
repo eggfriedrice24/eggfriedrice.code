@@ -10,6 +10,7 @@ use bytes::BytesMut;
 use efr_protocol::framing::{self, Decoder as FrameDecoder};
 use efr_protocol::{ClientFrame, ProtocolError, ServerFrame};
 use tokio_util::codec::{Decoder, Encoder};
+use zeroize::{Zeroize as _, Zeroizing};
 
 use crate::TransportError;
 
@@ -20,10 +21,14 @@ use crate::TransportError;
 /// was valid and the next frame still starts at the right byte; the connection answers
 /// it with `invalid` and reads on. A codec error (an oversized prefix, a stream that
 /// ends inside a frame, an IO failure) leaves the stream out of step and ends it.
+///
+/// A client frame can carry a password typed for `input.respond`, so the bytes it read
+/// are overwritten with zeros once they are consumed, and a payload once it is decoded
+/// or dropped.
 #[derive(Debug, Default)]
 pub struct ServerCodec {
     framing: FrameDecoder,
-    ready: VecDeque<Vec<u8>>,
+    ready: VecDeque<Zeroizing<Vec<u8>>>,
 }
 
 impl ServerCodec {
@@ -62,16 +67,17 @@ impl Encoder<ServerFrame> for ServerCodec {
 
 /// The next whole payload, feeding every buffered byte to the push decoder first.
 ///
-/// The push decoder copies what it needs, so `src` is always drained. It is called even
-/// when `src` is empty, because a chunk that completes some frames and then announces
-/// an oversized one reports the error on the following call.
+/// The push decoder copies what it needs, so `src` is always drained, and zeroed first.
+/// It is called even when `src` is empty, because a chunk that completes some frames
+/// and then announces an oversized one reports the error on the following call.
 fn next_payload(
     framing: &mut FrameDecoder,
-    ready: &mut VecDeque<Vec<u8>>,
+    ready: &mut VecDeque<Zeroizing<Vec<u8>>>,
     src: &mut BytesMut,
-) -> Result<Option<Vec<u8>>, ProtocolError> {
+) -> Result<Option<Zeroizing<Vec<u8>>>, ProtocolError> {
     if ready.is_empty() {
-        ready.extend(framing.push(src)?);
+        ready.extend(framing.push(src)?.into_iter().map(Zeroizing::new));
+        src.as_mut().zeroize();
         src.clear();
     }
     Ok(ready.pop_front())

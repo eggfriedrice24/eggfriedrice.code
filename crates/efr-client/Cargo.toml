@@ -21,6 +21,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+# Request frames can carry a password typed for input.respond; their buffers are zeroed.
+zeroize.workspace = true
 
 [dev-dependencies]
 # The fake daemons in the tests are built from the real server side of the protocol.

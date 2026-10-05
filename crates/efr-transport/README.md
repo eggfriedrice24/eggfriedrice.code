@@ -33,7 +33,11 @@ the daemon and the daemon's answers back into frames:
   `overflow` carrying `last_seq`, so the client resubscribes without a gap.
 - `context`: `ConnectionContext { surface, uid, pid, conn_id }`, carried by every
   request. The uid and pid come from the kernel, the surface from hello.
-- `codec`: `ServerCodec`, the tokio codec over `efr_protocol::framing`.
+- `codec`: `ServerCodec`, the tokio codec over `efr_protocol::framing`. Because an
+  `input.respond` frame carries a password, it overwrites the bytes it read with zeros
+  once the push decoder has copied them, and a frame's payload once it is decoded or
+  dropped. Not zeroed: a frame left unfinished in the push decoder when the connection
+  ends, and serde_json's scratch buffer for a string that holds an escape.
 
 The WebSocket listener for the phone lands here in a later milestone and reuses the
 connection loop.
@@ -50,7 +54,7 @@ edge: the transport never touches the database.
 
 Third-party crates: `tokio`, `tokio-util` (codec and `CancellationToken`), `futures`,
 `bytes`, `nix` (`SO_PEERCRED` and `getuid`), `serde`, `serde_json`, `thiserror`,
-`tracing`.
+`tracing`, `zeroize` (the bytes of client frames).
 
 ## Invariant
 

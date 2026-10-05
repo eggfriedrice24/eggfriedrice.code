@@ -88,7 +88,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   answer, the shell itself holding the terminal again before the command's `D` arrived)
   is `conflict`; nothing is written then. There is no receipt. The text is a
   `SecretText`: it reaches no log, error message, event or receipt, and the handler logs
-  only its length.
+  only its length. The transport zeroes the frame's bytes once it has read and decoded
+  them, the `SecretText` and the clone that the shell's actor gets are zeroed when they
+  drop, and the shell writes the answer to the PTY from that clone's buffer;
+  serde_json's scratch buffer for a text that holds an escape (a quote, a backslash,
+  `\u`) is not zeroed.
 - `conversation.subscribe` with `answers_input` from a connection that holds the
   `terminal` scope counts, while its stream lasts, as a client at which a person can
   answer a waiting command (`Connections::answerers`); the count drops when the stream

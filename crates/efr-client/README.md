@@ -17,7 +17,14 @@ tests use it too.
   with another version are `ProtocolMismatch`. `call` runs a unary method and decodes
   its result; `stream` returns an `ItemStream` of decoded items; `cancel` sends
   `{cancel: id}`. Dropping a call or a stream before it ends cancels it on the daemon.
-  Requests run concurrently on one connection and are matched by id.
+  Requests run concurrently on one connection and are matched by id. Every request frame
+  is encoded into a buffer that is overwritten with zeros when it is dropped, once it is
+  written or when the connection closes first, because an `input.respond` frame carries
+  a password. Two copies are not zeroed: `efr_protocol::framing::encode` grows its
+  buffer as the JSON is written, and each move leaves the bytes written so far in freed
+  memory; and the connection's write buffer (tokio's `BufWriter`, 8 KiB) copies a
+  smaller frame and keeps it until later frames overwrite it or the connection ends,
+  when it is freed unzeroed.
 - `codec`: `ClientCodec`, the tokio codec over `efr_protocol::framing`.
 
 A consumer that falls behind is never buffered without limit: when a request's queue
@@ -38,7 +45,7 @@ against the real listener, so both sides of the protocol are checked against eac
 other.
 
 Third-party crates: `tokio`, `tokio-util` (codec), `futures`, `bytes`, `serde`,
-`serde_json`, `thiserror`.
+`serde_json`, `thiserror`, `zeroize` (the request frames).
 
 ## Invariant
 

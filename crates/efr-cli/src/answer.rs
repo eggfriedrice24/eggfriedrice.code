@@ -10,7 +10,11 @@
 //! The text can be a password. It never shows in `Debug`, and it is overwritten with
 //! zeros when it is cleared, sent or dropped. Its buffer is allocated at the full size
 //! of an answer up front, so it never moves while it grows: a move would leave a copy
-//! in freed memory that nothing zeroes.
+//! in freed memory that nothing zeroes. Two copies are not this module's to zero: each
+//! key passes through the key thread's one-byte read buffer and the key queue, which
+//! keep its byte until it is overwritten or freed; and after a send the text goes on in
+//! a `SecretText` and an encoded request frame (the README lists what of those is
+//! zeroed).
 
 use std::fmt;
 

@@ -25,7 +25,7 @@ Where things are:
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage` |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
 | `src/methods/*.rs` | one file per method: its params, and its result or stream item |
-| `src/secret_text.rs` | `SecretText`, typed text such as a password: a plain string on the wire, redacted in `Debug`, zeroed on drop |
+| `src/secret_text.rs` | `SecretText`, typed text such as a password: a plain string on the wire, redacted in `Debug`; its own buffer and each clone's are zeroed on drop, copies made outside it are not |
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |
 | `src/framing.rs` | `encode` and `Decoder`: the 4-byte big-endian length prefix, 16 MiB cap |
 | `src/schema.rs` | the JSON Schema document, behind the `schema` feature |

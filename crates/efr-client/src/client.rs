@@ -35,6 +35,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _, BufWriter};
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 use tokio_util::codec::FramedRead;
+use zeroize::Zeroizing;
 
 use crate::codec::ClientCodec;
 use crate::{ClientError, unix};
@@ -313,7 +314,7 @@ struct Pending {
 #[derive(Debug)]
 struct Shared {
     pending: Arc<Mutex<Pending>>,
-    outbound: mpsc::Sender<Vec<u8>>,
+    outbound: mpsc::Sender<Frame>,
     next_id: AtomicU64,
     reader: AbortHandle,
 }
@@ -328,13 +329,13 @@ impl Shared {
     }
 
     async fn cancel(&self, id: RequestId) -> Result<(), ClientError> {
-        let frame = framing::encode(&ClientFrame::Cancel { id })?;
+        let frame = encode(&ClientFrame::Cancel { id })?;
         self.outbound.send(frame).await.map_err(|_| ClientError::Closed)
     }
 
     /// Queues a cancel without waiting, for a destructor.
     fn cancel_now(&self, id: RequestId) {
-        if let Ok(frame) = framing::encode(&ClientFrame::Cancel { id }) {
+        if let Ok(frame) = encode(&ClientFrame::Cancel { id }) {
             let _ = self.outbound.try_send(frame);
         }
     }
@@ -375,7 +376,7 @@ struct Started {
 /// Registers a route for a new request id and sends the request.
 async fn start(shared: &Arc<Shared>, method: Method) -> Result<Started, ClientError> {
     let id = RequestId::new(shared.next_id.fetch_add(1, Ordering::Relaxed));
-    let frame = framing::encode(&ClientFrame::Request { id, method })?;
+    let frame = encode(&ClientFrame::Request { id, method })?;
     let (sender, replies) = mpsc::channel(STREAM_QUEUE_FRAMES);
     let overflowed = Arc::new(AtomicBool::new(false));
     {
@@ -448,9 +449,19 @@ fn lock(pending: &Mutex<Pending>) -> MutexGuard<'_, Pending> {
     pending.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// An encoded client frame. A request can carry a password typed for `input.respond`,
+/// so the buffer is overwritten with zeros when it is dropped: once it is written, or
+/// when the connection closes before it is.
+type Frame = Zeroizing<Vec<u8>>;
+
+/// Encodes `frame` behind its length prefix into a [`Frame`].
+fn encode(frame: &ClientFrame) -> Result<Frame, ProtocolError> {
+    framing::encode(frame).map(Zeroizing::new)
+}
+
 /// Writes queued frames until every sender is gone, then shuts down the write side so
 /// the daemon sees the client leave.
-async fn write_frames<W: AsyncWrite + Unpin>(write_half: W, mut queue: mpsc::Receiver<Vec<u8>>) {
+async fn write_frames<W: AsyncWrite + Unpin>(write_half: W, mut queue: mpsc::Receiver<Frame>) {
     let mut writer = BufWriter::new(write_half);
     let written: std::io::Result<()> = async {
         while let Some(frame) = queue.recv().await {
@@ -473,7 +484,7 @@ async fn write_frames<W: AsyncWrite + Unpin>(write_half: W, mut queue: mpsc::Rec
 async fn read_frames<R: AsyncRead + Unpin>(
     mut frames: FramedRead<R, ClientCodec>,
     pending: Arc<Mutex<Pending>>,
-    outbound: mpsc::WeakSender<Vec<u8>>,
+    outbound: mpsc::WeakSender<Frame>,
 ) {
     while let Some(next) = frames.next().await {
         match next {
@@ -495,7 +506,7 @@ async fn read_frames<R: AsyncRead + Unpin>(
     pending.routes.clear();
 }
 
-fn route(pending: &Mutex<Pending>, outbound: &mpsc::WeakSender<Vec<u8>>, frame: ServerFrame) {
+fn route(pending: &Mutex<Pending>, outbound: &mpsc::WeakSender<Frame>, frame: ServerFrame) {
     match frame {
         ServerFrame::Item { id, item } => {
             let mut pending = lock(pending);
@@ -514,7 +525,7 @@ fn route(pending: &Mutex<Pending>, outbound: &mpsc::WeakSender<Vec<u8>>, frame: 
             pending.routes.remove(&id);
             drop(pending);
             if let (Some(outbound), Ok(frame)) =
-                (outbound.upgrade(), framing::encode(&ClientFrame::Cancel { id }))
+                (outbound.upgrade(), encode(&ClientFrame::Cancel { id }))
             {
                 let _ = outbound.try_send(frame);
             }

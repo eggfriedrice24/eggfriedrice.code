@@ -739,6 +739,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "zeroize",
 ]
 
 [[package]]
@@ -1196,6 +1197,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]

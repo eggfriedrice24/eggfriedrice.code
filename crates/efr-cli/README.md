@@ -90,15 +90,21 @@ shows nor waits for the shell. A key thread that read an answer line discards un
 input before it restores echo, also when the turn ends or Ctrl+C ends the command. The
 line is an `answer::AnswerLine`: at most `efr_protocol::InputRespond::MAX_TEXT_BYTES`
 bytes, allocated once at that size, never in `Debug`, and zeroed when it is cleared,
-sent or dropped; a hidden one never reaches the view, a log or a note. When stdout is
-not a terminal, the prompt and how to answer go to stderr once, and a visible answer is
-echoed there on a line of its own after `> ` as it is typed (Backspace and Ctrl+U erase
-what they remove); a hidden one never is. A prompt that waits behind another turn counts
-as a person who can answer, so until its own turn starts it shows the running turn's
-last output line and asks for the input that turn's command waits for, also one asked
-before the prompt (found on the newest page of the log, as approvals are). Without a
-terminal on stdin, one dim note says that the command waits for input that `efr` cannot
-ask for here. Full-screen programs need an attach, which comes later.
+sent or dropped; a hidden one never reaches the view, a log or a note. The copies of a
+typed answer that are zeroed: the line (with the bytes that Backspace removed, at the
+next clear, send or drop), the `SecretText` it becomes, and the encoded request frame
+once it is written (`efr-client`). The copies that are not: each key's byte in the key
+thread's one-byte read buffer and in the key queue, the pieces of the frame that the
+JSON encoder's growing buffer leaves in freed memory, and the frame's copy in the
+connection's write buffer, until later frames overwrite it or the connection ends. When
+stdout is not a terminal, the prompt and how to answer go to stderr once, and a visible
+answer is echoed there on a line of its own after `> ` as it is typed (Backspace and
+Ctrl+U erase what they remove); a hidden one never is. A prompt that waits behind
+another turn counts as a person who can answer, so until its own turn starts it shows
+the running turn's last output line and asks for the input that turn's command waits
+for, also one asked before the prompt (found on the newest page of the log, as approvals
+are). Without a terminal on stdin, one dim note says that the command waits for input
+that `efr` cannot ask for here. Full-screen programs need an attach, which comes later.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
 130); the daemon stops the model and any running command. A prompt that still waits

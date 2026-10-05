@@ -10,7 +10,8 @@
 //! When the running call's command waits for input, the same key thread reads an
 //! answer line, which goes to the daemon with `input.respond`. A hidden answer stays in
 //! an [`AnswerLine`] and the [`SecretText`] it becomes: it is never handed to the view,
-//! never logged, and zeroed once it is sent or dropped.
+//! never logged, and both are zeroed once it is sent or dropped (the README lists the
+//! copies that are not).
 
 mod view;
 
@@ -376,7 +377,8 @@ impl Follower<'_> {
     }
 
     /// Sends the answer line `text` to the running call `call_id`, and says how that
-    /// went. The text is dropped, and so zeroed, once the call returns.
+    /// went. The `SecretText` is dropped, and its buffer zeroed, once the call returns;
+    /// `efr-client` zeroes the encoded request frame once it is written.
     async fn answer(
         &self,
         call_id: CallId,

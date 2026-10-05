@@ -9,9 +9,14 @@ use zeroize::Zeroize as _;
 /// Text that a user typed and that can be a secret, such as a password typed for `sudo`.
 ///
 /// On the wire it is a plain JSON string. `Debug` prints a placeholder and never the
-/// text, because requests are logged. The text is overwritten with zeros when the value
-/// is dropped, so a password does not stay in freed memory. The one place that must use
-/// the text reads it with [`SecretText::expose_secret`].
+/// text, because requests are logged. The value's own buffer is overwritten with zeros
+/// when it is dropped, and so is each clone's, which is a buffer of its own. Copies made
+/// outside the value are not: [`SecretText::new`] copies text given as a `&str` (a
+/// `String` moves in), serde_json unescapes a string that holds an escape (a quote, a
+/// backslash, `\u`) in a scratch buffer that it frees without zeroing, and the encoded
+/// frames are the business of `efr-client` and `efr-transport`, whose READMEs say which
+/// of their buffers they zero. The one place that must use the text reads it with
+/// [`SecretText::expose_secret`].
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct SecretText(String);
