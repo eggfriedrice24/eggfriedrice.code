@@ -30,11 +30,12 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    holds the user's permission rules in the `efr_permissions::Rule` form; a rule of
    the wrong shape or one that names a relative path, a program that is not one word
    or an action its resource never matches stops the start with an error that names
-   `permissions.rules[N]`, counted from 0 (`docs/permissions.md`). `[model] effort`
-   becomes the provider's default reasoning effort. A `[model] name` that is not in
-   the model list costs a warning at start. `permissions.mode` is the permission mode
-   of every turn until a prompt can choose its own; `shell.sudo_cache` is read and
-   checked but not applied yet.
+   `permissions.rules[N]`, counted from 0 (`docs/permissions.md`). `[model] name`,
+   `[model] effort` and `permissions.mode` are the defaults of a turn's settings. A
+   `[model] name` that is not in the model list, or a `[model] effort` that the
+   default model does not take, costs a warning at start, because every turn that
+   leaves them to the config then fails. The engine decides each tool call by the
+   turn's mode.
 3. The store: the backup copy in `backups/`, the forward-only migrations.
 4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
    held, running shells recorded as exited, process-bound outbox items cancelled.
@@ -127,9 +128,13 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   activity, and when a prompt comes from another shell while the shell that took the
   terminal has exited, so a new tab that reuses a closed tab's `/dev/pts` number
   starts fresh.
-  A prompt's `settings` (mode, model, effort) are accepted but not applied yet:
-  every turn runs with the config's model and the config's permission mode, and no
-  event or result reports settings.
+  A prompt's `settings` (mode, model, effort) are checked by the conversation
+  against the latest settings (`settings.rs` gives it the defaults and the model list
+  of `providers.rs`): a model outside the list, or an effort the model does not take,
+  is `invalid` with the setting, the value and the choices as data, and nothing is
+  recorded. The result carries the effective settings; the turn resolves them again
+  when it starts, records them on `turn_started` and sends the effort in the request's
+  `provider_options`. A turn from a remote origin runs with at most `cautious`.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue.
@@ -139,8 +144,10 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   size without rows or columns and clamps a huge one.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed` and makes the running provider forget its cached token.
-- `models.list` is a stub for now: it answers `internal` until the verified model list
-  and its handler land.
+- `models.list` answers the effective model list of the latest settings
+  (`providers.rs`, `effective_models`): the provider's built-in models with their
+  efforts and default effort, then the ids of `[openai] models` that the list does not
+  hold, with the default model marked.
 - `admin.config_reload` reloads at once and answers with the outcome: applied, or the
   file's error with the old settings kept, and the keys that wait for a restart.
 - `admin.status` reports the four roots with where each came from (its own variable,

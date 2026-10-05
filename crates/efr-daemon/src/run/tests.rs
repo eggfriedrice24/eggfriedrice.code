@@ -21,8 +21,9 @@ mod daemon {
     use efr_protocol::{
         AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CommandId,
         ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
-        ConversationsListResult, ErrorCode, Event, Method, ModelsList, PromptSend,
-        PromptSendResult, PtyAttach, PtyId, PtyResize, Seq, ShellContext, Size, TurnSteer,
+        ConversationsListResult, ErrorCode, Event, Method, ModelSource, ModelsList,
+        ModelsListResult, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq,
+        ShellContext, Size, TurnSteer,
     };
     use efr_stdx::time::Clock as _;
     use efr_test_support::{TestClock, TestDirs};
@@ -625,17 +626,29 @@ mod daemon {
     }
 
     #[tokio::test]
-    async fn the_methods_that_are_not_wired_yet_answer_internal_and_say_so() {
+    async fn the_model_list_follows_the_latest_settings() {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
         let daemon = serve(&dirs, &clock).await;
         let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
 
-        for (method, name) in [(Method::ModelsList(ModelsList::default()), "models.list")] {
-            let error = client.call::<serde_json::Value>(method).await.unwrap_err();
-            assert_eq!(error.code, ErrorCode::Internal, "{name}");
-            assert_eq!(error.message, format!("{name} is not wired in this daemon yet"));
-        }
+        let before: ModelsListResult =
+            client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+        let mut changed = crate::Settings::default();
+        changed.openai.models = Some(vec!["gpt-next".to_owned()]);
+        changed.model.name = Some("gpt-6-sol".to_owned());
+        daemon.settings.send_replace(std::sync::Arc::new(changed));
+        let after: ModelsListResult =
+            client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+
+        let defaults = |list: &ModelsListResult| -> Vec<String> {
+            list.models.iter().filter(|model| model.default).map(|model| model.id.clone()).collect()
+        };
+        assert_eq!(defaults(&before), ["gpt-5.5"]);
+        assert!(before.models.iter().all(|model| model.source == ModelSource::Builtin));
+        assert_eq!(defaults(&after), ["gpt-6-sol"]);
+        let added = after.models.last().unwrap();
+        assert_eq!((added.id.as_str(), added.source), ("gpt-next", ModelSource::Config));
 
         drop(client);
         daemon.shutdown.cancel();
