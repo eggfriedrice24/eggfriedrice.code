@@ -6,8 +6,9 @@ use pretty_assertions::assert_eq;
 
 use super::{
     FIXTURES_DIR, all, event_path, event_samples, input_wait_samples, method_samples, method_stem,
+    models_list_sample,
 };
-use crate::{Event, InputWait, Method, Mode};
+use crate::{Event, InputWait, Method, Mode, ModelSource};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -49,12 +50,13 @@ fn method_index(method: &Method) -> usize {
         Method::PtyResize(_) => 10,
         Method::InputRespond(_) => 11,
         Method::LeaseReport(_) => 12,
-        Method::AdminStatus(_) => 13,
-        Method::AdminLoginOpenAi(_) => 14,
+        Method::ModelsList(_) => 13,
+        Method::AdminStatus(_) => 14,
+        Method::AdminLoginOpenAi(_) => 15,
     }
 }
 
-const METHOD_COUNT: usize = 15;
+const METHOD_COUNT: usize = 16;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -110,6 +112,16 @@ fn mode_index(mode: Mode) -> usize {
 }
 
 const MODE_COUNT: usize = 3;
+
+/// The position of a model source in the enum, for the same purpose as `method_index`.
+fn model_source_index(source: ModelSource) -> usize {
+    match source {
+        ModelSource::Builtin => 0,
+        ModelSource::Config => 1,
+    }
+}
+
+const MODEL_SOURCE_COUNT: usize = 2;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -199,6 +211,13 @@ fn every_input_wait_has_a_sample() {
 fn every_mode_has_a_sample() {
     let covered: Vec<usize> = Mode::ALL.into_iter().map(mode_index).collect();
     assert_eq!(covered, (0..MODE_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_model_source_has_a_sample() {
+    let covered: BTreeSet<usize> =
+        models_list_sample().models.iter().map(|model| model_source_index(model.source)).collect();
+    assert_eq!(covered, (0..MODEL_SOURCE_COUNT).collect());
 }
 
 #[test]

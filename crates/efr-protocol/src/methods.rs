@@ -23,6 +23,7 @@ pub(crate) mod conversations_list;
 pub(crate) mod hello;
 pub(crate) mod input_respond;
 pub(crate) mod lease_report;
+pub(crate) mod models_list;
 pub(crate) mod prompt_send;
 pub(crate) mod pty_attach;
 pub(crate) mod pty_resize;

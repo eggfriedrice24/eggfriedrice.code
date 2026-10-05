@@ -148,8 +148,8 @@ mod daemon {
     use efr_protocol::{
         AdminStatus, AdminStatusResult, CommandId, ConversationSubscribe,
         ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, Event,
-        Method, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq, ShellContext, Size,
-        TurnSteer,
+        Method, ModelsList, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq,
+        ShellContext, Size, TurnSteer,
     };
     use efr_stdx::time::Clock as _;
     use efr_test_support::{TestClock, TestDirs};
@@ -683,6 +683,24 @@ mod daemon {
 
         let (asked, _) = run_in_zsh("seq 4", config).await;
         assert!(asked, "seq 4 is not what the rule names");
+    }
+
+    #[tokio::test]
+    async fn the_methods_that_are_not_wired_yet_answer_internal_and_say_so() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let daemon = serve(&dirs, &clock).await;
+        let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
+
+        for (method, name) in [(Method::ModelsList(ModelsList::default()), "models.list")] {
+            let error = client.call::<serde_json::Value>(method).await.unwrap_err();
+            assert_eq!(error.code, ErrorCode::Internal, "{name}");
+            assert_eq!(error.message, format!("{name} is not wired in this daemon yet"));
+        }
+
+        drop(client);
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
     }
 
     #[tokio::test]

@@ -3,7 +3,8 @@ use serde_json::json;
 
 use crate::{
     Base64Bytes, ConversationId, ConversationSubscribe, EffectiveSettings, InputRespond, Mode,
-    OverriddenSettings, PageCursor, PromptSend, PromptSendResult, Seq, TurnSettings,
+    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, PromptSend,
+    PromptSendResult, Seq, TurnSettings,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -143,4 +144,50 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
     );
     let back: PromptSendResult = serde_json::from_value(value).unwrap();
     assert_eq!(back, result);
+}
+
+#[test]
+fn a_model_without_efforts_or_default_is_its_id_and_source() {
+    let model = ModelInfo {
+        id: "gpt-5.5-preview".to_owned(),
+        efforts: Vec::new(),
+        default_effort: None,
+        default: false,
+        source: ModelSource::Config,
+    };
+    let value = serde_json::to_value(&model).unwrap();
+    assert_eq!(value, json!({ "id": "gpt-5.5-preview", "source": "config" }));
+    let back: ModelInfo = serde_json::from_value(value).unwrap();
+    assert_eq!(back, model);
+}
+
+#[test]
+fn the_default_model_and_its_efforts_are_written() {
+    let result = ModelsListResult {
+        models: vec![ModelInfo {
+            id: "gpt-5.5".to_owned(),
+            efforts: vec!["low".to_owned(), "high".to_owned()],
+            default_effort: Some("low".to_owned()),
+            default: true,
+            source: ModelSource::Builtin,
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        json!({ "models": [{
+            "id": "gpt-5.5",
+            "efforts": ["low", "high"],
+            "default_effort": "low",
+            "default": true,
+            "source": "builtin",
+        }] })
+    );
+}
+
+#[test]
+fn a_model_needs_an_id_and_a_known_source() {
+    assert!(serde_json::from_value::<ModelInfo>(json!({ "source": "builtin" })).is_err());
+    assert!(serde_json::from_value::<ModelInfo>(json!({ "id": "x" })).is_err());
+    let unknown = json!({ "id": "x", "source": "remote" });
+    assert!(serde_json::from_value::<ModelInfo>(unknown).is_err());
 }

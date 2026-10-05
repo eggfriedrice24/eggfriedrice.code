@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminLoginOpenAi, AdminStatus, ApprovalRespond, CommandId, ConversationHistory,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, PromptSend,
-    PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
+    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, ModelsList,
+    PromptSend, PtyAttach, PtyResize, PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -61,6 +61,9 @@ pub enum Method {
     /// `lease.report`: say what the client is watching.
     #[serde(rename = "lease.report")]
     LeaseReport(LeaseReport),
+    /// `models.list`: the models that a prompt may name, with their efforts.
+    #[serde(rename = "models.list")]
+    ModelsList(ModelsList),
     /// `admin.status`: the daemon's health (Unix socket only).
     #[serde(rename = "admin.status")]
     AdminStatus(AdminStatus),
@@ -88,6 +91,7 @@ impl Method {
             Method::PtyResize(_) => "pty.resize",
             Method::InputRespond(_) => "input.respond",
             Method::LeaseReport(_) => "lease.report",
+            Method::ModelsList(_) => "models.list",
             Method::AdminStatus(_) => "admin.status",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
         }
@@ -111,6 +115,7 @@ impl Method {
             | Method::PtyResize(_)
             | Method::InputRespond(_)
             | Method::LeaseReport(_)
+            | Method::ModelsList(_)
             | Method::AdminStatus(_)
             | Method::AdminLoginOpenAi(_) => None,
         }
@@ -134,6 +139,7 @@ impl Method {
             | Method::PtyResize(_)
             | Method::InputRespond(_)
             | Method::LeaseReport(_)
+            | Method::ModelsList(_)
             | Method::AdminStatus(_) => false,
         }
     }
@@ -142,14 +148,16 @@ impl Method {
 impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
-    /// `hello` and `lease.report` need only `read`, which every connection holds.
+    /// `hello`, `lease.report` and `models.list` need only `read`, which every
+    /// connection holds.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
             | Method::ConversationHistory(_)
-            | Method::LeaseReport(_) => ScopeName::Read,
+            | Method::LeaseReport(_)
+            | Method::ModelsList(_) => ScopeName::Read,
             Method::PromptSend(_) | Method::TurnInterrupt(_) | Method::TurnSteer(_) => {
                 ScopeName::Operate
             }

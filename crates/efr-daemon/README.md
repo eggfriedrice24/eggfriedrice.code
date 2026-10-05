@@ -78,6 +78,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   size without rows or columns and clamps a huge one.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed` and makes the running provider forget its cached token.
+- `models.list` is a stub for now: it answers `internal` until the verified model list
+  and its handler land.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
   while that call's command runs, a wait of it was reported, the job that waited (by

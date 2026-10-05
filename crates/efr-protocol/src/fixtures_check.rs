@@ -23,11 +23,12 @@ use crate::{
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
     DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello, HelloResult,
     InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult, Method, Mode,
-    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend,
-    PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
-    PtyWrite, PtyWriteResult, RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText,
-    Seq, ServerFrame, ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
-    TurnSteer, TurnSteerResult, Usage,
+    ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
+    PROTOCOL_VERSION, PageCursor, ProjectId, PromptSend, PromptSendResult, ProviderStatus,
+    PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult,
+    RequestId, RowCells, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, Usage,
 };
 
 /// The directory of the frozen fixtures.
@@ -311,6 +312,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             ptys: vec![pty_id()],
             visible: true,
         }),
+        Method::ModelsList(ModelsList {}),
         Method::AdminStatus(AdminStatus {}),
         Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
     ]
@@ -408,6 +410,7 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture("pty_resize_result.json", &PtyResizeResult { size: Size { cols: 120, rows: 40 } }),
         fixture("input_respond_result.json", &InputRespondResult {}),
         fixture("lease_report_result.json", &LeaseReportResult { ttl_secs: 45 }),
+        fixture("models_list_result.json", &models_list_sample()),
         fixture(
             "admin_status_result.json",
             &AdminStatusResult {
@@ -438,6 +441,29 @@ fn answer_fixtures() -> Vec<Fixture> {
             &AdminLoginOpenAiItem::Completed { provider: "openai".into() },
         ),
     ]
+}
+
+/// A built-in default model with efforts and a model from the config, so the result
+/// freezes every member and every [`ModelSource`].
+pub(crate) fn models_list_sample() -> ModelsListResult {
+    ModelsListResult {
+        models: vec![
+            ModelInfo {
+                id: "gpt-5.5".into(),
+                efforts: vec!["low".into(), "medium".into(), "high".into()],
+                default_effort: Some("medium".into()),
+                default: true,
+                source: ModelSource::Builtin,
+            },
+            ModelInfo {
+                id: "gpt-5.5-preview".into(),
+                efforts: Vec::new(),
+                default_effort: None,
+                default: false,
+                source: ModelSource::Config,
+            },
+        ],
+    }
 }
 
 /// One sample per event kind, and one of a kind from the future.

@@ -1,9 +1,9 @@
 use efr_protocol::{
     AdminLoginOpenAi, AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId,
     Capabilities, CommandId, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, LeaseReport, Method, Origin, PROTOCOL_VERSION,
-    PageCursor, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Seq,
-    Size, TurnInterrupt, TurnSteer,
+    ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
+    PROTOCOL_VERSION, PageCursor, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName,
+    SecretText, Seq, Size, TurnInterrupt, TurnSteer,
 };
 use pretty_assertions::assert_eq;
 
@@ -72,6 +72,7 @@ fn every_method() -> Vec<Method> {
             hidden: false,
         }),
         Method::LeaseReport(LeaseReport::default()),
+        Method::ModelsList(ModelsList::default()),
         Method::AdminStatus(AdminStatus::default()),
         Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
     ]
@@ -80,7 +81,7 @@ fn every_method() -> Vec<Method> {
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 15, "one request per method");
+    assert_eq!(methods.len(), 16, "one request per method");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -107,6 +108,7 @@ fn the_scope_table_is_the_designed_one() {
             ("pty.resize", ScopeName::Terminal),
             ("input.respond", ScopeName::Terminal),
             ("lease.report", ScopeName::Read),
+            ("models.list", ScopeName::Read),
             ("admin.status", ScopeName::Admin),
             ("admin.login_openai", ScopeName::Admin),
         ]

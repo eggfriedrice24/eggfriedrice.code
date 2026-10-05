@@ -57,7 +57,7 @@ pub enum Origin {
 ///
 /// | Scope | Allows | Phone default |
 /// |---|---|---|
-/// | `read` | `hello`, list, subscribe, history, `lease.report` | yes |
+/// | `read` | `hello`, list, subscribe, history, `lease.report`, `models.list` | yes |
 /// | `operate` | send prompts, interrupt, steer | yes |
 /// | `approve` | answer approvals | yes |
 /// | `terminal` | attach to, write to and resize a PTY | no, an explicit opt-in |
@@ -68,7 +68,7 @@ pub enum Origin {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ScopeName {
-    /// List, subscribe and page history.
+    /// List, subscribe and page history, and list the models.
     Read,
     /// Send prompts, interrupt and steer turns.
     Operate,

@@ -1,0 +1,19 @@
+{
+  "models": [
+    {
+      "id": "gpt-5.5",
+      "efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_effort": "medium",
+      "default": true,
+      "source": "builtin"
+    },
+    {
+      "id": "gpt-5.5-preview",
+      "source": "config"
+    }
+  ]
+}

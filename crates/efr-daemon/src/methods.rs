@@ -32,6 +32,7 @@ mod conversations_list;
 mod hello;
 mod input_respond;
 mod lease_report;
+mod models_list;
 mod prompt_send;
 mod pty_attach;
 mod pty_resize;
@@ -66,6 +67,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationSubscribe(_) => ScopeName::Read,
         Method::ConversationHistory(_) => ScopeName::Read,
         Method::LeaseReport(_) => ScopeName::Read,
+        Method::ModelsList(_) => ScopeName::Read,
         Method::PromptSend(_) => ScopeName::Operate,
         Method::TurnInterrupt(_) => ScopeName::Operate,
         Method::TurnSteer(_) => ScopeName::Operate,
@@ -187,6 +189,7 @@ impl Dispatcher for Methods {
                 Method::LeaseReport(params) => {
                     lease_report::handle(state, &context, params, &responder).await
                 }
+                Method::ModelsList(params) => models_list::handle(state, params, &responder).await,
                 Method::AdminStatus(params) => {
                     admin_status::handle(state, params, &responder).await
                 }

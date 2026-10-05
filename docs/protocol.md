@@ -38,3 +38,8 @@ No protocol version has shipped yet.
   fixtures `prompt_send_params.json`, `prompt_send_result.json`,
   `events/prompt_queued.json` and `events/turn_started.json` now set them, and the new
   `modes.json` freezes every mode.
+- Before version 1 ships: new method `models.list` (scope `read`, no params) whose
+  result lists `models`, each with its `id`, its `efforts` (plain strings), an optional
+  `default_effort`, a `default` flag for the model that a turn uses when the prompt
+  names none, and its `source` (`builtin` or `config`). New fixtures
+  `models_list_params.json` and `models_list_result.json`.
