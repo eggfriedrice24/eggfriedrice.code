@@ -81,7 +81,7 @@ pub(crate) fn not_run(prompt: &str) -> String {
 }
 
 /// `text` without control characters, cut to `max` characters with `...` at the cut.
-pub(crate) fn one_line(text: &str, max: usize) -> String {
+fn one_line(text: &str, max: usize) -> String {
     let clean = text.chars().map(|c| if c.is_control() { ' ' } else { c });
     if text.chars().count() <= max {
         return clean.collect();
