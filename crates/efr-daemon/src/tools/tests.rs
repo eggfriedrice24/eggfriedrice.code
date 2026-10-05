@@ -314,6 +314,10 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
     for (command, expected) in [
         ("cp notes ~/.config/efr/config.toml", Effect::Deny),
         ("ln -sf ~/p/app/x ~/.config/efr/config.toml", Effect::Deny),
+        // An option after the destination does not make its value the destination.
+        ("cp notes ~/.config/efr/config.toml -S x", Effect::Deny),
+        ("cp notes ~/.config/efr/config.toml --suffix x", Effect::Deny),
+        ("ln -sf ~/p/app/x ~/.config/efr/config.toml --suffix x", Effect::Deny),
         ("rm ~/dotfiles/efr/config.toml", Effect::Deny),
         ("mv x ~/.config/efr/projects.toml", Effect::Deny),
         ("echo x > ~/.config/efr/config.toml", Effect::Deny),
@@ -414,6 +418,46 @@ async fn the_settings_tool_asks_while_write_file_and_the_shell_stay_denied_on_th
             let effect = engine.decide(&input).effect();
             assert_eq!(effect, *expected, "{} {} in {mode}", tool_call.name, tool_call.input);
         }
+    }
+}
+
+#[tokio::test]
+async fn in_auto_a_copy_or_a_link_out_of_the_project_asks_wherever_its_options_stand() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    let app = home.join("p/app");
+    std::fs::create_dir_all(&app).unwrap();
+    let id = efr_protocol::ProjectId::from_uuid(uuid::Uuid::from_u128(7));
+    let mut projects = efr_scope::Registry::empty();
+    projects.register(id, &app, None).unwrap();
+    let toolbox = toolbox(&home);
+    let engine = crate::engine::build(
+        &Home::new(&home).unwrap(),
+        &home.join(".local/share/efr/secrets"),
+        &[],
+        &Settings::default(),
+        &projects,
+    )
+    .unwrap();
+
+    for (command, expected) in [
+        ("cp x y", Effect::Allow),
+        ("cp x y -v", Effect::Allow),
+        ("cp x ~/.bashrc", Effect::Ask),
+        ("cp x ~/.bashrc --suffix y", Effect::Ask),
+        ("cp x ~/.bashrc -S y", Effect::Ask),
+        ("ln -sf x ~/.zshrc -S y", Effect::Ask),
+        ("ln -sf x ~/.zshrc --suffix y", Effect::Ask),
+    ] {
+        let shell_call = call("shell", json!({ "command": command }), &app);
+        let input = DecisionInput {
+            requirements: toolbox.requirements(&shell_call).await.unwrap(),
+            scope: Scope::Project(id),
+            origin: Origin::Shell,
+            mode: Mode::Auto,
+            conversation_policy: ConversationPolicy::new(home.join("scratch")),
+        };
+        assert_eq!(engine.decide(&input).effect(), expected, "{command:?}");
     }
 }
 

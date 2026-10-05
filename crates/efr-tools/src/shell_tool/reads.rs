@@ -674,7 +674,7 @@ pub(super) fn option_value(word: &Word) -> Option<Named> {
 
 /// A path given as an option's value. zsh replaces a `~` there only with
 /// MAGIC_EQUAL_SUBST, which the user's startup files may set, so `~/` counts as home.
-fn named_value(value: &str) -> Named {
+pub(super) fn named_value(value: &str) -> Named {
     let pattern = value.find(['*', '?', '[']);
     Named {
         text: value.to_owned(),

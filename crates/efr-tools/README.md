@@ -60,7 +60,8 @@ The tools:
   `shell_tool/writes.rs` says which words of a writer program it writes (every
   operand of `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`;
   the last operand or the `-t` directory of `cp`; the link of `ln`; every operand when
-  the text cannot show which one `-t` takes; the sources of a hard link, `ln` without
+  the text cannot show which one `-t` takes, when an option follows an operand or when
+  an option is unknown; never the value of `-S` or `--suffix`; the sources of a hard link, `ln` without
   `-s` or `cp -l`), `reads.rs` does the same for `git rm`, `git mv` and
   `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
   `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows

@@ -409,7 +409,11 @@ directory:
   `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `chmod`, `truncate` and `tee`; the last
   operand of `cp` (its other operands are read with everything below them, as a
   recursive copy reads them); the link that `ln` creates (its target is read). With
-  `-t` or `--target-directory`, every operand of `cp` and `ln` counts as written. A
+  `-t` or `--target-directory`, every operand of `cp` and `ln` counts as written, and
+  so does every operand when an option follows an operand (GNU `cp` and `ln` read
+  options anywhere, so in `cp a ~/.bashrc -S x` the `x` is the backup suffix and
+  `~/.bashrc` is written) or when an option is not one of theirs. The value of `-S`
+  or `--suffix` is never an operand. A
   hard link (`ln` without `-s`, `cp -l`) writes its sources too, because the new name
   writes the same file. The operands of `git rm`, `git mv` and `git worktree add` are
   written too;

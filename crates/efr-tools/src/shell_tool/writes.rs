@@ -12,7 +12,7 @@
 //! operand, and when the text cannot show which operand `cp` or `ln` writes, every
 //! operand is a write.
 
-use super::reads::{Depth, Named, Reads, from_word, option_value};
+use super::reads::{Depth, Named, Reads, from_word, named_value, option_value};
 use super::words::Word;
 
 /// The writer programs, by how their operands divide into writes and reads.
@@ -32,7 +32,10 @@ const ALL_WRITTEN: &[&str] = &["rm", "rmdir", "mkdir", "touch", "mv", "chmod", "
 ///   config.
 ///
 /// The value of an option that looks like a path is read, except the directory of
-/// `-t` and `--target-directory`, which is written. `cp`, `ln` and `mv` may create or
+/// `-t` and `--target-directory`, which is written. `cp` and `ln` know which of their
+/// options take the next word as a value (`-S x`, `--suffix x`), so that word is never
+/// an operand. When an option follows an operand (GNU takes options anywhere), or an
+/// option is not one of theirs, every operand of `cp` and `ln` is written. `cp`, `ln` and `mv` may create or
 /// move a symbolic link, which the result says ([`Reads::links`]).
 pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
     let kind = match name {
@@ -41,13 +44,22 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
         _ if ALL_WRITTEN.contains(&name) => Kind::All,
         _ => return None,
     };
+    let options = match kind {
+        Kind::Copy => Some(&CP),
+        Kind::Link => Some(&LN),
+        Kind::All => None,
+    };
     let mut operands: Vec<&Word> = Vec::new();
     let mut reads = Reads { links: matches!(name, "cp" | "ln" | "mv"), ..Reads::default() };
     let mut target = false;
+    // NOTE: true when the words do not show for certain which operand `cp` or `ln`
+    // writes, so that every operand counts as written.
+    let mut unsure = false;
     // NOTE: `ln` makes a hard link unless the line shows `-s`; `cp` only with `-l`.
     let mut hard = kind == Kind::Link;
     let mut after_options = false;
-    for word in args {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
         let text = word.text.as_str();
         if !after_options && text == "--" {
             after_options = true;
@@ -71,6 +83,30 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
             Kind::Copy if has_flag(text, 'l', "link", 1) => hard = true,
             _ => {}
         }
+        if let Some(options) = options {
+            // NOTE: GNU `cp` and `ln` also take options after the operands, so in
+            // `cp a ~/.bashrc -S x` the last word is the suffix and `~/.bashrc` is
+            // written. Once an option follows an operand, any operand may be written.
+            let option = options.read(text);
+            unsure |= !option.known || !operands.is_empty();
+            match option.value {
+                Some(OptionValue::Next(of)) => {
+                    // NOTE: the next word is the value, never an operand.
+                    if let Some(value) = words.next()
+                        && of == ValueOf::Target
+                        && !value.expansion
+                    {
+                        reads.writes.push(from_word(value, Depth::One));
+                    }
+                    continue;
+                }
+                Some(OptionValue::Attached(ValueOf::Target, value)) => {
+                    reads.writes.push(named_value(value));
+                    continue;
+                }
+                Some(OptionValue::Attached(ValueOf::Other, _)) | None => {}
+            }
+        }
         if let Some(value) = option_value(word) {
             if names_target { reads.writes.push(value) } else { reads.named.push(value) }
         }
@@ -79,9 +115,10 @@ pub(super) fn writer(name: &str, args: &[Word]) -> Option<Reads> {
     match (kind, operands.split_last()) {
         (_, None) => {}
         (Kind::All, Some(_)) => reads.writes.extend(operands.iter().map(written)),
-        // NOTE: which word `-t` takes is not certain here, so every operand may be the
-        // directory that is written.
-        (Kind::Copy | Kind::Link, Some(_)) if target => {
+        // NOTE: with `-t` every operand may be the directory that is written, when the
+        // reading missed which word `-t` takes; with an option the reading is not sure
+        // of, or one after an operand, any operand may be the destination.
+        (Kind::Copy | Kind::Link, Some(_)) if target || unsure => {
             reads.writes.extend(operands.iter().map(written));
         }
         (Kind::Link, Some((only, []))) => {
@@ -117,6 +154,150 @@ enum Kind {
     Copy,
     /// `ln`: the link is written.
     Link,
+}
+
+/// The options of GNU `cp` or `ln`, enough to tell the words that are values from the
+/// operands. The short options `-S` (the backup suffix) and `-t` (the target
+/// directory) take a value, attached or in the next word.
+struct Options {
+    /// The short options without a value.
+    flags: &'static str,
+    /// The long options whose value is the next word unless `=` gives it.
+    long_values: &'static [&'static str],
+    /// The other long options: without a value, or with one that only `=` gives.
+    long_flags: &'static [&'static str],
+}
+
+/// GNU coreutils `cp`.
+const CP: Options = Options {
+    flags: "abdfHilLnPpRrsTuvxZ",
+    long_values: &["no-preserve", "sparse", "suffix", "target-directory"],
+    long_flags: &[
+        "archive",
+        "attributes-only",
+        "backup",
+        "context",
+        "copy-contents",
+        "debug",
+        "dereference",
+        "force",
+        "help",
+        "interactive",
+        "keep-directory-symlink",
+        "link",
+        "no-clobber",
+        "no-dereference",
+        "no-target-directory",
+        "one-file-system",
+        "parents",
+        "preserve",
+        "recursive",
+        "reflink",
+        "remove-destination",
+        "strip-trailing-slashes",
+        "symbolic-link",
+        "update",
+        "verbose",
+        "version",
+    ],
+};
+
+/// GNU coreutils `ln`.
+const LN: Options = Options {
+    flags: "bdFfiLnPrsTv",
+    long_values: &["suffix", "target-directory"],
+    long_flags: &[
+        "backup",
+        "directory",
+        "force",
+        "help",
+        "interactive",
+        "logical",
+        "no-dereference",
+        "no-target-directory",
+        "physical",
+        "relative",
+        "symbolic",
+        "verbose",
+        "version",
+    ],
+};
+
+/// What one option word of `cp` or `ln` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OptionWord<'a> {
+    /// False for an option the table does not hold, or an abbreviation of more than one.
+    known: bool,
+    /// The value it takes, if it takes one.
+    value: Option<OptionValue<'a>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OptionValue<'a> {
+    /// The next word is the value.
+    Next(ValueOf),
+    /// The rest of the word is the value.
+    Attached(ValueOf, &'a str),
+}
+
+/// Which option a value belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueOf {
+    /// `-t` or `--target-directory`: the directory that is written.
+    Target,
+    /// Any other option: a value that is not a path the program writes.
+    Other,
+}
+
+impl Options {
+    /// Reads the option word `text`, which starts with `-` and is not `-` or `--`.
+    fn read<'a>(&self, text: &'a str) -> OptionWord<'a> {
+        let unknown = OptionWord { known: false, value: None };
+        if let Some(long) = text.strip_prefix("--") {
+            let (name, attached) = match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
+            };
+            let all = || self.long_values.iter().chain(self.long_flags).copied();
+            // NOTE: getopt takes an exact name before an abbreviation, and refuses an
+            // abbreviation of more than one option.
+            let option = match all().find(|option| *option == name) {
+                Some(option) => option,
+                None => {
+                    let mut matches = all().filter(|option| option.starts_with(name));
+                    match (matches.next(), matches.next()) {
+                        (Some(option), None) if !name.is_empty() => option,
+                        _ => return unknown,
+                    }
+                }
+            };
+            if !self.long_values.contains(&option) {
+                return OptionWord { known: true, value: None };
+            }
+            let of = if option == "target-directory" { ValueOf::Target } else { ValueOf::Other };
+            let value = match attached {
+                Some(value) => OptionValue::Attached(of, value),
+                None => OptionValue::Next(of),
+            };
+            return OptionWord { known: true, value: Some(value) };
+        }
+        for (at, letter) in text.char_indices().skip(1) {
+            let of = match letter {
+                't' => ValueOf::Target,
+                'S' => ValueOf::Other,
+                _ if self.flags.contains(letter) => continue,
+                _ => return unknown,
+            };
+            let rest = &text[at + letter.len_utf8()..];
+            let value = if rest.is_empty() {
+                OptionValue::Next(of)
+            } else {
+                OptionValue::Attached(of, rest)
+            };
+            return OptionWord { known: true, value: Some(value) };
+        }
+        OptionWord { known: true, value: None }
+    }
 }
 
 /// True when the option word `text` may name the directory that `cp`, `mv` or `ln`

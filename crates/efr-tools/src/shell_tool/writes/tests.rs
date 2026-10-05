@@ -44,6 +44,18 @@ fn of(line: &str) -> (Vec<String>, Vec<String>) {
 #[case::cp_target_long("cp --target-directory=/srv/x a", &[], &["/srv/x", "a"])]
 #[case::cp_target_abbreviated("cp --targ dst a", &[], &["dst", "a"])]
 #[case::cp_no_target("cp --no-target-directory a b", &["a/**"], &["b"])]
+// The value of `-S` or `--suffix` is never the destination, wherever it stands.
+#[case::cp_suffix_after("cp evil ~/.config/efr/config.toml -S x", &[], &["evil", "~/.config/efr/config.toml"])]
+#[case::cp_suffix_long_after("cp evil ~/.bashrc --suffix x", &[], &["evil", "~/.bashrc"])]
+#[case::cp_suffix_abbreviated_after("cp evil ~/.bashrc --suf x", &[], &["evil", "~/.bashrc"])]
+#[case::cp_suffix_before("cp -S x evil ~/.bashrc", &["evil/**"], &["~/.bashrc"])]
+#[case::cp_suffix_attached("cp -S.bak evil ~/.bashrc", &["evil/**"], &["~/.bashrc"])]
+#[case::cp_sparse_value("cp --sparse always evil ~/.bashrc", &["evil/**"], &["~/.bashrc"])]
+#[case::cp_flag_after("cp -r src dst -v", &[], &["src", "dst"])]
+#[case::cp_unknown_option("cp --frobnicate a b", &[], &["a", "b"])]
+#[case::cp_ambiguous_abbreviation("cp --s x a b", &[], &["x", "a", "b"])]
+#[case::cp_unknown_short_option("cp -rq a b", &[], &["a", "b"])]
+#[case::cp_target_with_a_suffix("cp -tS a b", &[], &["S", "a", "b"])]
 // ln writes the link and reads its target.
 #[case::ln("ln -s ~/.ssh/id_ed25519 key", &["~/.ssh/id_ed25519"], &["key"])]
 #[case::ln_into_config("ln -sf x ~/.config/efr/config.toml", &["x"], &["~/.config/efr/config.toml"])]
@@ -51,6 +63,9 @@ fn of(line: &str) -> (Vec<String>, Vec<String>) {
 #[case::ln_one_operand_slash("ln -s /srv/x/", &["/srv/x/"], &["x"])]
 #[case::ln_one_operand_home("ln -s ~", &["~"], &["."])]
 #[case::ln_target("ln -s -t ~/bin a b", &[], &["~/bin", "a", "b"])]
+#[case::ln_suffix_after("ln -sf x ~/.zshrc -S y", &[], &["x", "~/.zshrc"])]
+#[case::ln_suffix_long_after("ln -sf x ~/.zshrc --suffix y", &[], &["x", "~/.zshrc"])]
+#[case::ln_suffix_before("ln -sf -S y x ~/.zshrc", &["x"], &["~/.zshrc"])]
 // A hard link writes its source too: the new name writes the same file.
 #[case::ln_hard("ln ~/.config/efr/config.toml x", &[], &["~/.config/efr/config.toml", "x"])]
 #[case::ln_hard_one_operand("ln ~/.config/efr/config.toml", &[], &["~/.config/efr/config.toml", "config.toml"])]
