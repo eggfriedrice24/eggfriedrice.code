@@ -95,7 +95,9 @@ jobs:
           exit "$fail"
 
   # Clippy and rustdoc in one target directory: the docs reuse the dependency metadata
-  # that clippy checked, so the second step builds only the workspace crates.
+  # that clippy checked, so the second step builds only the workspace crates. The docs
+  # run after a clippy failure too, so one run reports both. `just lint` runs both, as
+  # `clippy` and `doc-check`.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -105,8 +107,10 @@ jobs:
         with:
           shared-key: lint
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo clippy --workspace --exclude efr-screen-ghostty --all-targets -- -D warnings
-      - run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
+      - id: clippy
+        run: cargo clippy --workspace --exclude efr-screen-ghostty --all-targets -- -D warnings
+      - if: ${{ success() || steps.clippy.outcome == 'failure' }}
+        run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
         env:
           RUSTDOCFLAGS: "-D warnings"
 
@@ -220,11 +224,13 @@ jobs:
         with:
           name: nextest-archive
           path: ${{ runner.temp }}
-      # The tests of the four packages, as `-p efr-shell -p efr-cli -p efr-daemon
-      # -p efr-test-daemon` selected them before the archive: efr-daemon is built with
-      # local-pty, which the shell_ tests over a TestDaemon need for a real zsh. As in
-      # `just test-shell`; `just test-shell-ubuntu` runs this job in a container set up
-      # like this runner.
+      # The tests of the four packages that `-p efr-shell -p efr-cli -p efr-daemon
+      # -p efr-test-daemon` selected before the archive. They are now built with the
+      # features of the whole workspace, as in `test-full`, not only the ones the four
+      # packages turn on; `hack` still checks each package's own feature sets. efr-daemon
+      # is built with local-pty, which the shell_ tests over a TestDaemon need for a real
+      # zsh. As in `just test-shell`; `just test-shell-ubuntu` runs this job in a
+      # container set up like this runner.
       - run: >-
           cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
           --workspace-remap . --extract-to . --profile ci
