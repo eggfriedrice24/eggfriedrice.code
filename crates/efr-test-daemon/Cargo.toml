@@ -16,7 +16,7 @@ async-trait.workspace = true
 efr-client.workspace = true
 # Without its default local-pty feature (the workspace entry says so), so a test picks
 # the fake holder or, through the daemon's own build, the real one.
-efr-daemon.workspace = true
+efr-daemon = { workspace = true, features = ["test-sandbox-fake"] }
 efr-protocol.workspace = true
 efr-test-support.workspace = true
 futures.workspace = true

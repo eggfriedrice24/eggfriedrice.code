@@ -18,7 +18,11 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   own. The test gets `efr_client::Client`s (`client`, `client_for_tty`, `connect`),
   moves time through `clock()`, reads a conversation's log with `events` (paging
   `conversation.history`), and calls `stop` or `restart` (the same tree, clock, holder
-  and provider; a new generator seed so ids never collide).
+  and provider; a new generator seed so ids never collide). For the `auto` sandbox,
+  `sandbox_launcher` names the `efr-sbx` to copy (the real one from
+  `EFR_TEST_SBX_BIN`, or a fake script) and `probe_override` sets the probe's result;
+  without them the daemon finds no launcher next to its test binary, and `auto` runs as
+  `cautious`.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
@@ -65,7 +69,8 @@ Tier T. Kind `dev`, `publish = false`: only the `tests/` targets of `efr-daemon`
 
 ## Allowed dependencies
 
-`efr-daemon` (without its default `local-pty` feature), `efr-test-support`,
+`efr-daemon` (without its default `local-pty` feature, with `test-sandbox-fake` for the
+sandbox's test seams), `efr-test-support`,
 `efr-client` and `efr-protocol`. `xtask/src/deps.rs` holds the allowlist. The holder
 types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder` edge.
 
