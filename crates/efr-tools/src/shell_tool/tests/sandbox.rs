@@ -263,3 +263,24 @@ async fn a_hidden_cwd_and_a_lost_state_follow_the_output() {
          kept.]"
     );
 }
+
+#[tokio::test]
+async fn the_result_carries_the_summary_and_whether_the_sandbox_failed() {
+    let fixture = Fixture::new();
+    let summary = json!({ "confined": true, "promoted": ["VIRTUAL_ENV"] });
+    let result = CommandResult::finished(Some(0), "out", "/tmp").with_sandbox(
+        serde_json::from_value(json!({ "started": true, "state_kept": true, "summary": summary }))
+            .unwrap(),
+    );
+    let tool = super::super::ShellTool::new(FakeRunner::answering(Ok(result)));
+    let context = fixture.context().with_sandbox(Some(sandbox_run()));
+    let answered = tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap();
+    assert_eq!(answered.sandbox, Some(serde_json::from_value(summary).unwrap()));
+    assert!(!answered.sandbox_failed);
+    let mut failed = CommandResult::finished(None, "", "/tmp");
+    failed.completion = Completion::SandboxFailed;
+    let tool = super::super::ShellTool::new(FakeRunner::answering(Ok(failed)));
+    let context = fixture.context().with_sandbox(Some(sandbox_run()));
+    let answered = tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap();
+    assert!(answered.sandbox_failed && answered.sandbox.is_none());
+}

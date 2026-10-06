@@ -140,7 +140,10 @@ impl ShellTool {
     /// the sandbox reports after it. `contained` is true for a call that ran in the
     /// auto sandbox, not in the exit child.
     fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
-        let rendered = self.render_run(result, waited, contained);
+        let rendered = self
+            .render_run(result, waited, contained)
+            .with_sandbox(result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone()))
+            .with_sandbox_failed(result.completion == Completion::SandboxFailed);
         match &result.sandbox {
             Some(sandbox) if result.completion != Completion::SandboxFailed => {
                 let failed =

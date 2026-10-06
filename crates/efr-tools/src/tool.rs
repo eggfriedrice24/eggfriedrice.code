@@ -4,7 +4,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use efr_protocol::{InputWait, Needs};
+use efr_protocol::{InputWait, Needs, SandboxSummary};
 use efr_scope::Home;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -280,12 +280,26 @@ pub struct ToolResult {
     pub is_error: bool,
     /// The exit status, for a tool that runs a command.
     pub exit_code: Option<i32>,
+    /// What a call through the `auto` sandbox's launcher reported: names only, never
+    /// values. `None` for a call that did not run through the launcher, or whose
+    /// launcher wrote no result.
+    pub sandbox: Option<SandboxSummary>,
+    /// True when a call through the launcher could not start: the sandbox failed, not
+    /// the command, so the daemon checks the sandbox again.
+    pub sandbox_failed: bool,
 }
 
 impl ToolResult {
     /// A successful result.
     pub fn ok(output: impl Into<String>) -> Self {
-        ToolResult { output: output.into(), truncated: false, is_error: false, exit_code: None }
+        ToolResult {
+            output: output.into(),
+            truncated: false,
+            is_error: false,
+            exit_code: None,
+            sandbox: None,
+            sandbox_failed: false,
+        }
     }
 
     /// A failed result: the model reads `output` and decides what to do next.
@@ -311,6 +325,20 @@ impl ToolResult {
     #[must_use]
     pub fn with_exit_code(mut self, exit_code: Option<i32>) -> Self {
         self.exit_code = exit_code;
+        self
+    }
+
+    /// Sets what the sandbox's launcher reported.
+    #[must_use]
+    pub fn with_sandbox(mut self, sandbox: Option<SandboxSummary>) -> Self {
+        self.sandbox = sandbox;
+        self
+    }
+
+    /// Marks the call as one whose sandbox could not start.
+    #[must_use]
+    pub fn with_sandbox_failed(mut self, failed: bool) -> Self {
+        self.sandbox_failed = failed;
         self
     }
 }

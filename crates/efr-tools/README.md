@@ -40,8 +40,9 @@ The tools the model calls, and the registry that offers them.
   `RunRequest::interactive_limit`, and `sandbox` (`efr_shell::SandboxRun`), set for
   a shell call of the `auto` mode that the daemon prepared for the sandbox's launcher,
   which the shell tool passes on as `RunRequest::sandbox`.
-- `ToolResult`: the output the model sees, the truncation flag, the error flag and the
-  exit code; `ToolOutputSink` hears a call's output while it runs, each change of
+- `ToolResult`: the output the model sees, the truncation flag, the error flag, the
+  exit code, and for a call through the sandbox's launcher its summary (names only)
+  and whether the sandbox could not start, so the daemon checks the sandbox again; `ToolOutputSink` hears a call's output while it runs, each change of
   whether its command waits for input with whether a visible prompt looks like a
   password prompt behind a relay (`input_changed`, ignored by default), and is asked
   whether a person can answer hidden input now (`can_answer_hidden`, true by default)
