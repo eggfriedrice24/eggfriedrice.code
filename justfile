@@ -147,6 +147,15 @@ test-sandbox:
     cargo nextest run -p efr-sbx -E 'not test(/^cost::|^corpus::/)'
     # The launch cost and the corpus print their tables; show them.
     cargo nextest run -p efr-sbx --success-output immediate -E 'test(/^cost::|^corpus::/)'
+    # efr-shell's behaviour tests through a real zsh and this launcher. They say
+    # `skipped:` on stderr when they cannot run, which fails on a ready machine.
+    log="$(dirname "$bin")/sbx-shell-tests.log"
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell --success-output immediate \
+        -E 'test(/e2e_zsh::launcher::/)' 2>&1 | tee "$log"
+    if [[ "$require" == 1 ]] && grep -q 'skipped:' "$log"; then
+        echo "test-sandbox: efr-shell's launcher tests skipped on a ready machine" >&2
+        exit 1
+    fi
 
 # test-sandbox in the Ubuntu 24.04 container of test-shell-ubuntu, which shares this
 # machine's kernel (needs Docker and a kernel with Landlock ABI 9). bwrap needs three
