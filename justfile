@@ -152,7 +152,7 @@ deps:
 
 # screen-ghostty is left out: it builds the ghostty crate, which needs Zig, and the
 # ghostty job checks it.
-# Every feature combination of every crate without Zig, as in CI's hack job.
+# Every feature combination of every crate without Zig, as CI's three hack partitions run it.
 hack:
     cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty --exclude-features screen-ghostty
 

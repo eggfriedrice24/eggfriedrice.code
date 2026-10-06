@@ -279,14 +279,22 @@ jobs:
             cargo nextest run -p efr-screen-ghostty --profile ci
           fi
 
+  # The slowest check, split into three runners by cargo-hack's own partitions; the
+  # three together run exactly the commands of `just hack`. Each partition checks other
+  # feature sets, so each keeps a cache of its own.
   hack:
+    name: hack (${{ matrix.partition }}/3)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: hack
+          shared-key: hack-${{ matrix.partition }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@v2
         with:
@@ -294,4 +302,6 @@ jobs:
       # efr-daemon's screen-ghostty feature pulls in the ghostty crate even though it is
       # excluded, and its build needs Zig; the ghostty job covers that feature. As in
       # `just hack`.
-      - run: cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty --exclude-features screen-ghostty
+      - run: >-
+          cargo hack check --feature-powerset --workspace --exclude efr-screen-ghostty
+          --exclude-features screen-ghostty --partition ${{ matrix.partition }}/3
