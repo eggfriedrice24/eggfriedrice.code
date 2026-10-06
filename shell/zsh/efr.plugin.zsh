@@ -13,6 +13,7 @@
 #   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
 #                  could run is a prompt that starts with the word: `,run make`
 #                  sends `run make`; a `,word` command of the user's own still runs,
+#                  as does a line that defines one (`,mine() { ... }`),
 #                  `,!word` steers with `word`, and a typo of a plugin command such
 #                  as `,moed` stays on the line with a hint instead of running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
@@ -546,6 +547,9 @@ _efr_line_to_run() {
 _efr_unknown_comma_line() {
   emulate -L zsh -o extended_glob
   [[ $1 == (#b)([[:space:]]#),([^[:space:]]##)(*) ]] || return 1
+  # A line that defines a `,` function, such as `,mine() { ... }`, is shell code: the
+  # name it defines cannot be found before the line runs.
+  [[ $match[2]$match[3] == [^[:space:]\(]##[[:space:]]#'()'* ]] && return 1
   # whence knows every kind of name that zsh runs, the plugin's own commands too.
   whence -- ",$match[2]" >/dev/null && return 1
   if [[ $match[2] == '!'?* ]]; then

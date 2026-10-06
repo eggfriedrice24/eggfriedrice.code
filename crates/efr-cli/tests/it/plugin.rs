@@ -1191,6 +1191,19 @@ fn e2e_an_unknown_comma_word_starts_a_prompt_and_a_users_own_still_runs() {
 }
 
 #[test]
+fn e2e_a_line_that_defines_a_comma_function_runs_as_shell_code() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[",mine() { efr mine \"$@\" }", ",two () efr two \"$@\"", ",mine one", ",two 2"],
+    );
+    assert_eq!(args(&home.calls()), [vec!["mine", "one"], vec!["two", "2"]]);
+}
+
+#[test]
 fn e2e_a_comma_word_with_a_bang_steers_and_a_typo_of_a_command_stays_on_the_line() {
     if !zsh_tests_enabled() {
         return;
