@@ -94,16 +94,21 @@ jobs:
           only_parent rusqlite efr-store
           exit "$fail"
 
-  clippy:
+  # Clippy and rustdoc in one target directory: the docs reuse the dependency metadata
+  # that clippy checked, so the second step builds only the workspace crates.
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: clippy
+          shared-key: lint
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --exclude efr-screen-ghostty --all-targets -- -D warnings
+      - run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
 
   deny:
     runs-on: ubuntu-latest
@@ -236,19 +241,6 @@ jobs:
         run: cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
         env:
           EFR_TEST_ZSH: "1"
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: docs
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo doc --workspace --exclude efr-screen-ghostty --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
 
   hack:
     runs-on: ubuntu-latest
