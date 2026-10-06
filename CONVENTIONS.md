@@ -91,7 +91,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 
 ## Unsafe policy
 
-- `unsafe_code = "deny"` in `[workspace.lints.rust]`. The one module per crate that needs it opts out with `#[allow(unsafe_code)]` on the module item in `lib.rs` plus a module doc explaining why, and `cargo xtask tidy` holds the allowlist of files in which the token `unsafe` may appear: `crates/efr-pty/src/local_holder.rs` at milestone 1, `crates/efr-fdpass/src/lib.rs` from milestone 5. Any other `unsafe` fails CI.
+- `unsafe_code = "deny"` in `[workspace.lints.rust]`. The one module per crate that needs it opts out with `#[allow(unsafe_code)]` on the module item in `lib.rs` (`main.rs` for a binary) plus a module doc explaining why, and `cargo xtask tidy` holds the allowlist of files in which the token `unsafe` may appear: `crates/efr-pty/src/local_holder.rs` at milestone 1, `crates/efr-sbx/src/fds.rs` for the sandbox launcher (`docs/adr/0007-efr-sbx-unsafe.md`), `crates/efr-fdpass/src/lib.rs` from milestone 5. Any other `unsafe` fails CI.
 - `unsafe_op_in_unsafe_fn = "deny"`, `clippy::undocumented_unsafe_blocks = "deny"`: every block has a `// SAFETY:` comment naming the invariant, following nushell's unsafe policy, including the system behaviour relied on (what `pre_exec` may call, which fds are open).
 - FFI goes through `rustix` 1.1.5 and `nix` 0.31.3 before `libc` 0.2.190; raw `libc` calls are allowed only in the allowlisted files.
 - `libghostty-vt` is consumed through its safe API only; `efr-screen-ghostty` has no unsafe. If a future pin needs a hand-written trampoline for the semantic prompt effect, it goes in `efr-screen-ghostty/src/ffi.rs`, added to the tidy allowlist in the same commit, following herdr's pattern of local trampolines.

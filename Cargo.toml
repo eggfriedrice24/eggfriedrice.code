@@ -9,7 +9,7 @@ default-members = [
   "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
-  "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "xtask",
+  "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "crates/efr-sbx", "xtask",
 ]
 
 [workspace.package]
@@ -66,6 +66,10 @@ libc = { version = "0.2.190", default-features = false, features = ["std"] }
 # Puts back what SIGQUIT does for efr once its own Ctrl+\ handler is installed
 # (efr-cli/src/quit.rs), without unsafe code.
 signal-hook = { version = "0.4.5", default-features = false }
+# The auto sandbox's launcher (efr-sbx) applies Landlock and seccomp inside bwrap.
+landlock = "0.4.7"
+# The json frontend holds the syscall tables, so the deny list stays a list of names.
+seccompiler = { version = "0.5.0", default-features = false, features = ["json"] }
 
 # Storage
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }

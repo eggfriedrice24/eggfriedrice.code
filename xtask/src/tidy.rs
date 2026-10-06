@@ -14,8 +14,12 @@ use walkdir::WalkDir;
 use crate::output;
 
 /// Files in which the token `unsafe` may appear. Everything else is safe Rust.
-pub(crate) const UNSAFE_ALLOWLIST: &[&str] =
-    &["crates/efr-pty/src/local_holder.rs", "crates/efr-fdpass/src/lib.rs"];
+pub(crate) const UNSAFE_ALLOWLIST: &[&str] = &[
+    "crates/efr-pty/src/local_holder.rs",
+    "crates/efr-fdpass/src/lib.rs",
+    // The sandbox launcher's descriptor numbers (ADR 0007).
+    "crates/efr-sbx/src/fds.rs",
+];
 
 /// Files in which `cfg(feature = ...)` may appear, one per feature, so feature-gated
 /// code stays in places a reader can find.
