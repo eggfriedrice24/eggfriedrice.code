@@ -100,6 +100,13 @@ pub enum ProbeFailure {
     },
     /// The launcher copy does not match its source.
     LauncherMismatch,
+    /// No `efr-sbx` lies next to efrd or in `../lib/efr/`.
+    NoLauncher,
+    /// The launcher's probe did not run or printed no report.
+    ProbeFailed {
+        /// What went wrong, in a few words.
+        detail: String,
+    },
     /// The hidden shell is not zsh, or its integration does not load.
     NoZsh,
     /// The hidden shell's `PATH` has a relative entry.
@@ -128,7 +135,10 @@ impl ProbeFailure {
             ProbeFailure::LandlockOff | ProbeFailure::AbiLow { .. } | ProbeFailure::Erratum => {
                 "landlock"
             }
-            ProbeFailure::InWriteRoot { .. } | ProbeFailure::LauncherMismatch => "launcher",
+            ProbeFailure::InWriteRoot { .. }
+            | ProbeFailure::LauncherMismatch
+            | ProbeFailure::NoLauncher
+            | ProbeFailure::ProbeFailed { .. } => "launcher",
             ProbeFailure::NoZsh => "zsh",
             ProbeFailure::RelativePath { .. } => "path",
             ProbeFailure::SelfTest { .. } => "self_test",
@@ -173,6 +183,10 @@ impl ProbeFailure {
             ProbeFailure::LauncherMismatch => {
                 "the launcher copy does not match the installed efr-sbx".to_owned()
             }
+            ProbeFailure::NoLauncher => "efr-sbx is not installed next to efrd".to_owned(),
+            ProbeFailure::ProbeFailed { detail } => {
+                format!("the sandbox launcher's probe failed: {detail}")
+            }
             ProbeFailure::NoZsh => {
                 "the hidden shell is not zsh with the efr integration".to_owned()
             }
@@ -209,6 +223,12 @@ impl ProbeFailure {
             }
             ProbeFailure::LauncherMismatch => {
                 "restart efrd so it copies the launcher again".to_owned()
+            }
+            ProbeFailure::NoLauncher => {
+                "install efr-sbx next to efrd or in ../lib/efr/ (just install does it)".to_owned()
+            }
+            ProbeFailure::ProbeFailed { .. } => {
+                "run efr sandbox check; reinstall efr when it fails again".to_owned()
             }
             ProbeFailure::NoZsh => "set shell.program to zsh".to_owned(),
             ProbeFailure::RelativePath { .. } => {

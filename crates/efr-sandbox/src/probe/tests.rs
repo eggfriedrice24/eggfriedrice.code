@@ -76,6 +76,8 @@ fn every_failure_has_a_reason_a_fix_and_a_check() {
             path: "/home/u/p/efr/target/debug".into(),
         },
         ProbeFailure::LauncherMismatch,
+        ProbeFailure::NoLauncher,
+        ProbeFailure::ProbeFailed { detail: "it printed no report".to_owned() },
         ProbeFailure::NoZsh,
         ProbeFailure::RelativePath { entry: "bin".to_owned() },
         ProbeFailure::SelfTest { detail: "a write outside".to_owned() },
