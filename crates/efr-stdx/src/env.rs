@@ -38,6 +38,10 @@ pub enum Var {
     OpenBrowser,
     /// `EFR_TEST_ZSH`: a flag; tests that drive a real zsh run only when it is on.
     TestZsh,
+    /// `EFR_TEST_SBX_BIN`: an absolute path to a built `efr-sbx`; the sandbox tests
+    /// that need the real launcher run only when it is set (`just test-sandbox` sets
+    /// it).
+    TestSbxBin,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
     /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
     /// over the terminal's choice in it.
@@ -72,6 +76,7 @@ impl Var {
         Var::RuntimeDir,
         Var::OpenBrowser,
         Var::TestZsh,
+        Var::TestSbxBin,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -106,6 +111,7 @@ impl Var {
             Var::RuntimeDir => "EFR_RUNTIME_DIR",
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
             Var::TestZsh => "EFR_TEST_ZSH",
+            Var::TestSbxBin => "EFR_TEST_SBX_BIN",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
             Var::Effort => "EFR_EFFORT",

@@ -138,6 +138,7 @@ fn all_lists_every_variant() {
         Var::RuntimeDir,
         Var::OpenBrowser,
         Var::TestZsh,
+        Var::TestSbxBin,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -156,6 +157,7 @@ fn all_lists_every_variant() {
             | Var::RuntimeDir
             | Var::OpenBrowser
             | Var::TestZsh
+            | Var::TestSbxBin
             | Var::Mode
             | Var::Model
             | Var::Effort
