@@ -256,9 +256,10 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // alias of such a program. A shell that restarts early under the old engine is
     // harmless.
     if rules_changed {
-        // NOTE: the auto policy names the programs of every mode, as at the start.
-        let auto = settings.permissions.policy(Mode::Auto);
-        state.shells.set_trusted_programs(shells::trusted_programs(&auto));
+        // NOTE: the cautious policy names the programs of every mode, as at the start:
+        // auto contains every line and names no program of its own.
+        let cautious = settings.permissions.policy(Mode::Cautious);
+        state.shells.set_trusted_programs(shells::trusted_programs(&cautious));
     }
     if let Some(engine) = engine {
         state.engine.send_replace(Arc::new(engine));

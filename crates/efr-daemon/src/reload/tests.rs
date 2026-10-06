@@ -118,6 +118,8 @@ async fn a_rules_change_reaches_the_trusted_programs_and_a_shell_change_how_shel
     let shutdown = tokio_util::sync::CancellationToken::new();
     let served = tokio::spawn(daemon.serve(shutdown.clone()));
     assert!(!format!("{shells:?}").contains("\"frobnicate\""), "{shells:?}");
+    // The read-only commands of cautious are trusted from the start, in every mode.
+    assert!(format!("{shells:?}").contains("\"cat\""), "{shells:?}");
 
     let file = "[shell]\nprogram = \"/usr/bin/zsh-test\"\nlogin = false\n[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"frobnicate\" } }\neffect = \"allow\"\n";
     std::fs::write(config_file(&dirs), file).unwrap();

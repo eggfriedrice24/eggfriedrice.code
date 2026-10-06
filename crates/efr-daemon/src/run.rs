@@ -367,9 +367,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings: settings.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
         env: shell_env,
-        // NOTE: the auto policy names the programs of every mode, because a turn in any
-        // mode may run in this shell.
-        trusted_programs: shells::trusted_programs(&settings.permissions.policy(Mode::Auto)),
+        // NOTE: the cautious policy names the programs of every mode, because a turn in
+        // any mode may run in this shell: auto contains every line and names no program
+        // of its own.
+        trusted_programs: shells::trusted_programs(&settings.permissions.policy(Mode::Cautious)),
         holder: holder.unwrap_or_else(shells::default_holder),
         screens,
         recording: Arc::clone(&recording),
