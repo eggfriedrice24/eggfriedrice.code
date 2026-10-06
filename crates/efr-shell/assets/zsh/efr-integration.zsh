@@ -311,7 +311,10 @@ _efr_hs_sbx_snapshot() {
     if [[ $_efr_hs_sbx_opts[$name] == on ]]; then on+=($name); else off+=($name); fi
   done
   builtin local snapshot
+  # The child starts with zsh's own aliases (run-help=man): a function of the same
+  # name would not parse, so the snapshot drops them all and replays only this shell's.
   snapshot="$(
+    builtin print -r -- "builtin unalias -m '*' 2>/dev/null; builtin unalias -s -m '*' 2>/dev/null"
     (( $#names )) && builtin typeset -f -- $names
     builtin alias -L
     (( $#on )) && builtin print -r -- "builtin setopt ${(j: :)${(@o)on}} 2>/dev/null"

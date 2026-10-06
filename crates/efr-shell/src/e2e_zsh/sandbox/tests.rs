@@ -335,6 +335,24 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
 }
 
 #[tokio::test]
+async fn the_snapshot_replays_a_function_named_like_a_default_alias() {
+    let Some(zsh) =
+        Zsh::start_sandboxed("the_snapshot_replays_a_function_named_like_a_default_alias")
+    else {
+        return;
+    };
+    // zsh -f starts with run-help=man and which-command=whence; Ubuntu's zshrc makes
+    // run-help a function.
+    // Two lines: zsh expands the aliases of a whole line before it runs any of it.
+    zsh.run_plain("unalias run-help which-command 2>/dev/null").await;
+    zsh.run_plain("run-help() { print -r -- own-help }").await;
+    let run = zsh.prepare(1);
+    let line = "run-help; (( ${+aliases[which-command]} )) || print -r -- no-which";
+    let result = zsh.run_sandboxed(&run, line).await;
+    assert_eq!(result.output, "own-help\nno-which\n");
+}
+
+#[tokio::test]
 async fn the_child_reports_the_state_its_line_leaves() {
     let Some(zsh) = Zsh::start_sandboxed("the_child_reports_the_state_its_line_leaves") else {
         return;
