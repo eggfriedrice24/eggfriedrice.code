@@ -20,8 +20,9 @@ pub(crate) fn parse(data: &[u8]) -> Option<[u8; NONCE_BYTES]> {
         return None;
     }
     let mut nonce = [0_u8; NONCE_BYTES];
-    for (slot, pair) in nonce.iter_mut().zip(hex.chunks_exact(2)) {
-        *slot = lower_hex(pair[0])? << 4 | lower_hex(pair[1])?;
+    let (pairs, _) = hex.as_chunks::<2>();
+    for (slot, &[high, low]) in nonce.iter_mut().zip(pairs) {
+        *slot = lower_hex(high)? << 4 | lower_hex(low)?;
     }
     Some(nonce)
 }
