@@ -15,8 +15,9 @@ use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, AdminSandboxCheck, AdminSandboxCheckResult,
     AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     CacheMode, ErrorCode, Event, EventEnvelope, Grant, Launch, Method, Mode, ModeFallback,
-    NetworkMode, PromptSendResult, SandboxExplain, SandboxExplainResult, SandboxPathRole,
-    SandboxStatus, TurnSettings,
+    NetworkMode, PromptSendResult, ReportedFile, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxStatus, SandboxSurfaceRespond, SandboxSurfaceRespondResult,
+    TurnSettings,
 };
 use efr_provider::{
     Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, StopReason,
@@ -111,6 +112,7 @@ async fn run_turn(
             matches!(
                 event,
                 Event::ApprovalRequested { .. }
+                    | Event::SurfaceQuestionRequested { .. }
                     | Event::TurnCompleted { .. }
                     | Event::TurnFailed { .. }
                     | Event::TurnInterrupted { .. }
@@ -121,6 +123,16 @@ async fn run_turn(
         let last = events.last().unwrap().event.clone();
         seen.extend(events);
         match last {
+            Event::SurfaceQuestionRequested { question_id, .. } => {
+                answers += 1;
+                let answer = Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+                    command_id: command_id(answers),
+                    conversation_id: sent.conversation_id,
+                    question_id,
+                    keep: decision == ApprovalDecision::Allow,
+                });
+                let _: SandboxSurfaceRespondResult = client.call(answer).await.unwrap();
+            }
             Event::ApprovalRequested { call_id, .. } => {
                 answers += 1;
                 let answer = Method::ApprovalRespond(ApprovalRespond {
@@ -375,7 +387,16 @@ cp "$dir/line" "$dir/fake-child/"
 if [ -e "${dir%/*}/snapshot.zsh" ]; then cp "${dir%/*}/snapshot.zsh" "$dir/fake-child/"; fi
 zsh -f "${0%/bin/*}/zsh/efr-child.zsh" "$dir/fake-child" 3> "$dir/records"
 status=$?
-printf '{"started":true,"exit_code":%s,"cwd":"%s","state_kept":true,"summary":{"confined":true}}' "$status" "$(pwd)" > "$dir/result.tmp"
+changes=''
+if [ -e "$fake/quarantine" ] && [ -e "$PWD/planted" ]; then
+    sbx=$(sed -n 's/.*"sandbox_dir": "\(.*\)",/\1/p' "$dir/spec.json")
+    q="$sbx/quarantine/${dir##*/}"
+    mkdir -p "$q"
+    mv "$PWD/planted" "$q/0-planted"
+    printf '[{"from":"%s","to":"0-planted"}]' "$PWD/planted" > "$q/entries.json"
+    changes=$(printf ',"surface_changes":[{"path":"%s","rule":"code_key","key":"core.fsmonitor","quarantined":true}]' "$PWD/planted")
+fi
+printf '{"started":true,"exit_code":%s,"cwd":"%s","state_kept":true,"summary":{"confined":true%s}}' "$status" "$(pwd)" "$changes" > "$dir/result.tmp"
 mv "$dir/result.tmp" "$dir/result.json"
 exit "$status"
 "#;
@@ -705,5 +726,77 @@ async fn escape_model_side_peer_read_scope() {
         [(1, None), (2, Some(ErrorCode::Forbidden)), (3, None), (4, Some(ErrorCode::Forbidden)),],
         "a process of the model's command may read, never administer"
     );
+    daemon.stop().await.unwrap();
+}
+
+/// Runs git in `dir` without the machine's configuration.
+async fn git(dir: &Path, args: &[&str]) {
+    let status = efr_stdx::process::command("git", dir)
+        .args(args)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+        .status()
+        .await
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
+#[tokio::test]
+async fn shell_a_turn_reports_its_surface_files_and_keeps_a_quarantined_change_on_yes() {
+    let test = "shell_a_turn_reports_its_surface_files_and_keeps_a_quarantined_change_on_yes";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    git(&project, &["init", "-q"]).await;
+    std::fs::write(project.join("README.md"), "x\n").unwrap();
+    git(&project, &["add", "README.md"]).await;
+    git(&project, &["commit", "-q", "-m", "one"]).await;
+    let (launcher, fake) = fake_launcher(&dirs);
+    std::fs::write(fake.join("quarantine"), "").unwrap();
+    let model = ScriptedModel::new(vec![json!({
+        "command": "printf 'all:\\n' > Makefile && echo hook > planted"
+    })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    let (_, events) = run_turn(&daemon, "build", Mode::Auto, ApprovalDecision::Allow).await;
+    let kinds = kinds(&events);
+    assert!(kinds.contains(&"surface_question_requested"), "{kinds:?}");
+    assert!(kinds.contains(&"surface_question_answered"), "{kinds:?}");
+    assert_eq!(std::fs::read_to_string(project.join("planted")).unwrap(), "hook\n", "kept");
+    let report = events.iter().find_map(|envelope| match &envelope.event {
+        Event::TurnSurfaceReport { files, .. } => Some(files.clone()),
+        _ => None,
+    });
+    let file = |path: &str, detail: Option<&str>| ReportedFile {
+        path: PathBuf::from(path),
+        detail: detail.map(str::to_owned),
+    };
+    assert_eq!(
+        report,
+        Some(vec![file("Makefile", None), file("planted", Some("core.fsmonitor"))]),
+        "{kinds:?}"
+    );
+    let at = |kind: &str| kinds.iter().position(|known| *known == kind).unwrap();
+    assert_eq!(at("turn_surface_report") + 1, at("turn_completed"));
+    drop(client);
     daemon.stop().await.unwrap();
 }
