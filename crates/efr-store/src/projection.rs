@@ -45,8 +45,12 @@ pub(crate) fn rebuild(conn: &Connection) -> Result<(), StoreError> {
     }
 }
 
-/// Events that may come without a conversation id. An unknown kind may be either, so
+/// Events that may come without a conversation id: a login, and a change of the
+/// sandbox probe, which concerns every conversation. An unknown kind may be either, so
 /// it is accepted both ways.
 fn belongs_to_no_conversation(event: &Event) -> bool {
-    matches!(event, Event::LoginCompleted { .. } | Event::Unknown { .. })
+    matches!(
+        event,
+        Event::LoginCompleted { .. } | Event::SandboxUnavailable { .. } | Event::Unknown { .. }
+    )
 }

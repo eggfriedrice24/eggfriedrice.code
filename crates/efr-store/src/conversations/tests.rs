@@ -304,6 +304,17 @@ async fn an_event_of_a_conversation_needs_its_id() {
 }
 
 #[tokio::test]
+async fn a_change_of_the_sandbox_probe_belongs_to_no_conversation() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+
+    let reason = "unprivileged user namespaces are off".to_owned();
+    let committed =
+        writer.append(Batch::new().global_event(Event::SandboxUnavailable { reason })).await;
+
+    assert!(committed.is_ok(), "{committed:?}");
+}
+
+#[tokio::test]
 async fn rebuilding_the_projections_reproduces_them_exactly() {
     let clock = TestClock::new();
     let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
