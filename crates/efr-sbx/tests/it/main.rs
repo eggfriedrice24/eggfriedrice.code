@@ -5,5 +5,8 @@
 #![cfg(test)]
 
 mod behaviour;
+mod corpus;
+mod cost;
 mod escape;
+mod probe;
 mod support;
