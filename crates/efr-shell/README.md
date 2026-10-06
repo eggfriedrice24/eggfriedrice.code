@@ -84,12 +84,13 @@ and `D`, or the two sentinels):
   for `quiet_period`; `Visible` in any other modes (raw or cooked, echo on or off)
   when the output has been quiet for `visible_input_quiet` (3 s) and the main screen
   has the cursor after some text; `None` otherwise. A row that reads like a question
-  needs only `question_input_quiet` (0.5 s): a `[Y/n]`, `[y/N]`, `(yes/no)` or
-  `[yes/no]` marker, or text that ends in `? ` or `: ` with the cursor after it and
-  nothing behind it. Such a question is reported at the first look after it, about a
-  second sooner than three. The screen is read only when the output is that quiet. A full-screen program on the alternate
-  screen is judged only at the timeout, as above. A run that ends, is left at its
-  timeout or is stopped while it waits reports `None` last.
+  needs only `question_input_quiet` (0.5 s): a `[y/n]`, `(y/n)`, `[yes/no]` or
+  `(yes/no)` marker in any case, or text that ends in `? ` or `: ` with the cursor
+  after it and nothing behind it. Such a question is reported at the first look after
+  it, about one second after it appears instead of three. The screen is read only
+  when the output is that quiet. A full-screen program on the alternate screen is
+  judged only at the timeout, as above. A run that ends, is left at its timeout or is
+  stopped while it waits reports `None` last.
 - The modes cannot narrow a visible wait. A relay that runs a program on a terminal of
   its own, such as `sudo` with `use_pty` (which current releases turn on by default) or
   util-linux `script`, puts the hidden shell's terminal in raw mode with echo off and

@@ -56,10 +56,10 @@ pub struct ShellConfig {
     /// the same.
     pub visible_input_quiet: Duration,
     /// The quiet that a visible prompt needs instead of `visible_input_quiet` when its
-    /// row reads like a question: a `[Y/n]`, `[y/N]`, `(yes/no)` or `[yes/no]` marker,
-    /// or text that ends in `? ` or `: ` with the cursor after it. A person is asked
-    /// sooner where the guess is safer. The looks still come once per `quiet_period`,
-    /// so a question is reported at the first look after this quiet.
+    /// row reads like a question: a `[y/n]`, `(y/n)`, `[yes/no]` or `(yes/no)` marker
+    /// in any case, or text that ends in `? ` or `: ` with the cursor after it. A person
+    /// is asked sooner where the guess is safer. The looks still come once per
+    /// `quiet_period`, so a question is reported at the first look after this quiet.
     pub question_input_quiet: Duration,
     /// While a command runs, the least time between two reads of its live tail on a
     /// screen, which output that moves the cursor needs (output that only prints text

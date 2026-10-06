@@ -11,9 +11,10 @@
 //!   line is merely unfinished looks the same, so this is a guess, and it never stops a
 //!   command. A row that reads like a question ([`question_prompt`]: `[Y/n]`,
 //!   `(yes/no)`, or text that ends in `? ` or `: ` before the cursor) needs only
-//!   `question_input_quiet`, so a person is asked sooner where the guess is safer. The modes cannot narrow it: a relay such as `sudo`
-//!   (with `use_pty`, its default) or `script` puts the terminal in raw mode and runs
-//!   the program on a terminal of its own, whose modes are not read here.
+//!   `question_input_quiet`, so a person is asked sooner where the guess is safer.
+//!   The modes cannot narrow it: a relay such as `sudo` (with `use_pty`, its default)
+//!   or `script` puts the terminal in raw mode and runs the program on a terminal of
+//!   its own, whose modes are not read here.
 //! - [`InputWait::None`] otherwise, and when the modes cannot be read. A full-screen
 //!   program on the alternate screen is judged only at the run's timeout, as before.
 //!
