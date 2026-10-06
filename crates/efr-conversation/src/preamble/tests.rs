@@ -90,19 +90,6 @@ fn the_hidden_shell_is_left_out_when_it_is_where_the_user_is() {
 }
 
 #[test]
-fn every_mode_says_what_it_means_for_the_calls() {
-    for (mode, says) in [
-        (Mode::Manual, "Permission mode: manual. Every call asks the user"),
-        (Mode::Cautious, "Permission mode: cautious. Reads and read-only commands run at once"),
-        (Mode::Auto, "Permission mode: auto. Calls outside the auto list ask the user."),
-    ] {
-        let text = LiveState { mode, ..minimal() }.render();
-        assert!(text.contains(says), "{mode}: {text}");
-        assert!(text.ends_with(".\n</live_state>"), "{text}");
-    }
-}
-
-#[test]
 fn debug_leaves_out_the_last_command() {
     let state = LiveState { last_command: Some("export TOKEN=hunter2".to_owned()), ..minimal() };
     assert!(!format!("{state:?}").contains("hunter2"));
@@ -137,9 +124,11 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
         let text = LiveState { mode, ..minimal() }.render();
         for says in [
             "efr has three permission modes and no others:",
-            "\n- manual: every call asks the user",
-            "\n- cautious: reads and read-only commands run at once",
+            "\n- manual: every read, write, command and network access asks the user",
+            "\n- cautious: reads outside secrets, the read-only commands, and writes in \
+             $SCRATCH and in the turn's registered project run at once",
             "\n- auto: what cautious allows",
+            "while the shell is in the turn's registered project or in $SCRATCH, the build",
             "Only the user changes this terminal's mode, model and effort, with the lines \
              ,mode ,model and ,effort",
             "in sticky mode a bare line such as mode auto works too",
@@ -150,6 +139,11 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
             assert!(text.contains(says), "{mode}: {says:?} in {text}");
         }
         assert_eq!(text.matches("\n- ").count(), 3, "{text}");
+        // The mode line names the mode, and the list alone says what it means.
+        assert!(text.contains(&format!("\nPermission mode: {mode}\n")), "{text}");
+        assert_eq!(text.matches("ask the user, except what").count(), 0, "{text}");
+        assert_eq!(text.matches("except what the user's own rules allow").count(), 1, "{text}");
+        assert!(text.ends_with(".\n</live_state>"), "{text}");
     }
 }
 

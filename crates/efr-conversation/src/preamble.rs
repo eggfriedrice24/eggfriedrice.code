@@ -128,10 +128,11 @@ impl LiveState {
         }
         let _ = writeln!(
             text,
-            "$SCRATCH: {} (your own directory for files; writing there needs no approval)",
+            "$SCRATCH: {} (your own directory for files; writing there needs no approval \
+             except in manual mode)",
             self.scratch.display()
         );
-        text.push_str(mode_line(self.mode));
+        text.push_str(&mode_line(self.mode));
         let _ = writeln!(text, "Model: {}", self.model);
         match &self.effort {
             Some(effort) => {
@@ -139,21 +140,21 @@ impl LiveState {
             }
             None => text.push_str("Reasoning effort: the backend's default for the model\n"),
         }
+        text.push_str("efr has three permission modes and no others:\n");
+        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+            let _ = writeln!(text, "- {mode}: {}", mode_rule(mode));
+        }
         text.push_str(SETTINGS_RULES);
         text.push_str("</live_state>");
         text
     }
 }
 
-/// The real permission modes and who changes the turn's settings. A model that is not
-/// told invents modes and claims to switch them when a prompt only names one, such as
-/// `mode cautious` sent from sticky mode, although it has no way to switch anything.
+/// Who changes the turn's settings, after the list of the real permission modes. A
+/// model that is not told invents modes and claims to switch them when a prompt only
+/// names one, such as `mode cautious` sent from sticky mode, although it has no way to
+/// switch anything.
 const SETTINGS_RULES: &str = "\
-efr has three permission modes and no others:
-- manual: every call asks the user, except what the user's own rules allow.
-- cautious: reads and read-only commands run at once; other calls ask the user.
-- auto: what cautious allows, plus the writer programs, the project's build, test, \
-format and lint tools and local git of the auto list; other calls ask the user.
 Only the user changes this terminal's mode, model and effort, with the lines ,mode \
 ,model and ,effort in their shell, such as ,mode auto; in sticky mode a bare line such \
 as mode auto works too. You cannot change them, and nothing you do changes them for \
@@ -163,24 +164,36 @@ approves its diff, from the next turn on, and a terminal's own choice still wins
 them.
 ";
 
-/// The line that tells the model the turn's permission mode and what it means for
-/// its calls.
-fn mode_line(mode: Mode) -> &'static str {
+/// The line that names the turn's permission mode; the list of the modes below it
+/// says what each one means, so the rule of a mode is written once.
+fn mode_line(mode: Mode) -> String {
+    match mode {
+        Mode::Manual | Mode::Cautious | Mode::Auto => format!("Permission mode: {mode}\n"),
+        // NOTE: a mode added to the protocol after this crate was written.
+        _ => "Permission mode: one this build does not know; calls it does not allow ask \
+              the user.\n"
+            .to_owned(),
+    }
+}
+
+/// What runs without a question in `mode`, as `docs/permissions.md` states it.
+fn mode_rule(mode: Mode) -> &'static str {
     match mode {
         Mode::Manual => {
-            "Permission mode: manual. Every call asks the user, except what the user's own \
-             rules allow.\n"
+            "every read, write, command and network access asks the user, except what the \
+             user's own rules allow."
         }
         Mode::Cautious => {
-            "Permission mode: cautious. Reads and read-only commands run at once; other \
-             calls ask the user.\n"
+            "reads outside secrets, the read-only commands, and writes in $SCRATCH and in \
+             the turn's registered project run at once; other calls ask the user."
         }
-        Mode::Auto => "Permission mode: auto. Calls outside the auto list ask the user.\n",
-        // NOTE: a mode added to the protocol after this crate was written.
-        _ => {
-            "Permission mode: one this build does not know; calls it does not allow ask \
-              the user.\n"
+        Mode::Auto => {
+            "what cautious allows, plus the writer programs of the auto list (rm, mv, cp, \
+             mkdir and the like) for the writes that cautious allows, and, while the shell \
+             is in the turn's registered project or in $SCRATCH, the build, test, format \
+             and lint tools and local git of the auto list; other calls ask the user."
         }
+        _ => "calls it does not allow ask the user.",
     }
 }
 
