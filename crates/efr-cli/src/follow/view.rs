@@ -39,9 +39,9 @@
 //! ([`Ask::Retain`]): the follow loop reads them, without echo, into a pending line that
 //! is neither shown nor sent. When the call then reports a visible wait, that text
 //! starts the answer line, shown unless the prompt looks secret (then a note gives how
-//! many characters it starts with), and the user still
-//! presses Enter after the question appears: an Enter typed before it is dropped. A
-//! hidden wait throws the pending text away, and so does the call's end. After a wait
+//! many characters it starts with), and the user still presses Enter after the
+//! question appears: an Enter typed before it is dropped. A hidden wait throws the
+//! pending text away, and so does the call's end. After a wait
 //! that ends without asking for a password the keys are kept again; after one that
 //! asked for a password, or after a manual answer line that may have held one, they are
 //! thrown away as before. Keys typed outside such a call stay typeahead for the user's
