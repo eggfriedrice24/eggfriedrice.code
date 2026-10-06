@@ -3,10 +3,10 @@
 //! [`predict`] reads the line before the run, with the paths the tool declared and the
 //! facts the daemon collected, and finds each exit: a write outside the write roots,
 //! a privilege, persistence or upload program, the network, a bus, a device, a
-//! destructive idiom. It reads every line, also one that
-//! [`analyze`](crate::command::analyze) cannot split, through a lenient split that
-//! finds a program too many rather than too few: text can only add a question, and the
-//! sandbox holds what it misses. It also turns the model's `needs` into exits.
+//! destructive idiom. It reads every line, also one that the engine's strict split
+//! cannot read, through a lenient split that finds a program too many rather than too
+//! few: text can only add a question, and the sandbox holds what it misses. It also
+//! turns the model's `needs` into exits.
 //!
 //! [`unsandboxed_line_problem`] is the one-command rule: a line that runs outside the
 //! sandbox must be one command plus read-only helpers.
