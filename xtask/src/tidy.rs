@@ -43,8 +43,9 @@ const RULE_SOURCES: &[&str] = &["xtask/src/tidy.rs", "xtask/src/tidy/tests.rs"];
 
 /// Directory names never walked.
 // `.claude` holds agent worktrees: full checkouts whose copies of this file would
-// trip every rule while a parallel run is in progress.
-const SKIP_DIRS: &[&str] = &["target", ".git", ".claude"];
+// trip every rule while a parallel run is in progress. `research` is gitignored, so CI
+// never sees it; its probe leftovers include overlay work dirs that nobody may read.
+const SKIP_DIRS: &[&str] = &["target", ".git", ".claude", "research"];
 
 /// Extensions checked for trailing whitespace.
 const WHITESPACE_EXTENSIONS: &[&str] = &["rs", "toml", "md"];
