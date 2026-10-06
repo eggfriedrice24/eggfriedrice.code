@@ -22,9 +22,7 @@ use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{
-    DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource, SandboxStatus,
-};
+use efr_protocol::{DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
 use efr_stdx::env::Var;
@@ -48,6 +46,7 @@ use crate::methods::Methods;
 use crate::providers::{ProviderFactory, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
+use crate::sandbox::{self, HostFacts, SandboxService, Seams, ServiceParts, launcher};
 use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
@@ -61,8 +60,8 @@ const RECORDINGS_DIR: &str = "recordings";
 /// How long the drain waits for the database to close.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
 
-/// Why `auto` runs as `cautious` while efrd does not run the sandbox's probe yet.
-pub(crate) const SANDBOX_NOT_RUN: &str = "this efrd does not run the sandbox yet";
+/// How often the cache layers' collector of the sandbox looks.
+const SANDBOX_GC_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// What the daemon takes from the outside world.
 #[non_exhaustive]
@@ -104,6 +103,9 @@ pub struct Deps {
     pub watch_config: bool,
     /// Reload at each SIGHUP, which `systemctl --user reload efrd` sends.
     pub reload_on_hangup: bool,
+    /// The test seams of the sandbox; empty unless the feature `test-sandbox-fake`
+    /// sets them.
+    pub(crate) seams: Seams,
 }
 
 impl fmt::Debug for Deps {
@@ -124,6 +126,7 @@ impl fmt::Debug for Deps {
             .field("log", &self.log.is_some())
             .field("watch_config", &self.watch_config)
             .field("reload_on_hangup", &self.reload_on_hangup)
+            .field("seams", &self.seams)
             .finish_non_exhaustive()
     }
 }
@@ -156,6 +159,7 @@ impl Deps {
             log: None,
             watch_config: false,
             reload_on_hangup: false,
+            seams: Seams::default(),
         }
     }
 
@@ -328,6 +332,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         log,
         watch_config,
         reload_on_hangup,
+        seams,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -368,9 +373,20 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             (backend.factory(), backend.as_str().to_owned())
         }
     };
+    let zsh = shells::zsh_program(&settings.shell, &shell_env);
+    let mut host_facts = HostFacts::from_env(&shell_env, zsh);
+    let exe = std::env::current_exe().ok();
+    if let Some(exe) = &exe {
+        host_facts.binaries.push(exe.clone());
+        if let Some(efr) = exe.parent().map(|dir| dir.join("efr")).filter(|efr| efr.is_file()) {
+            host_facts.binaries.push(efr);
+        }
+    }
     let shells = shells::sessions(ShellParts {
         settings: settings.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
+        sandbox_dir: dirs.runtime().join(sandbox::plan::SHELL_DIR),
+        sandbox_launcher: dirs.runtime().join(launcher::BIN_DIR).join(launcher::LAUNCHER),
         env: shell_env,
         // NOTE: the cautious policy names the programs of every mode, because a turn in
         // any mode may run in this shell: auto contains every line and names no program
@@ -406,6 +422,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         secrets: secret_root,
         registry: registry_path.clone(),
         config: dirs.config().to_path_buf(),
+        host: host_facts.clone(),
     };
     let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
@@ -422,6 +439,22 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         engine_receiver.clone(),
         reloads.clone(),
     );
+    let git = Git::new(Arc::clone(&clock));
+    let git = if isolated_git { git.isolated() } else { git };
+    let sandbox = SandboxService::new(ServiceParts {
+        dirs: dirs.clone(),
+        home: home.clone(),
+        host: host_facts,
+        source: exe.as_deref().and_then(launcher::find_source),
+        seams,
+        registry: registry_path.clone(),
+        writer: writer.clone(),
+        clock: Arc::clone(&clock),
+        rng: Arc::clone(&rng),
+        git: git.clone(),
+    })
+    .await;
+    sandbox.probe(&settings).await;
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
         shells.clone(),
@@ -430,9 +463,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Arc::clone(&connections),
         settings_receiver.clone(),
         settings_tool,
-    );
-    let git = Git::new(Arc::clone(&clock));
-    let git = if isolated_git { git.isolated() } else { git };
+    )
+    .with_sandbox(sandbox.clone(), engine_receiver.clone());
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -444,10 +476,6 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         host,
         time_zone.unwrap_or_else(TimeZone::system),
     );
-    // NOTE: until the sandbox service probes and prepares calls, the status says the
-    // sandbox is unavailable, so every `auto` turn runs as `cautious` and no call
-    // reaches the toolbox with a launch that needs the launcher.
-    let (_, sandbox) = watch::channel(SandboxStatus::unavailable(SANDBOX_NOT_RUN));
     let conversation_deps = ConversationDeps {
         provider: providers.active(),
         toolbox: Arc::new(toolbox),
@@ -458,7 +486,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         clock: Arc::clone(&clock),
         rng: Arc::clone(&rng),
         home,
-        sandbox,
+        sandbox: sandbox.status(),
         judge: None,
     };
     let ttys = conversations::load_ttys(&readers).await?;
@@ -487,6 +515,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         shells,
         ptys,
         providers,
+        sandbox,
     });
 
     // The socket opens only now, after migrations and reconciliation.
@@ -509,6 +538,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
         tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
+        tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
     ];
     if watch_config && let Some(watching) = reload::watcher::watch(&state).await {
         let follow = reload::watcher::follow(Arc::clone(&state), watching, stop.clone());
@@ -598,6 +628,19 @@ impl Daemon {
         tracing::info!(lock = %lock.path().display(), "stopped");
         drop(lock);
         Ok(())
+    }
+}
+
+/// Deletes idle cache layers of the sandbox every hour until `stop`, by the settings of
+/// each look.
+async fn collect_sandbox_layers(state: Arc<State>, stop: CancellationToken) {
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = state.clock.sleep(SANDBOX_GC_INTERVAL) => {}
+        }
+        let settings = Arc::clone(&state.settings.borrow());
+        state.sandbox.gc(&settings).await;
     }
 }
 

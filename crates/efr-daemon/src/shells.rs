@@ -47,6 +47,10 @@ pub(crate) fn default_holder() -> Arc<dyn PtyHolder> {
 pub(crate) struct ShellParts {
     pub(crate) settings: ShellSettings,
     pub(crate) integration_dir: PathBuf,
+    /// The root of the conversations' sandbox dirs, `$R/sbx`.
+    pub(crate) sandbox_dir: PathBuf,
+    /// The launcher's copy that the wrapper runs, `$R/bin/efr-sbx`.
+    pub(crate) sandbox_launcher: PathBuf,
     pub(crate) env: BTreeMap<String, String>,
     /// The programs that the machine policy's command rules name.
     pub(crate) trusted_programs: Vec<String>,
@@ -64,6 +68,8 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
     let ShellParts {
         settings,
         integration_dir,
+        sandbox_dir,
+        sandbox_launcher,
         env,
         trusted_programs,
         holder,
@@ -77,6 +83,8 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
     config.program.clone_from(&settings.program);
     config.login = settings.login;
     config.trusted_programs = trusted_programs;
+    config.sandbox_dir = Some(sandbox_dir);
+    config.sandbox_launcher = Some(sandbox_launcher);
     let deps = ShellDeps::new(holder, screens, clock, rng)
         .with_recording(recording)
         .with_observer(notices);
@@ -89,6 +97,22 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
         }
         Err(error) => Err(DaemonError::from(error)),
     }
+}
+
+/// The hidden shells' zsh: `shell.program`, else the first `zsh` in the absolute
+/// entries of the shells' `PATH`.
+pub(crate) fn zsh_program(
+    settings: &ShellSettings,
+    env: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    if let Some(program) = &settings.program {
+        return Some(program.clone());
+    }
+    env.get("PATH")?
+        .split(':')
+        .filter(|dir| dir.starts_with('/'))
+        .map(|dir| Path::new(dir).join("zsh"))
+        .find(|candidate| candidate.is_file())
 }
 
 /// The directory for the zsh integration files: `$XDG_RUNTIME_DIR/efr/zsh`.

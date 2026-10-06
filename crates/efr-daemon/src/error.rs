@@ -378,13 +378,36 @@ pub enum DaemonError {
         /// The stored error.
         body: ErrorBody,
     },
+    /// The `auto` sandbox cannot run a call now.
+    #[error("the sandbox is not available: {reason}")]
+    SandboxUnavailable {
+        /// The probe's reason.
+        reason: String,
+    },
+    /// A call's sandbox spec could not be written or a path in it could not be planned.
+    #[error("the sandbox could not plan the call")]
+    SandboxSpec {
+        #[source]
+        source: efr_sandbox::SandboxError,
+    },
+    /// The method needs a scope that a process started by the model's commands does
+    /// not get.
+    #[error("{method} is not open to a process that the model's commands started")]
+    ModelSidePeer {
+        /// The method.
+        method: &'static str,
+    },
 }
 
 impl DaemonError {
     /// The wire code of this error.
     pub fn code(&self) -> ErrorCode {
         match self {
-            DaemonError::Forbidden { .. } => ErrorCode::Forbidden,
+            DaemonError::Forbidden { .. } | DaemonError::ModelSidePeer { .. } => {
+                ErrorCode::Forbidden
+            }
+            DaemonError::SandboxUnavailable { .. } => ErrorCode::Conflict,
+            DaemonError::SandboxSpec { .. } => ErrorCode::Invalid,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,
             DaemonError::NoRunningTurn { .. } | DaemonError::NotWaitingForInput { .. } => {
                 ErrorCode::Conflict
@@ -464,6 +487,11 @@ impl DaemonError {
                         )
                     }
                     DaemonError::Registry { source } => source.to_string(),
+                    // NOTE: the plan's error names a path and a rule of the sandbox,
+                    // which is what `efr sandbox explain` must show.
+                    DaemonError::SandboxSpec { source } => {
+                        format!("the sandbox could not plan the call: {source}")
+                    }
                     other => other.to_string(),
                 };
                 let body = ErrorBody::new(code, message);

@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
 use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope};
+use crate::sandbox::peers::PeerSide;
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -143,18 +144,25 @@ fn the_scope_table_is_the_designed_one() {
 #[test]
 fn local_surfaces_hold_every_scope() {
     for surface in [Origin::Shell, Origin::Cli, Origin::Proxy] {
-        assert_eq!(granted(surface), ScopeName::ALL, "{surface:?}");
+        assert_eq!(granted(surface, PeerSide::User), ScopeName::ALL, "{surface:?}");
         for method in every_method() {
-            assert!(authorize(surface, &method).is_ok(), "{surface:?} {}", method.name());
+            assert!(
+                authorize(surface, PeerSide::User, &method).is_ok(),
+                "{surface:?} {}",
+                method.name()
+            );
         }
     }
 }
 
 #[test]
 fn a_phone_may_read_operate_and_approve_but_never_administer_or_type() {
-    assert_eq!(granted(Origin::Phone), [ScopeName::Read, ScopeName::Operate, ScopeName::Approve]);
+    assert_eq!(
+        granted(Origin::Phone, PeerSide::User),
+        [ScopeName::Read, ScopeName::Operate, ScopeName::Approve]
+    );
     for method in every_method() {
-        let allowed = authorize(Origin::Phone, &method);
+        let allowed = authorize(Origin::Phone, PeerSide::User, &method);
         match scope(&method) {
             ScopeName::Admin | ScopeName::Terminal => assert!(
                 matches!(&allowed, Err(DaemonError::Forbidden { method: name, scope: needed })
@@ -273,4 +281,39 @@ mod subscribe {
         assert_eq!(snapshot.history_cursor, None);
         assert_eq!(snapshot.events.len(), 2);
     }
+}
+
+#[test]
+fn a_model_side_peer_or_a_gone_one_may_only_read() {
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        for surface in [Origin::Shell, Origin::Cli, Origin::Proxy] {
+            assert_eq!(granted(surface, peer), [ScopeName::Read]);
+            for method in every_method() {
+                let allowed = authorize(surface, peer, &method);
+                if scope(&method) == ScopeName::Read {
+                    assert!(allowed.is_ok(), "{}", method.name());
+                } else {
+                    assert!(
+                        matches!(&allowed, Err(DaemonError::ModelSidePeer { method: name }) if *name == method.name()),
+                        "{}: {allowed:?}",
+                        method.name()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sandbox_explain_needs_read_scope_only() {
+    let method =
+        every_method().into_iter().find(|method| method.name() == "sandbox.explain").unwrap();
+    assert_eq!(scope(&method), ScopeName::Read);
+    assert!(authorize(Origin::Shell, PeerSide::ModelSide, &method).is_ok());
+    assert!(authorize(Origin::Phone, PeerSide::User, &method).is_ok());
+    let respond = every_method()
+        .into_iter()
+        .find(|method| method.name() == "sandbox.surface_respond")
+        .unwrap();
+    assert!(authorize(Origin::Shell, PeerSide::ModelSide, &respond).is_err());
 }

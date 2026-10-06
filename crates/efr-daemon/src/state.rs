@@ -21,6 +21,7 @@ use crate::engine::EngineParts;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
 use crate::reload::Reloads;
+use crate::sandbox::SandboxService;
 use crate::telemetry::LogFilter;
 
 /// The parent of every conversation's `$SCRATCH`, under the data directory.
@@ -67,4 +68,6 @@ pub(crate) struct State {
     pub(crate) shells: ShellSessions,
     pub(crate) ptys: Arc<Ptys>,
     pub(crate) providers: Providers,
+    /// The `auto` sandbox: the launcher, the probe's status, the call dirs.
+    pub(crate) sandbox: SandboxService,
 }

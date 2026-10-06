@@ -17,6 +17,7 @@ fn parts(home: &Home, secrets: PathBuf) -> EngineParts {
         secrets,
         registry: home.path().join(".config/efr/projects.toml"),
         config: home.path().join(".config/efr"),
+        host: crate::sandbox::HostFacts::default(),
     }
 }
 
@@ -105,8 +106,15 @@ async fn a_registered_project_is_writable_and_a_missing_registry_registers_none(
     registry.save(&registry_path).unwrap();
 
     let projects = load_registry(&registry_path).await;
-    let engine =
-        build(&home, &home.path().join("secrets"), &[], &Settings::default(), &projects).unwrap();
+    let engine = build(
+        &home,
+        &home.path().join("secrets"),
+        &[],
+        &Settings::default(),
+        &projects,
+        &crate::engine::SandboxFacts::default(),
+    )
+    .unwrap();
 
     let input = DecisionInput {
         requirements: Requirements::none().with_write(app.join("src/main.rs")),

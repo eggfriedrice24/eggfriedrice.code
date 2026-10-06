@@ -261,7 +261,8 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
     .await
     .unwrap();
 
-    // NOTE: efrd does not run the sandbox yet, so `auto` runs as `cautious` and says why.
+    // NOTE: a test daemon finds no efr-sbx next to its binary, so the probe says the
+    // sandbox is unavailable, and `auto` runs as `cautious` and says why.
     let expected = EffectiveSettings {
         mode: Mode::Cautious,
         model: "gpt-6-sol".to_owned(),
@@ -269,7 +270,7 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
         overridden: OverriddenSettings { mode: true, model: true, effort: false },
         fallback: Some(ModeFallback {
             asked: Mode::Auto,
-            reason: "this efrd does not run the sandbox yet".to_owned(),
+            reason: "efr-sbx is not installed next to efrd".to_owned(),
         }),
     };
     assert_eq!(sent.settings, Some(expected.clone()));

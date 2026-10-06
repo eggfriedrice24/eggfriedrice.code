@@ -26,6 +26,7 @@ pub(crate) const UNSAFE_ALLOWLIST: &[&str] = &[
 pub(crate) const CFG_FEATURE_ALLOWLIST: &[&str] = &[
     "crates/efr-daemon/src/screens.rs",
     "crates/efr-daemon/src/shells.rs",
+    "crates/efr-daemon/src/sandbox/seams.rs",
     "crates/efr-credentials/src/lib.rs",
     "crates/efr-screen/src/lib.rs",
     "crates/efr-protocol/src/lib.rs",

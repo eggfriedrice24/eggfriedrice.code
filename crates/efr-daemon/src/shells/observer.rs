@@ -35,8 +35,8 @@ impl ShellNotices {
 impl ShellObserver for ShellNotices {
     fn notice(&self, notice: ShellNotice) {
         match &notice {
-            ShellNotice::Started { conversation, pty_id, .. } => {
-                self.ptys.started(*pty_id, *conversation);
+            ShellNotice::Started { conversation, pty_id, pid, .. } => {
+                self.ptys.started(*pty_id, *conversation, Some(*pid));
             }
             ShellNotice::Exited { pty_id, .. } => self.ptys.exited(*pty_id),
             _ => {}

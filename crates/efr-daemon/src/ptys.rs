@@ -81,6 +81,8 @@ impl AttachSender {
 #[derive(Debug)]
 struct Entry {
     conversation: ConversationId,
+    /// The shell's process id, when its start was reported.
+    pid: Option<u32>,
     /// The recording offset after the last stored byte.
     end: u64,
     /// Bytes typed into the PTY through `pty.write`.
@@ -106,16 +108,24 @@ pub(crate) struct Ptys {
 }
 
 impl Ptys {
-    /// A shell of `conversation` started on `pty_id`.
-    pub(crate) fn started(&self, pty_id: PtyId, conversation: ConversationId) {
+    /// A shell of `conversation` started on `pty_id` as the process `pid`.
+    pub(crate) fn started(&self, pty_id: PtyId, conversation: ConversationId, pid: Option<u32>) {
         let mut entries = self.lock();
         let entry = entries.entry(pty_id).or_insert_with(|| Entry {
             conversation,
+            pid,
             end: 0,
             input: 0,
             attached: Vec::new(),
         });
         entry.conversation = conversation;
+        entry.pid = pid.or(entry.pid);
+    }
+
+    /// The process ids of the running hidden shells, for the check of model-side
+    /// peers on the socket.
+    pub(crate) fn shell_pids(&self) -> Vec<u32> {
+        self.lock().values().filter_map(|entry| entry.pid).collect()
     }
 
     /// The shell on `pty_id` exited: attached streams end after what they have queued.

@@ -397,8 +397,8 @@ async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
     let reloaded = send(None).await.settings.unwrap();
     let own = send(Some(Mode::Manual)).await.settings.unwrap();
 
-    // NOTE: efrd does not run the sandbox yet, so `auto` runs as `cautious` and the
-    // fallback keeps the mode that the reload set.
+    // NOTE: the test daemon finds no sandbox launcher, so `auto` runs as `cautious` and
+    // the fallback keeps the mode that the reload set.
     let asked = reloaded.fallback.as_ref().map(|fallback| fallback.asked);
     assert_eq!(
         (reloaded.mode, asked, reloaded.overridden.mode),

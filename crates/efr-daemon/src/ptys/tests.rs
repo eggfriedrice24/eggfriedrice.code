@@ -15,7 +15,7 @@ fn conversation(n: u128) -> ConversationId {
 #[tokio::test]
 async fn attached_clients_get_output_and_resizes_in_order() {
     let ptys = Ptys::default();
-    ptys.started(pty(1), conversation(1));
+    ptys.started(pty(1), conversation(1), None);
     let mut client = ptys.attach(pty(1)).unwrap();
 
     ptys.recorded(pty(1), 0, Bytes::from_static(b"$ "));
@@ -40,7 +40,7 @@ async fn attached_clients_get_output_and_resizes_in_order() {
 #[tokio::test]
 async fn a_client_that_falls_behind_is_closed_with_overflow_and_the_others_continue() {
     let ptys = Ptys::default();
-    ptys.started(pty(1), conversation(1));
+    ptys.started(pty(1), conversation(1), None);
     let mut slow = ptys.attach(pty(1)).unwrap();
     let mut fast = ptys.attach(pty(1)).unwrap();
 
@@ -60,7 +60,7 @@ async fn a_client_that_falls_behind_is_closed_with_overflow_and_the_others_conti
 #[tokio::test]
 async fn attached_streams_end_when_the_shell_exits() {
     let ptys = Ptys::default();
-    ptys.started(pty(1), conversation(1));
+    ptys.started(pty(1), conversation(1), None);
     let mut client = ptys.attach(pty(1)).unwrap();
     ptys.recorded(pty(1), 0, Bytes::from_static(b"bye"));
 
@@ -75,7 +75,7 @@ async fn attached_streams_end_when_the_shell_exits() {
 #[test]
 fn activity_marks_count_output_and_input_and_see_attached_clients() {
     let ptys = Ptys::default();
-    ptys.started(pty(1), conversation(7));
+    ptys.started(pty(1), conversation(7), None);
     ptys.recorded(pty(1), 0, Bytes::from_static(b"12345"));
     ptys.written(pty(1), 3);
 

@@ -348,6 +348,7 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
         &crate::engine::protected_config(&config),
         &Settings::default(),
         &efr_scope::Registry::empty(),
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
 
@@ -417,6 +418,7 @@ async fn the_settings_tool_asks_while_write_file_and_the_shell_stay_denied_on_th
         &crate::engine::protected_config(&config),
         &settings,
         &efr_scope::Registry::empty(),
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
     let calls = [
@@ -479,6 +481,7 @@ async fn in_auto_a_copy_or_a_link_out_of_the_project_asks_wherever_its_options_s
         &[],
         &Settings::default(),
         &projects,
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
 
