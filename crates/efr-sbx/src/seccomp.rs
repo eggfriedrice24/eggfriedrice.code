@@ -28,19 +28,15 @@ const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 const RET_KILL_PROCESS: u32 = 0x8000_0000;
 const RET_ALLOW: u32 = 0x7fff_0000;
 
-fn profile_error(detail: impl Into<String>) -> SbxError {
-    SbxError::SeccompProfile { detail: detail.into() }
-}
-
 /// The architecture this build runs on, when the profile covers it.
 fn target(profile: &SeccompProfile) -> Result<(TargetArch, SeccompArch), SbxError> {
     let arch = match std::env::consts::ARCH {
         "x86_64" => (TargetArch::x86_64, SeccompArch::X86_64),
         "aarch64" => (TargetArch::aarch64, SeccompArch::Aarch64),
-        other => return Err(profile_error(format!("the architecture {other}"))),
+        other => return Err(SbxError::SeccompUnknownArch { arch: other }),
     };
     if !profile.arches.contains(&arch.1) {
-        return Err(profile_error(format!("the profile does not cover {:?}", arch.1)));
+        return Err(SbxError::SeccompArchNotCovered { arch: arch.1 });
     }
     Ok(arch)
 }
@@ -50,7 +46,10 @@ pub(crate) fn filters_json(profile: &SeccompProfile, arch: SeccompArch) -> Resul
     if profile.default_action != SeccompAction::Allow
         || profile.other_arch_action != SeccompAction::KillProcess
     {
-        return Err(profile_error("a default action other than allow, kill elsewhere"));
+        return Err(SbxError::SeccompActions {
+            default: profile.default_action,
+            other_arch: profile.other_arch_action,
+        });
     }
     let mut groups: BTreeMap<u32, Vec<Value>> = BTreeMap::new();
     let mut add = |errno: u32, rule: Value| groups.entry(errno).or_default().push(rule);
@@ -84,7 +83,7 @@ pub(crate) fn filters_json(profile: &SeccompProfile, arch: SeccompArch) -> Resul
                     add(*errno, json!({ "syscall": "clone", "args": [arg] }));
                 }
             }
-            other => return Err(profile_error(format!("{other:?}"))),
+            other => return Err(SbxError::SeccompUnknownRule { rule: other.clone() }),
         }
     }
     let filters: serde_json::Map<String, Value> = groups
@@ -105,7 +104,7 @@ pub(crate) fn filters_json(profile: &SeccompProfile, arch: SeccompArch) -> Resul
 pub(crate) fn compile(profile: &SeccompProfile) -> Result<Vec<BpfProgram>, SbxError> {
     let (target_arch, arch) = target(profile)?;
     let json = filters_json(profile, arch)?;
-    let bytes = serde_json::to_vec(&json).map_err(|error| profile_error(error.to_string()))?;
+    let bytes = serde_json::to_vec(&json).map_err(|source| SbxError::SeccompEncode { source })?;
     let map = seccompiler::compile_from_json(bytes.as_slice(), target_arch)
         .map_err(|source| SbxError::Seccomp { source })?;
     let mut programs: Vec<(String, BpfProgram)> = map.into_iter().collect();

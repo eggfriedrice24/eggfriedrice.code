@@ -74,3 +74,23 @@ fn x32_filter_kills_only_x32_numbers() {
     assert_eq!(program[4].k, RET_KILL_PROCESS);
     assert_eq!(program[5].k, RET_ALLOW);
 }
+
+#[test]
+fn a_profile_this_build_cannot_install_names_what_it_asks_for() {
+    let mut profile = SeccompProfile::phase1();
+    profile.default_action = SeccompAction::KillProcess;
+    let error = filters_json(&profile, SeccompArch::X86_64).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            SbxError::SeccompActions {
+                default: SeccompAction::KillProcess,
+                other_arch: SeccompAction::KillProcess,
+            }
+        ),
+        "{error:?}"
+    );
+    let mut profile = SeccompProfile::phase1();
+    profile.arches.clear();
+    assert!(matches!(target(&profile), Err(SbxError::SeccompArchNotCovered { .. })));
+}

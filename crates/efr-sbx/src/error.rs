@@ -4,7 +4,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-use efr_sandbox::SandboxError;
+use efr_sandbox::{SandboxError, SeccompAction, SeccompArch, SyscallRule};
 
 /// Every way a launch, the inner stage or the probe can fail.
 ///
@@ -77,11 +77,44 @@ pub(crate) enum SbxError {
         source: seccompiler::Error,
     },
 
-    /// The seccomp profile holds something this build does not know.
-    #[error("the seccomp profile holds a rule this build does not know: {detail}")]
-    SeccompProfile {
-        /// What.
-        detail: String,
+    /// The launcher runs on an architecture that has no seccomp filter.
+    #[error("the seccomp profile has no filter for the architecture {arch}")]
+    SeccompUnknownArch {
+        /// The architecture, as Rust names it.
+        arch: &'static str,
+    },
+
+    /// The seccomp profile does not cover the architecture the launcher runs on.
+    #[error("the seccomp profile does not cover {arch:?}")]
+    SeccompArchNotCovered {
+        /// The architecture.
+        arch: SeccompArch,
+    },
+
+    /// The seccomp profile asks for actions that this build cannot install.
+    #[error(
+        "the seccomp profile asks for {default:?} by default and {other_arch:?} elsewhere; this build installs allow and kill"
+    )]
+    SeccompActions {
+        /// The default action.
+        default: SeccompAction,
+        /// The action for another architecture.
+        other_arch: SeccompAction,
+    },
+
+    /// The seccomp profile holds a rule this build does not know.
+    #[error("the seccomp profile holds a rule this build does not know: {rule:?}")]
+    SeccompUnknownRule {
+        /// The rule.
+        rule: SyscallRule,
+    },
+
+    /// The seccomp filters could not be encoded for the compiler.
+    #[error("the seccomp filters could not be encoded")]
+    SeccompEncode {
+        /// The encoder's error.
+        #[source]
+        source: serde_json::Error,
     },
 
     /// A program could not start.
