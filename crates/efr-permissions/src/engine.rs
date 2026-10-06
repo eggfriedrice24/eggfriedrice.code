@@ -6,7 +6,7 @@ use efr_protocol::{Mode, Origin, Scope};
 
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
-use crate::exits::{self, Envelope, ExitInput, ExitNeed};
+use crate::exits::{self, Envelope, ExitInput, ExitNeed, PathFacts};
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
 use crate::{
@@ -288,6 +288,28 @@ impl Engine {
             reasons.push(Reason { subject: Subject::Nothing, effect, cause });
         }
         Decision::from_reasons(reasons)
+    }
+
+    /// Where `path` stands for a call of the `auto` mode in a turn of `scope` whose
+    /// `$SCRATCH` is `scratch`: its class, and whether it lies in a write root, on a
+    /// floor or in a synced folder. `None` when `path` is relative. The conversation
+    /// builds the facts of an exit record from it, so the record and the decision use
+    /// one set of roots.
+    pub fn path_facts(&self, path: &Path, scope: &Scope, scratch: &Path) -> Option<PathFacts> {
+        let path = normalize(path)?;
+        let path = self.locations.rehome(&path).into_owned();
+        let scratch = self.locations.scratch_root(scratch);
+        let project_root = match scope {
+            Scope::Project(id) => self.locations.widening_project_root(id),
+            _ => None,
+        };
+        let envelope = Envelope::new(&self.locations, project_root, scratch.as_deref());
+        Some(PathFacts {
+            class: self.locations.classify_normal(&path, scratch.as_deref()),
+            in_write_root: envelope.in_root(&path),
+            floor: envelope.is_floor(&path),
+            synced: self.locations.synced_roots().iter().any(|root| path.starts_with(root)),
+        })
     }
 
     /// The exits of a `read_file`, `write_file` or edit in `auto`: a read of a sandbox

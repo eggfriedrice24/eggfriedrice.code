@@ -27,7 +27,7 @@ use self::scan::{OPAQUE, Segment};
 use crate::command;
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
-use crate::{Access, AutoSupport, CallFacts, Egress, Locations, PathAccess, TargetKind};
+use crate::{Access, AutoSupport, CallFacts, Egress, Locations, PathAccess, PathClass, TargetKind};
 
 /// Programs that only the `auto` mode treats as a `privilege` exit, besides the ones
 /// that always run as another user (`sudo`, `doas` and the rest of the engine's
@@ -115,6 +115,23 @@ impl fmt::Display for ExitNeed {
             _ => Ok(()),
         }
     }
+}
+
+/// Where a path stands for a call of the `auto` mode, for the facts of an exit record
+/// and the question that the user reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PathFacts {
+    /// The path's class.
+    pub class: PathClass,
+    /// True when the path is a write root of the call or lies below one: the turn's
+    /// project, `$SCRATCH` or an envelope root. A program there may have been written
+    /// in the sandbox.
+    pub in_write_root: bool,
+    /// True when the path runs code later outside the sandbox and stays read-only in
+    /// it.
+    pub floor: bool,
+    /// True when the path lies in a folder that a sync service copies off the machine.
+    pub synced: bool,
 }
 
 /// How a contained call gets the right to write the target of a `write` exit (spec

@@ -97,6 +97,9 @@ Modules:
   the order of the line, so an approval can name them.
 - `engine`: `Engine::decide` and `effective_mode`; `Engine::with_support` sets what the
   machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo).
+  `Engine::path_facts` tells where a path stands for a call in `auto` (`PathFacts`: its
+  class, and whether it lies in a write root, on a floor or in a synced folder), so the
+  conversation builds the facts of an exit record from the roots that the engine uses.
 - `exits`: `predict`, which finds the exits of a shell call in `auto` from its line
   (read through a lenient split that never fails), its declared paths, its network
   need, the model's `needs` and the daemon's `CallFacts`; each `ExitNeed` has a kind,

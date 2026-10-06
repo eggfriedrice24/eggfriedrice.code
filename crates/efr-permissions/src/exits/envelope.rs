@@ -83,9 +83,14 @@ impl<'a> Envelope<'a> {
             || self.locations.is_at_or_above_home(path)
     }
 
+    /// True when `path` is a write root of the call or lies below one.
+    pub(crate) fn in_root(&self, path: &Path) -> bool {
+        self.roots.iter().any(|root| path.starts_with(root))
+    }
+
     /// True when `path` runs code later outside the sandbox: a built-in or added floor
     /// at or above it, or a protected name or a git setting inside a write root.
-    fn is_floor(&self, path: &Path) -> bool {
+    pub(crate) fn is_floor(&self, path: &Path) -> bool {
         if self
             .floors
             .iter()

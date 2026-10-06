@@ -13,7 +13,8 @@ use crate::command::PRIVILEGED;
 use crate::exits::{ONE_COMMAND, unsandboxed_line_problem};
 use crate::{
     Action, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput, Effect, Egress,
-    Engine, Layer, Locations, Policy, Requirements, Resource, Rule, Subject, TargetKind, WriteBind,
+    Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource, Rule, Subject,
+    TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -846,4 +847,29 @@ fn an_envelope_root_at_or_above_home_never_counts() {
     let decision =
         engine.decide(&in_auto(shell("echo x > ~/notes.txt").with_write("/home/u/notes.txt")));
     assert_eq!(kinds(&decision), [ExitKind::Write]);
+}
+
+#[rstest]
+#[case::project_source("/home/u/p/app/src/main.rs", PathClass::UserData, true, false, false)]
+#[case::named_project("/home/u/p/lib/build.sh", PathClass::UserData, true, false, false)]
+#[case::scratch(&format!("{SCRATCH}/run.sh"), PathClass::Scratch, true, false, false)]
+#[case::git_hook("/home/u/p/app/.git/hooks/pre-commit", PathClass::UserConfig, true, true, false)]
+#[case::shell_startup("/home/u/.zshrc", PathClass::UserConfig, false, true, false)]
+#[case::synced("/home/u/Dropbox/notes.txt", PathClass::UserData, false, false, true)]
+#[case::system("/usr/bin/sudo", PathClass::System, false, false, false)]
+fn path_facts_name_the_write_root_the_floor_and_the_synced_folder(
+    #[case] path: &str,
+    #[case] class: PathClass,
+    #[case] in_write_root: bool,
+    #[case] floor: bool,
+    #[case] synced: bool,
+) {
+    let facts = engine().path_facts(path.as_ref(), &Scope::Project(app()), SCRATCH.as_ref());
+    assert_eq!(facts, Some(PathFacts { class, in_write_root, floor, synced }));
+}
+
+#[test]
+fn path_facts_of_a_relative_path_are_unknown() {
+    let facts = engine().path_facts("src/main.rs".as_ref(), &Scope::Machine, SCRATCH.as_ref());
+    assert_eq!(facts, None);
 }

@@ -52,7 +52,7 @@ pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
-pub use exits::{ExitNeed, WriteBind};
+pub use exits::{ExitNeed, PathFacts, WriteBind};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{
