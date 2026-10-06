@@ -483,18 +483,23 @@ _efr_is_toggle_line() {
 # `,mode`, `,model` or `,effort` with that value. A value counts only when it is
 # `default` or `efr settings` accepts it with the terminal's other values, so a
 # prompt that merely starts with the word (`model the database schema`, `effort
-# matters`) still goes to the agent. Returns 1 for any other line.
+# matters`) still goes to the agent. A value must also look like an id (letters,
+# digits and `.`, `_`, `:`, `/`, `-`), because the line runs as shell code and a
+# daemon without a model list accepts any model: `model a;b` is a prompt, never `b`.
+# Returns 1 for any other line.
 _efr_setting_line() {
   emulate -L zsh -o extended_glob
   [[ $1 == (#b)[[:space:]]#(mode|model|effort)([[:space:]]##([^[:space:]]##)|)[[:space:]]# ]] ||
     return 1
   local name=$match[1] value=$match[3]
   if [[ -n $value && $value != default ]]; then
+    [[ $value == [[:alnum:]._:/-]## ]] || return 1
     _efr_available || return 1
     local -a reply
     _efr_settings "--$name=$value" >/dev/null 2>&1 || return 1
   fi
-  REPLY=",$name${value:+ $value}"
+  # Quoted all the same, so the line can never hold more than the one value.
+  REPLY=",$name${value:+ ${(q)value}}"
 }
 
 # Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a

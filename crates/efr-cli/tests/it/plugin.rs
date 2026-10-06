@@ -1115,6 +1115,22 @@ fn e2e_in_sticky_mode_a_bare_setting_word_runs_as_its_command() {
     );
 }
 
+/// The fake accepts any value, as a daemon without a model list accepts any model, so
+/// only the plugin keeps shell syntax in a value from running.
+#[test]
+fn e2e_in_sticky_mode_a_setting_value_with_shell_syntax_is_a_prompt() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(&home, UTF8, &["<C-Space>", "model a;touch${IFS}x", "<C-Space>"]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("model a;touch${IFS}x"));
+    assert_eq!(calls[0].settings(), [None, None, None]);
+    assert!(!home.path().join("x").exists(), "the value ran as shell code");
+}
+
 #[test]
 fn e2e_outside_sticky_mode_a_bare_setting_word_is_a_shell_command() {
     if !zsh_tests_enabled() {
