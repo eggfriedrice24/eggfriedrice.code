@@ -8,7 +8,8 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-screen-vt100"
 
 # The tests of CI's shell job: these four packages, out of the test binaries that
-# test-full builds (CI's build job archives them), so the two share one build.
+# test-full builds (CI's build job archives them), so the two share one build. They
+# build with the features of the whole workspace, not only those the four turn on.
 shell_tests := "package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)"
 
 # List the recipes.
@@ -116,8 +117,9 @@ test-shell-ubuntu:
         -w /home/runner/work/efr "$image" \
         cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci -E '{{ shell_tests }}'
 
-# Formatting, clippy, cargo-deny, tidy, the dependency rule and every feature combination.
-lint: fmt-check clippy deny tidy deps hack
+# Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
+# feature combination: CI's fmt, lint, deny, tidy and hack jobs.
+lint: fmt-check typos clippy doc-check deny tidy deps hack
 
 # The pre-push gate: lint plus the leaf tests.
 check: lint test-leaf
@@ -167,8 +169,12 @@ bless:
     # The scenario fixtures of efr-test-daemon: outbound records only; review the diff.
     cargo nextest run -p efr-test-daemon --test it --run-ignored only -E 'test(/^bless::/)'
 
+# The docs with warnings denied, as CI's lint job builds them.
+doc-check:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude efr-screen-ghostty --no-deps
+
 # Build the docs with warnings denied, then open them.
-doc:
+doc: doc-check
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude efr-screen-ghostty --no-deps --open
 
 # Regenerate docs/protocol.md from efr-protocol.
