@@ -670,6 +670,7 @@ impl ShellSessions {
                     cwd_after: cwd,
                     screen_tail: Some(screen_tail(&capture.snapshot)),
                     delimiter,
+                    sandbox: None,
                 })
             }
         }
@@ -814,6 +815,7 @@ impl ShellSessions {
                     cwd_after: cwd,
                     screen_tail: None,
                     delimiter,
+                    sandbox: None,
                 })
             }
             // The command ended between the look and the detach; it needs no stop.
@@ -846,6 +848,7 @@ impl ShellSessions {
             cwd_after: cwd,
             screen_tail: None,
             delimiter,
+            sandbox: None,
         })
     }
 

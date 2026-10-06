@@ -16,6 +16,7 @@ async-trait.workspace = true
 bytes.workspace = true
 efr-holder.workspace = true
 efr-protocol.workspace = true
+efr-sandbox.workspace = true
 efr-screen.workspace = true
 efr-stdx.workspace = true
 jiff.workspace = true

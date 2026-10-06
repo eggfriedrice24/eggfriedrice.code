@@ -12,10 +12,11 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use efr_protocol::{CallId, InputWait, ScreenSnapshot, Seq};
+use efr_sandbox::SandboxResult;
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, row_text};
 
-use crate::ShellError;
 use crate::capture::{Capture, Kept};
+use crate::{SandboxRun, ShellError};
 
 /// One command line for a conversation's hidden shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,9 @@ pub struct RunRequest {
     /// follows it: for a command that the user approved because it may wait for input.
     /// `None` keeps the timeout.
     pub interactive_limit: Option<Duration>,
+    /// The launcher's call, for a call of the `auto` mode that runs in the sandbox or
+    /// in the exit child; `None` types the command into the hidden shell.
+    pub sandbox: Option<SandboxRun>,
 }
 
 impl RunRequest {
@@ -65,6 +69,7 @@ impl RunRequest {
             call: None,
             forget_credentials: false,
             interactive_limit: None,
+            sandbox: None,
         }
     }
 
@@ -109,6 +114,14 @@ impl RunRequest {
     #[must_use]
     pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
         self.interactive_limit = limit;
+        self
+    }
+
+    /// Sets the launcher's call, which makes the run go through the `auto` sandbox;
+    /// `None` types the command into the hidden shell.
+    #[must_use]
+    pub fn with_sandbox(mut self, run: Option<SandboxRun>) -> Self {
+        self.sandbox = run;
         self
     }
 }
@@ -194,6 +207,8 @@ pub struct CommandResult {
     pub screen_tail: Option<String>,
     /// What delimited the output.
     pub delimiter: Delimiter,
+    /// What the launcher reported, for a run that went through it (`result.json`).
+    pub sandbox: Option<SandboxResult>,
 }
 
 impl CommandResult {
@@ -217,6 +232,7 @@ impl CommandResult {
             cwd_after: cwd_after.into(),
             screen_tail: None,
             delimiter: Delimiter::Marks,
+            sandbox: None,
         }
     }
 
@@ -246,6 +262,13 @@ impl CommandResult {
     #[must_use]
     pub fn with_delimiter(mut self, delimiter: Delimiter) -> Self {
         self.delimiter = delimiter;
+        self
+    }
+
+    /// Sets what the launcher reported.
+    #[must_use]
+    pub fn with_sandbox(mut self, sandbox: SandboxResult) -> Self {
+        self.sandbox = Some(sandbox);
         self
     }
 

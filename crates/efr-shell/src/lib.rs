@@ -43,6 +43,7 @@ mod reader;
 mod recording_sink;
 mod replay;
 mod run;
+mod sandbox_run;
 mod screens;
 mod sentinel;
 mod session;
@@ -61,6 +62,7 @@ pub use run::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,
     RunRequest,
 };
+pub use sandbox_run::SandboxRun;
 pub use screens::ScreenFactory;
 pub use sessions::{CommandRunner, ShellInfo, ShellSessions};
 pub use state::{Phase, ShellState};

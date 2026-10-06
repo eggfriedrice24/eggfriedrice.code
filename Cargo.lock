@@ -1103,6 +1103,7 @@ dependencies = [
  "efr-holder",
  "efr-protocol",
  "efr-pty",
+ "efr-sandbox",
  "efr-screen",
  "efr-screen-vt100",
  "efr-stdx",

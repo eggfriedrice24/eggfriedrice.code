@@ -379,8 +379,10 @@ Tier 2.
 
 `efr-holder` (the `PtyHolder` trait, spawn specs, child status), `efr-screen` (the
 screen handle, the mark scanner, `row_text`), `efr-protocol` (ids, `Seq`, the screen
-snapshot types) and `efr-stdx` (`Clock`, `Rng`, UUIDv7 ids, atomic writes, the
-scrubbed variable list). `xtask/src/deps.rs` holds the allowlist.
+snapshot types), `efr-sandbox` (`SandboxResult`, the launcher's `result.json` that
+`CommandResult::sandbox` carries for a run of the `auto` sandbox) and `efr-stdx`
+(`Clock`, `Rng`, UUIDv7 ids, atomic writes, the scrubbed variable list).
+`xtask/src/deps.rs` holds the allowlist.
 
 Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fcntl` for
 `O_NONBLOCK`, `tcgetattr` and `tcgetpgrp` for the input modes and the foreground group,
