@@ -1,7 +1,8 @@
 //! The few process, environment and time calls that the workspace routes through
 //! `efr-stdx` elsewhere. efr-sbx must not reach tokio, and `efr-stdx` does, so the
-//! launcher has its own narrow forms; each caller sets the environment and the working
-//! directory of what it starts itself.
+//! launcher has its own narrow forms here, and the rest of the crate reads its
+//! environment and real time only through them; each caller sets the environment and
+//! the working directory of what it starts itself.
 
 use std::ffi::OsStr;
 use std::process::Command;
@@ -24,6 +25,12 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
 )]
 pub(crate) fn var(name: &str) -> Option<String> {
     std::env::var(name).ok()
+}
+
+/// Every variable of the launcher's own environment: the trusted shell's, which the
+/// launcher filters and passes on.
+pub(crate) fn vars() -> std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> {
+    std::env::vars_os().collect()
 }
 
 /// The time since the epoch, for comparing file times with the start of a call.

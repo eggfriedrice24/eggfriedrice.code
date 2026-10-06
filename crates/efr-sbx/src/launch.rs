@@ -20,7 +20,6 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::thread::JoinHandle;
-use std::time::Instant;
 
 use efr_sandbox::{FdTable, InnerPolicy, LaunchFds, MountPlan, SandboxSpec, encode_args};
 use rustix::fs::MemfdFlags;
@@ -76,14 +75,14 @@ pub(crate) fn run(
     launch: &Launch<'_>,
     opened: &mut dyn FnMut() -> Result<(), SbxError>,
 ) -> Result<Outcome, SbxError> {
-    let start = Instant::now();
+    let start = os::now();
     let mut attempts = 0;
     let mut opened = Some(opened);
     loop {
         attempts += 1;
         let (ending, records) = attempt(launch, opened.take())?;
         if retry_overlay(&ending, attempts, start.elapsed()) {
-            std::thread::sleep(OVERLAY_RETRY_PAUSE);
+            os::sleep(OVERLAY_RETRY_PAUSE);
             continue;
         }
         return Ok(Outcome { ending, records });
@@ -227,7 +226,7 @@ pub(crate) fn join(handle: ReadTask) -> Result<Option<Vec<u8>>, SbxError> {
 
 /// The variables of the launcher's own environment.
 pub(crate) fn own_env() -> BTreeMap<OsString, OsString> {
-    std::env::vars_os().collect()
+    os::vars()
 }
 
 /// The value of `name` in `env`.

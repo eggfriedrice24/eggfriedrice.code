@@ -17,7 +17,6 @@ use std::io::Write;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
-use std::time::Instant;
 
 use efr_protocol::{CacheMode, CheckOutcome, SandboxCheck};
 use efr_sandbox::{
@@ -367,7 +366,7 @@ fn launch_cost(fixture: &fixture::Fixture, mode: CacheMode) -> Option<u64> {
             env: env.clone(),
             stdout: None,
         };
-        let start = Instant::now();
+        let start = os::now();
         let outcome = launch::run(&launch, &mut || Ok::<(), SbxError>(())).ok()?;
         let cost = start.elapsed();
         if !matches!(outcome.ending, Ending::Ran { code: 0 }) {
