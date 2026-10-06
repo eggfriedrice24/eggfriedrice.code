@@ -133,7 +133,7 @@ fn openpty_works_inside() {
     let ready = sandbox_or_skip!();
     need!("script");
     let fixture = Fixture::new(&ready);
-    let run = fixture.run("script -qec 'print pty-ok' /dev/null");
+    let run = fixture.run("script -qec 'echo pty-ok' /dev/null");
     run.expect_status(0);
     assert!(run.stdout.contains("pty-ok"), "{run:#?}");
 }
