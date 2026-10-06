@@ -7,6 +7,10 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # The leaf gate: crates that never pull a daemon edge, so their features stay light.
 leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-screen-vt100"
 
+# The tests of CI's shell job: these four packages, out of the test binaries that
+# test-full builds (CI's build job archives them), so the two share one build.
+shell_tests := "package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)"
+
 # List the recipes.
 default:
     @just --list
@@ -76,11 +80,13 @@ test-shell:
         echo "test-shell: zsh is not installed; skipping"
         exit 0
     fi
-    # efr-daemon is selected so its own tests build it with local-pty, which the shell_
-    # tests over a TestDaemon need for a real zsh.
-    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon
+    # The workspace builds efr-daemon with its default local-pty, which the shell_ tests
+    # over a TestDaemon need for a real zsh.
+    EFR_TEST_ZSH=1 cargo nextest run --workspace --exclude efr-screen-ghostty -E '{{ shell_tests }}'
 
 # CI's shell job in an Ubuntu 24.04 container set up like GitHub's runner (needs Docker).
+# CI runs the job from the build job's archive; the container builds the same test
+# binaries itself.
 test-shell-ubuntu:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -108,7 +114,7 @@ test-shell-ubuntu:
         -e CARGO_TARGET_DIR=/home/runner/target \
         -e CARGO_TERM_COLOR=always -e INSTA_UPDATE=no -e EFR_TEST_ZSH=1 \
         -w /home/runner/work/efr "$image" \
-        cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
+        cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci -E '{{ shell_tests }}'
 
 # Formatting, clippy, cargo-deny, tidy, the dependency rule and every feature combination.
 lint: fmt-check clippy deny tidy deps hack

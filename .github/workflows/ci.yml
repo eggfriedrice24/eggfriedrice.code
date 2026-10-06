@@ -14,8 +14,8 @@ env:
   # A stale snapshot fails instead of being rewritten.
   INSTA_UPDATE: "no"
 
-# Every job except `ghostty` is Zig-free. Jobs for crates that land in milestone 1
-# guard on the crate directory, so the workflow is green on the empty workspace.
+# Every job except `ghostty` is Zig-free. `test-leaf` and `ghostty` guard on the crate
+# directory, as they did while the crates of milestone 1 landed.
 #
 # Each Swatinem/rust-cache step names its cache with `shared-key`, one per distinct
 # build (the jobs build different features or profiles, so they cannot share one), and
@@ -153,19 +153,84 @@ jobs:
           fi
           cargo nextest run "${args[@]}" --lib --tests --profile ci
 
-  test-full:
+  # The test binaries of every member except the ghostty screen, built once and shared
+  # with `test-full` and `shell` as a nextest archive. It holds the test binaries, efr
+  # and efrd (for CARGO_BIN_EXE_efr), the build script outputs and the metadata nextest
+  # needs; `just test-full` builds the same set.
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: test-full
+          shared-key: build
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
-      - run: cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci
+      - run: >-
+          cargo nextest archive --workspace --exclude efr-screen-ghostty
+          --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
+      # The archive is zstd already; zipping it again would only cost time.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nextest-archive
+          path: ${{ runner.temp }}/nextest-archive.tar.zst
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  # NOTE: the two jobs below run the archive of `build` and neither install Rust nor
+  # compile. The archive is unpacked into the checkout, so target/ sits at the same
+  # absolute path as in `build` (every runner checks out to the same directory) and the
+  # paths compiled into the tests (CARGO_MANIFEST_DIR, CARGO_BIN_EXE_efr) hold.
+  # INSTA_WORKSPACE_ROOT spares insta the `cargo metadata` call it would make without a
+  # toolchain to find the workspace; it names the same root.
+  test-full:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - uses: actions/download-artifact@v8
+        with:
+          name: nextest-archive
+          path: ${{ runner.temp }}
+      - run: >-
+          cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
+          --workspace-remap . --extract-to . --profile ci
+
+  shell:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y zsh
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - uses: actions/download-artifact@v8
+        with:
+          name: nextest-archive
+          path: ${{ runner.temp }}
+      # The tests of the four packages, as `-p efr-shell -p efr-cli -p efr-daemon
+      # -p efr-test-daemon` selected them before the archive: efr-daemon is built with
+      # local-pty, which the shell_ tests over a TestDaemon need for a real zsh. As in
+      # `just test-shell`; `just test-shell-ubuntu` runs this job in a container set up
+      # like this runner.
+      - run: >-
+          cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
+          --workspace-remap . --extract-to . --profile ci
+          -E 'package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)'
+        env:
+          EFR_TEST_ZSH: "1"
 
   ghostty:
     runs-on: ubuntu-latest
@@ -191,7 +256,9 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-      # Caches the ghostty clone and the zig build output under target/.
+      # Caches the ghostty clone and the zig build output under target/. This job keeps
+      # a build of its own: the archive of `build` would need Zig there too, and the
+      # zig build of ghostty would then hold up every test job.
       - if: steps.present.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
@@ -211,41 +278,6 @@ jobs:
           else
             cargo nextest run -p efr-screen-ghostty --profile ci
           fi
-
-  shell:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: check for the shell crates
-        id: present
-        shell: bash
-        run: |
-          if [[ -d crates/efr-shell ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "efr-shell does not exist yet; skipping"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.present.outputs.run == 'true'
-        run: sudo apt-get update && sudo apt-get install -y zsh
-      - if: steps.present.outputs.run == 'true'
-        run: rustup toolchain install
-      - if: steps.present.outputs.run == 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: shell
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: steps.present.outputs.run == 'true'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest@0.9.146
-      # efr-daemon is selected so its own tests build it with local-pty, which the
-      # shell_ tests over a TestDaemon need for a real zsh; as in `just test-shell`.
-      # `just test-shell-ubuntu` runs this job in a container set up like this runner.
-      - if: steps.present.outputs.run == 'true'
-        run: cargo nextest run -p efr-shell -p efr-cli -p efr-daemon -p efr-test-daemon --profile ci
-        env:
-          EFR_TEST_ZSH: "1"
 
   hack:
     runs-on: ubuntu-latest

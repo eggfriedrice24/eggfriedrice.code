@@ -2,7 +2,8 @@
 # ubuntu-latest image) with /usr/share world-writable as on the runner, zsh from apt, a
 # non-root user with a home under /home, the pinned Rust toolchain and cargo-nextest.
 # `just test-shell-ubuntu` builds it without a context (nothing is copied in) and runs
-# the job's test command in it over the mounted checkout.
+# the job's tests in it over the mounted checkout. The job takes its test binaries from
+# the archive of CI's build job; the container builds the same binaries itself.
 
 FROM ubuntu:24.04
 
