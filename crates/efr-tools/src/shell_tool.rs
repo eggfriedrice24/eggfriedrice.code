@@ -149,16 +149,23 @@ impl ShellTool {
     /// auto sandbox, not in the exit child.
     fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
         let mut summary = result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone());
-        if result.completion == Completion::SandboxFailed
-            && let SandboxFailure::NotStarted(reason) = sandbox_failure(result)
-        {
-            // The client shows why on its own line (efr's auto spec, section 14.7).
-            summary.get_or_insert_default().setup_error = Some(reason);
+        let mut tainted = summary.as_ref().is_some_and(|summary| !summary.survivors.is_empty());
+        if result.completion == Completion::SandboxFailed {
+            match sandbox_failure(result) {
+                // The client shows why on its own line (efr's auto spec, section 14.7).
+                SandboxFailure::NotStarted(reason) => {
+                    summary.get_or_insert_default().setup_error = Some(reason);
+                }
+                // NOTE: a launcher lost after the start may leave the call's processes
+                // stopped or running on the shell's terminal (efr's auto spec, 3.13).
+                SandboxFailure::Lost(_) => tainted = true,
+            }
         }
         let rendered = self
             .render_run(result, waited, contained)
             .with_sandbox(summary)
-            .with_sandbox_failed(result.completion == Completion::SandboxFailed);
+            .with_sandbox_failed(result.completion == Completion::SandboxFailed)
+            .with_shell_tainted(tainted);
         match &result.sandbox {
             Some(sandbox) if result.completion != Completion::SandboxFailed => {
                 let failed =

@@ -25,7 +25,7 @@ use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, screen_tail, timed_out};
 use crate::session::{
-    Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
+    Activity, Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
     SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
@@ -36,6 +36,9 @@ use crate::{
 
 /// The program looked for on the `PATH` when the config names none.
 const DEFAULT_PROGRAM: &str = "zsh";
+
+/// Ctrl+Z, the terminal's suspend character.
+const SUSPEND: u8 = 0x1a;
 
 /// One long-lived hidden zsh per conversation.
 ///
@@ -296,13 +299,25 @@ impl ShellSessions {
     }
 
     /// Writes raw input to the conversation's shell, as `pty.write` does for an
-    /// attached client.
+    /// attached client. While a call through the sandbox's launcher runs, Ctrl+Z is
+    /// left out: it would stop bwrap and the command but not the launcher, which waits
+    /// for them, and the shell would never get its terminal back (efr's auto spec,
+    /// 3.13).
     pub async fn write(
         &self,
         conversation: ConversationId,
         bytes: Bytes,
     ) -> Result<(), ShellError> {
-        self.existing(conversation)?.write(bytes).await
+        let session = self.existing(conversation)?;
+        let bytes = if session.activity.borrow().sandboxed && bytes.contains(&SUSPEND) {
+            Bytes::from(bytes.iter().copied().filter(|byte| *byte != SUSPEND).collect::<Vec<u8>>())
+        } else {
+            bytes
+        };
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        session.write(bytes).await
     }
 
     /// Changes the terminal size of the conversation's shell and its screen.
@@ -350,10 +365,10 @@ impl ShellSessions {
         let Ok(session) = self.existing(conversation) else {
             return Ok(());
         };
-        let mut free = session.free.clone();
+        let mut activity = session.activity.clone();
         // A shell that ends while this waits is free: the next run starts a new one.
         let wait = async move {
-            let _ = free.wait_for(|free| *free).await;
+            let _ = activity.wait_for(|activity| activity.free).await;
         };
         self.inner
             .deps
@@ -520,7 +535,7 @@ impl ShellSessions {
         let (writer, writes) = mpsc::channel(WRITE_CAPACITY);
         let (inbox, messages) = mpsc::channel(INBOX_CAPACITY);
         let (life, lives) = watch::channel(Life::Running);
-        let (free, frees) = watch::channel(true);
+        let (activity, activities) = watch::channel(Activity::default());
         let targets = ReaderTargets {
             pty_id,
             recording: Arc::clone(&deps.recording),
@@ -549,7 +564,7 @@ impl ShellSessions {
             screen: screen.clone(),
             tasks,
             life,
-            free,
+            activity,
             startup: integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
@@ -562,7 +577,7 @@ impl ShellSessions {
             writer,
             terminal,
             life: lives,
-            free: frees,
+            activity: activities,
             size: Arc::new(Mutex::new(inner.config.size)),
             trusted,
         })

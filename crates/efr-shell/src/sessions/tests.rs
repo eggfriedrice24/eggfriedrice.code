@@ -1212,7 +1212,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         writer,
         terminal: Terminal::new(master, modes, 1000),
         life,
-        free: watch::channel(true).1,
+        activity: watch::channel(crate::session::Activity::default()).1,
         size: Arc::new(Mutex::new(SIZE)),
         trusted: None,
     };

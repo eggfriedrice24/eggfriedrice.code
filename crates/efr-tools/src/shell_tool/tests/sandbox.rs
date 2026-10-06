@@ -309,3 +309,30 @@ async fn the_result_carries_the_summary_and_whether_the_sandbox_failed() {
     let reason = answered.sandbox.and_then(|summary| summary.setup_error);
     assert_eq!(reason.as_deref(), Some("the launcher ended before it started"));
 }
+
+/// Whether the shell tool marks the hidden shell as tainted after `result`.
+async fn tainted(result: CommandResult) -> bool {
+    let fixture = Fixture::new();
+    let tool = super::super::ShellTool::new(FakeRunner::answering(Ok(result)));
+    let context = fixture.context().with_sandbox(Some(sandbox_run()));
+    tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap().shell_tainted
+}
+
+#[tokio::test]
+async fn a_lost_launcher_or_a_survivor_taints_the_shell() {
+    let result = |sandbox: Value, completion: Completion| {
+        let mut result = CommandResult::finished(Some(0), "", "/tmp")
+            .with_sandbox(serde_json::from_value(sandbox).unwrap());
+        result.completion = completion;
+        result
+    };
+    let lost = json!({ "started": true, "launch_error": "lost" });
+    assert!(tainted(result(lost, Completion::SandboxFailed)).await);
+    let survivor =
+        json!({ "started": true, "summary": { "confined": false, "survivors": ["sudo"] } });
+    assert!(tainted(result(survivor, Completion::Finished)).await);
+    let setup = json!({ "started": true, "setup_error": "bwrap: no" });
+    assert!(!tainted(result(setup, Completion::SandboxFailed)).await);
+    let fine = json!({ "started": true, "summary": { "confined": true } });
+    assert!(!tainted(result(fine, Completion::Finished)).await);
+}

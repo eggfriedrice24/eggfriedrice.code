@@ -224,6 +224,26 @@ impl Machine {
     fn contained(&self) -> bool {
         matches!(self, Machine::Marks(run) if run.contained())
     }
+
+    /// True for a run of a call through the sandbox's launcher.
+    fn sandboxed(&self) -> bool {
+        matches!(self, Machine::Marks(run) if run.sandbox_dir().is_some())
+    }
+}
+
+/// What a session's runs do, as its actor publishes it after each message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Activity {
+    /// No run is active, waits or was left running.
+    pub(crate) free: bool,
+    /// A run of a call through the sandbox's launcher is active or was left running.
+    pub(crate) sandboxed: bool,
+}
+
+impl Default for Activity {
+    fn default() -> Self {
+        Activity { free: true, sandboxed: false }
+    }
 }
 
 /// The state and runs of one shell, without IO. Each method returns the bytes to
@@ -290,6 +310,15 @@ impl SessionCore {
     /// waits for nothing but the prompt.
     pub(crate) fn is_free(&self) -> bool {
         self.active.is_none() && self.queued.is_none() && self.orphan.is_none()
+    }
+
+    /// What the runs do now.
+    pub(crate) fn activity(&self) -> Activity {
+        Activity {
+            free: self.is_free(),
+            sandboxed: self.active.as_ref().is_some_and(|active| active.machine.sandboxed())
+                || self.orphan.as_ref().is_some_and(Machine::sandboxed),
+        }
     }
 
     /// Takes a run: types it now, keeps it until the shell is free, or refuses it when
@@ -781,8 +810,8 @@ pub(crate) struct SessionActor {
     /// The reader, writer and reply tasks, stopped when the shell ends.
     pub(crate) tasks: Vec<JoinHandle<()>>,
     pub(crate) life: watch::Sender<Life>,
-    /// Whether the core [is free](SessionCore::is_free), after each message.
-    pub(crate) free: watch::Sender<bool>,
+    /// The core's [activity](SessionCore::activity), after each message.
+    pub(crate) activity: watch::Sender<Activity>,
     /// The deadline for the first marked prompt; `None` once it passed or is moot.
     pub(crate) startup: Option<Sleep>,
 }
@@ -796,7 +825,7 @@ impl SessionActor {
                     self.startup = None;
                     let writes = self.core.startup_expired();
                     write_all(&self.writer, writes).await;
-                    self.publish_free();
+                    self.publish_activity();
                     continue;
                 }
                 msg = inbox.recv() => msg,
@@ -841,7 +870,7 @@ impl SessionActor {
                 }
                 Msg::Exited(status) => break status,
             }
-            self.publish_free();
+            self.publish_activity();
         };
         // Published first, so a caller whose message is never read learns why.
         self.life.send_replace(Life::Ended(status));
@@ -857,9 +886,9 @@ impl SessionActor {
 }
 
 impl SessionActor {
-    fn publish_free(&self) {
-        let free = self.core.is_free();
-        self.free.send_if_modified(|published| std::mem::replace(published, free) != free);
+    fn publish_activity(&self) {
+        let now = self.core.activity();
+        self.activity.send_if_modified(|published| std::mem::replace(published, now) != now);
     }
 }
 
@@ -974,8 +1003,8 @@ pub(crate) struct SessionHandle {
     /// The master and who holds it, read right before a stop sends `SIGINT`.
     pub(crate) terminal: Terminal,
     pub(crate) life: watch::Receiver<Life>,
-    /// True while the shell has no run, active, waiting or left running.
-    pub(crate) free: watch::Receiver<bool>,
+    /// What the shell's runs do, as the actor last published it.
+    pub(crate) activity: watch::Receiver<Activity>,
     /// The terminal size the shell's programs see, shared by every clone; a finished
     /// command's output is replayed at this width.
     pub(crate) size: Arc<Mutex<Size>>,

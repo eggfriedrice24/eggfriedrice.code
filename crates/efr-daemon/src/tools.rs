@@ -290,16 +290,17 @@ impl DaemonToolbox {
                 }
                 if let Some(summary) = &result.sandbox {
                     sandbox.turns().changes(turn_id, &summary.surface_changes);
-                    // NOTE: a process that the launcher could not end (one that sudo
-                    // left running as root) may still read the shell's terminal, and the
-                    // next line typed there could be a password. The shell goes, and the
-                    // next call starts a new one on a new terminal.
-                    if !summary.survivors.is_empty() {
-                        let conversation = call.context.conversation_id;
-                        tracing::warn!(%conversation, survivors = ?summary.survivors, "processes of an approved exit outlived it; closing the hidden shell");
-                        if let Err(error) = self.shells.close(conversation).await {
-                            tracing::warn!(%conversation, error = %error, "could not close the hidden shell");
-                        }
+                }
+                // NOTE: a process that the launcher could not end (one that sudo left
+                // running as root), or a call whose launcher was lost after the start,
+                // may still hold the shell's terminal, and the next line typed there
+                // could be a password. The shell goes: zsh hangs up its jobs, stopped
+                // ones too, and the next call starts a new shell on a new terminal.
+                if result.shell_tainted {
+                    let conversation = call.context.conversation_id;
+                    tracing::warn!(%conversation, "a sandboxed call may have left a process on the hidden shell's terminal; closing the shell");
+                    if let Err(error) = self.shells.close(conversation).await {
+                        tracing::warn!(%conversation, error = %error, "could not close the hidden shell");
                     }
                 }
                 // NOTE: a call that ended has nothing left in its dir that anyone reads;

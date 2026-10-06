@@ -481,3 +481,23 @@ fn debug_hides_the_nonce() {
     assert!(run.contained());
     assert!(!SandboxRun { launch: SpecLaunch::Unsandboxed, ..run }.contained());
 }
+
+#[tokio::test]
+async fn ctrl_z_never_reaches_a_sandboxed_call() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Contained);
+    let (mut terminal, handle) = typed(&harness, &run, "sleep 100").await;
+    started(&run);
+    terminal.print(b"\r\n\x1b]133;C\x07").await;
+    // An attached client types Ctrl+Z and a line: the stop never goes out.
+    let write = harness.sessions.write(conversation(1), bytes::Bytes::from_static(b"\x1aab\r"));
+    write.await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"ab\r");
+    trusted_end(&mut terminal, "/home/u", 130).await;
+    handle.await.unwrap().unwrap();
+
+    // With no sandboxed call, the key goes through.
+    let write = harness.sessions.write(conversation(1), bytes::Bytes::from_static(b"\x1a\r"));
+    write.await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"\x1a\r");
+}

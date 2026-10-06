@@ -299,6 +299,10 @@ pub struct ToolResult {
     /// True when a call through the launcher could not start: the sandbox failed, not
     /// the command, so the daemon checks the sandbox again.
     pub sandbox_failed: bool,
+    /// True when a process of the call may still hold the hidden shell's terminal: a
+    /// launcher lost after it started the command, or a survivor of an approved exit.
+    /// The daemon closes that shell, and the next call starts a new one.
+    pub shell_tainted: bool,
 }
 
 impl ToolResult {
@@ -311,6 +315,7 @@ impl ToolResult {
             exit_code: None,
             sandbox: None,
             sandbox_failed: false,
+            shell_tainted: false,
         }
     }
 
@@ -351,6 +356,13 @@ impl ToolResult {
     #[must_use]
     pub fn with_sandbox_failed(mut self, failed: bool) -> Self {
         self.sandbox_failed = failed;
+        self
+    }
+
+    /// Marks the hidden shell as one that a process of the call may still hold.
+    #[must_use]
+    pub fn with_shell_tainted(mut self, tainted: bool) -> Self {
+        self.shell_tainted = tainted;
         self
     }
 }
