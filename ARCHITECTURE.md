@@ -31,7 +31,7 @@ shipped binary.
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
-| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection and the Allow / Ask / Deny decision | `efr-protocol` |
+| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
 | `efr-holder` | lib | 1 | the `PtyHolder` trait and holder wire types; no IO, no unsafe | `efr-protocol`, `efr-stdx` |
 | `efr-http` | lib | 1 | the reqwest client, SSE parser, Unix-socket HTTP client, header redaction | `efr-stdx` |
@@ -180,8 +180,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - One file per protocol method in the daemon: `crates/efr-daemon/src/methods/`, with
   the exhaustive scope match in `methods.rs`.
 - The permission check point: `crates/efr-conversation/src/turn.rs`. The permission
-  modes, the built-in read-only commands, the `auto` table, config protection and how a
-  command line is read: `docs/permissions.md`.
+  modes, the built-in read-only commands, the `auto` sandbox and its exits, config
+  protection and how a command line is read: `docs/permissions.md`.
 - The settings tool, the model's only way to change `config.toml`, after an approval
   with the diff: `crates/efr-daemon/src/tools/settings_tool.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
