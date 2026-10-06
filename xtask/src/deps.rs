@@ -39,14 +39,18 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-test-support", &["efr-protocol", "efr-store", "efr-provider", "efr-stdx"]),
     // Markdown and render events in, ANSI out; no IO (structure document, addendum A).
     ("efr-render", &[]),
+    // The pure logic of the auto sandbox; no efr-stdx, because it reaches tokio.
+    ("efr-sandbox", &["efr-protocol"]),
     // Tier 2
     ("efr-screen-vt100", &["efr-screen"]),
     ("efr-screen-ghostty", &["efr-screen"]),
     ("efr-pty", &["efr-holder", "efr-stdx"]),
-    ("efr-shell", &["efr-holder", "efr-screen", "efr-protocol", "efr-stdx"]),
+    ("efr-shell", &["efr-holder", "efr-screen", "efr-protocol", "efr-sandbox", "efr-stdx"]),
     ("efr-tools", &["efr-shell", "efr-scope", "efr-protocol", "efr-stdx"]),
     ("efr-provider-openai", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
     ("efr-oauth-openai", &["efr-http", "efr-credentials", "efr-provider", "efr-stdx"]),
+    // The sandbox launcher: efr-sbx run, inner, bridge and probe. No async runtime.
+    ("efr-sbx", &["efr-sandbox", "efr-protocol"]),
     // The config file's schema, shared by efrd and efr; efr-tools must never reach it,
     // because it reaches efr-permissions.
     ("efr-config", &["efr-permissions", "efr-protocol", "efr-stdx"]),
@@ -85,6 +89,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-config",
             "efr-conversation",
             "efr-transport",
+            "efr-sandbox",
         ],
     ),
     ("efr-cli", &["efr-client", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
@@ -105,6 +110,8 @@ pub(crate) const FORBIDDEN: &[(&str, &str)] = &[
     ("efr-transport", "efr-store"),
     ("efr-protocol", "tokio"),
     ("efr-test-support", "efr-daemon"),
+    ("efr-sandbox", "tokio"),
+    ("efr-sbx", "tokio"),
 ];
 
 /// Third-party crates that exactly one workspace crate may reach: (crate, owner).

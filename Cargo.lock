@@ -1027,6 +1027,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-sandbox"
+version = "0.1.0"
+dependencies = [
+ "efr-protocol",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "efr-scope"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,24 @@
+[package]
+name = "efr-sandbox"
+description = "The pure logic of the auto sandbox: the spec, the mount plan, bwrap arguments, Landlock and seccomp as data, filters, records and the surface guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

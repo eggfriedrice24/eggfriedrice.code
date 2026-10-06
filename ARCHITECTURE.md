@@ -39,10 +39,11 @@ shipped binary.
 | `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages | `efr-protocol`, `efr-stdx` |
 | `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider`, `Wait` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
 | `efr-render` | lib | 1 | markdown and render events to ANSI: committed and live zones, syntax colours, OSC 8 links; no IO, the CLI passes `RenderOptions` | none |
+| `efr-sandbox` | lib | 1 | the pure logic of the `auto` sandbox: `SandboxSpec`, `MountPlan` and the bwrap arguments, Landlock and seccomp as data, the environment and export filters, the records, the sandbox state, `result.json`, the surface guard, the worktree record, the probe's result types; file access only through `FsView`, no tokio, no unsafe | `efr-protocol` |
 | `efr-screen-vt100` | lib | 2 | `Screen` over vt100; the Zig-free default | `efr-screen` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
-| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-stdx` |
+| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
@@ -70,7 +71,7 @@ and `efr-daemon -> (everything)`.
    `efr-tools -> efr-permissions`, `efr-provider-openai -> efr-oauth-openai`,
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
-   `efr-test-support -> efr-daemon`;
+   `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`;
 3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
    other than `efr-store` reaches `rusqlite`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
@@ -89,6 +90,9 @@ What each forbidden edge protects:
 - The engine does not know about transports, and the transport does not touch the
   database.
 - The protocol crate stays free of a runtime, so any client can compile it.
+- The sandbox logic and the launcher stay free of a runtime: the launcher is a small
+  process that runs as a foreground job of the hidden shell, and every rule it applies
+  is a pure function that tests run without a kernel.
 - Zig is a build requirement of one crate, and SQLite has one owner.
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
