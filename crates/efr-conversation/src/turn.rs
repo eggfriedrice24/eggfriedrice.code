@@ -439,7 +439,15 @@ impl Turn {
         };
         let key = self.model_key();
         close_open_calls(&mut self.transcript);
-        let mut batch = Batch::new().event(self.shared.conversation_id, event);
+        let conversation_id = self.shared.conversation_id;
+        let mut batch = Batch::new();
+        // NOTE: the report comes before the terminal event, so a view that stops at
+        // the end of the turn has shown it.
+        let files = self.shared.deps.toolbox.turn_report(conversation_id, turn_id).await;
+        if !files.is_empty() {
+            batch = batch.event(conversation_id, Event::TurnSurfaceReport { turn_id, files });
+        }
+        batch = batch.event(conversation_id, event);
         if let Some(messages) = self.saved_messages(&key) {
             batch = batch.turn_messages(messages);
         }

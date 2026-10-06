@@ -176,6 +176,9 @@ by field:
   `ToolOutcome::sandbox`;
 - `restore_quarantine`: moves the quarantined changes of a call back when the user
   keeps them; the default keeps no quarantine and moves nothing;
+- `turn_report`: the files that the turn changed through the launcher and that run
+  code later outside the sandbox; the turn records them as `turn_surface_report` right
+  before its terminal event; the default reports none;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
   interrupted command does not keep running in the hidden shell;
 - `preview`: the diff of a `write_file` call, once the tools offer one;

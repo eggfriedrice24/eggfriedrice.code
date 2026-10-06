@@ -15,8 +15,9 @@ use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CacheMode, CallId, CommandId, ConversationId,
     EffectiveSettings, Event, EventEnvelope, InputWait, Mode, Needs, NetworkMode, Origin,
-    OverriddenSettings, ProjectId, PromptSend, PromptSendResult, QuestionId, SandboxStatus,
-    SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
+    OverriddenSettings, ProjectId, PromptSend, PromptSendResult, QuestionId, ReportedFile,
+    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
+    TurnSettings,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -69,6 +70,8 @@ pub(crate) struct FakeToolbox {
     ran: Mutex<Vec<CallContext>>,
     /// The changes that `restore_quarantine` moved back.
     restored: Mutex<Vec<SurfaceChange>>,
+    /// What `turn_report` answers.
+    pub(crate) report: Mutex<Vec<ReportedFile>>,
 }
 
 impl FakeToolbox {
@@ -256,6 +259,14 @@ impl Toolbox for FakeToolbox {
     ) -> Result<(), String> {
         self.restored.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(changes);
         Ok(())
+    }
+
+    async fn turn_report(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Vec<ReportedFile> {
+        self.report.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
 

@@ -648,3 +648,27 @@ async fn an_interrupt_during_the_surface_question_keeps_the_quarantine() {
     );
     h.finish();
 }
+
+#[tokio::test]
+async fn the_turn_report_comes_before_the_end_of_the_turn() {
+    let (setup, state) = auto("build it");
+    let input = json!({ "command": "cargo build" });
+    let records = one_call(&setup, &state, "build it", &input, "done", false, "Built.");
+    let mut h = setup.start(records).await;
+    let file = efr_protocol::ReportedFile { path: "build.rs".into(), detail: None };
+    h.toolbox.report.lock().unwrap().push(file.clone());
+
+    let sent = h.prompt("build it").await;
+    h.wait_end(sent.turn_id).await;
+
+    let events = h.events().await;
+    let at = |wanted: fn(&Event) -> bool| events.iter().position(wanted).unwrap();
+    let report = at(|e| matches!(e, Event::TurnSurfaceReport { .. }));
+    let completed = at(|e| matches!(e, Event::TurnCompleted { .. }));
+    assert_eq!(report + 1, completed);
+    assert!(matches!(
+        &events[report],
+        Event::TurnSurfaceReport { turn_id, files } if *turn_id == sent.turn_id && files == &[file]
+    ));
+    h.finish();
+}

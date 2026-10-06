@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, InputWait, Launch, Origin, SandboxSummary, Scope, SurfaceChange, TurnId,
+    CallId, ConversationId, InputWait, Launch, Origin, ReportedFile, SandboxSummary, Scope,
+    SurfaceChange, TurnId,
 };
 use efr_provider::ToolDefinition;
 use serde_json::Value;
@@ -78,6 +79,18 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         _changes: &[SurfaceChange],
     ) -> Result<(), String> {
         Err("this toolbox keeps no quarantine".to_owned())
+    }
+
+    /// The files that the turn `turn_id` changed through the sandbox's launcher and
+    /// that run code later outside the sandbox, such as `build.rs` or a git setting,
+    /// for the report at the end of the turn. The turn records them as
+    /// `turn_surface_report` before its terminal event. The default reports none.
+    async fn turn_report(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Vec<ReportedFile> {
+        Vec::new()
     }
 }
 
