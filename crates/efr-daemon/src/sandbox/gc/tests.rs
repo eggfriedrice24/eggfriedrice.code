@@ -28,6 +28,11 @@ fn idle_layers_go_then_the_oldest_until_the_rest_fit() {
     assert!(pick(&busy, DAY, 10).is_empty());
 }
 
+/// A fixed time for the tests; each file's time is set from it.
+fn now() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000_000)
+}
+
 /// Sets the modification time of `path` to `ago` before `now`.
 fn age(path: &std::path::Path, now: std::time::SystemTime, ago: Duration) {
     let file = std::fs::File::open(path).unwrap();
@@ -37,7 +42,7 @@ fn age(path: &std::path::Path, now: std::time::SystemTime, ago: Duration) {
 #[test]
 fn a_cache_whose_last_call_is_recent_is_not_idle() {
     let root = tempfile::tempdir().unwrap();
-    let now = std::time::SystemTime::now();
+    let now = now();
     let cache = root.path().join("conv/cache");
     std::fs::create_dir_all(cache.join("cargo/upper")).unwrap();
     // Calls write below cache/<name>/upper, which leaves the time of cache old.
@@ -71,10 +76,10 @@ fn layers_set_aside_leave_room_for_new_ones_and_are_found_again() {
     let root = tempfile::tempdir().unwrap();
     let cache = root.path().join("conv/cache");
     std::fs::create_dir_all(cache.join("cargo/upper")).unwrap();
-    let aside = super::set_aside(&cache, std::time::SystemTime::now()).unwrap();
+    let aside = super::set_aside(&cache, now()).unwrap();
     assert!(!cache.exists());
     assert!(aside.join("cargo/upper").is_dir());
-    assert_eq!(super::left_aside(root.path()), [aside.clone()]);
+    assert_eq!(super::left_aside(root.path()), std::slice::from_ref(&aside));
     super::remove(std::slice::from_ref(&aside));
     assert!(super::left_aside(root.path()).is_empty());
 }
