@@ -64,3 +64,14 @@ fn the_rendered_state_quotes_every_word() {
     assert!(text.starts_with("# efr sandbox state; the launcher writes it.\nbuiltin zmodload"));
     assert_eq!(quote(""), "''");
 }
+
+#[test]
+fn debug_shows_names_not_values() {
+    let mut state = SandboxState::default();
+    state.exports.insert("API_TOKEN".to_owned(), "sk-secret-value".to_owned());
+    state.functions.insert("deploy".to_owned(), "curl -H secret-body".to_owned());
+    state.aliases.insert("ll".to_owned(), "ls -l secret-alias".to_owned());
+    let shown = format!("{state:?}");
+    assert!(shown.contains("API_TOKEN") && shown.contains("deploy") && shown.contains("ll"));
+    assert!(!shown.contains("secret"), "{shown}");
+}

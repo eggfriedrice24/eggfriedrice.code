@@ -6,6 +6,7 @@
 //! reads the state.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -34,7 +35,9 @@ pub struct SandboxCwd {
 }
 
 /// The shell state that later contained calls of one conversation start from.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Debug` shows names only: an exported value can be a token that a call set.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SandboxState {
@@ -52,6 +55,20 @@ pub struct SandboxState {
     pub removed_aliases: BTreeSet<String>,
     /// Where the last call ended in the private tmp.
     pub sandbox_cwd: Option<SandboxCwd>,
+}
+
+impl fmt::Debug for SandboxState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SandboxState")
+            .field("exports", &self.exports.keys().collect::<Vec<_>>())
+            .field("unsets", &self.unsets)
+            .field("functions", &self.functions.keys().collect::<Vec<_>>())
+            .field("removed_functions", &self.removed_functions)
+            .field("aliases", &self.aliases.keys().collect::<Vec<_>>())
+            .field("removed_aliases", &self.removed_aliases)
+            .field("sandbox_cwd", &self.sandbox_cwd)
+            .finish()
+    }
 }
 
 impl SandboxState {

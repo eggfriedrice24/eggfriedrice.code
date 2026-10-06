@@ -102,3 +102,16 @@ fn the_apply_file_holds_cd_exports_and_unsets() {
     );
     assert_eq!(bytes, b"cd\0/home/u/p/app\0export\0RUST_LOG\0debug\0unset\0OLD\0");
 }
+
+#[test]
+fn debug_shows_names_not_values() {
+    let records = Records {
+        exports: vec![("API_TOKEN".to_owned(), "sk-secret-value".to_owned())],
+        functions: vec![("deploy".to_owned(), "curl -H secret-body".to_owned())],
+        aliases: vec![("ll".to_owned(), "ls -l secret-alias".to_owned())],
+        ..Records::default()
+    };
+    let shown = format!("{records:?}");
+    assert!(shown.contains("API_TOKEN") && shown.contains("deploy") && shown.contains("ll"));
+    assert!(!shown.contains("secret"), "{shown}");
+}

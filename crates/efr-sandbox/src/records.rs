@@ -18,6 +18,7 @@
 //! end\0<status>\0
 //! ```
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::SandboxError;
@@ -27,7 +28,9 @@ use crate::spec::RecordLimits;
 pub const RECORDS_HEADER: &[u8] = b"efr-records\0v1\0";
 
 /// What one call reported about the shell state it ended with.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// `Debug` shows names only: an exported value can be a token that the call set.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct Records {
     /// The final working directory.
     pub cwd: Option<PathBuf>,
@@ -48,6 +51,25 @@ pub struct Records {
     pub setup_error: Option<String>,
     /// The child shell's exit status from the `end` record.
     pub status: Option<i32>,
+}
+
+impl fmt::Debug for Records {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names = |pairs: &[(String, String)]| -> Vec<String> {
+            pairs.iter().map(|(name, _)| name.clone()).collect()
+        };
+        f.debug_struct("Records")
+            .field("cwd", &self.cwd)
+            .field("exports", &names(&self.exports))
+            .field("unsets", &self.unsets)
+            .field("functions", &names(&self.functions))
+            .field("removed_functions", &self.removed_functions)
+            .field("aliases", &names(&self.aliases))
+            .field("removed_aliases", &self.removed_aliases)
+            .field("setup_error", &self.setup_error)
+            .field("status", &self.status)
+            .finish()
+    }
 }
 
 /// Parses a records stream within `limits`.
