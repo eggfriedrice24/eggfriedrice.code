@@ -137,26 +137,40 @@ impl ShellTool {
     }
 
     /// The model's answer for `result`, after the command ran for `waited`, with what
-    /// the sandbox reports after it.
-    fn render(&self, result: &CommandResult, waited: Duration) -> ToolResult {
-        let rendered = self.render_run(result, waited);
+    /// the sandbox reports after it. `contained` is true for a call that ran in the
+    /// auto sandbox, not in the exit child.
+    fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
+        let rendered = self.render_run(result, waited, contained);
         match &result.sandbox {
-            Some(sandbox) => {
+            Some(sandbox) if result.completion != Completion::SandboxFailed => {
                 let failed =
                     result.completion == Completion::Finished && result.exit_code != Some(0);
-                let notes = sandbox_notes(&sandbox.summary, failed);
+                let mut notes = Vec::new();
+                if let Some(hidden) = &sandbox.hidden_cwd {
+                    notes.push(format!(
+                        "[efr: the shell is in {}, which the sandbox hides; this call started \
+                         in $SCRATCH.]",
+                        hidden.display()
+                    ));
+                }
+                if sandbox.started && !sandbox.state_kept {
+                    notes.push("[efr: the shell state of this call was not kept.]".to_owned());
+                }
+                notes.push(sandbox_notes(&sandbox.summary, failed));
+                notes.retain(|note| !note.is_empty());
+                let notes = notes.join("\n");
                 if notes.is_empty() {
                     rendered
                 } else {
                     ToolResult { output: format!("{}\n{notes}", rendered.output), ..rendered }
                 }
             }
-            None => rendered,
+            _ => rendered,
         }
     }
 
     /// The model's answer for the run of `result`, after the command ran for `waited`.
-    fn render_run(&self, result: &CommandResult, waited: Duration) -> ToolResult {
+    fn render_run(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
         let cut = truncate_middle(&result.output, self.output_limit);
         let mut text = cut.text;
         if !text.is_empty() && !text.ends_with('\n') {
@@ -200,6 +214,23 @@ impl ShellTool {
                 ));
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
+            }
+            // NOTE: sandboxed code can fake a password prompt, so efr never types a
+            // secret into a contained call; only an approved exit runs outside.
+            Completion::Unanswered if contained => {
+                text.push_str(&format!(
+                    "[stopped: the command asked for a secret inside the sandbox; efr does \
+                     not type secrets into sandboxed commands; ask with needs.outside if it \
+                     needs one. cwd {cwd}]"
+                ));
+                true
+            }
+            Completion::SandboxFailed => {
+                text.push_str(&format!(
+                    "[the sandbox could not start: {}. The command did not run. cwd {cwd}]",
+                    sandbox_failure(result)
+                ));
+                true
             }
             Completion::Unanswered => {
                 text.push_str(&format!(
@@ -338,7 +369,8 @@ impl Tool for ShellTool {
                 // the model must learn how long it really waited.
                 let ran =
                     Duration::try_from(ctx.clock.now().duration_since(started)).unwrap_or_default();
-                Ok(self.render(&result, timeout.max(ran)))
+                let contained = ctx.sandbox.as_ref().is_some_and(efr_shell::SandboxRun::contained);
+                Ok(self.render(&result, timeout.max(ran), contained))
             }
             // NOTE: nothing clears a busy shell from here: an interrupt reaches the shell
             // only for a call in flight, and this one never started.
@@ -375,6 +407,15 @@ const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox: it can write onl
                             network, and cannot use sudo, D-Bus or other sockets; secrets \
                             read as empty. If it failed for that reason, call shell again \
                             with needs.]";
+
+/// Why a sandboxed run could not start: the launcher's setup error. The output is never
+/// read for a reason, because sandboxed code may have written it.
+fn sandbox_failure(result: &CommandResult) -> String {
+    match result.sandbox.as_ref().and_then(|sandbox| sandbox.setup_error.as_ref()) {
+        Some(reason) => reason.trim().to_owned(),
+        None => "the launcher ended without its result".to_owned(),
+    }
+}
 
 /// What the launcher reported about a call, for the model: names only, never values.
 fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {

@@ -62,7 +62,10 @@ The tools:
   a run through the sandbox's launcher, the answer names what `result.json` reports:
   the sandbox note after a contained command that failed, the exports that stay in the
   sandbox or were dropped, the background jobs that stopped, the hosts that the proxy
-  refused and the git settings that the launcher moved away. Names only, never values;
+  refused, the git settings that the launcher moved away, a shell directory that the
+  sandbox hides and a state that was not kept. A sandbox that could not start says
+  why (`Completion::SandboxFailed`, from `setup_error` only), and a contained command
+  that asked for a secret is told to ask with `needs.outside`. Names only, never values;
   efr never reads the output for a denial, because the command wrote it. A new shell
   starts in the user's working directory. It declares the command line, `interactive`
   when a program of the line may wait for input (`sudo`, `ssh`, an editor, a pager) or

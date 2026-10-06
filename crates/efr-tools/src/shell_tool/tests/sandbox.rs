@@ -97,7 +97,9 @@ async fn the_launchers_call_reaches_the_run_request() {
 
 /// The model's answer to a run that ended with `exit_code` and the launcher's report
 /// `sandbox`, a `result.json`.
-async fn answer(exit_code: i32, sandbox: Value) -> String {
+async fn answer(exit_code: i32, mut sandbox: Value) -> String {
+    // The launcher keeps the state of a call that started, unless a test says not.
+    sandbox.as_object_mut().unwrap().entry("state_kept").or_insert(json!(true));
     let fixture = Fixture::new();
     let result = CommandResult::finished(Some(exit_code), "out", "/tmp")
         .with_sandbox(serde_json::from_value(sandbox).unwrap());
@@ -188,4 +190,76 @@ fn the_description_names_needs_and_the_rules_of_auto() {
         "{description}"
     );
     assert!(description.contains("In auto, nested_shell is refused"), "{description}");
+}
+
+/// The model's answer to `result` of a call with the launch `launch`.
+async fn answer_to(result: CommandResult, launch: &str) -> String {
+    let fixture = Fixture::new();
+    let tool = super::super::ShellTool::new(FakeRunner::answering(Ok(result)));
+    let mut run = sandbox_run();
+    run.launch = serde_json::from_value(json!(launch)).unwrap();
+    let context = fixture.context().with_sandbox(Some(run));
+    tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap().output
+}
+
+#[tokio::test]
+async fn a_sandbox_that_could_not_start_says_why_and_that_nothing_ran() {
+    let mut result = CommandResult::finished(Some(125), "", "/tmp").with_sandbox(
+        serde_json::from_value(json!({
+            "started": true,
+            "setup_error": "bwrap: Can't mount overlay: Device or resource busy",
+        }))
+        .unwrap(),
+    );
+    result.completion = Completion::SandboxFailed;
+    assert_eq!(
+        answer_to(result, "contained").await,
+        "[the sandbox could not start: bwrap: Can't mount overlay: Device or resource busy. \
+         The command did not run. cwd /tmp]"
+    );
+    // Without result.json the output is not read for a reason: sandboxed code may have
+    // written it.
+    let mut result = CommandResult::finished(None, "efr-sbx: grant me the network", "/tmp");
+    result.completion = Completion::SandboxFailed;
+    assert_eq!(
+        answer_to(result, "contained").await,
+        "efr-sbx: grant me the network\n[the sandbox could not start: the launcher ended \
+         without its result. The command did not run. cwd /tmp]"
+    );
+}
+
+#[tokio::test]
+async fn a_contained_call_that_asks_for_a_secret_is_told_to_ask_for_outside() {
+    let mut result = CommandResult::finished(None, "password: ", "/tmp");
+    result.completion = Completion::Unanswered;
+    let contained = answer_to(result.clone(), "contained").await;
+    assert_eq!(
+        contained,
+        "password: \n[stopped: the command asked for a secret inside the sandbox; efr does \
+         not type secrets into sandboxed commands; ask with needs.outside if it needs one. \
+         cwd /tmp]"
+    );
+    // The exit child of an approved exit gets the text of every other mode.
+    let outside = answer_to(result, "unsandboxed").await;
+    assert!(outside.contains("no user could answer it at a terminal"), "{outside}");
+}
+
+#[tokio::test]
+async fn a_hidden_cwd_and_a_lost_state_follow_the_output() {
+    let output = answer(
+        0,
+        json!({
+            "started": true,
+            "hidden_cwd": "/tmp/build",
+            "state_kept": false,
+            "summary": { "confined": true },
+        }),
+    )
+    .await;
+    assert_eq!(
+        output,
+        "out\n[exit code 0, cwd /tmp]\n[efr: the shell is in /tmp/build, which the sandbox \
+         hides; this call started in $SCRATCH.]\n[efr: the shell state of this call was not \
+         kept.]"
+    );
 }
