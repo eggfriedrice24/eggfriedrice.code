@@ -317,6 +317,7 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
                 call_id: c,
                 summary: "write ~/.zshrc".to_owned(),
                 diff_preview: None,
+                interactive: false,
             },
             Event::ApprovalExpired { turn_id: a, call_id: c },
         ],

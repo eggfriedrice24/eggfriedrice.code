@@ -59,6 +59,7 @@ fn events() -> Vec<EventEnvelope> {
                 call_id: call(),
                 summary: "run systemctl restart nginx".to_owned(),
                 diff_preview: None,
+                interactive: false,
             },
         ),
         envelope(

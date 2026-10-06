@@ -100,6 +100,7 @@ async fn scene() -> Scene {
                 call_id: call,
                 summary: "write /etc/hosts".to_owned(),
                 diff_preview: None,
+                interactive: false,
             },
         )
         .event(busy, queued(t2, 2))

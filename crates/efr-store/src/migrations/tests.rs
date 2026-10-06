@@ -378,6 +378,7 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
             call_id: crate::testing::call(1),
             summary: "nixos-rebuild switch".to_owned(),
             diff_preview: None,
+            interactive: false,
         },
         Event::ApprovalResolved {
             turn_id: crate::testing::turn(1),

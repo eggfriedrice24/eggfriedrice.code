@@ -51,7 +51,7 @@ pub(crate) fn apply(
     let seq = sql::seq(envelope.seq);
     let at = sql::micros(envelope.at);
     match &envelope.event {
-        Event::ApprovalRequested { turn_id, call_id, summary, diff_preview } => {
+        Event::ApprovalRequested { turn_id, call_id, summary, diff_preview, .. } => {
             // A call asked again starts over as pending.
             conn.execute(
                 "INSERT INTO approvals (call_id, conversation_id, turn_id, summary, diff_preview, \

@@ -11,6 +11,7 @@ fn requested(turn: u64, call: u64, summary: &str) -> Event {
         call_id: testing::call(call),
         summary: summary.to_owned(),
         diff_preview: Some("-a\n+b\n".to_owned()),
+        interactive: false,
     }
 }
 

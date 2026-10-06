@@ -104,3 +104,8 @@ No protocol version has shipped yet.
   shell or a REPL), and the daemon now refuses a manual answer for such a call with
   `conflict`, and for a job in the foreground that its last look at the command did not
   see. The `events/tool_call_started.json` fixture now sets the flag.
+- Before version 1 ships: the `approval_requested` event gains an optional
+  `interactive` flag, false when absent: the call may wait for input at the terminal,
+  such as a `sudo` password. A client whose user approves such a call with a key may
+  keep the keys typed while it runs, for the answer it asks for. The
+  `events/approval_requested.json` fixture now sets the flag.

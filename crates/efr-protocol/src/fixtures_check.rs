@@ -624,6 +624,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             call_id: call_id(),
             summary: "run `journalctl --vacuum-size=500M` as root".into(),
             diff_preview: Some("--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n-#SystemMaxUse=\n+SystemMaxUse=500M\n".into()),
+            interactive: true,
         },
         Event::ApprovalResolved {
             turn_id: turn_id(),

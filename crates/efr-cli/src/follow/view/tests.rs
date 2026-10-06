@@ -56,6 +56,7 @@ fn approval(diff: Option<&str>) -> Event {
         call_id: call(),
         summary: "write ~/.zshrc".to_owned(),
         diff_preview: diff.map(str::to_owned),
+        interactive: false,
     }
 }
 
@@ -268,6 +269,7 @@ fn approval_of_parts() -> Event {
                   asks for: hostnamectl, systemctl --failed"
             .to_owned(),
         diff_preview: None,
+        interactive: false,
     }
 }
 
@@ -297,6 +299,7 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
         call_id: call(),
         summary: "write_file: write /home/u/a\nasks for: ls (user data)".to_owned(),
         diff_preview: None,
+        interactive: false,
     };
     let step = view.event(&event, SIZE, true);
     assert_eq!(
@@ -314,6 +317,7 @@ fn approval_summaries_cannot_drive_the_terminal() {
         call_id: call(),
         summary: "run \u{1b}]52;c;cGF5bG9hZA==\u{7}".to_owned(),
         diff_preview: None,
+        interactive: false,
     };
     let out = view.event(&event, SIZE, false).out;
     assert!(!out.contains("\u{1b}]52"), "{}", readable(&out));

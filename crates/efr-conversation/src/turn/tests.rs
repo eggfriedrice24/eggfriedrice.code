@@ -443,6 +443,7 @@ async fn an_asked_tool_call_waits_for_approval_and_runs_once_approved() {
             call_id,
             summary: format!("write_file: write {} (user config)", zshrc.display()),
             diff_preview: Some("+\"alias ll='ls -l'\"".to_owned()),
+            interactive: false,
         }
     );
     assert_eq!(
@@ -1399,6 +1400,15 @@ async fn a_call_approved_as_one_that_waits_for_input_runs_as_one() {
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
     assert!(ran[0].approved_interactive, "the user approved a call that waits for input");
+    // The approval told the client so, which may then keep the keys typed for it.
+    let events = h.events().await;
+    assert!(
+        matches!(
+            find(&events, |e| matches!(e, Event::ApprovalRequested { .. })),
+            Event::ApprovalRequested { interactive: true, .. }
+        ),
+        "{events:?}"
+    );
     h.finish();
 }
 

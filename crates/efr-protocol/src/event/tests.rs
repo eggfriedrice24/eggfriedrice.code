@@ -412,3 +412,33 @@ fn a_call_that_takes_a_manual_input_says_so_and_an_old_one_does_not() {
     assert_eq!(serde_json::to_value(started(false)).unwrap(), old);
     assert_eq!(serde_json::from_value::<Event>(old).unwrap(), started(false));
 }
+
+#[test]
+fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not() {
+    let requested = |interactive| Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        summary: "shell: sudo pacman -Syu".to_owned(),
+        diff_preview: None,
+        interactive,
+    };
+    let wire = json!({
+        "kind": "approval_requested",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "summary": "shell: sudo pacman -Syu",
+        "interactive": true,
+    });
+    assert_eq!(serde_json::to_value(requested(true)).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), requested(true));
+    // An event from before the flag reads as a call that waits for nothing, and such a
+    // call leaves the flag out.
+    let old = json!({
+        "kind": "approval_requested",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "summary": "shell: sudo pacman -Syu",
+    });
+    assert_eq!(serde_json::to_value(requested(false)).unwrap(), old);
+    assert_eq!(serde_json::from_value::<Event>(old).unwrap(), requested(false));
+}

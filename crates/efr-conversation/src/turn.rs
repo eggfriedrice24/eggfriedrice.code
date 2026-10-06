@@ -585,7 +585,8 @@ impl Turn {
         let summary = approvals::summary(&call.name, decision);
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
         let answer = self.shared.approvals.park(turn_id, call_id);
-        let requested = Event::ApprovalRequested { turn_id, call_id, summary, diff_preview };
+        let requested =
+            Event::ApprovalRequested { turn_id, call_id, summary, diff_preview, interactive };
         if let Err(error) = self.record(vec![requested]).await {
             self.shared.approvals.withdraw(call_id);
             return Err(error);

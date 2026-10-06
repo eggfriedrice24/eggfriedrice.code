@@ -22,6 +22,7 @@ fn approval_requested(turn: u64, call: u64) -> Event {
         call_id: testing::call(call),
         summary: "write /etc/hosts".to_owned(),
         diff_preview: None,
+        interactive: false,
     }
 }
 

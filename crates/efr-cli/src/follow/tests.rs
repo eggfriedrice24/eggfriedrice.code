@@ -249,6 +249,7 @@ async fn a_key_answers_the_approval() {
             call_id: call(),
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
+            interactive: false,
         };
         conn.item(sub, &item(11, request)).await;
         // A key that answers nothing is ignored; `n` denies.
@@ -302,6 +303,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             call_id,
             summary: summary.to_owned(),
             diff_preview: None,
+            interactive: false,
         };
         let page = ConversationHistoryResult {
             events: vec![
@@ -370,6 +372,7 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
             call_id: call(),
             summary: "edit /etc/hosts".to_owned(),
             diff_preview: None,
+            interactive: false,
         };
         conn.item(sub, &item(11, request)).await;
         keys.press(b'y').await;
@@ -971,6 +974,7 @@ async fn ctrl_backslash_during_an_approval_is_taken_and_does_nothing() {
             call_id: call(),
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
+            interactive: false,
         };
         conn.item(sub, &item(11, request)).await;
         started(&presser, 1).await;

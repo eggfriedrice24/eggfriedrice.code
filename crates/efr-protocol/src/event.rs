@@ -210,6 +210,11 @@ pub enum Event {
         /// A diff of the change, for a call that writes a file.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff_preview: Option<String>,
+        /// True when the call may wait for input at the terminal, such as a `sudo`
+        /// password: a client whose user approves it may keep the keys typed while it
+        /// runs for the answer it asks for. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        interactive: bool,
     },
 
     /// The user answered an approval request.
