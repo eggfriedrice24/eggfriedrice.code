@@ -102,3 +102,59 @@ fn the_example_with_every_line_uncommented_is_valid_and_sets_every_key() {
 fn the_example_names_its_schema_first() {
     assert_eq!(EXAMPLE.lines().next(), Some(format!("#:schema {SCHEMA_URL}").as_str()));
 }
+
+#[test]
+fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
+    let defaults = Settings::parse(Path::new(PATH), None).unwrap();
+    let lines: Vec<&str> = EXAMPLE.lines().collect();
+    let mut table: Option<&str> = None;
+    let mut samples = Vec::new();
+    // The keys of the example rule belong to the rule, not to the table.
+    let mut in_rule = false;
+    for (at, line) in lines.iter().enumerate() {
+        if in_rule && line.starts_with("# ") {
+            continue;
+        }
+        in_rule = false;
+        if let Some(name) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+            table = Some(name);
+            continue;
+        }
+        let Some(key) = commented_key(line) else { continue };
+        if key == "rules" {
+            in_rule = true;
+            continue;
+        }
+        let dotted = table.map_or_else(|| key.to_owned(), |table| format!("{table}.{key}"));
+        let mut live = lines.clone();
+        live[at] = line.trim_start_matches("# ");
+        let mut settings = Settings::parse(Path::new(PATH), Some(&live.join("\n"))).unwrap();
+        settings.set_source(&dotted, Source::Default);
+        if settings != defaults {
+            samples.push(dotted);
+        }
+    }
+    // These keys have no default or an empty one, so they show a sample value; every
+    // other key shows its default.
+    let expected = [
+        "model.name",
+        "model.effort",
+        "model.system_prompt",
+        "model.max_output_tokens",
+        "openai.models",
+        "openai.subscription_base_url",
+        "openai.api_base_url",
+        "permissions.secret_paths",
+        "shell.program",
+        "conversation.approval_timeout_secs",
+        "sandbox.bwrap",
+        "sandbox.write_roots",
+        "sandbox.mask",
+        "sandbox.protect",
+        "sandbox.env_deny",
+        "sandbox.env_keep",
+        "sandbox.export_deny",
+        "render.theme",
+    ];
+    assert_eq!(samples, expected);
+}

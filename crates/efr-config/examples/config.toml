@@ -133,8 +133,9 @@
 # caches = ["~/.cargo", "~/.rustup", "~/.cache", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store", "~/.m2/repository", "~/.gradle/caches"]
 
 # How the caches are mounted: overlay (a private upper layer per conversation), tmp
-# (writes vanish after each call) or readonly.
-# cache_mode = "overlay"
+# (writes vanish after each call) or readonly. tmp is the default because the overlays
+# failed the launch gate of phase 1 (slow and busy setups).
+# cache_mode = "tmp"
 
 # Days without a call after which a conversation's cache layers are deleted, from 1
 # to 3650.
