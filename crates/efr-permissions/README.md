@@ -106,7 +106,9 @@ Modules:
   the grants a "yes" opens, the bind of a write (`WriteBind`) and whether only the
   user may approve it. `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
-  runs outside the sandbox.
+  runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
+  directories and program words of a line its `CallFacts` must describe, from the same
+  lenient split.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`).

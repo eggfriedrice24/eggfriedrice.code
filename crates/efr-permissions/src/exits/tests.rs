@@ -106,3 +106,20 @@ fn hosts_are_normalized(#[case] word: &str, #[case] expected: Option<(&str, u16)
     let found = host_and_port(word);
     assert_eq!(found.as_ref().map(|(host, port)| (host.as_str(), *port)), expected, "{word:?}");
 }
+
+#[test]
+fn fact_requests_name_every_target_rm_dir_and_program_that_predict_reads() {
+    use std::path::{Path, PathBuf};
+
+    let locations = crate::Locations::new("/home/u").unwrap();
+    let line = "sudo env X=1 make > out.txt && rm -rf build ~/old && dd if=a of=/dev/sdb \
+                && sed -i s/a/b/ conf && mkdir -p new/dir && $TOOL go; cd /x && tee rel";
+    let request = super::fact_requests(line, Some(Path::new("/p")), &locations);
+    let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
+    assert_eq!(
+        request.targets,
+        paths(&["/p/out.txt", "/p/build", "/home/u/old", "/dev/sdb", "/p/conf", "/p/new/dir",])
+    );
+    assert_eq!(request.tracked, paths(&["/p/build", "/home/u/old"]));
+    assert_eq!(request.programs, ["sudo", "env", "make", "rm", "dd", "sed", "mkdir", "cd", "tee"]);
+}

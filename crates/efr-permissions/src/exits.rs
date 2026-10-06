@@ -297,6 +297,69 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     found.0
 }
 
+/// What the daemon looks up on disk before [`predict`] reads a line, because the
+/// engine reads no file: the facts of [`CallFacts`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FactRequest {
+    /// Paths whose kind a fact gives: the targets that the line writes or makes
+    /// (redirections, `dd of=`, `sed -i`, `tee`, `touch`, `mkdir`), and each operand of
+    /// `rm -r`. The daemon adds the declared write paths and the parents of each target
+    /// up to the first one that exists.
+    pub targets: Vec<PathBuf>,
+    /// The directories of `rm -r` whose tracked files a fact counts.
+    pub tracked: Vec<PathBuf>,
+    /// The program words of the line, each once, also behind wrappers such as `env`
+    /// and `sudo`; a word that only the shell can read is left out.
+    pub programs: Vec<String>,
+}
+
+/// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
+/// same lenient split, so every path it asks about is here.
+pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locations) -> FactRequest {
+    let start = command_dir.and_then(normalize);
+    let mut request = FactRequest::default();
+    let add = |list: &mut Vec<PathBuf>, path: PathBuf| {
+        if !list.contains(&path) {
+            list.push(path);
+        }
+    };
+    for segment in scan::scan(line) {
+        let dir = if segment.after_cd { None } else { start.as_deref() };
+        let at = |word: &str| resolve(word, dir, locations);
+        for redirect in &segment.redirects {
+            if let Some(path) = at(&redirect.target) {
+                add(&mut request.targets, path);
+            }
+        }
+        for command in programs::commands(&segment.words) {
+            if let Some(program) = command.first()
+                && !program.contains([OPAQUE, '$'])
+                && !request.programs.contains(program)
+            {
+                request.programs.push(program.clone());
+            }
+            let written = programs::made_paths(command)
+                .into_iter()
+                .map(|(word, _)| word)
+                .chain(programs::dd_targets(command))
+                .chain(programs::sed_in_place_targets(command));
+            for word in written {
+                if let Some(path) = at(word) {
+                    add(&mut request.targets, path);
+                }
+            }
+            for word in programs::recursive_rm_operands(command) {
+                if let Some(path) = at(word) {
+                    add(&mut request.targets, path.clone());
+                    add(&mut request.tracked, path);
+                }
+            }
+        }
+    }
+    request
+}
+
 /// The exits found so far, each kind, grant set and target once.
 #[derive(Default)]
 struct Found(Vec<ExitNeed>);
