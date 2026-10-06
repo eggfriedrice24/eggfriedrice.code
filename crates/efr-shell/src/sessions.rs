@@ -30,8 +30,8 @@ use crate::session::{
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, ShellConfig, ShellDeps,
-    ShellError, ShellNotice, ShellState, env, integration, sentinel,
+    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, SandboxRun, ShellConfig,
+    ShellDeps, ShellError, ShellNotice, ShellState, env, integration, sandbox, sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
@@ -433,9 +433,14 @@ impl ShellSessions {
         config.login = start.login;
         config.trusted_programs = start.trusted_programs.to_vec();
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
+        // NOTE: the shell is a child subreaper, so a process that a command leaves
+        // behind after a double fork or `setsid` stays in the shell's process tree,
+        // where the daemon's peer check finds it (efr's auto spec, 2.2 and 13.5).
         let spec = SpawnSpec::new(pty_id, &start.program, start_dir, config.size)
             .args(integration::args(start.login))
-            .vars(env::shell_env(&config, start_dir, start.integration));
+            .vars(env::shell_env(&config, start_dir, start.integration))
+            .vars(env::sandbox_env(&config, conversation, start.integration))
+            .child_subreaper(true);
         let PtyHandle { master, child_pid, .. } = inner
             .deps
             .holder
@@ -539,6 +544,14 @@ impl ShellSessions {
         progress: &mut dyn RunProgress,
     ) -> Result<CommandResult, ShellError> {
         let deps = &self.inner.deps;
+        if let Some(run) = &request.sandbox {
+            let root = self.inner.config.sandbox_dir.as_deref();
+            sandbox::check(root, session.conversation, run, &request.command)?;
+            // The command never reaches the shell's line editor: the launcher reads it
+            // from this file.
+            sandbox::write_line(&run.dir, &request.command).await?;
+        }
+        let contained = request.sandbox.as_ref().is_some_and(SandboxRun::contained);
         let id = self.inner.next_run.fetch_add(1, Ordering::Relaxed);
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
@@ -553,6 +566,7 @@ impl ShellSessions {
             call: request.call,
             forget_credentials: request.forget_credentials,
             token: sentinel::token(&*deps.rng),
+            sandbox: request.sandbox,
             reply,
             progress: publish,
         };
@@ -619,7 +633,9 @@ impl ShellSessions {
                     }
                 }
                 () = until(&mut look) => {
-                    let looked = self.look_for_input(session, id, offer, &mut watch, progress).await;
+                    let looked = self
+                        .look_for_input(session, id, offer, contained, &mut watch, progress)
+                        .await;
                     let stop = match looked {
                         Ok(stop) => stop,
                         // The actor went away while the run's reply was still open; a wait
@@ -690,12 +706,15 @@ impl ShellSessions {
     }
 
     /// One look at whether run `id` waits for input; each change goes to `progress`.
-    /// Returns true when the command waits for hidden input that nobody can answer.
+    /// Returns true when the command waits for hidden input that nobody can answer,
+    /// which is always so for a `contained` sandboxed command: efr never types a secret
+    /// into one (efr's auto spec, 3.12).
     async fn look_for_input(
         &self,
         session: &SessionHandle,
         id: u64,
         offer: Offer,
+        contained: bool,
         watch: &mut InputWatch,
         progress: &mut dyn RunProgress,
     ) -> Result<bool, ShellError> {
@@ -738,7 +757,7 @@ impl ShellSessions {
             progress.input_changed(changed, watch.looks_secret());
             told?;
         }
-        Ok(watch.current() == InputWait::Hidden && !progress.can_answer_hidden())
+        Ok(watch.current() == InputWait::Hidden && (contained || !progress.can_answer_hidden()))
     }
 
     /// How much longer a run that reached its deadline waits for its command, when it
@@ -848,7 +867,7 @@ impl ShellSessions {
             cwd_after: cwd,
             screen_tail: None,
             delimiter,
-            sandbox: None,
+            sandbox: output.sandbox.map(|result| *result),
         })
     }
 

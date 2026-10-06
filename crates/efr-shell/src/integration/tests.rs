@@ -3,7 +3,7 @@ use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::{EDITOR, EDITOR_FILE, INTEGRATION, ZSHENV, args, install, supports};
+use super::{CHILD, CHILD_FILE, EDITOR, EDITOR_FILE, INTEGRATION, ZSHENV, args, install, supports};
 
 /// The exact sequences the scanner and a ghostty screen expect, as the script writes
 /// them in zsh's `$'...'` quoting.
@@ -22,16 +22,79 @@ fn the_script_emits_the_ghostty_sequence_set() {
     }
 }
 
+/// The hidden shell runs no hook of the user (efr's auto spec, 5.7): its own hooks are
+/// the only ones, set again at every prompt and every command.
 #[test]
-fn the_script_puts_its_precmd_hook_first_and_its_preexec_hook_last() {
-    assert!(
-        INTEGRATION
-            .contains("precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})")
-    );
-    assert!(
-        INTEGRATION
-            .contains("preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)")
-    );
+fn the_script_keeps_only_its_own_hooks() {
+    for line in [
+        "precmd_functions=(_efr_hs_precmd)",
+        "preexec_functions=(_efr_hs_preexec)",
+        "chpwd_functions=(_efr_hs_report_pwd)",
+        "periodic_functions=()",
+        "zshaddhistory_functions=()",
+        "PS1='%# '",
+        "RPS1=",
+        "builtin setopt no_prompt_subst",
+        "for name in precmd preexec chpwd periodic zshaddhistory; do",
+        "builtin zstyle -d zle-$name widgets",
+        "builtin zle -D zle-$name 2>/dev/null",
+    ] {
+        assert!(INTEGRATION.contains(line), "missing {line}");
+    }
+    let strip = INTEGRATION.find("builtin zle -D zle-$name").unwrap();
+    let own = INTEGRATION.find("add-zle-hook-widget line-init _efr_hs_line_init").unwrap();
+    assert!(strip < own, "the user's widgets go before efr's is added");
+}
+
+#[test]
+fn the_script_freezes_the_terminal_settings() {
+    assert!(INTEGRATION.contains("\n  builtin ttyctl -f\n"));
+}
+
+/// The fixed line names the functions that the script defines and the variable that
+/// holds them, which nothing can change.
+#[test]
+fn the_wrapper_check_matches_the_scripts_functions() {
+    let check = crate::run::WRAPPER_CHECK;
+    for name in ["_efr_hs_sbx", "_efr_hs_sbx_apply", "_efr_hs_sbx_snapshot"] {
+        assert!(INTEGRATION.contains(&format!("\n{name}() {{\n")), "{name} is not defined");
+        assert!(check.contains(&format!("${{functions[{name}]-}}")), "{name} is not checked");
+    }
+    assert!(INTEGRATION.contains(
+        r#"builtin typeset -gr _efr_hs_sbx_src="$functions[_efr_hs_sbx]$functions[_efr_hs_sbx_apply]$functions[_efr_hs_sbx_snapshot]""#
+    ));
+    assert!(check.contains(r#"== "$_efr_hs_sbx_src""#));
+    assert!(check.ends_with(r" ]] && \_efr_hs_sbx "));
+    // The source is read only after the last of the three is defined.
+    let src = INTEGRATION.find("builtin typeset -gr _efr_hs_sbx_src=").unwrap();
+    let last = INTEGRATION.find("\n_efr_hs_sbx_snapshot() {\n").unwrap();
+    assert!(last < src);
+}
+
+/// The wrapper's environment names match the ones the session passes.
+#[test]
+fn the_script_reads_the_sandbox_variables_once() {
+    for name in [crate::env::SANDBOX_DIR, crate::env::SANDBOX_LAUNCHER] {
+        assert!(INTEGRATION.contains(&format!("${{{name}-}}")), "{name} is not read");
+    }
+    assert!(INTEGRATION.contains("builtin unset _EFR_HS_SBX_DIR _EFR_HS_SBX_BIN"));
+}
+
+/// The end mark that the wrapper prints is the one the scanner reads.
+#[test]
+fn the_wrapper_prints_the_sandbox_end_mark() {
+    assert!(INTEGRATION.contains(r#"$'\e]133;efr-sbx;'"$(<$dir/nonce)"$'\a'"#));
+}
+
+#[test]
+fn the_child_script_writes_every_record_kind_on_descriptor_3() {
+    for kind in
+        ["efr-records v1 cwd", "export", "unset", "func", "unfunc", "alias", "unalias", "end"]
+    {
+        assert!(CHILD.contains(kind), "missing {kind}");
+    }
+    assert!(CHILD.contains(r#"{ builtin print -rN -- "${(@)out}" } 2>/dev/null >&3"#));
+    assert!(CHILD.contains("builtin trap '_efr_child_records $?' EXIT"));
 }
 
 #[test]
@@ -129,7 +192,7 @@ fn the_shim_restores_zdotdir_and_sources_the_users_zshenv() {
 
 #[test]
 fn neither_script_carries_ghosttys_licence_text() {
-    for script in [ZSHENV, INTEGRATION] {
+    for script in [ZSHENV, INTEGRATION, CHILD] {
         assert!(!script.contains("GNU General Public License"));
         assert!(!script.contains("ghostty_"));
     }
@@ -145,6 +208,7 @@ fn install_writes_both_files_and_replaces_old_copies() {
     assert_eq!(std::fs::read_to_string(target.join(".zshenv")).unwrap(), ZSHENV);
     assert_eq!(std::fs::read_to_string(target.join("efr-integration.zsh")).unwrap(), INTEGRATION);
     assert_eq!(std::fs::read_to_string(target.join("efr-editor")).unwrap(), EDITOR);
+    assert_eq!(std::fs::read_to_string(target.join(CHILD_FILE)).unwrap(), CHILD);
 }
 
 #[test]

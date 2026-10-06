@@ -75,6 +75,13 @@ pub struct ShellConfig {
     /// startup files define is removed, so the name runs the program itself. The
     /// daemon passes the programs of its command rules; empty by default.
     pub trusted_programs: Vec<String>,
+    /// The root of the sandbox dirs of the auto mode, `$R/sbx`. A zsh with the
+    /// integration gets `<root>/<conversation>` as its sandbox dir, where efrd prepares
+    /// the dir of each sandboxed call. `None` (the default) refuses sandboxed runs.
+    pub sandbox_dir: Option<PathBuf>,
+    /// The launcher that the wrapper runs for a sandboxed call, the copy of `efr-sbx`
+    /// that efrd keeps (`$R/bin/efr-sbx`). `None` by default.
+    pub sandbox_launcher: Option<PathBuf>,
 }
 
 impl ShellConfig {
@@ -103,6 +110,8 @@ impl ShellConfig {
             tail_interval: Duration::from_millis(200),
             close_grace: Duration::from_secs(5),
             trusted_programs: Vec::new(),
+            sandbox_dir: None,
+            sandbox_launcher: None,
         }
     }
 }
@@ -124,6 +133,8 @@ impl fmt::Debug for ShellConfig {
             .field("tail_interval", &self.tail_interval)
             .field("close_grace", &self.close_grace)
             .field("trusted_programs", &self.trusted_programs)
+            .field("sandbox_dir", &self.sandbox_dir)
+            .field("sandbox_launcher", &self.sandbox_launcher)
             .finish()
     }
 }

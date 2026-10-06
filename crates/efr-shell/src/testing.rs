@@ -626,6 +626,23 @@ impl Harness {
     }
 
     pub(crate) fn with(program: &str, screens: Arc<dyn ScreenFactory>) -> Self {
+        Harness::build(program, screens, |_, _| {})
+    }
+
+    /// A harness whose zsh has a sandbox dir (`<dir>/sbx`) and a launcher path
+    /// (`<dir>/bin/efr-sbx`, which nothing runs: the test plays the shell).
+    pub(crate) fn sandboxed() -> Self {
+        Harness::build("/usr/bin/zsh", Arc::new(Vt100Screens), |config, dir| {
+            config.sandbox_dir = Some(dir.join("sbx"));
+            config.sandbox_launcher = Some(dir.join("bin/efr-sbx"));
+        })
+    }
+
+    pub(crate) fn build(
+        program: &str,
+        screens: Arc<dyn ScreenFactory>,
+        configure: impl FnOnce(&mut ShellConfig, &std::path::Path),
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let holder = FakeHolder::new();
         let clock = TestClock::new();
@@ -639,6 +656,7 @@ impl Harness {
         config.program = Some(PathBuf::from(program));
         config.size = SIZE;
         config.startup_timeout = Duration::from_secs(10);
+        configure(&mut config, dir.path());
         let deps = ShellDeps::new(
             Arc::clone(&holder) as Arc<dyn PtyHolder>,
             screens,

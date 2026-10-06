@@ -36,6 +36,7 @@ fn order(id: u64, command: &str, mode: RunMode) -> (RunOrder, Answer, watch::Rec
         call: Some(call_id(id)),
         forget_credentials: false,
         token: "0123456789abcdef".to_owned(),
+        sandbox: None,
         reply,
         progress,
     };

@@ -139,6 +139,25 @@ pub enum ShellError {
         reason: &'static str,
     },
 
+    /// A sandboxed run cannot start in this shell as asked. Nothing was typed.
+    #[error("the sandboxed call of conversation {conversation} cannot start: {reason}")]
+    Sandbox {
+        /// The conversation.
+        conversation: ConversationId,
+        /// Why not.
+        reason: &'static str,
+    },
+
+    /// A file of a sandboxed call could not be written.
+    #[error("could not write {} for a sandboxed call", .path.display())]
+    SandboxFile {
+        /// The file.
+        path: PathBuf,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
     /// The terminal's modes could not be read, or the answer could not be written.
     #[error("the terminal of conversation {conversation} failed")]
     Terminal {

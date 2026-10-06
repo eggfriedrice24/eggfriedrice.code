@@ -258,6 +258,7 @@ impl SentinelRun {
             kept: self.capture.finish(),
             range,
             cwd,
+            sandbox: None,
         }
     }
 }

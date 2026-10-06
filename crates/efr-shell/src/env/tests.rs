@@ -3,7 +3,7 @@ use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::shell_env;
+use super::{sandbox_env, shell_env};
 use crate::ShellConfig;
 
 fn config(vars: &[(&str, &str)]) -> ShellConfig {
@@ -160,4 +160,29 @@ fn the_trusted_programs_reach_a_zsh_with_the_integration_only() {
     assert_eq!(zsh["_EFR_HS_TRUSTED_PROGRAMS"], "ls git");
     let other = shell_env(&config, Path::new("/"), false);
     assert!(!other.contains_key("_EFR_HS_TRUSTED_PROGRAMS"), "{other:?}");
+}
+
+#[test]
+fn the_sandbox_dir_and_launcher_reach_a_zsh_with_the_integration_only() {
+    let conversation = "01920000-0000-7000-8000-000000000001".parse().unwrap();
+    let mut config = config(&[("_EFR_HS_SBX_DIR", "/inherited"), ("_EFR_HS_SBX_BIN", "/x")]);
+    let inherited = shell_env(&config, Path::new("/"), true);
+    assert!(!inherited.contains_key("_EFR_HS_SBX_DIR"), "{inherited:?}");
+    assert!(!inherited.contains_key("_EFR_HS_SBX_BIN"), "{inherited:?}");
+    assert_eq!(sandbox_env(&config, conversation, true), []);
+
+    config.sandbox_dir = Some("/run/user/1000/efr/sbx".into());
+    assert_eq!(sandbox_env(&config, conversation, true), [], "a launcher is needed too");
+    config.sandbox_launcher = Some("/run/user/1000/efr/bin/efr-sbx".into());
+    assert_eq!(
+        sandbox_env(&config, conversation, true),
+        [
+            (
+                "_EFR_HS_SBX_DIR".to_owned(),
+                "/run/user/1000/efr/sbx/01920000-0000-7000-8000-000000000001".to_owned()
+            ),
+            ("_EFR_HS_SBX_BIN".to_owned(), "/run/user/1000/efr/bin/efr-sbx".to_owned()),
+        ]
+    );
+    assert_eq!(sandbox_env(&config, conversation, false), []);
 }

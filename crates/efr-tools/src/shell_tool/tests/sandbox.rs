@@ -73,7 +73,9 @@ fn needs_over_their_limits_are_invalid() {
 
 fn sandbox_run() -> SandboxRun {
     let call: CallId = "01920000-0000-7000-8000-000000000003".parse().unwrap();
-    SandboxRun { dir: PathBuf::from("/run/user/1000/efr/sbx/c/x"), call, nonce: [7; 16] }
+    // efr-tools has no efr-sandbox edge, so the launch comes from its wire name.
+    let launch = serde_json::from_value(json!("contained")).unwrap();
+    SandboxRun::new(PathBuf::from("/run/user/1000/efr/sbx/c/x"), call, [7; 16], launch)
 }
 
 #[tokio::test]
@@ -85,7 +87,7 @@ async fn the_launchers_call_reaches_the_run_request() {
     tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap();
     assert_eq!(runner.last_request().sandbox, Some(sandbox_run()));
     let debug = format!("{:?}", sandbox_run());
-    assert!(debug.contains("redacted") && !debug.contains("7, 7"), "{debug}");
+    assert!(debug.contains("[16 bytes]") && !debug.contains("7, 7"), "{debug}");
     // Without one the line goes to the hidden shell, as in the other modes.
     let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/tmp")));
     let tool = super::super::ShellTool::new(runner.clone());
