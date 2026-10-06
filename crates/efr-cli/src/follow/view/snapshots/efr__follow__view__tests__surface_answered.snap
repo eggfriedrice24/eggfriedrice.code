@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\r\e[1A\e[J
+\e[2mleft in quarantine\e[0m
+\e[?2026l

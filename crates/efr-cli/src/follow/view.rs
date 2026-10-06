@@ -46,14 +46,28 @@
 //! asked for a password, or after a manual answer line that may have held one, they are
 //! thrown away as before. Keys typed outside such a call stay typeahead for the user's
 //! shell.
+//!
+//! In `auto`, the first call of a turn that runs in the sandbox gets one dim line that
+//! says where it can write, and a failed contained call ends with `(sandbox)`. An
+//! approval for an exit shows the whole line of the call, what leaves the sandbox and
+//! how the call runs after a "yes", every program word of a line that runs outside
+//! the sandbox (with the untrusted mark for a program that the sandbox wrote), efr's
+//! own facts and the model's reason, labelled as the model's. A turn whose mode fell
+//! back says so at its start. When a call changed git settings that run programs, the
+//! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
+//! question id: it is not an approval of a call.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
-use efr_protocol::{ApprovalDecision, CallId, ErrorBody, Event, InputWait, Origin, TurnId};
+use efr_protocol::{
+    ApprovalDecision, CallId, ErrorBody, Event, ExitInfo, ExitRecord, InputWait, Launch, Origin,
+    QuestionId, Scope, SurfaceChange, TurnId,
+};
 use efr_render::{RenderOptions, Renderer, render, render_trace};
 use unicode_width::UnicodeWidthChar as _;
 
-use crate::format::{self, Block, Spacing, Tone};
+use crate::format::{self, Block, Spacing, Tone, sandbox};
 use crate::live::{LiveZone, Measured, effective_width};
 use crate::terminal::{Size, at_width};
 
@@ -205,6 +219,9 @@ pub(crate) enum Ask {
     /// visible wait of the call starts its answer line with them. Keys already queued
     /// stay, because they were typed for the call.
     Retain(CallId),
+    /// The quarantine question, answered with one key: `y` keeps the change, `n` leaves
+    /// it in quarantine.
+    Surface(QuestionId),
 }
 
 /// The tool call whose output is arriving now.
@@ -313,6 +330,23 @@ pub(crate) struct TurnView {
     /// The call that the user allowed here as one that may wait for input, while it
     /// runs: its keys are kept for it whenever nothing else reads them.
     retained: Option<CallId>,
+    /// The home directory, which the sandbox's lines print as `~`.
+    home: Option<PathBuf>,
+    /// The turn runs in a registered project, which its sandbox can write.
+    in_project: bool,
+    /// The line that says where a contained call can write is shown for this turn.
+    traced: bool,
+    /// Calls that run in the sandbox, whose failure says so.
+    contained: HashSet<CallId>,
+    /// The record of each call's exit, for the lines of its approval.
+    exits: HashMap<CallId, ExitRecord>,
+    /// The quarantine question waiting for a key.
+    surface: Option<QuestionId>,
+    /// The quarantine question that this client answered, whose answer needs no second
+    /// note.
+    surface_answered: Option<QuestionId>,
+    /// Every quarantine question shown, of this turn or of the turn it waits behind.
+    surfaces: HashSet<QuestionId>,
 }
 
 impl TurnView {
@@ -336,7 +370,26 @@ impl TurnView {
             echo_line: false,
             interactive: HashSet::new(),
             retained: None,
+            home: None,
+            in_project: false,
+            traced: false,
+            contained: HashSet::new(),
+            exits: HashMap::new(),
+            surface: None,
+            surface_answered: None,
+            surfaces: HashSet::new(),
         }
+    }
+
+    /// The same view, which prints paths below `home` as `~`.
+    pub(crate) fn with_home(mut self, home: Option<PathBuf>) -> TurnView {
+        self.home = home;
+        self
+    }
+
+    /// True while an approval or the quarantine question waits for a key.
+    fn question_pending(&self) -> bool {
+        self.asking.is_some() || self.surface.is_some()
     }
 
     /// The turn waits behind the running one: until it starts, the running turn's
@@ -366,17 +419,30 @@ impl TurnView {
             return self.other_turn(event, size, can_ask);
         }
         match event {
-            Event::TurnStarted { .. } => {
+            Event::TurnStarted { scope, settings, .. } => {
                 self.queued = false;
-                // A call of the turn ahead that is still shown or kept is over now.
+                self.in_project = matches!(scope, Scope::Project(_));
+                // A call or a question of the turn ahead that is still shown or kept is
+                // over now.
                 let retained = self.retained.take().is_some();
-                match self.running.take() {
+                let surface = self.surface.take().is_some();
+                let mut step = match self.running.take() {
                     Some(running) => Step {
-                        settled: running.reads_keys() || retained,
+                        settled: running.reads_keys() || retained || surface,
                         ..self.commit(String::new(), size)
                     },
-                    None => Step { settled: retained, ..Step::default() },
+                    None => Step { settled: retained || surface, ..Step::default() },
+                };
+                let fallback = settings.as_ref().and_then(|settings| {
+                    let fallback = settings.fallback.as_ref()?;
+                    Some(sandbox::fallback_note(fallback, settings.mode))
+                });
+                if let Some(note) = fallback {
+                    let noted = self.note(&note, size);
+                    step.out.push_str(&noted.out);
+                    step.err.push_str(&noted.err);
                 }
+                step
             }
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 self.message_delta(*index, *offset, delta, size)
@@ -384,7 +450,7 @@ impl TurnView {
             Event::AssistantMessageCompleted { index, text, .. } => {
                 self.message_text(*index, text, true, size)
             }
-            Event::ToolCallStarted { call_id, tool, input, manual_input, .. } => {
+            Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 // A call that takes a manual input is followed from its start, so a
                 // command that never prints can still offer `Ctrl+\`.
@@ -394,33 +460,80 @@ impl TurnView {
                     running.takes_manual = true;
                     settled = replaced;
                 }
+                let contained = matches!(launch, Some(Launch::Contained { .. }));
+                if contained {
+                    self.contained.insert(*call_id);
+                }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                Step { settled, ..self.note_after(before, &format::tool_call(tool, input), size) }
+                let mut step = self.note_after(before, &format::tool_call(tool, input), size);
+                // One line per turn says that the sandbox is on, then nothing new.
+                if contained && !self.traced {
+                    self.traced = true;
+                    let trace = if self.in_project {
+                        sandbox::CONTAINED_IN_PROJECT
+                    } else {
+                        sandbox::CONTAINED
+                    };
+                    let noted = self.note(trace, size);
+                    step.out.push_str(&noted.out);
+                    step.err.push_str(&noted.err);
+                }
+                Step { settled, ..step }
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
-            Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
+            Event::ToolCallCompleted { call_id, is_error, exit_code, sandbox: summary, .. } => {
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
+                let contained = self.contained.remove(call_id)
+                    || summary.as_ref().is_some_and(|summary| summary.confined);
                 let line = format::tool_result(tool, *is_error, *exit_code)
-                    .filter(|_| !self.refused.contains(call_id));
-                let step = match line {
-                    Some(line) => self.note(&line, size),
-                    // The live tail goes either way.
-                    None => self.commit(String::new(), size),
-                };
-                Step { settled, ..step }
+                    .filter(|_| !self.refused.contains(call_id))
+                    .map(|line| if contained { format!("{line} (sandbox)") } else { line });
+                let mut notes: Vec<String> = line.into_iter().collect();
+                if let Some(summary) = summary {
+                    notes.extend(summary.blocked.iter().map(sandbox::blocked));
+                    notes.extend(sandbox::background_stopped(&summary.background_stopped));
+                }
+                // The live tail goes either way.
+                Step { settled, ..self.notes(&notes, size) }
             }
-            Event::ApprovalRequested { call_id, summary, diff_preview, interactive, .. } => {
+            Event::ExitRequested { call_id, record, .. } => {
+                self.exits.insert(*call_id, (**record).clone());
+                Step::default()
+            }
+            Event::ApprovalRequested {
+                call_id, summary, diff_preview, interactive, exit, ..
+            } => {
                 if *interactive {
                     self.interactive.insert(*call_id);
                 }
-                let request = Request { heading: APPROVAL, summary, diff: diff_preview.as_deref() };
+                let request = Request {
+                    heading: APPROVAL,
+                    summary,
+                    diff: diff_preview.as_deref(),
+                    exit: exit.as_ref(),
+                };
                 self.approval(*call_id, &request, size, can_ask)
+            }
+            Event::SandboxSurfaceChanged { changes, .. } => {
+                match sandbox::surface_changed(changes, self.home.as_deref()) {
+                    Some(line) => self.note(&line, size),
+                    None => Step::default(),
+                }
+            }
+            Event::SurfaceQuestionRequested { question_id, changes, .. } => {
+                self.surface_question(*question_id, changes, size, can_ask)
+            }
+            Event::SurfaceQuestionAnswered { question_id, keep, origin, .. } => {
+                self.surface_resolved(*question_id, *keep, *origin, size)
+            }
+            Event::TurnSurfaceReport { files, .. } => {
+                self.dim_block(&sandbox::surface_report(files), size)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. } => {
                 self.resolved(*call_id, *decision, *origin, size)
@@ -449,14 +562,32 @@ impl TurnView {
             return Step::default();
         }
         match event {
-            Event::ApprovalRequested { call_id, summary, diff_preview, interactive, .. } => {
+            Event::ExitRequested { call_id, record, .. } => {
+                self.exits.insert(*call_id, (**record).clone());
+                Step::default()
+            }
+            Event::ApprovalRequested {
+                call_id, summary, diff_preview, interactive, exit, ..
+            } => {
                 self.blocking.insert(*call_id);
                 if *interactive {
                     self.interactive.insert(*call_id);
                 }
-                let request =
-                    Request { heading: BLOCKING_APPROVAL, summary, diff: diff_preview.as_deref() };
+                let request = Request {
+                    heading: BLOCKING_APPROVAL,
+                    summary,
+                    diff: diff_preview.as_deref(),
+                    exit: exit.as_ref(),
+                };
                 self.approval(*call_id, &request, size, can_ask)
+            }
+            Event::SurfaceQuestionRequested { question_id, changes, .. } => {
+                self.surface_question(*question_id, changes, size, can_ask)
+            }
+            Event::SurfaceQuestionAnswered { question_id, keep, origin, .. }
+                if self.surfaces.contains(question_id) =>
+            {
+                self.surface_resolved(*question_id, *keep, *origin, size)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. }
                 if self.blocking.contains(call_id) =>
@@ -505,6 +636,128 @@ impl TurnView {
         Step { settled, ..self.note("the approval expired", size) }
     }
 
+    /// Dim note lines, one after the other; with none, only the live zone is redrawn.
+    fn notes(&mut self, lines: &[String], size: Size) -> Step {
+        let mut step = Step::default();
+        if lines.is_empty() {
+            return self.commit(String::new(), size);
+        }
+        for line in lines {
+            let noted = self.note(line, size);
+            step.out.push_str(&noted.out);
+            step.err.push_str(&noted.err);
+        }
+        step
+    }
+
+    /// Dim lines that keep their indentation and their whole width, unlike a note, which
+    /// is cut to the screen: a list of files must stay complete.
+    fn dim_block(&mut self, lines: &[String], size: Size) -> Step {
+        let options = self.options_at(size);
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(&format::paint(line, Tone::Dim, &options));
+            text.push('\n');
+        }
+        if !self.terminal() {
+            return Step { err: self.raw_err(text), ..Step::default() };
+        }
+        let mut committed = self.spacing.before(Block::Note).to_owned();
+        committed.push_str(&text);
+        Step { out: self.redraw(&committed, size), ..Step::default() }
+    }
+
+    /// The quarantine question `question_id` about `changes`: a git setting that runs
+    /// programs, which the last call changed and the launcher moved to quarantine. Like
+    /// an approval it waits below the live zone for one key, but no call waits for it.
+    fn surface_question(
+        &mut self,
+        question_id: QuestionId,
+        changes: &[SurfaceChange],
+        size: Size,
+        can_ask: bool,
+    ) -> Step {
+        self.surfaces.insert(question_id);
+        let before = self.finish_message();
+        let options = self.options_at(size);
+        let mut text = format::paint(sandbox::SURFACE_QUESTION, Tone::Attention, &options);
+        text.push('\n');
+        for change in changes {
+            let line = sandbox::surface_change(change, self.home.as_deref());
+            text.push_str(&format::paint(&line, Tone::Attention, &options));
+            text.push('\n');
+        }
+        let mut step = Step { out: before, ..Step::default() };
+        if can_ask {
+            self.surface = Some(question_id);
+            step.ask = Some(Ask::Surface(question_id));
+            // One question at a time: the question's key reader replaces any other.
+            self.retained = None;
+            if let Some(running) = &mut self.running {
+                running.asking = None;
+                running.guarding = false;
+                running.typed.clear();
+                running.hinted = false;
+            }
+            if !self.terminal() {
+                text.push_str(sandbox::KEEP_QUESTION);
+                text.push('\n');
+            }
+        } else {
+            text.push_str(&render_trace("waiting for another client to answer", &options));
+        }
+        self.show_question(step, &text, size)
+    }
+
+    /// The user answered the quarantine question `question_id` with a key here.
+    pub(crate) fn surface_answered(
+        &mut self,
+        question_id: QuestionId,
+        keep: bool,
+        size: Size,
+    ) -> Step {
+        if self.surface == Some(question_id) {
+            self.surface = None;
+        }
+        self.surface_answered = Some(question_id);
+        let line = if keep { "kept" } else { "left in quarantine" };
+        self.note(line, size)
+    }
+
+    /// The quarantine question `question_id` was answered, expired or ended with an
+    /// interrupt.
+    fn surface_resolved(
+        &mut self,
+        question_id: QuestionId,
+        keep: bool,
+        origin: Option<Origin>,
+        size: Size,
+    ) -> Step {
+        if self.surface_answered == Some(question_id) {
+            return Step::default();
+        }
+        let settled = self.surface == Some(question_id);
+        if settled {
+            self.surface = None;
+        }
+        let line = sandbox::surface_answered(keep, origin.map(format::origin));
+        Step { settled, ..self.note(&line, size) }
+    }
+
+    /// Writes the question `text` after `step`'s output: below the live zone on a
+    /// terminal, on stderr otherwise.
+    fn show_question(&mut self, mut step: Step, text: &str, size: Size) -> Step {
+        if self.terminal() {
+            let mut committed = std::mem::take(&mut step.out);
+            committed.push_str(self.spacing.before(Block::Approval));
+            committed.push_str(text);
+            step.out = self.redraw(&committed, size);
+        } else {
+            step.err = self.raw_err(text.to_owned());
+        }
+        step
+    }
+
     /// A dim note line, such as `queued behind the running turn`.
     pub(crate) fn note(&mut self, text: &str, size: Size) -> Step {
         self.note_after(String::new(), text, size)
@@ -537,7 +790,7 @@ impl TurnView {
     /// no approval waits, and whose line that offers `Ctrl+\` is not shown yet.
     pub(crate) fn silence(&self) -> Option<(CallId, u64)> {
         let running = self.running.as_ref()?;
-        let quiet = running.quiet() && !running.hinted && self.asking.is_none();
+        let quiet = running.quiet() && !running.hinted && !self.question_pending();
         quiet.then_some((running.call_id, running.activity))
     }
 
@@ -545,7 +798,7 @@ impl TurnView {
     /// the key exactly while there is one.
     pub(crate) fn manual_offer(&self) -> Option<CallId> {
         let running = self.running.as_ref()?;
-        let offered = running.quiet() && running.hinted && self.asking.is_none();
+        let offered = running.quiet() && running.hinted && !self.question_pending();
         offered.then_some(running.call_id)
     }
 
@@ -630,7 +883,7 @@ impl TurnView {
         size: Size,
         can_ask: bool,
     ) -> Step {
-        let approval_pending = self.asking.is_some();
+        let approval_pending = self.question_pending();
         let (running, replaced) = self.running(call_id);
         if running.asking.is_some_and(AnswerKind::guards) {
             running.guarding = true;
@@ -830,6 +1083,7 @@ impl TurnView {
     /// live zone, before an error or an interrupt is reported.
     pub(crate) fn close(&mut self, size: Size) -> Step {
         self.asking = None;
+        self.surface = None;
         self.running = None;
         self.retained = None;
         let committed = self.finish_message();
@@ -925,12 +1179,23 @@ impl TurnView {
     ) -> Step {
         let before = self.finish_message();
         let options = self.options_at(size);
-        let (summary, asking) = format::approval_summary(request.summary);
+        let record = self.exits.get(&call_id);
+        // NOTE: an exit shows the whole line from its record, never a shortened summary.
+        let (summary, asking) = match request.exit.and_then(|_| sandbox::exit_heading(record)) {
+            Some(heading) => (heading, None),
+            None => format::approval_summary(request.summary),
+        };
         let mut text =
             format!("{} {summary}\n", format::paint(request.heading, Tone::Attention, &options));
         if let Some(asking) = asking {
             text.push_str(&format::paint(&asking, Tone::Attention, &options));
             text.push('\n');
+        }
+        if let Some(exit) = request.exit {
+            for (line, tone) in sandbox::exit_lines(exit, record, self.home.as_deref()) {
+                text.push_str(&format::paint(&line, tone, &options));
+                text.push('\n');
+            }
         }
         if let Some(diff) = request.diff {
             if self.terminal() {
@@ -962,15 +1227,7 @@ impl TurnView {
         } else {
             text.push_str(&render_trace("waiting for another client to answer", &options));
         }
-        if self.terminal() {
-            let mut committed = std::mem::take(&mut step.out);
-            committed.push_str(self.spacing.before(Block::Approval));
-            committed.push_str(&text);
-            step.out = self.redraw(&committed, size);
-        } else {
-            step.err = self.raw_err(text);
-        }
-        step
+        self.show_question(step, &text, size)
     }
 
     /// Clears the question when it was about `call_id`; true when it was.
@@ -984,7 +1241,10 @@ impl TurnView {
 
     fn end(&mut self, end: TurnEnd, note: Option<&str>, size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
-        let settled = self.asking.take().is_some() || input || self.retained.is_some();
+        let settled = self.asking.take().is_some()
+            || self.surface.take().is_some()
+            || input
+            || self.retained.is_some();
         let mut step = self.close(size);
         if let Some(note) = note {
             let noted = self.note(note, size);
@@ -1032,7 +1292,7 @@ impl TurnView {
                     live.push_str(&format::one_line(&running.typed));
                     live.push('\n');
                 }
-            } else if running.hinted && self.asking.is_none() {
+            } else if running.hinted && !self.question_pending() {
                 live.push_str(&format::paint(SILENCE_HINT, Tone::Dim, &options));
                 live.push('\n');
             }
@@ -1040,9 +1300,16 @@ impl TurnView {
                 measured = None;
             }
         }
-        if self.asking.is_some() {
+        let question = if self.asking.is_some() {
+            Some(QUESTION)
+        } else if self.surface.is_some() {
+            Some(sandbox::KEEP_QUESTION)
+        } else {
+            None
+        };
+        if let Some(question) = question {
             let options = self.options_at(size);
-            live.push_str(&format::paint(QUESTION, Tone::Dim, &options));
+            live.push_str(&format::paint(question, Tone::Dim, &options));
             live.push('\n');
             measured = None;
         }
@@ -1085,6 +1352,8 @@ struct Request<'a> {
     heading: &'static str,
     summary: &'a str,
     diff: Option<&'a str>,
+    /// What the call would do outside the sandbox, for an exit.
+    exit: Option<&'a ExitInfo>,
 }
 
 #[cfg(test)]

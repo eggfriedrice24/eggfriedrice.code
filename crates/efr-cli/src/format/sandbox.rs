@@ -25,9 +25,20 @@ const FULL_RIGHTS: &str = "the whole line runs with your full rights (files, sec
 /// The mark of a program that a sandboxed call wrote or may have written.
 const UNTRUSTED: &str = "untrusted: written in the sandbox";
 
+/// The dim trace of the first contained call of a turn: where it can write. Phase 1
+/// has no network in the sandbox.
+pub(crate) const CONTAINED_IN_PROJECT: &str =
+    "sandbox: writes in the project, $SCRATCH, private /tmp; no network";
+
+/// The same trace for a turn outside a registered project.
+pub(crate) const CONTAINED: &str = "sandbox: writes in $SCRATCH, private /tmp; no network";
+
 /// The first line of the quarantine question.
 pub(crate) const SURFACE_QUESTION: &str =
     "question: the last command changed git settings that run programs";
+
+/// The line under the quarantine question.
+pub(crate) const KEEP_QUESTION: &str = "keep it? y = yes, n = no";
 
 /// `path` with the home directory written as `~`, safe to print.
 pub(crate) fn tilde(path: &Path, home: Option<&Path>) -> String {

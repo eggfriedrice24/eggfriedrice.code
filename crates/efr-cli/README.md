@@ -91,6 +91,29 @@ Replies:
   `asks for: hostnamectl, systemctl --failed`. Only a last line of plain names counts
   as that line; anything else stays on the first line. `efr history` joins both with
   `; `, as the daemon's notices do.
+- The `auto` sandbox (`docs/sandbox.md`). The first call of a turn that runs in the
+  sandbox (`tool_call_started` with a contained `launch`) gets one dim line,
+  `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, and a failed
+  contained call ends `shell exited with N (sandbox)`. A call's `sandbox` summary adds
+  `network: blocked <host>:<port> (<reason>)` and the background jobs that stopped. A
+  turn whose `auto` fell back to `cautious` (`EffectiveSettings.fallback`) starts with
+  `auto is not available here; this turn runs as cautious: <reason>`.
+- An approval with `exit` (an action that leaves the sandbox) shows the whole line of
+  the call from its `exit_requested` record instead of the summary, then, in yellow,
+  what leaves and how the call runs after a "yes" (`leaves the sandbox: network; runs
+  in the sandbox with full network for this call`, or `runs outside the sandbox: sudo
+  (you may need to type your password)`). A line that runs outside the sandbox also
+  gets `the whole line runs with your full rights (files, secrets, network)` and
+  `programs:` with every program word and the path it resolves to; a program in a
+  write root or changed this turn gets `(untrusted: written in the sandbox)`, and the
+  line turns yellow. efr's own facts follow dim after `efr:`, then the model's reason
+  as `the model says: "..."`. Every part passes through `format::one_line`.
+- The quarantine question (`surface_question_requested`) is not an approval: it names
+  the git settings that the last call changed and the launcher moved to quarantine,
+  and asks `keep it? y = yes, n = no` with one key. The answer goes with
+  `sandbox.surface_respond` and the question's own `QuestionId`; nobody answering
+  leaves the change in quarantine. At the end of an `auto` turn, the files that run
+  code later outside the sandbox (`turn_surface_report`) show as three dim lines.
 - When stdout is not a terminal, the raw markdown is written, and notes and approval
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`

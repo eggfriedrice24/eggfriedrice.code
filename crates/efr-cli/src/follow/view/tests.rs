@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, CallId, ErrorBody, ErrorCode, Event, InputWait, Origin, Scope, TurnId,
+    ApprovalDecision, BlockReason, Blocked, CallId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait, Launch, Mode, ModeFallback,
+    Origin, OverriddenSettings, PathClassName, QuestionId, ReportedFile, SandboxSummary, Scope,
+    SurfaceChange, TargetFact, TurnId,
 };
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
@@ -9,7 +12,7 @@ use serde_json::json;
 
 use super::{AnswerKind, Ask, ECHO_PREFIX, Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
-use crate::testing::{call, readable, turn};
+use crate::testing::{call, exit_info, exit_record, program_fact, readable, turn};
 
 const SIZE: Size = Size { cols: 40, rows: 20 };
 
@@ -1085,4 +1088,300 @@ fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
     view.answered(next, ApprovalDecision::Allow, SIZE);
     let step = view.event(&input(InputWait::None), SIZE, true);
     assert_eq!(step.ask, None);
+}
+
+/// A view that prints `/home/user` as `~`, raw or on a terminal.
+fn sandbox_view(terminal: bool) -> TurnView {
+    TurnView::new(turn(), RenderOptions::new(100).with_terminal(terminal))
+        .with_home(Some(PathBuf::from("/home/user")))
+}
+
+const WIDE: Size = Size { cols: 100, rows: 20 };
+
+fn started_in(scope: Scope, fallback: Option<ModeFallback>) -> Event {
+    Event::TurnStarted {
+        turn_id: turn(),
+        cwd: PathBuf::from("/home/user/project"),
+        scope,
+        settings: Some(EffectiveSettings {
+            mode: if fallback.is_some() { Mode::Cautious } else { Mode::Auto },
+            model: "gpt-5.5".to_owned(),
+            effort: None,
+            overridden: OverriddenSettings::default(),
+            fallback,
+        }),
+    }
+}
+
+fn contained_started(command: &str) -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": command }),
+        manual_input: true,
+        launch: Some(Launch::contained()),
+    }
+}
+
+fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: String::new(),
+        truncated: false,
+        is_error: false,
+        exit_code: Some(exit_code),
+        sandbox,
+    }
+}
+
+#[test]
+fn a_routine_command_shows_the_sandbox_once_and_a_failure_says_sandbox() {
+    let mut view = sandbox_view(false);
+    let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(project, None),
+            contained_started("cargo nextest run -p efr-cli"),
+            contained_completed(
+                0,
+                Some(SandboxSummary { confined: true, ..SandboxSummary::default() }),
+            ),
+            contained_started("cargo add serde"),
+            contained_completed(
+                101,
+                Some(SandboxSummary {
+                    confined: true,
+                    blocked: vec![Blocked {
+                        host: "evil.example".to_owned(),
+                        port: 443,
+                        reason: BlockReason::NotAllowed,
+                    }],
+                    background_stopped: vec!["vite".to_owned()],
+                    ..SandboxSummary::default()
+                }),
+            ),
+        ],
+        true,
+    );
+    insta::assert_snapshot!(err);
+}
+
+#[test]
+fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
+    let mut view = sandbox_view(false);
+    let (_, err, _) =
+        feed(&mut view, &[started_in(Scope::Machine, None), contained_started("ls")], true);
+    assert_eq!(err, "shell: ls\nsandbox: writes in $SCRATCH, private /tmp; no network\n");
+}
+
+#[test]
+fn a_fallback_says_so_at_the_start_of_the_turn() {
+    let mut view = sandbox_view(true);
+    let fallback = ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() };
+    let step = view.event(&started_in(Scope::Machine, Some(fallback)), WIDE, true);
+    insta::assert_snapshot!(readable(&step.out));
+}
+
+/// The record and the approval of an exit of `line`.
+fn exit_events(line: &str, facts: ExitFacts, info: ExitInfo) -> [Event; 2] {
+    [
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: info.kinds.clone(),
+            grants: info.grants.clone(),
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record(line, facts)),
+        },
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "a summary that the exit's whole line replaces".to_owned(),
+            diff_preview: None,
+            interactive: true,
+            exit: Some(info),
+        },
+    ]
+}
+
+#[test]
+fn an_exit_question_shows_the_whole_line_what_leaves_and_the_models_reason() {
+    let info = ExitInfo {
+        facts: vec!["the file exists".to_owned(), "persistence".to_owned()],
+        model_reason: Some("you asked me to add the alias".to_owned()),
+        user_only: true,
+        ..exit_info(&[ExitKind::Persistence], Launch::Unsandboxed)
+    };
+    let facts = ExitFacts {
+        targets: vec![TargetFact {
+            path: PathBuf::from("/home/user/.zshrc"),
+            class: Some(PathClassName::UserConfig),
+            in_write_root: false,
+            floor: true,
+            synced: false,
+            exists: true,
+            named_in_user_messages: false,
+        }],
+        programs: vec![program_fact("echo", "shell builtin")],
+        ..ExitFacts::default()
+    };
+    let mut view = sandbox_view(false);
+    let (_, err, _) =
+        feed(&mut view, &exit_events("echo 'alias k=kubectl' >> ~/.zshrc", facts, info), true);
+    insta::assert_snapshot!(err);
+}
+
+#[test]
+fn an_exit_question_on_a_terminal_paints_the_untrusted_program_yellow() {
+    let info =
+        ExitInfo { user_only: true, ..exit_info(&[ExitKind::Privilege], Launch::Unsandboxed) };
+    let mut setup = program_fact("./scripts/setup.sh", "/home/user/project/scripts/setup.sh");
+    setup.in_write_root = true;
+    setup.changed_this_turn = true;
+    let facts = ExitFacts {
+        programs: vec![program_fact("sudo", "/usr/bin/sudo"), setup],
+        ..ExitFacts::default()
+    };
+    let mut view = sandbox_view(true);
+    let [record, approval] = exit_events("sudo ./scripts/setup.sh", facts, info);
+    assert_eq!(view.event(&record, WIDE, true), Step::default());
+    let step = view.event(&approval, WIDE, true);
+    assert_eq!(step.ask, Some(Ask::Approval(call())));
+    insta::assert_snapshot!(readable(&step.out));
+}
+
+#[test]
+fn a_network_exit_question_runs_in_the_sandbox_with_full_network() {
+    let info = exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &exit_events("npm ci", ExitFacts::default(), info), true);
+    assert_eq!(
+        err,
+        "\
+approval needed: shell: run \"npm ci\"
+leaves the sandbox: network; runs in the sandbox with full network for this call
+allow? y = yes, n = no
+"
+    );
+}
+
+#[test]
+fn an_exit_without_its_record_keeps_the_summary() {
+    let info = exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "run `npm ci`".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: Some(info),
+    };
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &[approval], false);
+    assert!(
+        err.starts_with("approval needed: run `npm ci`\nleaves the sandbox: network;"),
+        "{err}"
+    );
+}
+
+fn question_id() -> QuestionId {
+    "019a9b1c-3d00-7a10-8b20-0000000000d1".parse().unwrap()
+}
+
+fn surface_requested() -> Event {
+    Event::SurfaceQuestionRequested {
+        turn_id: turn(),
+        call_id: call(),
+        question_id: question_id(),
+        changes: vec![SurfaceChange {
+            path: PathBuf::from("/home/user/project/.git/commondir"),
+            rule: "commondir_in_main_git_dir".to_owned(),
+            key: Some("core.fsmonitor".to_owned()),
+            quarantined: true,
+        }],
+    }
+}
+
+fn surface_answered(keep: bool, origin: Option<Origin>) -> Event {
+    Event::SurfaceQuestionAnswered { turn_id: turn(), question_id: question_id(), keep, origin }
+}
+
+#[test]
+fn the_quarantine_question_asks_for_one_key_below_the_live_zone() {
+    let mut view = sandbox_view(true);
+    let step = view.event(&surface_requested(), WIDE, true);
+    assert_eq!(step.ask, Some(Ask::Surface(question_id())));
+    insta::assert_snapshot!(readable(&step.out));
+
+    let step = view.surface_answered(question_id(), false, WIDE);
+    insta::assert_snapshot!("surface_answered", readable(&step.out));
+    // The daemon's event for this client's own answer adds nothing.
+    assert_eq!(
+        view.event(&surface_answered(false, Some(Origin::Shell)), WIDE, true),
+        Step::default()
+    );
+}
+
+#[test]
+fn a_quarantine_question_answered_elsewhere_or_expired_settles_with_a_note() {
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &[surface_requested()], true);
+    assert_eq!(
+        err,
+        "\
+question: the last command changed git settings that run programs
+  ~/project/.git/commondir (core.fsmonitor); moved to quarantine
+keep it? y = yes, n = no
+"
+    );
+    let step = view.event(&surface_answered(true, Some(Origin::Phone)), WIDE, true);
+    assert!(step.settled);
+    assert_eq!(step.err, "the git change was kept, from the phone\n");
+
+    let mut view = sandbox_view(false);
+    view.event(&surface_requested(), WIDE, true);
+    let step = view.event(&surface_answered(false, None), WIDE, true);
+    assert!(step.settled);
+    assert_eq!(step.err, "no answer; the git change stays in quarantine\n");
+
+    // Without keys nobody here answers, and the end of the turn needs no keys stopped.
+    let mut view = sandbox_view(false);
+    let step = view.event(&surface_requested(), WIDE, false);
+    assert_eq!(step.ask, None);
+    assert!(step.err.ends_with("waiting for another client to answer\n"), "{}", step.err);
+    assert!(!view.event(&turn_completed(), WIDE, false).settled);
+}
+
+#[test]
+fn the_end_of_the_turn_stops_the_keys_of_a_quarantine_question() {
+    let mut view = sandbox_view(false);
+    view.event(&surface_requested(), WIDE, true);
+    assert!(view.event(&turn_completed(), WIDE, true).settled);
+}
+
+#[test]
+fn the_turn_end_report_lists_the_files_that_run_code() {
+    let mut view = sandbox_view(false);
+    let report = Event::TurnSurfaceReport {
+        turn_id: turn(),
+        files: vec![
+            ReportedFile { path: PathBuf::from("build.rs"), detail: None },
+            ReportedFile {
+                path: PathBuf::from(".cargo/config.toml"),
+                detail: Some("build.rustc-wrapper".to_owned()),
+            },
+        ],
+    };
+    let (_, err, _) = feed(&mut view, &[report], true);
+    assert_eq!(
+        err,
+        "\
+efr: this turn changed files that run code later outside the sandbox:
+  build.rs, .cargo/config.toml (build.rustc-wrapper)
+  check them before you run the project yourself
+"
+    );
 }

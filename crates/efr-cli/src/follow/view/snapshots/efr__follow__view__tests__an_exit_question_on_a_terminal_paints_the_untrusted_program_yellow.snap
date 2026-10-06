@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\e[1;33mapproval needed:\e[0m shell: run "sudo ./scripts/setup.sh"
+\e[1;33mruns outside the sandbox: sudo (you may need to type your password)\e[0m
+\e[1;33mthe whole line runs with your full rights (files, secrets, network)\e[0m
+\e[1;33mprograms: sudo /usr/bin/sudo; ./scripts/setup.sh ~/project/scripts/setup.sh in a write root, changed this turn (untrusted: written in the sandbox)\e[0m
+\e[2mefr: only you can allow this\e[0m
+\e[2mallow? y = yes, n = no\e[0m
+\e[?2026l
