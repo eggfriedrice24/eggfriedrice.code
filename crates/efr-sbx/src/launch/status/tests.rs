@@ -15,14 +15,14 @@ fn status_stream_gives_pid_and_exit_code() {
 
 #[test]
 fn exit_code_after_the_child_pid_is_a_command_ending() {
-    assert_eq!(ending(parse_status(RAN), "", Some(3)), Ending::Ran { code: 3 });
+    assert_eq!(ending(parse_status(RAN), "", BwrapExit::Code(3)), Ending::Ran { code: 3 });
 }
 
 #[test]
 fn child_pid_without_exit_code_is_a_setup_failure() {
     let stderr = "bwrap: Can't find source path /nonexistent: No such file or directory\n";
     assert_eq!(
-        ending(parse_status(MOUNT_FAILED), stderr, Some(1)),
+        ending(parse_status(MOUNT_FAILED), stderr, BwrapExit::Code(1)),
         Ending::SetupFailed {
             reason: "bwrap: Can't find source path /nonexistent: No such file or directory"
                 .to_owned(),
@@ -33,7 +33,8 @@ fn child_pid_without_exit_code_is_a_setup_failure() {
 
 #[test]
 fn silent_bwrap_failure_names_its_exit() {
-    let Ending::SetupFailed { reason, .. } = ending(BwrapStatus::default(), "", Some(1)) else {
+    let Ending::SetupFailed { reason, .. } = ending(BwrapStatus::default(), "", BwrapExit::Code(1))
+    else {
         panic!("not a setup failure");
     };
     assert_eq!(reason, "bwrap exited with 1 before the command started");
@@ -43,7 +44,7 @@ fn silent_bwrap_failure_names_its_exit() {
 fn inner_report_wins_over_an_exit_code() {
     let stderr = format!("{SETUP_PREFIX}Landlock refused the rule set: no ABI 9\n");
     assert_eq!(
-        ending(parse_status(RAN), &stderr, Some(125)),
+        ending(parse_status(RAN), &stderr, BwrapExit::Code(125)),
         Ending::SetupFailed {
             reason: "Landlock refused the rule set: no ABI 9".to_owned(),
             inner: true
@@ -65,4 +66,18 @@ fn only_a_busy_overlay_of_bwrap_is_tried_again() {
     let inner = Ending::SetupFailed { reason: "overlay".to_owned(), inner: true };
     assert!(!retry_overlay(&inner, 1, Duration::ZERO));
     assert!(!retry_overlay(&Ending::Ran { code: 1 }, 1, Duration::ZERO));
+}
+
+#[test]
+fn a_signal_after_the_namespace_started_is_an_interrupt() {
+    assert_eq!(
+        ending(parse_status(MOUNT_FAILED), "", BwrapExit::Signal(2)),
+        Ending::Ran { code: 130 }
+    );
+    let Ending::SetupFailed { reason, .. } =
+        ending(BwrapStatus::default(), "", BwrapExit::Signal(9))
+    else {
+        panic!("not a setup failure");
+    };
+    assert_eq!(reason, "bwrap got signal 9 before the command started");
 }

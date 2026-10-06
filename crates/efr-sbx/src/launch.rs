@@ -16,6 +16,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::thread::JoinHandle;
@@ -26,7 +27,9 @@ use rustix::fs::MemfdFlags;
 use rustix::io::FdFlags;
 use rustix::pipe::PipeFlags;
 
-pub(crate) use self::status::{Ending, OVERLAY_RETRY_PAUSE, ending, parse_status, retry_overlay};
+pub(crate) use self::status::{
+    BwrapExit, Ending, OVERLAY_RETRY_PAUSE, ending, parse_status, retry_overlay,
+};
 use crate::error::SbxError;
 use crate::real_fs::RealFs;
 use crate::{fds, os};
@@ -154,7 +157,11 @@ fn attempt(
         None => Vec::new(),
     };
     let statuses = join(statuses)?.unwrap_or_default();
-    let ending = ending(parse_status(&statuses), &String::from_utf8_lossy(&errors), exit.code());
+    let bwrap = match (exit.code(), exit.signal()) {
+        (Some(code), _) => BwrapExit::Code(code),
+        (None, signal) => BwrapExit::Signal(signal.unwrap_or_default()),
+    };
+    let ending = ending(parse_status(&statuses), &String::from_utf8_lossy(&errors), bwrap);
     Ok((ending, records))
 }
 

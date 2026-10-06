@@ -57,20 +57,36 @@ pub(crate) enum Ending {
     },
 }
 
+/// How bwrap itself ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BwrapExit {
+    /// It exited with this code.
+    Code(i32),
+    /// A signal killed it: Ctrl+C or efr's interrupt reached the whole job.
+    Signal(i32),
+}
+
 /// Decides how a launch ended from bwrap's status stream, its stderr and how bwrap
-/// itself exited (`None` when a signal killed it).
-pub(crate) fn ending(status: BwrapStatus, stderr: &str, bwrap_exit: Option<i32>) -> Ending {
+/// itself ended.
+pub(crate) fn ending(status: BwrapStatus, stderr: &str, bwrap: BwrapExit) -> Ending {
     if let Some(reason) = inner_failure(stderr) {
         return Ending::SetupFailed { reason, inner: true };
     }
-    match (status.child_pid, status.exit_code) {
-        (Some(_), Some(code)) => Ending::Ran { code },
+    match (status.child_pid, status.exit_code, bwrap) {
+        (Some(_), Some(code), _) => Ending::Ran { code },
+        // The namespace existed and a signal ended the job before bwrap could report
+        // the command's code: the call was interrupted, it did not fail to start.
+        (Some(_), None, BwrapExit::Signal(signal)) => Ending::Ran { code: 128 + signal },
         _ => {
             let text = first_lines(stderr);
             let reason = if text.is_empty() {
-                match bwrap_exit {
-                    Some(code) => format!("bwrap exited with {code} before the command started"),
-                    None => "bwrap was killed before the command started".to_owned(),
+                match bwrap {
+                    BwrapExit::Code(code) => {
+                        format!("bwrap exited with {code} before the command started")
+                    }
+                    BwrapExit::Signal(signal) => {
+                        format!("bwrap got signal {signal} before the command started")
+                    }
                 }
             } else {
                 text

@@ -148,9 +148,10 @@ fn descendants() -> Vec<(Pid, String)> {
     found
 }
 
-/// Reaps every child that exited, without waiting.
+/// Reaps every child that exited, without waiting. `wait`, not `waitpid(None)`: an
+/// orphan that called `setsid` is in another process group, which `waitpid(0)` skips.
 fn reap() {
-    while let Ok(Some(_)) = rustix::process::waitpid(None, WaitOptions::NOHANG) {}
+    while let Ok(Some(_)) = rustix::process::wait(WaitOptions::NOHANG) {}
 }
 
 /// Ends every descendant: SIGTERM, up to [`GRACE`] for them to go, then SIGKILL, and
@@ -188,7 +189,7 @@ fn end_descendants() -> Vec<String> {
         }
         // A killed child is reaped here; one that is not a direct child is reaped by
         // its own parent or, once orphaned, reparents here.
-        let _ = rustix::process::waitpid(None, WaitOptions::empty());
+        let _ = rustix::process::wait(WaitOptions::empty());
         reap();
     }
     names
