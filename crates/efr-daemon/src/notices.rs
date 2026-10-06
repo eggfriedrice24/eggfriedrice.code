@@ -160,8 +160,7 @@ pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
 /// Writes the held notices that became ready.
 async fn write_ready(state: &State) {
     for notice in state.connections.take_ready() {
-        write(state.dirs.runtime().join(NOTICES_DIR), notice.tty, notice.text, notice.conversation)
-            .await;
+        write(state, notice).await;
     }
 }
 
@@ -190,15 +189,15 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
     };
     let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
     match state.connections.decide(notice, state.clock.now()) {
-        Decision::Write(notice) => {
-            write(state.dirs.runtime().join(NOTICES_DIR), notice.tty, notice.text, conversation_id)
-                .await;
-        }
+        Decision::Write(notice) => write(state, notice).await,
         Decision::Shown | Decision::Held => {}
     }
 }
 
-async fn write(dir: PathBuf, tty: String, text: String, conversation_id: ConversationId) {
+/// Appends a decided notice to its terminal's file under the runtime root.
+async fn write(state: &State, notice: Notice) {
+    let dir = state.dirs.runtime().join(NOTICES_DIR);
+    let Notice { tty, conversation: conversation_id, text, .. } = notice;
     match tokio::task::spawn_blocking(move || append(&dir, &tty, &text)).await {
         Ok(Ok(_)) => {}
         Ok(Err(error)) => {
