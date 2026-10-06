@@ -412,6 +412,12 @@ pub(crate) fn mark_json(mark: &ShellMark) -> Value {
             fields.insert("path".to_owned(), json!(path.to_string_lossy()));
             ("cwd_changed", fields)
         }
+        ShellMarkKind::SandboxEnd { nonce } => {
+            let mut fields = Map::new();
+            let hex: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
+            fields.insert("nonce".to_owned(), json!(hex));
+            ("sandbox_end", fields)
+        }
     };
     let mut object = Map::new();
     object.insert("start".to_owned(), json!(mark.start.get()));

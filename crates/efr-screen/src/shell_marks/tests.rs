@@ -161,6 +161,17 @@ fn percent_decoding() {
 
 /// Well-formed mark sequences with the mark each one must produce, relative to its
 /// own first byte.
+#[test]
+fn a_sandbox_end_mark_carries_its_nonce_and_a_bad_one_is_no_mark() {
+    let stream =
+        b"\x1b]133;efr-sbx;nothex\x07\x1b]133;efr-sbx;ffeeddccbbaa99887766554433221100\x1b\\";
+    let nonce = [
+        0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+        0x00,
+    ];
+    assert_eq!(scan(stream), vec![mark(21, 69, ShellMarkKind::SandboxEnd { nonce })]);
+}
+
 fn known_marks() -> Vec<(Vec<u8>, ShellMarkKind)> {
     let st = |body: &str| [b"\x1b]".as_slice(), body.as_bytes(), b"\x1b\\"].concat();
     let bel = |body: &str| [b"\x1b]".as_slice(), body.as_bytes(), b"\x07"].concat();
@@ -187,6 +198,10 @@ fn known_marks() -> Vec<(Vec<u8>, ShellMarkKind)> {
         (st("133;C"), output_start()),
         (bel("133;D;127"), command_end(Some(127))),
         (st("133;D"), command_end(None)),
+        (
+            bel("133;efr-sbx;0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"),
+            ShellMarkKind::SandboxEnd { nonce: [0x0f; 16] },
+        ),
         (
             bel("7;kitty-shell-cwd://h/tmp/x"),
             ShellMarkKind::CwdChanged { host: Some("h".to_owned()), path: PathBuf::from("/tmp/x") },

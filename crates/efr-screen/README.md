@@ -16,7 +16,11 @@ goes through this crate, whichever backend renders it:
   semantic prompts and OSC 7 working-directory reports. It runs on every chunk before
   the backend sees it, so both backends report identical `ShellMark`s, each with the
   recording offsets of its first and last byte. The shell tool's output for a command
-  is `recording[OutputStart.end .. CommandEnd.start]`.
+  is `recording[OutputStart.end .. CommandEnd.start]`. It also reads efr's own end mark
+  of a sandboxed call, `ESC ] 133 ; efr-sbx ; <nonce> BEL` with the nonce as exactly 32
+  lowercase hex digits, as `ShellMarkKind::SandboxEnd { nonce }`. Any other body after
+  `efr-sbx;` is no mark. The scanner only reads it; `efr-shell` compares the nonce
+  with the call's own.
 - `snapshot`: `ScreenCapture` and the normalisation of a backend's snapshot into the
   wire `efr_protocol::ScreenSnapshot`.
 - The wire types a backend builds (`ScreenSnapshot`, `RowCells`, `Cell`, `Color`,

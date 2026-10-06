@@ -33,8 +33,8 @@
 //!   the previous `expect_replies`.
 //! - `{"kind":"expect_marks","marks":[...]}`: the marks since the previous
 //!   `expect_marks`, each as `{"start":S,"end":E,"<kind>":{...}}` where `<kind>` is
-//!   `prompt_start`, `input_start`, `output_start`, `command_end` or `cwd_changed`
-//!   (see `mark_json` in the runner).
+//!   `prompt_start`, `input_start`, `output_start`, `command_end`, `cwd_changed` or
+//!   `sandbox_end` (see `mark_json` in the runner).
 //!
 //! At the end of a case every mark must have been expected, and every reply and bell
 //! too unless the backend is in `differs`.
