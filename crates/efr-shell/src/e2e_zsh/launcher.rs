@@ -40,7 +40,9 @@ impl Launcher {
             config.sandbox_dir = Some(root.join("r/sbx"));
             config.sandbox_launcher = Some(bin.clone());
         })?;
-        if !probe_ready(test, &bin).await {
+        let probe_dir = zsh.dir("probe");
+        std::fs::set_permissions(&probe_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        if !probe_ready(test, &bin, &probe_dir).await {
             return None;
         }
         let project = zsh.dir("project");
@@ -98,12 +100,18 @@ impl Launcher {
             protected_names: Vec::new(),
             grants: Vec::new(),
             network: NetworkPlan::None,
-            env: EnvPlan::default(),
+            // The daemon passes sandbox.promote_env; these tests need one name of it.
+            env: EnvPlan { promote: vec!["RUST_LOG".to_owned()], ..EnvPlan::default() },
             shell_path: "/usr/bin:/bin".to_owned(),
             limits: RecordLimits::default(),
             runtime,
         };
         std::fs::write(dir.join("spec.json"), spec.to_json().unwrap()).unwrap();
+        // The launcher refuses a call file that another user could read or write.
+        for file in ["nonce", "spec.json"] {
+            std::fs::set_permissions(dir.join(file), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+        }
         SandboxRun::new(dir, call, NONCE, launch)
     }
 }
@@ -135,9 +143,14 @@ fn launcher(test: &str) -> Option<PathBuf> {
 
 /// True when `efr-sbx probe --json` says that this machine runs the sandbox.
 #[expect(clippy::print_stderr, reason = "a skipped test says why")]
-async fn probe_ready(test: &str, bin: &Path) -> bool {
-    let output =
-        efr_stdx::process::command(bin, Path::new("/")).args(["probe", "--json"]).output().await;
+async fn probe_ready(test: &str, bin: &Path, dir: &Path) -> bool {
+    // NOTE: the probe's fake call needs a private dir of its own, never below /tmp,
+    // which the sandbox replaces with its private tmp.
+    let output = efr_stdx::process::command(bin, Path::new("/"))
+        .args(["probe", "--json", "--dir"])
+        .arg(dir)
+        .output()
+        .await;
     let report = output.ok().and_then(|output| ProbeReport::from_json(&output.stdout).ok());
     match report.map(|report| report.status()) {
         Some(status) if status.available => true,

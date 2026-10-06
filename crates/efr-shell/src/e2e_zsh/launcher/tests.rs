@@ -76,7 +76,12 @@ impl Launcher {
             }
             self.zsh.clock.advance(Duration::from_secs(1));
             let after = self.zsh.clock.pending_sleeps();
-            self.zsh.clock.wait_for_sleeps(after + 1).await;
+            // NOTE: a look that stops the run sets no new sleep, so the change that it
+            // reports must also end the wait.
+            tokio::select! {
+                () = self.zsh.clock.wait_for_sleeps(after + 1) => {}
+                changed = heard.inputs.changed() => changed.unwrap(),
+            }
         }
         panic!("the run never reported {expected:?}: {:?}", heard.inputs.borrow());
     }
@@ -247,8 +252,10 @@ async fn ctrl_c_interrupts_sandboxed_job() {
 }
 
 /// A program that asks for a password with echo off, as sudo does.
+// NOTE: echo goes off before the prompt shows, as sudo does it; the other order lets a
+// look see a visible prompt first.
 const ASKS_FOR_A_PASSWORD: &str =
-    "printf 'password: '; stty -echo; IFS= read -r pw; stty echo; print; print -r -- \"got $pw\"";
+    "stty -echo; printf 'password: '; IFS= read -r pw; stty echo; print; print -r -- \"got $pw\"";
 
 #[tokio::test]
 async fn approved_sudo_runs_in_exit_child_with_relay() {
