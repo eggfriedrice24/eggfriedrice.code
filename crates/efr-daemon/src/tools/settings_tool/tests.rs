@@ -128,6 +128,16 @@ async fn approve(
     (diff, outcome)
 }
 
+#[test]
+fn the_description_says_the_tool_never_switches_the_current_settings() {
+    let description = SettingsTool::definition().description;
+    assert!(description.contains("tell the user to type ,model <id>"), "{description}");
+    assert!(
+        description.contains("never say that it switched the current mode, model or effort"),
+        "{description}"
+    );
+}
+
 #[tokio::test]
 async fn read_needs_no_approval_and_lists_settings_rules_and_models() {
     let fixture = Fixture::new();

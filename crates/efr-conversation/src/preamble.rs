@@ -5,7 +5,9 @@
 //! machine facts, and it rides as the first block of the newest prompt only. Earlier
 //! prompts go back to the model without it, so the history stays the same from turn
 //! to turn and the model never mistakes an old directory for the current one. The
-//! static rules live apart from it, in the system prompt.
+//! static rules live apart from it, in the system prompt, except the rules about the
+//! turn's settings: they ride here next to the mode, the model and the effort they are
+//! about, and a system prompt that the user replaced in `config.toml` cannot lose them.
 
 use std::fmt::{self, Write as _};
 use std::path::PathBuf;
@@ -47,6 +49,10 @@ pub(crate) struct LiveState {
     pub(crate) agent_cwd: Option<PathBuf>,
     /// The turn's permission mode.
     pub(crate) mode: Mode,
+    /// The turn's model.
+    pub(crate) model: String,
+    /// The turn's reasoning effort; `None` leaves it to the backend.
+    pub(crate) effort: Option<String>,
 }
 
 impl fmt::Debug for LiveState {
@@ -64,6 +70,8 @@ impl fmt::Debug for LiveState {
             .field("scratch", &self.scratch)
             .field("agent_cwd", &self.agent_cwd)
             .field("mode", &self.mode)
+            .field("model", &self.model)
+            .field("effort", &self.effort)
             .finish_non_exhaustive()
     }
 }
@@ -124,10 +132,36 @@ impl LiveState {
             self.scratch.display()
         );
         text.push_str(mode_line(self.mode));
+        let _ = writeln!(text, "Model: {}", self.model);
+        match &self.effort {
+            Some(effort) => {
+                let _ = writeln!(text, "Reasoning effort: {effort}");
+            }
+            None => text.push_str("Reasoning effort: the backend's default for the model\n"),
+        }
+        text.push_str(SETTINGS_RULES);
         text.push_str("</live_state>");
         text
     }
 }
+
+/// The real permission modes and who changes the turn's settings. A model that is not
+/// told invents modes and claims to switch them when a prompt only names one, such as
+/// `mode cautious` sent from sticky mode, although it has no way to switch anything.
+const SETTINGS_RULES: &str = "\
+efr has three permission modes and no others:
+- manual: every call asks the user, except what the user's own rules allow.
+- cautious: reads and read-only commands run at once; other calls ask the user.
+- auto: what cautious allows, plus the writer programs, the project's build, test, \
+format and lint tools and local git of the auto list; other calls ask the user.
+Only the user changes this terminal's mode, model and effort, with the lines ,mode \
+,model and ,effort in their shell, such as ,mode auto; in sticky mode a bare line such \
+as mode auto works too. You cannot change them, and nothing you do changes them for \
+this turn, so never say that you switched or will switch one: tell the user which line \
+to type. Your settings tool changes only the defaults in config.toml, after the user \
+approves its diff, from the next turn on, and a terminal's own choice still wins over \
+them.
+";
 
 /// The line that tells the model the turn's permission mode and what it means for
 /// its calls.

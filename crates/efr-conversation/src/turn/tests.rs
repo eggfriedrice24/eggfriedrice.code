@@ -15,6 +15,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{bounded_tail, provider_failure};
+use crate::preamble::LiveState;
 use crate::testing::{
     MODEL, Setup, answer, default_settings, done, expect_request, failure, find, hold, request,
     result_message, text_answer, tool_answer, tool_message, user_prompt,
@@ -47,6 +48,8 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
     setup.config.models = models();
     let mut state = setup.live_state(&setup.cwd, "hello");
     state.mode = Mode::Auto;
+    state.model = "gpt-5.4".to_owned();
+    state.effort = Some("high".to_owned());
     let mut expected = request(vec![setup.prompt(&state, "hello")]);
     expected.model = "gpt-5.4".to_owned();
     expected.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
@@ -203,10 +206,11 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
     ]);
     let mut first_answer = text_answer("One.");
     first_answer[1] = done(StopReason::EndTurn, Some(raw.clone()));
+    let switched = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
     let mut second = request(vec![
         Message::user("first"),
         Message::assistant("One."),
-        setup.prompt(&state, "second"),
+        setup.prompt(&switched, "second"),
     ]);
     second.model = "test-model-2".to_owned();
     let third = request(vec![
@@ -990,7 +994,7 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
 /// with provider items: the first turn exactly as the model saw it, then the prompt.
 fn second_request_after_raw_items(
     setup: &Setup,
-    state: &crate::preamble::LiveState,
+    state: &LiveState,
     input: &serde_json::Value,
     output: &str,
     raw: &serde_json::Value,
@@ -1101,12 +1105,13 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "tidy up");
     let first = setup.prompt(&state, "tidy up");
+    let changed_state = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
     let mut next = request(vec![
         Message::user("tidy up"),
         Message::assistant("Working."),
         Message::user("also empty the trash"),
         Message::assistant("Done."),
-        setup.prompt(&state, "next"),
+        setup.prompt(&changed_state, "next"),
     ]);
     next.model = "test-model-2".to_owned();
     next.system = Some("new rules".to_owned());

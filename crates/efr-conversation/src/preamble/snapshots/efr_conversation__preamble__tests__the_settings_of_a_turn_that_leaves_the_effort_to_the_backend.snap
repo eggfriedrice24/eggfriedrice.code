@@ -1,12 +1,7 @@
 ---
 source: crates/efr-conversation/src/preamble/tests.rs
-expression: minimal().render()
+expression: settings_part(&minimal())
 ---
-<live_state>
-The user's shell is in /home/u.
-Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
-Home: /home/u
-$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
 Permission mode: cautious. Reads and read-only commands run at once; other calls ask the user.
 Model: gpt-5.5
 Reasoning effort: the backend's default for the model

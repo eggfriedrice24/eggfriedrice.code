@@ -433,6 +433,11 @@ impl Turn {
             scratch: self.scratch.clone(),
             agent_cwd,
             mode: self.mode(),
+            model: self.model_key().model,
+            effort: self
+                .settings
+                .as_ref()
+                .map_or_else(|| self.config.effort.clone(), |settings| settings.effort.clone()),
         }
     }
 

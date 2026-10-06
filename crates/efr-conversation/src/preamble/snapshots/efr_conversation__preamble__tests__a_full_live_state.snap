@@ -12,4 +12,11 @@ Home: /home/u
 Host: box (Arch Linux)
 $SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval)
 Permission mode: auto. Calls outside the auto list ask the user.
+Model: gpt-5.5
+Reasoning effort: high
+efr has three permission modes and no others:
+- manual: every call asks the user, except what the user's own rules allow.
+- cautious: reads and read-only commands run at once; other calls ask the user.
+- auto: what cautious allows, plus the writer programs, the project's build, test, format and lint tools and local git of the auto list; other calls ask the user.
+Only the user changes this terminal's mode, model and effort, with the lines ,mode ,model and ,effort in their shell, such as ,mode auto; in sticky mode a bare line such as mode auto works too. You cannot change them, and nothing you do changes them for this turn, so never say that you switched or will switch one: tell the user which line to type. Your settings tool changes only the defaults in config.toml, after the user approves its diff, from the next turn on, and a terminal's own choice still wins over them.
 </live_state>

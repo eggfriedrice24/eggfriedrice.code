@@ -278,6 +278,8 @@ impl Setup {
             scratch: self.scratch(title),
             agent_cwd: None,
             mode: Mode::Cautious,
+            model: MODEL.to_owned(),
+            effort: None,
         }
     }
 

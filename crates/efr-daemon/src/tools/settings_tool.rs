@@ -72,7 +72,9 @@ const DESCRIPTION: &str = "Read or change efr's own settings: the defaults in co
     read. Every change is checked first, then the user must approve it with the diff of \
     the file, also in auto mode; it applies from the next turn. To change the model, effort \
     or mode only for the current terminal, do not use this tool: tell the user to type \
-    ,model <id>, ,effort <effort> or ,mode <mode>. The tool never writes a rule about \
+    ,model <id>, ,effort <effort> or ,mode <mode>. A change never switches the running \
+    turn or a terminal's own choice, which wins over the defaults, so never say that it \
+    switched the current mode, model or effort. The tool never writes a rule about \
     secrets; the user writes those by hand. A turn from the phone can read the settings \
     but not change them.";
 

@@ -63,7 +63,13 @@ request:
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
-   shell's own directory when it differs, and the turn's permission mode;
+   shell's own directory when it differs, the turn's permission mode, model and
+   effort, the three modes (`manual`, `cautious`, `auto`) with one line each, and
+   that only the user changes a terminal's mode, model and effort (`,mode`, `,model`,
+   `,effort`, or a bare `mode auto` line in sticky mode) while the settings tool
+   changes only the defaults in `config.toml` after an approval, so the model never
+   claims to have switched one. These rules ride in the preamble, not the system
+   prompt, so a system prompt replaced in `config.toml` cannot drop them;
 4. the tool definitions.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at

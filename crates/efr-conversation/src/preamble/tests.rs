@@ -20,6 +20,8 @@ fn minimal() -> LiveState {
         scratch: PathBuf::from("/home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d"),
         agent_cwd: None,
         mode: Mode::Cautious,
+        model: "gpt-5.5".to_owned(),
+        effort: None,
     }
 }
 
@@ -34,6 +36,7 @@ fn full() -> LiveState {
         os: Some("Arch Linux".to_owned()),
         agent_cwd: Some(PathBuf::from("/etc")),
         mode: Mode::Auto,
+        effort: Some("high".to_owned()),
         ..minimal()
     }
 }
@@ -103,4 +106,56 @@ fn every_mode_says_what_it_means_for_the_calls() {
 fn debug_leaves_out_the_last_command() {
     let state = LiveState { last_command: Some("export TOKEN=hunter2".to_owned()), ..minimal() };
     assert!(!format!("{state:?}").contains("hunter2"));
+}
+
+/// The part of the preamble from the mode line on.
+fn settings_part(state: &LiveState) -> String {
+    let text = state.render();
+    let start = text.find("Permission mode:").unwrap();
+    text[start..].to_owned()
+}
+
+#[test]
+fn the_settings_of_a_turn_with_its_effort() {
+    let state = LiveState {
+        mode: Mode::Manual,
+        model: "gpt-5.4".to_owned(),
+        effort: Some("xhigh".to_owned()),
+        ..minimal()
+    };
+    assert_snapshot!(settings_part(&state));
+}
+
+#[test]
+fn the_settings_of_a_turn_that_leaves_the_effort_to_the_backend() {
+    assert_snapshot!(settings_part(&minimal()));
+}
+
+#[test]
+fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
+    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        let text = LiveState { mode, ..minimal() }.render();
+        for says in [
+            "efr has three permission modes and no others:",
+            "\n- manual: every call asks the user",
+            "\n- cautious: reads and read-only commands run at once",
+            "\n- auto: what cautious allows",
+            "Only the user changes this terminal's mode, model and effort, with the lines \
+             ,mode ,model and ,effort",
+            "in sticky mode a bare line such as mode auto works too",
+            "never say that you switched or will switch one",
+            "Your settings tool changes only the defaults in config.toml, after the user \
+             approves its diff",
+        ] {
+            assert!(text.contains(says), "{mode}: {says:?} in {text}");
+        }
+        assert_eq!(text.matches("\n- ").count(), 3, "{text}");
+    }
+}
+
+#[test]
+fn debug_shows_the_model_and_the_effort() {
+    let state = LiveState { effort: Some("high".to_owned()), ..minimal() };
+    let debug = format!("{state:?}");
+    assert!(debug.contains("gpt-5.5") && debug.contains("high"), "{debug}");
 }
