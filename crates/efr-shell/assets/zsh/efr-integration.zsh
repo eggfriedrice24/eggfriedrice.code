@@ -261,12 +261,22 @@ _efr_hs_sbx() {
   [[ $_efr_hs_sbx_dir == /* && -d $dir && ! -L $dir && $_efr_hs_sbx_bin == /* && -x $_efr_hs_sbx_bin ]] ||
     { builtin print -ru2 -- 'efr: the sandbox is missing'; return 125 }
   _efr_hs_sbx_snapshot
-  builtin command $_efr_hs_sbx_bin run --call-dir $dir
-  builtin local -i rc=$?
-  _efr_hs_sbx_apply $dir/apply
-  # The precmd hook reports the real $PWD again before D, also when it did not change.
-  _efr_hs_pwd=
-  builtin print -rn -- $'\e]133;efr-sbx;'"$(<$dir/nonce)"$'\a'
+  builtin local -i rc=125
+  # NOTE: a SIGINT that reaches this shell (efr's interrupt, while the shell holds the
+  # terminal again) makes an interactive zsh abort the rest of the function. Without
+  # the end mark efr would wait for this call until its timeout and hold every later
+  # line, so the mark goes out in an always block. INT and QUIT are ignored only once
+  # the launcher returned: bwrap and the child would keep an ignored signal.
+  {
+    builtin command $_efr_hs_sbx_bin run --call-dir $dir
+    rc=$?
+  } always {
+    builtin trap '' INT QUIT
+    _efr_hs_sbx_apply $dir/apply
+    # The precmd hook reports the real $PWD again before D, also when it did not change.
+    _efr_hs_pwd=
+    builtin print -rn -- $'\e]133;efr-sbx;'"$(<$dir/nonce)"$'\a'
+  }
   return $rc
 }
 

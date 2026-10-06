@@ -182,6 +182,36 @@ async fn apply_cd_and_export() {
 }
 
 #[tokio::test]
+async fn interrupt_after_launcher_still_prints_end_mark() {
+    let Some(zsh) = Zsh::start_sandboxed("interrupt_after_launcher_still_prints_end_mark") else {
+        return;
+    };
+    // efr's interrupt reaches the shell itself as the launcher ends: an interactive zsh
+    // then aborts the rest of the wrapper.
+    let target = zsh.dir("work");
+    let target_text = target.to_string_lossy().into_owned();
+    let run = zsh.prepare(1);
+    std::fs::write(run.dir.join("fake-interrupt"), "").unwrap();
+    std::fs::write(run.dir.join("fake-apply"), apply(&["cd", &target_text])).unwrap();
+    std::fs::write(run.dir.join("fake-cwd"), &target_text).unwrap();
+    let request = crate::RunRequest::new("true", zsh.start_dir())
+        .with_call(run.call)
+        .with_sandbox(Some(run.clone()))
+        .with_timeout(std::time::Duration::from_secs(20));
+    let result =
+        zsh.sessions.run_command(zsh.conversation, request, &mut crate::NoProgress).await.unwrap();
+    assert_eq!(result.completion, Completion::Finished, "{result:?}");
+    assert_eq!(result.cwd_after, target);
+
+    // The shell is not left behind a call that never ends.
+    let check = zsh.run_plain("print -r -- $PWD").await;
+    assert_eq!(check.completion, Completion::Finished, "{check:?}");
+    assert_eq!(check.output, format!("{}\n", target.display()));
+    let next = zsh.prepare(2);
+    assert_eq!(zsh.run_sandboxed(&next, "true").await.completion, Completion::Finished);
+}
+
+#[tokio::test]
 async fn apply_rejects_bad_names() {
     let Some(zsh) = Zsh::start_sandboxed("apply_rejects_bad_names") else {
         return;

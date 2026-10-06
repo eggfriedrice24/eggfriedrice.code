@@ -16,8 +16,8 @@ use crate::{CommandResult, NoProgress, RunRequest, SandboxRun};
 
 /// What the fake launcher does, from files that a test puts in the call dir:
 /// `fake-no-start` (it fails before it starts), `fake-apply` (it copies that file to
-/// `apply`), `fake-cwd` (the cwd of `result.json`) and `fake-no-result` (it dies before
-/// its result).
+/// `apply`), `fake-cwd` (the cwd of `result.json`), `fake-no-result` (it dies before
+/// its result) and `fake-interrupt` (it sends SIGINT to the shell as it ends).
 const FAKE_LAUNCHER: &str = r#"#!/bin/sh
 # The fake efr-sbx of efr-shell's zsh tests. It records its arguments, runs the child
 # script directly as the fake bwrap does, and writes the launcher's files.
@@ -37,6 +37,7 @@ cwd=$(pwd)
 if [ -e "$dir/fake-cwd" ]; then cwd=$(cat "$dir/fake-cwd"); fi
 printf '{"started":true,"exit_code":%s,"cwd":"%s","state_kept":true}' "$status" "$cwd" > "$dir/result.tmp"
 mv "$dir/result.tmp" "$dir/result.json"
+if [ -e "$dir/fake-interrupt" ]; then kill -INT "$PPID"; fi
 exit "$status"
 "#;
 
