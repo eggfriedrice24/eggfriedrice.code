@@ -232,7 +232,10 @@ async fn launcher_crash_is_sandbox_failed() {
     let ended = handle.await.unwrap().unwrap();
     assert_eq!(ended.completion, Completion::SandboxFailed);
     assert_eq!(ended.exit_code, Some(139));
-    assert_eq!(ended.sandbox, None);
+    // The launcher had started the command, so the result says it may have run.
+    let sandbox = ended.sandbox.unwrap();
+    assert!(sandbox.started && sandbox.setup_error.is_none(), "{sandbox:?}");
+    assert!(sandbox.launch_error.is_some(), "{sandbox:?}");
 }
 
 #[tokio::test]

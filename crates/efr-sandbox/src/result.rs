@@ -50,6 +50,9 @@ pub struct SandboxResult {
     pub signal: Option<i32>,
     /// Why the sandbox did not start: bwrap's setup message, or the inner stage's.
     pub setup_error: Option<String>,
+    /// Why the launcher failed after it started bwrap or the exit child, such as a
+    /// failed wait: the command may have run.
+    pub launch_error: Option<String>,
     /// The state that changed, by name.
     pub summary: SandboxSummary,
     /// The conversation's directory after the call: where the trusted shell is now,

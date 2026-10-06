@@ -184,10 +184,12 @@ pub enum Completion {
     /// never types a secret into a sandboxed command.
     Unanswered,
     /// A sandboxed run whose sandbox did not start or did not report: the wrapper check
-    /// failed or the integration is missing (nothing ran), the launcher failed before
-    /// its result, or the sandbox's setup failed
-    /// ([`SandboxResult::setup_error`](efr_sandbox::SandboxResult::setup_error)). The
-    /// command never ran outside the sandbox.
+    /// failed or the integration is missing (nothing ran), the sandbox's setup failed
+    /// ([`SandboxResult::setup_error`](efr_sandbox::SandboxResult::setup_error)), or the
+    /// launcher failed after it started the command, which may have run
+    /// ([`SandboxResult::launch_error`](efr_sandbox::SandboxResult::launch_error), also
+    /// when the launcher died before its result). The command never ran outside the
+    /// sandbox.
     SandboxFailed,
 }
 
@@ -446,6 +448,9 @@ pub(crate) fn wrapped_line(call: CallId) -> Result<Bytes, ShellError> {
 
 /// How much of what comes before `C` a marked run keeps.
 const BEFORE_LIMIT: usize = 8 * 1024;
+
+/// The launch error of a sandboxed run whose launcher wrote `started` but no result.
+const LAUNCHER_LOST: &str = "the launcher ended after the command started, without its result";
 
 /// What a sandboxed run watches for its end (efr's auto spec, section 3.15).
 ///
@@ -749,11 +754,21 @@ impl MarkRun {
                 (exit_code, at, Completion::SandboxFailed, None)
             }
             Check::Final { exit_code, at } => match &facts.result {
-                Some(result) if result.setup_error.is_none() => {
+                Some(result) if result.setup_error.is_none() && result.launch_error.is_none() => {
                     (exit_code, at, Completion::Finished, Some(Box::new(result.clone())))
                 }
                 Some(result) => {
                     (exit_code, at, Completion::SandboxFailed, Some(Box::new(result.clone())))
+                }
+                // NOTE: a launcher that died after `started` (OOM, SIGKILL) may have run
+                // the command, and the model must not read that it did not.
+                None if facts.started => {
+                    let lost = SandboxResult {
+                        started: true,
+                        launch_error: Some(LAUNCHER_LOST.to_owned()),
+                        ..SandboxResult::default()
+                    };
+                    (exit_code, at, Completion::SandboxFailed, Some(Box::new(lost)))
                 }
                 None => (exit_code, at, Completion::SandboxFailed, None),
             },

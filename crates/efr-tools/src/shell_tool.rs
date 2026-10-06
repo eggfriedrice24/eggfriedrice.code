@@ -149,9 +149,11 @@ impl ShellTool {
     /// auto sandbox, not in the exit child.
     fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
         let mut summary = result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone());
-        if result.completion == Completion::SandboxFailed {
+        if result.completion == Completion::SandboxFailed
+            && let SandboxFailure::NotStarted(reason) = sandbox_failure(result)
+        {
             // The client shows why on its own line (efr's auto spec, section 14.7).
-            summary.get_or_insert_default().setup_error = Some(sandbox_failure(result));
+            summary.get_or_insert_default().setup_error = Some(reason);
         }
         let rendered = self
             .render_run(result, waited, contained)
@@ -242,10 +244,16 @@ impl ShellTool {
                 true
             }
             Completion::SandboxFailed => {
-                text.push_str(&format!(
-                    "[the sandbox could not start: {}. The command did not run. cwd {cwd}]",
-                    sandbox_failure(result)
-                ));
+                match sandbox_failure(result) {
+                    SandboxFailure::NotStarted(reason) => text.push_str(&format!(
+                        "[the sandbox could not start: {reason}. The command did not run. cwd \
+                         {cwd}]"
+                    )),
+                    SandboxFailure::Lost(reason) => text.push_str(&format!(
+                        "[the sandbox's launcher failed: {reason}. The command may have run; \
+                         check what it did before you run it again. cwd {cwd}]"
+                    )),
+                }
                 true
             }
             Completion::Unanswered => {
@@ -423,12 +431,24 @@ const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox: it can write onl
                             read as empty. If it failed for that reason, call shell again \
                             with needs.]";
 
-/// Why a sandboxed run could not start: the launcher's setup error. The output is never
-/// read for a reason, because sandboxed code may have written it.
-fn sandbox_failure(result: &CommandResult) -> String {
-    match result.sandbox.as_ref().and_then(|sandbox| sandbox.setup_error.as_ref()) {
-        Some(reason) => reason.trim().to_owned(),
-        None => "the launcher ended without its result".to_owned(),
+/// How a sandboxed run failed, with the launcher's reason.
+enum SandboxFailure {
+    /// The command did not run: the setup failed, or the launcher never started it.
+    NotStarted(String),
+    /// The launcher failed after it started the command, which may have run.
+    Lost(String),
+}
+
+/// Why a sandboxed run failed. The output is never read for a reason, because
+/// sandboxed code may have written it.
+fn sandbox_failure(result: &CommandResult) -> SandboxFailure {
+    let Some(sandbox) = result.sandbox.as_ref() else {
+        return SandboxFailure::NotStarted("the launcher ended before it started".to_owned());
+    };
+    match (&sandbox.setup_error, &sandbox.launch_error) {
+        (Some(reason), _) => SandboxFailure::NotStarted(reason.trim().to_owned()),
+        (None, Some(reason)) => SandboxFailure::Lost(reason.trim().to_owned()),
+        (None, None) => SandboxFailure::Lost("the launcher ended without its result".to_owned()),
     }
 }
 

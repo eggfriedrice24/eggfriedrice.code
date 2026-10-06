@@ -228,7 +228,25 @@ async fn a_sandbox_that_could_not_start_says_why_and_that_nothing_ran() {
     assert_eq!(
         answer_to(result, "contained").await,
         "efr-sbx: grant me the network\n[the sandbox could not start: the launcher ended \
-         without its result. The command did not run. cwd /tmp]"
+         before it started. The command did not run. cwd /tmp]"
+    );
+}
+
+#[tokio::test]
+async fn a_launcher_lost_after_the_start_says_the_command_may_have_run() {
+    let mut result = CommandResult::finished(Some(137), "", "/tmp").with_sandbox(
+        serde_json::from_value(json!({
+            "started": true,
+            "launch_error": "the launcher ended after the command started, without its result",
+        }))
+        .unwrap(),
+    );
+    result.completion = Completion::SandboxFailed;
+    assert_eq!(
+        answer_to(result, "contained").await,
+        "[the sandbox's launcher failed: the launcher ended after the command started, \
+         without its result. The command may have run; check what it did before you run it \
+         again. cwd /tmp]"
     );
 }
 
@@ -289,5 +307,5 @@ async fn the_result_carries_the_summary_and_whether_the_sandbox_failed() {
     assert!(answered.sandbox_failed);
     // The reason goes to the client too, on its own line.
     let reason = answered.sandbox.and_then(|summary| summary.setup_error);
-    assert_eq!(reason.as_deref(), Some("the launcher ended without its result"));
+    assert_eq!(reason.as_deref(), Some("the launcher ended before it started"));
 }

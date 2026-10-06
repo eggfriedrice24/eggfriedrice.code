@@ -67,10 +67,10 @@ fn run(call_dir: &Path) -> Result<i32, SbxError> {
     let result = match call.spec.launch {
         SpecLaunch::Contained => {
             drop(reserved);
-            contained(&call).unwrap_or_else(|error| setup_failure(error.chain()))
+            contained(&call).unwrap_or_else(|error| failure(&call, error.chain()))
         }
         SpecLaunch::Unsandboxed => {
-            exit_child::run(&call, reserved).unwrap_or_else(|error| setup_failure(error.chain()))
+            exit_child::run(&call, reserved).unwrap_or_else(|error| failure(&call, error.chain()))
         }
         _ => setup_failure("this launcher does not know the spec's launch kind".to_owned()),
     };
@@ -81,6 +81,17 @@ fn run(call_dir: &Path) -> Result<i32, SbxError> {
 /// A result for a call whose sandbox did not start.
 pub(crate) fn setup_failure(reason: String) -> SandboxResult {
     SandboxResult { setup_error: Some(reason), ..SandboxResult::default() }
+}
+
+/// A result for a launcher error: a setup failure before `$CALL/started`, and after it
+/// a launch error, because bwrap or the exit child was started and the command may
+/// have run.
+fn failure(call: &CallDir, reason: String) -> SandboxResult {
+    if call.dir.path().join(STARTED_FILE).exists() {
+        SandboxResult { started: true, launch_error: Some(reason), ..SandboxResult::default() }
+    } else {
+        setup_failure(reason)
+    }
 }
 
 /// The trusted shell's directory, as the kernel names it.
@@ -236,3 +247,6 @@ pub(crate) fn exit_records(bytes: Option<Vec<u8>>, call: &CallDir) -> Option<Rec
 pub(crate) fn read_trusted(path: &Path, limit: usize) -> Option<Vec<u8>> {
     RealFs.read_file(path, limit).ok()
 }
+
+#[cfg(test)]
+mod tests;
