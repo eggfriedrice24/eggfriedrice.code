@@ -275,7 +275,8 @@ What you see:
 | launcher changed | `the launcher copy does not match the installed efr-sbx` | restart efrd, so it copies the launcher again |
 | probe without a report | `the sandbox launcher's probe failed: ...` | run `efr sandbox check`; reinstall efr when it fails again |
 | project at `~` | `auto cannot use your home directory as a project` (per turn) | register a narrower project, such as `efr project add ~/dotfiles` |
-| self-test | `the sandbox let a write outside through: ...` | file an issue; `efr sandbox check` has the details |
+| a dir below `/tmp` | `efr's state dir /tmp/... lies below /tmp or /var/tmp, which the sandbox replaces with its own` (also for `XDG_RUNTIME_DIR`) | keep efr's state dir (`EFR_STATE_DIR` or `EFR_HOME`) and `XDG_RUNTIME_DIR` outside `/tmp` and `/var/tmp` |
+| self-test | `the sandbox let a test through: ...` | file an issue; `efr sandbox check` has the details |
 | turned off | `sandbox.enabled = false` | set `sandbox.enabled = true` |
 
 What to expect on some systems (the efr project has tested only the first row):

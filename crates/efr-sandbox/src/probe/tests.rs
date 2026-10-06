@@ -80,6 +80,7 @@ fn every_failure_has_a_reason_a_fix_and_a_check() {
         ProbeFailure::ProbeFailed { detail: "it printed no report".to_owned() },
         ProbeFailure::NoZsh,
         ProbeFailure::RelativePath { entry: "bin".to_owned() },
+        ProbeFailure::BelowTmp { what: "efr's state dir".to_owned(), path: "/tmp/x/state".into() },
         ProbeFailure::SelfTest { detail: "a write outside".to_owned() },
     ];
     for failure in failures {

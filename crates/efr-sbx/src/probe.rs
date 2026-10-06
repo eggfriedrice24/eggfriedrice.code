@@ -175,6 +175,9 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
         Some(entry) => checks.fail(ProbeFailure::RelativePath { entry: entry.to_owned() }),
         None => checks.pass("path", "every PATH entry is absolute"),
     }
+    if let Some(failure) = below_tmp(args) {
+        checks.fail(failure);
+    }
     let (Some(bwrap), Some(zsh), Some(launcher)) = (bwrap, zsh, launcher) else {
         checks.skip("self_test");
         return checks.report;
@@ -186,6 +189,25 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
     let paths = fixture::Programs { bwrap, zsh, launcher, shell_path: path };
     self_test(&mut checks, args, &paths);
     checks.report
+}
+
+/// The failure when the probe's dir (in efr's state dir) or the user's runtime dir lies
+/// below `/tmp` or `/var/tmp`. Inside, the private tmp replaces them: the fake call would
+/// see its own outside paths as writable, and the runtime dir's mask would lie in a
+/// write root.
+fn below_tmp(args: &ProbeArgs) -> Option<ProbeFailure> {
+    let runtime = args
+        .user_runtime
+        .clone()
+        .or_else(|| os::var("XDG_RUNTIME_DIR").map(PathBuf::from))
+        .filter(|dir| dir.is_dir());
+    let dirs = [("efr's state dir", Some(args.dir.clone())), ("XDG_RUNTIME_DIR", runtime)];
+    dirs.into_iter().find_map(|(what, dir)| {
+        let dir = dir?;
+        let real = dir.canonicalize().unwrap_or(dir);
+        let below = ["/tmp", "/var/tmp"].iter().any(|tmp| is_within(&real, Path::new(tmp)));
+        below.then(|| ProbeFailure::BelowTmp { what: what.to_owned(), path: real })
+    })
 }
 
 /// The first `name` in the absolute directories of `path`.

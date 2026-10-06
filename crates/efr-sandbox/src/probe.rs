@@ -113,6 +113,14 @@ pub enum ProbeFailure {
         /// The entry.
         entry: String,
     },
+    /// A directory that the probe's fake call or the sandbox needs lies below `/tmp` or
+    /// `/var/tmp`, which the sandbox replaces with its private ones.
+    BelowTmp {
+        /// What it is, such as `efr's state dir`.
+        what: String,
+        /// Where.
+        path: PathBuf,
+    },
     /// The self-test let something through.
     SelfTest {
         /// What got through.
@@ -140,6 +148,7 @@ impl ProbeFailure {
             | ProbeFailure::ProbeFailed { .. } => "launcher",
             ProbeFailure::NoZsh => "zsh",
             ProbeFailure::RelativePath { .. } => "path",
+            ProbeFailure::BelowTmp { .. } => "dirs",
             ProbeFailure::SelfTest { .. } => "self_test",
         }
     }
@@ -192,6 +201,10 @@ impl ProbeFailure {
             ProbeFailure::RelativePath { entry } => {
                 format!("the hidden shell's PATH has the relative entry {entry:?}")
             }
+            ProbeFailure::BelowTmp { what, path } => format!(
+                "{what} {} lies below /tmp or /var/tmp, which the sandbox replaces with its own",
+                path.display()
+            ),
             ProbeFailure::SelfTest { detail } => {
                 format!("the sandbox let a test through: {detail}")
             }
@@ -233,6 +246,9 @@ impl ProbeFailure {
             ProbeFailure::RelativePath { .. } => {
                 "remove the relative entry from PATH in your shell startup files".to_owned()
             }
+            ProbeFailure::BelowTmp { .. } => "keep efr's state dir (EFR_STATE_DIR or EFR_HOME) \
+                                              and XDG_RUNTIME_DIR outside /tmp and /var/tmp"
+                .to_owned(),
             ProbeFailure::SelfTest { .. } => {
                 "file an issue; efr sandbox check has the details".to_owned()
             }

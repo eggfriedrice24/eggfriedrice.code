@@ -30,3 +30,32 @@ fn missing_bwrap_has_no_facts() {
     assert_eq!(bwrap_facts(None), BwrapFacts::default());
     assert_eq!(bwrap_facts(Some(Path::new("/nonexistent/bwrap"))), BwrapFacts::default());
 }
+
+fn args(dir: &str, user_runtime: &str) -> ProbeArgs {
+    ProbeArgs {
+        json: true,
+        dir: PathBuf::from(dir),
+        bwrap: None,
+        zsh: None,
+        home: None,
+        user_runtime: Some(PathBuf::from(user_runtime)),
+        cache_mode: "tmp".to_owned(),
+        write_roots: Vec::new(),
+        shell_path: None,
+    }
+}
+
+#[test]
+fn a_state_or_runtime_dir_below_tmp_names_itself() {
+    let state = below_tmp(&args("/tmp/efr-home/state/sandbox/probe", "/"));
+    assert!(
+        matches!(&state, Some(ProbeFailure::BelowTmp { what, .. }) if what == "efr's state dir"),
+        "{state:?}"
+    );
+    let runtime = below_tmp(&args("/nonexistent/state/sandbox/probe", "/tmp"));
+    assert!(
+        matches!(&runtime, Some(ProbeFailure::BelowTmp { what, .. }) if what == "XDG_RUNTIME_DIR"),
+        "{runtime:?}"
+    );
+    assert_eq!(below_tmp(&args("/nonexistent/state/sandbox/probe", "/")), None);
+}
