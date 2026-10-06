@@ -148,6 +148,52 @@ test-sandbox:
     # The launch cost and the corpus print their tables; show them.
     cargo nextest run -p efr-sbx --success-output immediate -E 'test(/^cost::|^corpus::/)'
 
+# test-sandbox in the Ubuntu 24.04 container of test-shell-ubuntu, which shares this
+# machine's kernel (needs Docker and a kernel with Landlock ABI 9). bwrap needs three
+# relaxed container defaults: no seccomp profile (user namespaces), no AppArmor profile,
+# and a writable /proc/sys (--disable-userns writes max_user_namespaces).
+test-sandbox-ubuntu:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v docker >/dev/null; then
+        echo "test-sandbox-ubuntu: docker is not installed" >&2
+        exit 1
+    fi
+    toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
+    nextest="$(sed -nE 's/.*tool: cargo-nextest@([0-9.]+).*/\1/p' .github/workflows/ci.yml | head -n1)"
+    image=efr-shell-ubuntu
+    echo "test-sandbox-ubuntu: building $image (Rust $toolchain, cargo-nextest $nextest)"
+    docker build -t "$image" --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
+        --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
+        - < .github/ubuntu-shell.Dockerfile
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
+    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
+    echo "test-sandbox-ubuntu: running the sandbox tests, cached in $cache"
+    docker run --rm --init \
+        --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+        --security-opt systempaths=unconfined \
+        -v "$PWD:/home/runner/work/efr" \
+        -v "$cache/registry:/home/runner/.cargo/registry" \
+        -v "$cache/git:/home/runner/.cargo/git" \
+        -v "$cache/target:/home/runner/target" \
+        -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
+        -w /home/runner/work/efr "$image" bash -euo pipefail -c '
+            cargo build -p efr-sbx
+            bin=/home/runner/target/debug/efr-sbx
+            mkdir -p -m 700 /home/runner/target/debug/sbx-probe
+            report="$("$bin" probe --json --dir /home/runner/target/debug/sbx-probe)"
+            if [[ "$report" == *"\"failure\":null"* ]]; then
+                echo "test-sandbox-ubuntu: the probe says ready; a skipped test fails"
+                require=1
+            else
+                echo "test-sandbox-ubuntu: the probe says unavailable: $report"
+                require=0
+            fi
+            export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE="$require"
+            # procps of Ubuntu cannot find itself in the procfs of the container from a new
+            # pid namespace ("fatal library error, lookup self"), with plain bwrap too.
+            cargo nextest run -p efr-sbx -E "not test(ps_sees_host_processes)"'
+
 # Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
 # feature combination: CI's fmt, lint, deny, tidy and hack jobs.
 lint: fmt-check typos clippy doc-check deny tidy deps hack

@@ -29,6 +29,23 @@ RUN chmod -R 777 /usr/share
 # The shell job's own step.
 RUN apt-get update && apt-get install -y zsh && rm -rf /var/lib/apt/lists/*
 
+# bubblewrap 0.13.0 for `just test-sandbox-ubuntu`: Ubuntu 24.04 ships 0.9.0, which lacks
+# --overlay and --tmp-overlay. Built from the release tarball, checked by its SHA-256,
+# owned by root and not setuid, as the sandbox probe requires.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libcap-dev meson ninja-build xz-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && cd /tmp \
+    && curl -fsSLO https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz \
+    && echo "4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765  bubblewrap-0.13.0.tar.xz" \
+        | sha256sum -c - \
+    && tar -xJf bubblewrap-0.13.0.tar.xz \
+    && meson setup /tmp/bwrap-build bubblewrap-0.13.0 --prefix=/usr/local -Dman=disabled \
+        -Dselinux=disabled -Dtests=false -Dbash_completion=disabled -Dzsh_completion=disabled \
+    && meson compile -C /tmp/bwrap-build \
+    && meson install -C /tmp/bwrap-build \
+    && rm -rf /tmp/bwrap-build /tmp/bubblewrap-0.13.0 /tmp/bubblewrap-0.13.0.tar.xz
+
 # The image's own user holds uid 1000; the runner user takes the host's ids instead,
 # so the files it writes into the mounted checkout and caches belong to the host user.
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \
