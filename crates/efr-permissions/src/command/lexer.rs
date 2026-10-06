@@ -44,11 +44,20 @@ impl Word {
 pub(super) struct Lexer {
     chars: Vec<char>,
     at: usize,
+    /// True when an output redirection to a file is a plain redirection, not a
+    /// construct: the one-command rule of an unsandboxed exit judges such paths apart.
+    file_redirects: bool,
 }
 
 impl Lexer {
     pub(super) fn new(line: &str) -> Self {
-        Lexer { chars: line.chars().collect(), at: 0 }
+        Lexer { chars: line.chars().collect(), at: 0, file_redirects: false }
+    }
+
+    /// Accepts an output redirection to any file.
+    pub(super) fn with_file_redirects(mut self) -> Self {
+        self.file_redirects = true;
+        self
     }
 
     fn peek(&self) -> Option<char> {
@@ -128,7 +137,11 @@ impl Lexer {
         match (self.peek(), self.peek_at(1)) {
             (Some('<'), Some('<')) => Err(Construct::HereDocument),
             (Some('<' | '>'), Some('(')) => Err(Construct::ProcessSubstitution),
-            (Some('<'), Some('>')) => Err(Construct::Redirection),
+            (Some('<'), Some('>')) if !self.file_redirects => Err(Construct::Redirection),
+            (Some('<'), Some('>')) => {
+                self.at += 2;
+                self.output_target()
+            }
             (Some('<' | '>'), Some('&')) => {
                 self.at += 2;
                 self.duplicate()
@@ -138,7 +151,11 @@ impl Lexer {
                 // Reading a file is a read like any other; the tool declares the path.
                 self.target().map(|_| ())
             }
-            (Some('>'), Some('!')) => Err(Construct::Redirection),
+            (Some('>'), Some('!')) if !self.file_redirects => Err(Construct::Redirection),
+            (Some('>'), Some('!')) => {
+                self.at += 2;
+                self.output_target()
+            }
             (Some('>'), _) => {
                 self.at += 1;
                 if self.peek() == Some('>') {
@@ -169,9 +186,15 @@ impl Lexer {
         self.output_target()
     }
 
-    /// The target of an output redirection, which may only be `/dev/null`.
+    /// The target of an output redirection, which may only be `/dev/null` unless
+    /// redirections to files are accepted.
     fn output_target(&mut self) -> Result<(), Construct> {
-        if self.target()?.text == "/dev/null" { Ok(()) } else { Err(Construct::Redirection) }
+        let target = self.target()?;
+        if self.file_redirects || target.text == "/dev/null" {
+            Ok(())
+        } else {
+            Err(Construct::Redirection)
+        }
     }
 
     /// The word after a redirection operator.

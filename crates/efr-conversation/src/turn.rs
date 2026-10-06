@@ -569,7 +569,10 @@ impl Turn {
             Effect::Deny => {
                 Ok(Authorization::Denied { message: approvals::denial(&call.name, &decision) })
             }
-            Effect::Ask => self.ask(call, &decision, interactive).await,
+            // NOTE: until this check point runs a call with `Launch::Contained`, a call
+            // that the auto sandbox would hold asks the user, so nothing runs outside
+            // the sandbox without a person.
+            Effect::Contain | Effect::Ask => self.ask(call, &decision, interactive).await,
         }
     }
 

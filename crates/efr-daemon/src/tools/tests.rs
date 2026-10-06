@@ -365,6 +365,8 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
             let effect = engine.decide(&input).effect();
             let expected = match (expected, mode) {
                 (Effect::Allow, Mode::Manual) => Effect::Ask,
+                // NOTE: auto runs every line in its sandbox.
+                (Effect::Allow, Mode::Auto) => Effect::Contain,
                 _ => expected,
             };
             assert_eq!(effect, expected, "{command:?} in {mode}");
@@ -461,8 +463,8 @@ async fn in_auto_a_copy_or_a_link_out_of_the_project_asks_wherever_its_options_s
     .unwrap();
 
     for (command, expected) in [
-        ("cp x y", Effect::Allow),
-        ("cp x y -v", Effect::Allow),
+        ("cp x y", Effect::Contain),
+        ("cp x y -v", Effect::Contain),
         ("cp x ~/.bashrc", Effect::Ask),
         ("cp x ~/.bashrc --suffix y", Effect::Ask),
         ("cp x ~/.bashrc -S y", Effect::Ask),

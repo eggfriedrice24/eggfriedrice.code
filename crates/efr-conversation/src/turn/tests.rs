@@ -875,8 +875,8 @@ async fn the_check_point_judges_a_command_from_where_the_hidden_shell_is() {
 
 #[tokio::test]
 async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
-    // `rm` is a writer program: the auto table lets it run, and the path rules judge
-    // what it writes (here nothing is declared), while cautious asks for it.
+    // In auto the engine contains every line. Until this check point runs a call in the
+    // sandbox, a contained call asks the user, so nothing runs unsandboxed without one.
     let mut setup = Setup::new();
     setup.config.mode = Mode::Auto;
     let mut state = setup.live_state(&setup.cwd, "clean up");
@@ -896,11 +896,13 @@ async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
     let mut h = setup.start(records).await;
 
     let sent = h.prompt("clean up").await;
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Allow).await;
     h.wait_end(sent.turn_id).await;
 
     assert_eq!(h.toolbox.invoked(), vec![("shell".to_owned(), input)]);
     let events = h.events().await;
-    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    assert!(events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
     // The toolbox says whether the call takes a manual input, and the event records it.
     assert!(matches!(
         find(&events, |e| matches!(e, Event::ToolCallStarted { .. })),
