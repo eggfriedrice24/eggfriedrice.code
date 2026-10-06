@@ -318,8 +318,8 @@ spec; `docs/sandbox.md` for the user's view):
   Before `prepare`, the toolbox waits until the conversation's shell has no other run
   (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
   a command still running holds no lock while it waits.
-- Before the engine decides a shell call, the toolbox collects its facts
-  (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
+- Before the engine decides a shell call of an `auto` turn, the toolbox collects its
+  facts (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
   directory through the hardened `git ls-files`, and where each program word leads
   and whether it changed in the turn.
 - After a call, the quarantine question's "keep" moves the changes back
