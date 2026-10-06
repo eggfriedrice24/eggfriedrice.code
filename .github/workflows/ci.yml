@@ -120,6 +120,11 @@ jobs:
           tool: cargo-deny@0.20.2
       - run: cargo deny check
 
+  # The leaf crates alone: cargo unifies features only over the packages it builds, so
+  # here they build and run against their own dependency features (serde_json without
+  # unbounded_depth, rustix without stdio, libc without extra_traits), not the ones the
+  # daemon side turns on in `build`. A leaf test that compiles or passes only because of
+  # a feature another crate enables fails here and nowhere else.
   test-leaf:
     runs-on: ubuntu-latest
     steps:
