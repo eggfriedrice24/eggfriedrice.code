@@ -57,6 +57,5 @@ fn the_inside_paths_live_below_the_masked_runtime_dir() {
     let spec = spec();
     assert_eq!(spec.runtime.inside_launcher(), PathBuf::from("/run/user/1000/efr-sbx/efr-sbx"));
     assert_eq!(spec.runtime.private_tmp(), spec.runtime.sandbox_dir.join("tmp"));
-    assert_eq!(spec.expand(Path::new("~/.cargo")), PathBuf::from("/home/u/.cargo"));
     assert!(spec.runtime.quarantine(spec.call).starts_with(&spec.runtime.sandbox_dir));
 }

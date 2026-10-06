@@ -58,9 +58,8 @@ pub use names::{
 pub use paths::{depth, expand_home, is_normal, is_within, normalize, too_wide};
 pub use plan::{Explanation, Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote, StartDir};
 pub use probe::{
-    BWRAP_REQUIRED_FLAGS, BwrapFacts, HOME_PROJECT_FIX, HOME_PROJECT_REASON, ProbeFailure,
-    ProbeReport, SELF_TEST_TCP_ADDR, bwrap_missing_flags, check_bwrap, check_landlock,
-    parse_bwrap_version,
+    BWRAP_REQUIRED_FLAGS, BwrapFacts, HOME_PROJECT_FIX, ProbeFailure, ProbeReport,
+    SELF_TEST_TCP_ADDR, bwrap_missing_flags, check_bwrap, check_landlock, parse_bwrap_version,
 };
 pub use records::{RECORDS_HEADER, Records, encode_apply, encode_records, parse_records};
 pub use result::{

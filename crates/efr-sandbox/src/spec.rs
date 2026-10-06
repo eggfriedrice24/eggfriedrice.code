@@ -12,7 +12,7 @@ use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
 use serde::{Deserialize, Serialize};
 
 use crate::SandboxError;
-use crate::paths::{expand_home, is_normal};
+use crate::paths::is_normal;
 
 /// The version of the spec that this build writes and reads.
 pub const SPEC_VERSION: u32 = 1;
@@ -431,11 +431,6 @@ impl SandboxSpec {
             });
         }
         Ok(())
-    }
-
-    /// `path` with a leading `~` expanded to this spec's home.
-    pub fn expand(&self, path: &Path) -> PathBuf {
-        expand_home(path, &self.runtime.home)
     }
 }
 

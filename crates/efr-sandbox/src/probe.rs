@@ -27,10 +27,8 @@ pub const BWRAP_REQUIRED_FLAGS: &[&str] = &[
 /// The address the self-test connects to: TEST-NET-1, which must fail at once.
 pub const SELF_TEST_TCP_ADDR: &str = "192.0.2.1:9";
 
-/// The reason of a turn in a project at the home directory, which runs as `cautious`.
-pub const HOME_PROJECT_REASON: &str = efr_protocol::ModeFallback::HOME_PROJECT_REASON;
-
-/// The fix of [`HOME_PROJECT_REASON`].
+/// The fix of [`ModeFallback::HOME_PROJECT_REASON`](efr_protocol::ModeFallback::HOME_PROJECT_REASON):
+/// a turn in a project at the home directory runs as `cautious`.
 pub const HOME_PROJECT_FIX: &str =
     "register a narrower project, such as efr project add ~/dotfiles";
 

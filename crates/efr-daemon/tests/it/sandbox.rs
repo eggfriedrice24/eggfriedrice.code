@@ -303,7 +303,7 @@ async fn home_project_falls_back_to_cautious() {
     assert_eq!(settings.mode, Mode::Cautious);
     assert_eq!(
         settings.fallback.map(|fallback| fallback.reason),
-        Some(efr_sandbox::HOME_PROJECT_REASON.to_owned())
+        Some(ModeFallback::HOME_PROJECT_REASON.to_owned())
     );
     drop(client);
     daemon.stop().await.unwrap();
