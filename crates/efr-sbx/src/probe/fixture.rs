@@ -104,7 +104,15 @@ impl Fixture {
             .unwrap_or_else(|| {
                 PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()))
             });
-        let user_runtime = absolute(user_runtime)?;
+        // A session without a runtime dir (a container, a cron job) still gets a probe:
+        // the fixture's own dir stands in for it, masked the same way.
+        let user_runtime = if args.user_runtime.is_none() && !user_runtime.is_dir() {
+            let own = root.join("x");
+            private_dir(&own)?;
+            own
+        } else {
+            absolute(user_runtime)?
+        };
         let runtime_root = root.join("r");
         let shell_dir = runtime_root.join("sbx").join(conversation.to_string());
         let call_dir = shell_dir.join(call.to_string());

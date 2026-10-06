@@ -309,7 +309,7 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
 /// The failure of a probe launch that did not start, by bwrap's message.
 fn setup_failure(reason: &str) -> ProbeFailure {
     let lower = reason.to_ascii_lowercase();
-    let userns = ["namespace", "uid map", "operation not permitted", "no permissions"];
+    let userns = ["new namespace", "uid map", "user namespace", "no permissions to create"];
     if userns.iter().any(|word| lower.contains(word)) {
         let apparmor =
             std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
