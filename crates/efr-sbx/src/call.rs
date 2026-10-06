@@ -182,13 +182,19 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         let filter = ExportFilter::from_spec(&spec, &plan, &final_host);
         let promotion = finish::promote(records, cd, &filter, &fs, &mut result.summary);
         finish::update_state(&mut state, records, &cwd, &pwd);
-        write_apply(call, &promotion)?;
-        shell_dir.write_atomic(STATE_JSON_FILE, &state.to_json()?)?;
-        shell_dir.write_atomic(STATE_ZSH_FILE, state.render().as_bytes())?;
-        result.state_kept = true;
+        // The command ran: a failure from here on loses the shell state of this call,
+        // and must not turn into a setup failure.
+        result.state_kept = write_apply(call, &promotion)
+            .and_then(|()| shell_dir.write_atomic(STATE_JSON_FILE, &state.to_json()?))
+            .and_then(|()| shell_dir.write_atomic(STATE_ZSH_FILE, state.render().as_bytes()))
+            .is_ok();
     }
     let mut changes = guard.after(&final_host);
-    guard::quarantine(&mut changes, &spec.runtime.quarantine(spec.call))?;
+    if guard::quarantine(&mut changes, &spec.runtime.quarantine(spec.call)).is_err() {
+        for change in &mut changes {
+            change.quarantined = false;
+        }
+    }
     result.summary.surface_changes = changes;
     Ok(result)
 }

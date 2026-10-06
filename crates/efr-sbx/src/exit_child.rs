@@ -93,7 +93,8 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
         let final_cwd = cd.clone().unwrap_or_else(|| pwd.clone());
         let filter = finish::exit_child_filter(spec, &final_cwd);
         let promotion = finish::promote(records, cd, &filter, &RealFs, &mut result.summary);
-        call::write_apply(call, &promotion)?;
+        // The command ran; a lost apply file loses its cd and exports, nothing more.
+        result.state_kept = call::write_apply(call, &promotion).is_ok();
     }
     Ok(result)
 }
