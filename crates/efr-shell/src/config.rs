@@ -55,6 +55,12 @@ pub struct ShellConfig {
     /// than `quiet_period`, because a slow command whose last line is unfinished looks
     /// the same.
     pub visible_input_quiet: Duration,
+    /// The quiet that a visible prompt needs instead of `visible_input_quiet` when its
+    /// row reads like a question: a `[Y/n]`, `[y/N]`, `(yes/no)` or `[yes/no]` marker,
+    /// or text that ends in `? ` or `: ` with the cursor after it. A person is asked
+    /// sooner where the guess is safer. The looks still come once per `quiet_period`,
+    /// so a question is reported at the first look after this quiet.
+    pub question_input_quiet: Duration,
     /// While a command runs, the least time between two reads of its live tail on a
     /// screen, which output that moves the cursor needs (output that only prints text
     /// is cleaned at every change). 200 ms, which equals the default of
@@ -78,7 +84,8 @@ impl ShellConfig {
     /// A config with the defaults: zsh from the `PATH`, an interactive login shell,
     /// [`DEFAULT_SIZE`](Self::DEFAULT_SIZE), `xterm-256color` with truecolor, ten
     /// seconds to start, one second of quiet for an input prompt (three for a visible
-    /// one while the command runs), a live tail read on a screen at most every 200 ms,
+    /// one while the command runs, half a second for a visible one that reads like a
+    /// question), a live tail read on a screen at most every 200 ms,
     /// five seconds to close, and no trusted programs.
     pub fn new(integration_dir: impl Into<PathBuf>, base_env: BTreeMap<String, String>) -> Self {
         ShellConfig {
@@ -92,6 +99,7 @@ impl ShellConfig {
             startup_timeout: Duration::from_secs(10),
             quiet_period: Duration::from_secs(1),
             visible_input_quiet: Duration::from_secs(3),
+            question_input_quiet: Duration::from_millis(500),
             tail_interval: Duration::from_millis(200),
             close_grace: Duration::from_secs(5),
             trusted_programs: Vec::new(),
@@ -112,6 +120,7 @@ impl fmt::Debug for ShellConfig {
             .field("startup_timeout", &self.startup_timeout)
             .field("quiet_period", &self.quiet_period)
             .field("visible_input_quiet", &self.visible_input_quiet)
+            .field("question_input_quiet", &self.question_input_quiet)
             .field("tail_interval", &self.tail_interval)
             .field("close_grace", &self.close_grace)
             .field("trusted_programs", &self.trusted_programs)

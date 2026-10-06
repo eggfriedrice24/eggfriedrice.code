@@ -7,9 +7,11 @@
 //!   getpass-style read leaves it, and the output has been quiet for `quiet_period`.
 //! - [`InputWait::Visible`]: the terminal is in any other modes, raw or cooked, echo on
 //!   or off, the output has been quiet for `visible_input_quiet`, and the main screen
-//!   has the cursor after some text, as after `[Y/n] `. Only then is the screen read. A
-//!   command whose last line is merely unfinished looks the same, so this is a guess,
-//!   and it never stops a command. The modes cannot narrow it: a relay such as `sudo`
+//!   has the cursor after some text. Only then is the screen read. A command whose last
+//!   line is merely unfinished looks the same, so this is a guess, and it never stops a
+//!   command. A row that reads like a question ([`question_prompt`]: `[Y/n]`,
+//!   `(yes/no)`, or text that ends in `? ` or `: ` before the cursor) needs only
+//!   `question_input_quiet`, so a person is asked sooner where the guess is safer. The modes cannot narrow it: a relay such as `sudo`
 //!   (with `use_pty`, its default) or `script` puts the terminal in raw mode and runs
 //!   the program on a terminal of its own, whose modes are not read here.
 //! - [`InputWait::None`] otherwise, and when the modes cannot be read. A full-screen
@@ -183,6 +185,8 @@ pub(crate) struct Probe {
 pub(crate) struct Quiet {
     pub(crate) hidden: Duration,
     pub(crate) visible: Duration,
+    /// For a visible prompt that reads like a question; shorter than `visible`.
+    pub(crate) question: Duration,
 }
 
 /// Which waits a run reports.
@@ -210,8 +214,12 @@ impl Offer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Look {
     Settled(InputWait),
-    /// Visible if the screen shows a prompt, otherwise none.
-    ReadScreen,
+    /// Visible if the screen shows a prompt, otherwise none. With `questions_only`, the
+    /// output was quiet for the question quiet but not for the visible one, so only a
+    /// prompt that reads like a question counts.
+    ReadScreen {
+        questions_only: bool,
+    },
 }
 
 /// Judges a probe at `now` for a run that reports the waits in `offer`. The screen is
@@ -236,7 +244,10 @@ pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet, offer: Offer) ->
         });
     }
     if offer == Offer::All && quiet_for(quiet.visible) {
-        return Look::ReadScreen;
+        return Look::ReadScreen { questions_only: false };
+    }
+    if offer == Offer::All && quiet_for(quiet.question) {
+        return Look::ReadScreen { questions_only: true };
     }
     Look::Settled(InputWait::None)
 }
@@ -244,6 +255,42 @@ pub(crate) fn look(probe: &Probe, now: Timestamp, quiet: Quiet, offer: Offer) ->
 /// True when the main screen shows a prompt: the cursor sits after some text.
 pub(crate) fn visible_prompt(snapshot: &ScreenSnapshot) -> bool {
     !snapshot.alternate_screen && cursor_after_text(snapshot)
+}
+
+/// The answer markers of a yes or no question, in lower case.
+const QUESTION_MARKS: &[&str] = &["[y/n]", "(y/n)", "[yes/no]", "(yes/no)"];
+
+/// True when the cursor's row of `snapshot` reads like a question that waits for its
+/// answer: nothing follows the cursor, and the text before it ends in a yes or no
+/// marker such as `[Y/n]` or `(yes/no)`, or in `?` or `:` followed by a space. A
+/// slow command's unfinished line seldom ends so, which is why such a row is trusted
+/// after a shorter quiet than any other prompt.
+pub(crate) fn question_prompt(snapshot: &ScreenSnapshot) -> bool {
+    let cursor = usize::from(snapshot.cursor.col);
+    let Some(row) = snapshot.rows.get(usize::from(snapshot.cursor.row)) else {
+        return false;
+    };
+    let (before, after) = row.cells.split_at(cursor.min(row.cells.len()));
+    if after.iter().any(|cell| !cell.text.trim().is_empty()) {
+        return false;
+    }
+    let mut line = String::new();
+    let mut after_wide = false;
+    for cell in before {
+        // The cell after a wide character is its second half, not a space.
+        if cell.text.is_empty() && !after_wide {
+            line.push(' ');
+        }
+        line.push_str(&cell.text);
+        after_wide = cell.wide;
+    }
+    // A cursor past the row's cells stands after blanks.
+    line.extend(std::iter::repeat_n(' ', cursor.saturating_sub(row.cells.len())));
+    let line = line.to_lowercase();
+    let text = line.trim_end();
+    let spaced = text.len() < line.len();
+    QUESTION_MARKS.iter().any(|mark| text.ends_with(mark))
+        || (spaced && (text.ends_with('?') || text.ends_with(':')))
 }
 
 /// What a prompt that asks for a secret says, in lower case. `pin` counts only as a

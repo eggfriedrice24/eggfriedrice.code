@@ -829,11 +829,45 @@ async fn hidden_input_waits_for_the_quiet_period_and_ends_when_output_resumes() 
 }
 
 #[tokio::test]
-async fn a_prompt_with_echo_on_waits_for_visible_input_after_the_longer_quiet() {
+async fn a_question_with_echo_on_waits_for_visible_input_at_the_first_look() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run, mut heard) =
         waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
     screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
+    // One second of quiet is more than the half second that a question needs.
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Visible]).await;
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    terminal.print(b"y\r\n\x1b]133;D;0\x07").await;
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::Finished);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+#[tokio::test]
+async fn a_question_that_printed_less_than_the_question_quiet_ago_waits_for_the_next_look() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) = waiting(&harness, "./setup", true, b"step 1").await;
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_millis(600));
+    terminal.print(b"\r\nContinue? ").await;
+    screen_shows(&harness.sessions, conversation(1), "Continue?").await;
+    // The look comes 400 ms after the question.
+    harness.clock.advance(Duration::from_millis(400));
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(heard.inputs.borrow().is_empty(), "{:?}", heard.inputs.borrow());
+    one_look(&harness).await;
+    heard.inputs(&[InputWait::Visible]).await;
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    run.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_prompt_with_echo_on_waits_for_visible_input_after_the_longer_quiet() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        waiting(&harness, "./install", true, b"Pick a mirror > ").await;
+    screen_shows(&harness.sessions, conversation(1), "mirror >").await;
     one_look(&harness).await;
     one_look(&harness).await;
     harness.clock.wait_for_sleeps(3).await;
@@ -1051,9 +1085,7 @@ async fn an_answer_is_refused_unless_it_is_of_the_kind_of_the_reported_wait() {
     let (mut terminal, run, mut heard) =
         waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
     screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
-    for _ in 0..3 {
-        one_look(&harness).await;
-    }
+    one_look(&harness).await;
     heard.inputs(&[InputWait::Visible]).await;
     harness.modes.set(Some(HIDDEN));
     let hidden =
@@ -1101,9 +1133,7 @@ async fn an_answer_reaches_only_the_job_whose_wait_was_reported() {
     let (mut terminal, run, mut heard) =
         waiting(&harness, "pacman -Syu", true, b"Proceed with installation? [Y/n] ").await;
     screen_shows(&harness.sessions, conversation(1), "[Y/n]").await;
-    for _ in 0..3 {
-        one_look(&harness).await;
-    }
+    one_look(&harness).await;
     heard.inputs(&[InputWait::Visible]).await;
 
     // The job ended, and a command that a precmd hook after efr's started holds the
@@ -1360,9 +1390,7 @@ async fn visible_wait(
     let harness = Harness::new(ZSH);
     let (mut terminal, run, mut heard) = waiting(&harness, command, true, prompt).await;
     harness.modes.set(Some(modes));
-    for _ in 0..3 {
-        one_look(&harness).await;
-    }
+    one_look(&harness).await;
     heard.inputs(&[InputWait::Visible]).await;
     // The answer is a visible one either way, so the kind check holds.
     harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), false).await.unwrap();

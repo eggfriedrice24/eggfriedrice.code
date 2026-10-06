@@ -705,7 +705,11 @@ impl ShellSessions {
             return Ok(false);
         };
         let config = &self.inner.config;
-        let quiet = Quiet { hidden: config.quiet_period, visible: config.visible_input_quiet };
+        let quiet = Quiet {
+            hidden: config.quiet_period,
+            visible: config.visible_input_quiet,
+            question: config.question_input_quiet,
+        };
         // A terminal that is not in line mode while a job waits is a relay's, such as
         // `sudo`'s own pty, or a program's raw mode: only then can a password prompt be
         // a visible wait.
@@ -713,8 +717,11 @@ impl ShellSessions {
         let (wait, secret) = match input::look(&probe, self.inner.deps.clock.now(), quiet, offer) {
             Look::Settled(wait) => (wait, false),
             // A screen that failed only loses the guess; the command goes on.
-            Look::ReadScreen => match session.screen.snapshot(0).await {
-                Ok(capture) if input::visible_prompt(&capture.snapshot) => {
+            Look::ReadScreen { questions_only } => match session.screen.snapshot(0).await {
+                Ok(capture)
+                    if input::visible_prompt(&capture.snapshot)
+                        && (!questions_only || input::question_prompt(&capture.snapshot)) =>
+                {
                     (InputWait::Visible, relayed && input::secret_prompt(&capture.snapshot))
                 }
                 _ => (InputWait::None, false),

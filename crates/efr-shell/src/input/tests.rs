@@ -6,14 +6,18 @@ use pretty_assertions::assert_eq;
 
 use super::{
     InputWatch, Look, Offer, Probe, Quiet, Waiting, check_answer, check_job, check_kind,
-    check_modes, look, looks_secret, secret_prompt, visible_prompt,
+    check_modes, look, looks_secret, question_prompt, secret_prompt, visible_prompt,
 };
 use crate::modes::{InputModes, Job};
 use crate::{RunMode, ShellError};
 
 const START: Timestamp = Timestamp::constant(1_791_115_200, 0);
 
-const QUIET: Quiet = Quiet { hidden: Duration::from_secs(1), visible: Duration::from_secs(3) };
+const QUIET: Quiet = Quiet {
+    hidden: Duration::from_secs(1),
+    visible: Duration::from_secs(3),
+    question: Duration::from_millis(500),
+};
 
 fn at(millis: i64) -> Timestamp {
     START.checked_add(SignedDuration::from_millis(millis)).unwrap()
@@ -43,10 +47,22 @@ fn echo_off_with_line_input_is_hidden_once_the_output_is_quiet() {
     assert_eq!(look(&probe(HIDDEN), at(1000), QUIET, Offer::All), Look::Settled(InputWait::Hidden));
 }
 
+const ANY_PROMPT: Look = Look::ReadScreen { questions_only: false };
+const QUESTIONS: Look = Look::ReadScreen { questions_only: true };
+
 #[test]
-fn a_cooked_terminal_reads_the_screen_only_after_the_visible_quiet() {
-    assert_eq!(look(&probe(COOKED), at(2999), QUIET, Offer::All), Look::Settled(InputWait::None));
-    assert_eq!(look(&probe(COOKED), at(3000), QUIET, Offer::All), Look::ReadScreen);
+fn a_cooked_terminal_reads_the_screen_for_a_question_first_and_any_prompt_later() {
+    assert_eq!(look(&probe(COOKED), at(499), QUIET, Offer::All), Look::Settled(InputWait::None));
+    assert_eq!(look(&probe(COOKED), at(500), QUIET, Offer::All), QUESTIONS);
+    assert_eq!(look(&probe(COOKED), at(2999), QUIET, Offer::All), QUESTIONS);
+    assert_eq!(look(&probe(COOKED), at(3000), QUIET, Offer::All), ANY_PROMPT);
+}
+
+#[test]
+fn a_question_quiet_longer_than_the_visible_one_changes_nothing() {
+    let quiet = Quiet { question: Duration::from_secs(10), ..QUIET };
+    assert_eq!(look(&probe(COOKED), at(2999), quiet, Offer::All), Look::Settled(InputWait::None));
+    assert_eq!(look(&probe(COOKED), at(3000), quiet, Offer::All), ANY_PROMPT);
 }
 
 #[test]
@@ -54,11 +70,9 @@ fn a_raw_terminal_reads_the_screen_after_the_visible_quiet_too() {
     // A relay such as sudo's own terminal leaves the hidden shell's terminal raw while
     // the program behind it asks a question.
     for modes in [RAW, ECHOING_RAW] {
-        assert_eq!(
-            look(&probe(modes), at(2999), QUIET, Offer::All),
-            Look::Settled(InputWait::None)
-        );
-        assert_eq!(look(&probe(modes), at(3000), QUIET, Offer::All), Look::ReadScreen);
+        assert_eq!(look(&probe(modes), at(499), QUIET, Offer::All), Look::Settled(InputWait::None));
+        assert_eq!(look(&probe(modes), at(500), QUIET, Offer::All), QUESTIONS);
+        assert_eq!(look(&probe(modes), at(3000), QUIET, Offer::All), ANY_PROMPT);
     }
 }
 
@@ -122,6 +136,52 @@ fn a_prompt_is_the_cursor_after_text_on_the_main_screen() {
     assert!(!visible_prompt(&done));
     let full_screen = screen(&["top - 12:00"], (0, 5), true);
     assert!(!visible_prompt(&full_screen));
+}
+
+#[test]
+fn a_row_that_asks_yes_or_no_or_ends_in_a_question_mark_or_a_colon_is_a_question() {
+    for (text, col) in [
+        ("Proceed with installation? [Y/n] ", 33),
+        (":: Proceed with installation? [Y/n]", 36),
+        ("Remove the file [y/N] ", 22),
+        ("Continue (yes/no) ", 18),
+        ("Are you sure you want to continue connecting (yes/no/[fingerprint])? ", 70),
+        ("Overwrite? [YES/NO] ", 20),
+        ("Delete it (Y/n)", 15),
+        ("name? ", 6),
+        ("Enter a name: ", 14),
+        ("[sudo] password for u: ", 23),
+    ] {
+        let asking = screen(&["earlier output", text], (1, col), false);
+        assert!(question_prompt(&asking), "{text:?} with the cursor at {col}");
+    }
+}
+
+#[test]
+fn an_unfinished_line_or_text_after_the_cursor_is_no_question() {
+    for (text, col) in [
+        ("Downloading core.db 45%", 23),
+        ("Building", 8),
+        // The cursor right after the mark: a line still being written.
+        ("Status:", 7),
+        ("What?", 5),
+        ("> ", 2),
+        ("", 0),
+        // The question mark is not at the cursor.
+        ("Proceed? [Y/n] yes, going on", 15),
+        ("Is it done? not yet", 12),
+    ] {
+        let row = screen(&[text], (0, col), false);
+        assert!(!question_prompt(&row), "{text:?} with the cursor at {col}");
+    }
+}
+
+#[test]
+fn a_cursor_past_the_cells_of_its_row_stands_after_blanks() {
+    let mut asking = screen(&["Continue?"], (0, 12), false);
+    assert!(question_prompt(&asking));
+    asking.cursor.row = 3;
+    assert!(!question_prompt(&asking), "a row that is not on the screen asks nothing");
 }
 
 #[test]

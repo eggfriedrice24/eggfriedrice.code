@@ -83,8 +83,11 @@ and `D`, or the two sentinels):
   read: `sudo`, `ssh`, `su`, `passwd`, polkit's agent) and the output has been quiet
   for `quiet_period`; `Visible` in any other modes (raw or cooked, echo on or off)
   when the output has been quiet for `visible_input_quiet` (3 s) and the main screen
-  has the cursor after some text (a `[Y/n]` question); `None` otherwise. The screen is
-  read only when the output is that quiet. A full-screen program on the alternate
+  has the cursor after some text; `None` otherwise. A row that reads like a question
+  needs only `question_input_quiet` (0.5 s): a `[Y/n]`, `[y/N]`, `(yes/no)` or
+  `[yes/no]` marker, or text that ends in `? ` or `: ` with the cursor after it and
+  nothing behind it. Such a question is reported at the first look after it, about a
+  second sooner than three. The screen is read only when the output is that quiet. A full-screen program on the alternate
   screen is judged only at the timeout, as above. A run that ends, is left at its
   timeout or is stopped while it waits reports `None` last.
 - The modes cannot narrow a visible wait. A relay that runs a program on a terminal of

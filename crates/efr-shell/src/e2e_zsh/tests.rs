@@ -620,10 +620,26 @@ async fn e2e_a_visible_prompt_waits_for_visible_input_and_its_answer_is_output()
     else {
         return;
     };
+    let command = r#"sh -c 'printf "name> "; IFS= read -r n; printf "hi %s\n" "$n"'"#;
+    let (run, mut heard) = zsh.run_waiting(command, true, "name> ").await;
+    let looks = zsh.look_until(&mut heard, &[InputWait::Visible]).await;
+    assert!(looks >= 3, "visible input waits for three quiet seconds, not {looks}");
+
+    zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("bob"), false).await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.output, "name> bob\nhi bob\n");
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+}
+
+#[tokio::test]
+async fn e2e_a_question_waits_for_visible_input_at_the_first_look() {
+    let Some(zsh) = Zsh::start("e2e_a_question_waits_for_visible_input_at_the_first_look") else {
+        return;
+    };
     let command = r#"sh -c 'printf "name? "; IFS= read -r n; printf "hi %s\n" "$n"'"#;
     let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
     let looks = zsh.look_until(&mut heard, &[InputWait::Visible]).await;
-    assert!(looks >= 3, "visible input waits for three quiet seconds, not {looks}");
+    assert_eq!(looks, 1, "a question needs half a second of quiet, so the first look");
 
     zsh.sessions.answer(zsh.conversation, call(), &SecretText::new("bob"), false).await.unwrap();
     let result = run.await.unwrap().unwrap();
