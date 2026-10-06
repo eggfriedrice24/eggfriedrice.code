@@ -776,3 +776,55 @@ fn write_grant_widens_one_call_only() {
     fixture.run(&format!("print b > {}/n", q(&notes))).expect_status(1);
     assert_eq!(fs::read_to_string(notes.join("n")).unwrap(), "a\n");
 }
+
+#[test]
+fn escape_tcsetpgrp_to_shell_fails() {
+    // A terminal of its own with a job-control zsh as its session leader, which runs the
+    // launcher as a foreground job, as the hidden zsh does. A sandboxed process tries to
+    // give the terminal back to the shell's process group, which has no number in the
+    // call's pid namespace.
+    let ready = sandbox_or_skip!();
+    need!("setsid", "python3");
+    let fixture = Fixture::new(&ready);
+    let flags = rustix::pty::OpenptFlags::RDWR | rustix::pty::OpenptFlags::NOCTTY;
+    let master = rustix::pty::openpt(flags).unwrap();
+    rustix::pty::grantpt(&master).unwrap();
+    rustix::pty::unlockpt(&master).unwrap();
+    let name = rustix::pty::ptsname(&master, Vec::new()).unwrap();
+    let slave = || {
+        std::os::unix::fs::OpenOptionsExt::custom_flags(
+            fs::OpenOptions::new().read(true).write(true),
+            i32::try_from(rustix::fs::OFlags::NOCTTY.bits()).unwrap(),
+        )
+        .open(name.to_string_lossy().as_ref())
+        .unwrap()
+    };
+    let line = "sleep 0.5; python3 -c 'import os; os.tcsetpgrp(0, \
+                int(open(\"shell-pgid\").read()))' && print terminal-moved || \
+                print terminal-refused";
+    let call_dir = fixture.prepare(line);
+    let mut shell = command("setsid");
+    shell
+        .args(["-c", "zsh", "-f", "-i", "-c", "\"$0\" run --call-dir \"$1\"; exit $?"])
+        .arg(&ready.bin)
+        .arg(&call_dir)
+        .current_dir(&fixture.project)
+        .env_clear()
+        .envs(&fixture.env)
+        .stdin(slave())
+        .stdout(slave())
+        .stderr(slave());
+    let mut child = shell.spawn().unwrap();
+    // The command holds its copies of the slave until it drops.
+    drop(shell);
+    fs::write(fixture.project.join("shell-pgid"), child.id().to_string()).unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = fs::File::from(master).read_to_end(&mut text);
+        String::from_utf8_lossy(&text).into_owned()
+    });
+    child.wait().unwrap();
+    let text = reader.join().unwrap();
+    assert!(text.contains("terminal-refused"), "{text}");
+    assert!(!text.contains("terminal-moved"), "{text}");
+}
