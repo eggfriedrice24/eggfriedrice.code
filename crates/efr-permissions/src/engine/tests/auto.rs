@@ -335,7 +335,19 @@ fn exits_systemctl_failed_is_bus(#[case] line: &str, #[case] bus: BusKind) {
 #[test]
 fn exits_bus_reads_are_routine_with_the_bus_proxy_and_coredump_list_needs_no_bus() {
     let support = AutoSupport { bus_proxy: true, ..AutoSupport::default() };
-    assert_eq!(engine().with_support(support).support(), &support);
+    let engine = engine().with_support(support);
+    assert_eq!(engine.support(), &support);
+    for line in ["systemctl --failed", "hostnamectl", "loginctl list-sessions"] {
+        let decision = engine.decide(&in_auto(shell(line)));
+        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
+    }
+    // A change stays a privilege exit, and the model may still ask for the bus itself.
+    assert_eq!(
+        kinds(&engine.decide(&in_auto(shell("systemctl restart nginx")))),
+        [ExitKind::Privilege]
+    );
+    let asked = Needs { bus: Some(BusKind::System), ..Needs::default() };
+    assert_eq!(kinds(&engine.decide(&in_auto(shell("x").with_needs(asked)))), [ExitKind::Bus]);
     assert_eq!(kinds(&decide(shell("coredumpctl list --no-pager"))), []);
     assert_eq!(kinds(&decide(shell("journalctl -b -1 -n 80"))), []);
 }

@@ -197,6 +197,10 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
         for command in programs::commands(&segment.words) {
             for exit in programs::classify(command, input.support) {
+                // NOTE: from phase 5 the filtered bus proxy decides a bus call.
+                if exit.kind == ExitKind::Bus && input.support.bus_proxy {
+                    continue;
+                }
                 let mut need = ExitNeed::new(exit.kind, &part, ExitSource::Predicted);
                 need.grants = exit.grants;
                 need.target = exit.target;
