@@ -507,6 +507,42 @@ async fn shell_a_predicted_exit_asks_and_a_yes_runs_with_its_grant() {
     daemon.stop().await.unwrap();
 }
 
+#[tokio::test]
+async fn shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child() {
+    if !zsh_enabled("shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let (launcher, fake) = fake_launcher(&dirs);
+    // The line does not name the file, so only `needs` tells the daemon to look it up.
+    let model = ScriptedModel::new(vec![json!({
+        "command": "sh -c 'echo made > \"$HOME/gen.txt\"'",
+        "needs": { "write": ["~/gen.txt"], "reason": "the script writes ~/gen.txt" },
+    })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let (_, events) = run_turn(&daemon, "make it", Mode::Auto, ApprovalDecision::Allow).await;
+    let exit = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ApprovalRequested { exit, .. } => exit.clone(),
+        _ => None,
+    });
+    let exit = exit.unwrap();
+    // A bind of the missing file alone cannot start, and a bind of `~` opens too much.
+    assert_eq!(exit.launch, Launch::Unsandboxed);
+    assert!(exit.user_only);
+    assert!(exit.facts.contains(&"~/gen.txt does not exist yet".to_owned()), "{:?}", exit.facts);
+    let [spec] = specs(&fake).try_into().unwrap();
+    assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
+    assert_eq!(std::fs::read_to_string(dirs.home().join("gen.txt")).unwrap(), "made\n");
+    daemon.stop().await.unwrap();
+}
+
 // NOTE: two workers, so the probe runs while the test waits for its count.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_reprobe_after_sandbox_failed() {

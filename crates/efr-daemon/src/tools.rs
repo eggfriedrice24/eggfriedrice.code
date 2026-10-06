@@ -171,7 +171,8 @@ impl DaemonToolbox {
         let engine = Arc::clone(&engine.borrow());
         let command_dir = declared.command_dir.as_deref();
         let request =
-            efr_permissions::exits::fact_requests(command, command_dir, engine.locations());
+            efr_permissions::exits::fact_requests(command, command_dir, engine.locations())
+                .with_needs(declared.needs.as_ref(), command_dir, engine.locations());
         let writes: Vec<PathBuf> = declared
             .paths
             .iter()

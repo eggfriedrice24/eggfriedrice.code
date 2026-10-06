@@ -303,9 +303,10 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
 #[non_exhaustive]
 pub struct FactRequest {
     /// Paths whose kind a fact gives: the targets that the line writes or makes
-    /// (redirections, `dd of=`, `sed -i`, `tee`, `touch`, `mkdir`), and each operand of
-    /// `rm -r`. The daemon adds the declared write paths and the parents of each target
-    /// up to the first one that exists.
+    /// (redirections, `dd of=`, `sed -i`, `tee`, `touch`, `mkdir`), each operand of
+    /// `rm -r`, and the paths of `needs.write` ([`FactRequest::with_needs`]). The daemon
+    /// adds the declared write paths and the parents of each target up to the first one
+    /// that exists.
     pub targets: Vec<PathBuf>,
     /// The directories of `rm -r` whose tracked files a fact counts.
     pub tracked: Vec<PathBuf>,
@@ -358,6 +359,30 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
         }
     }
     request
+}
+
+impl FactRequest {
+    /// Adds the paths of `needs.write`, resolved as [`predict`] resolves them. Without
+    /// a fact, a missing target counts as an existing file, and a grant that binds only
+    /// that file cannot start.
+    #[must_use]
+    pub fn with_needs(
+        mut self,
+        needs: Option<&Needs>,
+        command_dir: Option<&Path>,
+        locations: &Locations,
+    ) -> Self {
+        let Some(needs) = needs else { return self };
+        let start = command_dir.and_then(normalize);
+        for word in needs.write.iter().take(Needs::MAX_WRITE) {
+            if let Some(path) = resolve(word, start.as_deref(), locations)
+                && !self.targets.contains(&path)
+            {
+                self.targets.push(path);
+            }
+        }
+        self
+    }
 }
 
 /// The exits found so far, each kind, grant set and target once.

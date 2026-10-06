@@ -123,3 +123,21 @@ fn fact_requests_name_every_target_rm_dir_and_program_that_predict_reads() {
     assert_eq!(request.tracked, paths(&["/p/build", "/home/u/old"]));
     assert_eq!(request.programs, ["sudo", "env", "make", "rm", "dd", "sed", "mkdir", "cd", "tee"]);
 }
+
+#[test]
+fn fact_requests_name_the_write_paths_of_needs() {
+    use std::path::{Path, PathBuf};
+
+    let locations = crate::Locations::new("/home/u").unwrap();
+    let needs = efr_protocol::Needs {
+        write: vec!["~/gen.txt".to_owned(), "out".to_owned(), "/p/out".to_owned()],
+        unmask: vec!["~/.env".to_owned()],
+        ..efr_protocol::Needs::default()
+    };
+    let request = super::fact_requests("./gen.sh > out", Some(Path::new("/p")), &locations)
+        .with_needs(Some(&needs), Some(Path::new("/p")), &locations);
+    let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
+    assert_eq!(request.targets, paths(&["/p/out", "/home/u/gen.txt"]));
+    let unchanged = super::fact_requests("ls", None, &locations).with_needs(None, None, &locations);
+    assert!(unchanged.targets.is_empty());
+}
