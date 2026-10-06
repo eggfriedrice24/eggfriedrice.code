@@ -661,6 +661,13 @@ pub(crate) fn background_stopped(names: &[String]) -> Option<String> {
         .then(|| format!("sandbox: stopped when the call ended: {}", names.join(", ")))
 }
 
+/// The note about a call whose sandbox could not start (efr's auto spec, section 14.7).
+pub(crate) fn setup_failed(reason: Option<&str>) -> Option<String> {
+    reason.map(|reason| {
+        format!("sandbox: could not start: {}; efr checks the sandbox again", one_line(reason))
+    })
+}
+
 /// The note about processes of an approved exit that efr could not end.
 pub(crate) fn survivors(names: &[String]) -> Option<String> {
     let names: Vec<String> = names.iter().map(|name| one_line(name)).collect();

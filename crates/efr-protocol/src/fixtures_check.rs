@@ -849,6 +849,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                     reason: BlockReason::NotAllowed,
                 }],
                 surface_changes: vec![surface_change()],
+                setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
             }),
         },
         Event::ApprovalRequested {

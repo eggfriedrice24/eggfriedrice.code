@@ -148,9 +148,14 @@ impl ShellTool {
     /// the sandbox reports after it. `contained` is true for a call that ran in the
     /// auto sandbox, not in the exit child.
     fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
+        let mut summary = result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone());
+        if result.completion == Completion::SandboxFailed {
+            // The client shows why on its own line (efr's auto spec, section 14.7).
+            summary.get_or_insert_default().setup_error = Some(sandbox_failure(result));
+        }
         let rendered = self
             .render_run(result, waited, contained)
-            .with_sandbox(result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone()))
+            .with_sandbox(summary)
             .with_sandbox_failed(result.completion == Completion::SandboxFailed);
         match &result.sandbox {
             Some(sandbox) if result.completion != Completion::SandboxFailed => {

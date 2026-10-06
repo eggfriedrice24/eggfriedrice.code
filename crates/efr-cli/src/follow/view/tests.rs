@@ -1170,6 +1170,41 @@ fn a_routine_command_shows_the_sandbox_once_and_a_failure_says_sandbox() {
 }
 
 #[test]
+fn a_setup_failure_says_why_on_its_own_line() {
+    let mut view = sandbox_view(false);
+    let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
+    let failed = SandboxSummary {
+        setup_error: Some("bwrap: Can't mount proc on /newroot/proc".to_owned()),
+        ..SandboxSummary::default()
+    };
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(project, None),
+            contained_started("cargo test"),
+            contained_completed(125, Some(failed)),
+        ],
+        true,
+    );
+    insta::assert_snapshot!(err);
+}
+
+#[test]
+fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
+    let mut view = sandbox_view(false);
+    let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
+    view.event(&started_in(project, None), WIDE, true);
+    view.event(&contained_started("ssh-add"), WIDE, true);
+    let step = view.event(&input(InputWait::Hidden), WIDE, true);
+    assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
+    assert_eq!(
+        step.err,
+        "sandbox: the command asked for a password; efr does not type secrets into the \
+         sandbox\n"
+    );
+}
+
+#[test]
 fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
     let mut view = sandbox_view(false);
     let (_, err, _) =

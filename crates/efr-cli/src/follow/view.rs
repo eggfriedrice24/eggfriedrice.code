@@ -112,6 +112,11 @@ const MANUAL_CANCELLED: &str = "the input was not sent";
 const HIDDEN_INPUT_ELSEWHERE: &str =
     "the command waits for hidden input, such as a password; efr cannot ask for it here";
 
+/// The note when a contained call waits for hidden input: efr stops it and never asks
+/// (efr's auto spec, sections 3.12 and 14.7).
+const HIDDEN_INPUT_SANDBOXED: &str =
+    "sandbox: the command asked for a password; efr does not type secrets into the sandbox";
+
 /// The note when a command waits for visible input and no key can be read here.
 const VISIBLE_INPUT_ELSEWHERE: &str = "the command waits for input; efr cannot ask for it here";
 
@@ -491,10 +496,13 @@ impl TurnView {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.remove(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
+                let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
+                // A setup failure has its own line; the call's status says nothing more.
                 let line = format::tool_result(tool, *is_error, *exit_code)
-                    .filter(|_| !self.refused.contains(call_id))
+                    .filter(|_| !self.refused.contains(call_id) && setup.is_none())
                     .map(|line| if contained { format!("{line} (sandbox)") } else { line });
                 let mut notes: Vec<String> = line.into_iter().collect();
+                notes.extend(sandbox::setup_failed(setup));
                 if let Some(summary) = summary {
                     notes.extend(summary.blocked.iter().map(sandbox::blocked));
                     notes.extend(sandbox::background_stopped(&summary.background_stopped));
@@ -911,6 +919,9 @@ impl TurnView {
             }
             _ => return Step { settled, ..self.commit(String::new(), size) },
         };
+        if kind.hidden() && self.contained.contains(&call_id) {
+            return Step { settled, ..self.note(HIDDEN_INPUT_SANDBOXED, size) };
+        }
         if !can_ask {
             let note = if kind.hidden() { HIDDEN_INPUT_ELSEWHERE } else { VISIBLE_INPUT_ELSEWHERE };
             return Step { settled, ..self.note(note, size) };

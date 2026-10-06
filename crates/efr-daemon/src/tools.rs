@@ -27,7 +27,9 @@ use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
 use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
 use efr_permissions::{Engine, Requirements};
-use efr_protocol::{ConversationId, InputWait, ReportedFile, SurfaceChange, TurnId};
+use efr_protocol::{
+    ConversationId, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
+};
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
 use efr_shell::ShellSessions;
@@ -247,10 +249,15 @@ impl DaemonToolbox {
                 if matches!(error, DaemonError::SandboxUnavailable { .. }) {
                     sandbox.reprobe(Arc::clone(&settings));
                 }
+                let reason = efr_stdx::with_causes(&error);
+                let summary = SandboxSummary {
+                    setup_error: Some(reason.clone()),
+                    ..SandboxSummary::default()
+                };
                 return ToolOutcome::error(format!(
-                    "[the sandbox could not start: {}. The command did not run.]",
-                    efr_stdx::with_causes(&error)
-                ));
+                    "[the sandbox could not start: {reason}. The command did not run.]"
+                ))
+                .with_sandbox(Some(summary));
             }
         };
         let turn_id = call.context.turn_id;

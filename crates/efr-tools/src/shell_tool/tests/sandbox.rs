@@ -286,5 +286,8 @@ async fn the_result_carries_the_summary_and_whether_the_sandbox_failed() {
     let tool = super::super::ShellTool::new(FakeRunner::answering(Ok(failed)));
     let context = fixture.context().with_sandbox(Some(sandbox_run()));
     let answered = tool.invoke(context, json!({"command": "make"}), &mut NoOutput).await.unwrap();
-    assert!(answered.sandbox_failed && answered.sandbox.is_none());
+    assert!(answered.sandbox_failed);
+    // The reason goes to the client too, on its own line.
+    let reason = answered.sandbox.and_then(|summary| summary.setup_error);
+    assert_eq!(reason.as_deref(), Some("the launcher ended without its result"));
 }

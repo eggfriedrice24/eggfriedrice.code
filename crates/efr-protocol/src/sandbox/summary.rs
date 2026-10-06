@@ -38,6 +38,10 @@ pub struct SandboxSummary {
     /// Git settings and other files that run code, which the call changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surface_changes: Vec<SurfaceChange>,
+    /// Why the sandbox could not start, such as bubblewrap's setup message. The command
+    /// did not run, and efr checks the sandbox again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_error: Option<String>,
 }
 
 /// A connection that the proxy refused (phase 2).

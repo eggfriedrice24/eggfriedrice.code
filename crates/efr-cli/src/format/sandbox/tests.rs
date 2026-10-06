@@ -11,8 +11,8 @@ use pretty_assertions::assert_eq;
 
 use super::{
     background_stopped, blocked, check, exit_heading, exit_judged, exit_lines, exit_record,
-    exit_summary, explain, fallback_note, fallback_warning, status_line, surface_answered,
-    surface_change, surface_changed, surface_report, survivors, tilde,
+    exit_summary, explain, fallback_note, fallback_warning, setup_failed, status_line,
+    surface_answered, surface_change, surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -450,6 +450,11 @@ fn blocked_hosts_and_stopped_jobs_get_a_line_each() {
     assert_eq!(
         background_stopped(&["vite".to_owned(), "node".to_owned()]).unwrap(),
         "sandbox: stopped when the call ended: vite, node"
+    );
+    assert_eq!(setup_failed(None), None);
+    assert_eq!(
+        setup_failed(Some("bwrap: Can't mount\nproc")).unwrap(),
+        "sandbox: could not start: bwrap: Can't mount proc; efr checks the sandbox again"
     );
     assert_eq!(survivors(&[]), None);
     assert_eq!(

@@ -209,7 +209,10 @@ impl<'a> Transcript<'a> {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.contains(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
-                if let Some(mut line) = format::tool_result(tool, *is_error, *exit_code) {
+                let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
+                if let Some(line) = sandbox::setup_failed(setup) {
+                    self.note(&line);
+                } else if let Some(mut line) = format::tool_result(tool, *is_error, *exit_code) {
                     if contained {
                         line.push_str(" (sandbox)");
                     }

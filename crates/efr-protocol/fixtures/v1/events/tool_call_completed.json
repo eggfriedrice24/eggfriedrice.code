@@ -38,6 +38,7 @@
         "key": "core.fsmonitor",
         "quarantined": true
       }
-    ]
+    ],
+    "setup_error": "bwrap: Can't mount proc on /newroot/proc"
   }
 }

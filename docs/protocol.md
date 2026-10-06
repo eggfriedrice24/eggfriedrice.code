@@ -137,3 +137,7 @@ No protocol version has shipped yet.
   such as a process that `sudo` left running as root. The daemon then closes the
   conversation's hidden shell, and the next call starts a new one. The
   `events/tool_call_completed.json` fixture now sets the list.
+- Before version 1 ships: `sandbox_summary` gains an optional `setup_error`: why the
+  sandbox could not start, such as bubblewrap's setup message. The command did not run,
+  and the daemon checks the sandbox again. A client shows it on its own line. The
+  `events/tool_call_completed.json` fixture now sets it.
