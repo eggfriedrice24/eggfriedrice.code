@@ -30,6 +30,26 @@
         }
       ]
     },
+    "CacheMode": {
+      "description": "How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of\n`sandbox.caches`).",
+      "oneOf": [
+        {
+          "const": "overlay",
+          "description": "An overlay per conversation: the sandbox reads the user's cache and writes to a\nprivate upper layer that the user's own builds never see.",
+          "type": "string"
+        },
+        {
+          "const": "tmp",
+          "description": "A tmpfs upper layer per call: writes vanish when the call ends.",
+          "type": "string"
+        },
+        {
+          "const": "readonly",
+          "description": "The caches stay read-only.",
+          "type": "string"
+        }
+      ]
+    },
     "Check": {
       "description": "A check of the words after a [`CommandPattern`](super::CommandPattern)'s `args`.\n\nThe enum is deliberately exhaustive, like the other rule types: a new check must be\nmatched everywhere.",
       "oneOf": [
@@ -429,6 +449,213 @@
       ],
       "type": "object"
     },
+    "SandboxSettings": {
+      "additionalProperties": false,
+      "description": "`[sandbox]`: the kernel sandbox of the `auto` mode. Every key applies from the next\ncall or turn.",
+      "properties": {
+        "bwrap": {
+          "description": "The bubblewrap program, an absolute path. Unset: the first `bwrap` on the\ndaemon's `PATH`. A change runs the probe again.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cache_days": {
+          "default": 14,
+          "description": "Days without a call after which a conversation's cache layers are deleted, from 1\nto 3650.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_max_gib": {
+          "default": 20,
+          "description": "The size of all cache layers together, in GiB, from 1 to 10000; the oldest\nconversation's layers go first.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_mode": {
+          "$ref": "#/$defs/CacheMode",
+          "default": "overlay",
+          "description": "How the caches are mounted: `overlay` (a private upper layer per conversation),\n`tmp` (writes vanish after each call) or `readonly`."
+        },
+        "caches": {
+          "default": [
+            "~/.cargo",
+            "~/.rustup",
+            "~/.cache",
+            "~/go/pkg/mod",
+            "~/.npm",
+            "~/.bun/install/cache",
+            "~/.local/share/pnpm/store",
+            "~/.m2/repository",
+            "~/.gradle/caches"
+          ],
+          "description": "The tool caches that a call reads and writes through a private overlay:\nabsolute, or `~/...`. A cache that does not exist is skipped.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`false` makes the `auto` mode unavailable: its turns run as `cautious`.",
+          "type": "boolean"
+        },
+        "env_deny": {
+          "default": [],
+          "description": "More environment variables removed from every call: names, or patterns with\n`*`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env_keep": {
+          "default": [],
+          "description": "Variables that the scrub of secret-like names keeps: names, or patterns with\n`*`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "export_deny": {
+          "default": [],
+          "description": "More names that never return to the hidden shell: names, or patterns with `*`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mask": {
+          "default": [],
+          "description": "More paths that a call reads as empty: absolute, or `~/...`. In `auto`, a\n`read_file` of them asks.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mask_globs": {
+          "default": [
+            ".env",
+            ".env.*",
+            "!.env.example",
+            "!.env.sample",
+            "!.env.template"
+          ],
+          "description": "Names masked inside each write root, to depth 3: `*` matches any text, and a\nleading `!` keeps a name readable.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "offline_hints": {
+          "default": true,
+          "description": "Tell package managers to work offline while the sandbox has no network\n(`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`).",
+          "type": "boolean"
+        },
+        "promote_env": {
+          "default": [
+            "RUST_LOG",
+            "RUST_BACKTRACE",
+            "NODE_ENV",
+            "DEBUG",
+            "CI",
+            "NO_COLOR",
+            "FORCE_COLOR",
+            "TZ",
+            "LANG",
+            "LC_*"
+          ],
+          "description": "The exported variables that return from a call to the hidden shell: names, or\npatterns with `*`. A name of the built-in never list never returns.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protect": {
+          "default": [],
+          "description": "More paths that stay read-only even inside a write root: absolute, or `~/...`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rebuildable": {
+          "default": [
+            "target",
+            "node_modules",
+            "dist",
+            "build",
+            ".venv"
+          ],
+          "description": "Directory names whose deletion is not destructive, because builds make them\nagain.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "surface_files": {
+          "default": [
+            "Makefile",
+            "build.rs",
+            "package.json",
+            ".envrc",
+            "rust-toolchain.toml",
+            "justfile",
+            "*.mk",
+            "CMakeLists.txt",
+            "setup.py",
+            "pyproject.toml",
+            "conftest.py",
+            ".vscode/tasks.json",
+            ".nvim.lua",
+            ".exrc",
+            ".mise.toml",
+            ".tool-versions",
+            "flake.nix",
+            ".pre-commit-config.yaml",
+            ".cargo/config.toml",
+            ".cargo/config",
+            ".npmrc",
+            ".yarnrc.yml",
+            ".pnpmfile.cjs"
+          ],
+          "description": "The files that run code later outside the sandbox: names or paths relative to a\nwrite root, with `*`. The end of an `auto` turn lists the ones it changed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "synced_dirs": {
+          "default": [
+            "~/Dropbox",
+            "~/Nextcloud",
+            "~/Sync",
+            "~/OneDrive",
+            "~/MEGA"
+          ],
+          "description": "Folders that a sync service copies off the machine: absolute, or `~/...`. A write\nto them is an exit that only you can approve.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "write_projects": {
+          "$ref": "#/$defs/WriteProjects",
+          "default": "named",
+          "description": "Which registered projects a call may write: `turn` (the turn's project), `named`\n(also the registered projects that the command names) or `all`."
+        },
+        "write_roots": {
+          "default": [],
+          "description": "More write roots for every call: absolute, or below the home directory as\n`~/...`. Floors still apply inside them. The home directory itself is refused.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "ScreenChoice": {
       "description": "Which screen backend the hidden shells get.",
       "oneOf": [
@@ -505,6 +732,26 @@
     "Under": {
       "description": "Where a command must run for a [`CommandPattern`] to match it: below a directory,\nin the turn's registered project, or in the conversation's `$SCRATCH`.\n\nIn the configuration it is one string: `\"project\"`, `\"scratch\"`, or a directory that\nis absolute or starts with `~`.",
       "type": "string"
+    },
+    "WriteProjects": {
+      "description": "Which registered projects a call of the `auto` mode may write.",
+      "oneOf": [
+        {
+          "const": "turn",
+          "description": "The turn's project only.",
+          "type": "string"
+        },
+        {
+          "const": "named",
+          "description": "The turn's project and the registered projects that the command names.",
+          "type": "string"
+        },
+        {
+          "const": "all",
+          "description": "Every registered project.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$id": "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json",
@@ -554,6 +801,93 @@
       "$ref": "#/$defs/RenderSettings",
       "default": {},
       "description": "How `efr` shows replies."
+    },
+    "sandbox": {
+      "$ref": "#/$defs/SandboxSettings",
+      "default": {
+        "cache_days": 14,
+        "cache_max_gib": 20,
+        "cache_mode": "overlay",
+        "caches": [
+          "~/.cargo",
+          "~/.rustup",
+          "~/.cache",
+          "~/go/pkg/mod",
+          "~/.npm",
+          "~/.bun/install/cache",
+          "~/.local/share/pnpm/store",
+          "~/.m2/repository",
+          "~/.gradle/caches"
+        ],
+        "enabled": true,
+        "env_deny": [],
+        "env_keep": [],
+        "export_deny": [],
+        "mask": [],
+        "mask_globs": [
+          ".env",
+          ".env.*",
+          "!.env.example",
+          "!.env.sample",
+          "!.env.template"
+        ],
+        "offline_hints": true,
+        "promote_env": [
+          "RUST_LOG",
+          "RUST_BACKTRACE",
+          "NODE_ENV",
+          "DEBUG",
+          "CI",
+          "NO_COLOR",
+          "FORCE_COLOR",
+          "TZ",
+          "LANG",
+          "LC_*"
+        ],
+        "protect": [],
+        "rebuildable": [
+          "target",
+          "node_modules",
+          "dist",
+          "build",
+          ".venv"
+        ],
+        "surface_files": [
+          "Makefile",
+          "build.rs",
+          "package.json",
+          ".envrc",
+          "rust-toolchain.toml",
+          "justfile",
+          "*.mk",
+          "CMakeLists.txt",
+          "setup.py",
+          "pyproject.toml",
+          "conftest.py",
+          ".vscode/tasks.json",
+          ".nvim.lua",
+          ".exrc",
+          ".mise.toml",
+          ".tool-versions",
+          "flake.nix",
+          ".pre-commit-config.yaml",
+          ".cargo/config.toml",
+          ".cargo/config",
+          ".npmrc",
+          ".yarnrc.yml",
+          ".pnpmfile.cjs"
+        ],
+        "synced_dirs": [
+          "~/Dropbox",
+          "~/Nextcloud",
+          "~/Sync",
+          "~/OneDrive",
+          "~/MEGA"
+        ],
+        "write_projects": "named",
+        "write_roots": []
+      },
+      "description": "The kernel sandbox of the `auto` mode."
     },
     "screen": {
       "$ref": "#/$defs/ScreenChoice",

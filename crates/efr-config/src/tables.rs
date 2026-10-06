@@ -12,6 +12,8 @@ use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub(crate) mod sandbox;
+
 /// The tracing filter when nothing sets one: lifecycle lines only, as a service.
 pub const DEFAULT_LOG: &str = "info";
 

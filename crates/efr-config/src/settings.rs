@@ -14,7 +14,7 @@ use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
     ConfigError, ConversationSettings, DEFAULT_LOG, Location, ModelSettings, OpenAiSettings,
-    PermissionSettings, RenderSettings, ScreenChoice, ShellSettings, Source,
+    PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, Source,
 };
 
 /// The file name under the config root.
@@ -50,6 +50,8 @@ pub struct Settings {
     pub shell: ShellSettings,
     /// Queues, approvals, streaming and terminals.
     pub conversation: ConversationSettings,
+    /// The kernel sandbox of the `auto` mode.
+    pub sandbox: SandboxSettings,
     /// How `efr` shows replies.
     pub render: RenderSettings,
     #[serde(skip)]
@@ -67,6 +69,7 @@ impl Default for Settings {
             permissions: PermissionSettings::default(),
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
+            sandbox: SandboxSettings::default(),
             render: RenderSettings::default(),
             sources: Vec::new(),
         }

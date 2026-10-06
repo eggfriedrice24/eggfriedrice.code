@@ -57,3 +57,87 @@ fn the_interactive_timeout_is_between_a_minute_and_a_day() {
         );
     }
 }
+
+#[test]
+fn sandbox_paths_are_absolute_or_below_home() {
+    let mut settings = Settings::default();
+    settings.sandbox.write_roots = vec!["~/notes".into(), "/srv/data".into()];
+    settings.sandbox.mask = vec!["~/.config/private".into()];
+    assert_eq!(check(&settings), Ok(()));
+
+    for (key, set) in [
+        (
+            "sandbox.write_roots",
+            (|s: &mut Settings| s.sandbox.write_roots = vec!["notes".into()]) as fn(&mut Settings),
+        ),
+        ("sandbox.caches", |s: &mut Settings| s.sandbox.caches = vec!["cache".into()]),
+        ("sandbox.mask", |s: &mut Settings| s.sandbox.mask = vec!["~x".into()]),
+        ("sandbox.protect", |s: &mut Settings| s.sandbox.protect = vec!["./a".into()]),
+        ("sandbox.synced_dirs", |s: &mut Settings| s.sandbox.synced_dirs = vec!["Sync".into()]),
+        ("sandbox.bwrap", |s: &mut Settings| s.sandbox.bwrap = Some("bwrap".into())),
+    ] {
+        let mut settings = Settings::default();
+        set(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key), "{key}");
+    }
+}
+
+#[test]
+fn the_home_directory_and_the_root_are_never_extra_write_roots() {
+    for root in ["~", "/"] {
+        let mut settings = Settings::default();
+        settings.sandbox.write_roots = vec![root.into()];
+        let invalid = check(&settings).unwrap_err();
+        assert_eq!(invalid.key, "sandbox.write_roots", "{root}");
+    }
+}
+
+#[test]
+fn sandbox_variable_lists_take_names_and_star_patterns_only() {
+    let mut settings = Settings::default();
+    settings.sandbox.env_deny = vec!["MY_*".to_owned(), "_X".to_owned()];
+    assert_eq!(check(&settings), Ok(()));
+    for name in ["", "1X", "A-B", "A B", "A=B"] {
+        let mut settings = Settings::default();
+        settings.sandbox.promote_env = vec![name.to_owned()];
+        assert_eq!(
+            check(&settings).map_err(|invalid| invalid.key),
+            Err("sandbox.promote_env"),
+            "{name:?}"
+        );
+    }
+}
+
+#[test]
+fn sandbox_patterns_and_names_are_relative() {
+    for (pattern, ok) in [
+        (".env.*", true),
+        ("!.env.example", true),
+        (".vscode/tasks.json", true),
+        ("/etc/x", false),
+        ("../x", false),
+        ("!", false),
+        ("a//b", false),
+    ] {
+        let mut settings = Settings::default();
+        settings.sandbox.surface_files = vec![pattern.to_owned()];
+        assert_eq!(check(&settings).is_ok(), ok, "{pattern}");
+    }
+    for (name, ok) in
+        [("target", true), (".venv", true), ("a/b", false), ("..", false), ("", false)]
+    {
+        let mut settings = Settings::default();
+        settings.sandbox.rebuildable = vec![name.to_owned()];
+        assert_eq!(check(&settings).is_ok(), ok, "{name:?}");
+    }
+}
+
+#[test]
+fn sandbox_cache_limits_have_ranges() {
+    let mut settings = Settings::default();
+    settings.sandbox.cache_days = 0;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("sandbox.cache_days"));
+    let mut settings = Settings::default();
+    settings.sandbox.cache_max_gib = 10_001;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("sandbox.cache_max_gib"));
+}

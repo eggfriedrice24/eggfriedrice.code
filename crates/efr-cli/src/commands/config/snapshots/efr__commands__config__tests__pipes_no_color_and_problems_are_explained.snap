@@ -29,6 +29,25 @@ conversation.max_queued = 16  # default
 conversation.approval_timeout_secs = (unset)  # default
 conversation.update_interval_ms = 200  # default
 conversation.tty_idle_hours = 12  # default
+sandbox.enabled = true  # default
+sandbox.bwrap = (unset)  # default
+sandbox.write_projects = "named"  # default
+sandbox.write_roots = []  # default
+sandbox.caches = ["~/.cargo", "~/.rustup", "~/.cache", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store", "~/.m2/repository", "~/.gradle/caches"]  # default
+sandbox.cache_mode = "overlay"  # default
+sandbox.cache_days = 14  # default
+sandbox.cache_max_gib = 20  # default
+sandbox.mask = []  # default
+sandbox.mask_globs = [".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template"]  # default
+sandbox.protect = []  # default
+sandbox.env_deny = []  # default
+sandbox.env_keep = []  # default
+sandbox.promote_env = ["RUST_LOG", "RUST_BACKTRACE", "NODE_ENV", "DEBUG", "CI", "NO_COLOR", "FORCE_COLOR", "TZ", "LANG", "LC_*"]  # default
+sandbox.export_deny = []  # default
+sandbox.synced_dirs = ["~/Dropbox", "~/Nextcloud", "~/Sync", "~/OneDrive", "~/MEGA"]  # default
+sandbox.surface_files = ["Makefile", "build.rs", "package.json", ".envrc", "rust-toolchain.toml", "justfile", "*.mk", "CMakeLists.txt", "setup.py", "pyproject.toml", "conftest.py", ".vscode/tasks.json", ".nvim.lua", ".exrc", ".mise.toml", ".tool-versions", "flake.nix", ".pre-commit-config.yaml", ".cargo/config.toml", ".cargo/config", ".npmrc", ".yarnrc.yml", ".pnpmfile.cjs"]  # default
+sandbox.offline_hints = true  # default
+sandbox.rebuildable = ["target", "node_modules", "dist", "build", ".venv"]  # default
 render.theme = (unset)  # default
 
 [efr]

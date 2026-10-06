@@ -3,7 +3,8 @@
 //!
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`RenderSettings`]): every key with its default, read with unknown keys refused,
+//!   [`SandboxSettings`], [`RenderSettings`]): every key with its default, read with
+//!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
 //!   an environment variable or a flag over a key.
 //! - [`Source`] and [`Entry`]: the effective view, every value with where it came from.
@@ -19,11 +20,11 @@
 //!   layout, writes the file behind a symlink, refuses a file that changed since it was
 //!   read, and adds and removes rules for the settings tool.
 //!
-//! Allowed dependencies: `efr-permissions` (rules), `efr-protocol` (the `Mode` wire
-//! type and `ConfigFileError`) and `efr-stdx` (variables, atomic writes). What does not
-//! belong here: async code, the network, reading the environment, and applying a
-//! setting; the daemon and the CLI do that. `efr-tools` must never depend on this crate,
-//! because it reaches `efr-permissions`.
+//! Allowed dependencies: `efr-permissions` (rules), `efr-protocol` (the `Mode` and
+//! `CacheMode` wire types and `ConfigFileError`) and `efr-stdx` (variables, atomic
+//! writes). What does not belong here: async code, the network, reading the
+//! environment, and applying a setting; the daemon and the CLI do that. `efr-tools`
+//! must never depend on this crate, because it reaches `efr-permissions`.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -50,6 +51,10 @@ pub use keys::{Applies, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema
 pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
+pub use tables::sandbox::{
+    DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
+    DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, SandboxSettings, WriteProjects,
+};
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings, RenderSettings, ScreenChoice,

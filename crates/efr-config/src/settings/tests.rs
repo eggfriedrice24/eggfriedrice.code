@@ -468,3 +468,26 @@ fn an_unknown_default_model_is_named() {
     assert_eq!(settings.unknown_model(&["gpt-9"]), None);
     assert_eq!(Settings::default().unknown_model(&[]), None);
 }
+
+#[test]
+fn a_sandbox_key_takes_an_override_and_applies_live() {
+    let mut settings = Settings::default();
+    settings.apply_override("sandbox.cache_mode", "tmp", Source::Flag("--x")).unwrap();
+    settings
+        .apply_override("sandbox.write_roots", "~/notes, /srv/data", Source::Flag("--x"))
+        .unwrap();
+    assert_eq!(settings.sandbox.cache_mode, efr_protocol::CacheMode::Tmp);
+    assert_eq!(
+        settings.sandbox.write_roots,
+        [PathBuf::from("~/notes"), PathBuf::from("/srv/data")]
+    );
+    assert!(settings.apply_override("sandbox.cache_mode", "fast", Source::Flag("--x")).is_err());
+    assert!(settings.apply_override("sandbox.write_roots", "~", Source::Flag("--x")).is_err());
+    for key in crate::keys().iter().filter(|key| key.starts_with("sandbox.")) {
+        assert_eq!(crate::Applies::of(key), crate::Applies::Live, "{key}");
+    }
+    assert_eq!(
+        crate::kind("sandbox.write_projects"),
+        Some(crate::Kind::Choice(vec!["turn".to_owned(), "named".to_owned(), "all".to_owned()]))
+    );
+}

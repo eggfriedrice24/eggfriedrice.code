@@ -10,11 +10,17 @@ live in a dotfiles repository behind a symbolic link.
 Modules:
 
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
-  `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `RenderSettings`) with
-  `deny_unknown_fields` and the defaults in its `Default`, plus `ScreenChoice`,
-  `SudoCache` and the default constants (`DEFAULT_SYSTEM_PROMPT` and the rest). The
-  doc comment of a field is its description in the JSON schema. A new key is one field
-  here, its check in `validate` when it needs one, and its line in the example.
+  `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `SandboxSettings`,
+  `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `ScreenChoice`, `SudoCache`, `WriteProjects` and the default constants
+  (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). The doc comment of a field
+  is its description in the JSON schema. A new key is one field here, its check in
+  `validate` when it needs one, and its line in the example.
+- `tables/sandbox`: `[sandbox]`, the keys of the `auto` sandbox (phase 1): the write
+  roots, caches, masks, floors, environment and export lists, synced folders and the
+  surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;
+  this crate only reads and checks them. The proxy, classifier, bus and undo keys come
+  with their phases.
 - `settings`: `Settings`, the whole file. `Settings::parse` reads the text with unknown
   keys refused, reads `[[permissions.rules]]` one by one so an error names
   `permissions.rules[N]`, records which keys the file set, and runs the checks.
@@ -23,7 +29,9 @@ Modules:
   from the config root.
 - `validate`: what the types do not check: the provider names, the form of an effort
   (one lowercase word; the daemon checks it against the model), numeric ranges,
-  absolute paths, `~/` secret paths, http and https URLs, non-empty names.
+  absolute paths, `~/` secret and sandbox paths (never `~` or `/` as an extra write
+  root), variable names and patterns, relative name patterns, http and https URLs,
+  non-empty names.
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
   what a key holds, and `description()`, its doc comment, both from the JSON schema;
   `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
@@ -77,8 +85,8 @@ Tier 2: below `efr-daemon` and `efr-cli`, which both depend on it.
 
 ## Allowed dependencies
 
-`efr-permissions` (the rules), `efr-protocol` (the `Mode` wire type and
-`ConfigFileError`) and `efr-stdx` (variables, atomic writes). `xtask/src/deps.rs` holds
+`efr-permissions` (the rules), `efr-protocol` (the `Mode` and `CacheMode` wire types
+and `ConfigFileError`) and `efr-stdx` (variables, atomic writes). `xtask/src/deps.rs` holds
 the allowlist. `efr-tools` must never depend on this crate: it reaches
 `efr-permissions`, and `efr-tools -> efr-permissions` is forbidden through any chain.
 
