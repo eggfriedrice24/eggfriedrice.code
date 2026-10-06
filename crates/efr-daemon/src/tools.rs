@@ -220,9 +220,24 @@ impl DaemonToolbox {
         let engine = Arc::clone(&engine.borrow());
         let context = self.context(&call.context);
         let mut named_paths: Vec<PathBuf> = Vec::new();
+        let mut timeout = None;
         if let Ok(declared) = self.registry.requirements(&call.name, &context, &call.input) {
             named_paths.extend(declared.paths.iter().map(|access| access.path.clone()));
             named_paths.extend(declared.command_dir);
+            timeout = declared.timeout;
+        }
+        // NOTE: the plan lock blocks every write and every plan in the call's projects,
+        // also those of other conversations. A call that queues behind a command still
+        // running in this shell (a dev server left at its timeout) waits here, before it
+        // takes the lock, so it blocks nobody while it waits.
+        if let Some(timeout) = timeout
+            && self.shells.until_free(call.context.conversation_id, timeout).await.is_err()
+        {
+            return ToolOutcome::error(format!(
+                "The shell did not become free within {}s, so the command was not run: an \
+                 earlier command is still running in it.",
+                timeout.as_secs()
+            ));
         }
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
         let prepared = match sandbox.prepare(&call.context, &input).await {

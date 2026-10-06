@@ -446,6 +446,17 @@ async fn timeouts_are_capped_and_nested_shells_use_sentinels() {
     assert_eq!(request.mode, RunMode::Sentinel);
 }
 
+#[test]
+fn requirements_carry_the_capped_timeout() {
+    let fixture = Fixture::new();
+    let tool = tool().with_timeouts(Duration::from_secs(10), Duration::from_secs(60));
+    let context = fixture.context();
+    let named = tool.requirements(&context, &json!({"command": "id", "timeout_seconds": 3600}));
+    assert_eq!(named.unwrap().timeout, Some(Duration::from_secs(60)));
+    let default = tool.requirements(&context, &json!({"command": "id"}));
+    assert_eq!(default.unwrap().timeout, Some(Duration::from_secs(10)));
+}
+
 #[tokio::test]
 async fn progress_reaches_the_output_sink() {
     let fixture = Fixture::new();

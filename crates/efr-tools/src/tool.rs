@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_protocol::{InputWait, Needs, SandboxSummary};
@@ -146,6 +147,9 @@ pub struct ToolRequirements {
     /// True when the call types its line into a shell that runs inside the hidden one
     /// (the shell tool's `nested_shell`), which the `auto` mode refuses.
     pub nested: bool,
+    /// How long the call may wait for its command, for a tool that runs one. The daemon
+    /// waits no longer than this for the hidden shell before it plans a sandboxed call.
+    pub timeout: Option<Duration>,
 }
 
 impl ToolRequirements {
@@ -243,6 +247,13 @@ impl ToolRequirements {
         self.nested = nested;
         self
     }
+
+    /// Sets how long the call may wait for its command.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
 }
 
 impl fmt::Debug for ToolRequirements {
@@ -255,6 +266,7 @@ impl fmt::Debug for ToolRequirements {
             .field("interactive", &self.interactive)
             .field("needs", &self.needs)
             .field("nested", &self.nested)
+            .field("timeout", &self.timeout)
             .finish()
     }
 }

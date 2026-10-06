@@ -100,8 +100,19 @@ async fn run_turn(
     mode: Mode,
     decision: ApprovalDecision,
 ) -> (PromptSendResult, Vec<EventEnvelope>) {
-    let client = daemon.client_for_tty(TTY).await.unwrap();
-    let Method::PromptSend(mut params) = daemon.prompt(1, text, TTY) else { unreachable!() };
+    run_turn_on(daemon, TTY, text, mode, decision).await
+}
+
+/// [`run_turn`] from the shell of `tty`, which has a conversation of its own.
+async fn run_turn_on(
+    daemon: &TestDaemon,
+    tty: &str,
+    text: &str,
+    mode: Mode,
+    decision: ApprovalDecision,
+) -> (PromptSendResult, Vec<EventEnvelope>) {
+    let client = daemon.client_for_tty(tty).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, text, tty) else { unreachable!() };
     params.settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
@@ -798,5 +809,83 @@ async fn shell_a_turn_reports_its_surface_files_and_keeps_a_quarantined_change_o
     let at = |kind: &str| kinds.iter().position(|known| *known == kind).unwrap();
     assert_eq!(at("turn_surface_report") + 1, at("turn_completed"));
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+// NOTE: two workers, so the daemon runs while the test waits for A's second call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
+    let test = "shell_a_call_queued_behind_a_running_one_holds_no_plan_lock";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    let (launcher, _) = fake_launcher(&dirs);
+    // Conversation A leaves a command running past its timeout, as a dev server does,
+    // then its next call queues behind it. Conversation B calls in the same project.
+    let model = ScriptedModel::new(vec![
+        json!({ "command": "sleep 3; : > orphan-done", "timeout_seconds": 1 }),
+        json!({ "command": "echo second" }),
+        json!({ "command": "echo from-b" }),
+    ]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+
+    let Method::PromptSend(mut params) = daemon.prompt(1, "serve", TTY) else { unreachable!() };
+    params.settings = TurnSettings { mode: Some(Mode::Auto), ..TurnSettings::default() };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    // The test clock moves until A's first call times out and its second one starts.
+    let mut a_started = 0;
+    for _ in 0..200 {
+        let events = daemon.events(&client, sent.conversation_id).await.unwrap();
+        a_started = kinds(&events).iter().filter(|kind| **kind == "tool_call_started").count();
+        if a_started == 2 {
+            break;
+        }
+        daemon.clock().advance(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(a_started, 2, "A's second call never started");
+
+    // A's second call waits for its shell; B's call in the same project runs now.
+    let b = daemon.client_for_tty("/dev/pts/efr-test-b").await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(2, "go", "/dev/pts/efr-test-b") else {
+        unreachable!()
+    };
+    params.new_conversation = true;
+    params.settings = TurnSettings { mode: Some(Mode::Auto), ..TurnSettings::default() };
+    let b_sent: PromptSendResult = b.call(Method::PromptSend(params)).await.unwrap();
+    assert_ne!(b_sent.conversation_id, sent.conversation_id);
+    let mut b_follow = daemon.follow(&b, b_sent.conversation_id).await.unwrap();
+    let b_events =
+        events_until(&mut b_follow, |event| matches!(event, Event::TurnCompleted { .. }))
+            .await
+            .unwrap();
+    let [(output, _)] = completed(&b_events).try_into().unwrap();
+    assert!(output.contains("from-b"), "{output}");
+    assert!(!project.join("orphan-done").exists(), "B waited for A's command to end");
+
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let events = events_until(&mut follow, |event| matches!(event, Event::TurnCompleted { .. }))
+        .await
+        .unwrap();
+    let outputs = completed(&events);
+    assert_eq!(outputs.len(), 2, "{:?}", kinds(&events));
+    assert!(outputs[1].0.contains("second"), "{outputs:?}");
+    drop((client, b));
     daemon.stop().await.unwrap();
 }

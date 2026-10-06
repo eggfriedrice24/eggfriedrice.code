@@ -122,6 +122,39 @@ async fn a_dropped_run_frees_the_shell_for_the_next_run() {
 }
 
 #[tokio::test]
+async fn until_free_waits_for_a_run_left_running_and_times_out() {
+    let harness = Harness::new(ZSH);
+    // No shell yet: nothing to wait for.
+    harness.sessions.until_free(conversation(1), Duration::from_secs(5)).await.unwrap();
+
+    let (mut terminal, run) = typed(&harness, "sleep 100").await;
+    terminal.print(b"\r\n\x1b]133;C\x07").await;
+    harness.clock.wait_for_sleeps(1).await;
+    harness.clock.advance(RunRequest::DEFAULT_TIMEOUT);
+    run.await.unwrap().unwrap();
+
+    // The run left running keeps the shell busy until its timeout.
+    let sessions = harness.sessions.clone();
+    let wait =
+        tokio::spawn(
+            async move { sessions.until_free(conversation(1), Duration::from_secs(5)).await },
+        );
+    harness.clock.wait_for_sleeps(1).await;
+    harness.clock.advance(Duration::from_secs(5));
+    assert!(matches!(wait.await.unwrap(), Err(ShellError::NotReady { .. })));
+
+    // Its end frees the shell.
+    let sessions = harness.sessions.clone();
+    let wait =
+        tokio::spawn(
+            async move { sessions.until_free(conversation(1), Duration::from_secs(5)).await },
+        );
+    harness.clock.wait_for_sleeps(1).await;
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    wait.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn a_failing_command_reports_its_status() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run) = typed(&harness, "false").await;
@@ -1179,6 +1212,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         writer,
         terminal: Terminal::new(master, modes, 1000),
         life,
+        free: watch::channel(true).1,
         size: Arc::new(Mutex::new(SIZE)),
         trusted: None,
     };

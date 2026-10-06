@@ -335,6 +335,34 @@ impl ShellSessions {
             .map_err(|source| ShellError::Holder { conversation, source })
     }
 
+    /// Waits until the conversation's shell has no run: none active, none waiting to be
+    /// typed and none left running past its timeout. A conversation without a shell is
+    /// free. Fails with [`ShellError::NotReady`] when `timeout` passes first.
+    ///
+    /// The auto mode plans a sandboxed call under a lock of its projects, which it holds
+    /// until the launcher starts; it waits here first, so a call queued behind a
+    /// command that still runs (a dev server) holds no lock while it waits.
+    pub async fn until_free(
+        &self,
+        conversation: ConversationId,
+        timeout: Duration,
+    ) -> Result<(), ShellError> {
+        let Ok(session) = self.existing(conversation) else {
+            return Ok(());
+        };
+        let mut free = session.free.clone();
+        // A shell that ends while this waits is free: the next run starts a new one.
+        let wait = async move {
+            let _ = free.wait_for(|free| *free).await;
+        };
+        self.inner
+            .deps
+            .clock
+            .timeout(timeout, wait)
+            .await
+            .map_err(|_| ShellError::NotReady { conversation })
+    }
+
     /// The screen of the conversation's shell, for attach snapshots.
     pub fn screen(&self, conversation: ConversationId) -> Option<ScreenHandle> {
         self.existing(conversation).ok().map(|session| session.screen)
@@ -492,6 +520,7 @@ impl ShellSessions {
         let (writer, writes) = mpsc::channel(WRITE_CAPACITY);
         let (inbox, messages) = mpsc::channel(INBOX_CAPACITY);
         let (life, lives) = watch::channel(Life::Running);
+        let (free, frees) = watch::channel(true);
         let targets = ReaderTargets {
             pty_id,
             recording: Arc::clone(&deps.recording),
@@ -520,6 +549,7 @@ impl ShellSessions {
             screen: screen.clone(),
             tasks,
             life,
+            free,
             startup: integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
@@ -532,6 +562,7 @@ impl ShellSessions {
             writer,
             terminal,
             life: lives,
+            free: frees,
             size: Arc::new(Mutex::new(inner.config.size)),
             trusted,
         })

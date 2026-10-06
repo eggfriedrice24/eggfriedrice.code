@@ -136,6 +136,14 @@ impl ShellTool {
         self
     }
 
+    /// How long a call with `input` waits for its command.
+    fn timeout(&self, input: &ShellInput) -> Duration {
+        input
+            .timeout_seconds
+            .map_or(self.default_timeout, Duration::from_secs)
+            .min(self.max_timeout)
+    }
+
     /// The model's answer for `result`, after the command ran for `waited`, with what
     /// the sandbox reports after it. `contained` is true for a call that ran in the
     /// auto sandbox, not in the exit child.
@@ -317,13 +325,15 @@ impl Tool for ShellTool {
             needs.check().map_err(|source| ToolError::InvalidNeeds { source })?;
         }
         let declared = declare::declared(&line, ctx.command_dir(), ctx.home.path());
+        let timeout = self.timeout(&input);
         let mut requirements = ToolRequirements::none()
             .with_command(input.command)
             .with_command_dir(ctx.command_dir())
             .with_interactive(interactive)
             .with_network(network)
             .with_needs(input.needs)
-            .with_nested(input.nested_shell);
+            .with_nested(input.nested_shell)
+            .with_timeout(timeout);
         for path in declared.reads {
             requirements = requirements.with_read(path);
         }
@@ -352,10 +362,7 @@ impl Tool for ShellTool {
         out: &mut dyn ToolOutputSink,
     ) -> Result<ToolResult, ToolError> {
         let input: ShellInput = parse_input(Self::NAME, &input)?;
-        let timeout = input
-            .timeout_seconds
-            .map_or(self.default_timeout, Duration::from_secs)
-            .min(self.max_timeout);
+        let timeout = self.timeout(&input);
         let mode = mode(&input);
         let request = RunRequest::new(input.command, ctx.cwd.clone())
             .with_timeout(timeout)

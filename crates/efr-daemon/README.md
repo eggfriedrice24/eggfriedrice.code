@@ -315,6 +315,9 @@ spec; `docs/sandbox.md` for the user's view):
   (0600). The toolbox (`tools.rs`) hands the run to the shell tool and lets the lock go
   once the launcher wrote `started`, so a call that runs on past its timeout blocks
   no other plan and no `write_file`, which takes the same lock for its own write.
+  Before `prepare`, the toolbox waits until the conversation's shell has no other run
+  (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
+  a command still running holds no lock while it waits.
 - Before the engine decides a shell call, the toolbox collects its facts
   (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
   directory through the hardened `git ls-files`, and where each program word leads
