@@ -169,7 +169,9 @@ impl Default for SandboxSettings {
             write_projects: WriteProjects::Named,
             write_roots: Vec::new(),
             caches: paths(DEFAULT_CACHES),
-            cache_mode: CacheMode::Overlay,
+            // NOTE: tmp, not overlay: overlays failed the phase 1 gate of the auto spec on
+            // the reference machine (p95 above 10 ms, EBUSY setup failures in 1000 calls).
+            cache_mode: CacheMode::Tmp,
             cache_days: 14,
             cache_max_gib: 20,
             mask: Vec::new(),

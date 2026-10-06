@@ -74,15 +74,18 @@ sandbox's mounts, and `$$` differs from `/proc/self`.
 ## Tool caches
 
 The sandbox reads your caches (`~/.cargo`, `~/.rustup`, `~/.cache`, `~/.npm` and the
-others of `sandbox.caches`) through an overlay. Its writes go to a private layer of
-the conversation. Your own builds never see them. `bin/`, `config.toml` and `env` of
-`~/.cargo` and `settings.toml` of `~/.rustup` stay read-only.
+others of `sandbox.caches`) through an overlay. Its writes go to a private layer.
+Your own builds never see them. `bin/`, `config.toml` and `env` of `~/.cargo` and
+`settings.toml` of `~/.rustup` stay read-only.
 
-`sandbox.cache_mode` selects the mode: `overlay` (the default), `tmp` (writes go away
-after each call) or `readonly`. efrd deletes the layers of a conversation after
-`sandbox.cache_days` days without a call, and the oldest layers first when all layers
-pass `sandbox.cache_max_gib`. Bin directories on your `PATH` are never an overlay;
-they stay read-only.
+`sandbox.cache_mode` selects the mode: `tmp` (the default: writes go away after each
+call), `overlay` (writes stay in a layer of the conversation) or `readonly`. `tmp` is
+the default because the `overlay` mode failed the launch gate of phase 1: with all
+the cache overlays, a call cost more than 10 ms at p95, and some of 1000 calls failed
+to start because the kernel said that an overlay was busy. efrd deletes the layers of
+a conversation after `sandbox.cache_days` days without a call, and the oldest layers
+first when all layers pass `sandbox.cache_max_gib`. Bin directories on your `PATH` are
+never an overlay; they stay read-only.
 
 ## Read masks
 

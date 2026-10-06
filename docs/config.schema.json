@@ -476,7 +476,7 @@
         },
         "cache_mode": {
           "$ref": "#/$defs/CacheMode",
-          "default": "overlay",
+          "default": "tmp",
           "description": "How the caches are mounted: `overlay` (a private upper layer per conversation),\n`tmp` (writes vanish after each call) or `readonly`."
         },
         "caches": {
@@ -807,7 +807,7 @@
       "default": {
         "cache_days": 14,
         "cache_max_gib": 20,
-        "cache_mode": "overlay",
+        "cache_mode": "tmp",
         "caches": [
           "~/.cargo",
           "~/.rustup",

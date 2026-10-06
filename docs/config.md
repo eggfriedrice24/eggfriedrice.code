@@ -97,7 +97,7 @@ The kernel sandbox of the `auto` mode.
 | `write_projects` | `"named"` | live | Which registered projects a call may write: `turn` (the turn's project), `named` (also the registered projects that the command names) or `all`. |
 | `write_roots` | `[]` | live | More write roots for every call: absolute, or below the home directory as `~/...`. Floors still apply inside them. The home directory itself is refused. |
 | `caches` | `["~/.cargo", "~/.rustup", "~/.cache", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store", "~/.m2/repository", "~/.gradle/caches"]` | live | The tool caches that a call reads and writes through a private overlay: absolute, or `~/...`. A cache that does not exist is skipped. |
-| `cache_mode` | `"overlay"` | live | How the caches are mounted: `overlay` (a private upper layer per conversation), `tmp` (writes vanish after each call) or `readonly`. |
+| `cache_mode` | `"tmp"` | live | How the caches are mounted: `overlay` (a private upper layer per conversation), `tmp` (writes vanish after each call) or `readonly`. |
 | `cache_days` | `14` | live | Days without a call after which a conversation's cache layers are deleted, from 1 to 3650. |
 | `cache_max_gib` | `20` | live | The size of all cache layers together, in GiB, from 1 to 10000; the oldest conversation's layers go first. |
 | `mask` | `[]` | live | More paths that a call reads as empty: absolute, or `~/...`. In `auto`, a `read_file` of them asks. |
