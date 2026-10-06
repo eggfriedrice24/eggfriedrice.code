@@ -1,0 +1,25 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: shown
+---
+Ansi16:
+Run this:
+
+\e[2msh\e[0m
+ls\e[36m -la\e[0m
+
+It prints:
+
+\e[2mtext\e[0m
+total 0
+
+None:
+Run this:
+
+\e[2msh\e[0m
+ls -la
+
+It prints:
+
+\e[2mtext\e[0m
+total 0

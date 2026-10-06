@@ -85,3 +85,19 @@ fn rust_in_sixteen_colours_from_a_truecolor_theme() {
     let options = RenderOptions::new(80).with_colour(ColourMode::Ansi16).with_theme(theme);
     insta::assert_snapshot!(readable(&render(element("code_rust"), &options)));
 }
+
+/// A fence's language reads as a label above the code, not as a line of the reply: dim
+/// with colour or without, and absent from output that is not a terminal, which keeps
+/// the markdown as it came.
+#[test]
+fn a_code_label_is_dim_on_a_terminal_and_plain_markdown_elsewhere() {
+    let markdown = "Run this:\n\n```sh\nls -la\n```\n\nIt prints:\n\n```text\ntotal 0\n```\n";
+    let mut shown = String::new();
+    for colour in [ColourMode::Ansi16, ColourMode::None] {
+        let options = RenderOptions::new(80).with_theme(Theme::ANSI).with_colour(colour);
+        shown.push_str(&format!("{colour:?}:\n{}\n", readable(&render(markdown, &options))));
+    }
+    insta::assert_snapshot!(shown);
+    let piped = RenderOptions::new(80).with_terminal(false);
+    assert_eq!(render(markdown, &piped), markdown);
+}
