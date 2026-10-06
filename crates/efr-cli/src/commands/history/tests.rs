@@ -1,18 +1,28 @@
+use std::path::{Path, PathBuf};
+
 use efr_protocol::{
-    ApprovalDecision, CommandId, ConversationHistoryResult, ConversationStatus,
-    ConversationSummary, ConversationsListResult, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, Method, Mode, Origin, OverriddenSettings, PageCursor, Scope, Seq, TurnSettings,
+    ApprovalDecision, BlockReason, Blocked, CommandId, ConversationHistoryResult,
+    ConversationStatus, ConversationSummary, ConversationsListResult, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, JudgeKind, Launch,
+    Method, Mode, ModeFallback, Origin, OverriddenSettings, PageCursor, QuestionId, ReportedFile,
+    SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings, Verdict,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::transcript;
+use super::{Shown, transcript};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{
-    CONVERSATION, TestEnv, call, capture, command, conversation, envelope, now, readable, turn,
+    CONVERSATION, TestEnv, call, capture, command, conversation, envelope, exit_info, exit_record,
+    now, program_fact, readable, turn,
 };
+
+/// The transcript of `page`, not verbose.
+fn show(page: &ConversationHistoryResult, options: &RenderOptions) -> String {
+    transcript(conversation(), page, &Shown { options, verbose: false, home: None })
+}
 
 fn summary(id: &str) -> ConversationSummary {
     ConversationSummary {
@@ -115,7 +125,7 @@ fn events() -> Vec<EventEnvelope> {
 #[test]
 fn a_transcript_on_a_terminal() {
     let page = ConversationHistoryResult { events: events(), next_cursor: None };
-    insta::assert_snapshot!(readable(&transcript(conversation(), &page, &RenderOptions::new(60))));
+    insta::assert_snapshot!(readable(&show(&page, &RenderOptions::new(60))));
 }
 
 #[test]
@@ -123,7 +133,7 @@ fn a_raw_transcript_with_an_earlier_page() {
     let page =
         ConversationHistoryResult { events: events(), next_cursor: Some(PageCursor::new("c-1")) };
     let options = RenderOptions::new(60).with_terminal(false);
-    insta::assert_snapshot!(transcript(conversation(), &page, &options));
+    insta::assert_snapshot!(show(&page, &options));
 }
 
 #[test]
@@ -138,7 +148,7 @@ fn a_failed_turn_shows_its_message_safely() {
         )],
         next_cursor: None,
     };
-    let text = transcript(conversation(), &page, &RenderOptions::new(60).with_terminal(false));
+    let text = show(&page, &RenderOptions::new(60).with_terminal(false));
     assert!(text.ends_with("failed: boom\u{241b}[2J\n"), "{text}");
 }
 
@@ -331,7 +341,158 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         next_cursor: None,
     };
 
-    let text = transcript(conversation(), &page, &RenderOptions::new(60).with_terminal(false));
+    let text = show(&page, &RenderOptions::new(60).with_terminal(false));
 
     insta::assert_snapshot!(text);
+}
+
+/// A turn in `auto` that fell back, then the sandbox's events of one call.
+fn sandbox_events() -> Vec<EventEnvelope> {
+    let question: QuestionId = "019a9b1c-3d00-7a10-8b20-0000000000d1".parse().unwrap();
+    let settings = EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "gpt-5.5".to_owned(),
+        effort: None,
+        overridden: OverriddenSettings::default(),
+        fallback: Some(ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() }),
+    };
+    let facts = ExitFacts {
+        programs: vec![program_fact("sudo", "/usr/bin/sudo")],
+        refusals_in_a_row: 1,
+        ..ExitFacts::default()
+    };
+    let record = exit_record("sudo pacman -Syu", facts);
+    let change = |path: &str| SurfaceChange {
+        path: PathBuf::from(path),
+        rule: "commondir_in_main_git_dir".to_owned(),
+        key: Some("core.fsmonitor".to_owned()),
+        quarantined: true,
+    };
+    let events = vec![
+        Event::TurnStarted {
+            turn_id: turn(),
+            cwd: "/home/user/project".into(),
+            scope: Scope::Machine,
+            settings: Some(settings),
+        },
+        Event::ToolCallStarted {
+            turn_id: turn(),
+            call_id: call(),
+            tool: "shell".to_owned(),
+            input: json!({ "command": "cargo add serde" }),
+            manual_input: true,
+            launch: Some(Launch::contained()),
+        },
+        Event::ToolCallCompleted {
+            turn_id: turn(),
+            call_id: call(),
+            output: String::new(),
+            truncated: false,
+            is_error: false,
+            exit_code: Some(101),
+            sandbox: Some(SandboxSummary {
+                confined: true,
+                blocked: vec![Blocked {
+                    host: "index.crates.io".to_owned(),
+                    port: 443,
+                    reason: BlockReason::NotAllowed,
+                }],
+                ..SandboxSummary::default()
+            }),
+        },
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Privilege],
+            grants: Vec::new(),
+            source: ExitSource::Predicted,
+            record: Box::new(record),
+        },
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "run `sudo pacman -Syu`".to_owned(),
+            diff_preview: None,
+            interactive: true,
+            exit: Some(ExitInfo {
+                user_only: true,
+                ..exit_info(&[ExitKind::Privilege], Launch::Unsandboxed)
+            }),
+        },
+        Event::ExitJudged {
+            turn_id: turn(),
+            call_id: call(),
+            judge: JudgeKind::User,
+            verdict: Verdict::Allow,
+            model: None,
+            latency_ms: None,
+            risk: None,
+            user_authorization: None,
+            category: None,
+            rationale: None,
+            record_sha256: None,
+            cached: false,
+        },
+        Event::SandboxSurfaceChanged {
+            turn_id: turn(),
+            call_id: call(),
+            changes: vec![change("/home/user/project/.git/commondir")],
+            quarantined: true,
+        },
+        Event::SurfaceQuestionRequested {
+            turn_id: turn(),
+            call_id: call(),
+            question_id: question,
+            changes: vec![change("/home/user/project/.git/commondir")],
+        },
+        Event::SurfaceQuestionAnswered {
+            turn_id: turn(),
+            question_id: question,
+            keep: false,
+            origin: None,
+        },
+        Event::TurnSurfaceReport {
+            turn_id: turn(),
+            files: vec![ReportedFile {
+                path: PathBuf::from(".cargo/config.toml"),
+                detail: Some("build.rustc-wrapper".to_owned()),
+            }],
+        },
+        Event::SandboxUnavailable { reason: "bubblewrap is not installed".to_owned() },
+    ];
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
+
+#[test]
+fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
+    let page = ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    assert!(!plain.contains("exit requested"), "{plain}");
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
+}
+
+#[tokio::test]
+async fn history_verbose_is_a_flag() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        let page = ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
+        conn.reply(id, &page).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["history", CONVERSATION, "--verbose"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let stdout = captured.stdout();
+    assert!(stdout.contains("exit requested: privilege (predicted from the line)"), "{stdout}");
+    assert!(stdout.contains("  program sudo /usr/bin/sudo\n"), "{stdout}");
 }

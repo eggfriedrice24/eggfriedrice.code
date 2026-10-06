@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{ErrorBody, ErrorCode, Method, Mode, Origin};
+use efr_protocol::{AdminStatusResult, ErrorBody, ErrorCode, Method, Mode, Origin, SandboxStatus};
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
@@ -9,7 +9,7 @@ use crate::context::Context;
 use crate::error::{CliError, Exit};
 use crate::run;
 use crate::settings::{Settings, TurnDefaults};
-use crate::testing::{TestEnv, capture, command, models};
+use crate::testing::{TestEnv, capture, command, models, now};
 use crate::turn_settings::{Asked, Given, SettingSource};
 
 const PATH: &str = "/home/user/.config/efr/config.toml";
@@ -288,6 +288,56 @@ async fn efr_settings_asks_the_daemon_for_its_models_and_prints_the_settings() {
         )
     );
     assert_eq!(captured.stderr(), "");
+}
+
+/// What `efr settings --mode auto` writes on stderr when the daemon's sandbox is
+/// `sandbox`.
+async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = context(&env, &[], None);
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        conn.answer_models(&models()).await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::AdminStatus(_)), "{}", method.name());
+        let status = AdminStatusResult {
+            daemon_id: "019a9b1c-3d00-7a10-8b20-000000000007".parse().unwrap(),
+            version: "0.1.0".to_owned(),
+            protocol: efr_protocol::PROTOCOL_VERSION,
+            pid: 777,
+            started_at: now(),
+            screen_backend: "vt100".to_owned(),
+            conversations: 0,
+            shells: 0,
+            providers: Vec::new(),
+            roots: None,
+            config: None,
+            sandbox,
+            sandbox_paths: None,
+        };
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["settings", "--mode", "auto"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    assert!(captured.stdout().starts_with("mode = auto  # --mode;"), "{}", captured.stdout());
+    captured.stderr()
+}
+
+#[tokio::test]
+async fn choosing_auto_says_at_once_when_turns_run_as_cautious() {
+    let down = SandboxStatus::unavailable("Landlock ABI 6 found; auto needs 9 (Linux 7.1)");
+    assert_eq!(
+        choose_auto(Some(down)).await,
+        "efr: auto needs the sandbox; turns run as cautious: Landlock ABI 6 found; auto needs 9 (Linux 7.1). efr sandbox check shows more.\n"
+    );
+    let ready = SandboxStatus { available: true, reason: None, ..SandboxStatus::unavailable("") };
+    assert_eq!(choose_auto(Some(ready)).await, "");
+    // A daemon from before the sandbox says nothing about it.
+    assert_eq!(choose_auto(None).await, "");
 }
 
 #[tokio::test]

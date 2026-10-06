@@ -24,8 +24,9 @@ pub(crate) enum Exit {
     Success,
     /// 1: the daemon failed the request, the turn failed, or the connection broke.
     DaemonError,
-    /// 1: a config file has an error (`efr config check`, `edit`, `set`, `unset`), or
-    /// the daemon refused one on `efr config reload`.
+    /// 1: a config file has an error (`efr config check`, `edit`, `set`, `unset`), the
+    /// daemon refused one on `efr config reload`, or `efr sandbox check` found the
+    /// sandbox unavailable.
     Invalid,
     /// 2: the command line or its input is wrong.
     Usage,
@@ -204,6 +205,10 @@ pub(crate) enum CliError {
     /// The editor of `efr config edit` failed, so the file is not checked.
     #[error("the editor {editor:?} exited with {status}")]
     EditorFailed { editor: String, status: std::process::ExitStatus },
+
+    /// `efr sandbox check` found the sandbox unavailable; it has already printed why.
+    #[error("the sandbox is not available")]
+    SandboxUnavailable,
 }
 
 impl CliError {
@@ -225,7 +230,7 @@ impl CliError {
             | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
-            CliError::ConfigInvalid => Exit::Invalid,
+            CliError::ConfigInvalid | CliError::SandboxUnavailable => Exit::Invalid,
             _ => Exit::DaemonError,
         }
     }
@@ -278,7 +283,7 @@ impl CliError {
     pub(crate) fn is_silent(&self) -> bool {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
-            CliError::Interrupted | CliError::ConfigInvalid => true,
+            CliError::Interrupted | CliError::ConfigInvalid | CliError::SandboxUnavailable => true,
             _ => false,
         }
     }

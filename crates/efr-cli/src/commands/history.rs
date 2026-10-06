@@ -3,20 +3,22 @@
 //! A conversation is named by its id or by the start of it, which is matched against
 //! the listed conversations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::path::Path;
 
 use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
-    ConversationsListResult, Event, EventEnvelope, Method, Origin, PageCursor, TurnId,
+    ConversationsListResult, Event, EventEnvelope, ExitRecord, Launch, Method, Origin, PageCursor,
+    TurnId,
 };
 use efr_render::{RenderOptions, render, render_trace};
 
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format::{self, Block, Spacing, Tone};
+use crate::format::{self, Block, Spacing, Tone, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -48,7 +50,17 @@ pub(crate) async fn run(
     let page: ConversationHistoryResult = client.call(method).await?;
     let size = ctx.screen.size();
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
-    out.out(&transcript(conversation_id, &page, &options))
+    let shown = Shown { options: &options, verbose: args.verbose, home: ctx.home.as_deref() };
+    out.out(&transcript(conversation_id, &page, &shown))
+}
+
+/// How a transcript is shown.
+pub(crate) struct Shown<'a> {
+    pub(crate) options: &'a RenderOptions,
+    /// Also show the record of each exit and how it was judged.
+    pub(crate) verbose: bool,
+    /// The home directory, which paths of the sandbox's lines start with as `~`.
+    pub(crate) home: Option<&'a Path>,
 }
 
 /// The conversation that `query` names: a whole id, or the start of exactly one
@@ -90,13 +102,14 @@ async fn resolve(client: &Client, query: &str) -> Result<ConversationId, CliErro
 }
 
 /// One page of a conversation's events as a transcript: prompts, rendered replies,
-/// and dim notes for each turn's mode, model and effort, tool calls, approvals and how
-/// turns ended.
+/// and dim notes for each turn's mode, model and effort, tool calls, approvals, the
+/// sandbox's notes and how turns ended. Verbose, also each exit's record and verdict.
 pub(crate) fn transcript(
     conversation_id: ConversationId,
     page: &ConversationHistoryResult,
-    options: &RenderOptions,
+    shown: &Shown<'_>,
 ) -> String {
+    let options = shown.options;
     let mut out = String::new();
     let header = format!("conversation {conversation_id}");
     let _ = writeln!(out, "{}", format::paint(&header, Tone::Dim, options));
@@ -107,7 +120,7 @@ pub(crate) fn transcript(
         );
         let _ = writeln!(out, "{}", format::paint(&earlier, Tone::Dim, options));
     }
-    let mut transcript = Transcript::new(options, out);
+    let mut transcript = Transcript::new(shown, out);
     for envelope in &page.events {
         transcript.event(envelope);
     }
@@ -117,18 +130,33 @@ pub(crate) fn transcript(
 /// Builds a transcript event by event.
 struct Transcript<'a> {
     options: &'a RenderOptions,
+    verbose: bool,
+    home: Option<&'a Path>,
     out: String,
     spacing: Spacing,
     tools: HashMap<CallId, String>,
+    /// Calls that ran in the sandbox, whose failure says so.
+    contained: HashSet<CallId>,
+    /// The record of each call's exit, for the line of its approval.
+    exits: HashMap<CallId, ExitRecord>,
     /// The newest text of a message that has not completed, which a turn that ended
     /// early never completes.
     partial: Option<(TurnId, u32, String)>,
 }
 
 impl<'a> Transcript<'a> {
-    fn new(options: &'a RenderOptions, out: String) -> Transcript<'a> {
-        let spacing = Spacing::default();
-        Transcript { options, out, spacing, tools: HashMap::new(), partial: None }
+    fn new(shown: &Shown<'a>, out: String) -> Transcript<'a> {
+        Transcript {
+            options: shown.options,
+            verbose: shown.verbose,
+            home: shown.home,
+            out,
+            spacing: Spacing::default(),
+            tools: HashMap::new(),
+            contained: HashSet::new(),
+            exits: HashMap::new(),
+            partial: None,
+        }
     }
 
     fn event(&mut self, envelope: &EventEnvelope) {
@@ -166,16 +194,42 @@ impl<'a> Transcript<'a> {
                 if let Some(line) = format::turn_settings(settings, true) {
                     self.note(&line);
                 }
+                if let Some(fallback) = &settings.fallback {
+                    self.note(&sandbox::fallback_note(fallback, settings.mode));
+                }
             }
-            Event::ToolCallStarted { call_id, tool, input, .. } => {
+            Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
+                if matches!(launch, Some(Launch::Contained { .. })) {
+                    self.contained.insert(*call_id);
+                }
                 self.note(&format::tool_call(tool, input));
             }
-            Event::ToolCallCompleted { call_id, is_error, exit_code, .. } => {
+            Event::ToolCallCompleted { call_id, is_error, exit_code, sandbox: summary, .. } => {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
-                if let Some(line) = format::tool_result(tool, *is_error, *exit_code) {
+                let contained = self.contained.contains(call_id)
+                    || summary.as_ref().is_some_and(|summary| summary.confined);
+                if let Some(mut line) = format::tool_result(tool, *is_error, *exit_code) {
+                    if contained {
+                        line.push_str(" (sandbox)");
+                    }
                     self.note(&line);
                 }
+                if let Some(summary) = summary {
+                    for blocked in &summary.blocked {
+                        self.note(&sandbox::blocked(blocked));
+                    }
+                    if let Some(line) = sandbox::background_stopped(&summary.background_stopped) {
+                        self.note(&line);
+                    }
+                }
+            }
+            Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } => {
+                let record = self.exits.get(call_id);
+                let heading = sandbox::exit_heading(record)
+                    .unwrap_or_else(|| format::approval_summary(summary).0);
+                let lines = sandbox::exit_summary(exit, record, self.home);
+                self.dim_lines(&[format!("approval needed: {heading}; {lines}")]);
             }
             Event::ApprovalRequested { summary, .. } => {
                 let (summary, asking) = format::approval_summary(summary);
@@ -183,6 +237,39 @@ impl<'a> Transcript<'a> {
                     Some(asking) => self.note(&format!("approval needed: {summary}; {asking}")),
                     None => self.note(&format!("approval needed: {summary}")),
                 }
+            }
+            Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
+                if self.verbose {
+                    let lines = sandbox::exit_record(kinds, grants, *source, record, self.home);
+                    self.dim_lines(&lines);
+                }
+                self.exits.insert(*call_id, (**record).clone());
+            }
+            Event::ExitJudged { judge, verdict, category, .. } if self.verbose => {
+                self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
+            }
+            Event::SandboxSurfaceChanged { changes, .. } => {
+                if let Some(line) = sandbox::surface_changed(changes, self.home) {
+                    self.note(&line);
+                }
+            }
+            Event::SurfaceQuestionRequested { changes, .. } => {
+                let changes: Vec<String> = changes
+                    .iter()
+                    .map(|change| sandbox::surface_change(change, self.home).trim().to_owned())
+                    .collect();
+                self.note(&format!("{}: {}", sandbox::SURFACE_QUESTION, changes.join(", ")));
+            }
+            Event::SurfaceQuestionAnswered { keep, origin, .. } => {
+                let origin = origin.map(format::origin);
+                self.note(&sandbox::surface_answered(*keep, origin));
+            }
+            Event::TurnSurfaceReport { files, .. } => {
+                self.dim_lines(&sandbox::surface_report(files));
+            }
+            Event::SandboxUnavailable { reason } => {
+                let reason = format::one_line(reason);
+                self.note(&format!("sandbox unavailable: {reason}; auto turns run as cautious"));
             }
             Event::ApprovalResolved { decision, origin, .. } => {
                 let line =
@@ -224,6 +311,15 @@ impl<'a> Transcript<'a> {
     fn note(&mut self, text: &str) {
         self.out.push_str(self.spacing.before(Block::Note));
         self.out.push_str(&render_trace(text, self.options));
+    }
+
+    /// Dim lines that keep their indentation and their whole width, unlike a note,
+    /// which is cut to the screen: an exit's line and its facts must stay complete.
+    fn dim_lines(&mut self, lines: &[String]) {
+        self.out.push_str(self.spacing.before(Block::Note));
+        for line in lines {
+            let _ = writeln!(self.out, "{}", format::paint(line, Tone::Dim, self.options));
+        }
     }
 
     fn flush(&mut self) {

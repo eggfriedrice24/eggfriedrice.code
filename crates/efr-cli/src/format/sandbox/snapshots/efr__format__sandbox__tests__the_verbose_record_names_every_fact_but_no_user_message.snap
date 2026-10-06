@@ -1,0 +1,17 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: text
+---
+exit requested: write (the model asked with needs); a yes opens ~/Documents writable
+  line: cp report.pdf ~/Documents/
+  cwd: ~/p/app
+  target ~/Documents: user data, exists, named by the user
+  host example.com: refused by the proxy
+  program cp /usr/bin/cp
+  upload patterns: git push
+  a git setting or a file that runs code changed this turn
+  git status: 3 modified, 1 untracked, 0 staged
+  exported in the sandbox: VIRTUAL_ENV
+  earlier exits this turn: host allowed
+  refusals in a row: 1
+  user messages: 2

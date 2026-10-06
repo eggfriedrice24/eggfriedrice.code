@@ -1,0 +1,38 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: "format!(\"{plain}---\\n{verbose}\")"
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+mode cautious, model gpt-5.5, effort default
+auto is not available here; this turn runs as cautious: Landlock ABI 6
+shell: cargo add serde
+shell exited with 101 (sandbox)
+network: blocked index.crates.io:443 (not on the allow list)
+approval needed: shell: run "sudo pacman -Syu"; runs outside the sandbox: sudo (you may need to type your password); the whole line runs with your full rights (files, secrets, network); programs: sudo /usr/bin/sudo; efr: only you can allow this
+question: the last command changed git settings that run programs: ~/project/.git/commondir (core.fsmonitor); moved to quarantine
+no answer; the git change stays in quarantine
+efr: this turn changed files that run code later outside the sandbox:
+  .cargo/config.toml (build.rustc-wrapper)
+  check them before you run the project yourself
+sandbox unavailable: bubblewrap is not installed; auto turns run as cautious
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+mode cautious, model gpt-5.5, effort default
+auto is not available here; this turn runs as cautious: Landlock ABI 6
+shell: cargo add serde
+shell exited with 101 (sandbox)
+network: blocked index.crates.io:443 (not on the allow list)
+exit requested: privilege (predicted from the line)
+  line: sudo pacman -Syu
+  cwd: ~/project
+  program sudo /usr/bin/sudo
+  refusals in a row: 1
+  user messages: 1
+approval needed: shell: run "sudo pacman -Syu"; runs outside the sandbox: sudo (you may need to type your password); the whole line runs with your full rights (files, secrets, network); programs: sudo /usr/bin/sudo; efr: only you can allow this
+exit allowed by the user
+question: the last command changed git settings that run programs: ~/project/.git/commondir (core.fsmonitor); moved to quarantine
+no answer; the git change stays in quarantine
+efr: this turn changed files that run code later outside the sandbox:
+  .cargo/config.toml (build.rustc-wrapper)
+  check them before you run the project yourself
+sandbox unavailable: bubblewrap is not installed; auto turns run as cautious

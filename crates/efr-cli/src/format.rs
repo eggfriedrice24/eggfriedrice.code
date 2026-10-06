@@ -18,6 +18,8 @@ use efr_render::{ColourMode, RenderOptions};
 use jiff::Timestamp;
 use serde_json::Value;
 
+pub(crate) mod sandbox;
+
 /// Keys of a tool's input that best describe a call in one line, in order of
 /// preference.
 const DETAIL_KEYS: &[&str] = &["command", "cmd", "path", "file", "url", "query"];
@@ -306,6 +308,13 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         }
         if !config.restart_needed.is_empty() {
             row("restart needed", &one_line(&config.restart_needed.join(", ")));
+        }
+    }
+    // NOTE: a daemon from before the sandbox reports none, so there is nothing to show.
+    if let Some(sandbox) = &status.sandbox {
+        row("sandbox", &sandbox::status_line(sandbox));
+        if let Some(fix) = sandbox.fix.as_deref().filter(|_| !sandbox.available) {
+            row("sandbox fix", &one_line(fix));
         }
     }
     out

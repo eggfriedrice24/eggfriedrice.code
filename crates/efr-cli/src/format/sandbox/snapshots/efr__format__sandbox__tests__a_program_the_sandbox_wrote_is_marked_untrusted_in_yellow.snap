@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "question(&info, &record)"
+---
+approval needed: shell: run "sudo ./scripts/setup.sh"
+runs outside the sandbox: sudo (you may need to type your password)  (yellow)
+the whole line runs with your full rights (files, secrets, network)  (yellow)
+programs: sudo /usr/bin/sudo; ./scripts/setup.sh ~/p/eggfriedrice.code/scripts/setup.sh in a write root, changed this turn (untrusted: written in the sandbox)  (yellow)
+efr: only you can allow this  (dim)

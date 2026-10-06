@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: check(&result)
+---
+ok    Landlock ABI 10, errata 0xf
+fail  bubblewrap is setuid; efr needs the unprivileged build
+      fix: install the non-setuid build of bubblewrap
+skip  self_test: an earlier check failed
+auto: unavailable: bubblewrap is setuid; efr needs the unprivileged build; turns run as cautious

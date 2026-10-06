@@ -9,10 +9,17 @@
 //! takes any model id, as the daemon does. The default
 //! mode and effort come from `config.toml` as `efr` reads it; the daemon reads its own
 //! copy, so they match when both use the same config root.
+//!
+//! `--mode auto` also asks the daemon for its sandbox (`admin.status`): when the
+//! sandbox is not available, a warning on stderr says that turns run as `cautious` and
+//! why, at once, so `,mode auto` tells the truth before the first prompt.
 
 use std::fmt::Write as _;
 
-use efr_protocol::{Method, Mode, ModelInfo, ModelsList, ModelsListResult, Origin, is_effort_word};
+use efr_protocol::{
+    AdminStatus, AdminStatusResult, Method, Mode, ModelInfo, ModelsList, ModelsListResult, Origin,
+    is_effort_word,
+};
 
 use crate::cli::TurnSettingsArgs;
 use crate::context::Context;
@@ -31,7 +38,30 @@ pub(crate) async fn run(
     let client = ctx.connect(Origin::Cli, None).await?;
     let list: ModelsListResult = client.call(Method::ModelsList(ModelsList {})).await?;
     let lines = resolve(&asked, &ctx.settings.turn, &list.models)?;
-    out.out(&show(&lines))
+    out.out(&show(&lines))?;
+    // `,mode auto` checks the value with `--mode auto`: say at once when the turns will
+    // run as cautious, instead of at the next prompt.
+    let chose_auto = asked.mode.as_ref().is_some_and(|given| {
+        given.value == Mode::Auto && matches!(given.source, SettingSource::Flag(_))
+    });
+    if chose_auto && let Some(reason) = sandbox_unavailable(&client).await {
+        out.err(&format!("efr: {}\n", format::sandbox::fallback_warning(&reason)));
+    }
+    Ok(())
+}
+
+/// Why the daemon's sandbox is not available; `None` when it is, when the daemon does
+/// not report it, or when it cannot be asked.
+async fn sandbox_unavailable(client: &efr_client::Client) -> Option<String> {
+    let status = match client.call::<AdminStatusResult>(Method::AdminStatus(AdminStatus {})).await {
+        Ok(status) => status,
+        Err(error) => {
+            tracing::debug!(error = %error, "the sandbox status could not be read");
+            return None;
+        }
+    };
+    let sandbox = status.sandbox.filter(|sandbox| !sandbox.available)?;
+    Some(sandbox.reason.unwrap_or_else(|| "the probe gave no reason".to_owned()))
 }
 
 /// One setting as `efr settings` prints it.

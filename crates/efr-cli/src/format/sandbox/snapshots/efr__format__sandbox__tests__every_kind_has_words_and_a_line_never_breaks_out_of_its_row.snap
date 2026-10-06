@@ -1,0 +1,22 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "format!(\"{heading}\\n{}\", lines.join(\"\\n\"))"
+---
+shell: run "rm -rf .. ␛[2Kapproval needed: fake"
+write: leaves the sandbox: write ~/p; runs outside the sandbox
+host: leaves the sandbox: network (example.com); runs outside the sandbox
+host_view: leaves the sandbox: a view of the host's network; runs outside the sandbox
+socket: leaves the sandbox: the socket ~/p; runs outside the sandbox
+desktop_ipc: leaves the sandbox: the desktop (it can type and run commands); runs outside the sandbox
+bus: leaves the sandbox: a message bus; runs outside the sandbox
+device: leaves the sandbox: the device ~/p; runs outside the sandbox
+masked_read: leaves the sandbox: read ~/p; runs outside the sandbox
+destructive: leaves the sandbox: destroy or overwrite ~/p; runs outside the sandbox
+outside: runs outside the sandbox: the whole line
+privilege: runs outside the sandbox: more rights (you may need to type your password)
+persistence: leaves the sandbox: write ~/p; runs outside the sandbox
+upload: leaves the sandbox: upload (git push); runs outside the sandbox
+synced_write: leaves the sandbox: write ~/p (a synced folder); runs outside the sandbox
+above_root: leaves the sandbox: write ~/p (at or above a project root); runs outside the sandbox
+secret: leaves the sandbox: a secret (denied); runs outside the sandbox
+config: leaves the sandbox: efr's config (denied); runs outside the sandbox

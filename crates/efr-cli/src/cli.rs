@@ -66,6 +66,22 @@ pub(crate) enum Command {
     Project(ProjectCommand),
     /// Show where efr keeps its files, and where the daemon keeps them.
     Paths(PathsArgs),
+    /// Check the sandbox of the auto mode, or explain what it does with a path.
+    #[command(subcommand)]
+    Sandbox(SandboxCommand),
+}
+
+/// The `efr sandbox` commands.
+#[derive(Debug, Subcommand)]
+pub(crate) enum SandboxCommand {
+    /// Run the sandbox checks now and print each one with its result and fix.
+    Check,
+    /// Show whether a command in the auto sandbox can read and write PATH, and why.
+    Explain {
+        /// The path; relative to the current directory.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 /// The arguments of `efr paths`.
@@ -210,6 +226,10 @@ pub(crate) struct HistoryArgs {
     /// Continue from a cursor that an earlier page printed.
     #[arg(long, value_name = "CURSOR")]
     pub(crate) cursor: Option<String>,
+
+    /// Also show the facts that efr recorded for each exit from the auto sandbox.
+    #[arg(long, short = 'v')]
+    pub(crate) verbose: bool,
 }
 
 /// The providers `efr login` knows.
