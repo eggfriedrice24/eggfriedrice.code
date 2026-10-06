@@ -26,13 +26,13 @@ Pre-alpha. The first milestone runs: the daemon with its event log, one model pr
 ## Install
 
 ```sh
-just install                          # efrd and efr to ~/.local/bin, the user unit to ~/.config/systemd/user
+just install                          # efrd and efr to ~/.local/bin, efr-sbx to ~/.local/lib/efr, the user unit to ~/.config/systemd/user
 systemctl --user enable --now efrd    # start the daemon now and at every login
 echo "source $PWD/shell/zsh/efr.plugin.zsh" >> ~/.zshrc
 efr login openai                      # log in to your ChatGPT plan in a browser
 ```
 
-`just install` makes a release build with the ghostty screen backend, so it needs Zig 0.16.0. `~/.local/bin` must be on your `PATH`. `efr login openai` prints a URL to open on this machine and waits until the browser is done; with `EFR_OPEN_BROWSER=1` it opens the URL itself. `loginctl enable-linger` keeps the daemon running when you are not logged in. `efr status` shows the daemon, its screen backend and which providers are logged in.
+`just install` makes a release build with the ghostty screen backend, so it needs Zig 0.16.0. It also installs `efr-sbx`, the launcher of the `auto` sandbox, in `~/.local/lib/efr/`, where efrd finds it; it is not on `PATH`. `~/.local/bin` must be on your `PATH`. `efr login openai` prints a URL to open on this machine and waits until the browser is done; with `EFR_OPEN_BROWSER=1` it opens the URL itself. `loginctl enable-linger` keeps the daemon running when you are not logged in. `efr status` shows the daemon, its screen backend and which providers are logged in.
 
 The daemon starts one hidden zsh for each conversation, and that zsh reads your `.zshrc` with `EFR_HIDDEN_SHELL=1` set. If your `.zshrc` runs `exec tmux` or an instant prompt, skip it when that variable is set.
 

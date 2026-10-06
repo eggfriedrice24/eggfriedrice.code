@@ -271,6 +271,9 @@ What you see:
 | Landlock too old | `Landlock ABI N found; auto needs 9 (Linux 7.1)` | a newer kernel |
 | kernel without the fix | `the kernel lacks the Landlock fix for disconnected directories` | a newer kernel |
 | launcher in a project | `efr-sbx lies in a writable project (target/debug)` | install efr, or run efrd from outside the project |
+| no launcher | `efr-sbx is not installed next to efrd` | install `efr-sbx` next to `efrd` or in `../lib/efr/` (`just install` puts it in `~/.local/lib/efr/`) |
+| launcher changed | `the launcher copy does not match the installed efr-sbx` | restart efrd, so it copies the launcher again |
+| probe without a report | `the sandbox launcher's probe failed: ...` | run `efr sandbox check`; reinstall efr when it fails again |
 | project at `~` | `auto cannot use your home directory as a project` (per turn) | register a narrower project, such as `efr project add ~/dotfiles` |
 | self-test | `the sandbox let a write outside through: ...` | file an issue; `efr sandbox check` has the details |
 | turned off | `sandbox.enabled = false` | set `sandbox.enabled = true` |
@@ -318,7 +321,20 @@ $ efr sandbox explain ~/.zshrc
 
 `efr paths` shows the launcher (`$XDG_RUNTIME_DIR/efr/bin/efr-sbx`, copied from the
 installed `efr-sbx` and checked by SHA-256), bubblewrap, and the sandbox's state and
-runtime directories. [`docs/storage.md`](storage.md) lists the files.
+runtime directories. [`docs/storage.md`](storage.md) lists the files. efrd finds the
+installed launcher next to its own program, else in `../lib/efr/` (so
+`~/.local/lib/efr/efr-sbx` for `~/.local/bin/efrd`); it is never on `PATH`.
+
+efrd runs the probe at start, after a change of `[sandbox]` or of the projects, after
+a call whose sandbox could not start, and before an `auto` prompt while the last probe
+failed. So a fix such as a new package or a sysctl needs no restart. When the result
+changes to unavailable, the event log records it once (`sandbox_unavailable`).
+
+A process that an approved command leaves behind, such as a double-forked one, can
+still reach efrd's socket, because it runs outside the sandbox. efrd gives a process
+that descends from a hidden shell, or that shares a hidden shell's session, only the
+`read` scope: it cannot send a prompt, approve, answer input, change the config or
+register a project.
 
 ## Settings
 

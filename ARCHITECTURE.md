@@ -52,7 +52,7 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; in `auto` the launch of each shell call, exit questions and their records, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools` | every library crate above except `efr-client` and the test crates |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
 | `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
@@ -161,7 +161,9 @@ stops. `efrd` starts in this order (the roots come from `EFR_<ROOT>_DIR`, else
    resumable, record queued prompts as not run (`turn_cancelled`) with a notice to
    their terminal to send them again, cancel process-bound outbox rows. Nothing
    continues automatically.
-5. Start the store writer, providers, the tool registry and the shell sessions.
+5. Start the store writer, providers, the tool registry and the shell sessions; copy
+   the sandbox launcher to `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` and run the sandbox
+   probe, whose status decides whether `auto` turns run as `auto` or as `cautious`.
 6. Open the Unix socket (0600) and write `daemon.json` for discovery.
 7. Send `READY=1` to systemd.
 
