@@ -171,7 +171,9 @@ The user still presses Enter once the question is on the screen, so a `y` typed 
 of a `[Y/n]` waits in the line instead of being sent blind. A `hidden` wait drops the
 pending text, zeroed, and starts an empty line; so does a manual line. A wait that ends
 keeps the keys for the call again, unless it asked for a password, which keeps them
-being thrown away as above. The call's completion, the turn's end or another approval
+being thrown away as above. A manual line that closes, sent or not, may have held a
+password too, so from then on the call's keys are thrown away instead of kept, and
+`Ctrl+\` still opens the next manual line. The call's completion, the turn's end or another approval
 drops the pending text and stops the key thread, which discards unread input first.
 Keys typed outside such a call, or during a call allowed elsewhere or that waits for
 nothing, stay typeahead for the user's shell as before.

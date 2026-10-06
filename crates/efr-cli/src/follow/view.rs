@@ -42,8 +42,9 @@
 //! presses Enter after the question appears: an Enter typed before it is dropped. A
 //! hidden wait throws the pending text away, and so does the call's end. After a wait
 //! that ends without asking for a password the keys are kept again; after one that
-//! asked for a password they are thrown away as before. Keys typed outside such a call
-//! stay typeahead for the user's shell.
+//! asked for a password, or after a manual answer line that may have held one, they are
+//! thrown away as before. Keys typed outside such a call stay typeahead for the user's
+//! shell.
 
 use std::collections::{HashMap, HashSet};
 
@@ -193,9 +194,10 @@ pub(crate) enum Ask {
     /// sent as `kind` says.
     Input { call_id: CallId, kind: AnswerKind },
     /// Nothing to answer now, but keep reading keys and throw them away until call
-    /// `call_id` completes. It asked for a hidden answer and may ask again, as `sudo`
-    /// does after a wrong password, and a password typed again meanwhile must neither
-    /// show nor stay queued for the user's shell.
+    /// `call_id` completes. It asked for a hidden answer, or a manual one of a call that
+    /// kept its keys, and may ask again, as `sudo` does after a wrong password, and a
+    /// password typed again meanwhile must neither show nor stay queued for the user's
+    /// shell.
     Discard(CallId),
     /// Nothing to answer now, but keep reading keys into a pending line for call
     /// `call_id`, which the user approved here as one that may wait for input: a
@@ -593,7 +595,19 @@ impl TurnView {
             call = Some(running.call_id);
         }
         let step = self.note(MANUAL_CANCELLED, size);
-        self.keys_free(call, step)
+        self.manual_closed(call, step)
+    }
+
+    /// `step` for the moment a manual answer line of call `call` closes. The keys of a
+    /// call that kept them are read and thrown away from now on instead of kept: the
+    /// line may have held a password, and a second copy typed ahead for a prompt that
+    /// efr cannot see must never start a later answer line that is shown. The call's
+    /// silence still offers `Ctrl+\` for the next manual line. Otherwise the keys stop.
+    fn manual_closed(&self, call: Option<CallId>, step: Step) -> Step {
+        match call.filter(|call| self.retained == Some(*call)) {
+            Some(call) => Step { ask: Some(Ask::Discard(call)), ..step },
+            None => Step { settled: true, ..step },
+        }
     }
 
     /// `step` for the moment nothing reads keys for call `call` any more: the keys are
@@ -776,7 +790,7 @@ impl TurnView {
         }
         let step = self.note(text, size);
         match freed {
-            Some(call) => self.keys_free(Some(call), step),
+            Some(call) => self.manual_closed(Some(call), step),
             None => step,
         }
     }

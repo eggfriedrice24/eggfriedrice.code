@@ -1031,7 +1031,7 @@ fn only_an_interactive_approval_allowed_here_keeps_the_keys() {
 }
 
 #[test]
-fn a_manual_line_of_a_kept_call_gives_the_keys_back_to_it() {
+fn a_manual_line_of_a_kept_call_throws_the_keys_after_it_away() {
     let mut view = TurnView::new(turn(), RenderOptions::new(400));
     let size = Size { cols: 400, rows: 20 };
     view.event(&shell_started(), size, true);
@@ -1042,10 +1042,15 @@ fn a_manual_line_of_a_kept_call_gives_the_keys_back_to_it() {
     assert_eq!(view.manual_offer(), Some(call()));
     view.manual(call(), size);
     let step = view.manual_cancelled(size);
-    assert_eq!((step.ask, step.settled), (Some(Ask::Retain(call())), false));
+    assert_eq!((step.ask, step.settled), (Some(Ask::Discard(call())), false));
+    // The line may have held a password, so the keys are not kept for the call, but
+    // `Ctrl+\` still opens the next one.
+    assert_eq!(view.manual_offer(), Some(call()));
     view.manual(call(), size);
     let step = view.answer_sent(size);
-    assert_eq!((step.ask, step.settled), (Some(Ask::Retain(call())), false));
+    assert_eq!((step.ask, step.settled), (Some(Ask::Discard(call())), false));
+    view.silent(call(), size);
+    assert_eq!(view.manual_offer(), Some(call()));
 }
 
 #[test]

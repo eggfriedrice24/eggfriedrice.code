@@ -1070,6 +1070,62 @@ async fn ctrl_backslash_after_a_silence_types_a_manual_answer() {
     assert_eq!(quit.armed(), 0, "the key is let go when the turn ends");
 }
 
+#[tokio::test]
+async fn keys_typed_after_a_manual_answer_of_an_allowed_interactive_call_never_start_a_line() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let quit = Arc::new(TestQuit::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx =
+        Context { keys: keys.clone(), quit: quit.clone(), clock: clock.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (pressing, timing) = (Arc::clone(&quit), Arc::clone(&clock));
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("./deploy"))).await;
+        allow_interactive(&mut conn, sub, &presser).await;
+        // The silence starts again once the approval is answered, so its sleep may
+        // begin after any one opening of the gate.
+        Wait::new("the hint")
+            .until(|| {
+                timing.open();
+                seen.stdout().contains(HINT)
+            })
+            .await
+            .unwrap();
+        pressing.until_armed(1).await;
+        pressing.trigger();
+        // The reader already runs, so the line must be open before the keys come.
+        shows(&seen, "or Ctrl+\\ to cancel").await;
+        presser.type_bytes(b"hunter2\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert!(params.manual);
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        // A second copy typed ahead for a retype prompt that efr cannot see.
+        presser.type_bytes(b"hunter2").await;
+        conn.item(sub, &item(14, shell_output("Proceed? [y/n] "))).await;
+        conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
+        shows(&seen, "the agent sees it if the program shows it").await;
+        presser.type_bytes(b"y\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "y", "nothing typed before the question");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        conn.item(sub, &item(16, shell_completed(0))).await;
+        presser.stopped().await;
+        conn.item(sub, &item(17, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter") && !written.contains("ter2"), "{written}");
+    }
+}
+
 /// Waits until `keys` has started `count` readers.
 async fn started(keys: &ScriptedKeys, count: usize) {
     Wait::new(&format!("{count} key readers")).until(|| keys.starts() == count).await.unwrap();
