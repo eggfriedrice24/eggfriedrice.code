@@ -179,9 +179,10 @@ async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() 
     };
 
     let first =
-        run(send(&["--mode", "auto", "--model", &other.id, "--effort", asked, "--", "one"])).await;
+        run(send(&["--mode", "manual", "--model", &other.id, "--effort", asked, "--", "one"]))
+            .await;
     assert!(first.status.success(), "{}", text(&first.stderr));
-    let note = format!("mode auto, model {}, effort {asked}", other.id);
+    let note = format!("mode manual, model {}, effort {asked}", other.id);
     assert!(text(&first.stderr).contains(&note), "{}", text(&first.stderr));
 
     let file = daemon.dirs().dirs().config().join("config.toml");

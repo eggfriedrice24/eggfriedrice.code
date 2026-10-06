@@ -15,6 +15,14 @@
 //! permission engine. Tools declare (`efr-tools`, through the daemon's [`Toolbox`]),
 //! `efr-permissions` decides, and this file enforces; nothing reaches
 //! [`Toolbox::invoke`] without passing it.
+//!
+//! In `auto` a shell call runs in the kernel sandbox. `Contain` runs it at once with
+//! [`Launch::Contained`]. An exit asks the user, with its record in `exit_requested`
+//! first, and a "yes" runs the call with the narrowest launch ([`exit::grant`]). An
+//! exit that would run outside the sandbox must be one command, or the call is refused
+//! with no question. A floor refuses an exit before any question, and three refusals in
+//! a row without a person stop the turn. A call that changed git settings that run
+//! programs asks the user whether to keep them before the next call.
 
 mod coalesce;
 mod stream;
@@ -24,10 +32,11 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect};
+use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    InputWait, Mode, Origin, Scope, ShellContext, TurnId, TurnSettings,
+    InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
+    TurnId, TurnSettings, Verdict,
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
@@ -40,11 +49,13 @@ use tracing::Instrument as _;
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
+use crate::exit::{self, TurnExits};
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
+use crate::questions::Questions;
 use crate::scratch::Scratch;
-use crate::settings;
+use crate::settings::{self, Place};
 use crate::steer::Steering;
 use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, OutputSink,
@@ -81,6 +92,7 @@ pub(crate) struct Shared {
     pub(crate) deps: ConversationDeps,
     pub(crate) scratch: Mutex<Scratch>,
     pub(crate) approvals: Approvals,
+    pub(crate) questions: Questions,
 }
 
 /// A prompt that waits for its turn, or runs as one.
@@ -171,9 +183,10 @@ enum Ending {
 /// The answer of the check point about one tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Authorization {
-    /// The engine allowed the call, or the user approved it; `approved_interactive`
-    /// when the user approved a call that may wait for input at the terminal.
-    Allowed { approved_interactive: bool },
+    /// The engine allowed or contained the call, or the user approved it;
+    /// `approved_interactive` when the user approved a call that may wait for input at
+    /// the terminal, and `launch` how it runs.
+    Allowed { approved_interactive: bool, launch: Launch },
     /// The engine refused the call, or the user denied it; the model reads `message`.
     Denied { message: String },
     /// The call could not be judged, such as an unknown tool; the model reads `message`.
@@ -206,6 +219,52 @@ struct Turn {
     /// How many bytes of that message's text `assistant_message_updated` events hold.
     streamed: usize,
     usage: Option<TokenUsage>,
+    /// The user messages of the conversation so far, for the record of an exit.
+    user_messages: Vec<String>,
+    /// The exits, refusals and exports of the turn so far.
+    exits: TurnExits,
+    /// Set when the turn must end after the current call, such as after three
+    /// refusals in a row.
+    stop: Option<ErrorBody>,
+}
+
+/// What the check point found about one call before the call's start is recorded.
+enum Judged {
+    /// The toolbox could not say what the call needs; the model reads the text.
+    Refused(String),
+    /// The engine decided.
+    Ruled(Box<Ruling>),
+}
+
+/// The engine's decision about one call, and how the call would run.
+struct Ruling {
+    requirements: Requirements,
+    decision: Decision,
+    /// How the call runs once it may: [`Launch::Direct`], or for a shell call of the
+    /// `auto` mode the narrowest launch that covers its exits.
+    launch: Launch,
+    /// Why the line may not run outside the sandbox, for a call whose launch would be
+    /// the exit child: it gets no question.
+    problem: Option<String>,
+    /// The engine that decided, for where each path of the record stands.
+    engine: Arc<Engine>,
+}
+
+impl Ruling {
+    /// How the call starts, for `tool_call_started`: the launch of a call that goes
+    /// through the sandbox's launcher and may run or be asked about; `None` otherwise.
+    fn planned_launch(&self) -> Option<Launch> {
+        let refused = self.decision.effect() == Effect::Deny || self.problem.is_some();
+        (!refused && self.launch.uses_launcher()).then(|| self.launch.clone())
+    }
+}
+
+/// What a quarantine question ended with.
+enum Kept {
+    /// The user answered: true to keep the changes.
+    Answer(bool),
+    /// Nobody answered before the timeout or the interrupt, or the answer was lost.
+    Unanswered,
 }
 
 impl Turn {
@@ -226,6 +285,9 @@ impl Turn {
             assistant_index: 0,
             streamed: 0,
             usage: None,
+            user_messages: Vec::new(),
+            exits: TurnExits::default(),
+            stop: None,
         }
     }
 
@@ -240,13 +302,6 @@ impl Turn {
         let shared = Arc::clone(&self.shared);
         let config = Arc::clone(&self.config);
         let turn_id = self.turn_id();
-        // NOTE: resolved again against the settings of this moment, because the config
-        // may have changed while the prompt waited; what no longer fits fails the turn.
-        let settings = match settings::resolve(&self.spec.settings, &config, self.spec.origin) {
-            Ok(settings) => settings,
-            Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
-        };
-        self.settings = Some(settings.clone());
         let snapshot =
             Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history).await?;
         let summary = snapshot.summary.as_ref();
@@ -257,6 +312,23 @@ impl Turn {
         };
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
         self.scope = derivation.scope.clone();
+        // NOTE: resolved again against the settings of this moment, because the config
+        // may have changed while the prompt waited; what no longer fits fails the turn.
+        // `auto` needs the sandbox and a project below the home directory.
+        let engine = Arc::clone(&shared.deps.engine.borrow());
+        let sandbox = shared.deps.sandbox.borrow().clone();
+        let project_root = match &self.scope {
+            Scope::Project(id) => engine.locations().project_root(id),
+            _ => None,
+        };
+        let place = Place { sandbox: &sandbox, project_root, home: engine.locations().home() };
+        let settings =
+            match settings::resolve(&self.spec.settings, &config, self.spec.origin, place) {
+                Ok(settings) => settings,
+                Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
+            };
+        self.settings = Some(settings.clone());
+        self.user_messages = exit::user_messages(&snapshot.page, turn_id);
         let mut started = vec![Event::TurnStarted {
             turn_id,
             cwd: self.cwd.clone(),
@@ -303,6 +375,7 @@ impl Turn {
                 return Ok(Ending::Interrupted);
             }
             for text in self.control.steering.take() {
+                self.user_messages.push(text.clone());
                 self.push(&mut messages, Message::user(text));
             }
             let request = Request {
@@ -332,8 +405,14 @@ impl Turn {
                 let (result, stopped) = self.tool_call(call, interrupted).await?;
                 interrupted |= stopped;
                 results.push(result);
+                if self.stop.is_some() {
+                    break;
+                }
             }
             self.push(&mut messages, Message::new(Role::User, results));
+            if let Some(error) = self.stop.take() {
+                return Ok(Ending::Failed(error));
+            }
             if interrupted {
                 return Ok(Ending::Interrupted);
             }
@@ -433,6 +512,7 @@ impl Turn {
             scratch: self.scratch.clone(),
             agent_cwd,
             mode: self.mode(),
+            fallback: self.settings.as_ref().and_then(|settings| settings.fallback.clone()),
             model: self.model_key().model,
             effort: self
                 .settings
@@ -471,15 +551,6 @@ impl Turn {
         let span = tracing::info_span!("tool_call", tool = %call.name, call_id = %call_id);
         async move {
             let manual_input = self.shared.deps.toolbox.takes_manual_input(&call.name, &call.input);
-            self.record(vec![Event::ToolCallStarted {
-                turn_id,
-                call_id,
-                tool: call.name.clone(),
-                input: call.input.clone(),
-                manual_input,
-                launch: None,
-            }])
-            .await?;
             // NOTE: asked for every call, because the call before may have moved the
             // hidden shell, and a command's relative paths run from where it is now.
             let shell_cwd = self.shared.deps.toolbox.shell_cwd(self.shared.conversation_id).await;
@@ -493,36 +564,76 @@ impl Turn {
                 scope: self.scope.clone(),
                 origin: self.spec.origin,
                 approved_interactive: false,
+                launch: Launch::Direct,
+                exits: Vec::new(),
             };
             let mut tool_call = ToolCall::new(call.name, call.input, context);
-            let (outcome, interrupted) = if skip || self.control.interrupt.is_raised() {
-                (ToolOutcome::error(NOT_RUN), true)
-            } else {
-                match self.authorize_tool_call(&tool_call).await? {
-                    Authorization::Allowed { approved_interactive } => {
+            let skipped = skip || self.control.interrupt.is_raised();
+            // NOTE: judged before the start is recorded, so `tool_call_started` says how
+            // the call runs; the engine is pure, and nothing runs until it allows.
+            let judged = if skipped { None } else { Some(self.judge(&tool_call).await) };
+            let launch = match &judged {
+                Some(Judged::Ruled(ruling)) => ruling.planned_launch(),
+                _ => None,
+            };
+            self.record(vec![Event::ToolCallStarted {
+                turn_id,
+                call_id,
+                tool: tool_call.name.clone(),
+                input: tool_call.input.clone(),
+                manual_input,
+                launch,
+            }])
+            .await?;
+            let (mut outcome, mut interrupted) = match judged {
+                None => (ToolOutcome::error(NOT_RUN), true),
+                Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
+                    (Authorization::Allowed { approved_interactive, launch }, exits) => {
                         tool_call.context.approved_interactive = approved_interactive;
-                        match self.invoke(tool_call).await? {
+                        tool_call.context.launch = launch;
+                        tool_call.context.exits = exits;
+                        match self.invoke(tool_call.clone()).await? {
                             Some(outcome) => (outcome, false),
                             None => (ToolOutcome::error(STOPPED), true),
                         }
                     }
-                    Authorization::Denied { message } | Authorization::Refused { message } => {
+                    (Authorization::Denied { message } | Authorization::Refused { message }, _) => {
                         (ToolOutcome::error(message), false)
                     }
-                    Authorization::Interrupted => (ToolOutcome::error(NOT_RUN), true),
-                    Authorization::Expired => (ToolOutcome::error(EXPIRED), false),
-                }
+                    (Authorization::Interrupted, _) => (ToolOutcome::error(NOT_RUN), true),
+                    (Authorization::Expired, _) => (ToolOutcome::error(EXPIRED), false),
+                },
             };
-            self.record(vec![Event::ToolCallCompleted {
+            let mut events = vec![Event::ToolCallCompleted {
                 turn_id,
                 call_id,
                 output: outcome.output.clone(),
                 truncated: outcome.truncated,
                 is_error: outcome.is_error,
                 exit_code: outcome.exit_code,
-                sandbox: None,
-            }])
-            .await?;
+                sandbox: outcome.sandbox.clone(),
+            }];
+            let mut quarantined = Vec::new();
+            if let Some(summary) = &outcome.sandbox {
+                self.exits.ran(summary);
+                if !summary.surface_changes.is_empty() {
+                    quarantined = exit::quarantined(summary);
+                    events.push(Event::SandboxSurfaceChanged {
+                        turn_id,
+                        call_id,
+                        changes: summary.surface_changes.clone(),
+                        quarantined: !quarantined.is_empty(),
+                    });
+                }
+            }
+            self.record(events).await?;
+            if !quarantined.is_empty() {
+                // NOTE: asked before any other call of the turn, so nothing runs with a
+                // git setting that the sandbox planted until the user has seen it.
+                let (note, stopped) = self.ask_surface(&tool_call.context, quarantined).await?;
+                outcome.output = format!("{}\n{note}", outcome.output);
+                interrupted |= stopped;
+            }
             let result = ContentBlock::ToolResult {
                 call_id: call.provider_call_id,
                 output: outcome.output,
@@ -534,23 +645,14 @@ impl Turn {
         .await
     }
 
-    /// The single permission check point: may `call` run?
-    ///
-    /// The toolbox declares what the call needs, [`efr_permissions::Engine::decide`]
-    /// judges it with the turn's scope, origin and the conversation's policy, and the
-    /// effect is enforced here: `Allow` lets the call run, `Deny` gives the model an
-    /// error that names each refused path with its class, and `Ask` records
-    /// `approval_requested` and parks the turn until the user answers, the turn is
-    /// interrupted, or the request expires.
-    async fn authorize_tool_call(
-        &mut self,
-        call: &ToolCall,
-    ) -> Result<Authorization, ConversationError> {
+    /// What the toolbox declares that `call` needs, and the engine's decision about it,
+    /// with the turn's scope, origin, mode and the conversation's policy. Pure: nothing
+    /// is recorded and nothing runs.
+    async fn judge(&self, call: &ToolCall) -> Judged {
         let requirements = match self.shared.deps.toolbox.requirements(call).await {
             Ok(requirements) => requirements,
-            Err(message) => return Ok(Authorization::Refused { message }),
+            Err(message) => return Judged::Refused(message),
         };
-        let interactive = requirements.interactive;
         let input = DecisionInput {
             requirements,
             scope: call.context.scope.clone(),
@@ -564,41 +666,180 @@ impl Turn {
         let engine = Arc::clone(&self.shared.deps.engine.borrow());
         let decision = engine.decide(&input);
         tracing::debug!(effect = %decision.effect(), "the permission engine decided");
-        match decision.effect() {
-            Effect::Allow => Ok(Authorization::Allowed { approved_interactive: false }),
-            Effect::Deny => {
-                Ok(Authorization::Denied { message: approvals::denial(&call.name, &decision) })
+        let requirements = input.requirements;
+        // NOTE: only a shell call of a local `auto` turn runs in the sandbox; the file
+        // tools run in the daemon, and a remote turn never runs as `auto`.
+        let sandboxed = efr_permissions::effective_mode(input.mode, input.origin) == Mode::Auto
+            && requirements.command.is_some();
+        let launch = if sandboxed { exit::grant(&decision) } else { Launch::Direct };
+        let problem = match (&launch, decision.effect(), &requirements.command) {
+            (Launch::Unsandboxed, Effect::Ask, Some(line)) => {
+                efr_permissions::exits::unsandboxed_line_problem(line)
             }
-            // NOTE: until this check point runs a call with `Launch::Contained`, a call
-            // that the auto sandbox would hold asks the user, so nothing runs outside
-            // the sandbox without a person.
-            Effect::Contain | Effect::Ask => self.ask(call, &decision, interactive).await,
+            _ => None,
+        };
+        Judged::Ruled(Box::new(Ruling { requirements, decision, launch, problem, engine }))
+    }
+
+    /// The single permission check point: may `call` run, and how?
+    ///
+    /// The toolbox declared what the call needs and [`efr_permissions::Engine::decide`]
+    /// judged it ([`Turn::judge`]); the effect is enforced here: `Allow` lets the call
+    /// run, `Contain` runs it in the `auto` sandbox with no question, `Deny` gives the
+    /// model an error that names each refused path with its class, and `Ask` records
+    /// `approval_requested` (after `exit_requested` for an exit) and parks the turn
+    /// until the user answers, the turn is interrupted, or the request expires. The
+    /// second value is the exits that a "yes" approved.
+    async fn authorize_tool_call(
+        &mut self,
+        call: &ToolCall,
+        judged: Judged,
+    ) -> Result<(Authorization, Vec<efr_permissions::ExitNeed>), ConversationError> {
+        let ruling = match judged {
+            Judged::Refused(message) => {
+                return Ok((Authorization::Refused { message }, Vec::new()));
+            }
+            Judged::Ruled(ruling) => ruling,
+        };
+        let approved: Vec<efr_permissions::ExitNeed> = ruling.decision.exits().cloned().collect();
+        let authorization = match ruling.decision.effect() {
+            Effect::Allow => Authorization::Allowed {
+                approved_interactive: false,
+                launch: ruling.launch.clone(),
+            },
+            // NOTE: a contained call runs only through the launcher; anything else that
+            // the engine contains asks, so nothing runs outside the sandbox without a
+            // person.
+            Effect::Contain if ruling.launch.uses_launcher() => Authorization::Allowed {
+                approved_interactive: false,
+                launch: ruling.launch.clone(),
+            },
+            Effect::Deny => {
+                self.refuse_floor(call, &ruling).await?;
+                Authorization::Denied { message: approvals::denial(&call.name, &ruling.decision) }
+            }
+            Effect::Contain | Effect::Ask => match &ruling.problem {
+                // NOTE: no question and no refusal: the model splits the line.
+                Some(problem) => Authorization::Refused { message: problem.clone() },
+                None => self.ask(call, &ruling).await?,
+            },
+        };
+        let exits = match &authorization {
+            Authorization::Allowed { .. } => approved,
+            _ => Vec::new(),
+        };
+        Ok((authorization, exits))
+    }
+
+    /// Records a floor's refusal of the exits of `ruling`, and stops the turn at the
+    /// third refusal in a row. A refusal that no floor made (a user's `deny` rule, a
+    /// secret path) is no exit refusal.
+    async fn refuse_floor(
+        &mut self,
+        call: &ToolCall,
+        ruling: &Ruling,
+    ) -> Result<(), ConversationError> {
+        let floors = exit::floor_kinds(&ruling.decision);
+        let Some(first) = floors.first() else {
+            return Ok(());
+        };
+        let turn_id = self.turn_id();
+        let call_id = call.context.call_id;
+        let record = self.exit_record(call, ruling);
+        let events = vec![
+            Event::ExitRequested {
+                turn_id,
+                call_id,
+                kinds: exit::kinds(&ruling.decision),
+                grants: Vec::new(),
+                source: exit::source(&ruling.decision),
+                record: Box::new(record),
+            },
+            Event::ExitJudged {
+                turn_id,
+                call_id,
+                judge: JudgeKind::Floor,
+                verdict: Verdict::Deny,
+                model: None,
+                latency_ms: None,
+                risk: None,
+                user_authorization: None,
+                category: Some(first.as_str().to_owned()),
+                rationale: None,
+                record_sha256: None,
+                cached: false,
+            },
+        ];
+        self.record(events).await?;
+        self.exits.judged(&floors, Verdict::Deny);
+        if self.exits.refused() {
+            self.stop = Some(ErrorBody::new(ErrorCode::Forbidden, exit::REFUSALS_STOPPED));
         }
+        Ok(())
+    }
+
+    /// The record of the exits of `ruling` for `call`.
+    fn exit_record(&self, call: &ToolCall, ruling: &Ruling) -> efr_protocol::ExitRecord {
+        let cwd = exit::start_dir(
+            &ruling.requirements,
+            call.context.shell_cwd.as_deref(),
+            &call.context.cwd,
+        );
+        let action = exit::Action {
+            tool: &call.name,
+            decision: &ruling.decision,
+            requirements: &ruling.requirements,
+            launch: &ruling.launch,
+            cwd: &cwd,
+            scope: &call.context.scope,
+            scratch: &call.context.scratch,
+            engine: &ruling.engine,
+        };
+        exit::record(action, &self.user_messages, &self.exits)
     }
 
     /// Parks `call` until the user answers, the turn is interrupted, or the approval
     /// timeout passes. An approval of an `interactive` call, one that may wait for input
-    /// at the terminal, says so.
+    /// at the terminal, says so. A call with exits records their record first, and the
+    /// question shows them; the user's answer is recorded as their judgement.
     async fn ask(
         &mut self,
         call: &ToolCall,
-        decision: &Decision,
-        interactive: bool,
+        ruling: &Ruling,
     ) -> Result<Authorization, ConversationError> {
         let turn_id = self.turn_id();
         let call_id = call.context.call_id;
+        let interactive = ruling.requirements.interactive;
+        let decision = &ruling.decision;
         let summary = approvals::summary(&call.name, decision);
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
+        let kinds = exit::kinds(decision);
+        let mut events = Vec::with_capacity(2);
+        let exit = if kinds.is_empty() {
+            None
+        } else {
+            let home = ruling.engine.locations().home();
+            let info = exit::info(decision, &ruling.requirements, &ruling.launch, home);
+            events.push(Event::ExitRequested {
+                turn_id,
+                call_id,
+                kinds: kinds.clone(),
+                grants: ruling.launch.grants().to_vec(),
+                source: exit::source(decision),
+                record: Box::new(self.exit_record(call, ruling)),
+            });
+            Some(info)
+        };
         let answer = self.shared.approvals.park(turn_id, call_id);
-        let requested = Event::ApprovalRequested {
+        events.push(Event::ApprovalRequested {
             turn_id,
             call_id,
             summary,
             diff_preview,
             interactive,
-            exit: None,
-        };
-        if let Err(error) = self.record(vec![requested]).await {
+            exit,
+        });
+        if let Err(error) = self.record(events).await {
             self.shared.approvals.withdraw(call_id);
             return Err(error);
         }
@@ -613,25 +854,54 @@ impl Turn {
             answer = answer => Waited::Answer(answer.ok()),
             () = sleep_or_pending(&*clock, timeout) => Waited::TimedOut,
         };
-        match waited {
-            Waited::Answer(Some(ApprovalDecision::Allow)) => {
-                Ok(Authorization::Allowed { approved_interactive: interactive })
-            }
+        let authorization = match waited {
+            Waited::Answer(Some(ApprovalDecision::Allow)) => Authorization::Allowed {
+                approved_interactive: interactive,
+                launch: ruling.launch.clone(),
+            },
             // NOTE: a decision added to the protocol later denies, so a newer client
             // can never run a call that this build would not.
-            Waited::Answer(Some(_)) => Ok(Authorization::Denied {
+            Waited::Answer(Some(_)) if !kinds.is_empty() => {
+                Authorization::Denied { message: exit::EXIT_DENIED.to_owned() }
+            }
+            Waited::Answer(Some(_)) => Authorization::Denied {
                 message: format!("The user denied the {} call; it did not run.", call.name),
-            }),
-            Waited::Answer(None) => Ok(Authorization::Expired),
+            },
+            Waited::Answer(None) => return Ok(Authorization::Expired),
             Waited::Interrupted => {
                 self.expire(call_id).await?;
-                Ok(Authorization::Interrupted)
+                return Ok(Authorization::Interrupted);
             }
             Waited::TimedOut => {
                 self.expire(call_id).await?;
-                Ok(Authorization::Expired)
+                return Ok(Authorization::Expired);
             }
+        };
+        // NOTE: a person answered, so the refusals without one start again.
+        self.exits.answered();
+        if !kinds.is_empty() {
+            let verdict = match authorization {
+                Authorization::Allowed { .. } => Verdict::Allow,
+                _ => Verdict::Deny,
+            };
+            self.exits.judged(&kinds, verdict);
+            self.record(vec![Event::ExitJudged {
+                turn_id,
+                call_id,
+                judge: JudgeKind::User,
+                verdict,
+                model: None,
+                latency_ms: None,
+                risk: None,
+                user_authorization: None,
+                category: None,
+                rationale: None,
+                record_sha256: None,
+                cached: false,
+            }])
+            .await?;
         }
+        Ok(authorization)
     }
 
     /// Records that the approval of `call_id` can no longer be answered, unless an
@@ -641,6 +911,81 @@ impl Turn {
             self.record(vec![Event::ApprovalExpired { turn_id: self.turn_id(), call_id }]).await?;
         }
         Ok(())
+    }
+
+    /// Asks the user whether to keep `changes`, which the call of `context` made and the
+    /// launcher moved to quarantine, and waits until the user answers, the turn is
+    /// interrupted, or the approval timeout passes. Only a "keep" moves them back.
+    /// Returns what the model reads about them, and true when the user interrupted the
+    /// turn.
+    async fn ask_surface(
+        &mut self,
+        context: &CallContext,
+        changes: Vec<SurfaceChange>,
+    ) -> Result<(String, bool), ConversationError> {
+        let turn_id = self.turn_id();
+        let question_id =
+            QuestionId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
+        let mut answer = self.shared.questions.park(turn_id, question_id);
+        let requested = Event::SurfaceQuestionRequested {
+            turn_id,
+            call_id: context.call_id,
+            question_id,
+            changes: changes.clone(),
+        };
+        if let Err(error) = self.record(vec![requested]).await {
+            self.shared.questions.withdraw(question_id);
+            return Err(error);
+        }
+        let interrupt = self.control.interrupt.clone();
+        let clock = Arc::clone(&self.shared.deps.clock);
+        let timeout = self.shared.config.current().approval_timeout;
+        let waited = tokio::select! {
+            biased;
+            () = interrupt.raised() => None,
+            answer = &mut answer => Some(answer.ok()),
+            () = sleep_or_pending(&*clock, timeout) => None,
+        };
+        let interrupted = interrupt.is_raised();
+        let kept = match waited {
+            Some(Some(keep)) => Kept::Answer(keep),
+            // NOTE: the actor took the question but could not record the answer.
+            Some(None) => Kept::Unanswered,
+            None if self.shared.questions.withdraw(question_id) => {
+                self.record(vec![Event::SurfaceQuestionAnswered {
+                    turn_id,
+                    question_id,
+                    keep: false,
+                    origin: None,
+                }])
+                .await?;
+                Kept::Unanswered
+            }
+            // NOTE: the actor took the question at this moment and records the answer,
+            // so the turn waits for it and records none of its own.
+            None => answer.await.map_or(Kept::Unanswered, Kept::Answer),
+        };
+        let names = exit::change_names(&changes);
+        let note = match kept {
+            Kept::Answer(true) => {
+                match self.shared.deps.toolbox.restore_quarantine(context, &changes).await {
+                    Ok(()) => {
+                        format!("[The user kept the git change; it moved back: {names}.]")
+                    }
+                    Err(error) => format!(
+                        "[The user kept the git change, but it could not move back, so it \
+                         stays in quarantine: {names}: {error}]"
+                    ),
+                }
+            }
+            Kept::Answer(false) => {
+                format!("[The user did not keep the git change; it stays in quarantine: {names}.]")
+            }
+            Kept::Unanswered => {
+                format!("[Nobody answered; the git change stayed in quarantine: {names}.]")
+            }
+        };
+        Ok((note, interrupted))
     }
 
     /// Runs an authorized call, recording its output as it grows and each change of

@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::{CallId, ConversationId, TurnId};
+use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId};
 use efr_stdx::StdxError;
 use efr_store::StoreError;
 use efr_store::receipts::Receipt;
@@ -65,6 +65,31 @@ pub enum ConversationError {
     ApprovalNotPending {
         /// The call.
         call_id: CallId,
+    },
+
+    /// No turn of this conversation waits for an answer to this quarantine question:
+    /// it was never asked here, it is answered already, or it expired.
+    #[error("the question {question_id} is not pending")]
+    QuestionNotPending {
+        /// The question.
+        question_id: QuestionId,
+    },
+
+    /// A quarantine question takes an answer only from the user's own machine: an
+    /// answer from a phone leaves the changes in quarantine.
+    #[error("an answer from {origin:?} cannot take changes out of quarantine")]
+    RemoteSurfaceAnswer {
+        /// The surface that answered.
+        origin: Origin,
+    },
+
+    /// The judge of an exit (the classifier, from phase 3) could not answer; the user
+    /// is asked instead.
+    #[error("the judge of an exit could not answer")]
+    Judge {
+        /// The judge's error.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// The prompt queue is full; the prompt was not recorded.

@@ -635,7 +635,10 @@ mod daemon {
             Event::TurnStarted { settings, .. } => settings.clone(),
             _ => None,
         });
-        assert_eq!(started.map(|settings| settings.mode), Some(Mode::Auto));
+        // NOTE: efrd does not run the sandbox yet, so the turn that asked for `auto` runs
+        // as `cautious`; the engine's own tests hold that a settings change asks in `auto`.
+        let asked = started.and_then(|settings| settings.fallback).map(|fallback| fallback.asked);
+        assert_eq!(asked, Some(Mode::Auto));
         let asked = events.iter().find_map(|event| match event {
             Event::ApprovalRequested { summary, diff_preview, .. } => {
                 Some((summary.clone(), diff_preview.clone()))

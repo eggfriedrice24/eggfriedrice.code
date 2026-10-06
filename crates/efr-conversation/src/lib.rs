@@ -13,12 +13,18 @@
 //!   as an event through the store's writer. Provider items in `provider_raw` go back
 //!   unchanged to the provider and model that made them.
 //! - Every tool call passes `turn.rs`'s `authorize_tool_call`, the single permission
-//!   check point, where `efr_permissions::Engine::decide` answers Allow, Ask or Deny.
+//!   check point, where `efr_permissions::Engine::decide` answers Allow, Contain, Ask or
+//!   Deny.
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
 //!   `efr_tools::ToolRegistry`.
 //! - [`ScopeResolver`] ([`GitScopeResolver`]): the scope of each turn, derived again
 //!   from the shell's working directory through `efr-scope`.
+//! - The `auto` sandbox: the check point runs a contained call with no question, asks
+//!   the user about each exit with its record, runs an approved exit with the narrowest
+//!   launch, and asks whether to keep git settings that a call changed. An `auto` turn
+//!   without a working sandbox runs as `cautious`. [`ExitJudge`] is the seam of the
+//!   classifier (phase 3).
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
 //! `efr-protocol` and `efr-stdx`. The allowlist also names `efr-tools`, but that crate
@@ -31,9 +37,12 @@ mod actor;
 mod approvals;
 mod config;
 mod error;
+mod exit;
 mod history;
 mod interrupt;
+mod judge;
 mod preamble;
+mod questions;
 mod resolver;
 mod scratch;
 mod settings;
@@ -47,5 +56,6 @@ pub use actor::{ConversationActor, ConversationHandle, ConversationState};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
 pub use error::ConversationError;
 pub use history::HistoryLimits;
+pub use judge::ExitJudge;
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use toolbox::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};

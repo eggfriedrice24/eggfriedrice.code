@@ -12,7 +12,7 @@
 use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
-use efr_protocol::Mode;
+use efr_protocol::{Mode, ModeFallback};
 use efr_scope::Repo;
 
 /// The longest last command shown, in characters; a longer one is cut with a marker.
@@ -49,6 +49,9 @@ pub(crate) struct LiveState {
     pub(crate) agent_cwd: Option<PathBuf>,
     /// The turn's permission mode.
     pub(crate) mode: Mode,
+    /// Why the turn runs with a stricter mode than it asked for, such as `auto` without
+    /// a working sandbox.
+    pub(crate) fallback: Option<ModeFallback>,
     /// The turn's model.
     pub(crate) model: String,
     /// The turn's reasoning effort; `None` leaves it to the backend.
@@ -70,6 +73,7 @@ impl fmt::Debug for LiveState {
             .field("scratch", &self.scratch)
             .field("agent_cwd", &self.agent_cwd)
             .field("mode", &self.mode)
+            .field("fallback", &self.fallback)
             .field("model", &self.model)
             .field("effort", &self.effort)
             .finish_non_exhaustive()
@@ -133,6 +137,17 @@ impl LiveState {
             self.scratch.display()
         );
         text.push_str(&mode_line(self.mode));
+        if let Some(fallback) = &self.fallback {
+            // NOTE: the model must know that the mode it reads is not the one the user
+            // chose, or it would promise what the asked mode allows.
+            let _ = writeln!(
+                text,
+                "The user asked for {}, but this turn runs as {}: {}.",
+                fallback.asked,
+                self.mode,
+                fallback.reason.trim_end_matches('.')
+            );
+        }
         let _ = writeln!(text, "Model: {}", self.model);
         match &self.effort {
             Some(effort) => {
@@ -188,10 +203,19 @@ fn mode_rule(mode: Mode) -> &'static str {
              the turn's registered project run at once; other calls ask the user."
         }
         Mode::Auto => {
-            "what cautious allows, plus the writer programs of the auto list (rm, mv, cp, \
-             mkdir and the like) for the writes that cautious allows, and, while the shell \
-             is in the turn's registered project or in $SCRATCH, the build, test, format \
-             and lint tools and local git of the auto list; other calls ask the user."
+            "shell commands run at once in a sandbox. They can write only in the turn's \
+             project, registered projects that the command names, $SCRATCH, /tmp (private \
+             to this conversation; the user does not see it) and tool caches (private). \
+             They have no network, cannot use sudo, D-Bus or other sockets, and secrets \
+             read as empty. Background processes stop when the command ends, so start a \
+             server and its test in one command. `tty` prints /dev/console, `df` shows the \
+             sandbox's mounts, and `$$` differs from /proc/self. To get more access, call \
+             shell again with needs and a reason; the user decides. Do not try a refused \
+             action another way. File writes with the write tool outside the project and \
+             $SCRATCH ask; share files with the user through $SCRATCH, not /tmp. A command \
+             that must run outside the sandbox (sudo, a push) must be alone in its call, \
+             apart from read-only helpers such as echo. nested_shell is not available in \
+             auto."
         }
         _ => "calls it does not allow ask the user.",
     }

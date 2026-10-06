@@ -22,7 +22,9 @@ use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource};
+use efr_protocol::{
+    DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource, SandboxStatus,
+};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
 use efr_stdx::env::Var;
@@ -58,6 +60,9 @@ const RECORDINGS_DIR: &str = "recordings";
 
 /// How long the drain waits for the database to close.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
+
+/// Why `auto` runs as `cautious` while efrd does not run the sandbox's probe yet.
+pub(crate) const SANDBOX_NOT_RUN: &str = "this efrd does not run the sandbox yet";
 
 /// What the daemon takes from the outside world.
 #[non_exhaustive]
@@ -439,6 +444,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         host,
         time_zone.unwrap_or_else(TimeZone::system),
     );
+    // NOTE: until the sandbox service probes and prepares calls, the status says the
+    // sandbox is unavailable, so every `auto` turn runs as `cautious` and no call
+    // reaches the toolbox with a launch that needs the launcher.
+    let (_, sandbox) = watch::channel(SandboxStatus::unavailable(SANDBOX_NOT_RUN));
     let conversation_deps = ConversationDeps {
         provider: providers.active(),
         toolbox: Arc::new(toolbox),
@@ -449,6 +458,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         clock: Arc::clone(&clock),
         rng: Arc::clone(&rng),
         home,
+        sandbox,
+        judge: None,
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let roots = roots(&dirs, root_sources);

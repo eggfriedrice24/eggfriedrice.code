@@ -13,9 +13,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, CallId, CommandId, ConversationId, EffectiveSettings, Event,
-    EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, ProjectId, PromptSend,
-    PromptSendResult, Seq, ShellContext, TurnId, TurnSettings,
+    ApprovalDecision, ApprovalRespond, CacheMode, CallId, CommandId, ConversationId,
+    EffectiveSettings, Event, EventEnvelope, InputWait, Mode, Needs, NetworkMode, Origin,
+    OverriddenSettings, ProjectId, PromptSend, PromptSendResult, QuestionId, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -51,6 +52,10 @@ pub(crate) const OS: &str = "TestOS";
 ///   the steps, and `relay-password` does the same with a visible wait that looks
 ///   secret; a command that starts with `sudo ` may wait for input at the terminal;
 /// - `hang {}` declares nothing, signals [`FakeToolbox::hang_started`] and never ends.
+///
+/// A `shell` input may also declare `reads` and `writes` (lists of paths), `network`,
+/// `nested_shell` and `needs`, as the real shell tool does. The command `plant-hook`
+/// reports a git change that the launcher moved to quarantine ([`planted`]).
 #[derive(Debug, Default)]
 pub(crate) struct FakeToolbox {
     invoked: Mutex<Vec<(String, Value)>>,
@@ -62,6 +67,8 @@ pub(crate) struct FakeToolbox {
     judged: Mutex<Vec<CallContext>>,
     /// The context of every call that reached `invoke`.
     ran: Mutex<Vec<CallContext>>,
+    /// The changes that `restore_quarantine` moved back.
+    restored: Mutex<Vec<SurfaceChange>>,
 }
 
 impl FakeToolbox {
@@ -102,6 +109,30 @@ impl FakeToolbox {
     pub(crate) fn ran(&self) -> Vec<CallContext> {
         self.ran.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
+
+    /// The changes that came back from quarantine, in order.
+    pub(crate) fn restored(&self) -> Vec<SurfaceChange> {
+        self.restored.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+/// The git change that the command `plant-hook` reports, moved to quarantine.
+pub(crate) fn planted() -> SurfaceChange {
+    SurfaceChange {
+        path: PathBuf::from("/home/u/p/app/.git/commondir"),
+        rule: "commondir_in_main_git_dir".to_owned(),
+        key: Some("core.fsmonitor".to_owned()),
+        quarantined: true,
+    }
+}
+
+/// The paths of the list `key` of a shell input.
+fn path_list(input: &Value, key: &str) -> Vec<String> {
+    input
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|paths| paths.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 fn text_input(input: &Value, key: &str) -> Result<String, String> {
@@ -126,8 +157,28 @@ impl Toolbox for FakeToolbox {
             "shell" => {
                 let command = text_input(&call.input, "command")?;
                 let interactive = command.starts_with("sudo ");
-                let requirements = Requirements::none().with_command(command);
-                Ok(if interactive { requirements.with_interactive() } else { requirements })
+                let mut requirements = Requirements::none().with_command(command);
+                for path in path_list(&call.input, "reads") {
+                    requirements = requirements.with_read(path);
+                }
+                for path in path_list(&call.input, "writes") {
+                    requirements = requirements.with_write(path);
+                }
+                if interactive {
+                    requirements = requirements.with_interactive();
+                }
+                if call.input["network"] == true {
+                    requirements = requirements.with_network();
+                }
+                if call.input["nested_shell"] == true {
+                    requirements = requirements.with_nested();
+                }
+                if let Some(needs) = call.input.get("needs") {
+                    let needs: Needs = serde_json::from_value(needs.clone())
+                        .map_err(|error| format!("needs: {error}"))?;
+                    requirements = requirements.with_needs(needs);
+                }
+                Ok(requirements)
             }
             "hang" => Ok(Requirements::none()),
             other => Err(format!("no tool is named {other:?}")),
@@ -165,6 +216,14 @@ impl Toolbox for FakeToolbox {
                 out.input_changed(InputWait::None, false);
                 ToolOutcome::ok("pw: \nok\n").with_exit_code(Some(0))
             }
+            "shell" if call.input["command"] == "plant-hook" => {
+                let summary = SandboxSummary {
+                    confined: true,
+                    surface_changes: vec![planted()],
+                    ..SandboxSummary::default()
+                };
+                ToolOutcome::ok("done").with_exit_code(Some(0)).with_sandbox(Some(summary))
+            }
             "shell" if call.input["command"] == "relay-password" => {
                 out.input_changed(InputWait::Visible, true);
                 tokio::task::yield_now().await;
@@ -188,6 +247,31 @@ impl Toolbox for FakeToolbox {
 
     async fn cancel(&self, call: &CallContext) {
         self.cancelled.lock().unwrap_or_else(PoisonError::into_inner).push(call.call_id);
+    }
+
+    async fn restore_quarantine(
+        &self,
+        _call: &CallContext,
+        changes: &[SurfaceChange],
+    ) -> Result<(), String> {
+        self.restored.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(changes);
+        Ok(())
+    }
+}
+
+/// A sandbox that the probe found ready.
+pub(crate) fn ready() -> SandboxStatus {
+    SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: CacheMode::Tmp,
+        network_mode: NetworkMode::None,
+        warnings: Vec::new(),
     }
 }
 
@@ -223,6 +307,8 @@ pub(crate) struct Setup {
     pub(crate) scope: FakeScope,
     /// A registered project the engine knows, with its root.
     pub(crate) project: Option<(ProjectId, PathBuf)>,
+    /// What the sandbox probe says; ready unless a test says otherwise.
+    pub(crate) sandbox: SandboxStatus,
     /// The seed of the actor's generator. A restarted actor needs another one, or it
     /// would make the ids of the first actor again.
     rng_seed: u64,
@@ -248,6 +334,7 @@ impl Setup {
             config,
             scope: FakeScope::default(),
             project: None,
+            sandbox: ready(),
             rng_seed: 7,
         }
     }
@@ -278,6 +365,7 @@ impl Setup {
             scratch: self.scratch(title),
             agent_cwd: None,
             mode: Mode::Cautious,
+            fallback: None,
             model: MODEL.to_owned(),
             effort: None,
         }
@@ -324,6 +412,7 @@ impl Setup {
             locations = locations.with_project(*id, root).expect("project root");
         }
         let engine = watch::channel(Arc::new(Engine::with_defaults(locations))).1;
+        let (sandbox, sandbox_receiver) = watch::channel(self.sandbox);
         let deps = ConversationDeps {
             provider: provider.clone(),
             toolbox: toolbox.clone(),
@@ -334,6 +423,8 @@ impl Setup {
             clock: self.clock.shared(),
             rng: Arc::new(TestRng::new(self.rng_seed)),
             home,
+            sandbox: sandbox_receiver,
+            judge: None,
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
         let handle =
@@ -351,6 +442,7 @@ impl Setup {
             conversation_id: self.conversation_id,
             cwd: self.cwd,
             next_command: 100,
+            sandbox,
         }
     }
 }
@@ -371,6 +463,8 @@ pub(crate) struct Harness {
     /// Sends new settings, as the daemon does after a reload.
     pub(crate) settings: watch::Sender<Arc<ConversationConfig>>,
     next_command: u64,
+    /// Sends a new probe result, as the daemon does after a probe.
+    pub(crate) sandbox: watch::Sender<SandboxStatus>,
 }
 
 impl Harness {
@@ -392,6 +486,7 @@ impl Harness {
             config: self.config,
             scope: FakeScope::default(),
             project: None,
+            sandbox: self.sandbox.borrow().clone(),
             rng_seed: 8,
         };
         let mut harness = setup
@@ -479,6 +574,25 @@ impl Harness {
             decision,
         };
         self.handle.respond_approval(params, Origin::Shell).await.expect("answer accepted").seq
+    }
+
+    /// Waits until a quarantine question is asked, and returns its id.
+    pub(crate) async fn wait_question(&mut self) -> QuestionId {
+        match self.wait_for(|event| matches!(event, Event::SurfaceQuestionRequested { .. })).await {
+            Event::SurfaceQuestionRequested { question_id, .. } => question_id,
+            _ => unreachable!("wait_for returns an event it accepted"),
+        }
+    }
+
+    /// Answers the quarantine question `question_id` from the shell.
+    pub(crate) async fn keep(&mut self, question_id: QuestionId, keep: bool) -> Seq {
+        let params = SandboxSurfaceRespond {
+            command_id: self.command_id(),
+            conversation_id: self.conversation_id,
+            question_id,
+            keep,
+        };
+        self.handle.respond_surface(params, Origin::Shell).await.expect("answer accepted").seq
     }
 
     /// Every event in the log.

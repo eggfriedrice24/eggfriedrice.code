@@ -61,6 +61,11 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    another: the conversations read the settings through `settings.rs` (`LiveSettings`)
    when a turn starts or a prompt arrives, and each tool call reads the engine.
    A change of the mode needs no new engine: a turn passes its own.
+   The conversations read the sandbox probe's status from a `watch` of
+   `SandboxStatus`. Until the sandbox service runs the probe and prepares calls, it
+   says unavailable ("this efrd does not run the sandbox yet"), so an `auto` turn runs
+   as `cautious` with that reason, and the toolbox refuses any call whose launch needs
+   the launcher instead of typing it into the hidden shell.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`), the
    idle shell collector (`gc.rs`, which reads `shell.idle_minutes` at each look), the
    reload task (`reload.rs`), the config file watcher (`reload/watcher.rs`) and the

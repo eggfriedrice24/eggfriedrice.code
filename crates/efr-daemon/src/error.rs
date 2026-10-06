@@ -569,7 +569,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         | ConversationError::NoRunningTurn { .. }
         | ConversationError::TurnMismatch { .. } => ErrorCode::Conflict,
         ConversationError::WrongConversation { .. } => ErrorCode::Invalid,
-        ConversationError::ApprovalNotPending { .. } => ErrorCode::NotFound,
+        ConversationError::ApprovalNotPending { .. }
+        | ConversationError::QuestionNotPending { .. } => ErrorCode::NotFound,
+        ConversationError::RemoteSurfaceAnswer { .. } => ErrorCode::Forbidden,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,

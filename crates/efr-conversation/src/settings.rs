@@ -9,23 +9,42 @@
 //! one that the model takes. A value from the config is checked the same way as one
 //! from the prompt, so a default that no longer fits fails the turn with the choices
 //! instead of reaching the backend.
+//!
+//! `auto` needs the sandbox. Without an available sandbox, or in a registered project at
+//! the home directory, which is never a write root, the turn runs as `cautious` and
+//! records why ([`ModeFallback`]); there is no `auto` with less.
+
+use std::path::Path;
 
 use crate::{ConversationConfig, ConversationError};
 use efr_protocol::{
-    EffectiveSettings, ErrorBody, ErrorCode, ModelInfo, Origin, OverriddenSettings, TurnSettings,
-    is_effort_word,
+    EffectiveSettings, ErrorBody, ErrorCode, Mode, ModeFallback, ModelInfo, Origin,
+    OverriddenSettings, SandboxStatus, TurnSettings, is_effort_word,
 };
+
+/// Where a turn runs, for the fallback of `auto`: the probe's latest result, the root of
+/// the turn's registered project, if any, and the home directory.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Place<'a> {
+    pub(crate) sandbox: &'a SandboxStatus,
+    pub(crate) project_root: Option<&'a Path>,
+    pub(crate) home: &'a Path,
+}
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
 /// `config`. A turn from a remote origin runs with at most `cautious`
-/// ([`efr_permissions::effective_mode`]).
+/// ([`efr_permissions::effective_mode`]), and an `auto` turn that `place` cannot hold
+/// runs as `cautious` with the reason in `fallback`.
 pub(crate) fn resolve(
     asked: &TurnSettings,
     config: &ConversationConfig,
     origin: Origin,
+    place: Place<'_>,
 ) -> Result<EffectiveSettings, ConversationError> {
     // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
     let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
+    let fallback = (mode == Mode::Auto).then(|| auto_fallback(place)).flatten();
+    let mode = if fallback.is_some() { Mode::Cautious } else { mode };
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
     let info = check_model(&model, asked.model.is_none(), &config.models)?;
     let effort = asked.effort.clone().or_else(|| config.effort.clone());
@@ -41,8 +60,27 @@ pub(crate) fn resolve(
             model: asked.model.is_some(),
             effort: asked.effort.is_some(),
         },
-        fallback: None,
+        fallback,
     })
+}
+
+/// Why `place` cannot run an `auto` turn, or `None` when it can.
+fn auto_fallback(place: Place<'_>) -> Option<ModeFallback> {
+    let reason = if !place.sandbox.available {
+        place
+            .sandbox
+            .reason
+            .clone()
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or_else(|| ModeFallback::UNAVAILABLE_REASON.to_owned())
+    } else if place.project_root.is_some_and(|root| place.home.starts_with(root)) {
+        // NOTE: a project at `~` or above it would make every config below `~` that runs
+        // code writable, and every path below it a named project.
+        ModeFallback::HOME_PROJECT_REASON.to_owned()
+    } else {
+        return None;
+    };
+    Some(ModeFallback { asked: Mode::Auto, reason })
 }
 
 /// The model `model` from `models`; any model when the list is empty, because then the

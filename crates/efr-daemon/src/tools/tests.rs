@@ -14,7 +14,7 @@ use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, Locations,
     Requirements, Resource, Rule,
 };
-use efr_protocol::{CallId, ConversationId, Mode, Origin, Scope, TurnId};
+use efr_protocol::{CallId, ConversationId, Launch, Mode, Origin, Scope, TurnId};
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
 use efr_test_support::{TestClock, TestRng};
@@ -189,6 +189,23 @@ async fn an_unknown_tool_is_text_for_the_model() {
     let requirements = toolbox.requirements(&call("rm_rf", json!({}), home.path())).await;
 
     assert!(requirements.unwrap_err().contains("rm_rf"));
+}
+
+#[tokio::test]
+async fn a_call_for_the_sandbox_never_runs_in_the_hidden_shell() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    for launch in [Launch::contained(), Launch::Unsandboxed] {
+        let mut call = call("shell", json!({"command": "touch made"}), home.path());
+        call.context = call.context.with_launch(launch);
+        let mut sink = |_: &str, _: u64| {};
+
+        let outcome = toolbox.invoke(call, &mut sink).await;
+
+        assert!(outcome.is_error, "{outcome:?}");
+        assert_eq!(outcome.output, crate::tools::SANDBOX_NOT_STARTED);
+        assert!(!home.path().join("made").exists());
+    }
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
+use efr_protocol::{CallId, ConversationId, Grant, Launch, Origin, SandboxSummary, Scope, TurnId};
 use efr_stdx::id::uuid_v7;
 use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
@@ -51,4 +51,22 @@ fn a_closure_is_an_output_sink() {
     let mut sink = |tail: &str, bytes: u64| seen.push((tail.to_owned(), bytes));
     sink.update("abc", 3);
     assert_eq!(seen, vec![("abc".to_owned(), 3)]);
+}
+
+#[test]
+fn a_context_runs_direct_until_the_check_point_says_how() {
+    let context = context();
+    assert_eq!(context.launch, Launch::Direct);
+    assert!(context.exits.is_empty());
+    let launch = Launch::Contained { grants: vec![Grant::OpenNetwork] };
+    let contained = context.with_launch(launch.clone());
+    assert_eq!(contained.launch, launch);
+}
+
+#[test]
+fn an_outcome_carries_what_the_launcher_reported() {
+    assert_eq!(ToolOutcome::ok("fine").sandbox, None);
+    let summary = SandboxSummary { confined: true, ..SandboxSummary::default() };
+    let outcome = ToolOutcome::ok("fine").with_sandbox(Some(summary.clone()));
+    assert_eq!(outcome.sandbox, Some(summary));
 }

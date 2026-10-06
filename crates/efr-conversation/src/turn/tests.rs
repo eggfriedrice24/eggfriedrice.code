@@ -6,8 +6,9 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{
-    ApprovalDecision, EffectiveSettings, ErrorCode, Event, InputWait, Mode, ModelInfo, ModelSource,
-    Origin, OverriddenSettings, ProjectId, Scope, TurnInterrupt, TurnSettings, TurnSteer, Usage,
+    ApprovalDecision, EffectiveSettings, ErrorCode, Event, InputWait, Launch, Mode, ModelInfo,
+    ModelSource, Origin, OverriddenSettings, ProjectId, Scope, TurnInterrupt, TurnSettings,
+    TurnSteer, Usage,
 };
 use efr_provider::{Message, ProviderEvent, StopReason, TokenUsage};
 use efr_scope::{Basis, Derivation, Repo};
@@ -21,6 +22,8 @@ use crate::testing::{
     result_message, text_answer, tool_answer, tool_message, user_prompt,
 };
 use crate::{ConversationError, approvals};
+
+mod sandbox;
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -875,8 +878,8 @@ async fn the_check_point_judges_a_command_from_where_the_hidden_shell_is() {
 
 #[tokio::test]
 async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
-    // In auto the engine contains every line. Until this check point runs a call in the
-    // sandbox, a contained call asks the user, so nothing runs unsandboxed without one.
+    // In auto the engine contains every line, and the check point runs a contained line
+    // at once in the sandbox, while cautious asks for `rm`.
     let mut setup = Setup::new();
     setup.config.mode = Mode::Auto;
     let mut state = setup.live_state(&setup.cwd, "clean up");
@@ -896,13 +899,12 @@ async fn the_check_point_decides_by_the_permission_mode_of_the_settings() {
     let mut h = setup.start(records).await;
 
     let sent = h.prompt("clean up").await;
-    let call_id = h.wait_approval().await;
-    h.answer(call_id, ApprovalDecision::Allow).await;
     h.wait_end(sent.turn_id).await;
 
     assert_eq!(h.toolbox.invoked(), vec![("shell".to_owned(), input)]);
+    assert_eq!(h.toolbox.ran()[0].launch, Launch::contained());
     let events = h.events().await;
-    assert!(events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
     // The toolbox says whether the call takes a manual input, and the event records it.
     assert!(matches!(
         find(&events, |e| matches!(e, Event::ToolCallStarted { .. })),

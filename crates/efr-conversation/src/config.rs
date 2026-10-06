@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_permissions::{Engine, Policy};
-use efr_protocol::{Mode, ModelInfo, Origin};
+use efr_protocol::{Mode, ModelInfo, Origin, SandboxStatus};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -17,7 +17,7 @@ use jiff::tz::TimeZone;
 use serde_json::{Map, Value};
 use tokio::sync::watch;
 
-use crate::{HistoryLimits, ScopeResolver, Toolbox};
+use crate::{ExitJudge, HistoryLimits, ScopeResolver, Toolbox};
 
 /// The settings of one conversation.
 #[derive(Debug, Clone)]
@@ -177,6 +177,13 @@ pub struct ConversationDeps {
     pub rng: Arc<dyn Rng>,
     /// The user's home directory.
     pub home: Home,
+    /// The latest result of the sandbox probe, read when a prompt arrives and when a
+    /// turn starts: an `auto` turn without an available sandbox runs as `cautious`,
+    /// with the probe's reason.
+    pub sandbox: watch::Receiver<SandboxStatus>,
+    /// Who judges an exit before the user (the classifier, from phase 3); `None` asks
+    /// the user about every exit, as phase 1 does.
+    pub judge: Option<Arc<dyn ExitJudge>>,
 }
 
 /// How a conversation's actor starts.

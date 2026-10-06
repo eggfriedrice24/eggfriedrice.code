@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use efr_protocol::Mode;
+use efr_protocol::{Mode, ModeFallback};
 use efr_scope::Repo;
 use insta::assert_snapshot;
 
@@ -20,6 +20,7 @@ fn minimal() -> LiveState {
         scratch: PathBuf::from("/home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d"),
         agent_cwd: None,
         mode: Mode::Cautious,
+        fallback: None,
         model: "gpt-5.5".to_owned(),
         effort: None,
     }
@@ -127,8 +128,11 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
             "\n- manual: every read, write, command and network access asks the user",
             "\n- cautious: reads outside secrets, the read-only commands, and writes in \
              $SCRATCH and in the turn's registered project run at once",
-            "\n- auto: what cautious allows",
-            "while the shell is in the turn's registered project or in $SCRATCH, the build",
+            "\n- auto: shell commands run at once in a sandbox.",
+            "To get more access, call shell again with needs and a reason; the user decides.",
+            "A command that must run outside the sandbox (sudo, a push) must be alone in its \
+             call",
+            "nested_shell is not available in auto.",
             "Only the user changes this terminal's mode, model and effort, with the lines \
              ,mode ,model and ,effort",
             "in sticky mode a bare line such as mode auto works too",
@@ -152,4 +156,32 @@ fn debug_shows_the_model_and_the_effort() {
     let state = LiveState { effort: Some("high".to_owned()), ..minimal() };
     let debug = format!("{state:?}");
     assert!(debug.contains("gpt-5.5") && debug.contains("high"), "{debug}");
+}
+
+#[test]
+fn a_turn_that_fell_back_says_which_mode_it_runs_as_and_why() {
+    let state = LiveState {
+        fallback: Some(ModeFallback {
+            asked: Mode::Auto,
+            reason: "bubblewrap is not installed".to_owned(),
+        }),
+        ..minimal()
+    };
+    let text = state.render();
+    assert!(
+        text.contains(
+            "Permission mode: cautious\nThe user asked for auto, but this turn runs as \
+             cautious: bubblewrap is not installed.\n"
+        ),
+        "{text}"
+    );
+    assert!(!minimal().render().contains("The user asked for"));
+}
+
+#[test]
+fn the_auto_rule_promises_nothing_of_a_later_phase() {
+    let text = minimal().render();
+    for later in ["phase", "reviewer", "proxy", "undo", "registries"] {
+        assert!(!text.contains(later), "{later:?} in {text}");
+    }
 }

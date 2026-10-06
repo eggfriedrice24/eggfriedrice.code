@@ -46,6 +46,11 @@ mod settings_tool;
 
 pub(crate) use settings_tool::SettingsTool;
 
+/// What the model reads for a call that must run through the sandbox's launcher while
+/// efrd does not prepare sandboxed calls yet; it never runs in the hidden shell instead.
+pub(crate) const SANDBOX_NOT_STARTED: &str = "[the sandbox could not start: this efrd does not run the sandbox yet. The command did \
+     not run.]";
+
 /// The registry of milestone 1: the shell, `read_file` and `write_file`.
 pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonError> {
     let mut registry = ToolRegistry::new();
@@ -191,6 +196,11 @@ impl Toolbox for DaemonToolbox {
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
         if call.name == settings_tool::NAME {
             return self.settings_tool.invoke(call).await;
+        }
+        // NOTE: a call that must run through the sandbox's launcher never falls back to
+        // the hidden shell: until efrd prepares sandboxed calls, it does not run.
+        if call.context.launch.uses_launcher() {
+            return ToolOutcome::error(SANDBOX_NOT_STARTED);
         }
         let context = self.context(&call.context);
         let mut sink = CallSink {
