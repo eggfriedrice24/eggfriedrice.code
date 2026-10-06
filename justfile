@@ -20,9 +20,11 @@ default:
 build:
     cargo build
 
-# Release build of efrd and efr with the ghostty screen backend (needs Zig 0.16.0).
+# Release build of efrd, efr and the sandbox launcher efr-sbx, with the ghostty screen
+# backend (needs Zig 0.16.0). Only these three packages, so efrd never gets the test
+# seams that efr-test-daemon turns on.
 build-release:
-    cargo build --release -p efr-daemon -p efr-cli --features efr-daemon/screen-ghostty
+    cargo build --release -p efr-daemon -p efr-cli -p efr-sbx --features efr-daemon/screen-ghostty
 
 # Run efrd in the foreground on vt100 screens with throwaway directories; Ctrl+C stops it.
 run:
@@ -156,6 +158,15 @@ test-sandbox:
         echo "test-sandbox: efr-shell's launcher tests skipped on a ready machine" >&2
         exit 1
     fi
+    # efrd's sandbox tests: a real zsh, the daemon's probe and one call through this
+    # launcher.
+    log="$(dirname "$bin")/sbx-daemon-tests.log"
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon --success-output immediate \
+        -E 'test(/^sandbox::/)' 2>&1 | tee "$log"
+    if [[ "$require" == 1 ]] && grep -q 'skipped:' "$log"; then
+        echo "test-sandbox: efr-daemon's sandbox tests skipped on a ready machine" >&2
+        exit 1
+    fi
 
 # test-sandbox in the Ubuntu 24.04 container of test-shell-ubuntu, which shares this
 # machine's kernel (needs Docker and a kernel with Landlock ABI 9). bwrap needs three
@@ -267,18 +278,29 @@ doc: doc-check
 protocol-docs:
     cargo xtask protocol-docs
 
-# Install efrd and efr to ~/.local/bin and the user unit, reload systemd; never starts it.
+# Install efrd and efr to ~/.local/bin, the sandbox launcher to ~/.local/lib/efr and the
+# user unit, reload systemd; never starts it.
 install:
     #!/usr/bin/env bash
     set -euo pipefail
     bin="$HOME/.local/bin"
+    lib="$HOME/.local/lib/efr"
     unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     echo "install: building the release binaries (just build-release)"
     just build-release
+    # A build with the sandbox's test seams lets a test replace the launcher and the
+    # probe; it must never be installed.
+    if [[ "$(target/release/efrd --test-seams)" != "off" ]]; then
+        echo "install: target/release/efrd has the test-sandbox-fake feature; refusing" >&2
+        exit 1
+    fi
     echo "install: copying target/release/efrd to $bin/efrd"
     install -Dm755 target/release/efrd "$bin/efrd"
     echo "install: copying target/release/efr to $bin/efr"
     install -Dm755 target/release/efr "$bin/efr"
+    # efrd finds the launcher in ../lib/efr/ next to its own directory, never on PATH.
+    echo "install: copying target/release/efr-sbx to $lib/efr-sbx"
+    install -Dm755 target/release/efr-sbx "$lib/efr-sbx"
     echo "install: installing systemd/efrd.service to $unit_dir/efrd.service"
     install -Dm644 systemd/efrd.service "$unit_dir/efrd.service"
     echo "install: running systemctl --user daemon-reload"

@@ -87,7 +87,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 - Randomness is injected the same way (`Rng` trait, `rand` 0.10.3 behind `SystemRng`, a seeded `TestRng`).
 - Blocking work (SQLite reads, file hashing) runs in `spawn_blocking`; the only code that is allowed to block a tokio worker is the PTY `pre_exec` closure.
 - Backpressure is explicit: every fanout (subscriptions, PTY output) has a bounded queue per consumer, and overflow closes that consumer with `ErrorCode::Overflow` carrying `last_seq`, never slows the producer.
-- `cfg(feature = ...)` may appear only in named files: `efr-daemon/src/screens.rs` (`screen-ghostty`), `efr-daemon/src/shells.rs` (`local-pty`), `efr-credentials/src/lib.rs` (`keyring`, one `mod` line), `efr-screen/src/lib.rs` (`conformance`, one `mod` line), `efr-protocol/src/lib.rs` (`schema`, one `mod` line) (tidy).
+- `cfg(feature = ...)` may appear only in named files: `efr-daemon/src/screens.rs` (`screen-ghostty`), `efr-daemon/src/shells.rs` (`local-pty`), `efr-daemon/src/sandbox/seams.rs` (`test-sandbox-fake`), `efr-credentials/src/lib.rs` (`keyring`, one `mod` line), `efr-screen/src/lib.rs` (`conformance`, one `mod` line), `efr-protocol/src/lib.rs` (`schema`, one `mod` line) (tidy).
 
 ## Unsafe policy
 
