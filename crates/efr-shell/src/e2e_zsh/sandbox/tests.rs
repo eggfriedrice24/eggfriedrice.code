@@ -361,7 +361,7 @@ async fn the_child_reports_the_state_its_line_leaves() {
          unfunction greet; unalias gone; alias newal='ls -l'; exit 3",
     )
     .unwrap();
-    let output = run_child(&child, &dir, &dir.join("state.zsh")).await;
+    let output = run_child(&child, &dir).await;
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -384,7 +384,8 @@ async fn the_child_reports_the_state_its_line_leaves() {
 
     // The exit child gets no state.
     std::fs::write(dir.join("line"), "fromstate").unwrap();
-    let output = run_child(&child, &dir, Path::new("")).await;
+    std::fs::rename(dir.join("state.zsh"), dir.join("state.zsh.kept")).unwrap();
+    let output = run_child(&child, &dir).await;
     assert_eq!(output.status.code(), Some(127), "fromstate is not defined without the state");
 
     // A function or alias that an earlier call removed is gone, also one of the
@@ -403,21 +404,19 @@ async fn the_child_reports_the_state_its_line_leaves() {
          (( ${+aliases[gone]} )) || print -r -- no-gone; odd-name.x",
     )
     .unwrap();
-    let output = run_child(&child, &dir, &dir.join("state.zsh")).await;
+    let output = run_child(&child, &dir).await;
     assert_eq!(String::from_utf8_lossy(&output.stdout), "no-greet\nno-gone\nodd\n", "{output:?}");
 }
 
 /// Runs the child script as `efr-sbx` does, with the records on descriptor 3.
-async fn run_child(child: &Path, dir: &Path, state: &Path) -> std::process::Output {
-    let script = r#"exec zsh -f "$1" "$2" "$3" "$4" 3>"$5""#;
+async fn run_child(child: &Path, dir: &Path) -> std::process::Output {
+    let script = r#"exec zsh -f "$1" "$2" 3>"$3""#;
     efr_stdx::process::command(Path::new("/bin/sh"), dir)
         .arg("-c")
         .arg(script)
         .arg("sh")
         .arg(child)
-        .arg(dir.join("snapshot.zsh"))
-        .arg(state)
-        .arg(dir.join("line"))
+        .arg(dir)
         .arg(dir.join("records"))
         .env_clear()
         .env("PATH", "/usr/bin:/bin")

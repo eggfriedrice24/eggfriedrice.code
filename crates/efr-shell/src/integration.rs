@@ -24,7 +24,8 @@ pub(crate) const INTEGRATION: &str = include_str!("../assets/zsh/efr-integration
 pub(crate) const EDITOR: &str = include_str!("../assets/efr-editor");
 
 /// The child shell's script of the auto mode's launcher, written as `efr-child.zsh`
-/// next to the shim. `efr-sbx` runs it as `zsh -f efr-child.zsh SNAPSHOT STATE LINE`.
+/// next to the shim. `efr-sbx` runs it as `zsh -f efr-child.zsh DIR`, where DIR holds
+/// `snapshot.zsh`, `state.zsh` (contained calls only) and `line`.
 pub(crate) const CHILD: &str = include_str!("../assets/zsh/efr-child.zsh");
 
 /// The file names the shim, the scripts and the editor are written under.

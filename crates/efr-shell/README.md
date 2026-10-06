@@ -403,9 +403,9 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   it checks names and directories again and never evaluates text), clears the
   directory report so the precmd hook reports `$PWD` again, and prints
   `OSC 133;efr-sbx;<nonce>`.
-- `efr-child.zsh` is the launcher's child shell: `zsh -f efr-child.zsh SNAPSHOT STATE
-  LINE` replays the snapshot and the sandbox state (empty for the exit child), evaluates
-  the line at the top level, and its `EXIT` trap writes the records of
+- `efr-child.zsh` is the launcher's child shell: `zsh -f efr-child.zsh DIR` replays
+  `DIR/snapshot.zsh` and the sandbox state `DIR/state.zsh` (the exit child's dir has
+  none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of
   `efr_sandbox::parse_records` on descriptor 3: the cwd, changed and removed exports,
   functions and aliases, and the status.
 - The run ends only on facts that sandboxed code cannot make: the end mark with the

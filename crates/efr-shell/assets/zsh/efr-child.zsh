@@ -1,14 +1,14 @@
 # efr: the child shell of one call that efr-sbx runs for the auto mode.
 #
-# Written for efr. efr-sbx starts it as `zsh -f efr-child.zsh SNAPSHOT STATE LINE`,
-# inside the sandbox for a contained call and outside it for an approved exit:
+# Written for efr. efr-sbx starts it as `zsh -f efr-child.zsh DIR`, inside the sandbox
+# for a contained call and outside it for an approved exit. DIR holds:
 #
-#   SNAPSHOT  the trusted shell's functions, aliases and options (snapshot.zsh)
-#   STATE     what earlier contained calls left (state.zsh); empty for the exit child,
-#             which never runs anything that the sandbox made
-#   LINE      the file that holds the model's command line
+#   snapshot.zsh  the trusted shell's functions, aliases and options
+#   state.zsh     what earlier contained calls left; the exit child's DIR has none,
+#                 because it never runs anything that the sandbox made
+#   line          the model's command line
 #
-# An empty argument skips that step. The script replays the snapshot and the state,
+# A file that is missing skips that step. The script replays the snapshot and the state,
 # notes the exported variables, functions and aliases, evaluates the line, and then
 # reports on descriptor 3 what changed, in the records format of efr-sandbox:
 #
@@ -24,11 +24,13 @@
 # stream without its end record keeps nothing. The report is written by an EXIT trap,
 # so it also comes after `exit N`.
 
-builtin typeset -g _efr_child_snapshot=${1-} _efr_child_state=${2-} _efr_child_line=${3-}
+builtin typeset -g _efr_child_dir=${1-}
 builtin zmodload zsh/parameter
 
-[[ -n $_efr_child_snapshot && -r $_efr_child_snapshot ]] && builtin source -- $_efr_child_snapshot
-[[ -n $_efr_child_state && -r $_efr_child_state ]] && builtin source -- $_efr_child_state
+[[ -n $_efr_child_dir && -r $_efr_child_dir/snapshot.zsh ]] &&
+  builtin source -- $_efr_child_dir/snapshot.zsh
+[[ -n $_efr_child_dir && -r $_efr_child_dir/state.zsh ]] &&
+  builtin source -- $_efr_child_dir/state.zsh
 
 # Names that change in every shell or that efr sets; they are never reported.
 builtin typeset -ga _efr_child_skip
@@ -98,6 +100,6 @@ builtin trap '_efr_child_records $?' EXIT
 
 # The line runs at the top level, as it would at a prompt, with the user's options
 # from the snapshot.
-if [[ -n $_efr_child_line && -r $_efr_child_line ]]; then
-  builtin eval -- "$(<$_efr_child_line)"
+if [[ -n $_efr_child_dir && -r $_efr_child_dir/line ]]; then
+  builtin eval -- "$(<$_efr_child_dir/line)"
 fi

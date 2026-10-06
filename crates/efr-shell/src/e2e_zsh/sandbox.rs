@@ -25,7 +25,11 @@ dir=$3
 printf '%s\n' "$@" > "$dir/fake-args"
 if [ -e "$dir/fake-no-start" ]; then exit 125; fi
 : > "$dir/started"
-zsh -f "@CHILD@" "${dir%/*}/snapshot.zsh" '' "$dir/line" 3> "$dir/records"
+# The child's dir holds what the real launcher binds for it: the snapshot and the
+# line; the state of earlier calls is not under test here.
+mkdir -p "$dir/fake-child"
+cp "${dir%/*}/snapshot.zsh" "$dir/line" "$dir/fake-child/"
+zsh -f "@CHILD@" "$dir/fake-child" 3> "$dir/records"
 status=$?
 if [ -e "$dir/fake-apply" ]; then cp "$dir/fake-apply" "$dir/apply"; fi
 if [ -e "$dir/fake-no-result" ]; then exit "$status"; fi
