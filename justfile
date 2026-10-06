@@ -117,6 +117,37 @@ test-shell-ubuntu:
         -w /home/runner/work/efr "$image" \
         cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci -E '{{ shell_tests }}'
 
+# The auto sandbox on the real bwrap, Landlock and seccomp: the escape suite, the behaviour
+# tests, the probe, the launch cost gate (1000 calls) and the corpus run of efr-sbx.
+# Fails when a test skips on a machine whose probe says the sandbox is ready.
+test-sandbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "test-sandbox: building efr-sbx"
+    bin="$(cargo build -p efr-sbx --message-format=json-render-diagnostics \
+        | sed -nE 's/.*"executable":"([^"]*\/efr-sbx)".*/\1/p' | tail -n1)"
+    if [[ -z "$bin" || ! -x "$bin" ]]; then
+        echo "test-sandbox: cargo built no efr-sbx binary" >&2
+        exit 1
+    fi
+    # The probe's fake call lives in the target dir: never below /tmp, which the
+    # sandbox replaces with its private tmp.
+    probe_dir="$(dirname "$bin")/sbx-probe"
+    mkdir -p -m 700 "$probe_dir"
+    report="$("$bin" probe --json --dir "$probe_dir")"
+    if [[ "$report" == *'"failure":null'* ]]; then
+        echo "test-sandbox: the probe says the sandbox is ready here; a skipped test fails"
+        require=1
+    else
+        echo "test-sandbox: the probe says the sandbox is unavailable; the tests skip:"
+        echo "$report"
+        require=0
+    fi
+    export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE="$require" EFR_TEST_SBX_GATE=1
+    cargo nextest run -p efr-sbx -E 'not test(/^cost::|^corpus::/)'
+    # The launch cost and the corpus print their tables; show them.
+    cargo nextest run -p efr-sbx --success-output immediate -E 'test(/^cost::|^corpus::/)'
+
 # Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
 # feature combination: CI's fmt, lint, deny, tidy and hack jobs.
 lint: fmt-check typos clippy doc-check deny tidy deps hack
