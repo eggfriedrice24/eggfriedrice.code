@@ -185,3 +185,12 @@ with symbolic links made where a test needs one); the shell tool runs against a 
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
 shell, uses the network or touches the user's home.
+
+One test reads a file of another crate on purpose:
+`src/shell_tool/tests/corpus.rs` compiles in `efr-permissions`'
+`tests/fixtures/auto-corpus.toml`, the `auto` corpus, and checks that the shell tool
+declares for each line what that fixture says it declares. The engine's corpus test
+then judges what the daemon really passes it. The test reads only the keys of the
+declaration, so a change to the engine's other keys does not break it. The code of
+this crate still does not depend on `efr-permissions`; the test needs that crate's
+directory in the checkout.
