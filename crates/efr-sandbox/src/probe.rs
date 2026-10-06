@@ -28,7 +28,7 @@ pub const BWRAP_REQUIRED_FLAGS: &[&str] = &[
 pub const SELF_TEST_TCP_ADDR: &str = "192.0.2.1:9";
 
 /// The reason of a turn in a project at the home directory, which runs as `cautious`.
-pub const HOME_PROJECT_REASON: &str = "auto cannot use your home directory as a project";
+pub const HOME_PROJECT_REASON: &str = efr_protocol::ModeFallback::HOME_PROJECT_REASON;
 
 /// The fix of [`HOME_PROJECT_REASON`].
 pub const HOME_PROJECT_FIX: &str =

@@ -195,5 +195,15 @@ pub struct ModeFallback {
     pub reason: String,
 }
 
+impl ModeFallback {
+    /// The reason of an `auto` turn in a registered project at the home directory or
+    /// above it, which is never a write root, so the turn runs as `cautious`.
+    pub const HOME_PROJECT_REASON: &str = "auto cannot use your home directory as a project";
+
+    /// The reason of an `auto` turn when the probe says the sandbox is unavailable but
+    /// gives no reason of its own.
+    pub const UNAVAILABLE_REASON: &str = "the sandbox is not available";
+}
+
 #[cfg(test)]
 mod tests;
