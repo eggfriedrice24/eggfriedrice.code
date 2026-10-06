@@ -101,6 +101,9 @@ launcher with real bwrap, Landlock and seccomp. They read the launcher from
 `EFR_TEST_SBX_BIN` and run `efr-sbx probe` first; without the variable, or when the
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
 `just test-sandbox` builds the launcher, probes, sets `EFR_TEST_SBX_BIN` and
-`EFR_TEST_SBX_REQUIRE=1`, and then a skip fails. Every fixture lives in the target
+`EFR_TEST_SBX_REQUIRE=1`, and then a skip fails. It also runs efr-shell's behaviour
+tests on this launcher (`e2e_zsh::launcher`) and fails when they skip on a ready
+machine. Every test call runs efr-shell's own `assets/zsh/efr-child.zsh` and
+`assets/efr-editor`, the files that efrd installs. Every fixture lives in the target
 dir's temp dir with a fake home; no test reads or writes the user's real efr dirs, and
 no test uses the network.

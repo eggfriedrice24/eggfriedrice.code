@@ -1,4 +1,0 @@
-#!/bin/sh
-# The editor stub that EDITOR names in the hidden shell: no editor runs for the model.
-echo "efr: no editor runs for the model; pass the text on the command line (git commit -m)" >&2
-exit 1

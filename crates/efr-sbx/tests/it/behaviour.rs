@@ -401,7 +401,7 @@ fn git_commit_without_m_shows_editor_stub_message() {
     fixture.git_init();
     let run = fixture.run("git commit --allow-empty");
     assert_ne!(run.status, 0);
-    assert!(run.stderr.contains("no editor runs for the model"), "{run:#?}");
+    assert!(run.stderr.contains("there is no editor in the hidden shell"), "{run:#?}");
 }
 
 #[test]

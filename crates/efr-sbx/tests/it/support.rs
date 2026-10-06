@@ -24,10 +24,11 @@ use efr_sandbox::{
     SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
 };
 
-/// The child script every test call runs.
-const CHILD_SCRIPT: &str = include_str!("fixtures/efr-child.zsh");
-/// The editor stub.
-const EDITOR: &str = include_str!("fixtures/efr-editor");
+/// The child script every test call runs: efr-shell's own, which efrd installs, so the
+/// suite tests the script that ships. Only the file is shared; there is no crate edge.
+const CHILD_SCRIPT: &str = include_str!("../../../efr-shell/assets/zsh/efr-child.zsh");
+/// The editor stub that efr-shell installs.
+const EDITOR: &str = include_str!("../../../efr-shell/assets/efr-editor");
 
 /// The default promote list of `sandbox.promote_env`.
 const PROMOTE: &[&str] = &[
