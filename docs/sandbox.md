@@ -296,14 +296,19 @@ What to expect on some systems (the efr project has tested only the first row):
 
 ```
 $ efr sandbox check
+ok    sandbox.enabled = true
+ok    launcher copy /run/user/1000/efr/bin/efr-sbx (from /home/u/.local/lib/efr/efr-sbx, sha256 ok)
+ok    platform linux x86_64
 ok    Landlock ABI 10, errata 0xf
-ok    bubblewrap /usr/bin/bwrap 0.13.0, not setuid
-ok    user namespaces
-ok    write roots, masks, sockets, signals, /proc, network, seccomp, nested user ns, terminal
-ok    overlay caches on ext4
+ok    bubblewrap 0.13.0 at /usr/bin/bwrap, not setuid
+ok    launcher /run/user/1000/efr/bin/efr-sbx
+ok    zsh /usr/bin/zsh
+ok    every PATH entry is absolute
+ok    user namespaces: the probe sandbox starts
+ok    self-test: 16 checks passed
 warn  ~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it stays read-only in the sandbox
 warn  the registered project ~ is your home directory; auto runs its turns as cautious
-launch 3.6 ms, with your rc snapshot 14.8 ms
+launch 3.6 ms
 auto: ready
 ```
 

@@ -158,7 +158,7 @@ pub(crate) fn with_own_checks(mut report: ProbeReport, input: &ProbeInput) -> Pr
             name: "launcher_copy".to_owned(),
             outcome: CheckOutcome::Ok,
             detail: Some(format!(
-                "{} (from {}, sha256 ok)",
+                "launcher copy {} (from {}, sha256 ok)",
                 input.copy.display(),
                 source.display()
             )),

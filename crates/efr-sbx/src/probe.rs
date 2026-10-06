@@ -131,7 +131,7 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     if os == "linux" && matches!(arch, "x86_64" | "aarch64") {
-        checks.pass("platform", format!("{os} {arch}"));
+        checks.pass("platform", format!("platform {os} {arch}"));
     } else {
         checks.fail(ProbeFailure::Platform { platform: format!("{os} {arch}") });
     }
@@ -140,7 +140,8 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
     checks.report.landlock_abi = abi;
     checks.report.errata = Some(errata);
     match check_landlock(abi, errata) {
-        Ok(()) => checks.pass("landlock", format!("ABI {}, errata {errata:#x}", abi.unwrap_or(0))),
+        Ok(()) => checks
+            .pass("landlock", format!("Landlock ABI {}, errata {errata:#x}", abi.unwrap_or(0))),
         Err(failure) => checks.fail(failure),
     }
     let path = args.shell_path.clone().or_else(|| os::var("PATH")).unwrap_or_default();
@@ -149,7 +150,11 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
     checks.report.bwrap.clone_from(&facts.path);
     checks.report.bwrap_version = parse_bwrap_version(&facts.version);
     match check_bwrap(&facts) {
-        Ok(()) => checks.pass("bwrap", facts.version.trim().to_owned()),
+        Ok(()) => {
+            let at = facts.path.as_deref().map(|path| format!(" at {}", path.display()));
+            let detail = format!("{}{}, not setuid", facts.version.trim(), at.unwrap_or_default());
+            checks.pass("bwrap", detail);
+        }
         Err(failure) => checks.fail(failure),
     }
     let zsh = args.zsh.clone().or_else(|| which("zsh", &path));
@@ -164,11 +169,13 @@ fn probe(args: &ProbeArgs) -> ProbeReport {
         (Some((what, path)), _) => {
             checks.fail(ProbeFailure::InWriteRoot { what: what.to_owned(), path });
         }
-        (None, Some(launcher)) => checks.pass("launcher", launcher.display().to_string()),
+        (None, Some(launcher)) => {
+            checks.pass("launcher", format!("launcher {}", launcher.display()));
+        }
         (None, None) => checks.fail(ProbeFailure::LauncherMismatch),
     }
     match &zsh {
-        Some(zsh) if zsh.is_file() => checks.pass("zsh", zsh.display().to_string()),
+        Some(zsh) if zsh.is_file() => checks.pass("zsh", format!("zsh {}", zsh.display())),
         _ => checks.fail(ProbeFailure::NoZsh),
     }
     match path.split(':').find(|entry| !entry.starts_with('/')) {
@@ -315,8 +322,8 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
                     detail: "a write through the cache overlay reached the user's cache".to_owned(),
                 });
             } else {
-                checks.pass("user_namespaces", "the probe sandbox starts");
-                checks.pass("self_test", format!("{} checks passed", lines.len()));
+                checks.pass("user_namespaces", "user namespaces: the probe sandbox starts");
+                checks.pass("self_test", format!("self-test: {} checks passed", lines.len()));
                 checks.report.launch_us = launch_cost(&fixture, mode);
             }
         }
