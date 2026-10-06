@@ -41,7 +41,6 @@ pub const MAX_RESULT_BYTES: usize = 1024 * 1024;
 /// What the launcher reports about one call, for efrd. Names only, never values.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct SandboxResult {
     /// True when the launcher got past its checks and started bwrap or the exit child.
     pub started: bool,

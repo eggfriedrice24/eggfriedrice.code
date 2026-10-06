@@ -28,7 +28,6 @@ pub const RECORDS_HEADER: &[u8] = b"efr-records\0v1\0";
 
 /// What one call reported about the shell state it ended with.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Records {
     /// The final working directory.
     pub cwd: Option<PathBuf>,

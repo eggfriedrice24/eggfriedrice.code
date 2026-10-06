@@ -24,7 +24,6 @@ pub const MAX_SPEC_BYTES: usize = 1024 * 1024;
 /// an approval widened, and where the launcher finds its files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct SandboxSpec {
     /// [`SPEC_VERSION`].
     pub version: u32,

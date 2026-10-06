@@ -278,7 +278,6 @@ pub fn check_bwrap(facts: &BwrapFacts) -> Result<(), ProbeFailure> {
 /// What `efr-sbx probe --json` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct ProbeReport {
     /// Every check in order; a failed one carries its reason and fix.
     pub checks: Vec<SandboxCheck>,
