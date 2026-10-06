@@ -481,11 +481,10 @@ impl Judge<'_> {
     /// The network access of a call whose command line has the simple commands
     /// `commands`, as rules match them in `parts`: each simple command by the rules for
     /// its network access, the strictest deciding. A simple command that only a
-    /// built-in rule of the mode lets run, and no rule lets reach the network, is left
-    /// out: the read-only commands, the writer programs and the local tools of the
-    /// tables send nothing out. A call without a line, with a line that cannot be
-    /// split, or with only such commands, is judged by the rules for every network
-    /// access.
+    /// built-in read-only row of the mode lets run, and no rule lets reach the network,
+    /// is left out: those commands send nothing out. A call without a line, with a line
+    /// that cannot be split, or with only such commands, is judged by the rules for every
+    /// network access.
     ///
     /// NOTE: every other simple command must be one that a rule lets reach the
     /// network, not only one of them, because the shell tool declares the network for

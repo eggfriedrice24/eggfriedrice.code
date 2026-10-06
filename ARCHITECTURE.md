@@ -8,12 +8,15 @@ crate are in `CONVENTIONS.md`.
 ## Shape
 
 eggfriedrice.code is a Cargo workspace of one crate per bounded context plus `xtask`.
-Two binaries ship at milestone 1:
+Three binaries ship:
 
 - `efrd`, the daemon, runs as a systemd user service (`systemd/efrd.service`). It owns
   the conversations, the model loop, the hidden shells, the screens and the database.
 - `efr`, the CLI, is a thin relay to the daemon. The zsh plugin
   (`shell/zsh/efr.plugin.zsh`) calls it for every `,` line.
+- `efr-sbx`, the sandbox launcher of the `auto` mode, is installed next to efrd in
+  `~/.local/lib/efr` and is never on the `PATH`. The hidden shell runs a copy of it for
+  each contained call.
 
 All clients speak one protocol, defined in `efr-protocol`, over a Unix socket at
 `$XDG_RUNTIME_DIR/efr/daemon.sock`. The phone client and the WebSocket listener come in
@@ -53,7 +56,7 @@ shipped binary.
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
