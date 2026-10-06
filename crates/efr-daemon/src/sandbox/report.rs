@@ -128,7 +128,7 @@ impl Turns {
                 .iter()
                 .find_map(|(root, _)| change.path.strip_prefix(root).ok())
                 .map_or_else(|| change.path.clone(), Path::to_path_buf);
-            let detail = change.key.clone().or_else(|| Some(change.rule.clone()));
+            let detail = Some(change.what());
             let file = ReportedFile { path, detail };
             if !files.contains(&file) {
                 files.push(file);

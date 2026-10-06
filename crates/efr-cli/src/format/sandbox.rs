@@ -594,8 +594,8 @@ pub(crate) fn exit_judged(judge: JudgeKind, verdict: Verdict, category: Option<&
 /// One change of the quarantine question, such as `  .git/commondir (core.fsmonitor);
 /// moved to quarantine`.
 pub(crate) fn surface_change(change: &SurfaceChange, home: Option<&Path>) -> String {
-    let what = change.key.as_deref().unwrap_or(&change.rule);
-    let mut line = format!("  {} ({})", tilde(&change.path, home), one_line(what));
+    let what = change.what();
+    let mut line = format!("  {} ({})", tilde(&change.path, home), one_line(&what));
     if change.quarantined {
         line.push_str("; moved to quarantine");
     }
@@ -608,10 +608,7 @@ pub(crate) fn surface_changed(changes: &[SurfaceChange], home: Option<&Path>) ->
     let reported: Vec<String> = changes
         .iter()
         .filter(|change| !change.quarantined)
-        .map(|change| {
-            let what = change.key.as_deref().unwrap_or(&change.rule);
-            format!("{} ({})", tilde(&change.path, home), one_line(what))
-        })
+        .map(|change| format!("{} ({})", tilde(&change.path, home), one_line(&change.what())))
         .collect();
     (!reported.is_empty())
         .then(|| format!("sandbox: the last command changed {}", reported.join(", ")))

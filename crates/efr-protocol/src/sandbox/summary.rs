@@ -87,6 +87,34 @@ pub struct SurfaceChange {
     pub quarantined: bool,
 }
 
+impl SurfaceChange {
+    /// What the change does, for a person: the code key it sets, else its rule in
+    /// words, such as `a new config.worktree`. A rule that this build does not know
+    /// shows its name with spaces.
+    pub fn what(&self) -> String {
+        if let Some(key) = &self.key {
+            return key.clone();
+        }
+        let words = match self.rule.as_str() {
+            "commondir_in_main_git_dir" => "a commondir that points git at another config",
+            "config_worktree_appeared" | "worktree_config_worktree_appeared" => {
+                "a new config.worktree"
+            }
+            "worktree_commondir_elsewhere" => "a commondir that points away from its main git dir",
+            "config_code_key" => "a key that runs a program",
+            "config_unreadable" => "a config that git cannot read",
+            "commondir_outside_repo" => "a commondir that points outside the repository",
+            "hook_planted" => "a new hook",
+            "module_code_key" => "a submodule key that runs a program",
+            "module_hook" => "a new submodule hook",
+            "alternates_changed" => "git objects from another place",
+            "protected_name_created" => "a new agent or editor config",
+            other => return other.replace('_', " "),
+        };
+        words.to_owned()
+    }
+}
+
 /// A file that the turn changed and that runs code later outside the sandbox, for the
 /// turn-end report.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

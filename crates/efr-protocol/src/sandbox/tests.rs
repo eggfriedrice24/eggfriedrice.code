@@ -187,3 +187,17 @@ fn a_fallback_says_which_mode_was_asked_for_and_why() {
         })
     );
 }
+
+#[test]
+fn a_surface_change_says_what_it_does_in_words() {
+    let change = |rule: &str, key: Option<&str>| crate::SurfaceChange {
+        path: "/p/.git/config.worktree".into(),
+        rule: rule.to_owned(),
+        key: key.map(str::to_owned),
+        quarantined: true,
+    };
+    assert_eq!(change("config_code_key", Some("core.fsmonitor")).what(), "core.fsmonitor");
+    assert_eq!(change("config_worktree_appeared", None).what(), "a new config.worktree");
+    assert_eq!(change("hook_planted", None).what(), "a new hook");
+    assert_eq!(change("a_later_rule", None).what(), "a later rule");
+}
