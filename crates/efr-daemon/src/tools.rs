@@ -272,6 +272,12 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     if declared.interactive {
         requirements = requirements.with_interactive();
     }
+    if let Some(needs) = declared.needs {
+        requirements = requirements.with_needs(needs);
+    }
+    if declared.nested {
+        requirements = requirements.with_nested();
+    }
     requirements
 }
 

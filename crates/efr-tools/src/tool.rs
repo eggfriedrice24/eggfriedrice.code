@@ -4,7 +4,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use efr_protocol::InputWait;
+use efr_protocol::{InputWait, Needs};
 use efr_scope::Home;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -140,6 +140,12 @@ pub struct ToolRequirements {
     /// True when the call may wait for input at the terminal, such as a `sudo`
     /// password.
     pub interactive: bool,
+    /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
+    /// Only the `auto` mode reads it.
+    pub needs: Option<Needs>,
+    /// True when the call types its line into a shell that runs inside the hidden one
+    /// (the shell tool's `nested_shell`), which the `auto` mode refuses.
+    pub nested: bool,
 }
 
 impl ToolRequirements {
@@ -223,6 +229,20 @@ impl ToolRequirements {
         self.interactive = interactive;
         self
     }
+
+    /// Sets what the model asks for beyond the `auto` sandbox.
+    #[must_use]
+    pub fn with_needs(mut self, needs: Option<Needs>) -> Self {
+        self.needs = needs;
+        self
+    }
+
+    /// Sets whether the call types its line into a nested shell.
+    #[must_use]
+    pub fn with_nested(mut self, nested: bool) -> Self {
+        self.nested = nested;
+        self
+    }
 }
 
 impl fmt::Debug for ToolRequirements {
@@ -233,6 +253,8 @@ impl fmt::Debug for ToolRequirements {
             .field("command_dir", &self.command_dir)
             .field("network", &self.network)
             .field("interactive", &self.interactive)
+            .field("needs", &self.needs)
+            .field("nested", &self.nested)
             .finish()
     }
 }

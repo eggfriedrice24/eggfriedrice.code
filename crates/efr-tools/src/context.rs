@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
 use efr_scope::Home;
+use efr_shell::SandboxRun;
 use efr_stdx::time::Clock;
 
 use crate::WriteJournal;
@@ -55,6 +56,10 @@ pub struct ToolContext {
     /// (`shell.interactive_timeout_minutes`): set for a call that the user approved
     /// because it may wait for input at the terminal, `None` otherwise.
     pub interactive_limit: Option<Duration>,
+    /// The launcher's call, for a shell call of the `auto` mode: the daemon prepared
+    /// the sandbox (or the exit child) of this call, and the shell tool passes it on to
+    /// the run. `None` types the command into the hidden shell, as in the other modes.
+    pub sandbox: Option<SandboxRun>,
 }
 
 impl ToolContext {
@@ -81,6 +86,7 @@ impl ToolContext {
             journal,
             forget_credentials: false,
             interactive_limit: None,
+            sandbox: None,
         }
     }
 
@@ -111,6 +117,13 @@ impl ToolContext {
     #[must_use]
     pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
         self.interactive_limit = limit;
+        self
+    }
+
+    /// Sets the launcher's call, which runs a shell call through the `auto` sandbox.
+    #[must_use]
+    pub fn with_sandbox(mut self, sandbox: Option<SandboxRun>) -> Self {
+        self.sandbox = sandbox;
         self
     }
 
