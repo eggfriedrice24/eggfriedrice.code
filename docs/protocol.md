@@ -126,7 +126,8 @@ No protocol version has shipped yet.
   `sandbox.surface_respond` (scope `approve`, a write with a `command_id`; params
   `conversation_id`, `question_id` and `keep`) and `admin.sandbox_check` (scope
   `admin`, no params). The `admin.status` result gains an optional `sandbox` status
-  and optional `sandbox_paths`. The daemon does not answer the three new methods yet.
+  and optional `sandbox_paths`. The daemon answers the three new methods from phase 1;
+  `sandbox.explain` needs only the `read` scope.
   The fixtures `admin_status_result.json`, `events/turn_started.json`,
   `events/tool_call_started.json`, `events/tool_call_completed.json` and
   `events/approval_requested.json` now set the new members; `exit_kinds.json`,
