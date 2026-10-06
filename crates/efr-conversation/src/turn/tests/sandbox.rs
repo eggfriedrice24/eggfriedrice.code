@@ -327,6 +327,12 @@ async fn floor_refusals_stop_turn_at_three() {
     };
     assert_eq!(error.code, ErrorCode::Forbidden);
     assert_eq!(error.message, REFUSALS_STOPPED);
+    // The text of efr's auto spec, section 14.7.
+    assert_eq!(
+        error.message,
+        "auto stopped this turn: 3 actions were refused in a row. Read the answers, then \
+         send a new prompt."
+    );
     assert!(h.toolbox.invoked().is_empty());
     assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny); 3]);
     let events = h.events().await;

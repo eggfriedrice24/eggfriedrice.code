@@ -62,8 +62,8 @@ turns.
   one command gets that text as a tool error with no question, and it is no refusal. A
   floor (`secret`, `config`) refuses the exit before any question and records
   `exit_judged` (judge `floor`); three such refusals in a row without a person's answer
-  end the turn with `turn_failed` (`forbidden`, "auto refused 3 actions in a row; the
-  turn stopped"). The count lives in the turn, so the model cannot reset it.
+  end the turn with `turn_failed` (`forbidden`, "auto stopped this turn: 3 actions
+  were refused in a row. Read the answers, then send a new prompt."). The count lives in the turn, so the model cannot reset it.
 - After a call whose `ToolOutcome::sandbox` reports changes to git settings that run
   programs, the turn records them in `sandbox_surface_changed` with the call's
   `tool_call_completed`, and, for the changes that the launcher moved to quarantine,

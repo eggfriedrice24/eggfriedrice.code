@@ -24,7 +24,8 @@ use efr_protocol::{
 pub(crate) const REFUSAL_LIMIT: u8 = 3;
 
 /// What a turn fails with after [`REFUSAL_LIMIT`] refusals in a row.
-pub(crate) const REFUSALS_STOPPED: &str = "auto refused 3 actions in a row; the turn stopped";
+pub(crate) const REFUSALS_STOPPED: &str = "auto stopped this turn: 3 actions were refused in a \
+                                           row. Read the answers, then send a new prompt.";
 
 /// What the model reads when the user says no to an exit.
 pub(crate) const EXIT_DENIED: &str = "The user denied the exit; it did not run.";
