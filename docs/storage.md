@@ -14,8 +14,18 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records | `efr-credentials/src/file_store.rs` |
 | `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration | `efr-store/src/migrations.rs` |
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/tmp/` | the private `/tmp` and `/var/tmp` of the `auto` sandbox, one per conversation | `efr-daemon` makes it, `efr-sbx` binds it |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/cache/<name>/upper/`, `work/` | the private upper layer of one tool cache overlay; efrd deletes it after `sandbox.cache_days` without a call, with the conversation, or when all layers pass `sandbox.cache_max_gib` | `efr-daemon`, `efr-sandbox/src/spec.rs` (`CacheOverlay`) |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/quarantine/<call>/` | git settings that a call planted and the surface guard moved away; the quarantine question moves them back | `efr-sbx` |
+| `$XDG_STATE_HOME/efr/sandbox/projects/<root>.json` | the git dir and common dir of a worktree or submodule project, recorded at `efr project add` | `efr-daemon`, `efr-sandbox/src/worktree.rs` |
+| `$XDG_STATE_HOME/efr/sandbox/probe/` | the throwaway project of the sandbox probe | `efr-sbx probe` |
 | `$XDG_RUNTIME_DIR/efr/daemon.sock` (0600) | the Unix socket | `efr-transport/src/unix_listener.rs` |
 | `$XDG_RUNTIME_DIR/efr/daemon.json` | `{pid, socket, protocol, daemon_id, tailnet_endpoint?}` for discovery | `efr-daemon/src/discovery.rs` |
+| `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` (0500) | the copy of the sandbox launcher that hidden shells run; efrd copies it at start from the installed `efr-sbx` and checks its SHA-256 | `efr-daemon` |
+| `$XDG_RUNTIME_DIR/efr/zsh/efr-child.zsh`, `efr-editor` | the script of the sandboxed child shell, and the editor stub that `EDITOR` names in a call | `efr-shell` assets |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/snapshot.zsh` | the hidden shell's functions, aliases and options, which each sandboxed call replays | the hidden shell's wrapper |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/state.zsh`, `state.json` | what sandboxed calls of the conversation defined (functions, aliases, exports that stay in the sandbox) | `efr-sbx` |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>/` (0700, files 0600) | one call: `spec.json` and `nonce` from efrd, `line` (the model's line), `started`, `apply` (`cd` and promoted exports for the hidden shell) and `result.json` from the launcher | `efr-daemon`, `efr-shell`, `efr-sbx` |
 | `$XDG_RUNTIME_DIR/efr/notices/<tty>` | notices for one terminal, shown and removed by the zsh plugin at the next prompt (`<tty>` is `$TTY` without `/dev/`, with `/` as `-`) | the daemon writes, `shell/zsh/efr.plugin.zsh` reads |
 | `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-config`, `efr-scope/src/registry.rs` |
 
@@ -29,6 +39,13 @@ else the XDG directory above; the runtime root falls back to `/run/user/<uid>/ef
 `config.toml` may be a symbolic link (into a dotfiles repository); the daemon watches
 the directory of its target too, and `efr config set` writes the target and keeps the
 link.
+
+Inside a call of the `auto` sandbox, the data, state and runtime roots are empty: only
+the conversation's `$SCRATCH` comes back, and the database reads as missing. So a
+sandboxed command cannot read the call files, the nonce, the cache layers of other
+conversations or the daemon's socket. The config root stays readable and read-only.
+`efr paths` names the launcher and the sandbox's state and runtime directories;
+[`docs/sandbox.md`](sandbox.md) tells what each part does.
 
 ## SQLite access
 
