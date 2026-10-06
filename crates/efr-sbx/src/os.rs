@@ -34,3 +34,15 @@ pub(crate) fn var(name: &str) -> Option<String> {
 pub(crate) fn since_epoch() -> Duration {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
 }
+
+/// The monotonic time now, for the launcher's retry and grace loops. The launcher has
+/// no runtime and so no `efr_stdx` clock; this is its one clock.
+pub(crate) fn now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
+/// Blocks the launcher's thread for `duration`, between the looks of a retry or a grace
+/// loop.
+pub(crate) fn sleep(duration: Duration) {
+    std::thread::sleep(duration);
+}

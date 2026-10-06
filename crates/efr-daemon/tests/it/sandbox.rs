@@ -381,7 +381,8 @@ async fn sandbox_explain_answers_from_the_plan() {
 /// The fake launcher of these tests. `probe` prints `<fake>/report.json` and counts in
 /// `<fake>/probes`; `run` keeps a copy of the call's spec, fails before it starts when
 /// `<fake>/fail` exists, and otherwise runs the child script directly, with no sandbox,
-/// and writes the launcher's files.
+/// and writes the launcher's files. With `<fake>/survivors` the result names one survivor,
+/// once.
 const FAKE_LAUNCHER: &str = r#"#!/bin/sh
 fake='@FAKE@'
 case "$1" in
@@ -407,6 +408,7 @@ if [ -e "$fake/quarantine" ] && [ -e "$PWD/planted" ]; then
     printf '[{"from":"%s","to":"0-planted"}]' "$PWD/planted" > "$q/entries.json"
     changes=$(printf ',"surface_changes":[{"path":"%s","rule":"code_key","key":"core.fsmonitor","quarantined":true}]' "$PWD/planted")
 fi
+if [ -e "$fake/survivors" ]; then rm "$fake/survivors"; changes="$changes"',"survivors":["sudo"]'; fi
 printf '{"started":true,"exit_code":%s,"cwd":"%s","state_kept":true,"summary":{"confined":true%s}}' "$status" "$(pwd)" "$changes" > "$dir/result.tmp"
 mv "$dir/result.tmp" "$dir/result.json"
 exit "$status"
@@ -887,5 +889,36 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
     assert_eq!(outputs.len(), 2, "{:?}", kinds(&events));
     assert!(outputs[1].0.contains("second"), "{outputs:?}");
     drop((client, b));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_a_survivor_of_an_exit_closes_the_hidden_shell() {
+    if !zsh_enabled("shell_a_survivor_of_an_exit_closes_the_hidden_shell") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let (launcher, fake) = fake_launcher(&dirs);
+    std::fs::write(fake.join("survivors"), "").unwrap();
+    let model =
+        ScriptedModel::new(vec![json!({ "command": "true" }), json!({ "command": "true" })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let (_, events) = run_turn(&daemon, "go", Mode::Auto, ApprovalDecision::Deny).await;
+    let kinds = kinds(&events);
+    let [(first, _), _] = completed(&events).try_into().unwrap();
+    assert!(first.contains("could not be ended: sudo"), "{first}");
+    // The shell that a survivor may still read ends, and the second call gets a new one.
+    let started: Vec<usize> = (0..kinds.len()).filter(|at| kinds[*at] == "shell_started").collect();
+    let exited = kinds.iter().position(|kind| *kind == "shell_exited").unwrap();
+    let second_call = kinds.iter().rposition(|kind| *kind == "tool_call_started").unwrap();
+    assert_eq!(started.len(), 2, "{kinds:?}");
+    assert!(started[0] < exited && exited < second_call && second_call < started[1], "{kinds:?}");
     daemon.stop().await.unwrap();
 }

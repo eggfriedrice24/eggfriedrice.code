@@ -10,7 +10,10 @@ hard requirement) and the seccomp deny list, then runs the child shell. After th
 the launcher filters the records, runs the surface guard, and writes `$CALL/apply`, the
 sandbox state and `$CALL/result.json`, in that order. An approved exit runs in the exit
 child instead: no sandbox, the launcher is a child subreaper, and the exit child's
-process tree ends with the call. efrd runs `efr-sbx probe --json` to learn whether
+process tree ends with the call: SIGTERM, then SIGKILL after 2 s. A process that is
+still there 2 s later (one that runs as another user, such as a root process that
+`sudo` left) is named in the summary's `survivors`, the call still ends, and efrd
+starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 `auto` can run here.
 
 | Subcommand | What it does |

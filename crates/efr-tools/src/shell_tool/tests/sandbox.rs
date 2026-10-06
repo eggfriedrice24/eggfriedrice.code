@@ -127,7 +127,7 @@ async fn a_failed_contained_call_ends_with_the_sandbox_note() {
 }
 
 #[tokio::test]
-async fn kept_out_dropped_and_stopped_names_follow_the_output() {
+async fn kept_out_dropped_stopped_and_surviving_names_follow_the_output() {
     let sandbox = json!({
         "started": true,
         "summary": {
@@ -136,6 +136,7 @@ async fn kept_out_dropped_and_stopped_names_follow_the_output() {
             "kept_out": ["PATH", "PYTHONPATH"],
             "dropped": ["LD_PRELOAD"],
             "background_stopped": ["node"],
+            "survivors": ["sudo"],
             "blocked": [{ "host": "evil.example", "port": 443, "reason": "not_allowed" }],
             "surface_changes": [
                 { "path": "/home/u/p/app/.git/commondir", "rule": "commondir_in_main_git_dir", "quarantined": true },
@@ -153,6 +154,9 @@ async fn kept_out_dropped_and_stopped_names_follow_the_output() {
             "[efr: these exports were dropped, and no later call sees them: LD_PRELOAD.]",
             "[efr: these background jobs stopped when the command ended: node. Start a server \
              and its test in one command.]",
+            "[efr: these processes of the command could not be ended: sudo. They may still \
+             read the terminal, so the next call starts in a new hidden shell, in the user's \
+             working directory, without the variables of this one.]",
             "[efr: the network proxy refused: evil.example:443. To reach a host, call shell \
              again with needs.hosts.]",
             "[efr: the command changed git settings that run code; efr moved them out of the \

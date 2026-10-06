@@ -27,6 +27,11 @@ pub struct SandboxSummary {
     /// The programs of background jobs that stopped when the call ended.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background_stopped: Vec<String>,
+    /// The programs of an approved exit's descendants that efr could not end, such as a
+    /// process that `sudo` left running as root. They may still hold the hidden
+    /// shell's terminal, so efr starts a new shell for the next call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub survivors: Vec<String>,
     /// Connections that the proxy refused (phase 2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked: Vec<Blocked>,

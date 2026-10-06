@@ -842,6 +842,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 kept_out: vec!["VIRTUAL_ENV".into()],
                 dropped: vec!["LD_PRELOAD".into()],
                 background_stopped: vec!["vite".into()],
+                survivors: vec!["sudo".into()],
                 blocked: vec![Blocked {
                     host: "example.com".into(),
                     port: 443,

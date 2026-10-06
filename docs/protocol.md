@@ -131,3 +131,8 @@ No protocol version has shipped yet.
   `events/tool_call_started.json`, `events/tool_call_completed.json` and
   `events/approval_requested.json` now set the new members; `exit_kinds.json`,
   `grants.json` and `launches.json` freeze the new closed sets.
+- Before version 1 ships: `sandbox_summary` gains an optional `survivors` list, empty
+  when absent: the programs of an approved exit's descendants that efr could not end,
+  such as a process that `sudo` left running as root. The daemon then closes the
+  conversation's hidden shell, and the next call starts a new one. The
+  `events/tool_call_completed.json` fixture now sets the list.

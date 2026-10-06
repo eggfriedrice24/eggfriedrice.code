@@ -498,6 +498,7 @@ impl TurnView {
                 if let Some(summary) = summary {
                     notes.extend(summary.blocked.iter().map(sandbox::blocked));
                     notes.extend(sandbox::background_stopped(&summary.background_stopped));
+                    notes.extend(sandbox::survivors(&summary.survivors));
                 }
                 // The live tail goes either way.
                 Step { settled, ..self.notes(&notes, size) }

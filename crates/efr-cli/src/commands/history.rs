@@ -222,6 +222,9 @@ impl<'a> Transcript<'a> {
                     if let Some(line) = sandbox::background_stopped(&summary.background_stopped) {
                         self.note(&line);
                     }
+                    if let Some(line) = sandbox::survivors(&summary.survivors) {
+                        self.note(&line);
+                    }
                 }
             }
             Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } => {

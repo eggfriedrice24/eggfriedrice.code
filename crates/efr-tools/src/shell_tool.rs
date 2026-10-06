@@ -453,6 +453,14 @@ fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {
             summary.background_stopped.join(", ")
         ));
     }
+    if !summary.survivors.is_empty() {
+        notes.push(format!(
+            "[efr: these processes of the command could not be ended: {}. They may still \
+             read the terminal, so the next call starts in a new hidden shell, in the \
+             user's working directory, without the variables of this one.]",
+            summary.survivors.join(", ")
+        ));
+    }
     if !summary.blocked.is_empty() {
         let hosts: Vec<String> = summary
             .blocked

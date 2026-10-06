@@ -8,7 +8,8 @@
 //! first: orphans of the exit child, also after `setsid` or a double fork, reparent to
 //! it. When the exit child ends, every descendant gets SIGTERM, SIGKILL after 2 s, and
 //! only then is `result.json` written, so nothing of the call can read the next line
-//! typed into the PTY.
+//! typed into the PTY. A descendant that is still there 2 s after SIGKILL (one that
+//! runs as another user) is reported as a survivor, and efrd starts a new shell.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -68,7 +69,7 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
         spawned.map_err(|source| SbxError::Spawn { program: spec.runtime.zsh.clone(), source })?;
     let records = launch::reader("efr-sbx-records", records_read, spec.limits.max_bytes)?;
     let status = child.wait().map_err(|error| SbxError::os("wait for the exit child", error))?;
-    let stopped = end_descendants();
+    let ending = end_descendants(&mut System { start: os::now() });
     let records = call::exit_records(launch::join(records)?, call);
     let mut result = SandboxResult {
         started: true,
@@ -79,7 +80,8 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
         ..SandboxResult::default()
     };
     result.summary.confined = false;
-    result.summary.background_stopped = stopped;
+    result.summary.background_stopped = ending.stopped;
+    result.summary.survivors = ending.survivors;
     if let Some(records) = &records {
         let cd = match records.cwd.as_deref().map(|cwd| finish::exit_child_cwd(cwd, spec, &RealFs))
         {
@@ -123,6 +125,51 @@ fn prepare_dir(call: &CallDir) -> Result<PathBuf, SbxError> {
     Ok(dir)
 }
 
+/// What the end of an exit child's descendants needs from the system, so the bounded
+/// loop of [`end_descendants`] can be tested without real processes or real time.
+pub(crate) trait Processes {
+    /// Every descendant of the launcher, as `(pid, name)`.
+    fn descendants(&mut self) -> Vec<(Pid, String)>;
+    /// Sends `signal` to `pid`. A failure (EPERM for a process that changed its user,
+    /// ESRCH for one that just ended) is left to the next look.
+    fn signal(&mut self, pid: Pid, signal: Signal);
+    /// Reaps every child that exited, without waiting.
+    fn reap(&mut self);
+    /// The time since the end started.
+    fn elapsed(&self) -> Duration;
+    /// Waits one poll interval.
+    fn pause(&mut self);
+}
+
+/// The real processes of the launcher.
+struct System {
+    start: Instant,
+}
+
+impl Processes for System {
+    fn descendants(&mut self) -> Vec<(Pid, String)> {
+        descendants()
+    }
+
+    fn signal(&mut self, pid: Pid, signal: Signal) {
+        let _ = rustix::process::kill_process(pid, signal);
+    }
+
+    fn reap(&mut self) {
+        // `wait`, not `waitpid(None)`: an orphan that called `setsid` is in another
+        // process group, which `waitpid(0)` skips.
+        while let Ok(Some(_)) = rustix::process::wait(WaitOptions::NOHANG) {}
+    }
+
+    fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    fn pause(&mut self) {
+        os::sleep(POLL);
+    }
+}
+
 /// Every descendant of this process, as `(pid, name)`, found through the `children`
 /// lists of `/proc`.
 fn descendants() -> Vec<(Pid, String)> {
@@ -149,49 +196,59 @@ fn descendants() -> Vec<(Pid, String)> {
     found
 }
 
-/// Reaps every child that exited, without waiting. `wait`, not `waitpid(None)`: an
-/// orphan that called `setsid` is in another process group, which `waitpid(0)` skips.
-fn reap() {
-    while let Ok(Some(_)) = rustix::process::wait(WaitOptions::NOHANG) {}
+/// How the end of the descendants went: the names of those found, and of those that
+/// were still there after SIGKILL.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ending {
+    pub(crate) stopped: Vec<String>,
+    pub(crate) survivors: Vec<String>,
 }
 
-/// Ends every descendant: SIGTERM, up to [`GRACE`] for them to go, then SIGKILL, and
-/// reaps them all. Returns their names, each once, in the order found.
-fn end_descendants() -> Vec<String> {
-    reap();
-    let first = descendants();
+/// Each name once, in the order found.
+fn names(found: &[(Pid, String)]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
-    for (_, name) in &first {
+    for (_, name) in found {
         if !names.contains(name) {
             names.push(name.clone());
         }
     }
-    if first.is_empty() {
-        return names;
-    }
-    for (pid, _) in &first {
-        let _ = rustix::process::kill_process(*pid, Signal::TERM);
-    }
-    let start = Instant::now();
-    while start.elapsed() < GRACE {
-        reap();
-        if descendants().is_empty() {
-            return names;
-        }
-        std::thread::sleep(POLL);
-    }
-    loop {
-        let left = descendants();
-        if left.is_empty() {
-            break;
-        }
-        for (pid, _) in &left {
-            let _ = rustix::process::kill_process(*pid, Signal::KILL);
-        }
-        // A killed child is reaped here; one that is not a direct child is reaped by
-        // its own parent or, once orphaned, reparents here.
-        let _ = rustix::process::wait(WaitOptions::empty());
-        reap();
-    }
     names
 }
+
+/// Ends every descendant: SIGTERM, up to [`GRACE`] for them to go, then SIGKILL for up
+/// to [`GRACE`] more, and reaps them all. A descendant that no signal ends (a process
+/// that `sudo` left running as root) is a survivor; the call still ends, and efrd
+/// starts a new hidden shell, because a survivor may still hold the terminal.
+pub(crate) fn end_descendants(procs: &mut impl Processes) -> Ending {
+    procs.reap();
+    let first = procs.descendants();
+    let stopped = names(&first);
+    if first.is_empty() {
+        return Ending { stopped, survivors: Vec::new() };
+    }
+    for (pid, _) in &first {
+        procs.signal(*pid, Signal::TERM);
+    }
+    let kill_from = GRACE;
+    let give_up = GRACE.saturating_mul(2);
+    loop {
+        procs.reap();
+        let left = procs.descendants();
+        if left.is_empty() {
+            return Ending { stopped, survivors: Vec::new() };
+        }
+        let elapsed = procs.elapsed();
+        if elapsed >= give_up {
+            return Ending { stopped, survivors: names(&left) };
+        }
+        if elapsed >= kill_from {
+            for (pid, _) in &left {
+                procs.signal(*pid, Signal::KILL);
+            }
+        }
+        procs.pause();
+    }
+}
+
+#[cfg(test)]
+mod tests;

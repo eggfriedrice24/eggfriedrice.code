@@ -21,6 +21,9 @@
     "background_stopped": [
       "vite"
     ],
+    "survivors": [
+      "sudo"
+    ],
     "blocked": [
       {
         "host": "example.com",

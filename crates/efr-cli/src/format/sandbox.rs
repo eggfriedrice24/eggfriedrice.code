@@ -661,5 +661,16 @@ pub(crate) fn background_stopped(names: &[String]) -> Option<String> {
         .then(|| format!("sandbox: stopped when the call ended: {}", names.join(", ")))
 }
 
+/// The note about processes of an approved exit that efr could not end.
+pub(crate) fn survivors(names: &[String]) -> Option<String> {
+    let names: Vec<String> = names.iter().map(|name| one_line(name)).collect();
+    (!names.is_empty()).then(|| {
+        format!(
+            "sandbox: could not end {}; the next call gets a new hidden shell",
+            names.join(", ")
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests;

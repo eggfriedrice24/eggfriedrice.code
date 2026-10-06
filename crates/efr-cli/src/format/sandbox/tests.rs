@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use super::{
     background_stopped, blocked, check, exit_heading, exit_judged, exit_lines, exit_record,
     exit_summary, explain, fallback_note, fallback_warning, status_line, surface_answered,
-    surface_change, surface_changed, surface_report, tilde,
+    surface_change, surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -450,5 +450,10 @@ fn blocked_hosts_and_stopped_jobs_get_a_line_each() {
     assert_eq!(
         background_stopped(&["vite".to_owned(), "node".to_owned()]).unwrap(),
         "sandbox: stopped when the call ended: vite, node"
+    );
+    assert_eq!(survivors(&[]), None);
+    assert_eq!(
+        survivors(&["sudo".to_owned()]).unwrap(),
+        "sandbox: could not end sudo; the next call gets a new hidden shell"
     );
 }
