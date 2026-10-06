@@ -21,7 +21,9 @@ use pretty_assertions::assert_eq;
 /// `/proc`, NUL-separated, then the variables the plugin hands over, each prefixed
 /// `set:` or `unset:`. It prints `$EFR_ARGS.out.<first argument>` when that file exists,
 /// such as `args.out.settings` for `efr settings`. The record file is written last,
-/// because its existence numbers the calls. It exits with `$FAKE_EXIT` (0 when unset).
+/// because its existence numbers the calls. It exits with 2 when one of its arguments
+/// is a line of `$EFR_ARGS.refuse`, as efr refuses a value, and otherwise with
+/// `$FAKE_EXIT` (0 when unset).
 const FAKE_EFR: &str = r#"#!/bin/sh
 n=0
 while [ -e "$EFR_ARGS.$n" ]; do n=$((n + 1)); done
@@ -33,6 +35,11 @@ for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT
 done
 if [ -f "$EFR_ARGS.out.$1" ]; then cat "$EFR_ARGS.out.$1"; fi
 : > "$record"
+if [ -f "$EFR_ARGS.refuse" ]; then
+  for arg in "$@"; do
+    if grep -qxF -e "$arg" "$EFR_ARGS.refuse"; then exit 2; fi
+  done
+fi
 exit "${FAKE_EXIT:-0}"
 "#;
 
@@ -1035,6 +1042,136 @@ fn e2e_setting_lines_stay_as_typed_and_are_not_the_last_command() {
     assert_eq!(prompt.last_command(), Some("false"));
     assert_eq!(prompt.last_status(), 1);
     assert_eq!(prompt.settings(), [Some("auto"), None, None]);
+}
+
+#[test]
+fn e2e_in_sticky_mode_a_bare_setting_word_runs_as_its_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::write(format!("{}.refuse", home.records().display()), "--effort=matters\n").unwrap();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            "<C-Space>",
+            "mode auto",
+            "  model  ",
+            "effort matters",
+            "model the database schema",
+            "effort high",
+            "what now",
+            "mode default",
+            "!fc -ln -7 > history.txt",
+            "<C-Space>",
+        ],
+    );
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [
+            // The value is checked before the line becomes the command, which checks it
+            // again as it always does.
+            vec!["settings", "--mode=auto"],
+            vec!["settings", "--mode=auto"],
+            vec!["settings"],
+            // A value that efr refuses makes the line a prompt.
+            vec!["settings", "--effort=matters"],
+            vec!["send"],
+            vec!["send"],
+            vec!["settings", "--effort=high"],
+            vec!["settings", "--effort=high"],
+            vec!["send"],
+            // `default` needs no check.
+            vec!["settings"],
+        ]
+    );
+    let prompts: Vec<(Option<&str>, [Option<&str>; 3])> = calls
+        .iter()
+        .filter(|call| call.args == ["send"])
+        .map(|call| (call.prompt.as_deref(), call.settings()))
+        .collect();
+    assert_eq!(
+        prompts,
+        [
+            (Some("effort matters"), [Some("auto"), None, None]),
+            (Some("model the database schema"), [Some("auto"), None, None]),
+            (Some("what now"), [Some("auto"), None, Some("high")]),
+        ]
+    );
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(
+        history.lines().map(str::trim).collect::<Vec<_>>(),
+        [
+            ",mode auto",
+            ",model",
+            "🤖 effort matters",
+            "🤖 model the database schema",
+            ",effort high",
+            "🤖 what now",
+            ",mode default",
+        ]
+    );
+}
+
+#[test]
+fn e2e_outside_sticky_mode_a_bare_setting_word_is_a_shell_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(&home, &["mode() { efr mine \"$@\" }", "mode auto"]);
+    assert_eq!(args(&home.calls()), [vec!["mine", "auto"]]);
+}
+
+#[test]
+fn e2e_an_unknown_comma_word_starts_a_prompt_and_a_users_own_still_runs() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let bin = home.path().join("bin/,tool");
+    std::fs::write(&bin, "#!/bin/sh\nexec efr tool \"$@\"\n").unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            ",run sudo pacman -Syu; rm -rf / > x",
+            "function ,mine { efr mine \"$@\" }",
+            "alias ,al='efr al'",
+            ",mine one",
+            ",al two",
+            ",tool three",
+            ",new fresh",
+            "<C-Space>",
+            ",ask in sticky mode",
+            "<C-Space>",
+            "fc -ln -10 > history.txt",
+        ],
+    );
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [
+            vec!["send"],
+            vec!["mine", "one"],
+            vec!["al", "two"],
+            vec!["tool", "three"],
+            vec!["new"],
+            vec!["send"],
+        ]
+    );
+    let prompts: Vec<Option<&str>> = calls.iter().map(|call| call.prompt.as_deref()).collect();
+    assert_eq!(prompts[0], Some("run sudo pacman -Syu; rm -rf / > x"));
+    assert_eq!(prompts[4], Some("fresh"));
+    assert_eq!(prompts[5], Some("ask in sticky mode"));
+    assert!(!home.path().join("x").exists(), "the prompt ran as shell syntax");
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    let history: Vec<&str> = history.lines().map(str::trim).collect();
+    assert!(history.contains(&", run sudo pacman -Syu; rm -rf / > x"), "{history:?}");
+    assert!(history.contains(&", ask in sticky mode"), "{history:?}");
 }
 
 /// A widget on Ctrl+X Ctrl+R that records what the line shows while it is typed, with

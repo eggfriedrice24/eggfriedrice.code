@@ -10,11 +10,17 @@
 #                  choices; `default` lets the config decide again
 #   ,model [id]    the same for the model (`efr models` lists them)
 #   ,effort [e]    the same for the reasoning effort
+#   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
+#                  could run is a prompt that starts with the word: `,run make`
+#                  sends `run make`; a `,word` command of the user's own still runs
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
-#                  commands above); a robot stands before the typed text while it
-#                  is on (shown with PREDISPLAY, so the prompt itself never changes),
-#                  after a dim tag with the terminal's own settings, such as `auto `
+#                  commands above), and a line of just `mode`, `model` or `effort`,
+#                  alone or with one value that efr accepts, which runs as `,mode`,
+#                  `,model` or `,effort`; a robot stands before the typed text while
+#                  it is on (shown with PREDISPLAY, so the prompt itself never
+#                  changes), after a dim tag with the terminal's own settings, such
+#                  as `auto `
 #   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
 #                  an alias of `,`, so the screen and history keep the line that ran,
 #                  and the line still goes to the agent when history recalls it
@@ -472,14 +478,34 @@ _efr_is_toggle_line() {
   [[ $1 == [[:space:]]#,[[:space:]]# ]]
 }
 
+# Sets REPLY to the line that runs for the line $1 when $1 is a bare setting word in
+# sticky mode: exactly `mode`, `model` or `effort`, alone or with one value, becomes
+# `,mode`, `,model` or `,effort` with that value. A value counts only when it is
+# `default` or `efr settings` accepts it with the terminal's other values, so a
+# prompt that merely starts with the word (`model the database schema`, `effort
+# matters`) still goes to the agent. Returns 1 for any other line.
+_efr_setting_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == (#b)[[:space:]]#(mode|model|effort)([[:space:]]##([^[:space:]]##)|)[[:space:]]# ]] ||
+    return 1
+  local name=$match[1] value=$match[3]
+  if [[ -n $value && $value != default ]]; then
+    _efr_available || return 1
+    local -a reply
+    _efr_settings "--$name=$value" >/dev/null 2>&1 || return 1
+  fi
+  REPLY=",$name${value:+ $value}"
+}
+
 # Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a
 # line goes to the agent unless it is a plugin line (`,` and the commands above, or a
 # line that history recalled with the sticky word in front), starts with `!` (an
-# escape hatch for one shell command), or is empty. Such a prompt line gets the
-# indicator's own text in front, so the line looks on the screen as it did while it
-# was typed; when the indicator is no sticky word, it gets `, ` instead. Nothing else
-# changes. Outside sticky mode every line runs as typed. Sets _efr_prompt_line to 1 for
-# a prompt line and to 0 for any other.
+# escape hatch for one shell command), is a bare setting word (see
+# _efr_setting_line), or is empty. Such a prompt line gets the indicator's own text in
+# front, so the line looks on the screen as it did while it was typed; when the
+# indicator is no sticky word, it gets `, ` instead. Nothing else changes. Outside
+# sticky mode every line runs as typed. Sets _efr_prompt_line to 1 for a prompt line
+# and to 0 for any other.
 _efr_line_to_run() {
   emulate -L zsh -o extended_glob
   local line=$1
@@ -490,6 +516,8 @@ _efr_line_to_run() {
     REPLY=${line#!}
   elif [[ -z ${line//[[:space:]]/} ]]; then
     REPLY=$line
+  elif _efr_setting_line "$line"; then
+    :
   elif _efr_sticky_word; then
     local gap=${EFR_STICKY_INDICATOR#"$REPLY"}
     REPLY="$REPLY${gap:- }$line"
@@ -498,6 +526,19 @@ _efr_line_to_run() {
     REPLY=", $line"
     _efr_prompt_line=1
   fi
+}
+
+# Sets REPLY to the line $1 with a blank after its leading `,` when its first word is a
+# `,` word that names nothing zsh could run: no plugin command, and no alias,
+# function, builtin, reserved word or command of the user's. `,run sudo pacman -Syu`
+# becomes the prompt line `, run sudo pacman -Syu`, so the word is part of the prompt
+# instead of a `command not found`. Returns 1 for any other line, which stays as it is.
+_efr_unknown_comma_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == (#b)([[:space:]]#),([^[:space:]]##)(*) ]] || return 1
+  # whence knows every kind of name that zsh runs, the plugin's own commands too.
+  whence -- ",$match[2]" >/dev/null && return 1
+  REPLY="$match[1], $match[2]$match[3]"
 }
 
 # For a one-line plugin line $1 (`,`, `,new`, `,!` or the sticky word, followed by a
@@ -542,6 +583,7 @@ _efr_accept_line() {
     if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
     _efr_alias_sticky_word
   fi
+  _efr_unknown_comma_line "$BUFFER" && BUFFER=$REPLY
   if _efr_stash_line "$BUFFER"; then
     # The line stays as typed. The alias ends in `#`, which starts a comment only with
     # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.

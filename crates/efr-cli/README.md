@@ -290,7 +290,8 @@ fake prints canned output for `efr settings` and `efr models`, so the tests cove
 `compinit`, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
 temporary tree). The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
-tag of the terminal's settings before the robot) are tested by typing into
+tag of the terminal's settings before the robot, the bare setting words of sticky
+mode, a `,word` that names nothing as a prompt) are tested by typing into
 an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
 so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
 with a message unless `EFR_TEST_ZSH=1`:
