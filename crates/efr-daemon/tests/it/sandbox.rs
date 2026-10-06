@@ -442,6 +442,7 @@ async fn shell_a_routine_command_in_auto_runs_contained_without_a_question() {
     let [spec] = specs(&fake).try_into().unwrap();
     assert!(spec.grants.is_empty());
     assert_eq!(spec.runtime.launcher, dirs.dirs().runtime().join("bin/efr-sbx"));
+    assert!(!spec.runtime.call_dir.exists(), "the dir of a call that ended is removed");
     daemon.stop().await.unwrap();
 }
 
@@ -472,7 +473,8 @@ async fn shell_a_predicted_exit_asks_and_a_yes_runs_with_its_grant() {
     daemon.stop().await.unwrap();
 }
 
-#[tokio::test]
+// NOTE: two workers, so the probe runs while the test waits for its count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_reprobe_after_sandbox_failed() {
     if !zsh_enabled("shell_reprobe_after_sandbox_failed") {
         return;
@@ -575,5 +577,133 @@ async fn shell_a_contained_call_runs_in_the_real_sandbox() {
     assert!(project.join("inside.txt").is_file(), "the project is a write root");
     assert!(!dirs.home().join("outside.txt").exists(), "the home dir is not");
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// A peer that the model's command leaves behind: it sends the frames in `frames/` to
+/// the daemon's socket and writes every byte of the answers to `out`.
+const PEER: &str = r#"
+import os, socket, sys, time
+sock, frames, out = sys.argv[1:4]
+s = socket.socket(socket.AF_UNIX)
+s.connect(sock)
+for name in sorted(os.listdir(frames)):
+    s.sendall(open(os.path.join(frames, name), "rb").read())
+s.settimeout(0.5)
+data = b""
+wanted = len(os.listdir(frames))
+end = time.time() + 10
+def answered(data):
+    count, at = 0, 0
+    while at + 4 <= len(data):
+        size = int.from_bytes(data[at:at + 4], "big")
+        payload = data[at + 4:at + 4 + size]
+        if len(payload) < size:
+            break
+        count += b'"end":true' in payload or b'"error":' in payload
+        at += 4 + size
+    return count
+while time.time() < end and answered(data) < wanted:
+    try:
+        chunk = s.recv(65536)
+    except socket.timeout:
+        continue
+    if not chunk:
+        break
+    data += chunk
+open(out + ".tmp", "wb").write(data)
+os.rename(out + ".tmp", out)
+"#;
+
+// NOTE: two workers, so the daemon in this process answers the peer while the test
+// waits for the peer's file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn escape_model_side_peer_read_scope() {
+    use efr_protocol::framing::{Decoder, encode};
+    use efr_protocol::{ClientFrame, Hello, Origin, PROTOCOL_VERSION, ProjectsList, RequestId};
+
+    let test = "escape_model_side_peer_read_scope";
+    if !zsh_enabled(test) {
+        return;
+    }
+    if !std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .any(|dir| dir.join("python3").is_file())
+    {
+        skip(test, "python3 is not installed");
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let work = dirs.create_dir("peer").unwrap();
+    let frames = dirs.create_dir("peer/frames").unwrap();
+    std::fs::write(work.join("peer.py"), PEER).unwrap();
+    let hello = Hello {
+        protocol: PROTOCOL_VERSION,
+        origin: Origin::Shell,
+        client: Some("peer".to_owned()),
+        capabilities: efr_protocol::Capabilities::default(),
+        tty: None,
+        pid: None,
+        device_id: None,
+    };
+    let requests = [
+        Method::Hello(hello),
+        Method::AdminStatus(AdminStatus {}),
+        Method::ProjectsList(ProjectsList {}),
+        Method::AdminSandboxCheck(AdminSandboxCheck {}),
+    ];
+    for (n, method) in requests.into_iter().enumerate() {
+        let frame = ClientFrame::Request { id: RequestId::new(n as u64 + 1), method };
+        std::fs::write(frames.join(format!("{n}")), encode(&frame).unwrap()).unwrap();
+    }
+    let out = work.join("answers");
+    // NOTE: the subshell exits at once, so python3 is an orphan that the hidden zsh,
+    // a child subreaper, adopts: a double-forked process of the model's command.
+    let command = format!(
+        "(python3 {} {} {} {} >/dev/null 2>&1 &)",
+        work.join("peer.py").display(),
+        dirs.dirs().socket_path().display(),
+        frames.display(),
+        out.display()
+    );
+    let model = ScriptedModel::new(vec![json!({ "command": command })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let (_, events) =
+        run_turn(&daemon, "leave a peer", Mode::Cautious, ApprovalDecision::Allow).await;
+    assert!(kinds(&events).contains(&"tool_call_completed"), "{:?}", kinds(&events));
+    let mut answers = None;
+    for _ in 0..1000 {
+        if let Ok(bytes) = std::fs::read(&out) {
+            answers = Some(bytes);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let answers = answers.expect("the peer wrote what the daemon answered");
+    let mut decoder = Decoder::new();
+    let mut ended: Vec<(u64, Option<ErrorCode>)> = Vec::new();
+    for payload in decoder.push(&answers).unwrap() {
+        match efr_protocol::ServerFrame::from_json(&payload).unwrap() {
+            efr_protocol::ServerFrame::End { id } => ended.push((id.get(), None)),
+            efr_protocol::ServerFrame::Error(frame) => {
+                ended.push((frame.id.map_or(0, RequestId::get), Some(frame.error.code)));
+            }
+            efr_protocol::ServerFrame::Item { id, .. } if id.get() == 1 => {
+                ended.push((1, None));
+            }
+            _ => {}
+        }
+    }
+    ended.sort_by_key(|(id, _)| *id);
+    ended.dedup_by_key(|(id, _)| *id);
+    assert_eq!(
+        ended,
+        [(1, None), (2, Some(ErrorCode::Forbidden)), (3, None), (4, Some(ErrorCode::Forbidden)),],
+        "a process of the model's command may read, never administer"
+    );
     daemon.stop().await.unwrap();
 }

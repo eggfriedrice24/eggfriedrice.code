@@ -269,6 +269,11 @@ impl DaemonToolbox {
                 if let Some(summary) = &result.sandbox {
                     sandbox.turns().changes(turn_id, &summary.surface_changes);
                 }
+                // NOTE: a call that ended has nothing left in its dir that anyone reads;
+                // one that runs on past its timeout still needs it.
+                if result.sandbox.is_some() || result.sandbox_failed {
+                    remove_call_dir(prepared.run.dir.clone()).await;
+                }
                 outcome(result)
             }
             Err(error) => ToolOutcome::error(for_model(&error)),
@@ -404,6 +409,15 @@ impl Toolbox for DaemonToolbox {
         if let Err(error) = self.shells.interrupt(call.conversation_id).await {
             tracing::debug!(error = %error, call_id = %call.call_id, "nothing to interrupt in the hidden shell");
         }
+    }
+}
+
+/// Removes the dir of a sandboxed call that ended. A dir that cannot go stays in efr's
+/// runtime root, which the next boot empties.
+async fn remove_call_dir(dir: PathBuf) {
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&dir)).await;
+    if let Ok(Err(error)) = removed {
+        tracing::debug!(error = %error, "a sandboxed call's dir stays");
     }
 }
 

@@ -457,8 +457,10 @@ probe's failure and the fallback with its reason, a launcher in a write root, a 
 at the home directory, the one-command rule, `sandbox.explain`, and, with a real zsh and
 a fake launcher (a script that runs the child shell directly), a routine command that
 runs contained without a question, an exit that asks and runs with its grant, and a
-failed start that runs the probe again. With `EFR_TEST_SBX_BIN` (`just test-sandbox`)
-one call runs in the real sandbox. The unit tests of `sandbox/` cover the plan, the
+failed start that runs the probe again; and a double-forked process of an approved
+command, which python3 plays, that reaches the socket and may only read. With
+`EFR_TEST_SBX_BIN` (`just test-sandbox`) one call runs in the real sandbox. A finished
+call's dir is removed. The unit tests of `sandbox/` cover the plan, the
 probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
 
