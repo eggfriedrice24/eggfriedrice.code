@@ -15,6 +15,10 @@ use crate::export_filter::overlay_denied;
 use crate::names::is_variable_name;
 use crate::records::Records;
 
+/// The variable through which `state.zsh` names a function or an alias; it is unset at
+/// the end of the file.
+pub const STATE_NAME_VAR: &str = "_efr_state_name";
+
 /// The most bytes a `state.json` may have.
 pub const MAX_STATE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -94,39 +98,44 @@ impl SandboxState {
     }
 
     /// `state.zsh`: plain assignments, every word quoted, nothing evaluated twice.
+    ///
+    /// zsh keeps quotes inside a subscript as part of the key (`functions['f']=...`
+    /// names a function `'f'`), so each function or alias name goes through the
+    /// variable [`STATE_NAME_VAR`] and the subscript expands it.
     pub fn render(&self) -> String {
-        // NOTE: zsh keeps the quotes of a literal subscript such as functions['f'] as
-        // part of the key, so every name goes through a parameter: `$_efr_state_name`
-        // in a subscript is the name itself, whatever characters it holds.
         let mut out = String::from("# efr sandbox state; the launcher writes it.\n");
-        let name_is = |name: &str| format!("_efr_state_name={}; ", quote(name));
+        out.push_str("builtin zmodload zsh/parameter\n");
+        let var = STATE_NAME_VAR;
+        let name_line = |out: &mut String, name: &str| {
+            out.push_str(&format!("builtin typeset -g {var}={}\n", quote(name)));
+        };
         for name in &self.removed_functions {
-            out.push_str(&name_is(name));
-            out.push_str(
-                "(( ${+functions[$_efr_state_name]} )) && builtin unfunction -- \"$_efr_state_name\"\n",
-            );
+            name_line(&mut out, name);
+            out.push_str(&format!(
+                "(( ${{+functions[${var}]}} )) && builtin unfunction -- \"${var}\"\n"
+            ));
         }
         for name in &self.removed_aliases {
-            out.push_str(&name_is(name));
-            out.push_str(
-                "(( ${+aliases[$_efr_state_name]} )) && builtin unalias -- \"$_efr_state_name\"\n",
-            );
+            name_line(&mut out, name);
+            out.push_str(&format!(
+                "(( ${{+aliases[${var}]}} )) && builtin unalias -- \"${var}\"\n"
+            ));
         }
         for (name, body) in &self.functions {
-            out.push_str(&name_is(name));
-            out.push_str(&format!("functions[$_efr_state_name]={}\n", quote(body)));
+            name_line(&mut out, name);
+            out.push_str(&format!("functions[${var}]={}\n", quote(body)));
         }
         for (name, value) in &self.aliases {
-            out.push_str(&name_is(name));
-            out.push_str(&format!("aliases[$_efr_state_name]={}\n", quote(value)));
+            name_line(&mut out, name);
+            out.push_str(&format!("aliases[${var}]={}\n", quote(value)));
         }
+        out.push_str(&format!("builtin unset {var}\n"));
         for name in &self.unsets {
             out.push_str(&format!("builtin unset -- {name}\n"));
         }
         for (name, value) in &self.exports {
             out.push_str(&format!("builtin typeset -gx -- {name}={}\n", quote(value)));
         }
-        out.push_str("builtin unset _efr_state_name\n");
         out
     }
 

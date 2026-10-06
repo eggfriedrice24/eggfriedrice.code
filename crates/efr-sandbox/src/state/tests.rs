@@ -48,18 +48,19 @@ fn the_rendered_state_quotes_every_word() {
     state.removed_functions.insert("theme".to_owned());
     let text = state.render();
     assert!(text.contains("builtin typeset -gx -- MSG='it'\\''s $(rm -rf ~)'\n"), "{text}");
-    assert!(
-        text.contains("_efr_state_name='f'; functions[$_efr_state_name]='echo '\\''hi'\\'''\n"),
-        "{text}"
-    );
-    assert!(text.contains("_efr_state_name='g'; aliases[$_efr_state_name]='git'\n"), "{text}");
+    let name = |name: &str| format!("builtin typeset -g _efr_state_name='{name}'\n");
+    let function = format!("{}functions[$_efr_state_name]='echo '\\''hi'\\'''\n", name("f"));
+    assert!(text.contains(&function), "{text}");
+    assert!(text.contains(&format!("{}aliases[$_efr_state_name]='git'\n", name("g"))), "{text}");
     assert!(text.contains("builtin unset -- OLD\n"), "{text}");
-    assert!(
-        text.contains(
-            "_efr_state_name='theme'; (( ${+functions[$_efr_state_name]} )) && builtin unfunction -- \"$_efr_state_name\"\n"
-        ),
-        "{text}"
+    let removed = format!(
+        "{}(( ${{+functions[$_efr_state_name]}} )) && builtin unfunction -- \"$_efr_state_name\"\n",
+        name("theme")
     );
-    assert!(text.ends_with("builtin unset _efr_state_name\n"), "{text}");
+    assert!(text.contains(&removed), "{text}");
+    assert!(text.contains("builtin unset _efr_state_name\n"), "{text}");
+    // zsh keeps quotes in a subscript as part of the key.
+    assert!(!text.contains("functions['"), "{text}");
+    assert!(text.starts_with("# efr sandbox state; the launcher writes it.\nbuiltin zmodload"));
     assert_eq!(quote(""), "''");
 }
