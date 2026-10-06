@@ -319,3 +319,47 @@ async fn escape_fake_osc7_does_not_move_shell_cwd() {
     let state = sbx.zsh.sessions.state(sbx.zsh.conversation).await.unwrap();
     assert_eq!(state.cwd, sbx.project);
 }
+
+#[tokio::test]
+async fn escape_redefined_wrapper_fails_closed() {
+    let Some(sbx) = Launcher::start("escape_redefined_wrapper_fails_closed").await else {
+        return;
+    };
+    // A line of another mode, or one that an approval typed, replaces the wrapper's
+    // apply step with one that would run what a call wrote.
+    sbx.plain("_efr_hs_sbx_apply() { touch applied }").await;
+    let run = sbx.prepare(1, SpecLaunch::Contained);
+    let request = sbx.request(&run, "touch never");
+    let result =
+        sbx.zsh.sessions.run_command(sbx.zsh.conversation, request, &mut NoProgress).await.unwrap();
+    assert_eq!(result.completion, Completion::SandboxFailed, "{result:?}");
+    assert!(!sbx.project.join("never").exists(), "the line ran");
+    assert!(!sbx.project.join("applied").exists(), "the redefined function ran");
+    assert!(!run.dir.join("started").exists(), "the launcher ran");
+}
+
+#[tokio::test]
+async fn escape_prompt_theme_not_run() {
+    let Some(sbx) = Launcher::start("escape_prompt_theme_not_run").await else {
+        return;
+    };
+    let marks = sbx.zsh.dir("marks");
+    // A prompt theme and a directory hook that source a file of the directory, as
+    // direnv, nvm or a vcs prompt do with files a project holds.
+    let zshrc = r#"efr_test_theme() { [[ -f ./theme.zsh ]] && source ./theme.zsh }
+precmd_functions+=(efr_test_theme)
+chpwd_functions+=(efr_test_theme)
+setopt prompt_subst
+PROMPT='$(efr_test_theme)%# '
+"#;
+    std::fs::write(sbx.zsh.home().join(".zshrc"), zshrc).unwrap();
+    sbx.plain("true").await;
+    // The contained call writes the file that the theme would source, outside.
+    let theme = format!("print -r -- \": > '{}/theme-ran'\" > theme.zsh", marks.display());
+    let result = sbx.contained(1, &theme).await;
+    assert_eq!(result.completion, Completion::Finished, "{result:?}");
+    assert!(sbx.project.join("theme.zsh").is_file(), "{result:?}");
+    sbx.plain("true").await;
+    sbx.plain(&format!("cd '{}' && cd '{}'", marks.display(), sbx.project.display())).await;
+    assert!(!marks.join("theme-ran").exists(), "the hidden shell ran the user's theme");
+}
