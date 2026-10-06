@@ -17,10 +17,10 @@ mod call;
 mod call_dir;
 mod error;
 mod exit_child;
-/// Descriptor numbers that the process does not own yet: `close_range`, `dup3` onto a
-/// fixed number, `fcntl` on a number, and the probe's raw system calls have no safe
-/// wrapper. It is the one module of efr-sbx that allows `unsafe_code` (ADR 0007; the
-/// allowlist is in `xtask/src/tidy.rs`).
+// NOTE: descriptor numbers that the process does not own yet: `close_range`, `dup3` onto a
+// fixed number, `fcntl` on a number, and the probe's raw system calls have no safe
+// wrapper. It is the one module of efr-sbx that allows `unsafe_code` (ADR 0007; the
+// allowlist is in `xtask/src/tidy.rs`).
 #[allow(unsafe_code)]
 mod fds;
 mod finish;

@@ -4,7 +4,7 @@
 //! `exit-code` only when the command it started has exited. So "`child-pid`, no
 //! `exit-code`" means that the mounts or the exec failed: a setup failure, not a
 //! failure of the command. The inner stage reports its own failures on bwrap's stderr
-//! with [`SETUP_PREFIX`](crate::inner::SETUP_PREFIX), before the child exists.
+//! with [`SETUP_PREFIX`], before the child exists.
 
 use std::time::Duration;
 
