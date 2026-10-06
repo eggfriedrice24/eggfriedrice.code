@@ -155,8 +155,9 @@ impl Git {
     }
 
     /// Runs git in `cwd` and returns its standard output without the final newline, or
-    /// `None` when git exits with a failure status.
-    pub(crate) async fn run<I, S>(
+    /// `None` when git exits with a failure status. The command is [`Git::command`]'s,
+    /// and it gives up after this runner's timeout.
+    pub async fn run<I, S>(
         &self,
         cwd: &Path,
         home: &Home,
@@ -212,8 +213,12 @@ impl Git {
         }
     }
 
-    /// The command for one git run, with the environment of this module.
-    pub(crate) fn command<I, S>(&self, cwd: &Path, home: &Home, args: I) -> tokio::process::Command
+    /// The command for one git run, with the environment of this module: no prompt, no
+    /// optional locks, the ceilings at the home directory, the variables that point git
+    /// elsewhere removed, and without the user's configuration when isolated. A caller
+    /// that runs git on a repository the model can write adds `-c core.fsmonitor=false
+    /// -c core.hooksPath=/dev/null` itself.
+    pub fn command<I, S>(&self, cwd: &Path, home: &Home, args: I) -> tokio::process::Command
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,

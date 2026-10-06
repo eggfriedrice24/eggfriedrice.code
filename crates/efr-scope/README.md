@@ -35,6 +35,9 @@ Modules:
   configuration, with optional locks and terminal prompts off, and under a timeout on
   the injected `efr_stdx::time::Clock`. A work tree whose root is `$HOME`, `/` or a
   directory above `$HOME` comes back as `Discovery::Guarded`, never as a work tree.
+  `Git::command` and `Git::run` are public, so the daemon runs its hardened
+  `git status` of the `auto` sandbox (the counts of a destructive exit and the
+  turn-end report) the same way.
 - `dotfiles`: `detect_dotfiles`, the layouts that make `$HOME` a work tree: a `~/.git`,
   yadm (`$XDG_DATA_HOME/yadm/repo.git` and the two older places), and a bare
   repository among the dot directories of `$HOME` whose `core.worktree` is `$HOME`.
