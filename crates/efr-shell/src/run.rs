@@ -430,9 +430,11 @@ pub(crate) fn marked_line(command: &str) -> Result<Bytes, ShellError> {
 
 /// The fixed line of a sandboxed call, up to the call id. It runs the wrapper only
 /// when the three functions of the wrapper are the ones the integration defined and no
-/// function shadows `builtin` or `command`; `[[` is a reserved word and the backslash
-/// stops alias expansion of the wrapper's name. Without the integration zsh answers
-/// `command not found`. Either way nothing runs and no end mark comes.
+/// function shadows `builtin` or `command`. The backslash stops alias expansion of the
+/// wrapper's name. zsh expands an alias named `[[` even though `[[` is a reserved word,
+/// so the clear key that comes right before this line removes that alias with the
+/// global and suffix aliases (`_efr_hs_plain_words`). Without the integration zsh
+/// answers `command not found`. Either way nothing runs and no end mark comes.
 pub(crate) const WRAPPER_CHECK: &str = r#"[[ "${functions[_efr_hs_sbx]-}${functions[_efr_hs_sbx_apply]-}${functions[_efr_hs_sbx_snapshot]-}" == "$_efr_hs_sbx_src" && -z ${functions[builtin]-}${functions[command]-} ]] && \_efr_hs_sbx "#;
 
 /// The bytes that type the fixed line of a sandboxed call: the clear key, one

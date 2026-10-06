@@ -75,6 +75,26 @@ async fn wrapper_check_fails_on_redefinition() {
 }
 
 #[tokio::test]
+async fn wrapper_check_fails_on_alias() {
+    let Some(zsh) = Zsh::start_sandboxed("wrapper_check_fails_on_alias") else {
+        return;
+    };
+    // zsh expands an ordinary alias named `[[` before the fixed line's check runs.
+    let marker = zsh.start_dir().join("alias-ran");
+    let alias = format!("alias '[['=': > {}; [['", marker.display());
+    zsh.run_plain(&alias).await;
+    let run = zsh.prepare(1);
+    let result = zsh.run_sandboxed(&run, "true").await;
+
+    assert!(!marker.exists(), "the alias ran in the trusted shell: {result:?}");
+    // The clear key removed the alias, so the check ran as written and passed.
+    assert_eq!(result.completion, Completion::Finished, "{result:?}");
+    let check =
+        zsh.run_plain("builtin alias -- '[[' >/dev/null && print present || print absent").await;
+    assert_eq!(check.output, "absent\n");
+}
+
+#[tokio::test]
 async fn wrapper_check_fails_on_builtin_function() {
     let Some(zsh) = Zsh::start_sandboxed("wrapper_check_fails_on_builtin_function") else {
         return;

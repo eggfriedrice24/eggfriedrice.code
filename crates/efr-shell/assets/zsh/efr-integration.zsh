@@ -220,12 +220,17 @@ _efr_hs_forget_credentials() {
 # alias (`alias -g L='| less'`, as oh-my-zsh's common-aliases defines) expands any
 # word of a line into pipes or other programs, and a suffix alias (`alias -s txt=vim`)
 # runs a program for a word that only names a file, so the hidden shell keeps neither,
-# nor an alias or a function named like a program that a rule trusts.
+# nor an alias or a function named like a program that a rule trusts. zsh also
+# expands an ordinary alias named `[[` in command position, and the fixed line of a
+# sandboxed call starts with `[[`, so that alias goes too, and the reserved word is
+# enabled again if a line disabled it.
 _efr_hs_plain_words() {
   builtin emulate -L zsh
   builtin zmodload zsh/parameter
   (( ${#galiases} )) && builtin unalias -- ${(k)galiases}
   (( ${#saliases} )) && builtin unalias -s -- ${(k)saliases}
+  builtin unalias -- '[[' 2>/dev/null
+  builtin enable -r -- '[[' 2>/dev/null
   builtin local name
   for name in $_efr_hs_trusted; do
     (( ${+aliases[$name]} )) && builtin unalias -- $name
