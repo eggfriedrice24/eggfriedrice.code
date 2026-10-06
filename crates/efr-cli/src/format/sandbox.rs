@@ -221,6 +221,8 @@ fn launch_words(info: &ExitInfo, home: Option<&Path>) -> String {
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
             format!("runs in the sandbox with {} for this call", opened.join(", "))
         }
+        // NOTE: in auto only a file tool runs direct: efrd reads or writes the path.
+        Launch::Direct => "the file tool runs outside the sandbox".to_owned(),
         _ => "runs as typed".to_owned(),
     }
 }
@@ -377,9 +379,13 @@ fn program(program: &ProgramFact, home: Option<&Path>) -> (String, bool) {
 }
 
 /// The heading of an exit's approval: the whole line from the record, so nothing of it
-/// hides behind a summary; `None` without a record.
+/// hides behind a summary; `None` without a record, and for an exit of a file tool,
+/// which has no line: its summary names the path.
 pub(crate) fn exit_heading(record: Option<&ExitRecord>) -> Option<String> {
     let action = &record?.action;
+    if action.line.is_empty() {
+        return None;
+    }
     Some(format!("{}: run \"{}\"", one_line(&action.tool), one_line(&action.line)))
 }
 

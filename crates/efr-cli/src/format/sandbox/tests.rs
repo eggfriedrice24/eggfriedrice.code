@@ -462,3 +462,23 @@ fn blocked_hosts_and_stopped_jobs_get_a_line_each() {
         "sandbox: could not end sudo; the next call gets a new hidden shell"
     );
 }
+
+#[test]
+fn an_exit_of_a_file_tool_keeps_its_summary_and_says_where_it_runs() {
+    let mut record = record("");
+    record.action.tool = "read_file".to_owned();
+    record.facts.targets = vec![target("/home/u/p/app/.env")];
+    // No line to show: the view falls back to the daemon's summary, which names the path.
+    assert_eq!(exit_heading(Some(&record)), None);
+    let mut info = info(&[ExitKind::MaskedRead], Launch::Direct);
+    info.user_only = true;
+    let lines: Vec<String> =
+        exit_lines(&info, Some(&record), home()).into_iter().map(|(line, _)| line).collect();
+    assert_eq!(
+        lines,
+        [
+            "leaves the sandbox: read ~/p/app/.env; the file tool runs outside the sandbox",
+            "efr: only you can allow this",
+        ]
+    );
+}
