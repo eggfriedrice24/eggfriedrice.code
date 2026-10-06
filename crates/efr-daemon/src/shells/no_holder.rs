@@ -39,6 +39,10 @@ impl PtyHolder for NoHolder {
         Ok(Vec::new())
     }
 
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError> {
+        Err(HolderError::NotFound { pty_id })
+    }
+
     async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {
         Err(HolderError::NotFound { pty_id })
     }

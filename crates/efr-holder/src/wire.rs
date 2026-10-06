@@ -80,6 +80,11 @@ pub enum HolderRequest {
     },
     /// [`PtyHolder::list`](crate::PtyHolder::list).
     List,
+    /// [`PtyHolder::foreground`](crate::PtyHolder::foreground).
+    Foreground {
+        /// The PTY.
+        pty_id: PtyId,
+    },
     /// [`PtyHolder::wait`](crate::PtyHolder::wait). The service answers once it has
     /// reaped the child, and answers other requests on the connection meanwhile.
     Wait {
@@ -118,6 +123,15 @@ pub enum HolderResponse {
         /// Every PTY the service holds.
         ptys: Vec<PtyInfo>,
     },
+    /// The answer to `foreground`.
+    Foreground {
+        /// The PTY.
+        pty_id: PtyId,
+        /// The foreground process group in the service's process id namespace; absent
+        /// when the terminal has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<u32>,
+    },
     /// The answer to `wait`: the child has been reaped.
     Exited {
         /// The PTY.
@@ -140,6 +154,7 @@ impl HolderResponse {
             HolderResponse::Hello { .. }
             | HolderResponse::Done
             | HolderResponse::Listed { .. }
+            | HolderResponse::Foreground { .. }
             | HolderResponse::Exited { .. }
             | HolderResponse::Error(_) => 0,
         }

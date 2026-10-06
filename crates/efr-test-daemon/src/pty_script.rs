@@ -134,6 +134,9 @@ struct FakePty {
     pid: u32,
     size: Size,
     status: watch::Sender<ChildStatus>,
+    /// What [`PtyHolder::foreground`] answers, when the test set it; the shell's own
+    /// pid while it runs otherwise.
+    foreground: Option<Option<u32>>,
 }
 
 impl FakePtyHolder {
@@ -200,6 +203,20 @@ impl FakePtyHolder {
         }
     }
 
+    /// Makes [`PtyHolder::foreground`] answer `group` for `pty_id`, as when a job holds
+    /// the terminal (`Some` of another number) or nobody does (`None`). Until a test
+    /// calls it, the shell itself holds its terminal while it runs. Returns false when
+    /// the holder does not hold that PTY.
+    pub fn set_foreground(&self, pty_id: PtyId, group: Option<u32>) -> bool {
+        match self.lock().ptys.get_mut(&pty_id) {
+            Some(pty) => {
+                pty.foreground = Some(group);
+                true
+            }
+            None => false,
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         // Every critical section leaves the state whole, so a poisoned lock is usable.
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
@@ -230,7 +247,12 @@ impl PtyHolder for FakePtyHolder {
         let pty_id = spec.pty_id;
         state.ptys.insert(
             pty_id,
-            FakePty { pid, size: spec.size, status: watch::Sender::new(ChildStatus::Running) },
+            FakePty {
+                pid,
+                size: spec.size,
+                status: watch::Sender::new(ChildStatus::Running),
+                foreground: None,
+            },
         );
         state.terminals.push(Some((pty_id, theirs)));
         state.specs.push(spec);
@@ -286,6 +308,15 @@ impl PtyHolder for FakePtyHolder {
                 status: *pty.status.borrow(),
             })
             .collect())
+    }
+
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError> {
+        let state = self.lock();
+        let pty = state.ptys.get(&pty_id).ok_or(HolderError::NotFound { pty_id })?;
+        if !pty.status.borrow().is_running() {
+            return Ok(None);
+        }
+        Ok(pty.foreground.unwrap_or(Some(pty.pid)))
     }
 
     async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {

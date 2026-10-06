@@ -160,3 +160,29 @@ fn decoding_fills_missing_lists_and_ignores_unknown_fields() {
     .unwrap();
     assert_eq!(spec, zsh());
 }
+
+#[test]
+fn a_child_subreaper_is_off_by_default_and_left_out_of_the_wire() {
+    assert!(!zsh().child_subreaper);
+    let value = serde_json::to_value(zsh().child_subreaper(false)).unwrap();
+    assert!(value.get("child_subreaper").is_none(), "{value}");
+}
+
+#[test]
+fn a_child_subreaper_round_trips_through_json() {
+    let spec = zsh().child_subreaper(true);
+    let value = serde_json::to_value(&spec).unwrap();
+    assert_eq!(
+        value,
+        json!({
+            "pty_id": PTY,
+            "program": "/usr/bin/zsh",
+            "cwd": "/home/user",
+            "size": {"cols": 80, "rows": 24},
+            "child_subreaper": true,
+        })
+    );
+    let back: SpawnSpec = serde_json::from_value(value).unwrap();
+    assert_eq!(back, spec);
+    assert!(format!("{spec:?}").contains("child_subreaper: true"));
+}

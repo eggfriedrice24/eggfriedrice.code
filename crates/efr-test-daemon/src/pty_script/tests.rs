@@ -73,6 +73,20 @@ async fn the_test_reads_what_the_daemon_types_and_the_daemon_reads_what_the_test
 }
 
 #[tokio::test]
+async fn the_foreground_is_the_shell_until_the_test_sets_it() {
+    let holder = FakePtyHolder::new();
+    let handle = holder.spawn(spec(1)).await.unwrap();
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), Some(handle.child_pid));
+
+    assert!(holder.set_foreground(pty(1), Some(77)));
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), Some(77));
+    assert!(!holder.set_foreground(pty(2), None));
+
+    holder.end(pty(1), ChildStatus::Exited { code: 0 });
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), None);
+}
+
+#[tokio::test]
 async fn a_script_plays_and_a_difference_is_a_mismatch() {
     let holder = FakePtyHolder::new();
     let mut master = spawn(&holder, 1).await;

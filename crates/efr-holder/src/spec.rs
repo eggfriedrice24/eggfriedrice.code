@@ -27,8 +27,9 @@ use crate::HolderError;
 /// the chained setters. Holders call [`SpawnSpec::validate`] before they open anything,
 /// because a spec that arrives over the holder socket bypasses the constructor.
 ///
-/// On the wire, `args` and `env` are left out when empty, and `program` and `cwd` are
-/// strings, so a path that is not UTF-8 cannot cross the holder socket.
+/// On the wire, `args` and `env` are left out when empty, `child_subreaper` when false,
+/// and `program` and `cwd` are strings, so a path that is not UTF-8 cannot cross the
+/// holder socket.
 ///
 /// `Debug` lists the environment's names but not its values: the hidden shell's
 /// environment is copied from the user's, which can hold tokens.
@@ -49,6 +50,13 @@ pub struct SpawnSpec {
     pub env: BTreeMap<String, String>,
     /// The terminal size the PTY starts with.
     pub size: Size,
+    /// Makes the child a child subreaper (`PR_SET_CHILD_SUBREAPER`) before it starts the
+    /// program. A process that the child's descendants leave behind, after a double
+    /// fork or `setsid`, then becomes the child's own child, not the child of init or
+    /// of a service manager. The hidden zsh asks for it, so that no process of a
+    /// sandboxed call escapes the shell's process tree.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub child_subreaper: bool,
 }
 
 impl SpawnSpec {
@@ -67,7 +75,15 @@ impl SpawnSpec {
             cwd: cwd.into(),
             env: BTreeMap::new(),
             size,
+            child_subreaper: false,
         }
+    }
+
+    /// Sets whether the child becomes a child subreaper before it starts the program.
+    #[must_use]
+    pub fn child_subreaper(mut self, subreaper: bool) -> Self {
+        self.child_subreaper = subreaper;
+        self
     }
 
     /// Appends one argument.
@@ -147,6 +163,10 @@ fn validate_cwd(cwd: &Path) -> Result<(), HolderError> {
     Ok(())
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 fn has_nul(bytes: &[u8]) -> bool {
     bytes.contains(&0)
 }
@@ -160,6 +180,7 @@ impl fmt::Debug for SpawnSpec {
             .field("cwd", &self.cwd)
             .field("env", &EnvNames(&self.env))
             .field("size", &self.size)
+            .field("child_subreaper", &self.child_subreaper)
             .finish()
     }
 }

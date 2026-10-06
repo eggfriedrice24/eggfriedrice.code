@@ -28,7 +28,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   takes the other end of the n-th spawned PTY as a `FakeTerminal`, reads what the
   session types (`typed_line`, `typed_against`) and prints what a zsh with the efr
   integration prints (`PROMPT`, `command_output`). `wait` returns when the test ends the
-  child or the daemon sends it `SIGHUP` or `SIGKILL`. A `PtyScript` is a list of prints
+  child or the daemon sends it `SIGHUP` or `SIGKILL`. `foreground` answers the shell's
+  own pid while it runs, until the test sets another answer with `set_foreground` (a
+  job that holds the terminal, for the end of a sandboxed run). A `PtyScript` is a list of prints
   and expected input that a terminal plays.
 - `replay`: `Replay` drives a `Scenario` (a fixture in `fixtures/` and a line in
   `SCENARIOS` saying how its daemon runs) through a test daemon, record by record:
