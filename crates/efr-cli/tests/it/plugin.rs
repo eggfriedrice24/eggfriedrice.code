@@ -1190,6 +1190,21 @@ fn e2e_an_unknown_comma_word_starts_a_prompt_and_a_users_own_still_runs() {
     assert!(history.contains(&", ask in sticky mode"), "{history:?}");
 }
 
+#[test]
+fn e2e_a_comma_word_with_a_bang_steers_and_a_typo_of_a_command_stays_on_the_line() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // Ctrl+U clears the line that the typo left, so the next line starts empty.
+    let screen = type_lines(&home, &[",moed auto", "\x15,!stop now", ",now what"]);
+    assert!(screen.contains("efr: ,moed is no command; did you mean ,mode?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send", "--steer"], vec!["send"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("stop now"));
+    assert_eq!(calls[1].prompt.as_deref(), Some("now what"));
+}
+
 /// A widget on Ctrl+X Ctrl+R that records what the line shows while it is typed, with
 /// the plugin's highlights after a `|`, and a line-finish hook that records what the
 /// line shows once Enter accepted it.

@@ -12,7 +12,9 @@
 #   ,effort [e]    the same for the reasoning effort
 #   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
 #                  could run is a prompt that starts with the word: `,run make`
-#                  sends `run make`; a `,word` command of the user's own still runs
+#                  sends `run make`; a `,word` command of the user's own still runs,
+#                  `,!word` steers with `word`, and a typo of a plugin command such
+#                  as `,moed` stays on the line with a hint instead of running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just `mode`, `model` or `effort`,
@@ -25,8 +27,9 @@
 #                  an alias of `,`, so the screen and history keep the line that ran,
 #                  and the line still goes to the agent when history recalls it
 #
-# A prompt is never parsed as shell syntax, and the line stays exactly as typed on the
-# screen and in history. The accept-line widget saves the prompt text, and `,`,
+# A prompt is never parsed as shell syntax, and the line stays as typed on the screen
+# and in history, except that a sticky prompt gets the robot in front and an unknown
+# `,word` line gets a blank after its `,` (`,!word` one after its `,!`). The accept-line widget saves the prompt text, and `,`,
 # `,new` and `,!` are aliases whose expansion ends in a comment marker, so zsh reads
 # the rest of the line as a comment; the commands then take the saved text. The two
 # options this needs (interactive_comments on, bang_hist off) hold for that one line
@@ -537,13 +540,65 @@ _efr_line_to_run() {
 # `,` word that names nothing zsh could run: no plugin command, and no alias,
 # function, builtin, reserved word or command of the user's. `,run sudo pacman -Syu`
 # becomes the prompt line `, run sudo pacman -Syu`, so the word is part of the prompt
-# instead of a `command not found`. Returns 1 for any other line, which stays as it is.
+# instead of a `command not found`. A word that starts with `!` is a steer that lost
+# its blank: `,!stop` becomes `,! stop`. Returns 1 for any other line, which stays as
+# it is.
 _efr_unknown_comma_line() {
   emulate -L zsh -o extended_glob
   [[ $1 == (#b)([[:space:]]#),([^[:space:]]##)(*) ]] || return 1
   # whence knows every kind of name that zsh runs, the plugin's own commands too.
   whence -- ",$match[2]" >/dev/null && return 1
-  REPLY="$match[1], $match[2]$match[3]"
+  if [[ $match[2] == '!'?* ]]; then
+    REPLY="$match[1],! ${match[2]#!}$match[3]"
+  else
+    REPLY="$match[1], $match[2]$match[3]"
+  fi
+}
+
+# True when $1 and $2 differ by exactly one letter added, dropped, changed, or two
+# neighbours swapped.
+_efr_one_edit() {
+  emulate -L zsh
+  local a=$1 b=$2 i=1
+  if (( ${#a} > ${#b} )); then
+    a=$2 b=$1
+  fi
+  (( ${#b} - ${#a} <= 1 )) || return 1
+  while (( i <= ${#a} )) && [[ ${a[i]} == "${b[i]}" ]]; do
+    (( i++ ))
+  done
+  if (( ${#a} < ${#b} )); then
+    [[ ${a[i,-1]} == "${b[i+1,-1]}" ]]
+  elif (( i > ${#a} )); then
+    return 1
+  else
+    [[ ${a[i+1,-1]} == "${b[i+1,-1]}" ]] && return 0
+    [[ ${a[i]} == "${b[i+1]}" && ${a[i+1]} == "${b[i]}" && ${a[i+2,-1]} == "${b[i+2,-1]}" ]]
+  fi
+}
+
+# Sets REPLY to a hint when the first word of the line $1 is a typo of a plugin
+# command's `,` word, such as `,moed` for `,mode`: one edit away from `,mode`,
+# `,model` or `,effort`, or the letters of `,new` in another order. Only the order
+# counts for the short `,new`, because one edit from it is also the start of a prompt
+# such as `,now`.
+# A word that zsh could run is no typo. Returns 1 for any other line.
+_efr_mistyped_command() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == (#b)[[:space:]]#,([[:alpha:]]##)([[:space:]]*|) ]] || return 1
+  local word=$match[1] name meant=
+  whence -- ",$word" >/dev/null && return 1
+  # `model` first: `,modl` is one edit from both, and more likely `,model` with a
+  # letter lost.
+  for name in model mode effort; do
+    if _efr_one_edit $word $name; then
+      meant=$name
+      break
+    fi
+  done
+  [[ -z $meant && ${(j::)${(os::)word}} == enw ]] && meant=new
+  [[ -n $meant ]] || return 1
+  REPLY="efr: ,$word is no command; did you mean ,$meant? \`, $word\` sends a prompt"
 }
 
 # For a one-line plugin line $1 (`,`, `,new`, `,!` or the sticky word, followed by a
@@ -577,6 +632,12 @@ _efr_accept_line() {
   # nothing lands in history. Without efr it runs, and `,` says what is missing.
   if _efr_is_toggle_line "$BUFFER" && _efr_set_sticky $(( ! _efr_sticky )); then
     BUFFER=''
+    return 0
+  fi
+  # A typo of a plugin command would otherwise become a prompt, and so a model call:
+  # the line stays for the user to fix, and a blank after the `,` still sends it.
+  if _efr_mistyped_command "$BUFFER"; then
+    zle -M "$REPLY"
     return 0
   fi
   if (( _efr_sticky )); then
