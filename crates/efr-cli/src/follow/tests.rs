@@ -10,9 +10,11 @@ use efr_render::RenderOptions;
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
-use super::{Target, TurnView, follow};
+use super::{AnswerKind, Ask, Asking, Target, TurnView, follow, take_over};
+use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
+use crate::keys::KeyReader;
 use crate::testing::{
     Captured, Conn, GateClock, ScriptedKeys, TestEnv, TestInterrupt, TestQuit, call, capture,
     conversation, envelope, item, now, turn,
@@ -558,6 +560,168 @@ async fn a_visible_answer_is_echoed_and_sent_as_typed() {
     assert!(out.contains("answer sent"), "{out}");
 }
 
+/// Asks to approve the shell call as one that may wait for input, and allows it with
+/// `y`, the first key typed.
+async fn allow_interactive(conn: &mut Conn, sub: RequestId, presser: &ScriptedKeys) {
+    let request = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "shell: sudo pacman -Syu".to_owned(),
+        diff_preview: None,
+        interactive: true,
+    };
+    conn.item(sub, &item(12, request)).await;
+    presser.press(b'y').await;
+    let (id, method) = conn.request().await;
+    let Method::ApprovalRespond(params) = method else {
+        panic!("expected approval.respond, got {}", method.name());
+    };
+    assert_eq!(params.decision, ApprovalDecision::Allow);
+    conn.reply(id, &ApprovalRespondResult { seq: Seq::new(13) }).await;
+    let resolved = Event::ApprovalResolved {
+        turn_id: turn(),
+        call_id: call(),
+        decision: ApprovalDecision::Allow,
+        origin: Origin::Shell,
+    };
+    conn.item(sub, &item(13, resolved)).await;
+}
+
+/// The end of the shell call and of the turn, once the keys stopped.
+async fn finish_shell(conn: &mut Conn, sub: RequestId, presser: &ScriptedKeys, seq: u64) {
+    conn.item(sub, &item(seq, shell_completed(0))).await;
+    presser.stopped().await;
+    conn.item(sub, &item(seq + 1, turn_completed())).await;
+    conn.until_closed().await;
+}
+
+#[tokio::test]
+async fn keys_typed_ahead_for_an_allowed_interactive_call_start_its_visible_answer() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, _) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
+        allow_interactive(&mut conn, sub, &presser).await;
+        // Typed while the command still works, with an Enter that must not send it.
+        presser.type_bytes(b"Y\r").await;
+        conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
+        conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
+        shows(&seen, "> Y").await;
+        presser.type_bytes(b"es\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "Yes", "one answer, sent by the last Enter");
+        assert!(!params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        // The wait ends and the keys are kept for the call again.
+        conn.item(sub, &item(16, input_changed(InputWait::None))).await;
+        finish_shell(&mut conn, sub, &presser, 17).await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1, "the reader that read the y read everything after it");
+    assert!(keys.discarded(), "what is still unread at the call's end never reaches the shell");
+    assert!(out.contains("answer sent"), "{out}");
+}
+
+#[tokio::test]
+async fn keys_typed_ahead_never_join_a_hidden_answer_and_never_show() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
+        allow_interactive(&mut conn, sub, &presser).await;
+        presser.type_bytes(b"ahead\r").await;
+        conn.item(sub, &item(14, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(15, input_changed(InputWait::Hidden))).await;
+        shows(&seen, "it is not shown").await;
+        presser.type_bytes(b"pw\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "pw");
+        assert!(params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        finish_shell(&mut conn, sub, &presser, 16).await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    for written in [&out, &err] {
+        assert!(!written.contains("ahead"), "{written}");
+    }
+}
+
+#[tokio::test]
+async fn keys_typed_ahead_start_a_secret_looking_answer_without_showing() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo -u build passwd"))).await;
+        allow_interactive(&mut conn, sub, &presser).await;
+        presser.type_bytes(b"hunter2").await;
+        conn.item(sub, &item(14, shell_output("Current password: "))).await;
+        let secret = Event::ToolCallInputChanged {
+            turn_id: turn(),
+            call_id: call(),
+            input: InputWait::Visible,
+            looks_secret: true,
+        };
+        conn.item(sub, &item(15, secret)).await;
+        shows(&seen, "your typing is not shown here").await;
+        presser.press(b'\r').await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        assert!(!params.hidden, "it goes as the visible answer that the wait asked for");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        finish_shell(&mut conn, sub, &presser, 16).await;
+    })
+    .await;
+    result.unwrap();
+    for written in [&out, &err] {
+        assert!(!written.contains("hunter") && !written.contains("ter2"), "{written}");
+    }
+}
+
+#[tokio::test]
+async fn keys_typed_during_a_call_allowed_without_input_stay_for_the_shell() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let (result, _, _) = run_view(&env, &ctx, terminal_view(), |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("make clean"))).await;
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "shell: make clean".to_owned(),
+            diff_preview: None,
+            interactive: false,
+        };
+        conn.item(sub, &item(12, request)).await;
+        presser.press(b'y').await;
+        let (id, _) = conn.request().await;
+        // The reader stops at once and leaves what is unread to the user's shell.
+        presser.stopped().await;
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(13) }).await;
+        finish_shell(&mut conn, sub, &presser, 13).await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert!(!keys.discarded());
+}
+
 #[tokio::test]
 async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a_hidden_one_is_not()
 {
@@ -1047,4 +1211,77 @@ async fn without_keys_a_silent_call_offers_nothing() {
     result.unwrap();
     assert!(!err.contains("Ctrl+"), "{err}");
     assert_eq!(quit.armed(), 0);
+}
+
+/// A reader whose queue holds `queued`, as if those keys were typed and not read yet.
+fn reader_with(queued: &[u8]) -> (KeyReader, tokio::sync::mpsc::Sender<u8>) {
+    let (sender, keys) = tokio::sync::mpsc::channel(16);
+    for key in queued {
+        sender.try_send(*key).unwrap();
+    }
+    (KeyReader::from_channel(keys), sender)
+}
+
+fn pending(text: &str) -> Asking {
+    let mut line = AnswerLine::new();
+    for key in text.bytes() {
+        super::pend(&mut line, key);
+    }
+    Asking::Pending { call_id: call(), line }
+}
+
+fn line_of(asking: &Asking) -> &str {
+    match asking {
+        Asking::Input { line, .. } | Asking::Pending { line, .. } => line.text(),
+        other => panic!("no line: {other:?}"),
+    }
+}
+
+#[test]
+fn a_visible_wait_takes_the_pending_line_with_the_queued_keys_but_no_enter() {
+    let (reader, _sender) = reader_with(b"es\r");
+    let ask = Ask::Input { call_id: call(), kind: AnswerKind::Visible };
+    let (mut reader, asking, seeded) = take_over(reader, Some(pending("Y\r")), ask);
+    assert_eq!(line_of(&asking), "Yes");
+    assert_eq!(seeded.as_deref(), Some("Yes"), "a visible answer shows what was typed ahead");
+    assert_eq!(reader.queued(), None, "the queue went into the line");
+}
+
+#[test]
+fn a_secret_looking_wait_takes_the_pending_line_without_showing_it() {
+    let (reader, _sender) = reader_with(b"2");
+    let ask = Ask::Input { call_id: call(), kind: AnswerKind::Masked };
+    let (_, asking, seeded) = take_over(reader, Some(pending("hunter")), ask);
+    assert_eq!(line_of(&asking), "hunter2");
+    assert_eq!(seeded, None);
+}
+
+#[test]
+fn a_hidden_wait_a_manual_line_or_another_call_drops_the_pending_line_and_the_queue() {
+    let other: CallId = "0192f0c1-7a00-7000-8000-0000000000fd".parse().unwrap();
+    for ask in [
+        Ask::Input { call_id: call(), kind: AnswerKind::Hidden },
+        Ask::Input { call_id: call(), kind: AnswerKind::Manual },
+        Ask::Input { call_id: other, kind: AnswerKind::Visible },
+        Ask::Discard(call()),
+        Ask::Approval(other),
+    ] {
+        let (reader, _sender) = reader_with(b"more");
+        let (mut reader, asking, seeded) = take_over(reader, Some(pending("ahead")), ask);
+        assert_eq!(seeded, None, "{ask:?}");
+        if let Asking::Input { line, .. } = &asking {
+            assert_eq!(line.text(), "", "{ask:?}");
+        }
+        assert_eq!(reader.queued(), None, "{ask:?}");
+    }
+}
+
+#[test]
+fn keeping_the_keys_again_keeps_the_queue() {
+    let (reader, _sender) = reader_with(b"y");
+    let before =
+        Asking::Input { call_id: call(), kind: AnswerKind::Visible, line: AnswerLine::new() };
+    let (mut reader, asking, _) = take_over(reader, Some(before), Ask::Retain(call()));
+    assert_eq!(line_of(&asking), "");
+    assert_eq!(reader.queued(), Some(b'y'), "typed for the call, so it stays");
 }

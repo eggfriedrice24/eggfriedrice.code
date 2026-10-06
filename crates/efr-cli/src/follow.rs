@@ -22,6 +22,14 @@
 //! reader holds the terminal in modes of its own that the key's default action, the
 //! end of the process, would leave behind: a press then closes an open manual line
 //! unsent, and does nothing while an approval or another answer is asked.
+//!
+//! A call that the user allowed here with `y` and whose approval says it may wait for
+//! input at the terminal keeps its keys: the reader that read the `y` goes on, and what
+//! is typed while the call asks nothing goes into a pending [`AnswerLine`] that is never
+//! shown or sent, with Enter dropped. A visible wait of the call takes that line as its
+//! answer line, together with the keys still queued, so a `y` typed ahead stands in the
+//! line when the question appears and waits for Enter. A hidden wait, a manual line and
+//! the call's end drop it, zeroed; the reader then throws away what is still unread.
 
 mod view;
 
@@ -156,6 +164,9 @@ enum Asking {
     /// Nothing: the keys are thrown away until the call that asked for a hidden answer
     /// completes.
     Discard,
+    /// Nothing yet: the keys typed for call `call_id`, which the user allowed here as one
+    /// that may wait for input, wait in `line` for a visible wait of the call.
+    Pending { call_id: CallId, line: AnswerLine },
 }
 
 /// Stops `keys`. A reader that read an answer line throws away what is still unread,
@@ -163,7 +174,17 @@ enum Asking {
 async fn stop(keys: KeyReader, asking: &Asking) {
     match asking {
         Asking::Approval(_) => keys.stop().await,
-        Asking::Input { .. } | Asking::Discard => keys.stop_discarding().await,
+        Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
+            keys.stop_discarding().await;
+        }
+    }
+}
+
+/// Feeds `key` to the pending `line` of a call that asks nothing yet. Enter is dropped:
+/// a line typed ahead is sent only by an Enter typed after its question appeared.
+fn pend(line: &mut AnswerLine, key: u8) {
+    if !matches!(key, b'\r' | b'\n') {
+        line.key(key);
     }
 }
 
@@ -230,7 +251,7 @@ impl Follower<'_> {
         }
         for event in pending.into_iter().chain(output).chain(input) {
             let step = view.event(&event, self.ctx.screen.size(), self.ctx.keys.available());
-            self.apply(step, out).await?;
+            self.apply(step, out, view).await?;
         }
         Ok(())
     }
@@ -252,7 +273,7 @@ impl Follower<'_> {
                     call_id = silent(&mut self.silence) => {
                         self.silence = None;
                         let step = view.silent(call_id, self.ctx.screen.size());
-                        self.apply(step, out).await?;
+                        self.apply(step, out, view).await?;
                     }
                     () = pressed(&mut self.quit) => {
                         self.quit = None;
@@ -309,7 +330,7 @@ impl Follower<'_> {
         } else {
             return Ok(());
         };
-        self.apply(step, out).await.map(drop)
+        self.apply(step, out, view).await.map(drop)
     }
 
     async fn subscribe(&self) -> Result<ItemStream<Value>, CliError> {
@@ -348,7 +369,7 @@ impl Follower<'_> {
             self.last_seen = envelope.seq;
             let step =
                 view.event(&envelope.event, self.ctx.screen.size(), self.ctx.keys.available());
-            if let Some(end) = self.apply(step, out).await? {
+            if let Some(end) = self.apply(step, out, view).await? {
                 return Ok(Some(end));
             }
         }
@@ -361,29 +382,28 @@ impl Follower<'_> {
     }
 
     /// Writes a step and starts or stops reading keys as it says.
-    async fn apply(&mut self, step: Step, out: &mut Output) -> Result<Option<TurnEnd>, CliError> {
+    async fn apply(
+        &mut self,
+        step: Step,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<Option<TurnEnd>, CliError> {
         write(out, &step)?;
         match step.ask {
             Some(ask) => {
-                let asking = match ask {
-                    Ask::Approval(call_id) => Asking::Approval(call_id),
-                    Ask::Input { call_id, kind } => {
-                        Asking::Input { call_id, kind, line: AnswerLine::new() }
-                    }
-                    Ask::Discard(_) => Asking::Discard,
-                };
-                let reader = match self.keys.take() {
-                    // NOTE: a reader that runs is kept, so echo never comes back between
-                    // two questions; the keys in its queue were typed before this one.
-                    Some((mut reader, _)) => {
-                        reader.discard_queued();
-                        reader
-                    }
+                let (reader, before) = match self.keys.take() {
+                    Some((reader, before)) => (reader, Some(before)),
                     // Starting the reader discards typeahead, so nothing typed before
                     // the question answers it or stays queued for the shell.
-                    None => self.ctx.keys.start()?,
+                    None => (self.ctx.keys.start()?, None),
                 };
+                // NOTE: the reader is held here before anything can fail, so the exit
+                // path still stops it and restores the terminal.
+                let (reader, asking, seeded) = take_over(reader, before, ask);
                 self.keys = Some((reader, asking));
+                if let Some(text) = seeded {
+                    write(out, &view.typed(&text, self.ctx.screen.size()))?;
+                }
             }
             None if step.settled || step.end.is_some() => {
                 if let Some((keys, asking)) = self.keys.take() {
@@ -414,13 +434,26 @@ impl Follower<'_> {
                 self.keys = Some((reader, Asking::Discard));
                 Ok(())
             }
+            Asking::Pending { call_id, mut line } => {
+                pend(&mut line, key);
+                self.keys = Some((reader, Asking::Pending { call_id, line }));
+                Ok(())
+            }
             Asking::Approval(call_id) => {
                 let Some(decision) = keys::decision(key) else {
                     self.keys = Some((reader, Asking::Approval(call_id)));
                     return Ok(());
                 };
-                reader.stop().await;
                 let step = view.answered(call_id, decision, self.ctx.screen.size());
+                match step.ask {
+                    // The call may wait for input: the reader goes on, and the keys
+                    // typed after the `y` are kept for it.
+                    Some(Ask::Retain(kept)) => {
+                        let line = AnswerLine::new();
+                        self.keys = Some((reader, Asking::Pending { call_id: kept, line }));
+                    }
+                    _ => reader.stop().await,
+                }
                 write(out, &step)?;
                 self.respond(call_id, decision, out, view).await
             }
@@ -476,7 +509,7 @@ impl Follower<'_> {
             Err(ClientError::Server { body }) => view.answer_failed(&body.message, size),
             Err(error) => return Err(error.into()),
         };
-        self.apply(step, out).await.map(drop)
+        self.apply(step, out, view).await.map(drop)
     }
 
     async fn respond(
@@ -503,6 +536,51 @@ impl Follower<'_> {
                 write(out, &view.note(&line, self.ctx.screen.size()))
             }
             Err(error) => Err(error.into()),
+        }
+    }
+}
+
+/// What the running `reader`, which read for `before` (`None` for a new reader), reads
+/// for `ask`, with the text that a shown answer line starts with.
+///
+/// The pending line of a call that kept its keys becomes the answer line of a visible
+/// wait of the same call, with the keys still queued fed to it first (Enter dropped),
+/// because they were typed before the question appeared. A visible wait shows that text;
+/// one that looks secret does not. Keeping keys again keeps the queue too. Anything
+/// else drops what came before, zeroed, and the queue: those keys were typed before
+/// this question appeared, and a new reader's flush would have dropped them.
+fn take_over(
+    mut reader: KeyReader,
+    before: Option<Asking>,
+    ask: Ask,
+) -> (KeyReader, Asking, Option<String>) {
+    match (before, ask) {
+        (Some(Asking::Pending { call_id, mut line }), Ask::Input { call_id: asked, kind })
+            if asked == call_id && matches!(kind, AnswerKind::Visible | AnswerKind::Masked) =>
+        {
+            while let Some(key) = reader.queued() {
+                pend(&mut line, key);
+            }
+            let seeded = (kind.shown() && !line.text().is_empty()).then(|| line.text().to_owned());
+            (reader, Asking::Input { call_id, kind, line }, seeded)
+        }
+        (Some(Asking::Pending { call_id, line }), Ask::Retain(kept)) if kept == call_id => {
+            (reader, Asking::Pending { call_id, line }, None)
+        }
+        (before, ask) => {
+            // A running reader is kept, so echo never comes back between two questions.
+            if before.is_some() && !matches!(ask, Ask::Retain(_)) {
+                reader.discard_queued();
+            }
+            let asking = match ask {
+                Ask::Approval(call_id) => Asking::Approval(call_id),
+                Ask::Input { call_id, kind } => {
+                    Asking::Input { call_id, kind, line: AnswerLine::new() }
+                }
+                Ask::Discard(_) => Asking::Discard,
+                Ask::Retain(call_id) => Asking::Pending { call_id, line: AnswerLine::new() },
+            };
+            (reader, asking, None)
         }
     }
 }

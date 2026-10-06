@@ -33,6 +33,17 @@
 //! is never shown as it is typed: nothing reported a prompt, so nothing tells whether
 //! the command asks for a password, and the program's own echo still shows in its
 //! output. `Ctrl+\` again closes the line unsent ([`TurnView::manual_cancelled`]).
+//!
+//! A call whose approval says it may wait for input at the terminal (`interactive`) and
+//! that the user allowed with a key here keeps the keys typed while it runs
+//! ([`Ask::Retain`]): the follow loop reads them, without echo, into a pending line that
+//! is neither shown nor sent. When the call then reports a visible wait, that text
+//! starts the answer line, shown unless the prompt looks secret, and the user still
+//! presses Enter after the question appears: an Enter typed before it is dropped. A
+//! hidden wait throws the pending text away, and so does the call's end. After a wait
+//! that ends without asking for a password the keys are kept again; after one that
+//! asked for a password they are thrown away as before. Keys typed outside such a call
+//! stay typeahead for the user's shell.
 
 use std::collections::{HashMap, HashSet};
 
@@ -186,6 +197,11 @@ pub(crate) enum Ask {
     /// does after a wrong password, and a password typed again meanwhile must neither
     /// show nor stay queued for the user's shell.
     Discard(CallId),
+    /// Nothing to answer now, but keep reading keys into a pending line for call
+    /// `call_id`, which the user approved here as one that may wait for input: a
+    /// visible wait of the call starts its answer line with them. Keys already queued
+    /// stay, because they were typed for the call.
+    Retain(CallId),
 }
 
 /// The tool call whose output is arriving now.
@@ -289,6 +305,11 @@ pub(crate) struct TurnView {
     /// When stdout is not a terminal: stderr's last line is the echo of a visible answer
     /// (`> ` and what is typed), without its newline.
     echo_line: bool,
+    /// Approvals asked for calls that may wait for input at the terminal.
+    interactive: HashSet<CallId>,
+    /// The call that the user allowed here as one that may wait for input, while it
+    /// runs: its keys are kept for it whenever nothing else reads them.
+    retained: Option<CallId>,
 }
 
 impl TurnView {
@@ -310,6 +331,8 @@ impl TurnView {
             refused: HashSet::new(),
             running: None,
             echo_line: false,
+            interactive: HashSet::new(),
+            retained: None,
         }
     }
 
@@ -342,12 +365,14 @@ impl TurnView {
         match event {
             Event::TurnStarted { .. } => {
                 self.queued = false;
-                // A call of the turn ahead that is still shown is over now.
+                // A call of the turn ahead that is still shown or kept is over now.
+                let retained = self.retained.take().is_some();
                 match self.running.take() {
-                    Some(running) => {
-                        Step { settled: running.reads_keys(), ..self.commit(String::new(), size) }
-                    }
-                    None => Step::default(),
+                    Some(running) => Step {
+                        settled: running.reads_keys() || retained,
+                        ..self.commit(String::new(), size)
+                    },
+                    None => Step { settled: retained, ..Step::default() },
                 }
             }
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
@@ -387,7 +412,10 @@ impl TurnView {
                 };
                 Step { settled, ..step }
             }
-            Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
+            Event::ApprovalRequested { call_id, summary, diff_preview, interactive, .. } => {
+                if *interactive {
+                    self.interactive.insert(*call_id);
+                }
                 let request = Request { heading: APPROVAL, summary, diff: diff_preview.as_deref() };
                 self.approval(*call_id, &request, size, can_ask)
             }
@@ -418,8 +446,11 @@ impl TurnView {
             return Step::default();
         }
         match event {
-            Event::ApprovalRequested { call_id, summary, diff_preview, .. } => {
+            Event::ApprovalRequested { call_id, summary, diff_preview, interactive, .. } => {
                 self.blocking.insert(*call_id);
+                if *interactive {
+                    self.interactive.insert(*call_id);
+                }
                 let request =
                     Request { heading: BLOCKING_APPROVAL, summary, diff: diff_preview.as_deref() };
                 self.approval(*call_id, &request, size, can_ask)
@@ -437,7 +468,8 @@ impl TurnView {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
             Event::ToolCallCompleted { call_id, .. }
-                if self.running.as_ref().is_some_and(|running| running.call_id == *call_id) =>
+                if self.running.as_ref().is_some_and(|running| running.call_id == *call_id)
+                    || self.retained == Some(*call_id) =>
             {
                 let settled = self.call_ended(*call_id);
                 Step { settled, ..self.commit(String::new(), size) }
@@ -553,12 +585,24 @@ impl TurnView {
         if !self.manual_open() {
             return Step::default();
         }
+        let mut call = None;
         if let Some(running) = &mut self.running {
             running.asking = None;
             running.typed.clear();
             running.hinted = true;
+            call = Some(running.call_id);
         }
-        Step { settled: true, ..self.note(MANUAL_CANCELLED, size) }
+        let step = self.note(MANUAL_CANCELLED, size);
+        self.keys_free(call, step)
+    }
+
+    /// `step` for the moment nothing reads keys for call `call` any more: the keys are
+    /// kept for it when it is the retained call, and stop otherwise.
+    fn keys_free(&self, call: Option<CallId>, step: Step) -> Step {
+        match call.filter(|call| self.retained == Some(*call)) {
+            Some(call) => Step { ask: Some(Ask::Retain(call)), ..step },
+            None => Step { settled: true, ..step },
+        }
     }
 
     /// Call `call_id` began or stopped waiting for input; `looks_secret` when a visible
@@ -591,6 +635,10 @@ impl TurnView {
                 let mut step = self.commit(String::new(), size);
                 step.ask = Some(Ask::Discard(call_id));
                 return step;
+            }
+            _ if settled && !replaced => {
+                let step = self.commit(String::new(), size);
+                return self.keys_free(Some(call_id), step);
             }
             _ => return Step { settled, ..self.commit(String::new(), size) },
         };
@@ -650,16 +698,22 @@ impl TurnView {
         (self.running.get_or_insert_with(|| Running::new(call_id)), replaced)
     }
 
-    /// Call `call_id` completed: its tail and any question for it go. True when keys
-    /// were read for it.
+    /// Call `call_id` completed: its tail, any question for it and the keys kept for it
+    /// go. True when keys were read for it.
     fn call_ended(&mut self, call_id: CallId) -> bool {
-        match self.running.take() {
+        let retained = self.retained == Some(call_id);
+        if retained {
+            self.retained = None;
+        }
+        self.interactive.remove(&call_id);
+        let asked = match self.running.take() {
             Some(running) if running.call_id == call_id => running.reads_keys(),
             other => {
                 self.running = other;
                 false
             }
-        }
+        };
+        asked || retained
     }
 
     /// What the user typed so far for a shown answer, echoed below the prompt: in the
@@ -711,19 +765,24 @@ impl TurnView {
     /// A manual answer asks once: after it, the keys stop and the call's silence starts
     /// again.
     fn answer_note(&mut self, text: &str, size: Size) -> Step {
-        let mut settled = false;
+        let mut freed = None;
         if let Some(running) = &mut self.running {
             running.typed.clear();
             if running.asking.is_some_and(AnswerKind::manual) {
                 running.asking = None;
                 running.stirred();
-                settled = true;
+                freed = Some(running.call_id);
             }
         }
-        Step { settled, ..self.note(text, size) }
+        let step = self.note(text, size);
+        match freed {
+            Some(call) => self.keys_free(Some(call), step),
+            None => step,
+        }
     }
 
-    /// The user answered the approval `call_id` with a key.
+    /// The user answered the approval `call_id` with a key. Allowing a call that may
+    /// wait for input at the terminal keeps the keys for it ([`Ask::Retain`]).
     pub(crate) fn answered(
         &mut self,
         call_id: CallId,
@@ -735,7 +794,12 @@ impl TurnView {
         if decision == ApprovalDecision::Deny {
             self.refused.insert(call_id);
         }
-        self.note(format::decision(decision), size)
+        let step = self.note(format::decision(decision), size);
+        if decision == ApprovalDecision::Allow && self.interactive.contains(&call_id) {
+            self.retained = Some(call_id);
+            return Step { ask: Some(Ask::Retain(call_id)), ..step };
+        }
+        step
     }
 
     /// Ends the view early: commits what the current message has so far and clears the
@@ -743,6 +807,7 @@ impl TurnView {
     pub(crate) fn close(&mut self, size: Size) -> Step {
         self.asking = None;
         self.running = None;
+        self.retained = None;
         let committed = self.finish_message();
         // An echo line left open would carry what is written after the view.
         let err = self.raw_err(String::new());
@@ -854,6 +919,8 @@ impl TurnView {
             }
         }
         let mut step = Step { out: before, ..Step::default() };
+        // Calls run one after another, so a call that kept keys is over by now.
+        self.retained = None;
         if can_ask {
             self.asking = Some(call_id);
             step.ask = Some(Ask::Approval(call_id));
@@ -893,7 +960,7 @@ impl TurnView {
 
     fn end(&mut self, end: TurnEnd, note: Option<&str>, size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
-        let settled = self.asking.take().is_some() || input;
+        let settled = self.asking.take().is_some() || input || self.retained.is_some();
         let mut step = self.close(size);
         if let Some(note) = note {
             let noted = self.note(note, size);

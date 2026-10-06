@@ -160,6 +160,22 @@ for, also one asked before the prompt (found on the newest page of the log, as a
 are). Without a terminal on stdin, one dim note says that the command waits for input
 that `efr` cannot ask for here. Full-screen programs need an attach, which comes later.
 
+Keys typed ahead are kept for a call that may wait for input, but only for one that the
+user allowed here: when `approval_requested` carries `interactive` (the call may wait
+for input at the terminal, such as `sudo`) and the `y` comes from this terminal, the key
+thread that read it goes on, and every key typed while the call asks nothing goes into
+a pending `AnswerLine`, without echo, never shown and never sent, with Enter dropped.
+When the call reports a `visible` wait, the pending text (with the keys still queued)
+starts the answer line: shown for a plain question, not shown when it `looks_secret`.
+The user still presses Enter once the question is on the screen, so a `y` typed ahead
+of a `[Y/n]` waits in the line instead of being sent blind. A `hidden` wait drops the
+pending text, zeroed, and starts an empty line; so does a manual line. A wait that ends
+keeps the keys for the call again, unless it asked for a password, which keeps them
+being thrown away as above. The call's completion, the turn's end or another approval
+drops the pending text and stops the key thread, which discards unread input first.
+Keys typed outside such a call, or during a call allowed elsewhere or that waits for
+nothing, stay typeahead for the user's shell as before.
+
 A command can also wait for input without a prompt that the daemon can see, such as a
 program that reads a line after printing a newline. `efr` must not read keys just
 because a command is silent: text typed then stays typeahead for the user's shell. So

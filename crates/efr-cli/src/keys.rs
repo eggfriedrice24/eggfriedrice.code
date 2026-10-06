@@ -97,6 +97,11 @@ impl KeyReader {
         while self.keys.try_recv().is_ok() {}
     }
 
+    /// The next key that already waits in the queue, without waiting for one.
+    pub(crate) fn queued(&mut self) -> Option<u8> {
+        self.keys.try_recv().ok()
+    }
+
     /// Stops reading and waits until the terminal's settings are restored; keys that
     /// were typed and not read yet stay for whatever reads the terminal next.
     pub(crate) async fn stop(self) {

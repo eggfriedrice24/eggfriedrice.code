@@ -949,3 +949,122 @@ fn the_hint_names_the_silence_that_the_follow_loop_waits_for() {
     let seconds = format!("no output for {} s;", crate::follow::SILENCE.as_secs());
     assert!(super::SILENCE_HINT.starts_with(&seconds), "{}", super::SILENCE_HINT);
 }
+
+/// An approval of the shell call that says whether it may wait for input.
+fn shell_approval(interactive: bool) -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "shell: sudo pacman -Syu".to_owned(),
+        diff_preview: None,
+        interactive,
+    }
+}
+
+/// A terminal view of a shell call whose interactive approval the user allowed here.
+fn kept_shell() -> TurnView {
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
+    view.event(&shell_approval(true), SIZE, true);
+    let step = view.answered(call(), ApprovalDecision::Allow, SIZE);
+    assert_eq!(step.ask, Some(Ask::Retain(call())), "the keys go on for the call");
+    assert!(!step.settled);
+    view
+}
+
+#[test]
+fn allowing_a_call_that_may_wait_for_input_keeps_the_keys_until_it_completes() {
+    let mut view = kept_shell();
+    // The approval resolved by this view changes nothing, and neither does output.
+    let step = view.event(&resolved(Origin::Shell), SIZE, true);
+    assert_eq!((step.ask, step.settled), (None, false));
+    let step = view.event(&output("resolving dependencies..."), SIZE, true);
+    assert_eq!((step.ask, step.settled), (None, false));
+    let step = view.event(&call_completed(0), SIZE, true);
+    assert!(step.settled, "the call's end stops the keys");
+    assert_eq!(step.ask, None);
+}
+
+#[test]
+fn a_visible_wait_of_a_kept_call_asks_and_its_end_keeps_the_keys_again() {
+    let mut view = kept_shell();
+    view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true);
+    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
+    view.answer_sent(SIZE);
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Retain(call())), "the next prompt of the call gets them too");
+    assert!(!step.settled);
+}
+
+#[test]
+fn after_a_password_wait_a_kept_call_throws_its_keys_away() {
+    let mut view = kept_shell();
+    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
+    // A password typed again meanwhile must never start a shown answer line.
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Discard(call())));
+}
+
+#[test]
+fn only_an_interactive_approval_allowed_here_keeps_the_keys() {
+    // Allowed, but the call waits for nothing.
+    let mut view = terminal_view();
+    view.event(&tool_started("make clean"), SIZE, true);
+    view.event(&shell_approval(false), SIZE, true);
+    assert_eq!(view.answered(call(), ApprovalDecision::Allow, SIZE).ask, None);
+    // Denied.
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
+    view.event(&shell_approval(true), SIZE, true);
+    assert_eq!(view.answered(call(), ApprovalDecision::Deny, SIZE).ask, None);
+    // Allowed elsewhere: the keys belong to the user's shell here.
+    let mut view = terminal_view();
+    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
+    view.event(&shell_approval(true), SIZE, true);
+    let step = view.event(&resolved(Origin::Phone), SIZE, true);
+    assert_eq!(step.ask, None);
+    assert!(step.settled, "the question here is settled");
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert_eq!(step.ask, None);
+}
+
+#[test]
+fn a_manual_line_of_a_kept_call_gives_the_keys_back_to_it() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400));
+    let size = Size { cols: 400, rows: 20 };
+    view.event(&shell_started(), size, true);
+    view.event(&shell_approval(true), size, true);
+    view.answered(call(), ApprovalDecision::Allow, size);
+    // A kept call still offers `Ctrl+\` when it is silent.
+    view.silent(call(), size);
+    assert_eq!(view.manual_offer(), Some(call()));
+    view.manual(call(), size);
+    let step = view.manual_cancelled(size);
+    assert_eq!((step.ask, step.settled), (Some(Ask::Retain(call())), false));
+    view.manual(call(), size);
+    let step = view.answer_sent(size);
+    assert_eq!((step.ask, step.settled), (Some(Ask::Retain(call())), false));
+}
+
+#[test]
+fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
+    let mut view = kept_shell();
+    let step = view.event(&turn_completed(), SIZE, true);
+    assert!(step.settled);
+    let mut view = kept_shell();
+    let next: CallId = "0192f0c1-7a00-7000-8000-0000000000fe".parse().unwrap();
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: next,
+        summary: "write ~/.zshrc".to_owned(),
+        diff_preview: None,
+        interactive: false,
+    };
+    assert_eq!(view.event(&approval, SIZE, true).ask, Some(Ask::Approval(next)));
+    // The call that kept keys is over; a late wait of it asks nothing more of the keys.
+    view.answered(next, ApprovalDecision::Allow, SIZE);
+    let step = view.event(&input(InputWait::None), SIZE, true);
+    assert_eq!(step.ask, None);
+}
