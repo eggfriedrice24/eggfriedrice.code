@@ -404,6 +404,10 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   it checks names and directories again and never evaluates text), clears the
   directory report so the precmd hook reports `$PWD` again, and prints
   `OSC 133;efr-sbx;<nonce>`.
+- The precmd hook writes the shell's `PATH` to `$R/sbx/<conversation>/path` when it
+  changed and the dir exists (from the first sandboxed call on). The user's startup
+  files set it, and efrd resolves the program words of an exit question with it, so
+  the question names the program that this shell runs.
 - `efr-child.zsh` is the launcher's child shell: `zsh -f efr-child.zsh DIR` replays
   `DIR/snapshot.zsh` and the sandbox state `DIR/state.zsh` (the exit child's dir has
   none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of

@@ -25,6 +25,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_RUNTIME_DIR/efr/daemon.json` | `{pid, socket, protocol, daemon_id, tailnet_endpoint?}` for discovery | `efr-daemon/src/discovery.rs` |
 | `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` (0500) | the copy of the sandbox launcher that hidden shells run; efrd copies it at start from the installed `efr-sbx` and checks its SHA-256 | `efr-daemon` |
 | `$XDG_RUNTIME_DIR/efr/zsh/efr-child.zsh`, `efr-editor` | the script of the sandboxed child shell, and the editor stub that `EDITOR` names in a call | `efr-shell` assets |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/path` | the hidden shell's `PATH`, where efrd resolves the programs that an exit question names | the hidden shell's precmd hook |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/snapshot.zsh` | the hidden shell's functions, aliases and options, which each sandboxed call replays | the hidden shell's wrapper |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/state.zsh`, `state.json` | what sandboxed calls of the conversation defined (functions, aliases, exports that stay in the sandbox) | `efr-sbx` |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>/` (0700, files 0600) | one call: `spec.json` and `nonce` from efrd, `line` (the model's line), `started`, `apply` (`cd` and promoted exports for the hidden shell) and `result.json` from the launcher | `efr-daemon`, `efr-shell`, `efr-sbx` |

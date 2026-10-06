@@ -543,6 +543,41 @@ async fn shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child() {
     daemon.stop().await.unwrap();
 }
 
+#[tokio::test]
+async fn shell_an_exit_question_resolves_programs_with_the_hidden_shells_path() {
+    if !zsh_enabled("shell_an_exit_question_resolves_programs_with_the_hidden_shells_path") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let (launcher, _) = fake_launcher(&dirs);
+    // The user's startup file puts a sudo of their own first, as ~/.local/bin often is.
+    let bin = dirs.create_dir("home/bin").unwrap();
+    let sudo = bin.join("sudo");
+    std::fs::write(&sudo, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&sudo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(dirs.home().join(".zshenv"), format!("path=({} $path)\n", bin.display()))
+        .unwrap();
+    let model =
+        ScriptedModel::new(vec![json!({ "command": "true" }), json!({ "command": "sudo true" })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let (_, events) = run_turn(&daemon, "as root", Mode::Auto, ApprovalDecision::Deny).await;
+    let record = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ExitRequested { record, .. } => Some(record.clone()),
+        _ => None,
+    });
+    let programs = record.unwrap().facts.programs;
+    let resolved = programs.iter().find(|program| program.word == "sudo").unwrap();
+    assert_eq!(resolved.resolved.as_deref(), Some(sudo.as_path()), "{programs:?}");
+    daemon.stop().await.unwrap();
+}
+
 // NOTE: two workers, so the probe runs while the test waits for its count.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_reprobe_after_sandbox_failed() {

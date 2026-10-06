@@ -181,11 +181,12 @@ impl DaemonToolbox {
             .collect();
         let rebuildable = self.settings.borrow().sandbox.rebuildable.clone();
         let turn_start = sandbox.turns().started(call.context.turn_id, self.clock.now());
+        let shell_path = sandbox.shell_path(call.context.conversation_id);
         let input = facts::FactInput {
             request: &request,
             writes: &writes,
             command_dir,
-            shell_path: &sandbox.host().path,
+            shell_path: &shell_path,
             rebuildable: &rebuildable,
             turn_start,
         };

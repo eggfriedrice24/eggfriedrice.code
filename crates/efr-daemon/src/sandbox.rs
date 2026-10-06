@@ -64,6 +64,12 @@ pub(crate) const NOT_PROBED: &str = "the sandbox probe has not run yet";
 /// The directory of the probe's fake call below efr's state root.
 const PROBE_DIR: &str = "sandbox/probe";
 
+/// The file in a conversation's sandbox dir where its hidden shell writes its `PATH`.
+const PATH_FILE: &str = "path";
+
+/// The most bytes of a `PATH` that efrd reads from [`PATH_FILE`].
+const MAX_PATH_BYTES: usize = 64 * 1024;
+
 /// What the service is built from.
 pub(crate) struct ServiceParts {
     pub(crate) dirs: Dirs,
@@ -105,6 +111,8 @@ struct Inner {
     /// The calls through the launcher that run now, per conversation, so the cache
     /// collector leaves their layers alone.
     running: Mutex<HashMap<ConversationId, usize>>,
+    /// The `PATH` that a hidden shell reported last.
+    reported_path: Mutex<Option<String>>,
     writer: WriterHandle,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -201,6 +209,7 @@ impl SandboxService {
                 locks: lock::PlanLocks::default(),
                 turns: report::Turns::default(),
                 running: Mutex::new(HashMap::new()),
+                reported_path: Mutex::new(None),
                 writer,
                 clock,
                 rng,
@@ -229,9 +238,33 @@ impl SandboxService {
         &self.inner.turns
     }
 
-    /// The hidden shells' facts.
-    pub(crate) fn host(&self) -> &HostFacts {
-        &self.inner.host
+    /// The `PATH` where a program word of the next call of `conversation` resolves.
+    /// The user's startup files set it, so it is what the conversation's hidden shell
+    /// reported last (its integration writes it at each prompt when it changed), else
+    /// what any hidden shell reported last, since they all run the same startup files,
+    /// else the environment that efrd starts them with.
+    pub(crate) fn shell_path(&self, conversation: ConversationId) -> String {
+        let file = self
+            .inner
+            .dirs
+            .runtime()
+            .join(plan::SHELL_DIR)
+            .join(conversation.to_string())
+            .join(PATH_FILE);
+        let reported = fs::DaemonFs::read(&file, MAX_PATH_BYTES)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .map(|text| text.trim_end_matches('\n').to_owned())
+            .filter(|path| !path.is_empty());
+        // NOTE: the value is replaced whole, so a poisoned lock still holds a usable one.
+        let mut last = self.inner.reported_path.lock().unwrap_or_else(PoisonError::into_inner);
+        match reported {
+            Some(path) => {
+                *last = Some(path.clone());
+                path
+            }
+            None => last.clone().unwrap_or_else(|| self.inner.host.path.clone()),
+        }
     }
 
     /// The hardened git runner.

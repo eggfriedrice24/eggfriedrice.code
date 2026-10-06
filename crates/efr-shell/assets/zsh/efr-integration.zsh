@@ -56,6 +56,8 @@ builtin typeset -gi _efr_hs_sbx_stale=1
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
 builtin typeset -gi _efr_hs_state=0
 builtin typeset -g _efr_hs_pwd=
+# The PATH that _efr_hs_report_path wrote last.
+builtin typeset -g _efr_hs_path=
 # 1 when the user's options asked for zsh's PROMPT_SP mark; see _efr_hs_precmd.
 builtin typeset -gi _efr_hs_prompt_sp=0
 
@@ -68,6 +70,17 @@ _efr_hs_report_pwd() {
   builtin print -rn -- $'\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'
 }
 
+# Writes this shell's PATH to $_efr_hs_sbx_dir/path when it changed. The user's
+# startup files set it, and efrd resolves the program words of an exit question with
+# it, so the question names the program that this shell runs. The dir exists from the
+# first sandboxed call on; until then nothing is written.
+_efr_hs_report_path() {
+  builtin emulate -L zsh
+  [[ -n $_efr_hs_sbx_dir && $PATH != "$_efr_hs_path" && -d $_efr_hs_sbx_dir ]] || return 0
+  builtin print -r -- $PATH 2>/dev/null >| $_efr_hs_sbx_dir/path && _efr_hs_path=$PATH
+  return 0
+}
+
 _efr_hs_precmd() {
   builtin local -i st=$?
   builtin emulate -L zsh
@@ -75,6 +88,7 @@ _efr_hs_precmd() {
   # printed then would land in the middle of the line editor's display.
   builtin zle && return 0
   _efr_hs_report_pwd
+  _efr_hs_report_path
   if (( _efr_hs_state == 2 )); then
     _efr_hs_drain
     builtin print -rn -- $'\e]133;D;'"${st}"$'\a'
