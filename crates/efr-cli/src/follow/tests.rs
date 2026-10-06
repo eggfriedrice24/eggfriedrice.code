@@ -10,7 +10,7 @@ use efr_render::RenderOptions;
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
-use super::{AnswerKind, Ask, Asking, Target, TurnView, follow, take_over};
+use super::{AnswerKind, Ask, Asking, Seed, Target, TurnView, follow, take_over};
 use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
@@ -677,6 +677,7 @@ async fn keys_typed_ahead_start_a_secret_looking_answer_without_showing() {
         };
         conn.item(sub, &item(15, secret)).await;
         shows(&seen, "your typing is not shown here").await;
+        shows(&seen, "the answer starts with 7 characters typed ahead; Ctrl+U clears them").await;
         presser.press(b'\r').await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "hunter2");
@@ -1299,7 +1300,7 @@ fn a_visible_wait_takes_the_pending_line_with_the_queued_keys_but_no_enter() {
     let ask = Ask::Input { call_id: call(), kind: AnswerKind::Visible };
     let (mut reader, asking, seeded) = take_over(reader, Some(pending("Y\r")), ask);
     assert_eq!(line_of(&asking), "Yes");
-    assert_eq!(seeded.as_deref(), Some("Yes"), "a visible answer shows what was typed ahead");
+    assert_eq!(seeded, Some(Seed::Shown("Yes".to_owned())), "a visible answer shows it");
     assert_eq!(reader.queued(), None, "the queue went into the line");
 }
 
@@ -1309,7 +1310,7 @@ fn a_secret_looking_wait_takes_the_pending_line_without_showing_it() {
     let ask = Ask::Input { call_id: call(), kind: AnswerKind::Masked };
     let (_, asking, seeded) = take_over(reader, Some(pending("hunter")), ask);
     assert_eq!(line_of(&asking), "hunter2");
-    assert_eq!(seeded, None);
+    assert_eq!(seeded, Some(Seed::Unshown(7)), "only how many characters it holds");
 }
 
 #[test]

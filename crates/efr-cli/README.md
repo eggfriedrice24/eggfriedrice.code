@@ -166,7 +166,9 @@ for input at the terminal, such as `sudo`) and the `y` comes from this terminal,
 thread that read it goes on, and every key typed while the call asks nothing goes into
 a pending `AnswerLine`, without echo, never shown and never sent, with Enter dropped.
 When the call reports a `visible` wait, the pending text (with the keys still queued)
-starts the answer line: shown for a plain question, not shown when it `looks_secret`.
+starts the answer line: shown for a plain question, not shown when it `looks_secret`,
+where a dim note says how many characters the line starts with and that Ctrl+U clears
+them, since a stray key in front of a password would fail it unseen.
 The user still presses Enter once the question is on the screen, so a `y` typed ahead
 of a `[Y/n]` waits in the line instead of being sent blind. A `hidden` wait drops the
 pending text, zeroed, and starts an empty line; so does a manual line. A wait that ends

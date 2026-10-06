@@ -169,6 +169,16 @@ enum Asking {
     Pending { call_id: CallId, line: AnswerLine },
 }
 
+/// What an answer line starts with when it takes over the pending line of its call.
+#[derive(Debug, PartialEq, Eq)]
+enum Seed {
+    /// The text of a shown answer line, which the view echoes.
+    Shown(String),
+    /// The number of characters in a line that is not shown, which a note gives: a
+    /// stray key typed ahead in front of a password would fail it unseen.
+    Unshown(usize),
+}
+
 /// Stops `keys`. A reader that read an answer line throws away what is still unread,
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
@@ -401,8 +411,11 @@ impl Follower<'_> {
                 // path still stops it and restores the terminal.
                 let (reader, asking, seeded) = take_over(reader, before, ask);
                 self.keys = Some((reader, asking));
-                if let Some(text) = seeded {
-                    write(out, &view.typed(&text, self.ctx.screen.size()))?;
+                let size = self.ctx.screen.size();
+                match seeded {
+                    Some(Seed::Shown(text)) => write(out, &view.typed(&text, size))?,
+                    Some(Seed::Unshown(count)) => write(out, &view.typed_ahead(count, size))?,
+                    None => {}
                 }
             }
             None if step.settled || step.end.is_some() => {
@@ -546,14 +559,15 @@ impl Follower<'_> {
 /// The pending line of a call that kept its keys becomes the answer line of a visible
 /// wait of the same call, with the keys still queued fed to it first (Enter dropped),
 /// because they were typed before the question appeared. A visible wait shows that text;
-/// one that looks secret does not. Keeping keys again keeps the queue too. Anything
+/// one that looks secret does not, and says how many characters it starts with. Keeping
+/// keys again keeps the queue too. Anything
 /// else drops what came before, zeroed, and the queue: those keys were typed before
 /// this question appeared, and a new reader's flush would have dropped them.
 fn take_over(
     mut reader: KeyReader,
     before: Option<Asking>,
     ask: Ask,
-) -> (KeyReader, Asking, Option<String>) {
+) -> (KeyReader, Asking, Option<Seed>) {
     match (before, ask) {
         (Some(Asking::Pending { call_id, mut line }), Ask::Input { call_id: asked, kind })
             if asked == call_id && matches!(kind, AnswerKind::Visible | AnswerKind::Masked) =>
@@ -561,7 +575,11 @@ fn take_over(
             while let Some(key) = reader.queued() {
                 pend(&mut line, key);
             }
-            let seeded = (kind.shown() && !line.text().is_empty()).then(|| line.text().to_owned());
+            let seeded = match line.text() {
+                "" => None,
+                text if kind.shown() => Some(Seed::Shown(text.to_owned())),
+                text => Some(Seed::Unshown(text.chars().count())),
+            };
             (reader, Asking::Input { call_id, kind, line }, seeded)
         }
         (Some(Asking::Pending { call_id, line }), Ask::Retain(kept)) if kept == call_id => {

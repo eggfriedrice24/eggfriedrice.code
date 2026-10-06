@@ -38,7 +38,8 @@
 //! that the user allowed with a key here keeps the keys typed while it runs
 //! ([`Ask::Retain`]): the follow loop reads them, without echo, into a pending line that
 //! is neither shown nor sent. When the call then reports a visible wait, that text
-//! starts the answer line, shown unless the prompt looks secret, and the user still
+//! starts the answer line, shown unless the prompt looks secret (then a note gives how
+//! many characters it starts with), and the user still
 //! presses Enter after the question appears: an Enter typed before it is dropped. A
 //! hidden wait throws the pending text away, and so does the call's end. After a wait
 //! that ends without asking for a password the keys are kept again; after one that
@@ -757,6 +758,15 @@ impl TurnView {
         text.clone_into(&mut running.typed);
         self.echo_line = true;
         Step { err, ..Step::default() }
+    }
+
+    /// An answer line that is not shown starts with `count` characters typed ahead while
+    /// the call asked nothing: a note says so, because nothing else on the screen does,
+    /// and a stray key in front of a password fails it.
+    pub(crate) fn typed_ahead(&mut self, count: usize, size: Size) -> Step {
+        let unit = if count == 1 { "character" } else { "characters" };
+        let line = format!("the answer starts with {count} {unit} typed ahead; Ctrl+U clears them");
+        self.note(&line, size)
     }
 
     /// The answer reached the command.
