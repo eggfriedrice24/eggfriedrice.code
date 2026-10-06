@@ -274,14 +274,21 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 
 ### Notices
 
-When a turn finishes or fails, or an approval waits, and no client in the
-conversation's terminal follows it (an open subscription or a live lease from a
-connection whose hello named that tty), the daemon appends one line to
+When a turn finishes or fails, or an approval waits, and no subscription from the
+conversation's terminal (a connection whose hello named that tty) was handed the event,
+nor a live lease from it names the conversation, the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
-its next prompt. A subscription that ends leaves the highest sequence number it was
-handed for its terminal, and an event at or below it gets no notice: `efr` exits as
-soon as it has shown the end of a turn, often before the notices decide on that event,
-and its terminal must not hear about a turn it just showed.
+its next prompt. The notices decide after the commit, on a task of their own, and
+`efr` both subscribes after its prompt, when a quick turn may have ended already, and
+exits as soon as it has shown the end, often before that task reads the commit. So
+`connections.rs` keeps, behind one lock, the highest sequence number handed to each
+subscription, open or ended, per terminal and conversation, and holds a notice while a
+client in the terminal may still show its event: a subscription to the conversation
+that is open, or a connection that sent it a prompt (counted from the moment
+`prompt.send` arrives) and is still open. When the last of them ends, a held notice
+whose event no subscription from the terminal was handed goes back to the notices task
+and is written; any other is dropped. A terminal whose subscription received a turn's
+last event never hears about that turn.
 
 ### Features
 
@@ -356,7 +363,9 @@ in-process on temporary directories with a manual clock, a seeded generator, vt1
 screens, an in-memory database and a scripted model, and talk to it over its socket in
 raw frames: a prompt followed to the end of its turn, routing and receipts, refusals
 (an answer with nothing to answer among them, its text never repeated), a notice for a terminal that does not follow its conversation and none for one that
-followed its turn to the end, and a second daemon refused by the lock. The tool adapter's tests run shell calls through the real
+followed its turn to the end, with a model that answers at once, nor for a view that
+opens after its turn ended and closes right after the last event, and a second daemon
+refused by the lock. The tool adapter's tests run shell calls through the real
 toolbox and the engine with the defaults and with user rules: read-only commands run,
 other commands ask, a named secret is denied, and relative paths resolve where the
 hidden shell is. The `e2e_` tests run an approved command in a real hidden zsh and

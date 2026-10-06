@@ -25,7 +25,6 @@ mod daemon {
         ModelsListResult, PromptSend, PromptSendResult, PtyAttach, PtyId, PtyResize, Seq,
         ShellContext, Size, TurnSteer,
     };
-    use efr_stdx::time::Clock as _;
     use efr_test_support::{TestClock, TestDirs, Wait};
     use pretty_assertions::assert_eq;
 
@@ -301,27 +300,63 @@ mod daemon {
             .call(Method::PromptSend(prompt(1, "say hello", dirs.home().to_path_buf())))
             .await
             .unwrap();
-        let stream = watcher
-            .send(Method::ConversationSubscribe(ConversationSubscribe {
-                conversation_id: sent.conversation_id,
-                after_seq: Some(sent.seq),
-                answers_input: false,
-            }))
-            .await;
-        while let Some(item) = watcher.next(stream).await.unwrap() {
-            if item["event"]["kind"] == "turn_completed" {
-                break;
-            }
-        }
+        // The terminal leaves without following the turn; a client without a terminal
+        // follows it.
+        drop(terminal);
+        let stream = watcher.send(subscribe(&sent)).await;
+        let _ = until_turn_completed(&mut watcher, stream).await;
 
         // The notice is written by its own task after the commit, on the blocking pool.
         let file = dirs.dirs().runtime().join("notices/pts-7");
         let notice = notice_in(&file).await;
         assert_eq!(notice, "efr: turn finished: say hello\n");
 
-        drop((terminal, watcher));
+        drop(watcher);
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
+    }
+
+    /// The subscription that efr opens to follow the turn of `sent`.
+    fn subscribe(sent: &PromptSendResult) -> Method {
+        Method::ConversationSubscribe(ConversationSubscribe {
+            conversation_id: sent.conversation_id,
+            after_seq: Some(sent.seq),
+            answers_input: false,
+        })
+    }
+
+    /// Reads the subscription `stream` of `client` up to the first `turn_completed`,
+    /// and returns its sequence number.
+    async fn until_turn_completed(client: &mut RawClient, stream: efr_protocol::RequestId) -> Seq {
+        while let Some(item) = client.next(stream).await.unwrap() {
+            if item["event"]["kind"] == "turn_completed" {
+                return item["seq"].as_u64().map(Seq::new).unwrap();
+            }
+        }
+        panic!("the subscription ended before the turn did");
+    }
+
+    /// Sends a prompt from `/dev/pts/8` and leaves without following it, then waits for
+    /// its notice. Notices are written in the order they were decided, so once it is
+    /// there every turn that ended before it was decided too.
+    async fn a_turn_nobody_follows(daemon: &crate::testing::Running, dirs: &TestDirs) {
+        let (mut other, _) = RawClient::hello(&daemon.socket, Some("/dev/pts/8")).await;
+        let mut elsewhere = prompt(2, "say hello again", dirs.home().to_path_buf());
+        if let Some(context) = elsewhere.context.as_mut() {
+            context.tty = Some("/dev/pts/8".to_owned());
+        }
+        let _: PromptSendResult = other.call(Method::PromptSend(elsewhere)).await.unwrap();
+        drop(other);
+        let notice = notice_in(&dirs.dirs().runtime().join("notices/pts-8")).await;
+        assert_eq!(notice, "efr: turn finished: say hello again\n");
+    }
+
+    /// Waits until the daemon has seen every client of `tty` leave.
+    async fn left(daemon: &crate::testing::Running, tty: &str) {
+        Wait::new(&format!("the clients of {tty} leaving"))
+            .until(|| daemon.connections.open_in(tty) == 0)
+            .await
+            .unwrap();
     }
 
     /// The first full line in the notice file `file`, once the daemon has written it.
@@ -334,74 +369,55 @@ mod daemon {
 
     #[tokio::test]
     async fn a_terminal_that_followed_its_turn_to_the_end_gets_no_notice() {
-        use std::sync::Arc;
-
-        use tokio::sync::watch;
-
-        use crate::Settings;
-        use crate::testing::{GatedFactory, serve_with};
-
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
-        // The model answers once the terminal follows the conversation: with an answer
-        // at once, the notices could decide on the end of the turn before the
-        // subscription opens, which is a terminal that did not follow it.
-        let (gate, held) = watch::channel(false);
-        let deps = deps(&dirs, &clock).with_providers(Arc::new(GatedFactory(held)));
-        let daemon = serve_with(Settings::default(), deps).await;
+        let daemon = serve(&dirs, &clock).await;
         let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        // As efr does: it sends the prompt and follows its turn on the same connection.
+        // The model answers at once, so the turn may end before the subscription opens,
+        // or the notices may decide on its end after the view has gone.
         let sent: PromptSendResult = terminal
             .call(Method::PromptSend(prompt(1, "say hello", dirs.home().to_path_buf())))
             .await
             .unwrap();
-        let stream = terminal
-            .send(Method::ConversationSubscribe(ConversationSubscribe {
-                conversation_id: sent.conversation_id,
-                after_seq: Some(sent.seq),
-                answers_input: false,
-            }))
-            .await;
-        let attached =
-            |seq| daemon.connections.attached(TTY, sent.conversation_id, clock.now(), seq);
-        Wait::new("the terminal's subscription")
-            .until(|| attached(Seq::new(u64::MAX)))
-            .await
-            .unwrap();
-        gate.send_replace(true);
-        let mut completed = None;
-        while let Some(item) = terminal.next(stream).await.unwrap() {
-            if item["event"]["kind"] == "turn_completed" {
-                completed = item["seq"].as_u64().map(Seq::new);
-                break;
-            }
-        }
-        let completed = completed.unwrap();
-        // As efr does: it leaves as soon as it has shown the end of the turn, which
-        // may be before the notices decide on that event.
+        let stream = terminal.send(subscribe(&sent)).await;
+        let _ = until_turn_completed(&mut terminal, stream).await;
+        // efr leaves as soon as it has shown the end of the turn.
         drop(terminal);
-        // Here the notices task usually decides before the connection goes, so the
-        // record that covers the other order is checked directly. No subscription was
-        // handed the last possible event, so that one is attached only while the
-        // request is open.
-        Wait::new("the end of the subscription with its connection")
-            .until(|| !attached(Seq::new(u64::MAX)))
-            .await
-            .unwrap();
-        assert!(attached(completed), "the ended subscription was handed the turn's last event");
+        left(&daemon, TTY).await;
 
-        // A turn in another terminal that nobody follows. Notices are decided in commit
-        // order, so once its notice is there, the first terminal's turn was decided.
-        let (mut other, _) = RawClient::hello(&daemon.socket, Some("/dev/pts/8")).await;
-        let mut elsewhere = prompt(2, "say hello again", dirs.home().to_path_buf());
-        if let Some(context) = elsewhere.context.as_mut() {
-            context.tty = Some("/dev/pts/8".to_owned());
-        }
-        let _: PromptSendResult = other.call(Method::PromptSend(elsewhere)).await.unwrap();
-        let notice = notice_in(&dirs.dirs().runtime().join("notices/pts-8")).await;
-        assert_eq!(notice, "efr: turn finished: say hello again\n");
+        a_turn_nobody_follows(&daemon, &dirs).await;
         assert!(!dirs.dirs().runtime().join("notices/pts-7").exists());
 
-        drop(other);
+        daemon.shutdown.cancel();
+        daemon.served.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_view_that_closes_right_after_the_end_of_a_finished_turn_gets_no_notice() {
+        let dirs = TestDirs::new().unwrap();
+        let clock = TestClock::new();
+        let daemon = serve(&dirs, &clock).await;
+        let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+        let (mut watcher, _) = RawClient::hello(&daemon.socket, None).await;
+        let sent: PromptSendResult = terminal
+            .call(Method::PromptSend(prompt(1, "say hello", dirs.home().to_path_buf())))
+            .await
+            .unwrap();
+        // The turn ends, and its end is committed, before the terminal's view opens.
+        let stream = watcher.send(subscribe(&sent)).await;
+        let completed = until_turn_completed(&mut watcher, stream).await;
+        drop(watcher);
+
+        // The view is handed the end in its replay, and closes with the last event.
+        let stream = terminal.send(subscribe(&sent)).await;
+        assert_eq!(until_turn_completed(&mut terminal, stream).await, completed);
+        drop(terminal);
+        left(&daemon, TTY).await;
+
+        a_turn_nobody_follows(&daemon, &dirs).await;
+        assert!(!dirs.dirs().runtime().join("notices/pts-7").exists());
+
         daemon.shutdown.cancel();
         daemon.served.await.unwrap().unwrap();
     }

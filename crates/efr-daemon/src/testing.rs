@@ -67,40 +67,6 @@ impl ProviderFactory for OneAnswerFactory {
     }
 }
 
-/// A model that answers like [`OneAnswer`] once its gate is open. With the plain fake
-/// a turn can end before the test's next request reaches the daemon; the gate lets a
-/// test subscribe first.
-#[derive(Debug)]
-pub(crate) struct Gated {
-    id: ProviderId,
-    gate: watch::Receiver<bool>,
-}
-
-#[async_trait]
-impl Provider for Gated {
-    fn id(&self) -> &ProviderId {
-        &self.id
-    }
-
-    async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
-        let mut gate = self.gate.clone();
-        // A gate whose sender is gone counts as open: no test holds the turn any more.
-        let _gone = gate.wait_for(|open| *open).await.is_err();
-        OneAnswer { id: self.id.clone() }.stream_answer()
-    }
-}
-
-/// Builds [`Gated`] for any provider id, all behind the one gate; `true` opens it.
-#[derive(Debug)]
-pub(crate) struct GatedFactory(pub(crate) watch::Receiver<bool>);
-
-impl ProviderFactory for GatedFactory {
-    fn provider(&self, _id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
-        let id = ProviderId::new("test").map_err(|source| DaemonError::Provider { source })?;
-        Ok(Arc::new(Gated { id, gate: self.0.clone() }))
-    }
-}
-
 /// A model that answers like [`OneAnswer`] and keeps every request it gets.
 #[derive(Debug)]
 pub(crate) struct Recording {

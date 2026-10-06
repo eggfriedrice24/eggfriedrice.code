@@ -41,7 +41,8 @@ pub(crate) const MAX_BYTES: usize = 1024 * 1024;
 
 /// How far the live side got, for the `overflow` of a subscriber the broadcast left
 /// behind. `last` is the subscription guard's, so the notices learn how far this
-/// terminal followed the conversation once the subscription ends.
+/// terminal followed the conversation, while the subscription is open and after it
+/// ends.
 #[derive(Debug)]
 struct Progress {
     last: Arc<AtomicU64>,

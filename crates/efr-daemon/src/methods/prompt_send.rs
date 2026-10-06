@@ -12,6 +12,11 @@
 //! numbers lowest first, so a new tab usually gets the number of a closed one, and
 //! must not continue its days-old conversation. Another shell while the first still
 //! runs (a nested `zsh`, a `sudo -s`) continues it.
+//!
+//! The connection counts as one that may still show the conversation from the moment
+//! the request arrives until it closes (`connections.rs`): `efr` subscribes to the turn
+//! right after the answer, and a turn that ended before that must not leave a notice
+//! for the terminal that is about to show it.
 
 use std::path::Path;
 use std::time::Duration;
@@ -146,6 +151,9 @@ async fn send(
     params: PromptSend,
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
+    // NOTE: counted before the prompt is recorded, because its turn may end before this
+    // answers, and the notices must wait for the client that follows it.
+    let mut prompting = state.connections.prompting(context.conn_id());
     let hello_tty = state.connections.tty(context.conn_id());
     let shell_pid = params.context.as_ref().and_then(|context| context.shell_pid);
     let tty = prompt_tty(&params, hello_tty.clone());
@@ -179,8 +187,11 @@ async fn send(
         }
     };
     match sent {
-        Ok(result) => serde_json::to_value(result)
-            .map_err(|source| DaemonError::EncodeResult { method: METHOD, source }),
+        Ok(result) => {
+            prompting.sent_to(result.conversation_id);
+            serde_json::to_value(result)
+                .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })
+        }
         Err(ConversationError::DuplicateCommand { receipt }) => receipts::replay(METHOD, *receipt),
         Err(error) => Err(error.into()),
     }

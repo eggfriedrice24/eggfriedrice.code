@@ -1,11 +1,17 @@
 //! Notices for terminals that do not show their conversation right now.
 //!
-//! When a turn finishes or fails, or an approval waits, and no client in the
-//! conversation's terminal follows it or was handed the event before it stopped
-//! following, the daemon appends one line to
+//! When a turn finishes or fails, or an approval waits, and no subscription from the
+//! conversation's terminal was handed the event (nor a live lease from it names the
+//! conversation), the daemon appends one line to
 //! `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`). The zsh plugin prints and
 //! removes the file at its next prompt. `<tty>` is `$TTY` without `/dev/`, with `/` as
 //! `-`, so `/dev/pts/3` is `pts-3`.
+//!
+//! The decision waits while a client in the terminal may still show the event: `efr`
+//! sends a prompt and then follows its turn, which may already have ended, and it
+//! leaves as soon as it has shown the end, often before this task reads the commit.
+//! `connections.rs` holds such a notice and hands it back here once nobody was handed
+//! its event.
 
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write as _;
@@ -18,6 +24,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
+use crate::connections::{Decision, Notice};
 use crate::state::State;
 
 /// The directory under the runtime root.
@@ -122,25 +129,39 @@ pub(crate) fn append(dir: &Path, tty: &str, line: &str) -> Result<Option<PathBuf
     Ok(Some(path))
 }
 
-/// Writes a notice for every committed event that deserves one, until `stop`.
+/// Writes a notice for every committed event that deserves one, and every held notice
+/// that became ready, until `stop`.
 pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
     let mut committed = state.writer.subscribe();
     loop {
         let batch = tokio::select! {
             () = stop.cancelled() => return,
-            batch = committed.recv() => batch,
+            batch = committed.recv() => Some(batch),
+            () = state.connections.readied() => None,
         };
+        // NOTE: what became ready before this batch was committed is written first, so
+        // notices keep the order of the moments they were decided in.
+        write_ready(&state).await;
         match batch {
-            Ok(batch) => {
+            None => {}
+            Some(Ok(batch)) => {
                 for envelope in batch.events() {
                     notify(&state, envelope).await;
                 }
             }
-            Err(RecvError::Lagged(missed)) => {
+            Some(Err(RecvError::Lagged(missed))) => {
                 tracing::warn!(missed, "notices fell behind; some were not written");
             }
-            Err(RecvError::Closed) => return,
+            Some(Err(RecvError::Closed)) => return,
         }
+    }
+}
+
+/// Writes the held notices that became ready.
+async fn write_ready(state: &State) {
+    for notice in state.connections.take_ready() {
+        write(state.dirs.runtime().join(NOTICES_DIR), notice.tty, notice.text, notice.conversation)
+            .await;
     }
 }
 
@@ -164,13 +185,17 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
     let Some(tty) = summary.tty else {
         return;
     };
-    if state.connections.attached(&tty, conversation_id, state.clock.now(), envelope.seq) {
-        return;
-    }
     let Some(text) = line(&envelope.event, summary.title.as_deref()) else {
         return;
     };
-    write(state.dirs.runtime().join(NOTICES_DIR), tty, text, conversation_id).await;
+    let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
+    match state.connections.decide(notice, state.clock.now()) {
+        Decision::Write(notice) => {
+            write(state.dirs.runtime().join(NOTICES_DIR), notice.tty, notice.text, conversation_id)
+                .await;
+        }
+        Decision::Shown | Decision::Held => {}
+    }
 }
 
 async fn write(dir: PathBuf, tty: String, text: String, conversation_id: ConversationId) {
