@@ -351,7 +351,10 @@ impl Toolbox for DaemonToolbox {
         let home = self.home.clone();
         match tokio::task::spawn_blocking(move || declared.with_real_paths(&home)).await {
             Ok(declared) => {
-                let facts = self.facts(call, &declared).await;
+                // NOTE: only `auto` reads the facts, and collecting them runs git in
+                // directories that the model can write, so other modes skip it.
+                let facts =
+                    if call.context.auto { self.facts(call, &declared).await } else { None };
                 let requirements = permission_requirements(declared);
                 Ok(match facts {
                     Some(facts) => requirements.with_facts(facts),

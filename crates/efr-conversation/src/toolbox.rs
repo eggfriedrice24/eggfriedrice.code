@@ -163,6 +163,10 @@ pub struct CallContext {
     /// its target ([`ExitNeed::bind`]): a target that efrd makes first is made before
     /// the launch.
     pub exits: Vec<ExitNeed>,
+    /// True when the turn runs in `auto` (its effective mode, after a fallback and the
+    /// cap of its origin). Only `auto` reads the facts of a shell call, so the toolbox
+    /// collects them only then.
+    pub auto: bool,
 }
 
 impl CallContext {
@@ -188,7 +192,15 @@ impl CallContext {
             approved_interactive: false,
             launch: Launch::Direct,
             exits: Vec::new(),
+            auto: false,
         }
+    }
+
+    /// Sets whether the turn runs in `auto`.
+    #[must_use]
+    pub fn with_auto(mut self, auto: bool) -> Self {
+        self.auto = auto;
+        self
     }
 
     /// Sets whether the user approved the call as one that may wait for input at the

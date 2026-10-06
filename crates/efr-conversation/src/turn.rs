@@ -574,6 +574,7 @@ impl Turn {
                 approved_interactive: false,
                 launch: Launch::Direct,
                 exits: Vec::new(),
+                auto: efr_permissions::effective_mode(self.mode(), self.spec.origin) == Mode::Auto,
             };
             let mut tool_call = ToolCall::new(call.name, call.input, context);
             let skipped = skip || self.control.interrupt.is_raised();

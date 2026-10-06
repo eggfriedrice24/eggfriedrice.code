@@ -98,6 +98,8 @@ async fn contain_runs_without_approval_and_sets_launch() {
     assert_eq!(ran[0].launch, Launch::contained());
     assert!(ran[0].exits.is_empty());
     assert!(!ran[0].approved_interactive);
+    // The toolbox collects the facts that only auto reads.
+    assert!(h.toolbox.judged()[0].auto);
     h.finish();
 }
 
@@ -449,6 +451,7 @@ async fn auto_falls_back_to_cautious_with_reason() {
     assert_eq!((settings.mode, settings.fallback), (Mode::Cautious, Some(fallback)));
     // As cautious, the writer asks, and the call runs typed into the hidden shell.
     assert_eq!(h.toolbox.ran()[0].launch, Launch::Direct);
+    assert!(!h.toolbox.judged()[0].auto, "a turn that fell back collects no auto facts");
     h.finish();
 }
 
