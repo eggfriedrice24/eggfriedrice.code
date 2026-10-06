@@ -19,20 +19,20 @@ every mode.
 |---|---|
 | `manual` | Nothing, except what your rules allow. Every read, write, command and network access asks; secrets are denied. |
 | `cautious` | The default: reading outside secrets, writing in `$SCRATCH` and in the turn's registered project, and the read-only commands of the table below. |
-| `auto` | Every shell command, in a kernel sandbox. A command that needs more than the sandbox gives (an exit) asks. `read_file` and `write_file` follow the `cautious` rules. |
+| `auto` | Every shell command, in a kernel sandbox: it writes only in the turn's project, the registered projects that it names, `$SCRATCH`, a private `/tmp` and private tool caches, and it has no network. An action that leaves the sandbox (an exit) asks. The file tools follow `cautious`. See "The auto sandbox". |
 
 `permissions.mode` in `config.toml` sets the mode of a turn when the prompt names none.
-A turn keeps its mode until it ends. In `auto`, the kernel holds what a command does:
-the command, and each build script, test and hook that it starts, can write only in
-the turn's project, the registered projects that the line names, `$SCRATCH`, a private
-`/tmp` and private cache layers. It has no network, it cannot use `sudo`, D-Bus or
-other sockets, and secrets read as empty. A command that needs more is an exit, and
-the engine finds it before the run; see "The auto sandbox".
+A turn keeps its mode until it ends. In `auto`, the kernel holds what a command does,
+not the engine's reading of the line: build scripts, tests, git hooks and code that the
+model wrote in the same turn run in the same sandbox, so they cannot write your
+config, reach the network or use `sudo` either. When the sandbox cannot run on this
+machine, or the turn's project is your home directory, `auto` runs as `cautious` and
+says why; see "The auto sandbox".
 
 A registered project is a directory that you list in `projects.toml` in efr's config
 directory. A turn whose hidden shell is in a project's root or below it runs in that
-project: `cautious` writes freely below the root, and `auto` makes it a write root of
-the sandbox. `efr project add` registers the git work tree
+project: `cautious` writes freely below the root, and in `auto` the sandbox can write
+the project, so its build, test and git commands run there. `efr project add` registers the git work tree
 that holds the current directory (or the directory itself), `efr project add PATH`
 registers PATH, `efr project list` shows the projects and `efr project remove PATH`
 takes one out. The daemon makes the change: it keeps the comments of the file and a
@@ -117,7 +117,7 @@ The `cautious` mode, the default, decides by these rules:
 | 8 and on | execute | a read-only command below | allow |
 
 The `manual` mode keeps only rule 0 and rule 7, as its rules 0 and 1. The `auto` mode
-has a table of its own; see "The auto sandbox".
+has its own table; see "The auto sandbox".
 
 Rule 0 makes every command line and all network access ask. The rules from 8 on allow
 read-only commands. A command matches a row when it starts with the program and the
@@ -246,31 +246,53 @@ this file, the table in the crate and the data equal.
 
 ## The auto sandbox
 
-In `auto`, the engine decides a shell call by this table, then by your rules:
+In `auto`, efr runs each shell command of the model in a kernel sandbox: bubblewrap,
+Landlock and seccomp. The sandbox holds the command and every program that it starts.
+[`docs/sandbox.md`](sandbox.md) tells what the sandbox allows, the exits, the
+fallback and the limits. This section tells how the engine decides in `auto`.
+
+- A command line gets the effect `contain`, between `allow` and `ask`: it runs at
+  once, in the sandbox, with no question. The engine reads the line only to find
+  exits; text analysis never lifts the sandbox.
+- No rule lifts the sandbox. A rule of yours that allows a command still contains it,
+  and a rule cannot have the effect `contain`. A rule of yours that asks or denies
+  keeps its effect, and the reason names your rule.
+- Before the run, efr finds the actions of the line that leave the sandbox: a write
+  outside the write roots, the network, a socket, the bus, a device, a read of a
+  sandbox mask, a destructive git or file command, `sudo` and the other programs that
+  give more rights, `git push` and other uploads, rc files, services and cron. Each one
+  is an exit with the effect `ask`, and the reason names its kind, such as `exit:
+  write`. After a "yes", the call runs in the sandbox with exactly that path, socket,
+  device or the network opened for this one call, or, for privilege, persistence,
+  upload and some writes, outside the sandbox. The model can also ask for an exit
+  with the shell tool's `needs`.
+- A line that the engine cannot read gets only the exits that it can find. It runs in
+  the sandbox, which holds it.
+- The floors hold, as in every mode: a privileged program asks, and only you can
+  approve it; a secret is denied unless a rule of yours names it; efr's config is
+  denied; a change of the settings asks.
+- `nested_shell` is denied in `auto`.
+- `read_file`, `write_file` and `edit` run in efrd, outside the sandbox. They follow
+  the rules of `cautious`, plus two: a read of a sandbox mask, such as a project `.env`,
+  asks, and a write to a floor path, such as `~/.zshrc` or `.git/hooks`, asks.
+
+The `auto` mode has its own table. It is not the `cautious` table: the private `/tmp`
+and the cache overlays are write roots of the sandbox, so a write there must not ask.
 
 | # | Action | Resource | Effect |
 |---|---|---|---|
 | 0 | any | any | ask |
 | 1 | read | any | allow |
-| 2 | write | project | allow |
+| 2 | write | project (the turn's project) | allow |
 | 3 | write | class scratch | allow |
-| 4 | write | envelope root (shell calls only) | allow |
+| 4 | write | a root of the sandbox: a named project, `/tmp`, `/var/tmp`, `/dev/shm`, a cache overlay, `sandbox.write_roots`; shell calls only | allow |
 | 5 | any | class secrets | deny |
 | 6 | execute | any | contain |
 
-An envelope root is a write root of the sandbox besides the project and `$SCRATCH`:
-the registered projects, `/tmp`, `/var/tmp`, `/dev/shm`, the cache overlays and
-`sandbox.write_roots`. The daemon passes them to the engine.
-
-- Every command line is `contain`: the line runs at once in the sandbox, with no
-  question. A rule of yours that allows a command cannot lift the sandbox. A rule of
-  yours that asks or denies keeps its effect. A rule cannot have the effect
-  `contain`.
-- A path or network requirement of a shell call that rule 0 asks for is `contain` too:
-  the sandbox holds it.
-- A program that runs as another user still asks.
-- An interactive call is `contain`: nobody must be there for a contained call.
-- `nested_shell` is denied: no shell outlives a contained call.
+For a shell call, a path or a network need that rule 0 makes `ask` becomes `contain`:
+the sandbox holds it, and an exit asks when the action leaves the sandbox. For
+`read_file`, `write_file` and `edit`, rule 4 does not match, because efrd would write
+the host's real `/tmp` and caches, so rule 0 asks.
 
 **Exits.** An action that leaves the sandbox is an exit. The engine reads the line,
 the paths that the tool declares and the facts that the daemon collects, and gives
@@ -309,15 +331,15 @@ An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_wr
 must be one command, plus read-only helpers from the table above, such as `echo` in
 `echo x | sudo tee /etc/x.conf`. `sudo -v && ./helper` gets an error with no question.
 
-`read_file`, `write_file` and edits run in the daemon, outside the sandbox. In `auto`
-they follow the rules of `cautious`. A read of a masked path asks (`masked_read`), and
-a write to a protected name (`.envrc`, `.claude/`, `.vscode/` and the others of
-`PROTECTED_NAMES`) or to a git setting inside a write root asks (`persistence`).
-
 A turn from the phone runs with at most `cautious`, so it is never contained.
 `crates/efr-permissions/src/exits.rs` holds the exit rules, and
 `crates/efr-permissions/tests/fixtures/auto-corpus.toml` holds the result for each
 line of the command corpus.
+
+`auto` needs a working sandbox. When the probe fails, when `sandbox.enabled` is
+`false`, or when the turn's project is your home directory, the turn runs as
+`cautious`. The turn records why, `efr history` shows it, and the model is told the
+mode that it really has.
 
 ## How the engine reads a command line
 
@@ -469,8 +491,11 @@ could write them could give itself any permission.
 - Reading it is free in `cautious` and `auto`; it holds no secrets.
 
 Config protection judges what a call declares. In `auto`, a write of efr's config is
-a `config` exit, which is denied. In the sandbox, efr's config is read-only, so the
-code that a contained command runs cannot write it either.
+a `config` exit, which is denied. The sandbox also holds the code that a call runs:
+efr's config directory and the files behind its links are read-only in the sandbox, so
+a build, a test or a script that the model wrote cannot write them either. A command
+that runs outside the sandbox, in any mode, runs with your rights and can write any
+file you can; that is why such a command asks.
 
 You change the file yourself, in your editor or with `efr config`, or you approve a
 change of the settings tool. The daemon reads the links in the directory each time it
@@ -548,7 +573,8 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
 
 With the action `network`, a command rule lets that command reach the network. A
 command rule with the action `any` lets the command run but never opens the network.
-In `auto`, no rule opens the sandbox's network: a network need is a `host` exit.
+In `auto`, no rule lifts the sandbox: an allowed command still runs in it, and its
+network need is a `host` exit that asks.
 
 Your rules come after the built-in rules, so the last one of yours that matches wins.
 Your rules are the only rules that can open a secret, and only a rule that names it
@@ -576,7 +602,8 @@ effect = "allow"
 in `~/p/app` or below it, in every mode. In `~/p/other`, and after a `cd` in the same
 line, they ask. `cargo test` builds and runs the project's own code, so allow it only
 in projects whose code you trust. `under = "project"` allows it in whichever project a
-turn runs in.
+turn runs in. In `auto`, the rule changes nothing: `cargo test` runs in the sandbox
+anyway.
 
 ### Example: allow `systemctl restart nginx`
 
