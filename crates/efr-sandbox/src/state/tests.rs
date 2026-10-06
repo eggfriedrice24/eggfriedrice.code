@@ -48,12 +48,18 @@ fn the_rendered_state_quotes_every_word() {
     state.removed_functions.insert("theme".to_owned());
     let text = state.render();
     assert!(text.contains("builtin typeset -gx -- MSG='it'\\''s $(rm -rf ~)'\n"), "{text}");
-    assert!(text.contains("functions['f']='echo '\\''hi'\\'''\n"), "{text}");
-    assert!(text.contains("aliases['g']='git'\n"), "{text}");
-    assert!(text.contains("builtin unset -- OLD\n"), "{text}");
     assert!(
-        text.contains("(( ${+functions['theme']} )) && builtin unfunction -- 'theme'\n"),
+        text.contains("_efr_state_name='f'; functions[$_efr_state_name]='echo '\\''hi'\\'''\n"),
         "{text}"
     );
+    assert!(text.contains("_efr_state_name='g'; aliases[$_efr_state_name]='git'\n"), "{text}");
+    assert!(text.contains("builtin unset -- OLD\n"), "{text}");
+    assert!(
+        text.contains(
+            "_efr_state_name='theme'; (( ${+functions[$_efr_state_name]} )) && builtin unfunction -- \"$_efr_state_name\"\n"
+        ),
+        "{text}"
+    );
+    assert!(text.ends_with("builtin unset _efr_state_name\n"), "{text}");
     assert_eq!(quote(""), "''");
 }

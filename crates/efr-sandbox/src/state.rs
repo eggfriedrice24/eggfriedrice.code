@@ -95,20 +95,30 @@ impl SandboxState {
 
     /// `state.zsh`: plain assignments, every word quoted, nothing evaluated twice.
     pub fn render(&self) -> String {
+        // NOTE: zsh keeps the quotes of a literal subscript such as functions['f'] as
+        // part of the key, so every name goes through a parameter: `$_efr_state_name`
+        // in a subscript is the name itself, whatever characters it holds.
         let mut out = String::from("# efr sandbox state; the launcher writes it.\n");
+        let name_is = |name: &str| format!("_efr_state_name={}; ", quote(name));
         for name in &self.removed_functions {
-            let key = quote(name);
-            out.push_str(&format!("(( ${{+functions[{key}]}} )) && builtin unfunction -- {key}\n"));
+            out.push_str(&name_is(name));
+            out.push_str(
+                "(( ${+functions[$_efr_state_name]} )) && builtin unfunction -- \"$_efr_state_name\"\n",
+            );
         }
         for name in &self.removed_aliases {
-            let key = quote(name);
-            out.push_str(&format!("(( ${{+aliases[{key}]}} )) && builtin unalias -- {key}\n"));
+            out.push_str(&name_is(name));
+            out.push_str(
+                "(( ${+aliases[$_efr_state_name]} )) && builtin unalias -- \"$_efr_state_name\"\n",
+            );
         }
         for (name, body) in &self.functions {
-            out.push_str(&format!("functions[{}]={}\n", quote(name), quote(body)));
+            out.push_str(&name_is(name));
+            out.push_str(&format!("functions[$_efr_state_name]={}\n", quote(body)));
         }
         for (name, value) in &self.aliases {
-            out.push_str(&format!("aliases[{}]={}\n", quote(name), quote(value)));
+            out.push_str(&name_is(name));
+            out.push_str(&format!("aliases[$_efr_state_name]={}\n", quote(value)));
         }
         for name in &self.unsets {
             out.push_str(&format!("builtin unset -- {name}\n"));
@@ -116,6 +126,7 @@ impl SandboxState {
         for (name, value) in &self.exports {
             out.push_str(&format!("builtin typeset -gx -- {name}={}\n", quote(value)));
         }
+        out.push_str("builtin unset _efr_state_name\n");
         out
     }
 
