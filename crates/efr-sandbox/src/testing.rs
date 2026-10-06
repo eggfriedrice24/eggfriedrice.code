@@ -124,6 +124,10 @@ impl FsView for FakeFs {
         self.node(path)?;
         Ok(OwnedFd::from(std::fs::File::open("/dev/null")?))
     }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        Ok(OwnedFd::from(std::fs::File::open("/dev/null")?))
+    }
 }
 
 pub(crate) const HOME: &str = "/home/u";

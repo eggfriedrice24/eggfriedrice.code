@@ -505,10 +505,16 @@ fn escape_secret_masks_empty() {
     let (ssh, netrc) = (fixture.home.join(".ssh"), fixture.home.join(".netrc"));
     fixture.mask(&ssh, MaskKind::EngineSecret);
     fixture.mask(&netrc, MaskKind::EngineSecret);
-    let run = fixture.run("ls -A ~/.ssh; cat ~/.netrc; print x > ~/.ssh/key");
+    let run = fixture.run(
+        "ls -A ~/.ssh; cat ~/.netrc && print -r -- netrc-read; print x >> ~/.netrc; print x > ~/.ssh/key",
+    );
     assert!(!run.stdout.contains("id_ed25519"), "{run:#?}");
     assert!(!run.stdout.contains("hunter2"), "{run:#?}");
+    // The masked file reads as empty, not as an error, and refuses a write.
+    assert!(run.stdout.contains("netrc-read"), "{run:#?}");
     assert!(!fixture.home.join(".ssh/key").exists());
+    let netrc = fs::read_to_string(fixture.home.join(".netrc")).unwrap();
+    assert_eq!(netrc, "machine x password hunter2\n");
 }
 
 #[test]

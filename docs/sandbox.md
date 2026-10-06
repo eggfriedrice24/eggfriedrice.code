@@ -89,8 +89,8 @@ never an overlay; they stay read-only.
 
 ## Read masks
 
-A masked directory reads as empty, and a masked file reads as `/dev/null`. A mask
-covers the real target of a link too.
+A masked directory reads as empty, and a masked file reads as an empty file that a
+call cannot write. A mask covers the real target of a link too.
 
 | Group | Paths |
 |---|---|

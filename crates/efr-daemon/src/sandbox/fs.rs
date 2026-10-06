@@ -103,6 +103,10 @@ impl FsView for DaemonFs {
     fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd> {
         DaemonFs::open(path, OFlags::PATH)
     }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        DaemonFs::open(Path::new("/dev/null"), OFlags::RDONLY)
+    }
 }
 
 /// A view in which the launcher's own files and dirs exist, for `sandbox.explain`:
@@ -146,5 +150,9 @@ impl FsView for WithAssets<'_> {
 
     fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd> {
         self.inner.open_no_symlinks(path)
+    }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        self.inner.open_empty()
     }
 }

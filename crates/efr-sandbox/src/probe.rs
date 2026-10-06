@@ -18,6 +18,7 @@ pub const BWRAP_REQUIRED_FLAGS: &[&str] = &[
     "--disable-userns",
     "--bind-fd",
     "--ro-bind-fd",
+    "--ro-bind-data",
     "--overlay",
     "--tmp-overlay",
     "--json-status-fd",

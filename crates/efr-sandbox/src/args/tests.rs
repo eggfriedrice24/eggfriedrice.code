@@ -29,7 +29,7 @@ fn args_never_reuse_an_fd() {
 
     let mut used = Vec::new();
     for pair in args.windows(2) {
-        if pair[0] == "--bind-fd" || pair[0] == "--ro-bind-fd" {
+        if ["--bind-fd", "--ro-bind-fd", "--ro-bind-data"].contains(&pair[0].as_str()) {
             used.push(pair[1].clone());
         }
     }
@@ -136,4 +136,23 @@ fn a_bind_source_reached_through_a_link_is_refused() {
 fn encoded_args_end_each_argument_with_a_nul() {
     let bytes = encode_args(&[OsString::from("--ro-bind"), OsString::from("/")]);
     assert_eq!(bytes, b"--ro-bind\0/\0");
+}
+
+#[test]
+fn a_masked_file_binds_empty_data_read_only() {
+    let mut spec = spec();
+    spec.masks.push(Mask { path: "/home/u/p/app/.env".into(), kind: MaskKind::ProjectEnv });
+    let mut fs = world();
+    fs.file("/home/u/p/app/.env", "KEY=1");
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    let mut fds = FdTable::new(&fs);
+    let args = strings(&plan.bwrap_args(&mut fds, &LAUNCH, Path::new(PROJECT)).unwrap());
+    // A bind of /dev/null would be nodev, and every open of the file would fail.
+    assert!(!args.iter().any(|arg| arg == "/dev/null"), "{args:?}");
+    let data = args
+        .windows(3)
+        .find(|w| w[0] == "--ro-bind-data" && w[2] == "/home/u/p/app/.env")
+        .map(|w| w[1].clone());
+    let fd: i32 = data.unwrap().parse().unwrap();
+    assert!(fds.numbers().contains(&fd));
 }

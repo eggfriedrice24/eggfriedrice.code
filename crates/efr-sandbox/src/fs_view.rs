@@ -44,6 +44,10 @@ pub trait FsView {
     /// An `O_PATH` descriptor of `path`, opened with no symbolic link anywhere on the
     /// way: the source of one `--bind-fd` or `--ro-bind-fd`.
     fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd>;
+
+    /// A descriptor that reads as empty, such as `/dev/null` opened for reading: the
+    /// data of one `--ro-bind-data`, which masks a file.
+    fn open_empty(&self) -> io::Result<OwnedFd>;
 }
 
 /// The most symbolic links one resolution follows, as the kernel's `MAXSYMLINKS`.

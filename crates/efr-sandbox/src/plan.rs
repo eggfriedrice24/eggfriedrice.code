@@ -87,7 +87,8 @@ pub enum MountOp {
         /// The mode of the tmpfs root, such as `0o500`.
         perms: u32,
     },
-    /// `--ro-bind /dev/null <target>`: a masked file.
+    /// `--ro-bind-data <fd> <target>` with a descriptor that reads as empty: a masked
+    /// file, which reads as empty and refuses writes.
     DevNull {
         /// The masked file.
         target: PathBuf,

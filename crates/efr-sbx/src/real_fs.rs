@@ -90,6 +90,10 @@ impl FsView for RealFs {
     fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd> {
         RealFs::open(path, OFlags::PATH)
     }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        RealFs::open(Path::new("/dev/null"), OFlags::RDONLY)
+    }
 }
 
 #[cfg(test)]

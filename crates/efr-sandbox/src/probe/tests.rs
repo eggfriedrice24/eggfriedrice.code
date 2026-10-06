@@ -8,7 +8,7 @@ use crate::probe::{
     parse_bwrap_version,
 };
 
-const HELP: &str = "usage: bwrap\n    --args FD  x\n    --disable-userns  x\n    --bind-fd FD DEST\n    --ro-bind-fd FD DEST\n    --overlay RWSRC WORKDIR DEST\n    --tmp-overlay DEST\n    --json-status-fd FD\n";
+const HELP: &str = "usage: bwrap\n    --args FD  x\n    --disable-userns  x\n    --bind-fd FD DEST\n    --ro-bind-fd FD DEST\n    --ro-bind-data FD DEST\n    --overlay RWSRC WORKDIR DEST\n    --tmp-overlay DEST\n    --json-status-fd FD\n";
 
 fn bwrap() -> BwrapFacts {
     BwrapFacts {

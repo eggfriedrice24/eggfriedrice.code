@@ -47,6 +47,19 @@ impl<'a> FdTable<'a> {
         Ok(number)
     }
 
+    /// Opens a descriptor that reads as empty, for one `--ro-bind-data`, and returns
+    /// its number.
+    pub fn open_empty(&mut self) -> Result<RawFd, SandboxError> {
+        let null = PathBuf::from("/dev/null");
+        let fd = self
+            .fs
+            .open_empty()
+            .map_err(|source| SandboxError::Io { path: null.clone(), source })?;
+        let number = fd.as_raw_fd();
+        self.fds.push((fd, null));
+        Ok(number)
+    }
+
     /// The numbers of every descriptor, on which the launcher clears `FD_CLOEXEC`.
     pub fn numbers(&self) -> Vec<RawFd> {
         self.fds.iter().map(|(fd, _)| fd.as_raw_fd()).collect()
@@ -99,7 +112,13 @@ impl MountPlan {
                 MountOp::Tmpfs { target, perms } => {
                     push(&[&"--perms", &format!("{perms:04o}"), &"--tmpfs", target]);
                 }
-                MountOp::DevNull { target } => push(&[&"--ro-bind", &"/dev/null", target]),
+                // NOTE: not a bind of /dev/null: bwrap mounts every bind but
+                // --dev-bind with nodev, so each open of the masked file would fail with
+                // EACCES. The data bind is an empty read-only file.
+                MountOp::DevNull { target } => {
+                    let fd = fds.open_empty()?.to_string();
+                    push(&[&"--ro-bind-data", &fd, target]);
+                }
                 MountOp::Overlay { lower, upper, work, target } => {
                     push(&[&"--overlay-src", lower, &"--overlay", upper, work, target]);
                 }
