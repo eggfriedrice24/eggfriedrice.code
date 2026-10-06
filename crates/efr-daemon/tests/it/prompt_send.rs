@@ -265,6 +265,7 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
         model: "gpt-6-sol".to_owned(),
         effort: Some("low".to_owned()),
         overridden: OverriddenSettings { mode: true, model: true, effort: false },
+        fallback: None,
     };
     assert_eq!(sent.settings, Some(expected.clone()));
     let started = seen.iter().find_map(|envelope| match &envelope.event {

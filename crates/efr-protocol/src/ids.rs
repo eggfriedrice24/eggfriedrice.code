@@ -106,6 +106,12 @@ uuid_id!(
 );
 
 uuid_id!(
+    /// A question to the user that is not an approval of a tool call, such as whether
+    /// to keep a git setting that a sandboxed call changed.
+    QuestionId
+);
+
+uuid_id!(
     /// The identity of one daemon installation, created at its first start. Clients pin
     /// it, so they notice when a socket path leads to a different daemon.
     DaemonId

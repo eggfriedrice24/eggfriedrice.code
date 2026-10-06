@@ -41,6 +41,7 @@ pub(crate) fn resolve(
             model: asked.model.is_some(),
             effort: asked.effort.is_some(),
         },
+        fallback: None,
     })
 }
 

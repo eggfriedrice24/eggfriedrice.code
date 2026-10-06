@@ -18,6 +18,7 @@ pub(crate) mod admin_config_reload;
 pub(crate) mod admin_login_openai;
 pub(crate) mod admin_project_add;
 pub(crate) mod admin_project_remove;
+pub(crate) mod admin_sandbox_check;
 pub(crate) mod admin_status;
 pub(crate) mod approval_respond;
 pub(crate) mod conversation_history;
@@ -32,6 +33,8 @@ pub(crate) mod prompt_send;
 pub(crate) mod pty_attach;
 pub(crate) mod pty_resize;
 pub(crate) mod pty_write;
+pub(crate) mod sandbox_explain;
+pub(crate) mod sandbox_surface_respond;
 pub(crate) mod turn_interrupt;
 pub(crate) mod turn_steer;
 

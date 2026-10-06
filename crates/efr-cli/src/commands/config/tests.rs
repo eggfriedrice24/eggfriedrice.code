@@ -58,6 +58,8 @@ fn status(config: ConfigStatus) -> AdminStatusResult {
         providers: vec![],
         roots: None,
         config: Some(config),
+        sandbox: None,
+        sandbox_paths: None,
     }
 }
 

@@ -50,6 +50,7 @@ fn events() -> Vec<EventEnvelope> {
                 tool: "shell".to_owned(),
                 input: json!({ "command": "systemctl status nginx" }),
                 manual_input: true,
+                launch: None,
             },
         ),
         envelope(
@@ -60,6 +61,7 @@ fn events() -> Vec<EventEnvelope> {
                 summary: "run systemctl restart nginx".to_owned(),
                 diff_preview: None,
                 interactive: false,
+                exit: None,
             },
         ),
         envelope(
@@ -308,12 +310,14 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         overridden: OverriddenSettings { mode: true, ..OverriddenSettings::default() },
+        fallback: None,
     };
     let cautious = EffectiveSettings {
         mode: Mode::Cautious,
         model: "gpt-5.5".to_owned(),
         effort: None,
         overridden: OverriddenSettings::default(),
+        fallback: None,
     };
     let page = ConversationHistoryResult {
         events: vec![

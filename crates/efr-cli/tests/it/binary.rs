@@ -210,6 +210,8 @@ fn status_prints_the_daemons_health() {
                 providers: Vec::new(),
                 roots: None,
                 config: None,
+                sandbox: None,
+                sandbox_paths: None,
             },
         );
         conn.drain();
@@ -311,6 +313,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
             model: "gpt-5.4".to_owned(),
             effort: Some("high".to_owned()),
             overridden: OverriddenSettings { mode: true, model: true, effort: false },
+            fallback: None,
         };
         conn.reply(
             id,

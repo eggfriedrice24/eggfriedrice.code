@@ -194,7 +194,7 @@
         },
         {
           "const": "auto",
-          "description": "`cautious` plus a curated list: writes in the project and `$SCRATCH`, the\nproject's builds and tests, and local git. General network access still asks.",
+          "description": "Shell commands run at once in a kernel sandbox (bubblewrap, Landlock and\nseccomp): they can write only in the turn's project, the registered projects\nthat the command names, `$SCRATCH`, a private `/tmp` and private tool caches, and\nthey have no network. An action that leaves the sandbox is an exit, and the user\nanswers it. When the sandbox is not available, a turn runs as `cautious` and\n[`EffectiveSettings::fallback`] says why.",
           "type": "string"
         }
       ]

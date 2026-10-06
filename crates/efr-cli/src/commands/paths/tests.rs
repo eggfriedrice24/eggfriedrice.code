@@ -92,6 +92,8 @@ fn status(roots: DaemonRoots) -> AdminStatusResult {
         providers: vec![],
         roots: Some(roots),
         config: None,
+        sandbox: None,
+        sandbox_paths: None,
     }
 }
 

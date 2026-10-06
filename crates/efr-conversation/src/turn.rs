@@ -477,6 +477,7 @@ impl Turn {
                 tool: call.name.clone(),
                 input: call.input.clone(),
                 manual_input,
+                launch: None,
             }])
             .await?;
             // NOTE: asked for every call, because the call before may have moved the
@@ -519,6 +520,7 @@ impl Turn {
                 truncated: outcome.truncated,
                 is_error: outcome.is_error,
                 exit_code: outcome.exit_code,
+                sandbox: None,
             }])
             .await?;
             let result = ContentBlock::ToolResult {
@@ -585,8 +587,14 @@ impl Turn {
         let summary = approvals::summary(&call.name, decision);
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
         let answer = self.shared.approvals.park(turn_id, call_id);
-        let requested =
-            Event::ApprovalRequested { turn_id, call_id, summary, diff_preview, interactive };
+        let requested = Event::ApprovalRequested {
+            turn_id,
+            call_id,
+            summary,
+            diff_preview,
+            interactive,
+            exit: None,
+        };
         if let Err(error) = self.record(vec![requested]).await {
             self.shared.approvals.withdraw(call_id);
             return Err(error);

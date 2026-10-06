@@ -1,0 +1,14 @@
+{
+  "kind": "surface_question_requested",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "question_id": "019a9b1c-3d00-7a10-8b20-000000000009",
+  "changes": [
+    {
+      "path": "/home/me/p/app/.git/commondir",
+      "rule": "commondir_in_main_git_dir",
+      "key": "core.fsmonitor",
+      "quarantined": true
+    }
+  ]
+}

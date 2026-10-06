@@ -7,13 +7,17 @@
     "value": "/var/log"
   },
   "settings": {
-    "mode": "auto",
+    "mode": "cautious",
     "model": "gpt-5.4",
     "effort": "high",
     "overridden": {
       "mode": true,
       "model": true,
       "effort": true
+    },
+    "fallback": {
+      "asked": "auto",
+      "reason": "Landlock ABI 6 found; auto needs 9 (Linux 7.1)"
     }
   }
 }

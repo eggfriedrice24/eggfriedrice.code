@@ -188,7 +188,7 @@ pub(crate) fn tool_result(tool: &str, is_error: bool, exit_code: Option<i32>) ->
 /// value with `all`, else only the ones that the prompt set. `None` when that leaves
 /// none. An effort that is not sent shows as `default`, the backend's.
 pub(crate) fn turn_settings(settings: &EffectiveSettings, all: bool) -> Option<String> {
-    let EffectiveSettings { mode, model, effort, overridden } = settings;
+    let EffectiveSettings { mode, model, effort, overridden, .. } = settings;
     let mut parts = Vec::new();
     if all || overridden.mode {
         parts.push(format!("mode {mode}"));

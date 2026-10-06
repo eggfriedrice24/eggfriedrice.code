@@ -202,6 +202,15 @@ pub enum ProtocolError {
         source: uuid::Error,
     },
 
+    /// The model's `needs` input breaks a limit of its schema.
+    #[error("needs.{field} is longer than {max}")]
+    InvalidNeeds {
+        /// The member, such as `write`.
+        field: &'static str,
+        /// Its limit: entries for a list, characters for the reason.
+        max: usize,
+    },
+
     /// A string is not the name of a permission mode.
     #[error("{value:?} is not a permission mode")]
     UnknownMode {

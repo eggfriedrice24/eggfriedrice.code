@@ -72,6 +72,7 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
+        fallback: None,
     };
     assert_eq!(sent.settings, Some(effective.clone()));
     let events = h.events().await;
@@ -350,6 +351,7 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             tool: "read_file".to_owned(),
             input,
             manual_input: false,
+            launch: None,
         }
     );
     assert_eq!(
@@ -360,7 +362,8 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             output,
             truncated: false,
             is_error: false,
-            exit_code: None
+            exit_code: None,
+            sandbox: None,
         }
     );
     h.finish();
@@ -444,6 +447,7 @@ async fn an_asked_tool_call_waits_for_approval_and_runs_once_approved() {
             summary: format!("write_file: write {} (user config)", zshrc.display()),
             diff_preview: Some("+\"alias ll='ls -l'\"".to_owned()),
             interactive: false,
+            exit: None,
         }
     );
     assert_eq!(
@@ -660,7 +664,8 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
             output: super::STOPPED.to_owned(),
             truncated: false,
             is_error: true,
-            exit_code: None
+            exit_code: None,
+            sandbox: None,
         }
     );
     h.finish();
@@ -1309,6 +1314,7 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
                 truncated: false,
                 is_error: false,
                 exit_code: Some(0),
+                sandbox: None,
             },
         ]
     );

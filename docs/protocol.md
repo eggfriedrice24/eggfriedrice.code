@@ -109,3 +109,25 @@ No protocol version has shipped yet.
   such as a `sudo` password. A client whose user approves such a call with a key may
   keep the keys typed while it runs, for the answer it asks for. The
   `events/approval_requested.json` fixture now sets the flag.
+- Before version 1 ships: the wire types of the `auto` sandbox (phase 1). New wire
+  types `launch` (`direct`, `contained` with optional `grants`, `unsandboxed`),
+  `grant` (`write`, `host`, `open_network`, `socket`, `bus`, `device`, `unmask`),
+  `exit_kind` (17 kinds, frozen in `exit_kinds.json`), `exit_source`, `needs`,
+  `exit_info`, `mode_fallback`, `sandbox_status`, `sandbox_check`, `sandbox_paths`,
+  `sandbox_summary`, `blocked`, `surface_change`, `reported_file`, `question_id`, and
+  the classifier's `exit_record` with its facts and `judgement`. `turn_started`
+  settings gain an optional `fallback` (`asked` and `reason`). `tool_call_started`
+  gains an optional `launch`, `tool_call_completed` an optional `sandbox` summary
+  (names only), and `approval_requested` an optional `exit`. Absent means not
+  reported, as before. New event kinds `exit_requested`, `exit_judged`,
+  `sandbox_surface_changed`, `surface_question_requested`,
+  `surface_question_answered`, `turn_surface_report` and `sandbox_unavailable`. New
+  methods `sandbox.explain` (scope `read`; params `path` and an optional `cwd`),
+  `sandbox.surface_respond` (scope `approve`, a write with a `command_id`; params
+  `conversation_id`, `question_id` and `keep`) and `admin.sandbox_check` (scope
+  `admin`, no params). The `admin.status` result gains an optional `sandbox` status
+  and optional `sandbox_paths`. The daemon does not answer the three new methods yet.
+  The fixtures `admin_status_result.json`, `events/turn_started.json`,
+  `events/tool_call_started.json`, `events/tool_call_completed.json` and
+  `events/approval_requested.json` now set the new members; `exit_kinds.json`,
+  `grants.json` and `launches.json` freeze the new closed sets.

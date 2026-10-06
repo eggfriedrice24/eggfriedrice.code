@@ -1,0 +1,19 @@
+[
+  "write",
+  "host",
+  "host_view",
+  "socket",
+  "desktop_ipc",
+  "bus",
+  "device",
+  "masked_read",
+  "destructive",
+  "outside",
+  "privilege",
+  "persistence",
+  "upload",
+  "synced_write",
+  "above_root",
+  "secret",
+  "config"
+]

@@ -44,6 +44,7 @@ fn call_started(turn: TurnId, call: CallId) -> Event {
         tool: "write_file".to_owned(),
         input: json!({ "path": "/etc/hosts", "content": "" }),
         manual_input: false,
+        launch: None,
     }
 }
 
@@ -90,6 +91,7 @@ async fn scene() -> Scene {
                 truncated: false,
                 is_error: false,
                 exit_code: Some(0),
+                sandbox: None,
             },
         )
         .event(busy, call_started(t1, call))
@@ -101,6 +103,7 @@ async fn scene() -> Scene {
                 summary: "write /etc/hosts".to_owned(),
                 diff_preview: None,
                 interactive: false,
+                exit: None,
             },
         )
         .event(busy, queued(t2, 2))
@@ -155,6 +158,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
                     truncated: false,
                     is_error: true,
                     exit_code: None,
+                    sandbox: None,
                 }
             ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),

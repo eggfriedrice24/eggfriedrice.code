@@ -86,6 +86,9 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::AdminStatus(_) => ScopeName::Admin,
         Method::AdminConfigReload(_) => ScopeName::Admin,
         Method::AdminLoginOpenAi(_) => ScopeName::Admin,
+        Method::SandboxExplain(_) => ScopeName::Read,
+        Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
+        Method::AdminSandboxCheck(_) => ScopeName::Admin,
     }
 }
 
@@ -216,6 +219,13 @@ impl Dispatcher for Methods {
                 Method::AdminLoginOpenAi(params) => {
                     Box::pin(admin_login_openai::handle(state, params, &responder)).await
                 }
+                // NOTE: the sandbox methods are on the wire before their handlers, which
+                // come with the daemon's sandbox service; until then they are refused.
+                Method::SandboxExplain(_)
+                | Method::SandboxSurfaceRespond(_)
+                | Method::AdminSandboxCheck(_) => Err(DaemonError::InvalidParams {
+                    reason: "this daemon does not answer this method yet",
+                }),
             }
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))

@@ -23,6 +23,7 @@ fn approval_requested(turn: u64, call: u64) -> Event {
         summary: "write /etc/hosts".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     }
 }
 

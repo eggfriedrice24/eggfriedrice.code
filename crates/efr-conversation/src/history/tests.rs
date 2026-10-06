@@ -45,6 +45,7 @@ fn started(turn_id: TurnId, call_id: CallId, tool: &str) -> Event {
         tool: tool.to_owned(),
         input: json!({}),
         manual_input: false,
+        launch: None,
     }
 }
 
@@ -56,6 +57,7 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
         truncated: false,
         is_error: false,
         exit_code: None,
+        sandbox: None,
     }
 }
 
@@ -318,6 +320,7 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
                 summary: "write ~/.zshrc".to_owned(),
                 diff_preview: None,
                 interactive: false,
+                exit: None,
             },
             Event::ApprovalExpired { turn_id: a, call_id: c },
         ],

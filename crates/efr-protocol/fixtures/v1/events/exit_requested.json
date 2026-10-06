@@ -1,0 +1,89 @@
+{
+  "kind": "exit_requested",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "kinds": [
+    "write"
+  ],
+  "grants": [
+    {
+      "kind": "write",
+      "path": "/home/me/Documents"
+    }
+  ],
+  "source": "needs",
+  "record": {
+    "version": 1,
+    "user_messages": [
+      "copy the report to ~/Documents"
+    ],
+    "action": {
+      "tool": "shell",
+      "line": "cp report.pdf ~/Documents/",
+      "cwd": "/home/me/p/app",
+      "scope": {
+        "kind": "project",
+        "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+      },
+      "exits": [
+        "write"
+      ],
+      "grants": [
+        {
+          "kind": "write",
+          "path": "/home/me/Documents"
+        }
+      ],
+      "source": "predicted"
+    },
+    "facts": {
+      "targets": [
+        {
+          "path": "/home/me/Documents",
+          "class": "user_data",
+          "in_write_root": false,
+          "floor": false,
+          "synced": false,
+          "exists": true,
+          "named_in_user_messages": true
+        }
+      ],
+      "hosts": [
+        {
+          "host": "example.com",
+          "on_allow_list": false,
+          "named_in_user_messages": false,
+          "refused_by_proxy": true
+        }
+      ],
+      "programs": [
+        {
+          "word": "cp",
+          "resolved": "/usr/bin/cp",
+          "in_write_root": false,
+          "changed_this_turn": false
+        }
+      ],
+      "upload_patterns": [
+        "git push"
+      ],
+      "repo_surface_changed_this_turn": true,
+      "git_status": {
+        "modified": 3,
+        "untracked": 1,
+        "staged": 0
+      },
+      "snapshot_covers": false,
+      "sandbox_export_names": [
+        "VIRTUAL_ENV"
+      ],
+      "previous_exits_this_turn": [
+        [
+          "host",
+          "allow"
+        ]
+      ],
+      "refusals_in_a_row": 1
+    }
+  }
+}

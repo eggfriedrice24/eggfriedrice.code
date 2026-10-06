@@ -47,6 +47,7 @@ fn tool_started(command: &str) -> Event {
         tool: "shell".to_owned(),
         input: json!({ "command": command }),
         manual_input: true,
+        launch: None,
     }
 }
 
@@ -57,6 +58,7 @@ fn approval(diff: Option<&str>) -> Event {
         summary: "write ~/.zshrc".to_owned(),
         diff_preview: diff.map(str::to_owned),
         interactive: false,
+        exit: None,
     }
 }
 
@@ -140,6 +142,7 @@ fn notes_sit_between_messages_and_dim() {
                 truncated: false,
                 is_error: false,
                 exit_code: Some(3),
+                sandbox: None,
             },
             completed(1, "It exited with 3."),
         ],
@@ -180,6 +183,7 @@ fn refused_call_completed() -> Event {
         truncated: false,
         is_error: true,
         exit_code: None,
+        sandbox: None,
     }
 }
 
@@ -270,6 +274,7 @@ fn approval_of_parts() -> Event {
             .to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     }
 }
 
@@ -300,6 +305,7 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
         summary: "write_file: write /home/u/a\nasks for: ls (user data)".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     };
     let step = view.event(&event, SIZE, true);
     assert_eq!(
@@ -318,6 +324,7 @@ fn approval_summaries_cannot_drive_the_terminal() {
         summary: "run \u{1b}]52;c;cGF5bG9hZA==\u{7}".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     };
     let out = view.event(&event, SIZE, false).out;
     assert!(!out.contains("\u{1b}]52"), "{}", readable(&out));
@@ -477,6 +484,7 @@ fn call_completed(exit_code: i32) -> Event {
         truncated: false,
         is_error: false,
         exit_code: Some(exit_code),
+        sandbox: None,
     }
 }
 
@@ -789,6 +797,7 @@ fn shell_started() -> Event {
         tool: "shell".to_owned(),
         input: json!({ "command": "./deploy" }),
         manual_input: true,
+        launch: None,
     }
 }
 
@@ -823,6 +832,7 @@ fn only_calls_of_the_followed_turn_that_take_a_manual_input_can_be_silent() {
         tool: "read_file".to_owned(),
         input: json!({ "path": "/etc/hosts" }),
         manual_input: false,
+        launch: None,
     };
     view.event(&read, SIZE, true);
     assert_eq!(view.silence(), None);
@@ -840,6 +850,7 @@ fn a_shell_call_into_a_shell_that_reads_command_lines_is_never_silent() {
         tool: "shell".to_owned(),
         input: json!({ "command": "sleep 60", "nested_shell": true }),
         manual_input: false,
+        launch: None,
     };
     view.event(&nested, SIZE, true);
     assert_eq!(view.silence(), None);
@@ -958,6 +969,7 @@ fn shell_approval(interactive: bool) -> Event {
         summary: "shell: sudo pacman -Syu".to_owned(),
         diff_preview: None,
         interactive,
+        exit: None,
     }
 }
 
@@ -1066,6 +1078,7 @@ fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
         summary: "write ~/.zshrc".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     };
     assert_eq!(view.event(&approval, SIZE, true).ask, Some(Ask::Approval(next)));
     // The call that kept keys is over; a late wait of it asks nothing more of the keys.

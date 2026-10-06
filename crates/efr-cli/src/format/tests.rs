@@ -125,6 +125,8 @@ fn status_result() -> AdminStatusResult {
         ],
         roots: None,
         config: None,
+        sandbox: None,
+        sandbox_paths: None,
     }
 }
 

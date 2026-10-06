@@ -16,21 +16,28 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, json};
 
 use crate::{
-    AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
-    AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
-    AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
-    Base64Bytes, CallId, Capabilities, Cell, ClientFrame, Color, CommandId, ConfigFileError,
-    ConfigStatus, ConversationHistory, ConversationHistoryResult, ConversationId,
-    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
-    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DaemonRoots, DeviceId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, Hello,
-    HelloResult, InputRespond, InputRespondResult, InputWait, LeaseReport, LeaseReportResult,
-    Method, Mode, ModelInfo, ModelSource, ModelsList, ModelsListResult, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
-    PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, RootDir, RootSource, RowCells, Scope,
-    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
+    ActionFacts, AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi,
+    AdminLoginOpenAiItem, AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove,
+    AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus,
+    AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes,
+    BlockReason, Blocked, BusKind, CacheMode, CallId, Capabilities, Cell, CheckOutcome,
+    ClientFrame, Color, CommandId, ConfigFileError, ConfigStatus, ConversationHistory,
+    ConversationHistoryResult, ConversationId, ConversationSnapshot, ConversationStatus,
+    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
+    ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots, DeviceId,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
+    ExitRecord, ExitSource, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
+    InputRespondResult, InputWait, JudgeKind, Judgement, Launch, LeaseReport, LeaseReportResult,
+    Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode,
+    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact,
+    ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
+    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
+    PtyWriteResult, QuestionId, ReportedFile, RequestId, Risk, RootDir, RootSource, RowCells,
+    SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths,
+    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope,
+    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange,
+    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, Usage, UserAuthorization, Verdict,
 };
 
 /// The directory of the frozen fixtures.
@@ -92,6 +99,9 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
     fixtures.push(fixture("error_codes.json", &ErrorCode::ALL.to_vec()));
     fixtures.push(fixture("scope_names.json", &ScopeName::ALL.to_vec()));
+    fixtures.push(fixture("exit_kinds.json", &ExitKind::ALL.to_vec()));
+    fixtures.push(fixture("grants.json", &grant_samples()));
+    fixtures.push(fixture("launches.json", &launch_samples()));
     fixtures
 }
 
@@ -134,6 +144,10 @@ fn project_id() -> ProjectId {
     parse("019a9b1c-3d00-7a10-8b20-000000000008")
 }
 
+fn question_id() -> QuestionId {
+    parse("019a9b1c-3d00-7a10-8b20-000000000009")
+}
+
 fn at(text: &str) -> Timestamp {
     parse(text)
 }
@@ -166,6 +180,129 @@ fn effective_settings() -> EffectiveSettings {
         model: "gpt-5.4".into(),
         effort: Some("high".into()),
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
+        fallback: None,
+    }
+}
+
+/// An `auto` turn that runs as `cautious`, so `events/turn_started.json` freezes the
+/// fallback.
+fn fallen_back_settings() -> EffectiveSettings {
+    EffectiveSettings {
+        mode: Mode::Cautious,
+        fallback: Some(ModeFallback {
+            asked: Mode::Auto,
+            reason: "Landlock ABI 6 found; auto needs 9 (Linux 7.1)".into(),
+        }),
+        ..effective_settings()
+    }
+}
+
+/// One grant of every kind, so `grants.json` freezes the wire form of each.
+pub(crate) fn grant_samples() -> Vec<Grant> {
+    vec![
+        Grant::Write { path: "/home/me/notes".into() },
+        Grant::Host { host: "registry.npmjs.org".into(), port: 443 },
+        Grant::OpenNetwork,
+        Grant::Socket { path: "/run/user/1000/app.sock".into() },
+        Grant::Bus { bus: BusKind::Session },
+        Grant::Bus { bus: BusKind::System },
+        Grant::Device { path: "/dev/nvme0n1".into() },
+        Grant::Unmask { path: "/home/me/p/app/.env".into() },
+    ]
+}
+
+/// Every launch, so `launches.json` freezes the wire form of each.
+pub(crate) fn launch_samples() -> Vec<Launch> {
+    vec![
+        Launch::Direct,
+        Launch::contained(),
+        Launch::Contained { grants: vec![Grant::OpenNetwork] },
+        Launch::Unsandboxed,
+    ]
+}
+
+/// A probe that found everything ready, with a warning.
+fn sandbox_status() -> SandboxStatus {
+    SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(15),
+        bwrap: Some("/usr/bin/bwrap".into()),
+        bwrap_version: Some("0.13.0".into()),
+        cache_mode: CacheMode::Overlay,
+        network_mode: NetworkMode::None,
+        warnings: vec![
+            "the registered project ~ is your home directory; auto runs its turns as cautious"
+                .into(),
+        ],
+    }
+}
+
+fn surface_change() -> SurfaceChange {
+    SurfaceChange {
+        path: "/home/me/p/app/.git/commondir".into(),
+        rule: "commondir_in_main_git_dir".into(),
+        key: Some("core.fsmonitor".into()),
+        quarantined: true,
+    }
+}
+
+/// A record with every member set.
+fn exit_record() -> ExitRecord {
+    ExitRecord {
+        version: ExitRecord::VERSION,
+        user_messages: vec!["copy the report to ~/Documents".into()],
+        action: ActionFacts {
+            tool: "shell".into(),
+            line: "cp report.pdf ~/Documents/".into(),
+            cwd: "/home/me/p/app".into(),
+            scope: Scope::Project(project_id()),
+            exits: vec![ExitKind::Write],
+            grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
+            source: ExitSource::Predicted,
+        },
+        facts: ExitFacts {
+            targets: vec![TargetFact {
+                path: "/home/me/Documents".into(),
+                class: Some(PathClassName::UserData),
+                in_write_root: false,
+                floor: false,
+                synced: false,
+                exists: true,
+                named_in_user_messages: true,
+            }],
+            hosts: vec![HostFact {
+                host: "example.com".into(),
+                on_allow_list: false,
+                named_in_user_messages: false,
+                refused_by_proxy: true,
+            }],
+            programs: vec![ProgramFact {
+                word: "cp".into(),
+                resolved: Some("/usr/bin/cp".into()),
+                in_write_root: false,
+                changed_this_turn: false,
+            }],
+            upload_patterns: vec!["git push".into()],
+            repo_surface_changed_this_turn: true,
+            git_status: Some(GitCounts { modified: 3, untracked: 1, staged: 0 }),
+            snapshot_covers: Some(false),
+            sandbox_export_names: vec!["VIRTUAL_ENV".into()],
+            previous_exits_this_turn: vec![(ExitKind::Host, Verdict::Allow)],
+            refusals_in_a_row: 1,
+        },
+    }
+}
+
+fn judgement() -> Judgement {
+    Judgement {
+        verdict: Verdict::AskUser,
+        risk: Risk::High,
+        user_authorization: UserAuthorization::Medium,
+        category: "action outside the user's request".into(),
+        rationale: "no user message names ~/Documents".into(),
     }
 }
 
@@ -347,6 +484,17 @@ pub(crate) fn method_samples() -> Vec<Method> {
         Method::AdminStatus(AdminStatus {}),
         Method::AdminConfigReload(AdminConfigReload {}),
         Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
+        Method::SandboxExplain(SandboxExplain {
+            path: "../.zshrc".into(),
+            cwd: Some("/home/me/p/app".into()),
+        }),
+        Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            question_id: question_id(),
+            keep: false,
+        }),
+        Method::AdminSandboxCheck(AdminSandboxCheck {}),
     ]
 }
 
@@ -501,7 +649,73 @@ fn answer_fixtures() -> Vec<Fixture> {
                     reload_error: Some(config_file_error()),
                     restart_needed: vec!["screen".into()],
                 }),
+                sandbox: Some(sandbox_status()),
+                sandbox_paths: Some(SandboxPaths {
+                    launcher: Some("/run/user/1000/efr/bin/efr-sbx".into()),
+                    launcher_source: Some("/home/me/.local/lib/efr/efr-sbx".into()),
+                    launcher_sha256_ok: Some(true),
+                    state: "/home/me/.local/state/efr/sandbox".into(),
+                    runtime: "/run/user/1000/efr/sbx".into(),
+                }),
             },
+        ),
+        fixture(
+            "admin_sandbox_check_result.json",
+            &AdminSandboxCheckResult {
+                status: SandboxStatus {
+                    available: false,
+                    reason: Some("bubblewrap is setuid; efr needs the unprivileged build".into()),
+                    fix: Some("install the non-setuid build of bubblewrap".into()),
+                    ..sandbox_status()
+                },
+                checks: vec![
+                    SandboxCheck {
+                        name: "landlock".into(),
+                        outcome: CheckOutcome::Ok,
+                        detail: Some("Landlock ABI 10, errata 0xf".into()),
+                        fix: None,
+                    },
+                    SandboxCheck {
+                        name: "bwrap".into(),
+                        outcome: CheckOutcome::Fail,
+                        detail: Some(
+                            "bubblewrap is setuid; efr needs the unprivileged build".into(),
+                        ),
+                        fix: Some("install the non-setuid build of bubblewrap".into()),
+                    },
+                    SandboxCheck {
+                        name: "path".into(),
+                        outcome: CheckOutcome::Warn,
+                        detail: Some("~/dotfiles/bin is on PATH and inside a project".into()),
+                        fix: None,
+                    },
+                    SandboxCheck {
+                        name: "self_test".into(),
+                        outcome: CheckOutcome::Skipped,
+                        detail: None,
+                        fix: None,
+                    },
+                ],
+                launch_us: Some(3600),
+                snapshot_launch_us: Some(14_800),
+            },
+        ),
+        fixture(
+            "sandbox_explain_result.json",
+            &SandboxExplainResult {
+                path: "/home/me/.zshrc".into(),
+                project: Some("/home/me/p/app".into()),
+                mode: Mode::Auto,
+                role: SandboxPathRole::Floor,
+                read: true,
+                write: false,
+                reason: "a shell startup file (floor)".into(),
+                write_exit: Some(ExitKind::Persistence),
+            },
+        ),
+        fixture(
+            "sandbox_surface_respond_result.json",
+            &SandboxSurfaceRespondResult { seq: Seq::new(47) },
         ),
         fixture(
             "admin_config_reload_result.json",
@@ -578,7 +792,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             turn_id: turn_id(),
             cwd: "/var/log".into(),
             scope: Scope::Path("/var/log".into()),
-            settings: Some(effective_settings()),
+            settings: Some(fallen_back_settings()),
         },
         Event::ScopeChanged {
             turn_id: turn_id(),
@@ -598,6 +812,9 @@ pub(crate) fn event_samples() -> Vec<Event> {
             tool: "shell".into(),
             input: json!({ "command": "du -sh /var/log/*", "timeout_secs": 30 }),
             manual_input: true,
+            launch: Some(Launch::Contained {
+                grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
+            }),
         },
         Event::ToolCallOutputUpdated {
             turn_id: turn_id(),
@@ -618,6 +835,20 @@ pub(crate) fn event_samples() -> Vec<Event> {
             truncated: false,
             is_error: false,
             exit_code: Some(0),
+            sandbox: Some(SandboxSummary {
+                confined: true,
+                cwd_changed: true,
+                promoted: vec!["RUST_LOG".into()],
+                kept_out: vec!["VIRTUAL_ENV".into()],
+                dropped: vec!["LD_PRELOAD".into()],
+                background_stopped: vec!["vite".into()],
+                blocked: vec![Blocked {
+                    host: "example.com".into(),
+                    port: 443,
+                    reason: BlockReason::NotAllowed,
+                }],
+                surface_changes: vec![surface_change()],
+            }),
         },
         Event::ApprovalRequested {
             turn_id: turn_id(),
@@ -625,6 +856,17 @@ pub(crate) fn event_samples() -> Vec<Event> {
             summary: "run `journalctl --vacuum-size=500M` as root".into(),
             diff_preview: Some("--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n-#SystemMaxUse=\n+SystemMaxUse=500M\n".into()),
             interactive: true,
+            exit: Some(ExitInfo {
+                kinds: vec![ExitKind::Write],
+                launch: Launch::Contained {
+                    grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
+                },
+                grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
+                facts: vec!["~/Documents exists and is a directory".into()],
+                model_reason: Some("the user asked for the report in Documents".into()),
+                judged: Some(judgement()),
+                user_only: true,
+            }),
         },
         Event::ApprovalResolved {
             turn_id: turn_id(),
@@ -650,6 +892,61 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::ShellExited { pty_id: pty_id(), exit_code: Some(0) },
         Event::CwdChanged { pty_id: pty_id(), cwd: "/var/log".into(), host: Some("desk".into()) },
         Event::LoginCompleted { provider: "openai".into() },
+        Event::ExitRequested {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            kinds: vec![ExitKind::Write],
+            grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
+            source: ExitSource::Needs,
+            record: Box::new(exit_record()),
+        },
+        Event::ExitJudged {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            judge: JudgeKind::Classifier,
+            verdict: Verdict::Deny,
+            model: Some("codex-auto-review".into()),
+            latency_ms: Some(1840),
+            risk: Some(Risk::Critical),
+            user_authorization: Some(UserAuthorization::None),
+            category: Some("data exfiltration".into()),
+            rationale: Some("no user message names the host".into()),
+            record_sha256: Some(
+                "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
+            ),
+            cached: true,
+        },
+        Event::SandboxSurfaceChanged {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            changes: vec![surface_change()],
+            quarantined: true,
+        },
+        Event::SurfaceQuestionRequested {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            question_id: question_id(),
+            changes: vec![surface_change()],
+        },
+        Event::SurfaceQuestionAnswered {
+            turn_id: turn_id(),
+            question_id: question_id(),
+            keep: true,
+            origin: Some(Origin::Shell),
+        },
+        Event::TurnSurfaceReport {
+            turn_id: turn_id(),
+            files: vec![
+                ReportedFile {
+                    path: ".cargo/config.toml".into(),
+                    detail: Some("build.rustc-wrapper".into()),
+                },
+                ReportedFile { path: "build.rs".into(), detail: None },
+            ],
+        },
+        Event::SandboxUnavailable {
+            reason: "Landlock ABI 6 found; auto needs 9 (Linux 7.1)".into(),
+        },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]
 }

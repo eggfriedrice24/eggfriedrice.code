@@ -5,10 +5,10 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FIXTURES_DIR, all, daemon_roots, event_path, event_samples, input_wait_samples, method_samples,
-    method_stem, models_list_sample,
+    FIXTURES_DIR, all, daemon_roots, event_path, event_samples, grant_samples, input_wait_samples,
+    launch_samples, method_samples, method_stem, models_list_sample,
 };
-use crate::{Event, InputWait, Method, Mode, ModelSource, RootSource};
+use crate::{Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -57,10 +57,13 @@ fn method_index(method: &Method) -> usize {
         Method::AdminStatus(_) => 17,
         Method::AdminConfigReload(_) => 18,
         Method::AdminLoginOpenAi(_) => 19,
+        Method::SandboxExplain(_) => 20,
+        Method::SandboxSurfaceRespond(_) => 21,
+        Method::AdminSandboxCheck(_) => 22,
     }
 }
 
-const METHOD_COUNT: usize = 20;
+const METHOD_COUNT: usize = 23;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -89,11 +92,18 @@ fn event_index(event: &Event) -> usize {
         Event::ShellExited { .. } => 21,
         Event::CwdChanged { .. } => 22,
         Event::LoginCompleted { .. } => 23,
-        Event::Unknown { .. } => 24,
+        Event::ExitRequested { .. } => 24,
+        Event::ExitJudged { .. } => 25,
+        Event::SandboxSurfaceChanged { .. } => 26,
+        Event::SurfaceQuestionRequested { .. } => 27,
+        Event::SurfaceQuestionAnswered { .. } => 28,
+        Event::TurnSurfaceReport { .. } => 29,
+        Event::SandboxUnavailable { .. } => 30,
+        Event::Unknown { .. } => 31,
     }
 }
 
-const EVENT_COUNT: usize = 25;
+const EVENT_COUNT: usize = 32;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -138,6 +148,57 @@ fn root_source_index(source: RootSource) -> usize {
 }
 
 const ROOT_SOURCE_COUNT: usize = 4;
+
+/// The position of an exit kind in the enum, for the same purpose as `method_index`.
+fn exit_kind_index(kind: ExitKind) -> usize {
+    match kind {
+        ExitKind::Write => 0,
+        ExitKind::Host => 1,
+        ExitKind::HostView => 2,
+        ExitKind::Socket => 3,
+        ExitKind::DesktopIpc => 4,
+        ExitKind::Bus => 5,
+        ExitKind::Device => 6,
+        ExitKind::MaskedRead => 7,
+        ExitKind::Destructive => 8,
+        ExitKind::Outside => 9,
+        ExitKind::Privilege => 10,
+        ExitKind::Persistence => 11,
+        ExitKind::Upload => 12,
+        ExitKind::SyncedWrite => 13,
+        ExitKind::AboveRoot => 14,
+        ExitKind::Secret => 15,
+        ExitKind::Config => 16,
+    }
+}
+
+const EXIT_KIND_COUNT: usize = 17;
+
+/// The position of a grant in the enum, for the same purpose as `method_index`.
+fn grant_index(grant: &Grant) -> usize {
+    match grant {
+        Grant::Write { .. } => 0,
+        Grant::Host { .. } => 1,
+        Grant::OpenNetwork => 2,
+        Grant::Socket { .. } => 3,
+        Grant::Bus { .. } => 4,
+        Grant::Device { .. } => 5,
+        Grant::Unmask { .. } => 6,
+    }
+}
+
+const GRANT_COUNT: usize = 7;
+
+/// The position of a launch in the enum, for the same purpose as `method_index`.
+fn launch_index(launch: &Launch) -> usize {
+    match launch {
+        Launch::Direct => 0,
+        Launch::Contained { .. } => 1,
+        Launch::Unsandboxed => 2,
+    }
+}
+
+const LAUNCH_COUNT: usize = 3;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -244,6 +305,20 @@ fn every_root_source_has_a_sample() {
         .map(|root| root_source_index(root.source))
         .collect();
     assert_eq!(covered, (0..ROOT_SOURCE_COUNT).collect());
+}
+
+#[test]
+fn every_exit_kind_has_a_sample() {
+    let covered: Vec<usize> = ExitKind::ALL.into_iter().map(exit_kind_index).collect();
+    assert_eq!(covered, (0..EXIT_KIND_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_grant_and_launch_has_a_sample() {
+    let grants: BTreeSet<usize> = grant_samples().iter().map(grant_index).collect();
+    assert_eq!(grants, (0..GRANT_COUNT).collect());
+    let launches: BTreeSet<usize> = launch_samples().iter().map(launch_index).collect();
+    assert_eq!(launches, (0..LAUNCH_COUNT).collect());
 }
 
 #[test]

@@ -1,0 +1,19 @@
+[
+  {
+    "kind": "direct"
+  },
+  {
+    "kind": "contained"
+  },
+  {
+    "kind": "contained",
+    "grants": [
+      {
+        "kind": "open_network"
+      }
+    ]
+  },
+  {
+    "kind": "unsandboxed"
+  }
+]

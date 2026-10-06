@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::{
-    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, Origin, PtyId, Scope, Seq,
-    ShellContext, TurnId, TurnSettings,
+    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind,
+    ExitRecord, ExitSource, Grant, JudgeKind, Launch, Origin, PtyId, QuestionId, ReportedFile,
+    Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
+    UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -147,6 +149,11 @@ pub enum Event {
         /// such an input only for a call with this flag. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         manual_input: bool,
+        /// How a `shell` call runs: typed into the hidden shell, in the `auto` sandbox
+        /// with its grants, or in the exit child. Absent for other tools and in calls
+        /// recorded before the sandbox.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        launch: Option<Launch>,
     },
 
     /// A running tool call produced more output. The daemon coalesces updates per call.
@@ -197,6 +204,10 @@ pub enum Event {
         /// The exit code, for a tool that runs a command.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exit_code: Option<i32>,
+        /// What a call through the sandbox's launcher did to the state around it: names
+        /// only, never values. Absent for a call that did not use the launcher.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sandbox: Option<SandboxSummary>,
     },
 
     /// A tool call needs the user's approval before it runs.
@@ -215,6 +226,10 @@ pub enum Event {
         /// runs for the answer it asks for. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         interactive: bool,
+        /// What the call would do outside the `auto` sandbox, for an exit. A client that
+        /// does not know it shows `summary` as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit: Option<ExitInfo>,
     },
 
     /// The user answered an approval request.
@@ -324,6 +339,119 @@ pub enum Event {
         provider: String,
     },
 
+    /// A `shell` call in `auto` leaves the sandbox: the exits, what an approval opens,
+    /// and the record that a classifier would judge (phase 3), stored once per call.
+    ExitRequested {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// The exits of the call.
+        kinds: Vec<ExitKind>,
+        /// Exactly what an approval opens.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        grants: Vec<Grant>,
+        /// Where the exits came from.
+        source: ExitSource,
+        /// The facts of the exit. Boxed, because it is much larger than every other
+        /// event.
+        record: Box<ExitRecord>,
+    },
+
+    /// An exit was judged: by the user, by a floor before any question, by the
+    /// classifier (phase 3) or by an always-allow rule (phase 5).
+    ExitJudged {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// Who judged.
+        judge: JudgeKind,
+        /// The verdict.
+        verdict: Verdict,
+        /// The classifier's model.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// How long the classifier took, in milliseconds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        latency_ms: Option<u64>,
+        /// The classifier's risk.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        risk: Option<Risk>,
+        /// The classifier's view of the user's authorization.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_authorization: Option<UserAuthorization>,
+        /// The classifier's policy category, or the floor's rule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+        /// The classifier's reason.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rationale: Option<String>,
+        /// The SHA-256 of the record the classifier saw, in hex.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record_sha256: Option<String>,
+        /// True when the verdict came from the turn's cache.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cached: bool,
+    },
+
+    /// The surface guard found git settings or other files that run code, which a call
+    /// changed. Names only.
+    SandboxSurfaceChanged {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call that made the changes.
+        call_id: CallId,
+        /// The changes.
+        changes: Vec<SurfaceChange>,
+        /// True when at least one change went to quarantine.
+        quarantined: bool,
+    },
+
+    /// The turn asks the user whether to keep quarantined changes before its next
+    /// call. It is not an approval of a tool call: the call already ended.
+    SurfaceQuestionRequested {
+        /// The turn, which waits for the answer.
+        turn_id: TurnId,
+        /// The call that made the changes; it does not wait.
+        call_id: CallId,
+        /// The question, which `sandbox.surface_respond` answers.
+        question_id: QuestionId,
+        /// The quarantined changes.
+        changes: Vec<SurfaceChange>,
+    },
+
+    /// A quarantine question was answered, expired or ended with an interrupt. Only a
+    /// "keep" from the user moves the changes back.
+    SurfaceQuestionAnswered {
+        /// The turn.
+        turn_id: TurnId,
+        /// The question.
+        question_id: QuestionId,
+        /// True when the changes moved back; false leaves them in quarantine.
+        keep: bool,
+        /// The surface that answered; absent when the question expired or the turn was
+        /// interrupted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<Origin>,
+    },
+
+    /// At the end of an `auto` turn: the files it changed that run code later outside
+    /// the sandbox.
+    TurnSurfaceReport {
+        /// The turn.
+        turn_id: TurnId,
+        /// The files.
+        files: Vec<ReportedFile>,
+    },
+
+    /// The sandbox probe's result changed to unavailable: `auto` turns run as
+    /// `cautious` until it is available again.
+    SandboxUnavailable {
+        /// Why, in one sentence.
+        reason: String,
+    },
+
     /// An event of a kind that this build does not know. It encodes back to the same JSON
     /// object it was decoded from. The schema leaves it out: it describes the known
     /// kinds, and says that readers must accept others.
@@ -373,12 +501,19 @@ impl Event {
             | Event::TurnInterrupted { turn_id }
             | Event::TurnCompleted { turn_id, .. }
             | Event::TurnFailed { turn_id, .. }
-            | Event::TurnCancelled { turn_id } => Some(*turn_id),
+            | Event::TurnCancelled { turn_id }
+            | Event::ExitRequested { turn_id, .. }
+            | Event::ExitJudged { turn_id, .. }
+            | Event::SandboxSurfaceChanged { turn_id, .. }
+            | Event::SurfaceQuestionRequested { turn_id, .. }
+            | Event::SurfaceQuestionAnswered { turn_id, .. }
+            | Event::TurnSurfaceReport { turn_id, .. } => Some(*turn_id),
             Event::ConversationCreated { .. }
             | Event::ShellStarted { .. }
             | Event::ShellExited { .. }
             | Event::CwdChanged { .. }
             | Event::LoginCompleted { .. }
+            | Event::SandboxUnavailable { .. }
             | Event::Unknown { .. } => None,
         }
     }

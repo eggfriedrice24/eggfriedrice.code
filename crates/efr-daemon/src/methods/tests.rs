@@ -1,10 +1,10 @@
 use efr_protocol::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
-    ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
+    AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
     InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
-    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Seq,
-    Size, TurnInterrupt, TurnSteer,
+    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer,
 };
 use pretty_assertions::assert_eq;
 
@@ -85,13 +85,21 @@ fn every_method() -> Vec<Method> {
         Method::AdminStatus(AdminStatus::default()),
         Method::AdminConfigReload(AdminConfigReload::default()),
         Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
+        Method::SandboxExplain(SandboxExplain { path: "/home/u/.zshrc".into(), cwd: None }),
+        Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+            command_id,
+            conversation_id,
+            question_id: QuestionId::from_uuid(id(5)),
+            keep: false,
+        }),
+        Method::AdminSandboxCheck(AdminSandboxCheck::default()),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 20, "one request per method");
+    assert_eq!(methods.len(), 23, "one request per method");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -125,6 +133,9 @@ fn the_scope_table_is_the_designed_one() {
             ("admin.status", ScopeName::Admin),
             ("admin.config_reload", ScopeName::Admin),
             ("admin.login_openai", ScopeName::Admin),
+            ("sandbox.explain", ScopeName::Read),
+            ("sandbox.surface_respond", ScopeName::Approve),
+            ("admin.sandbox_check", ScopeName::Admin),
         ]
     );
 }

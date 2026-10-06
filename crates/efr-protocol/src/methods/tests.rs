@@ -136,6 +136,7 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
             model: "gpt-5.4".to_owned(),
             effort: None,
             overridden: OverriddenSettings { model: true, ..OverriddenSettings::default() },
+            fallback: None,
         }),
     };
     let value = serde_json::to_value(&result).unwrap();

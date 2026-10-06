@@ -39,6 +39,7 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
         summary: "write /etc/hosts".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     };
 
     assert_eq!(
@@ -78,6 +79,7 @@ fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
         summary: "shell: run \"uptime; hostnamectl\"\nasks for: hostnamectl".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     };
     assert_eq!(
         line(&approval, Some("fix nginx")).as_deref(),

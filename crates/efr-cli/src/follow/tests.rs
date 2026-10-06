@@ -252,6 +252,7 @@ async fn a_key_answers_the_approval() {
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         // A key that answers nothing is ignored; `n` denies.
@@ -306,6 +307,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             summary: summary.to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         let page = ConversationHistoryResult {
             events: vec![
@@ -375,6 +377,7 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
             summary: "edit /etc/hosts".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         keys.press(b'y').await;
@@ -455,6 +458,7 @@ fn shell_started(command: &str) -> Event {
         tool: "shell".to_owned(),
         input: serde_json::json!({ "command": command }),
         manual_input: true,
+        launch: None,
     }
 }
 
@@ -479,6 +483,7 @@ fn shell_completed(exit_code: i32) -> Event {
         truncated: false,
         is_error: exit_code != 0,
         exit_code: Some(exit_code),
+        sandbox: None,
     }
 }
 
@@ -569,6 +574,7 @@ async fn allow_interactive(conn: &mut Conn, sub: RequestId, presser: &ScriptedKe
         summary: "shell: sudo pacman -Syu".to_owned(),
         diff_preview: None,
         interactive: true,
+        exit: None,
     };
     conn.item(sub, &item(12, request)).await;
     presser.press(b'y').await;
@@ -708,6 +714,7 @@ async fn keys_typed_during_a_call_allowed_without_input_stay_for_the_shell() {
             summary: "shell: make clean".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(12, request)).await;
         presser.press(b'y').await;
@@ -916,6 +923,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                         truncated: false,
                         is_error: false,
                         exit_code: Some(0),
+                        sandbox: None,
                     },
                 ),
                 envelope(6, output(sudo, "[sudo] password for egg: ")),
@@ -939,6 +947,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             truncated: false,
             is_error: false,
             exit_code: Some(0),
+            sandbox: None,
         };
         conn.item(sub, &item(12, completed)).await;
         presser.stopped().await;
@@ -1196,6 +1205,7 @@ async fn ctrl_backslash_during_an_approval_is_taken_and_does_nothing() {
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         started(&presser, 1).await;

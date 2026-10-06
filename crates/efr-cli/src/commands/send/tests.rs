@@ -596,6 +596,7 @@ fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         overridden,
+        fallback: None,
     }
 }
 

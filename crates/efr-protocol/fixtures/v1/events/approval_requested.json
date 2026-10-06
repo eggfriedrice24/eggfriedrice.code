@@ -4,5 +4,37 @@
   "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
   "summary": "run `journalctl --vacuum-size=500M` as root",
   "diff_preview": "--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n-#SystemMaxUse=\n+SystemMaxUse=500M\n",
-  "interactive": true
+  "interactive": true,
+  "exit": {
+    "kinds": [
+      "write"
+    ],
+    "launch": {
+      "kind": "contained",
+      "grants": [
+        {
+          "kind": "write",
+          "path": "/home/me/Documents"
+        }
+      ]
+    },
+    "grants": [
+      {
+        "kind": "write",
+        "path": "/home/me/Documents"
+      }
+    ],
+    "facts": [
+      "~/Documents exists and is a directory"
+    ],
+    "model_reason": "the user asked for the report in Documents",
+    "judged": {
+      "verdict": "ask_user",
+      "risk": "high",
+      "user_authorization": "medium",
+      "category": "action outside the user's request",
+      "rationale": "no user message names ~/Documents"
+    },
+    "user_only": true
+  }
 }

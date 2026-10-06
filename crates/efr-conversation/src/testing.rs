@@ -535,6 +535,7 @@ pub(crate) fn default_settings() -> Option<EffectiveSettings> {
         model: MODEL.to_owned(),
         effort: None,
         overridden: OverriddenSettings::default(),
+        fallback: None,
     })
 }
 

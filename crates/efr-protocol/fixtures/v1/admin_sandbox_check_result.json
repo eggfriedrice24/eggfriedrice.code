@@ -1,0 +1,40 @@
+{
+  "status": {
+    "available": false,
+    "reason": "bubblewrap is setuid; efr needs the unprivileged build",
+    "fix": "install the non-setuid build of bubblewrap",
+    "landlock_abi": 10,
+    "errata": 15,
+    "bwrap": "/usr/bin/bwrap",
+    "bwrap_version": "0.13.0",
+    "cache_mode": "overlay",
+    "network_mode": "none",
+    "warnings": [
+      "the registered project ~ is your home directory; auto runs its turns as cautious"
+    ]
+  },
+  "checks": [
+    {
+      "name": "landlock",
+      "outcome": "ok",
+      "detail": "Landlock ABI 10, errata 0xf"
+    },
+    {
+      "name": "bwrap",
+      "outcome": "fail",
+      "detail": "bubblewrap is setuid; efr needs the unprivileged build",
+      "fix": "install the non-setuid build of bubblewrap"
+    },
+    {
+      "name": "path",
+      "outcome": "warn",
+      "detail": "~/dotfiles/bin is on PATH and inside a project"
+    },
+    {
+      "name": "self_test",
+      "outcome": "skipped"
+    }
+  ],
+  "launch_us": 3600,
+  "snapshot_launch_us": 14800
+}
