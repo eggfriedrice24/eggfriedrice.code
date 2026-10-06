@@ -474,9 +474,14 @@ impl SandboxService {
         ];
         let hex = nonce_hex(&nonce);
         let dir = call_dir.clone();
-        tokio::task::spawn_blocking(move || write_call_dir(&dirs, &dir, &bytes, hex.as_bytes()))
-            .await
-            .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
+        let stamp = spec.runtime.sandbox_dir.join(gc::LAST_CALL_FILE);
+        tokio::task::spawn_blocking(move || {
+            write_call_dir(&dirs, &dir, &bytes, hex.as_bytes())?;
+            // The cache collector counts a conversation's idle days from this file.
+            std::fs::write(&stamp, b"").map_err(|source| DaemonError::Io { path: stamp, source })
+        })
+        .await
+        .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
         self.running().entry(call.conversation_id).and_modify(|count| *count += 1).or_insert(1);
         let launch = match spec.launch {
             SpecLaunch::Unsandboxed => SpecLaunch::Unsandboxed,
@@ -498,12 +503,31 @@ impl SandboxService {
     pub(crate) async fn gc(&self, settings: &Settings) {
         let root = self.inner.dirs.state().join(plan::SANDBOX_DIR);
         let now = std::time::SystemTime::from(self.inner.clock.now());
-        let busy: Vec<String> = self.running().keys().map(ToString::to_string).collect();
+        let shells = self.inner.dirs.runtime().join(plan::SHELL_DIR);
         let max_idle = Duration::from_secs(u64::from(settings.sandbox.cache_days) * 24 * 3600);
         let max_bytes = u64::from(settings.sandbox.cache_max_gib) * 1024 * 1024 * 1024;
+        let service = self.clone();
         let done = tokio::task::spawn_blocking(move || {
-            let layers = gc::scan(&root, now, &|name| busy.iter().any(|known| known == name));
-            gc::remove(&gc::pick(&layers, max_idle, max_bytes));
+            let busy = |running: &HashMap<ConversationId, usize>, name: &str| {
+                running.keys().any(|known| known.to_string() == name)
+                    || gc::launcher_running(&shells.join(name))
+            };
+            let layers = gc::scan(&root, now, &|name| busy(&service.running(), name));
+            let mut aside = gc::left_aside(&root);
+            for dir in gc::pick(&layers, max_idle, max_bytes) {
+                let Some(name) = dir.parent().and_then(Path::file_name) else { continue };
+                let name = name.to_string_lossy();
+                // NOTE: checked again and moved under the lock that each plan takes to
+                // count its call: a call that started since the scan keeps its layers,
+                // and one that starts later finds no layers to lose.
+                let running = service.running();
+                if busy(&running, &name) {
+                    continue;
+                }
+                aside.extend(gc::set_aside(&dir, now));
+                drop(running);
+            }
+            gc::remove(&aside);
         })
         .await;
         if done.is_err() {

@@ -3,9 +3,23 @@
 //! `sandbox.cache_days` without a call, and when all of them pass
 //! `sandbox.cache_max_gib`, the oldest conversation's go first, but never while a call
 //! of that conversation runs. [`pick`] is the rule; `SandboxService::gc` runs it.
+//!
+//! A conversation's idle time counts from its [`LAST_CALL_FILE`], which each call's
+//! plan touches: calls write below `cache/<name>/upper` and leave the time of `cache`
+//! alone. A call counts as running while its tool call runs and, after that, while its
+//! call dir has `started` and no `result.json` (a call left running at its timeout).
+//! The layers go aside by one rename under the lock of the running calls, so a call
+//! that starts while they are deleted gets new, empty ones.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+
+use efr_sandbox::{RESULT_FILE, STARTED_FILE};
+
+/// `$S/sandbox/<conversation>/last-call`: touched by each call's plan.
+pub(crate) const LAST_CALL_FILE: &str = "last-call";
+/// The prefix of layers set aside for deletion, next to `cache`.
+const ASIDE_PREFIX: &str = "cache.gone-";
 
 /// One conversation's cache layers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +76,13 @@ pub(crate) fn scan(
         if !meta.is_dir() {
             continue;
         }
-        let used = meta.modified().unwrap_or(now);
+        let stamp = std::fs::metadata(entry.path().join(LAST_CALL_FILE))
+            .and_then(|stamp| stamp.modified())
+            .ok();
+        let used = match (meta.modified().ok(), stamp) {
+            (Some(dir), Some(stamp)) => dir.max(stamp),
+            (dir, stamp) => dir.or(stamp).unwrap_or(now),
+        };
         layers.push(Layers {
             idle: now.duration_since(used).unwrap_or_default(),
             bytes: size(&dir),
@@ -71,6 +91,45 @@ pub(crate) fn scan(
         });
     }
     layers
+}
+
+/// True when a call dir below `shell_dir` (`$R/sbx/<conversation>`) has `started` and
+/// no `result.json`: its launcher still runs, also when its tool call returned at the
+/// timeout. It blocks.
+pub(crate) fn launcher_running(shell_dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(shell_dir) else { return false };
+    entries.flatten().any(|entry| {
+        let call = entry.path();
+        call.join(STARTED_FILE).exists() && !call.join(RESULT_FILE).exists()
+    })
+}
+
+/// Moves the layers `dir` aside, so a call that starts after this gets new ones, and
+/// returns where they went. The caller holds the lock of the running calls and has
+/// checked that none of the conversation runs. It blocks.
+pub(crate) fn set_aside(dir: &Path, now: SystemTime) -> Option<PathBuf> {
+    let stamp = now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let aside = dir.with_file_name(format!("{ASIDE_PREFIX}{stamp}"));
+    match std::fs::rename(dir, &aside) {
+        Ok(()) => Some(aside),
+        Err(error) => {
+            tracing::warn!(dir = %dir.display(), error = %error, "cache layers could not be set aside");
+            None
+        }
+    }
+}
+
+/// The layers below `sandbox_root` that an earlier collection set aside and could not
+/// delete. It blocks.
+pub(crate) fn left_aside(sandbox_root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(sandbox_root) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter_map(|entry| std::fs::read_dir(entry.path()).ok())
+        .flat_map(|inner| inner.flatten())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(ASIDE_PREFIX))
+        .map(|entry| entry.path())
+        .collect()
 }
 
 /// The bytes of the files below `dir`, links not followed.

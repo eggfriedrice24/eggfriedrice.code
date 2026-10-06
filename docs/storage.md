@@ -16,6 +16,8 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/tmp/` | the private `/tmp` and `/var/tmp` of the `auto` sandbox, one per conversation | `efr-daemon` makes it, `efr-sbx` binds it |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/cache/<name>/upper/`, `work/` | the private upper layer of one tool cache overlay; efrd deletes it after `sandbox.cache_days` without a call, with the conversation, or when all layers pass `sandbox.cache_max_gib` | `efr-daemon`, `efr-sandbox/src/spec.rs` (`CacheOverlay`) |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/last-call` | an empty file that each call's plan touches; the cache collector counts idle days from its time | `efr-daemon/src/sandbox/gc.rs` |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/cache.gone-<n>/` | cache layers that the collector moved aside under its lock and deletes next; a call that starts meanwhile gets new, empty layers | `efr-daemon/src/sandbox/gc.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/quarantine/<call>/` | git settings that a call planted and the surface guard moved away; the quarantine question moves them back | `efr-sbx` |
 | `$XDG_STATE_HOME/efr/sandbox/projects/<root>.json` | the git dir and common dir of a worktree or submodule project, recorded at `efr project add` | `efr-daemon`, `efr-sandbox/src/worktree.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/probe/` | the throwaway project of the sandbox probe | `efr-sbx probe` |
