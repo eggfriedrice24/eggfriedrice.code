@@ -39,6 +39,17 @@ process tree ends with the call. efrd runs `efr-sbx probe --json` to learn wheth
 | `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored |
 | `src/bridge.rs` | the phase 2 seam |
 
+What the launcher writes, in order:
+
+| File | When |
+|---|---|
+| `$CALL/started` | once every bind source is open and the git surface is recorded, before bwrap or the exit child starts; efrd releases the plan lock then |
+| `$CALL/exit-child/` | the exit child only: copies of `snapshot.zsh` (and `.zwc`) and `line` |
+| `$SBX/quarantine/<call>/<n>-<name>` and `entries.json` | each entry the surface guard moved away; `entries.json` lists `{ "from", "to" }` so efrd can move an entry back when the user keeps it |
+| `$CALL/apply` | the filtered `cd`, exports and unsets for `_efr_hs_sbx_apply` |
+| `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
+| `$CALL/result.json` | last, by a rename, after every process of the call is gone |
+
 The child shell's contract (efr-shell's `assets/zsh/efr-child.zsh` keeps it):
 `zsh -f efr-child.zsh DIR`, where `DIR` holds `snapshot.zsh`, `state.zsh` (contained
 calls only) and `line`; the records go to fd 3 in the format of the spec's section 6.2.
