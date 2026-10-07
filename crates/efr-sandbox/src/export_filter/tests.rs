@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use efr_protocol::Grant;
 use pretty_assertions::assert_eq;
 
 use crate::export_filter::{ExportFilter, ExportVerdict, KeepReason, overlay_denied};
@@ -146,4 +147,21 @@ fn overlay_deny_drops_ld_star() {
         assert_eq!(filter.check(name, "x"), ExportVerdict::Drop, "{name}");
     }
     assert!(!overlay_denied("PATH"));
+}
+
+#[test]
+fn export_filter_keeps_out_a_file_that_a_write_grant_opens() {
+    let mut spec = spec();
+    spec.env.promote = vec!["*".to_owned()];
+    spec.grants.push(Grant::Write { path: "/home/u/notes.txt".into() });
+    let mut fs = world();
+    fs.file("/home/u/notes.txt", "");
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    assert_eq!(plan.write_files(), [PathBuf::from("/home/u/notes.txt")]);
+    let filter = ExportFilter::from_spec(&spec, &plan, &PathBuf::from(PROJECT));
+    assert_eq!(
+        filter.check("TOOL_RC", "/home/u/notes.txt"),
+        ExportVerdict::KeepInSandbox(KeepReason::ValueInRoot)
+    );
+    assert_eq!(filter.check("TOOL_RC", "/home/u/other.txt"), ExportVerdict::Promote);
 }

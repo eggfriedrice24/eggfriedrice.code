@@ -239,6 +239,11 @@ impl MountPlan {
     pub fn write_dirs(&self) -> &[PathBuf] {
         &self.write_dirs
     }
+
+    /// The single files that a write grant on a file makes writable.
+    pub fn write_files(&self) -> &[PathBuf] {
+        &self.write_files
+    }
 }
 
 #[cfg(test)]

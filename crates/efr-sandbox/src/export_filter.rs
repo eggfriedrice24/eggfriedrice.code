@@ -189,10 +189,12 @@ impl ExportFilter {
         ExportFilter { promote, deny: export_deny, roots, home, cwd, max_value }
     }
 
-    /// The filter of `spec`'s call under `plan`: the write roots, the private tmp
-    /// (outside and inside), scratch and the cache overlays.
+    /// The filter of `spec`'s call under `plan`: the write roots, the files that a
+    /// write grant makes writable, the private tmp (outside and inside), scratch and
+    /// the cache overlays.
     pub fn from_spec(spec: &SandboxSpec, plan: &MountPlan, cwd: &Path) -> ExportFilter {
         let mut roots: Vec<PathBuf> = plan.write_dirs().to_vec();
+        roots.extend_from_slice(plan.write_files());
         roots.push(plan.private_tmp().to_path_buf());
         roots.push(spec.runtime.scratch.clone());
         roots.push(spec.runtime.sandbox_dir.clone());
