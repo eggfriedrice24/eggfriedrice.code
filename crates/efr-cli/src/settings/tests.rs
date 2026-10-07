@@ -227,6 +227,17 @@ async fn a_problem_names_a_theme_a_theme_file_or_a_code_theme_that_cannot_be_use
     std::fs::write(home.path().join("theme.toml"), "[colors]\nlink = 99\n").unwrap();
     let invalid = check("[render]\npalette = \"~/theme.toml\"\n").await.unwrap();
     assert!(invalid.contains("colors.link"), "{invalid}");
+    // The parser's quote of the file with a caret stays out; the place follows.
+    std::fs::write(home.path().join("theme.toml"), "[colors]\n\"diff.add\" = \"green\"\n").unwrap();
+    let parse = check("[render]\npalette = \"~/theme.toml\"\n").await.unwrap();
+    let file = home.path().join("theme.toml");
+    let expected = format!(
+        "render.palette: the theme file {} is not valid: unknown field `diff.add`, expected one of",
+        file.display()
+    );
+    assert!(parse.starts_with(&expected), "{parse}");
+    assert!(parse.ends_with("(colors.diff.add, line 2, column 1)"), "{parse}");
+    assert!(!parse.contains("TOML parse error") && !parse.contains('|'), "{parse}");
     std::fs::write(home.path().join("theme.toml"), "code_theme = \"x.tmTheme\"\n").unwrap();
     std::fs::write(home.path().join("x.tmTheme"), "nope").unwrap();
     let code = check("[render]\npalette = \"~/theme.toml\"\n").await.unwrap();

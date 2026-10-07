@@ -217,6 +217,9 @@ fn reason(error: &ConfigError) -> String {
         // NOTE: the parser's Display quotes the file with a caret under the error; the
         // place follows the reason instead.
         ConfigError::Parse { source, .. } => source.message().to_owned(),
+        ConfigError::ThemeParse { path, source, .. } => {
+            format!("the theme file {} is not valid: {}", path.display(), source.message())
+        }
         ConfigError::Invalid { key, value, expected, .. } => {
             format!("{key} = {value} is not {expected}")
         }
