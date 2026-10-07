@@ -280,7 +280,6 @@ fn the_scan_reads_kinds_from_the_listing_not_one_lstat_per_entry() {
     assert!(!truncated);
     let dirs: Vec<&Path> = found.iter().map(|target| target.git_dir.as_path()).collect();
     assert!(dirs.contains(&Path::new("/p/app/src/m3/vendored/.git")), "{dirs:?}");
-    // One lstat per directory (for its `.git`) and none per file: /p/app, src, the ten
-    // module dirs and vendored; the scan skips `.git` dirs.
-    assert_eq!(counting.lstats.get(), 13, "{} lstat calls for 500 files", counting.lstats.get());
+    // No lstat at all: the listing gives each entry's kind, `.git` included.
+    assert_eq!(counting.lstats.get(), 0, "{} lstat calls for 500 files", counting.lstats.get());
 }

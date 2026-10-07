@@ -514,15 +514,17 @@ pub fn scan_git_dirs(
         .collect();
     let mut seen = 0_usize;
     let mut truncated = false;
-    let add = |found: &mut BTreeMap<PathBuf, GitDirTarget>, dir: &Path| {
+    let insert = |found: &mut BTreeMap<PathBuf, GitDirTarget>, dir: &Path| {
         let git_dir = dir.join(".git");
-        if fs.lstat(&git_dir).ok() == Some(FileKind::Dir) && !found.contains_key(&git_dir) {
-            let target = GitDirTarget {
-                git_dir: git_dir.clone(),
-                main: false,
-                work_tree: Some(dir.to_path_buf()),
-            };
-            found.insert(git_dir, target);
+        found.entry(git_dir.clone()).or_insert_with(|| GitDirTarget {
+            git_dir,
+            main: false,
+            work_tree: Some(dir.to_path_buf()),
+        });
+    };
+    let add = |found: &mut BTreeMap<PathBuf, GitDirTarget>, dir: &Path| {
+        if fs.lstat(&dir.join(".git")).ok() == Some(FileKind::Dir) {
+            insert(found, dir);
         }
     };
     'roots: for root in roots {
@@ -530,10 +532,19 @@ pub fn scan_git_dirs(
         for _ in 0..=limits.depth {
             let mut next = Vec::new();
             for dir in level {
-                add(&mut found, &dir);
-                // NOTE: the listing's own kinds: an lstat per entry made the scan of a
-                // project of 8,000 entries cost 24 ms, and it runs twice per call.
-                for (name, kind) in fs.read_dir_kinds(&dir).unwrap_or_default() {
+                // NOTE: the listing's own kinds, for the entries and for `.git`: an lstat
+                // per entry made the scan of a project of 8,000 entries cost 24 ms, and it
+                // runs twice per call.
+                let Ok(entries) = fs.read_dir_kinds(&dir) else {
+                    add(&mut found, &dir);
+                    continue;
+                };
+                match entries.iter().find(|(name, _)| name == ".git") {
+                    Some((_, Some(FileKind::Dir))) => insert(&mut found, &dir),
+                    Some((_, None)) => add(&mut found, &dir),
+                    _ => {}
+                }
+                for (name, kind) in entries {
                     seen += 1;
                     if seen > limits.entries {
                         truncated = true;
@@ -542,10 +553,15 @@ pub fn scan_git_dirs(
                     if SCAN_SKIP.iter().any(|skip| name == *skip) {
                         continue;
                     }
-                    let child = dir.join(&name);
-                    let kind = kind.or_else(|| fs.lstat(&child).ok());
-                    if kind == Some(FileKind::Dir) {
-                        next.push(child);
+                    match kind {
+                        Some(FileKind::Dir) => next.push(dir.join(&name)),
+                        Some(_) => {}
+                        None => {
+                            let child = dir.join(&name);
+                            if fs.lstat(&child).ok() == Some(FileKind::Dir) {
+                                next.push(child);
+                            }
+                        }
                     }
                 }
             }
