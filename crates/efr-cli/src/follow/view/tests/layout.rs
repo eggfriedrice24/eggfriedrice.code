@@ -313,6 +313,17 @@ fn a_refused_call_says_why_on_a_row_of_its_own() {
 }
 
 #[test]
+fn a_long_reason_of_a_refusal_goes_on_in_the_next_row() {
+    // The screen of the test fails on a row of efr's own that is wider than the screen:
+    // the terminal would wrap it to the first column.
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, "cd ~/proj && find . -type f | sort")),
+        Sent(20, ended(1, None, Some("an approved command outside the sandbox must run alone"))),
+    ]));
+}
+
+#[test]
 fn a_command_of_several_lines_shows_each_line() {
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

@@ -1,0 +1,36 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cd ~/proj && find . -type f | sort\")),\nSent(20,\nended(1, None,\nSome(\"an approved command outside the sandbox must run alone\"))),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ cd ~/proj && find . -type f | sort\e[0m
+  \e[31m✗ refused: an approved command outside\e[0m
+    \e[31mthe sandbox must run alone\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ cd ~/proj && find . -type f | sort
+  \e[1m✗ refused: an approved command outside\e[0m
+    \e[1mthe sandbox must run alone\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ cd ~/proj && find . -type f | sort\e[0m
+  \e[31m✗ refused: an approved command outside the sandbox must run alone\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ cd ~/proj && find . -type f | sort
+  \e[1m✗ refused: an approved command outside the sandbox must run alone\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ cd ~/proj && find . -type f | sort
+  ✗ refused: an approved command outside the sandbox must run alone

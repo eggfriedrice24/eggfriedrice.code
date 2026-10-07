@@ -23,7 +23,8 @@
 //! its own, a long line going on in the next row after a `\`, indented; then for a
 //! failed call the last lines of its output; then the result on its own row: `✓` in
 //! the `success` role, or `✗ exit 101`, `✗ failed` or `✗ refused: <why>` in the
-//! `error` role. The time follows for a call that ran 1 s or more.
+//! `error` role. The time follows for a call that ran 1 s or more. A result or a note
+//! wider than the screen goes on in the next row, indented 2 more columns.
 
 use std::time::Duration;
 
@@ -51,6 +52,10 @@ const INDENT: &str = "  ";
 
 /// How much further a row that goes on is indented than the line it goes on from.
 const GOES_ON: usize = 4;
+
+/// How much further a row of text that goes on, such as a long reason of a refusal, is
+/// indented than its first row, as in a question's card.
+const GOES_ON_TEXT: usize = 2;
 
 /// The lines after the first that a running call shows. With more, the last of these
 /// rows says how many lines follow.
@@ -250,19 +255,39 @@ impl Call {
             text.push_str(if outcome == Outcome::Ran { " " } else { JOIN });
             text.push_str(&format::took(took));
         }
-        let mut row = INDENT.to_owned();
-        row.push_str(&format::paint(&text, tone, options));
-        row.push('\n');
-        row
+        indented(&text, tone, options)
     }
 }
 
 /// Muted rows of notes about a call under its result, such as a connection that the
 /// proxy blocked.
 pub(crate) fn notes(lines: &[String], options: &RenderOptions) -> String {
+    lines.iter().map(|line| indented(line, Tone::Dim, options)).collect()
+}
+
+/// `text` in `tone` after [`INDENT`], as rows that fit the screen: a text wider than
+/// the screen goes on in the next row, indented 2 more columns, so the terminal never
+/// wraps a row of efr's own and nothing is cut. Elsewhere than on a terminal no screen
+/// sets a width, so the text stays on one row.
+fn indented(text: &str, tone: Tone, options: &RenderOptions) -> String {
+    let rows: Vec<String> = match format::columns(options) {
+        Some((width, method)) => {
+            let first = width.saturating_sub(INDENT.len()).max(1);
+            let rest = width.saturating_sub(INDENT.len() + GOES_ON_TEXT).max(1);
+            format::wrap_spans(&[(text.to_owned(), tone)], first, rest, method)
+                .into_iter()
+                .map(|row| row.into_iter().map(|(text, _)| text).collect())
+                .collect()
+        }
+        None => vec![text.to_owned()],
+    };
     let mut out = String::new();
-    for line in lines {
-        out.push_str(&format::paint(&format!("{INDENT}{line}"), Tone::Dim, options));
+    for (at, row) in rows.iter().enumerate() {
+        out.push_str(INDENT);
+        if at > 0 {
+            out.push_str(&" ".repeat(GOES_ON_TEXT));
+        }
+        out.push_str(&format::paint(row, tone, options));
         out.push('\n');
     }
     out
