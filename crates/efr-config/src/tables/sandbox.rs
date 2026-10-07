@@ -170,7 +170,8 @@ impl Default for SandboxSettings {
             write_roots: Vec::new(),
             caches: paths(DEFAULT_CACHES),
             // NOTE: tmp, not overlay: overlays failed the phase 1 gate of the auto spec on
-            // the reference machine (p95 above 10 ms, EBUSY setup failures in 1000 calls).
+            // the reference machine (p95 above 10 ms). The EBUSY setup failures of that
+            // gate are gone since efr-sbx mounts the overlays with index=off.
             cache_mode: CacheMode::Tmp,
             cache_days: 14,
             cache_max_gib: 20,

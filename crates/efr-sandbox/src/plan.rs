@@ -19,10 +19,15 @@
 //!   guard, so a call can still delete a repository that an earlier call made.
 //! - Every directory of the hidden shell's `PATH` that lies in a write root is a
 //!   floor, and a relative `PATH` entry refuses the call.
+//! - A cache overlay is a [`CacheLayers`] entry that the launcher's helper mounts after
+//!   bwrap's setup; the plan's mounts inside the cache move onto it, so they still win.
+//!   A cache with another mount at its own path gets no overlay: that mount covers it.
+//!   In the `overlay` mode two caches never share a layer dir.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::layers::CacheLayers;
 use crate::spec::{FloorKind, MaskKind, WriteRootKind};
 
 mod build;
@@ -93,7 +98,8 @@ pub enum MountOp {
         /// The masked file.
         target: PathBuf,
     },
-    /// `--overlay-src <lower> --overlay <upper> <work> <target>`.
+    /// A cache overlay with the conversation's layer as its upper dir; the launcher's
+    /// helper mounts it (`CacheLayers`).
     Overlay {
         /// The user's cache, read-only below.
         lower: PathBuf,
@@ -104,7 +110,8 @@ pub enum MountOp {
         /// The mount point, the same path as `lower`.
         target: PathBuf,
     },
-    /// `--overlay-src <lower> --tmp-overlay <target>`.
+    /// A cache overlay with a new upper dir for each call; the launcher's helper mounts
+    /// it (`CacheLayers`).
     TmpOverlay {
         /// The user's cache.
         lower: PathBuf,
@@ -191,6 +198,8 @@ pub struct MountPlan {
     pub(crate) inside_launcher: PathBuf,
     pub(crate) child_argv: Vec<OsString>,
     pub(crate) private_tmp: PathBuf,
+    pub(crate) layers: Option<CacheLayers>,
+    pub(crate) layer_sources: Vec<PathBuf>,
 }
 
 impl MountPlan {
@@ -243,6 +252,12 @@ impl MountPlan {
     /// The single files that a write grant on a file makes writable.
     pub fn write_files(&self) -> &[PathBuf] {
         &self.write_files
+    }
+
+    /// The cache overlays that `efr-sbx layers` mounts after bwrap's setup; `None`
+    /// when the call has none. bwrap itself mounts no overlay.
+    pub fn cache_layers(&self) -> Option<&CacheLayers> {
+        self.layers.as_ref()
     }
 }
 

@@ -149,6 +149,14 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// In the `overlay` cache mode, a cache's upper and work dirs do not share a layer
+    /// dir of their own: they lie in two dirs, or another cache uses the same one.
+    #[error("the layer dir of the cache {cache:?} is not its own")]
+    CacheLayer {
+        /// The cache.
+        cache: PathBuf,
+    },
+
     /// A session bus grant, but the spec names no session bus.
     #[error("a session bus grant, but the user has no session bus")]
     NoSessionBus,

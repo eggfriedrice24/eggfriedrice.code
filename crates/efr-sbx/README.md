@@ -5,8 +5,10 @@
 The launcher of the `auto` sandbox. The hidden zsh's wrapper runs
 `efr-sbx run --call-dir $CALL` as a foreground job for every model call in `auto`. The
 launcher checks the call dir, builds the mount plan of `efr-sandbox` from the spec that
-efrd wrote, and starts bwrap. Inside bwrap, `efr-sbx inner` applies Landlock (ABI 9,
-hard requirement) and the seccomp deny list, then runs the child shell. After the call
+efrd wrote, and starts bwrap. bwrap mounts no cache overlay: when bwrap's setup is
+done, the inner stage waits, and `efr-sbx layers` mounts the overlays with `index=off`
+and `xino=off` in the call's namespaces. Then `efr-sbx inner` applies Landlock (ABI 9,
+hard requirement) and the seccomp deny list, and runs the child shell. After the call
 the launcher filters the records, runs the surface guard, and writes `$CALL/apply`, the
 sandbox state and `$CALL/result.json`, in that order. An approved exit runs in the exit
 child instead: no sandbox, the launcher is a child subreaper, and the exit child's
@@ -19,7 +21,8 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | Subcommand | What it does |
 |---|---|
 | `run --call-dir DIR` | one call, contained or in the exit child |
-| `inner --policy-fd N` (hidden) | inside bwrap: Landlock, seccomp, then the child shell |
+| `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, then Landlock, seccomp and the child shell |
+| `layers --pid N` (hidden) | enters the namespaces of the inner stage `N` and mounts the cache overlays of the plan on stdin |
 | `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test |
 | `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make |
 | `bridge` (hidden) | the seam of phase 2; it refuses in phase 1 |
@@ -29,7 +32,8 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 |---|---|
 | `src/call.rs` | `run`: the call dir, the contained launch, apply, state and result |
 | `src/call_dir.rs` | the call dir and shell dir checks; atomic writes |
-| `src/launch.rs`, `src/launch/status.rs` | one bwrap launch: argument and policy memfds, the pipes, the status stream, the overlay retry |
+| `src/launch.rs`, `src/launch/status.rs` | one bwrap launch: argument and policy memfds, the pipes, the status stream, the handshake with the layer helper |
+| `src/layers.rs` | the layer helper: the cache overlays, and the plan's mounts inside each cache moved onto it |
 | `src/inner.rs` | the inner stage |
 | `src/landlock.rs`, `src/seccomp.rs` | the policy of `efr-sandbox` applied with the `landlock` and `seccompiler` crates |
 | `src/exit_child.rs` | the exit child as a subreaper |
@@ -67,7 +71,8 @@ Tier 2. A binary; nothing depends on it.
 
 `efr-sandbox` (every rule of the launch) and `efr-protocol` (the wire types in the spec
 and the result). Third-party crates: `landlock` 0.4.7, `seccompiler` 0.5.0 (with its
-json frontend, which maps system call names to numbers), `rustix`, `signal-hook`,
+json frontend, which maps system call names to numbers), `rustix` (with `mount` for the
+layer helper), `signal-hook`,
 `clap`, `libc` (only in `src/fds.rs`), `serde`, `serde_json` and `thiserror`.
 
 No `efr-stdx`: it reaches tokio, and `xtask/src/deps.rs` forbids `efr-sbx -> tokio`.
@@ -86,6 +91,11 @@ async runtime; it reads its own environment, which is the trusted shell's.
   output; the inner stage writes its own failures there before the child exists.
 - `result.json` is written last, by a rename, after bwrap or the exit child and every
   process of the call are gone.
+- A cache overlay is mounted only by `efr-sbx layers`, before any code of the call
+  runs, with every mask, pin and floor inside the cache moved onto it. When the helper
+  fails, the inner stage stops, and the call does not run. The launcher holds the
+  call's mount namespace until bwrap ends, so the kernel tears the overlays down before
+  the next call mounts them.
 - The launcher never runs a program from a place a call can write: git for the surface
   guard comes from a `PATH` dir outside every write root.
 - `unsafe` code exists only in `src/fds.rs` (`xtask/src/tidy.rs` holds the allowlist).

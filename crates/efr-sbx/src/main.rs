@@ -4,7 +4,8 @@
 //! `auto`. The launcher reads the spec that efrd wrote, starts bwrap with the plan of
 //! `efr-sandbox`, and inside bwrap `efr-sbx inner` applies Landlock and seccomp before
 //! it runs the child shell; or, for an approved exit, it runs the exit child as a
-//! subreaper. efrd runs `efr-sbx probe --json` to learn whether `auto` can run here.
+//! subreaper. `layers` mounts the cache overlays of a call after bwrap's setup. efrd
+//! runs `efr-sbx probe --json` to learn whether `auto` can run here.
 //! `bridge` is the seam of phase 2.
 //!
 //! Allowed dependencies: `efr-sandbox` and `efr-protocol`. No async runtime: the
@@ -28,6 +29,7 @@ mod guard;
 mod inner;
 mod landlock;
 mod launch;
+mod layers;
 mod os;
 mod probe;
 mod real_fs;
@@ -65,6 +67,13 @@ pub(crate) enum Command {
         /// The descriptor that carries the policy.
         #[arg(long)]
         policy_fd: i32,
+    },
+    /// Mounts the cache overlays of a call once bwrap's setup is done.
+    #[command(hide = true)]
+    Layers {
+        /// The inner stage's process id.
+        #[arg(long)]
+        pid: u32,
     },
     /// Phase 2: copies TCP from inside to the call's proxy socket.
     #[command(hide = true)]

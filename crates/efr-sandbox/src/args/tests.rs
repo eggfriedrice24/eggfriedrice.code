@@ -156,3 +156,33 @@ fn a_masked_file_binds_empty_data_read_only() {
     let fd: i32 = data.unwrap().parse().unwrap();
     assert!(fds.numbers().contains(&fd));
 }
+
+#[test]
+fn args_mount_no_overlay_and_stage_the_layers_last() {
+    let fs = world();
+    let plan = MountPlan::build(&spec(), &fs).unwrap();
+    let mut fds = FdTable::new(&fs);
+    let args = strings(&plan.bwrap_args(&mut fds, &LAUNCH, Path::new(PROJECT)).unwrap());
+    for flag in ["--overlay", "--tmp-overlay", "--overlay-src", "--ro-overlay", "--cap-add"] {
+        assert!(!args.iter().any(|arg| arg == flag), "{flag} in {args:?}");
+    }
+    let chdir = args.iter().position(|arg| arg == "--chdir").unwrap();
+    let staging = "/run/user/1000/efr-sbx/layers";
+    assert_eq!(args[chdir - 7..chdir - 3], ["--perms", "0700", "--tmpfs", staging]);
+    assert_eq!(args[chdir - 3], "--bind-fd");
+    assert_eq!(args[chdir - 1], format!("{staging}/0"));
+    // The layer dir's bind has a descriptor of its own, like every bind.
+    let used = args
+        .windows(2)
+        .filter(|w| ["--bind-fd", "--ro-bind-fd", "--ro-bind-data"].contains(&w[0].as_str()))
+        .count();
+    assert_eq!(used, fds.numbers().len());
+
+    let mut tmp = spec();
+    tmp.cache_mode = efr_protocol::CacheMode::Tmp;
+    let plan = MountPlan::build(&tmp, &fs).unwrap();
+    let args =
+        strings(&plan.bwrap_args(&mut FdTable::new(&fs), &LAUNCH, Path::new(PROJECT)).unwrap());
+    let chdir = args.iter().position(|arg| arg == "--chdir").unwrap();
+    assert_eq!(args[chdir - 4..chdir], ["--perms", "0700", "--tmpfs", staging]);
+}

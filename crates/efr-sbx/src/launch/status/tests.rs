@@ -53,22 +53,6 @@ fn inner_report_wins_over_an_exit_code() {
 }
 
 #[test]
-fn only_a_busy_overlay_of_bwrap_is_tried_again() {
-    let busy = Ending::SetupFailed {
-        reason: "bwrap: Can't mount overlay on /home/u/.cargo: Device or resource busy".to_owned(),
-        inner: false,
-    };
-    assert!(retry_overlay(&busy, 1, Duration::ZERO));
-    assert!(!retry_overlay(&busy, OVERLAY_ATTEMPTS, Duration::ZERO));
-    assert!(!retry_overlay(&busy, 1, OVERLAY_RETRY_WINDOW));
-    let other = Ending::SetupFailed { reason: "bwrap: Can't stat fd".to_owned(), inner: false };
-    assert!(!retry_overlay(&other, 1, Duration::ZERO));
-    let inner = Ending::SetupFailed { reason: "overlay".to_owned(), inner: true };
-    assert!(!retry_overlay(&inner, 1, Duration::ZERO));
-    assert!(!retry_overlay(&Ending::Ran { code: 1 }, 1, Duration::ZERO));
-}
-
-#[test]
 fn a_signal_after_the_namespace_started_is_an_interrupt() {
     assert_eq!(
         ending(parse_status(MOUNT_FAILED), "", BwrapExit::Signal(2)),

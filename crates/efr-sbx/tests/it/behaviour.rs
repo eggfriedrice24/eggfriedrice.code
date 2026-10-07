@@ -4,13 +4,13 @@
 
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use efr_protocol::Grant;
+use efr_protocol::{CacheMode, Grant};
 use efr_sandbox::{CacheOverlay, SpecLaunch, WriteRoot, WriteRootKind};
 
 use crate::support::{Fixture, Run, need, q, run_with_timeout, sandbox_or_skip, write};
@@ -52,8 +52,36 @@ fn setup_failure_is_not_command_failure() {
     assert!(!marker.exists());
 }
 
-/// Two caches that share one upper dir: the second overlay is always busy.
-fn busy_overlays(fixture: &mut Fixture) {
+/// An executable script at `path`.
+fn script(path: &Path, text: &str) {
+    fs::write(path, text).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[test]
+fn bwrap_setup_error_not_in_output() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    // The real bwrap with an option it does not know: it fails before the command.
+    let bwrap = fixture.base.join("bwrap");
+    let real = fixture.spec.runtime.bwrap.display().to_string();
+    script(
+        &bwrap,
+        &format!("#!/bin/sh\nexec {} --efr-no-such-option \"$@\"\n", q(Path::new(&real))),
+    );
+    fixture.spec.runtime.bwrap = bwrap;
+    let run = fixture.run("print ran");
+    run.expect_status(125);
+    let error = run.result().setup_error.clone().unwrap_or_default();
+    assert!(error.contains("efr-no-such-option"), "{run:#?}");
+    assert!(!run.stderr.contains("bwrap"), "{run:#?}");
+    assert!(!run.stdout.contains("ran"), "{run:#?}");
+}
+
+#[test]
+fn two_caches_on_one_layer_dir_refuse_the_call() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
     let first = fixture.home.join(".cache");
     let second = fixture.home.join(".npm");
     fs::create_dir_all(&first).unwrap();
@@ -61,33 +89,79 @@ fn busy_overlays(fixture: &mut Fixture) {
     let shared = CacheOverlay::new(&first, &fixture.spec.runtime.sandbox_dir, &fixture.home);
     fixture.spec.caches.push(shared.clone());
     fixture.spec.caches.push(CacheOverlay { target: second, ..shared });
-}
-
-#[test]
-fn bwrap_setup_error_not_in_output() {
-    let ready = sandbox_or_skip!();
-    let mut fixture = Fixture::new(&ready);
-    busy_overlays(&mut fixture);
-    let run = fixture.run("print ran");
+    let marker = fixture.project.join("ran");
+    let run = fixture.run(&format!("touch {}", q(&marker)));
     run.expect_status(125);
     let error = run.result().setup_error.clone().unwrap_or_default();
-    assert!(error.contains("overlay"), "{run:#?}");
-    assert!(!run.stderr.contains("bwrap"), "{run:#?}");
-    assert!(!run.stdout.contains("ran"), "{run:#?}");
+    assert!(error.contains("cannot run here") && error.contains("layer dir"), "{run:#?}");
+    assert!(!marker.exists());
 }
 
 #[test]
-fn overlay_ebusy_retry() {
+fn overlay_back_to_back_calls_mount_every_time() {
+    // With the kernel's index=on, the upper dir stayed busy for a few milliseconds after
+    // a call, and the next call's mount failed with EBUSY. The helper mounts with
+    // index=off, and the launcher tears the last call's mounts down before it ends.
     let ready = sandbox_or_skip!();
     let mut fixture = Fixture::new(&ready);
-    busy_overlays(&mut fixture);
-    let start = Instant::now();
-    let run = fixture.run("true");
-    let spent = start.elapsed();
+    let cache = fixture.home.join(".cache");
+    write(&cache.join("index"), "one\n");
+    fixture.cache(&cache);
+    for n in 0..30 {
+        let run = fixture.run(&format!("print {n} >> {}/calls", q(&cache)));
+        run.expect_status(0);
+        assert_eq!(run.result().setup_error, None, "{run:#?}");
+    }
+    let run = fixture.run(&format!("wc -l < {}/calls", q(&cache)));
+    assert_eq!(run.stdout.trim(), "30", "{run:#?}");
+    assert!(!cache.join("calls").exists(), "the writes reached the user's cache");
+}
+
+#[test]
+fn tmp_cache_writes_go_away_after_the_call() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    fixture.spec.cache_mode = CacheMode::Tmp;
+    let cache = fixture.home.join(".cache");
+    write(&cache.join("index"), "one\n");
+    fixture.cache(&cache);
+    let run = fixture.run(&format!(
+        "print two > {0}/index && print new > {0}/new && cat {0}/index {0}/new",
+        q(&cache)
+    ));
+    run.expect_status(0);
+    assert_eq!(run.stdout, "two\nnew\n", "{run:#?}");
+    assert_eq!(fs::read_to_string(cache.join("index")).unwrap(), "one\n");
+    assert!(!cache.join("new").exists());
+    let run = fixture.run(&format!("cat {0}/index; ls {0}", q(&cache)));
+    assert_eq!(run.stdout, "one\nindex\n", "{run:#?}");
+}
+
+#[test]
+fn a_failed_layer_helper_stops_the_call() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let cache = fixture.home.join(".cache");
+    fs::create_dir_all(&cache).unwrap();
+    fixture.cache(&cache);
+    // A launcher whose layer helper fails, and which is the real one otherwise.
+    let launcher = fixture.runtime.join("efr-sbx");
+    let real = q(&fixture.ready.bin);
+    script(
+        &launcher,
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = layers ]; then echo 'planted helper failure' >&2; \
+             exit 125; fi\nexec {real} \"$@\"\n"
+        ),
+    );
+    fixture.spec.runtime.launcher = launcher;
+    let marker = fixture.project.join("ran");
+    let run = fixture.run(&format!("touch {}", q(&marker)));
     run.expect_status(125);
-    assert!(run.result().setup_error.as_deref().unwrap_or_default().contains("overlay"));
-    // The launcher kept trying for the retry window before it gave up.
-    assert!(spent >= Duration::from_millis(90), "gave up after {spent:?}");
+    let error = run.result().setup_error.clone().unwrap_or_default();
+    assert!(error.contains("cache overlays did not mount"), "{run:#?}");
+    assert!(error.contains("planted helper failure"), "{run:#?}");
+    assert!(!marker.exists(), "the call ran without its overlays");
 }
 
 #[test]
@@ -293,8 +367,7 @@ fn approved_sudo_runs_in_exit_child_with_relay() {
     let mut fixture = Fixture::new(&ready);
     let bin = fixture.base.join("bin");
     write(&bin.join("sudo"), "#!/bin/sh\nread -r pw\necho \"fake sudo ran $* with $pw\"\n");
-    fs::set_permissions(bin.join("sudo"), std::os::unix::fs::PermissionsExt::from_mode(0o755))
-        .unwrap();
+    fs::set_permissions(bin.join("sudo"), PermissionsExt::from_mode(0o755)).unwrap();
     let path = format!("{}:{}", bin.display(), crate::support::env_var("PATH").unwrap_or_default());
     fixture.env.insert("PATH".into(), path.into());
     fixture.spec.launch = SpecLaunch::Unsandboxed;
@@ -470,11 +543,7 @@ fn venv_activate_survives_calls() {
          deactivate() { unset VIRTUAL_ENV }\n",
     );
     write(&venv.join("bin/venv-tool"), "#!/bin/sh\necho venv-tool-ran\n");
-    fs::set_permissions(
-        venv.join("bin/venv-tool"),
-        std::os::unix::fs::PermissionsExt::from_mode(0o755),
-    )
-    .unwrap();
+    fs::set_permissions(venv.join("bin/venv-tool"), PermissionsExt::from_mode(0o755)).unwrap();
     let run = fixture.run("source .venv/bin/activate");
     run.expect_status(0);
     assert!(run.apply_fields().is_empty(), "the venv reached the trusted shell: {run:#?}");
@@ -521,7 +590,7 @@ fn launcher_refuses_a_call_dir_of_another_user_mode() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);
     let call_dir = fixture.prepare("print ran");
-    fs::set_permissions(&call_dir, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    fs::set_permissions(&call_dir, PermissionsExt::from_mode(0o755)).unwrap();
     let command = fixture.command(&call_dir, &fixture.project);
     let run = fixture.collect(&call_dir, run_with_timeout(command));
     run.expect_status(125);

@@ -22,8 +22,9 @@ landlock.workspace = true
 # calls of the probe's self-test (ADR 0007).
 libc.workspace = true
 # `pipe` for the launch pipes, `stdio` for dup2 onto stderr in the inner stage, `net`
-# for the self-test's vsock socket, `thread` for its unshare.
-rustix = { workspace = true, features = ["pipe", "stdio", "net", "thread"] }
+# for the self-test's vsock socket, `thread` for its unshare and the layer helper's
+# setns, `mount` for the layer helper's overlays.
+rustix = { workspace = true, features = ["pipe", "stdio", "net", "thread", "mount"] }
 seccompiler.workspace = true
 serde.workspace = true
 serde_json.workspace = true

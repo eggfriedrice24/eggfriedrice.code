@@ -3,7 +3,9 @@
 //!
 //! It is trusted code in an untrusted place. In order:
 //!
-//! 1. Read the `InnerPolicy` from the policy descriptor and close it.
+//! 1. Read the `InnerPolicy` from the policy descriptor and close it. When the call
+//!    has cache overlays, tell the launcher that bwrap's setup is done, wait while its
+//!    layer helper mounts them, and enter the start dir again.
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
 //! 3. (Phase 2: start `efr-sbx bridge` here, in a Landlock domain of its own.)
@@ -20,9 +22,10 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::ExitCode;
 
-use efr_sandbox::{InnerPolicy, MAX_POLICY_BYTES, RECORDS_FD, SETUP_FAILURE_STATUS};
+use efr_sandbox::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD, SETUP_FAILURE_STATUS};
 
 use crate::error::SbxError;
 use crate::{fds, landlock, os, seccomp};
@@ -59,6 +62,9 @@ struct Child {
 
 fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     let policy = read_policy(policy_fd)?;
+    if let Some(sync) = policy.layers_sync {
+        wait_for_layers(sync, policy.cwd.as_deref())?;
+    }
     let records = fds::adopt(policy.records_fd)
         .and_then(|fd| park(fd, RECORDS_FD, false))
         .map_err(|error| SbxError::os("take the records pipe", error))?;
@@ -91,6 +97,34 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
         return Err(SbxError::os("run the child", std::io::ErrorKind::InvalidInput.into()));
     }
     Ok(Child { argv: policy.argv, terminal, records })
+}
+
+/// Tells the launcher that bwrap's setup is done, with this process's id as the host
+/// names it, and waits for its `g`: the layer helper mounts the cache overlays
+/// meanwhile. Then enters the start dir again, because bwrap's `--chdir` left this
+/// process in the directory below the overlay, where the masks inside the cache no
+/// longer are.
+fn wait_for_layers(sync: LayersSync, cwd: Option<&Path>) -> Result<(), SbxError> {
+    let failed = |error| SbxError::os("wait for the cache overlays", error);
+    let ready = fds::adopt(sync.ready_fd).map_err(failed)?;
+    let go = fds::adopt(sync.go_fd).map_err(failed)?;
+    // NOTE: /proc is the host's procfs (the plan never mounts a new one), so its
+    // `self` link names this process as the launcher sees it.
+    let pid = std::fs::read_link("/proc/self").map_err(failed)?;
+    let mut line = pid.into_os_string().into_encoded_bytes();
+    line.push(b'\n');
+    File::from(ready).write_all(&line).map_err(failed)?;
+    let mut answer = [0_u8; 1];
+    let read = File::from(go).read(&mut answer).map_err(failed)?;
+    if read != 1 || answer != *b"g" {
+        return Err(failed(std::io::ErrorKind::BrokenPipe.into()));
+    }
+    match cwd {
+        Some(cwd) => {
+            rustix::process::chdir(cwd).map_err(|error| SbxError::io("enter", cwd, error.into()))
+        }
+        None => Ok(()),
+    }
 }
 
 /// Reads and closes the policy descriptor.

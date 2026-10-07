@@ -360,6 +360,81 @@ fn plan_overlays_caches_with_pins_and_skips_them_when_read_only() {
 }
 
 #[test]
+fn plan_gives_the_helper_each_overlay_with_the_mounts_inside_it() {
+    let mut spec = spec();
+    spec.masks
+        .push(Mask { path: "/home/u/.cargo/credentials.toml".into(), kind: MaskKind::SandboxMask });
+    let mut fs = world();
+    fs.file("/home/u/.cargo/credentials.toml", "token");
+    let plan = plan(&spec, &fs);
+    let layers = plan.cache_layers().unwrap();
+    assert_eq!(layers.staging, Path::new("/run/user/1000/efr-sbx/layers"));
+    assert!(!layers.fresh);
+    let [layer] = layers.layers.as_slice() else { panic!("{layers:#?}") };
+    assert_eq!(layer.target, Path::new("/home/u/.cargo"));
+    assert_eq!(layer.dir, Path::new("/run/user/1000/efr-sbx/layers/0"));
+    assert_eq!(layer.upper, layer.dir.join("upper"));
+    assert_eq!(layer.work, layer.dir.join("work"));
+    // The mask and the pins inside the cache move onto the overlay, so they still win.
+    let mut moved = layer.moved.clone();
+    moved.sort();
+    assert_eq!(
+        moved,
+        [
+            PathBuf::from("/home/u/.cargo/bin"),
+            PathBuf::from("/home/u/.cargo/config.toml"),
+            PathBuf::from("/home/u/.cargo/credentials.toml"),
+        ]
+    );
+    assert_eq!(plan.layer_sources, [spec.caches[0].upper.parent().unwrap().to_path_buf()]);
+
+    let mut tmp = crate::testing::spec();
+    tmp.cache_mode = CacheMode::Tmp;
+    let plan = MountPlan::build(&tmp, &world()).unwrap();
+    let layers = plan.cache_layers().unwrap();
+    assert!(layers.fresh);
+    assert!(plan.layer_sources.is_empty());
+
+    let mut readonly = crate::testing::spec();
+    readonly.cache_mode = CacheMode::Readonly;
+    assert_eq!(MountPlan::build(&readonly, &world()).unwrap().cache_layers(), None);
+}
+
+#[test]
+fn plan_refuses_two_caches_on_one_layer_dir() {
+    let mut spec = spec();
+    let shared = crate::CacheOverlay { target: "/home/u/.npm".into(), ..spec.caches[0].clone() };
+    spec.caches.push(shared);
+    let mut fs = world();
+    fs.dir("/home/u/.npm");
+    let error = MountPlan::build(&spec, &fs).unwrap_err();
+    assert!(matches!(error, SandboxError::CacheLayer { .. }), "{error:?}");
+
+    let mut spec = crate::testing::spec();
+    spec.caches[0].work = "/home/u/.local/state/efr/elsewhere/work".into();
+    let error = MountPlan::build(&spec, &world()).unwrap_err();
+    assert!(matches!(error, SandboxError::CacheLayer { .. }), "{error:?}");
+
+    // In the tmp mode the layer dirs are not used.
+    let mut spec = crate::testing::spec();
+    spec.cache_mode = CacheMode::Tmp;
+    spec.caches[0].work = "/home/u/.local/state/efr/elsewhere/work".into();
+    assert!(MountPlan::build(&spec, &world()).is_ok());
+}
+
+#[test]
+fn plan_drops_the_overlay_of_a_cache_that_a_floor_covers() {
+    let mut spec = spec();
+    spec.floors.push(Floor { path: "/home/u/.cargo".into(), kind: FloorKind::User });
+    let plan = plan(&spec, &world());
+    assert!(!plan.mounts().iter().any(|mount| mount.origin == MountOrigin::Cache));
+    assert!(has_mount(&plan, &ro("/home/u/.cargo")));
+    assert!(plan.notes().contains(&PlanNote::CacheSkipped("/home/u/.cargo".into())));
+    assert_eq!(plan.cache_layers(), None);
+    assert!(!plan.write_dirs().iter().any(|dir| dir == Path::new("/home/u/.cargo")));
+}
+
+#[test]
 fn plan_unmasks_one_mask_but_never_an_engine_secret() {
     let mut spec = spec();
     spec.masks.push(Mask { path: "/home/u/p/app/.env".into(), kind: MaskKind::ProjectEnv });

@@ -119,18 +119,24 @@ impl MountPlan {
                     let fd = fds.open_empty()?.to_string();
                     push(&[&"--ro-bind-data", &fd, target]);
                 }
-                MountOp::Overlay { lower, upper, work, target } => {
-                    push(&[&"--overlay-src", lower, &"--overlay", upper, work, target]);
-                }
-                MountOp::TmpOverlay { lower, target } => {
-                    push(&[&"--overlay-src", lower, &"--tmp-overlay", target]);
-                }
+                // NOTE: never --overlay or --tmp-overlay: bwrap cannot pass index=off and
+                // xino=off, so the launcher's helper mounts the overlays (CacheLayers).
+                MountOp::Overlay { .. } | MountOp::TmpOverlay { .. } => {}
                 MountOp::Bind { source, target, writable } => {
                     let fd = fds.open(source)?.to_string();
                     let flag = if *writable { "--bind-fd" } else { "--ro-bind-fd" };
                     push(&[&flag, &fd, target]);
                 }
                 MountOp::DevBind { node } => push(&[&"--dev-bind", node, node]),
+            }
+        }
+        if let Some(layers) = &self.layers {
+            // The staging dir lies in the launcher's dir in the masked runtime dir, which
+            // bwrap made before; the helper unmounts it once the overlays are in place.
+            push(&[&"--perms", &"0700", &"--tmpfs", &layers.staging]);
+            for (source, layer) in self.layer_sources.iter().zip(&layers.layers) {
+                let fd = fds.open(source)?.to_string();
+                push(&[&"--bind-fd", &fd, &layer.dir]);
             }
         }
         push(&[&"--chdir", &cwd]);

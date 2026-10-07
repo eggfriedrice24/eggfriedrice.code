@@ -24,6 +24,7 @@ mod fs_view;
 mod git_config;
 mod inner;
 mod landlock;
+mod layers;
 mod names;
 mod paths;
 mod plan;
@@ -46,11 +47,12 @@ pub use export_filter::{
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
-pub use inner::{InnerPolicy, MAX_POLICY_BYTES, RECORDS_FD};
+pub use inner::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
 pub use landlock::{
     ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy, LandlockRule, LandlockScope,
     MIN_LANDLOCK_ABI,
 };
+pub use layers::{CacheLayer, CacheLayers, MAX_LAYERS_BYTES, STAGING_DIR};
 pub use names::{
     EFR_NAMES, PROXY_NAMES, SECRET_NAMES, SOCKET_NAMES, is_variable_name, matches as name_matches,
     secret_like,

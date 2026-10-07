@@ -206,7 +206,10 @@ pub(crate) fn spec() -> crate::SandboxSpec {
 /// roots and the launcher's files.
 pub(crate) fn world() -> FakeFs {
     let runtime = runtime();
+    let cargo =
+        crate::CacheOverlay::new(Path::new("/home/u/.cargo"), &runtime.sandbox_dir, &runtime.home);
     let mut fs = FakeFs::new();
+    fs.dir(&cargo.upper.to_string_lossy()).dir(&cargo.work.to_string_lossy());
     fs.dir(PROJECT)
         .dir("/home/u/p/app/src")
         .dir("/home/u/p/app/.git/hooks")

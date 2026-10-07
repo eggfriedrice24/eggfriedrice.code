@@ -134,7 +134,7 @@
 
 # How the caches are mounted: overlay (a private upper layer per conversation), tmp
 # (writes vanish after each call) or readonly. tmp is the default because the overlays
-# failed the launch gate of phase 1 (slow and busy setups).
+# failed the launch gate of phase 1 (slow setups).
 # cache_mode = "tmp"
 
 # Days without a call after which a conversation's cache layers are deleted, from 1

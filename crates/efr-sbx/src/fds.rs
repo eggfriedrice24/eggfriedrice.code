@@ -17,13 +17,17 @@
 //! - [`dup_to`]: `dup3` onto a fixed number that nothing in the process owns.
 //! - [`inherit_number`]: clears `FD_CLOEXEC` on a bind source that
 //!   `efr_sandbox::FdTable` owns and names only by number.
+//! - [`ns_parent`]: `ioctl(NS_GET_PARENT)` on a user namespace, so the layer helper can
+//!   enter the namespace that owns the call's mounts (`layers.rs`); rustix has no
+//!   wrapper for the namespace ioctls.
 //! - [`io_uring_blocked`], [`tiocsti_blocked`] and [`userns_blocked`]: the probe's
 //!   self-test makes these three system calls to prove that seccomp refuses them;
 //!   rustix offers them only as `unsafe` or not at all.
 //!
 //! Every block names what it relies on in a `// SAFETY:` comment. Each function is
 //! called while the process has one thread: at the start of the launcher, before the
-//! reader threads exist, and in the inner stage, which never starts a thread.
+//! reader threads exist, in the inner stage, which never starts a thread, and in the
+//! layer helper.
 
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -99,6 +103,20 @@ pub(crate) fn dup_to(src: BorrowedFd<'_>, target: RawFd, cloexec: bool) -> io::R
     }
     // SAFETY: dup3 returned `target`, which is now open and has no other owner.
     Ok(unsafe { OwnedFd::from_raw_fd(target) })
+}
+
+/// The parent of the user namespace `user_ns`, a descriptor of `/proc/<pid>/ns/user`:
+/// bwrap nests the call's process in a second user namespace, and only the first one
+/// owns the call's mounts.
+pub(crate) fn ns_parent(user_ns: BorrowedFd<'_>) -> io::Result<OwnedFd> {
+    // SAFETY: NS_GET_PARENT takes no argument and touches no memory of this process; on
+    // success it returns a new descriptor that nothing else owns, with O_CLOEXEC set.
+    let done = unsafe { libc::ioctl(user_ns.as_raw_fd(), libc::NS_GET_PARENT) };
+    if done < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the call returned a new, open descriptor with no other owner.
+    Ok(unsafe { OwnedFd::from_raw_fd(done) })
 }
 
 /// The self-test's `io_uring_setup(1, &params)`: `Ok(errno)` when it failed as seccomp

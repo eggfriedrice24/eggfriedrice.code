@@ -81,11 +81,26 @@ Your own builds never see them. `bin/`, `config.toml` and `env` of `~/.cargo` an
 `sandbox.cache_mode` selects the mode: `tmp` (the default: writes go away after each
 call), `overlay` (writes stay in a layer of the conversation) or `readonly`. `tmp` is
 the default because the `overlay` mode failed the launch gate of phase 1: with all
-the cache overlays, a call cost more than 10 ms at p95, and some of 1000 calls failed
-to start because the kernel said that an overlay was busy. efrd deletes the layers of
-a conversation after `sandbox.cache_days` days without a call, and the oldest layers
-first when all layers pass `sandbox.cache_max_gib`. Bin directories on your `PATH` are
-never an overlay; they stay read-only.
+the cache overlays, a call cost more than 10 ms at p95. The kernel writes an
+`overlay` layer to the disk at the end of each call, and that costs time. efrd
+deletes the layers of a conversation after `sandbox.cache_days` days without a call,
+and the oldest layers first when all layers pass `sandbox.cache_max_gib`. Bin
+directories on your `PATH` are never an overlay; they stay read-only.
+
+efr mounts the cache overlays itself, not bubblewrap, because bubblewrap cannot set
+the options of an overlay:
+
+1. bubblewrap makes the sandbox with every mask and every read-only path, but with no
+   overlay. Then the call waits.
+2. The helper `efr-sbx layers` enters the namespaces of the call. It mounts each
+   overlay with `index=off` and `xino=off`, and it moves the masks and read-only paths
+   inside the cache onto the overlay, so they still apply.
+3. The call starts. When the helper fails, the call does not run, and the model gets
+   the reason.
+
+With these options the kernel logs nothing for an overlay. Without them, the kernel
+logged two lines for each cache in each call, and an upper layer stayed busy for some
+milliseconds after a call, so the next call of the conversation could fail to start.
 
 ## Read masks
 

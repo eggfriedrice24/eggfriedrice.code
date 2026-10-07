@@ -22,6 +22,9 @@ works with descriptors that arrive by number:
   child shell, and close every other descriptor before it applies Landlock, so that no
   descriptor opened outside keeps its rights inside.
 - The exit child needs the records pipe at exactly fd 3 too.
+- The layer helper mounts the cache overlays of a call. It must enter the user
+  namespace that owns the call's mounts, which is the parent of the namespace that
+  `/proc/<pid>/ns/user` names, because bwrap nests the call in a second one.
 - The probe's self-test proves that seccomp refuses `io_uring_setup`, `TIOCSTI` and
   `unshare(CLONE_NEWUSER)` by making these calls.
 
@@ -30,8 +33,10 @@ Safe Rust and rustix cover most of the launcher: `openat2`, `memfd_create`, pipe
 child subreaper, signal flags through `signal_hook::flag::register`, and Landlock and
 seccomp through their crates. They do not cover these steps: rustix has no
 `close_range`, no way to turn a number into an `OwnedFd`, no `dup3` onto a number the
-process does not own yet, and it offers `io_uring_setup` and `unshare` only as
-`unsafe` functions and `TIOCSTI` not at all. `efr-pty` has the same gap for its
+process does not own yet, no `NS_GET_PARENT`, and it offers `io_uring_setup` and
+`unshare` only as `unsafe` functions and `TIOCSTI` not at all. `setns`, `fsopen`,
+`fsconfig`, `fsmount`, `open_tree` and `move_mount` of the layer helper are safe in
+rustix. `efr-pty` has the same gap for its
 `pre_exec` code and calls `libc` in its one allowlisted module.
 
 ## Decision
@@ -47,13 +52,14 @@ code. `main.rs` opts it out with `#[allow(unsafe_code)]` on its module item, and
 | `inherit_number(fd)` | `fcntl(fd, F_SETFD, 0)` | `FdTable` keeps the descriptor open for the call |
 | `adopt(fd)` | `fcntl(F_GETFD)`, then `OwnedFd::from_raw_fd` | the number came from an argument, is open, and has no other owner |
 | `dup_to(src, target, cloexec)` | `dup3(src, target, flags)`, then `from_raw_fd(target)` | `target` has no owner in the process |
+| `ns_parent(fd)` | `ioctl(fd, NS_GET_PARENT)`, then `from_raw_fd` | no memory is passed; the result is a new descriptor with no other owner |
 | `io_uring_blocked()` | `io_uring_setup(1, &params)` | a 120-byte zeroed buffer; a ring that is made is closed at once |
 | `tiocsti_blocked(fd)` | `ioctl(fd, TIOCSTI, &byte)` | one byte through a live pointer, on a terminal the self-test opened |
 | `userns_blocked()` | `unshare(CLONE_NEWUSER)` | no descriptor table is unshared; the self-test has one thread |
 
 Each call happens while the process has one thread: at the start of the launcher,
-before its reader threads exist, in the inner stage, which starts no thread, and in the
-self-test.
+before its reader threads exist, in the inner stage, which starts no thread, in the
+layer helper (`efr-sbx layers`) and in the self-test.
 
 ## Consequences
 

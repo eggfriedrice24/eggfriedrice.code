@@ -9,6 +9,7 @@ use efr_protocol::{BusKind, CacheMode, Grant};
 use crate::SandboxError;
 use crate::fs_view::{FileKind, FsView, Resolved, resolve};
 use crate::git_config::parse_config;
+use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
 use crate::plan::{Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote};
 use crate::spec::{FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
@@ -38,6 +39,7 @@ struct Builder<'a> {
     roots: Vec<Writable>,
     widenings: Vec<Writable>,
     caches: Vec<PathBuf>,
+    layer_dirs: Vec<PathBuf>,
     resolve_unix: Vec<PathBuf>,
     devices: Vec<PathBuf>,
     env: Vec<(String, String)>,
@@ -58,6 +60,7 @@ impl MountPlan {
             roots: Vec::new(),
             widenings: Vec::new(),
             caches: Vec::new(),
+            layer_dirs: Vec::new(),
             resolve_unix: Vec::new(),
             devices: Vec::new(),
             env: Vec::new(),
@@ -266,6 +269,18 @@ impl Builder<'_> {
                 continue;
             }
             let target = resolved.path;
+            if self.spec.cache_mode == CacheMode::Overlay {
+                // NOTE: the helper binds the layer dir and finds upper and work in it; a
+                // dir that two overlays share would be one upper for both.
+                let layer = cache.upper.parent();
+                let shared = self.layer_dirs.iter().any(|known| Some(known.as_path()) == layer);
+                match layer {
+                    Some(layer) if cache.work.parent() == Some(layer) && !shared => {
+                        self.layer_dirs.push(layer.to_path_buf());
+                    }
+                    _ => return Err(SandboxError::CacheLayer { cache: cache.target.clone() }),
+                }
+            }
             let op = match self.spec.cache_mode {
                 CacheMode::Tmp => {
                     MountOp::TmpOverlay { lower: target.clone(), target: target.clone() }
@@ -551,10 +566,10 @@ impl Builder<'_> {
         let Builder {
             spec,
             mut mounts,
-            notes,
+            mut notes,
             roots,
             widenings,
-            caches,
+            mut caches,
             resolve_unix,
             devices,
             env,
@@ -567,6 +582,26 @@ impl Builder<'_> {
                 unique.push(mount);
             }
         }
+        // A cache with another mount at its own path (a floor, a PATH dir) stays as
+        // that mount makes it: the mount covers the whole overlay.
+        let covered: Vec<PathBuf> = unique
+            .iter()
+            .filter(|mount| mount.origin == MountOrigin::Cache)
+            .map(|mount| mount.op.target().to_path_buf())
+            .filter(|cache| {
+                unique.iter().any(|other| {
+                    other.origin != MountOrigin::Cache && other.op.target() == cache.as_path()
+                })
+            })
+            .collect();
+        for cache in &covered {
+            unique.retain(|mount| {
+                !(mount.origin == MountOrigin::Cache && mount.op.target() == cache.as_path())
+            });
+            caches.retain(|known| known != cache);
+            notes.push(PlanNote::CacheSkipped(cache.clone()));
+        }
+        let (layers, layer_sources) = cache_layers(spec, &unique);
         let mut dirs: Vec<PathBuf> = roots.iter().map(|root| root.path.clone()).collect();
         dirs.extend(caches);
         dirs.extend(["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from));
@@ -603,8 +638,44 @@ impl Builder<'_> {
             inside_launcher: runtime.inside_launcher(),
             child_argv,
             private_tmp: runtime.private_tmp(),
+            layers,
+            layer_sources,
         }
     }
+}
+
+/// The overlays of `mounts` for the launcher's helper, and in the `overlay` mode the
+/// layer dir of each one, which bwrap binds into the staging dir.
+fn cache_layers(spec: &SandboxSpec, mounts: &[Mount]) -> (Option<CacheLayers>, Vec<PathBuf>) {
+    let staging = spec.runtime.inside_dir().join(STAGING_DIR);
+    let mut layers = Vec::new();
+    let mut sources = Vec::new();
+    for mount in mounts {
+        let (target, upper) = match &mount.op {
+            MountOp::TmpOverlay { target, .. } => (target, None),
+            MountOp::Overlay { target, upper, work, .. } => (target, Some((upper, work))),
+            _ => continue,
+        };
+        let dir = staging.join(layers.len().to_string());
+        let named = |path: &Path, fallback: &str| {
+            dir.join(path.file_name().map_or_else(|| fallback.into(), ToOwned::to_owned))
+        };
+        let (upper, work) = match upper {
+            Some((upper, work)) => {
+                // The plan checked that the two share a parent of their own.
+                sources.push(upper.parent().unwrap_or(upper).to_path_buf());
+                (named(upper, "upper"), named(work, "work"))
+            }
+            None => (dir.join("upper"), dir.join("work")),
+        };
+        let moved = moved_mounts(target, mounts.iter().map(|mount| mount.op.target()));
+        layers.push(CacheLayer { target: target.clone(), dir, upper, work, moved });
+    }
+    if layers.is_empty() {
+        return (None, sources);
+    }
+    let fresh = spec.cache_mode != CacheMode::Overlay;
+    (Some(CacheLayers { staging, fresh, layers }), sources)
 }
 
 /// `paths` without one that lies in another, in their order.

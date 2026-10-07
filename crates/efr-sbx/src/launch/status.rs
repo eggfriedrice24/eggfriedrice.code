@@ -6,8 +6,6 @@
 //! failure of the command. The inner stage reports its own failures on bwrap's stderr
 //! with [`SETUP_PREFIX`], before the child exists.
 
-use std::time::Duration;
-
 use serde_json::Value;
 
 use crate::inner::SETUP_PREFIX;
@@ -106,23 +104,6 @@ fn first_lines(stderr: &str) -> String {
     let text: Vec<&str> =
         stderr.lines().map(str::trim).filter(|line| !line.is_empty()).take(5).collect();
     text.join("; ").chars().take(1000).collect()
-}
-
-/// The most attempts of one launch when an overlay is busy.
-pub(crate) const OVERLAY_ATTEMPTS: u32 = 25;
-/// How long a launch may keep trying when an overlay is busy.
-pub(crate) const OVERLAY_RETRY_WINDOW: Duration = Duration::from_millis(100);
-/// The pause between two attempts.
-pub(crate) const OVERLAY_RETRY_PAUSE: Duration = Duration::from_millis(2);
-
-/// True when a failed attempt should be tried again: the overlay was busy (an upper
-/// dir stays in use for a short time after the previous call's namespace died), and
-/// attempts and time are left. A launch never tries again without the overlay.
-pub(crate) fn retry_overlay(ending: &Ending, attempts: u32, elapsed: Duration) -> bool {
-    let Ending::SetupFailed { reason, inner: false } = ending else { return false };
-    reason.to_ascii_lowercase().contains("overlay")
-        && attempts < OVERLAY_ATTEMPTS
-        && elapsed < OVERLAY_RETRY_WINDOW
 }
 
 #[cfg(test)]

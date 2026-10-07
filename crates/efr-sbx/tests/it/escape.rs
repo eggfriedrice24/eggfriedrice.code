@@ -10,7 +10,7 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::os::unix::net::{SocketAddr, UnixListener};
 use std::path::{Path, PathBuf};
 
-use efr_protocol::Grant;
+use efr_protocol::{CacheMode, Grant};
 use efr_sandbox::{FloorKind, MaskKind, WriteRoot, WriteRootKind};
 
 use crate::support::{Fixture, Run, command, need, q, sandbox_or_skip, write};
@@ -613,6 +613,97 @@ fn escape_overlay_cache_poison_stays_private() {
     fixture.switch_conversation();
     let run = fixture.run(&format!("cat {}", q(&source)));
     assert!(run.stdout.contains("orig"), "another conversation saw the poison: {run:#?}");
+}
+
+/// A fixture with `~/.cargo` and `~/.cache` as caches in `mode`: a masked browser cache
+/// with a secret in `~/.cache`, and the pins of `~/.cargo`.
+fn cache_fixture(ready: &crate::support::Ready, mode: CacheMode) -> Fixture {
+    let mut fixture = Fixture::new(ready);
+    fixture.spec.cache_mode = mode;
+    let cargo = fixture.home.join(".cargo");
+    let cache = fixture.home.join(".cache");
+    write(&cargo.join("config.toml"), "[build]\n");
+    write(&cargo.join("bin/cargo"), "#!/bin/sh\n");
+    write(&cargo.join("registry/index"), "one\n");
+    write(&cache.join("mozilla/firefox/cookies"), "cache-secret\n");
+    write(&cache.join("go-build/entry"), "built\n");
+    fixture.cache(&cargo);
+    fixture.cache(&cache);
+    fixture.mask(&cache.join("mozilla"), MaskKind::SandboxMask);
+    fixture
+}
+
+#[test]
+fn escape_cache_masks_and_pins_win_over_the_overlay() {
+    let ready = sandbox_or_skip!();
+    for mode in [CacheMode::Overlay, CacheMode::Tmp] {
+        let fixture = cache_fixture(&ready, mode);
+        let cargo = fixture.home.join(".cargo");
+        let cache = fixture.home.join(".cache");
+        let run = fixture.run(&format!(
+            "cat {0}/mozilla/firefox/cookies; ls -A {0}/mozilla; \
+             print evil >> {1}/config.toml; print evil > {1}/bin/cargo; \
+             print evil > {1}/bin/new; print fetched >> {1}/registry/index && cat {1}/registry/index",
+            q(&cache),
+            q(&cargo)
+        ));
+        let what = format!("{mode:?}: {run:#?}");
+        assert!(!run.stdout.contains("cache-secret"), "{what}");
+        assert_eq!(run.stderr.matches("read-only file system").count(), 3, "{what}");
+        assert!(run.stdout.contains("one\nfetched\n"), "the cache stays writable: {what}");
+        assert_eq!(fs::read_to_string(cargo.join("config.toml")).unwrap(), "[build]\n");
+        assert_eq!(fs::read_to_string(cargo.join("registry/index")).unwrap(), "one\n");
+        assert!(!cargo.join("bin/new").exists());
+        // A call that starts inside the cache: bwrap entered the dir below the overlay,
+        // where the mask is not; the inner stage enters it again.
+        let run = fixture.call(
+            "pwd; cat mozilla/firefox/cookies; cat /proc/1/cwd/mozilla/firefox/cookies; \
+             print new > here && cat here",
+            &cache,
+            |_| {},
+        );
+        let what = format!("{mode:?}: {run:#?}");
+        assert!(run.stdout.starts_with(&format!("{}\n", cache.display())), "{what}");
+        assert!(!run.stdout.contains("cache-secret"), "{what}");
+        assert!(run.stdout.contains("new"), "{what}");
+        assert!(!cache.join("here").exists(), "{what}");
+    }
+}
+
+#[test]
+fn escape_cache_overlays_leave_no_layer_or_right_inside() {
+    let ready = sandbox_or_skip!();
+    let fixture = cache_fixture(&ready, CacheMode::Overlay);
+    let staging = fixture.spec.runtime.inside_dir().join("layers");
+    // The host's own overlays (containers) show in the host's mountinfo too.
+    let home = fixture.home.display().to_string();
+    let run = fixture.run(&format!(
+        "ls -A {} | wc -l; grep ' - overlay ' /proc/self/mountinfo | grep -cF {}; \
+         grep ' - overlay ' /proc/self/mountinfo; \
+         grep -E '^(NoNewPrivs|CapEff|CapPrm|CapBnd|CapAmb):' /proc/self/status",
+        q(&staging),
+        q(Path::new(&home))
+    ));
+    run.expect_status(0);
+    let lines: Vec<&str> = run.stdout.lines().collect();
+    // The staging dir is unmounted: nothing inside leads to a layer.
+    assert_eq!(lines.first().copied(), Some("0"), "{run:#?}");
+    assert_eq!(lines.get(1).copied(), Some("2"), "{run:#?}");
+    let ours = lines.iter().filter(|line| line.contains(" - overlay ") && line.contains(&home));
+    for overlay in ours {
+        // NOTE: xino shows only when the layers lie on two file systems.
+        for option in ["index=off", "userxattr", "nosuid", "nodev"] {
+            assert!(overlay.contains(option), "{option} missing: {overlay}");
+        }
+    }
+    assert!(run.stdout.contains("NoNewPrivs:\t1"), "{run:#?}");
+    for set in ["CapEff", "CapPrm", "CapBnd", "CapAmb"] {
+        assert!(run.stdout.contains(&format!("{set}:\t0000000000000000")), "{set}: {run:#?}");
+    }
+    // The sandbox cannot unmount an overlay and see the dir below it.
+    let cache = fixture.home.join(".cache");
+    let run = fixture.run(&format!("umount -l {}; ls -A {}", q(&cache), q(&cache.join("mozilla"))));
+    assert!(run.stdout.trim().is_empty(), "{run:#?}");
 }
 
 #[test]

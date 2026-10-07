@@ -187,9 +187,8 @@ cmd_guest() {
     ln -sfn /proc/self/fd/1 /dev/stdout
     ln -sfn /proc/self/fd/2 /dev/stderr
     # Ubuntu's config leaves the index feature of overlayfs off, and Arch's turns it on.
-    # Only with it does a second overlay on an upper dir in use fail with EBUSY, which
-    # the launcher's retry and its tests expect. Without it the mount succeeds with a
-    # warning in the kernel log.
+    # The layer helper of efr-sbx mounts every overlay with index=off; the VM turns the
+    # default on as on Arch, so the tests show that the option reaches the kernel.
     echo Y >/sys/module/overlay/parameters/index
     say "overlay index $(cat /sys/module/overlay/parameters/index)"
     # The tests keep their fixtures below the target dir of the build
