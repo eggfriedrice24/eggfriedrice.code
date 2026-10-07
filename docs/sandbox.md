@@ -175,7 +175,9 @@ Only two things return from a call to the conversation's hidden shell:
 
 - the directory of a `cd`, unless it is masked or in the private `/tmp`;
 - exported variables that `sandbox.promote_env` lists, such as `RUST_LOG`. A name such
-  as `PATH`, `LD_PRELOAD` or `GIT_DIR` never returns.
+  as `PATH`, `LD_PRELOAD` or `GIT_DIR` never returns. A value with a relative path,
+  such as `node_modules/.bin` or `Europe/Paris`, or with a path into a place that the
+  sandbox can write, does not return either.
 
 Functions, aliases and other exports stay in the sandbox's own state. The next
 contained call of the conversation sees them, so `source .venv/bin/activate` works

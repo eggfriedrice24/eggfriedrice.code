@@ -3,9 +3,23 @@
 //!
 //! An export returns only when every check passes: a shell name, on the promote list,
 //! not on the never list, not secret-like, a value without control characters and of
-//! bounded length, and no part of the value that resolves into a place that the
-//! sandbox can write. Everything else stays in the sandbox's state for later contained
-//! calls, except the names of [`OVERLAY_DENY`], which are dropped everywhere.
+//! bounded length, no part of the value that resolves into a place that the sandbox
+//! can write, and no relative path in the value. Everything else stays in the
+//! sandbox's state for later contained calls, except the names of [`OVERLAY_DENY`],
+//! which are dropped everywhere.
+//!
+//! The value is split at `:`, `=` and white space, and every part that is not empty
+//! is checked:
+//!
+//! - A part that starts with `/` or `~` is a path. It must not lie in a write root, as
+//!   written or with its links followed.
+//! - A part that starts with `.` or holds a `/` is a relative path. It never returns:
+//!   in the trusted shell it resolves against that shell's directory, which can be a
+//!   write root now or after a later `cd`.
+//! - A bare word, such as `debug` or `bin`, cannot be told apart from a path by its
+//!   text. It counts as a path into a write root when the call's directory holds an
+//!   entry of that name and the entry lies in a write root (only
+//!   [`ExportFilter::check_resolving`] can see that).
 
 use std::path::{Path, PathBuf};
 
@@ -144,6 +158,9 @@ pub enum KeepReason {
     BadValue,
     /// A part of the value points into a place that the sandbox can write.
     ValueInRoot,
+    /// A part of the value is a relative path, which the trusted shell would resolve
+    /// against its own directory.
+    RelativePath,
 }
 
 /// The export filter of one call.
@@ -160,7 +177,7 @@ pub struct ExportFilter {
 impl ExportFilter {
     /// A filter with these lists and places: `roots` are every place the sandbox can
     /// write, as the host names them; `cwd` is the call's final directory, against
-    /// which a value part that starts with `.` is read.
+    /// which a relative value part is read.
     pub fn new(
         promote: Vec<String>,
         export_deny: Vec<String>,
@@ -223,28 +240,35 @@ impl ExportFilter {
         if value.len() > self.max_value || value.chars().any(|c| c.is_control() && c != '\t') {
             return keep(KeepReason::BadValue);
         }
-        if self.points_into_roots(value, fs) {
-            return keep(KeepReason::ValueInRoot);
+        let parts = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
+        match parts.filter(|part| !part.is_empty()).find_map(|part| self.part(part, fs)) {
+            Some(reason) => keep(reason),
+            None => ExportVerdict::Promote,
         }
-        ExportVerdict::Promote
     }
 
-    fn points_into_roots(&self, value: &str, fs: Option<&dyn FsView>) -> bool {
-        let parts = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
-        for part in parts.filter(|part| part.starts_with(['/', '~', '.'])) {
-            let path = expand_home(Path::new(part), &self.home);
-            let Some(path) = normalize(&self.cwd.join(path)) else { continue };
-            if self.in_roots(&path) {
-                return true;
-            }
-            if let Some(fs) = fs
-                && let Ok(resolved) = resolve(fs, &path)
-                && self.in_roots(&resolved.path)
-            {
-                return true;
-            }
+    /// Why the value part `part` keeps its export in the sandbox, if it does.
+    fn part(&self, part: &str, fs: Option<&dyn FsView>) -> Option<KeepReason> {
+        let expanded = expand_home(Path::new(part), &self.home);
+        let absolute = expanded.is_absolute();
+        let relative = !absolute && (part.starts_with(['.', '~']) || part.contains('/'));
+        let Some(path) = normalize(&self.cwd.join(&expanded)) else {
+            return relative.then_some(KeepReason::RelativePath);
+        };
+        // A bare word is a path only when the call's directory holds an entry of that
+        // name.
+        let word = !absolute && !relative;
+        let named = !word || fs.is_some_and(|fs| fs.lstat(&path).is_ok());
+        if named && self.in_roots(&path) {
+            return Some(KeepReason::ValueInRoot);
         }
-        false
+        if named
+            && let Some(fs) = fs
+            && resolve(fs, &path).is_ok_and(|resolved| self.in_roots(&resolved.path))
+        {
+            return Some(KeepReason::ValueInRoot);
+        }
+        relative.then_some(KeepReason::RelativePath)
     }
 
     fn in_roots(&self, path: &Path) -> bool {

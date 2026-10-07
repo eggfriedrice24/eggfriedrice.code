@@ -57,7 +57,7 @@ fn export_filter_never_list_wins() {
         wide.check("TZ", &"a".repeat(4097)),
         ExportVerdict::KeepInSandbox(KeepReason::BadValue)
     );
-    assert_eq!(wide.check("TZ", "Europe/Paris\tx"), ExportVerdict::Promote);
+    assert_eq!(wide.check("TZ", "UTC\tx"), ExportVerdict::Promote);
 }
 
 #[test]
@@ -89,6 +89,51 @@ fn export_filter_keeps_out_values_in_roots() {
         filter.check_resolving("TOOL_HOME", "/home/u/link", &fs),
         ExportVerdict::KeepInSandbox(KeepReason::ValueInRoot)
     );
+}
+
+#[test]
+fn export_filter_keeps_out_relative_paths() {
+    let mut spec = spec();
+    spec.env.promote = vec!["*".to_owned()];
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    let filter = ExportFilter::from_spec(&spec, &plan, &PathBuf::from(PROJECT));
+    // In the trusted shell a relative path resolves against that shell's directory,
+    // which can be a write root, so it never returns, wherever the call ended.
+    let outside = ExportFilter::from_spec(&spec, &plan, &PathBuf::from("/usr/share"));
+    for value in ["node_modules/.bin", "/usr/lib:lib/x", "Europe/Paris", "~bob/bin", ".bin"] {
+        for filter in [&filter, &outside] {
+            let verdict = filter.check("TOOL_PATH", value);
+            assert!(
+                matches!(
+                    verdict,
+                    ExportVerdict::KeepInSandbox(
+                        KeepReason::RelativePath | KeepReason::ValueInRoot
+                    )
+                ),
+                "{value}: {verdict:?}"
+            );
+        }
+    }
+    assert_eq!(
+        outside.check("TOOL_PATH", "node_modules/.bin"),
+        ExportVerdict::KeepInSandbox(KeepReason::RelativePath)
+    );
+    // A bare word that names an entry of the call's directory in a write root is a
+    // path into that root; one that names nothing is a word.
+    let mut fs = world();
+    fs.dir("/home/u/p/app/bin");
+    for value in ["bin", "/usr/bin:bin", "bin:/usr/bin"] {
+        assert_eq!(
+            filter.check_resolving("TOOL_PATH", value, &fs),
+            ExportVerdict::KeepInSandbox(KeepReason::ValueInRoot),
+            "{value}"
+        );
+    }
+    assert_eq!(filter.check_resolving("RUST_LOG", "debug", &fs), ExportVerdict::Promote);
+    assert_eq!(filter.check_resolving("LANG", "C.UTF-8", &fs), ExportVerdict::Promote);
+    assert_eq!(outside.check_resolving("TOOL_PATH", "bin", &fs), ExportVerdict::Promote);
+    // An empty value, as an unset checks it, still returns.
+    assert_eq!(filter.check("TOOL_PATH", ""), ExportVerdict::Promote);
 }
 
 #[test]
