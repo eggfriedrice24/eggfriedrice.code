@@ -569,22 +569,47 @@ const SANDBOX_DEVICES: &[&str] = &[
     "/dev/core",
 ];
 
-/// The directories below `/dev` that every contained call has.
-const SANDBOX_DEVICE_DIRS: &[&str] = &["/dev/pts", "/dev/shm", "/dev/fd", "/dev/mqueue"];
+/// The directories below `/dev` that every contained call has, with files of its own
+/// at any depth.
+const SANDBOX_DEVICE_DIRS: &[&str] = &["/dev/shm", "/dev/mqueue"];
+
+/// The directories below `/dev` that every contained call has, whose entries are a
+/// terminal or an open file of the process: `/dev/pts/0`, `/dev/fd/2`.
+const SANDBOX_ENTRY_DIRS: &[&str] = &["/dev/pts", "/dev/fd"];
 
 /// True when `path`, in normal form, is a device node that every contained call has,
 /// or lies in such a directory: `/dev/null`, `/dev/stderr`, `/dev/fd/2`. A write there
-/// stays in the sandbox and needs no exit.
+/// stays in the sandbox and needs no exit. A path below a node, such as
+/// `/dev/fd/3/x`, is not one ([`through_open_file`]).
 pub(super) fn is_sandbox_device(path: &Path) -> bool {
     SANDBOX_DEVICES.iter().any(|node| path == Path::new(node))
         || SANDBOX_DEVICE_DIRS.iter().any(|dir| path.starts_with(dir))
+        || SANDBOX_ENTRY_DIRS
+            .iter()
+            .any(|dir| path.strip_prefix(dir).is_ok_and(|entry| entry.components().count() <= 1))
+}
+
+/// True when `path`, in normal form, lies below a node that every contained call has,
+/// such as `/dev/fd/3/authorized_keys` or `/dev/stdout/x`. Such a node can be a link to
+/// an open file of the process, and that file can be any directory, so efr cannot tell
+/// where the path leads: it is no device, and the daemon looks nothing up through it,
+/// because it would follow a descriptor of its own.
+pub(super) fn through_open_file(path: &Path) -> bool {
+    let below = |node: &Path| path.starts_with(node) && path != node;
+    SANDBOX_DEVICES.iter().any(|node| below(Path::new(node)))
+        || SANDBOX_ENTRY_DIRS
+            .iter()
+            .any(|dir| path.strip_prefix(dir).is_ok_and(|entry| entry.components().count() > 1))
 }
 
 /// True when `path`, in normal form, lies below `/dev` and is not a node that every
-/// contained call has: a real device, such as `/dev/sda`, that only a `device` grant
-/// opens.
+/// contained call has, nor a path through one: a real device, such as `/dev/sda`, that
+/// only a `device` grant opens.
 pub(super) fn is_host_device(path: &Path) -> bool {
-    path.starts_with("/dev") && path != Path::new("/dev") && !is_sandbox_device(path)
+    path.starts_with("/dev")
+        && path != Path::new("/dev")
+        && !is_sandbox_device(path)
+        && !through_open_file(path)
 }
 
 /// The `device` exit of the host device `path`.

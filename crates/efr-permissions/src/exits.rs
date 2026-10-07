@@ -203,7 +203,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         for redirect in &segment.redirects {
             let Some(path) = at(&redirect.target) else { continue };
             // NOTE: a redirection to a node of the sandbox's own `/dev`, such as
-            // `2>/dev/null`, writes no file; one to a host device needs its grant.
+            // `2>/dev/null`, writes no file; one to a host device needs its grant. A
+            // path through a node, such as `/dev/fd/3/x`, is a write that efr cannot
+            // place, which the exit child runs.
             if programs::is_sandbox_device(&path) {
                 continue;
             }
@@ -342,8 +344,13 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, locations);
-        // NOTE: a node of the sandbox's own `/dev` is no exit, whatever the host has.
-        let written_at = |word: &str| at(word).filter(|path| !programs::is_sandbox_device(path));
+        // NOTE: a node of the sandbox's own `/dev` is no exit, whatever the host has,
+        // and a path through one leads where the daemon cannot look.
+        let written_at = |word: &str| {
+            at(word).filter(|path| {
+                !programs::is_sandbox_device(path) && !programs::through_open_file(path)
+            })
+        };
         for redirect in &segment.redirects {
             if let Some(path) = written_at(&redirect.target) {
                 add(&mut request.targets, path);

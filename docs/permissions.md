@@ -301,7 +301,7 @@ has a kind:
 
 | Kind | Examples |
 |---|---|
-| `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit |
+| `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit. A path below such a node, such as `/dev/fd/3/x`, goes through an open file to a place that efr cannot see, so it is a write that only you approve |
 | `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
 | `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
 | `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions` |

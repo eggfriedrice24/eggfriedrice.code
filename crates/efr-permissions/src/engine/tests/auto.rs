@@ -866,6 +866,9 @@ fn a_redirect_to_a_real_file_outside_the_roots_is_still_a_write_exit(
 #[case::redirect("cat image.iso > /dev/sda")]
 #[case::stderr_to_a_disk("make 2>/dev/nvme0n1")]
 #[case::dd("dd if=image.iso of=/dev/sda bs=4M")]
+#[case::through_null("make 2>/dev/null/../sda")]
+#[case::through_fd("echo x >/dev/fd/../sda")]
+#[case::through_stderr("echo x > /dev/stderr/../sda")]
 fn a_write_to_a_host_device_is_still_a_device_exit(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
@@ -873,6 +876,55 @@ fn a_write_to_a_host_device_is_still_a_device_exit(#[case] line: &str) {
     let device = device.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
     assert!(device.target.as_ref().is_some_and(|path| path.starts_with("/dev")), "{line:?}");
     assert!(matches!(device.grants.as_slice(), [Grant::Device { .. }]), "{line:?}");
+}
+
+#[test]
+fn a_relative_path_named_like_a_device_is_the_relative_write_it_is() {
+    // After `cd`, efr does not know the directory: the sandbox holds the write.
+    let line = "cd /tmp && echo x > dev/null";
+    let decision = decide(shell(line));
+    assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
+    let targets = crate::exits::fact_requests(line, Some(APP.as_ref()), &auto_locations()).targets;
+    assert!(targets.iter().all(|path| !path.starts_with("/dev")), "{targets:?}");
+    // The tool declares the write where it lands: in `/tmp`, a write root.
+    let decision = decide(shell(line).with_write("/tmp/dev/null"));
+    assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]));
+    // From a directory outside the roots it is a write there, never a device.
+    let decision = decide(shell("echo x > dev/null").with_command_dir("/home/u"));
+    let needs: Vec<_> = decision.exits().collect();
+    assert_eq!(needs.len(), 1, "{needs:?}");
+    assert_eq!(needs[0].kind, ExitKind::Write);
+    assert_eq!(needs[0].target.as_deref(), Some("/home/u/dev/null".as_ref()));
+}
+
+#[rstest]
+#[case::below_a_descriptor("echo x > /dev/fd/3/authorized_keys", "/dev/fd/3/authorized_keys")]
+#[case::below_stdout("echo x > /dev/stdout/x", "/dev/stdout/x")]
+#[case::below_a_terminal("echo x > /dev/pts/0/x", "/dev/pts/0/x")]
+#[case::tee("echo x | tee /dev/fd/9/config", "/dev/fd/9/config")]
+fn a_path_through_an_open_file_is_no_node_of_the_sandbox(#[case] line: &str, #[case] target: &str) {
+    // `/dev/fd/3` is a node of the sandbox, but a path below it goes through the file
+    // that descriptor 3 opened, which may be any directory: efr cannot say where the
+    // write lands, so it asks, and it opens no device for it.
+    let decision = decide(shell(line).with_write(target));
+    assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
+    let needs: Vec<_> = decision.exits().collect();
+    assert!(needs.iter().all(|need| need.kind != ExitKind::Device), "{line:?}: {needs:?}");
+    let write = needs.iter().find(|need| need.kind == ExitKind::Write);
+    let write = write.unwrap_or_else(|| panic!("{line:?}: {needs:?}"));
+    assert_eq!(write.target.as_deref(), Some(target.as_ref()), "{line:?}");
+    assert!(write.grants.is_empty() && write.runs_unsandboxed(), "{line:?}: {write:?}");
+    // The daemon looks up nothing through a descriptor of its own.
+    let targets = crate::exits::fact_requests(line, Some(APP.as_ref()), &auto_locations()).targets;
+    assert!(targets.iter().all(|path| !path.starts_with("/dev")), "{line:?}: {targets:?}");
+}
+
+#[test]
+fn a_node_of_the_sandbox_itself_stays_routine() {
+    for line in ["echo x > /dev/fd/3", "echo x > /dev/pts/0", "echo x > /dev/shm/x/y"] {
+        let decision = decide(shell(line));
+        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
+    }
 }
 
 #[test]

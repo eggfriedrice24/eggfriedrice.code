@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
-use super::programs::is_sandbox_device;
+use super::programs::is_host_device;
 use super::{ExitNeed, write_need};
 use crate::path_class::normalize;
 use crate::{AutoSupport, CallFacts, Egress};
@@ -48,8 +48,7 @@ pub(super) fn exits(
         found.push(need);
     }
     if let Some(device) = &needs.device
-        && let Some(path) = normalize(Path::new(device))
-            .filter(|path| path.starts_with("/dev") && !is_sandbox_device(path))
+        && let Some(path) = normalize(Path::new(device)).filter(|path| is_host_device(path))
     {
         let mut need = ExitNeed::new(ExitKind::Device, format!("needs.device {device}"), source);
         need.grants = vec![Grant::Device { path: path.clone() }];
