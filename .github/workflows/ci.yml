@@ -268,6 +268,9 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
       - run: .github/sandbox-vm.sh tools
+      # The corpus rows that run cargo use the pinned toolchain, read from
+      # rust-toolchain.toml. The guest sees it in the runner's ~/.rustup.
+      - run: rustup toolchain install
       - run: .github/sandbox-vm.sh bwrap
       - run: .github/sandbox-vm.sh kernel "$RUNNER_TEMP/kernel"
       - uses: taiki-e/install-action@v2

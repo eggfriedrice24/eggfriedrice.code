@@ -48,15 +48,16 @@ as_root() {
     if [[ "$(id -u)" == 0 ]]; then "$@"; else sudo "$@"; fi
 }
 
-# The packages that boot the kernel, plus zsh for the tests. busybox and zstd build the
-# initramfs that carries the kernel's virtiofs and overlay modules, virtme-ng reads the
-# kernel version with file, and its init finds the serial port that returns the exit
-# status of the guest through udev.
+# The packages that boot the kernel, plus zsh and ripgrep for the tests. busybox and
+# zstd build the initramfs that carries the kernel's virtiofs and overlay modules,
+# virtme-ng reads the kernel version with file, and its init finds the serial port that
+# returns the exit status of the guest through udev. The corpus runs rg in its row 4.
+# Its cargo rows use the pinned Rust toolchain, which the job installs with rustup.
 cmd_tools() {
     as_root apt-get update -q
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
         busybox-static ca-certificates curl file kmod python3-argcomplete python3-requests \
-        python3-venv qemu-system-x86 udev virtiofsd zsh zstd
+        python3-venv qemu-system-x86 ripgrep udev virtiofsd zsh zstd
     # The wheel by its pinned hash, without pip's resolver: its two dependencies come
     # from apt.
     local dl wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
@@ -163,8 +164,16 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
             echo "### Sandbox suite in a VM"
             echo
             echo '```'
-            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe) /\1 /p' "$log"
+            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|toolchain) /\1 /p' "$log"
             sed -nE 's/^ *((efr-sbx run|the child shell|launch cost|setup failures|gate:).*)/\1/p' "$log"
+            echo '```'
+            echo
+            echo "Corpus rows that skip because their tool is not installed. pacman is the"
+            echo "package manager of Arch Linux and cannot exist on Ubuntu, so row 19 always"
+            echo "skips here."
+            echo
+            echo '```'
+            sed -nE 's/^ *(corpus [0-9]+: skipped: .*)/\1/p' "$log"
             echo '```'
         } >>"$GITHUB_STEP_SUMMARY"
     fi
@@ -215,10 +224,23 @@ cmd_guest() {
 # ready, so a skipped test fails.
 cmd_tests() {
     local nextest="$1" workspace="$2" target="$3" tmpdir="$4"
-    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     export HOME
     HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
+    # rustup's cargo, rustc and rustfmt, for the corpus rows that build a Rust project.
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$HOME/.cargo/bin
     cd "$workspace"
+    # The corpus skips a row whose tool is not installed. These tools exist on Ubuntu, so
+    # here a missing one is a fault of the job. The fixture projects of the corpus lie
+    # outside the workspace, so the pinned toolchain is named here.
+    local toolchain tool
+    toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
+    export RUSTUP_TOOLCHAIN="$toolchain"
+    for tool in cargo rustfmt rustup rg; do
+        command -v "$tool" >/dev/null || fail "$tool is not on PATH in the guest"
+    done
+    cargo --version >/dev/null 2>&1 ||
+        fail "the pinned toolchain $toolchain is not installed: run rustup toolchain install"
+    say "toolchain $(cargo --version)"
     local bin="$target/debug/efr-sbx"
     mkdir -m 700 "$tmpdir/sbx-probe"
     local report
