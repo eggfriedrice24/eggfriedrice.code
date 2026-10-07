@@ -3,10 +3,11 @@
 # Builds efrd, efr and efr-sbx as `just build-release` does (the ghostty screen
 # backend with Zig 0.16.0), packs efr-code-<version>-x86_64-linux.tar.gz in
 # the layout that packaging/efr-code-bin/PKGBUILD installs from, writes a .sha256 next
-# to it, and creates the GitHub release with generated notes. The version is
-# taken from the tag (leading v stripped). It must equal the workspace version
-# in Cargo.toml and the pkgver of every PKGBUILD in packaging/: the release
-# commit sets all of them before the tag (docs/releasing.md).
+# to it, and creates the GitHub release with the CHANGELOG.md section of the
+# version as its notes. The version is taken from the tag (leading v
+# stripped). It must equal the workspace version in Cargo.toml and the pkgver
+# of every PKGBUILD in packaging/, and CHANGELOG.md must have its section: the
+# release commit sets all of them before the tag (docs/releasing.md).
 #
 # A release created with GITHUB_TOKEN does not fire the "release" event for
 # other workflows, so the AUR publish (aur.yml) is dispatched explicitly as
@@ -70,6 +71,18 @@ jobs:
               exit 1
             fi
           done
+          # The release notes are the CHANGELOG.md section of this version: from its
+          # "## [<version>]" heading up to the next "## [" heading.
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]+\]: / { next }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no section '## [${version}]' with content; see docs/releasing.md"
+            exit 1
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "releasing efr ${version}"
 
@@ -133,7 +146,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
               --title "efr ${VERSION}" \
-              --generate-notes \
+              --notes-file "$RUNNER_TEMP/notes.md" \
               "${args[@]}" \
               "$TARBALL" "${TARBALL}.sha256"
           fi

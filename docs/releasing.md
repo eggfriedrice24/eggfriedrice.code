@@ -53,23 +53,27 @@ when one of them changes.
 
 1. Start from a clean `main` that has passed CI.
 2. Set the new version in these places, in one commit:
+   - `CHANGELOG.md`: rename the `[Unreleased]` section to `[<version>] - <date>`,
+     put a new empty `[Unreleased]` section above it, and update the compare links
+     at the bottom. `release.yml` copies this section into the release notes, and it
+     stops when the section is missing or empty;
    - `version` in `[workspace.package]` of `Cargo.toml`;
    - `Cargo.lock` (run `cargo metadata --format-version 1 > /dev/null`);
    - `pkgver` in `packaging/efr-code/PKGBUILD` and
      `packaging/efr-code-bin/PKGBUILD`. Keep `pkgrel=1`.
 
    Then run the gates of `AGENTS.md`, and commit with a message such as
-   `release 0.0.1`.
+   `release 0.0.2`.
 3. Push the commit and wait until CI on `main` is green.
 4. Make the tag on that commit and push it. Only admins can make a `v*` tag.
 
    ```sh
-   git tag -a v0.0.1 -m 'efr 0.0.1'
-   git push origin v0.0.1
+   git tag -a v0.0.2 -m 'efr 0.0.2'
+   git push origin v0.0.2
    ```
 
 5. Watch `release.yml`. It stops before it publishes if the tag, `Cargo.toml` or a
-   `pkgver` do not agree.
+   `pkgver` do not agree, or if `CHANGELOG.md` has no section for the version.
 
    ```sh
    gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
@@ -105,3 +109,11 @@ from `git archive --prefix=eggfriedrice.code-<version>/` next to the PKGBUILD as
 `efr-code-<version>.tar.gz`; makepkg then uses that file and does not download the tag.
 For `efr-code-bin`, make the release tarball with the commands of `release.yml` and put it
 next to that PKGBUILD.
+
+## Keep the changelog current
+
+Add each change that a user can notice to the `[Unreleased]` section of
+`CHANGELOG.md`, in the commit that makes it or soon after. Use the groups of
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/): Added, Changed, Deprecated,
+Removed, Fixed and Security. Write for users: say what changes for them, not which
+function changed.

@@ -41,6 +41,11 @@ pass. Local gates must equal CI.
 - Push only with the user's approval. After each push, watch CI to the end
   (`gh run watch`) and report the result.
 
+## Changelog
+
+Add each change that a user can notice to the `[Unreleased]` section of
+`CHANGELOG.md`, in the same commit or the next one. `docs/releasing.md` tells how.
+
 ## Writing
 
 Docs and user-facing text follow ASD-STE100: short sentences, active voice, simple
