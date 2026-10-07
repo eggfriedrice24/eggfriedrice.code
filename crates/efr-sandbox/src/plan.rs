@@ -260,6 +260,12 @@ impl MountPlan {
     pub fn cache_layers(&self) -> Option<&CacheLayers> {
         self.layers.as_ref()
     }
+
+    /// In the `overlay` mode, the layer dir of each overlay, which bwrap binds into the
+    /// staging dir; empty in the other modes.
+    pub fn layer_dirs(&self) -> &[PathBuf] {
+        &self.layer_sources
+    }
 }
 
 #[cfg(test)]

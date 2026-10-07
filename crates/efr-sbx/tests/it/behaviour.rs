@@ -118,6 +118,33 @@ fn overlay_back_to_back_calls_mount_every_time() {
 }
 
 #[test]
+fn a_call_waits_while_another_launch_holds_the_layers_of_its_conversation() {
+    // The overlays have no index, so the kernel would let two of them share an upper
+    // dir; the launcher holds a lock on the conversation's layer dir instead.
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let cache = fixture.home.join(".cache");
+    write(&cache.join("index"), "one\n");
+    fixture.cache(&cache);
+    let layers = fixture.spec.runtime.sandbox_dir.join("cache");
+    fs::create_dir_all(fixture.spec.caches[0].upper.parent().unwrap()).unwrap();
+    let held = fs::File::open(&layers).unwrap();
+    rustix::fs::flock(&held, rustix::fs::FlockOperation::LockExclusive).unwrap();
+    let marker = fixture.project.join("ran");
+    let call_dir = fixture.prepare(&format!("cat {}/index > {}", q(&cache), q(&marker)));
+    let child = fixture.command(&call_dir, &fixture.project).spawn().unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!marker.exists(), "the call ran while another launch held its layers");
+    assert!(!call_dir.join("started").exists(), "bwrap started while the layers were held");
+    drop(held);
+    let output = child.wait_with_output().unwrap();
+    let run = fixture
+        .collect(&call_dir, (output.status.code().unwrap_or(-1), String::new(), String::new()));
+    run.expect_status(0);
+    assert_eq!(fs::read_to_string(&marker).unwrap(), "one\n");
+}
+
+#[test]
 fn a_cache_inside_another_cache_runs_in_either_order() {
     // The inner cache came first and got an overlay of its own, and the helper failed to
     // move it onto the outer overlay (EINVAL): every call failed at setup.

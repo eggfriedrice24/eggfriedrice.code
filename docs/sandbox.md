@@ -110,6 +110,15 @@ With these options the kernel logs nothing for an overlay. Without them, the ker
 logged two lines for each cache in each call, and an upper layer stayed busy for some
 milliseconds after a call, so the next call of the conversation could fail to start.
 
+There is a trade-off. With `index=on`, the kernel refuses a second overlay on an upper
+layer that an overlay uses already. With `index=off`, it does not check this, and two
+overlays on one upper layer give undefined results. So in the `overlay` mode each call
+locks the layer dir of its conversation (`flock` on `$SBX/cache`) before bubblewrap
+starts. It keeps the lock until its overlays are gone. A second call of the same
+conversation waits for the lock. When the lock stays held for 5 seconds, the call does
+not run, and the model gets the reason. The `tmp` mode needs no lock: each call has
+its own layers.
+
 ## Read masks
 
 A masked directory reads as empty, and a masked file reads as an empty file that a

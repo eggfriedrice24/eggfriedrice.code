@@ -26,6 +26,7 @@ use crate::error::SbxError;
 use crate::finish::{self, FinalCwd};
 use crate::guard::{self, Guard};
 use crate::launch::{self, Ending, Launch};
+use crate::layer_lock::{self, LAYER_LOCK_WAIT, Locked};
 use crate::real_fs::RealFs;
 use crate::{exit_child, fds, signals};
 
@@ -134,7 +135,21 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
     let mut argv = plan.child_argv().to_vec();
     argv.push(spec.runtime.inside_dir().into_os_string());
     let launch = Launch { spec: &spec, plan: &plan, cwd: start.path(), argv, env, stdout: None };
+    // NOTE: the overlays have no index, so the kernel would let two of them share an
+    // upper dir; the lock holds until launch::run has torn the call's overlays down.
+    let lock_dirs = layer_lock::lock_dirs(plan.layer_dirs());
+    let layers_lock = match layer_lock::lock(&lock_dirs, LAYER_LOCK_WAIT)? {
+        Locked::Held(lock) => lock,
+        Locked::Busy { dir } => {
+            return Ok(setup_failure(format!(
+                "another call of this conversation still used its cache layers in {} after {} s",
+                dir.display(),
+                LAYER_LOCK_WAIT.as_secs()
+            )));
+        }
+    };
     let outcome = launch::run(&launch, &mut || call.dir.touch(STARTED_FILE))?;
+    drop(layers_lock);
     let mut result = SandboxResult {
         started: true,
         env_removed: removed,

@@ -29,6 +29,7 @@ mod guard;
 mod inner;
 mod landlock;
 mod launch;
+mod layer_lock;
 mod layers;
 mod os;
 mod probe;
