@@ -15,7 +15,7 @@ use efr_http::HttpError;
 use efr_oauth_openai::OAuthError;
 use efr_permissions::PermissionsError;
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName,
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, TurnId,
 };
 use efr_provider::ProviderError;
 use efr_provider_openai::OpenAiError;
@@ -390,11 +390,17 @@ pub enum DaemonError {
         #[source]
         source: efr_sandbox::SandboxError,
     },
-    /// The conversation has no snapshot of a turn to show.
-    #[error("no turn of the conversation {conversation_id} has snapshots")]
-    NoSnapshot {
+    /// The conversation has no finished turn whose changes a client can ask for.
+    #[error("the conversation {conversation_id} has no finished turn")]
+    NoFinishedTurn {
         /// The conversation.
         conversation_id: ConversationId,
+    },
+    /// The turn does not exist, or it belongs to another conversation.
+    #[error("the turn {turn_id} does not exist in this conversation")]
+    TurnNotFound {
+        /// The turn.
+        turn_id: TurnId,
     },
     /// A method that takes the terminal's conversation came from a connection whose
     /// terminal has no active conversation.
@@ -436,7 +442,8 @@ impl DaemonError {
             DaemonError::ProjectNotRegistered { .. } => ErrorCode::NotFound,
             DaemonError::Registry { source } => registry_code(source),
             DaemonError::ConversationNotFound { .. }
-            | DaemonError::NoSnapshot { .. }
+            | DaemonError::NoFinishedTurn { .. }
+            | DaemonError::TurnNotFound { .. }
             | DaemonError::NoActiveConversation
             | DaemonError::ApprovalNotPending { .. }
             | DaemonError::PtyNotFound { .. }

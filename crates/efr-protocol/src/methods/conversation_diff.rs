@@ -13,12 +13,12 @@ use crate::{ConversationId, FileChanges, TurnId};
 /// the turn wrote through its calls.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ConversationDiff {
-    /// The conversation. Absent: the active conversation of the terminal that the
-    /// connection's `hello` named.
+    /// The conversation. Absent: the conversation of `turn_id`, else the active
+    /// conversation of the terminal that the connection's `hello` named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<ConversationId>,
-    /// The turn. Absent: the newest turn of the conversation that has snapshots, that
-    /// is the last turn that ran a call that can write.
+    /// The turn. Absent: the newest finished turn of the conversation. A turn that ran
+    /// no call that can write has no snapshots, and its list of files is empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
     /// True asks for the list of files only, without the unified diff.

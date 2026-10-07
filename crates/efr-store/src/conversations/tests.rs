@@ -253,6 +253,10 @@ async fn turns_keep_their_status_and_the_unfinished_ones_are_listed() {
     assert_eq!(all[0].last_seq, Seq::new(4));
     let unfinished: Vec<TurnId> = unfinished.iter().map(|turn| turn.id).collect();
     assert_eq!(unfinished, [testing::turn(2), testing::turn(3), testing::turn(4)]);
+    let one = on_writer(&writer, |conn| turn(conn, testing::turn(3))).await.unwrap().unwrap();
+    assert_eq!((one.id, one.conversation_id, one.status), (testing::turn(3), id, Held));
+    let unknown = on_writer(&writer, |conn| turn(conn, testing::turn(9))).await.unwrap();
+    assert_eq!(unknown, None);
 }
 
 #[test]

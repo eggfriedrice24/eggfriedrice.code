@@ -1,7 +1,7 @@
 use efr_protocol::{
-    ClientFrame, ConversationDiff, ConversationDiffResult, ConversationStatus, ConversationSummary,
-    ConversationsListResult, ErrorBody, ErrorCode, FileChange, FileChangeKind, FileChanges, Method,
-    Seq,
+    ChangeKind, ClientFrame, ConversationDiff, ConversationDiffResult, ConversationStatus,
+    ConversationSummary, ConversationsListResult, ErrorBody, ErrorCode, FileChange, FileChanges,
+    Method, Seq,
 };
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
@@ -20,7 +20,7 @@ fn changes() -> FileChanges {
         files: vec![
             FileChange {
                 path: "src/main.rs".to_owned(),
-                kind: FileChangeKind::Modified,
+                kind: ChangeKind::Modified,
                 from: None,
                 added: 1,
                 removed: 1,
@@ -28,7 +28,7 @@ fn changes() -> FileChanges {
             },
             FileChange {
                 path: "notes.md".to_owned(),
-                kind: FileChangeKind::Added,
+                kind: ChangeKind::Added,
                 from: None,
                 added: 1,
                 removed: 0,

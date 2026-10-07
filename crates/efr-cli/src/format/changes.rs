@@ -12,7 +12,7 @@
 
 use std::fmt::Write as _;
 
-use efr_protocol::{FileChange, FileChangeKind, FileChanges};
+use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_render::{RenderOptions, WidthMethod, text_width};
 
 use super::{Tone, one_line, paint};
@@ -30,11 +30,11 @@ const JOIN: &str = " \u{b7} ";
 pub(crate) type Piece = (String, Tone);
 
 /// The word of a kind of change, in a call's row and in the list.
-fn word(kind: FileChangeKind) -> &'static str {
+fn word(kind: ChangeKind) -> &'static str {
     match kind {
-        FileChangeKind::Added => "new",
-        FileChangeKind::Deleted => "deleted",
-        FileChangeKind::Renamed => "renamed",
+        ChangeKind::Added => "new",
+        ChangeKind::Deleted => "deleted",
+        ChangeKind::Renamed => "renamed",
         _ => "changed",
     }
 }
@@ -42,7 +42,7 @@ fn word(kind: FileChangeKind) -> &'static str {
 /// The path of `file`, safe to print: `from → path` for a rename.
 fn path(file: &FileChange) -> String {
     match (&file.from, file.kind) {
-        (Some(from), FileChangeKind::Renamed) => {
+        (Some(from), ChangeKind::Renamed) => {
             format!("{} \u{2192} {}", one_line(from), one_line(&file.path))
         }
         _ => one_line(&file.path),
@@ -67,11 +67,11 @@ pub(crate) fn counts(added: u32, removed: u32) -> Vec<Piece> {
 /// What follows the path of `file` in a call's row: `(binary)`, or the counts of a
 /// changed or renamed file. A new or deleted file shows none: the word says it.
 fn row_counts(file: &FileChange) -> Vec<Piece> {
-    if file.binary && file.kind != FileChangeKind::Deleted {
+    if file.binary && file.kind != ChangeKind::Deleted {
         return vec![(" (binary)".to_owned(), Tone::Dim)];
     }
     match file.kind {
-        FileChangeKind::Added | FileChangeKind::Deleted => Vec::new(),
+        ChangeKind::Added | ChangeKind::Deleted => Vec::new(),
         _ => {
             let counts = counts(file.added, file.removed);
             if counts.is_empty() {
@@ -90,7 +90,7 @@ fn row_counts(file: &FileChange) -> Vec<Piece> {
 pub(crate) fn call_row(changes: &FileChanges) -> Vec<Piece> {
     let shown = &changes.files[..changes.files.len().min(ROW_FILES)];
     let hidden = changes.files.len() - shown.len() + usize::try_from(changes.more).unwrap_or(0);
-    let mut kinds: Vec<FileChangeKind> = Vec::new();
+    let mut kinds: Vec<ChangeKind> = Vec::new();
     for file in shown {
         if !kinds.contains(&file.kind) {
             kinds.push(file.kind);

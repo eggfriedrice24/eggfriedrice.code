@@ -354,8 +354,10 @@ spec; `docs/sandbox.md` for the user's view):
 - At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the
   refs `refs/efr/<conversation>/<turn>/pre` and `/post`, and the turn's changes for
   `turn_completed`.
-- `conversation.diff` (`methods/conversation_diff.rs`) reads the refs back: the newest
-  turn with snapshots of the terminal's conversation unless the params name one.
+- `conversation.diff` (`methods/conversation_diff.rs`) reads the refs back. Without a
+  `turn_id` it takes the newest finished turn of the conversation; without a
+  `conversation_id` it takes the named turn's conversation, else the terminal's. A
+  turn without snapshots changed no files, so its list is empty.
 - An hourly task keeps the refs of the newest `snapshot.keep_turns` turns of each
   conversation and deletes a store without a snapshot for `snapshot.max_age_days`.
   `snapshot.enabled = false` takes no snapshot; a file tool still shows its diff.

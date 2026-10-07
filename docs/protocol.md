@@ -170,9 +170,10 @@ No protocol version has shipped yet.
   and an optional `diff` (the unified diff of a file tool's write, at most 2000 lines
   and then `... N more lines`). The `turn_completed` event gains an optional `changes`:
   the turn's first snapshot against its last. New method `conversation.diff` (scope
-  `read`, no command id) with an optional `conversation_id` (absent: the active
-  conversation of the hello's terminal), an optional `turn_id` (absent: the newest turn
-  with snapshots) and a `stat` flag, false when absent; its result has the `turn_id`,
+  `read`, no command id) with an optional `conversation_id` (absent: the conversation
+  of the named turn, else the active conversation of the hello's terminal), an
+  optional `turn_id` (absent: the newest finished turn of the conversation) and a `stat`
+  flag, false when absent; its result has the `turn_id`,
   the `changes` and, without `stat`, the unified `diff`, at most 20000 lines. The
   fixtures `events/tool_call_completed.json` and `events/turn_completed.json` now set
   the new members; `conversation_diff_params.json` and `conversation_diff_result.json`

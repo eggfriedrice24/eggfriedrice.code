@@ -10,6 +10,29 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- The diff of each file write shows in its call block, in the diff colours: the first
+  `render.diff_lines` lines (default 20), then a muted `… N more lines`. This works in
+  every directory.
+- A shell call that changed files gets one muted row under its result, such as
+  `changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)`. A turn that
+  changed files gets a muted line such as `3 files changed, +24 −7` before its end.
+  This works in registered projects (git or not) and in `$SCRATCH`.
+- `efr diff` prints what a turn changed: by default the last turn of this terminal's
+  conversation, `--turn <id>` for another, `--stat` for the list of files. In a pipe it
+  writes the plain diff.
+- efr's own snapshot store: one bare git repository per registered project or
+  `$SCRATCH` below the data directory. It never writes the project's `.git` or index.
+  The `[snapshot]` table sets it (`snapshot.enabled`, size limits, `keep_turns`,
+  `max_age_days`).
+
+### Changed
+
+- A long command no longer leaves a short first word alone in its row (`cp \`). A row
+  breaks at a space only when it is at least half full; else it breaks inside the word
+  with `↩`.
+
 ## [0.0.2] - 2026-10-08
 
 The reply view is new: replies stream without lag, a status row shows what runs, and

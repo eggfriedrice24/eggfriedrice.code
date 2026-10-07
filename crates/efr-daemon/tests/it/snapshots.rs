@@ -177,11 +177,30 @@ async fn a_file_write_in_a_project_shows_its_diff_and_the_turn_keeps_it() {
     let stat = diff(&daemon, Some(sent.conversation_id), Some(sent.turn_id), true).await.unwrap();
     assert_eq!(stat.changes, turn);
     assert_eq!(stat.diff, None, "stat leaves the diff out");
+
+    // A connection with no terminal finds the conversation through the turn.
+    let client = daemon.client().await.unwrap();
+    let by_turn =
+        ConversationDiff { conversation_id: None, turn_id: Some(sent.turn_id), stat: true };
+    let by_turn: ConversationDiffResult =
+        client.call(Method::ConversationDiff(by_turn)).await.unwrap();
+    assert_eq!(by_turn.changes, turn);
+    let elsewhere = ConversationDiff {
+        conversation_id: Some(ConversationId::from_uuid(uuid::Uuid::from_u128(7))),
+        turn_id: Some(sent.turn_id),
+        stat: true,
+    };
+    let elsewhere = client.call::<ConversationDiffResult>(Method::ConversationDiff(elsewhere));
+    let elsewhere = elsewhere.await.unwrap_err();
+    assert!(
+        matches!(&elsewhere, ClientError::Server { body } if body.code == ErrorCode::NotFound),
+        "{elsewhere:?}"
+    );
     daemon.stop().await.unwrap();
 }
 
 #[tokio::test]
-async fn conversation_diff_without_snapshots_or_a_conversation_is_not_found() {
+async fn conversation_diff_of_a_turn_without_snapshots_is_empty_and_unknown_ones_are_not_found() {
     let model = ScriptedModel::new(Vec::new());
     let daemon = TestDaemon::builder().custom_provider(model).start().await.unwrap();
 
@@ -192,10 +211,14 @@ async fn conversation_diff_without_snapshots_or_a_conversation_is_not_found() {
     );
 
     let (sent, _) = run_turn(&daemon, "hello").await;
-    let empty = diff(&daemon, Some(sent.conversation_id), None, false).await.unwrap_err();
+    let empty = diff(&daemon, Some(sent.conversation_id), None, false).await.unwrap();
+    assert_eq!(empty.turn_id, sent.turn_id, "the last finished turn");
+    assert!(empty.changes.is_empty(), "{empty:?}");
+    let other_turn = TurnId::from_uuid(uuid::Uuid::from_u128(9));
+    let unknown_turn = diff(&daemon, None, Some(other_turn), true).await.unwrap_err();
     assert!(
-        matches!(&empty, ClientError::Server { body } if body.code == ErrorCode::NotFound),
-        "{empty:?}"
+        matches!(&unknown_turn, ClientError::Server { body } if body.code == ErrorCode::NotFound),
+        "{unknown_turn:?}"
     );
     let unknown =
         diff(&daemon, Some(ConversationId::from_uuid(uuid::Uuid::from_u128(7))), None, true)

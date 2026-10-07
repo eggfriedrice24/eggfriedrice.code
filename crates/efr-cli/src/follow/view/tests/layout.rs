@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, CallId, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource,
-    FileChange, FileChangeKind, FileChanges, Grant, Launch, Origin, ProgramFact, Scope, Seq, Usage,
+    ApprovalDecision, CallId, ChangeKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
+    ExitSource, FileChange, FileChanges, Grant, Launch, Origin, ProgramFact, Scope, Seq, Usage,
 };
 use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use serde_json::{Value, json};
@@ -561,7 +561,7 @@ fn a_card_taller_than_the_screen_goes_to_the_scrollback_and_its_keys_stay() {
     insta::assert_snapshot!(shown);
 }
 
-fn file(path: &str, kind: FileChangeKind, added: u32, removed: u32) -> FileChange {
+fn file(path: &str, kind: ChangeKind, added: u32, removed: u32) -> FileChange {
     FileChange { path: path.to_owned(), kind, from: None, added, removed, binary: false }
 }
 
@@ -609,7 +609,7 @@ fn turn_changed(changes: FileChanges) -> Event {
 
 #[test]
 fn a_file_write_shows_the_first_lines_of_its_diff() {
-    let changes = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
+    let changes = file_changes(vec![file("src/main.rs", ChangeKind::Modified, 23, 1)], 0);
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),
         Sent(10, write_file(1, "src/main.rs")),
@@ -622,7 +622,7 @@ fn a_diff_that_the_daemon_cut_counts_the_lines_it_left_out() {
     // A new file without headers: the call's path gives the syntax colours, and the
     // lines that the daemon cut join the lines that the view leaves out.
     let diff = "@@ -0,0 +1,2000 @@\n+# Notes\n+\n+- one\n... 1997 more lines\n";
-    let changes = file_changes(vec![file("notes.md", FileChangeKind::Added, 2000, 0)], 0);
+    let changes = file_changes(vec![file("notes.md", ChangeKind::Added, 2000, 0)], 0);
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),
         Sent(10, write_file(1, "notes.md")),
@@ -632,7 +632,7 @@ fn a_diff_that_the_daemon_cut_counts_the_lines_it_left_out() {
 
 #[test]
 fn without_diff_lines_a_file_write_shows_the_row_of_its_files() {
-    let changes = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
+    let changes = file_changes(vec![file("src/main.rs", ChangeKind::Modified, 23, 1)], 0);
     let look = Look { diff_lines: 0, ..LOOK };
     insta::assert_snapshot!(every_way_with(
         look,
@@ -646,16 +646,16 @@ fn without_diff_lines_a_file_write_shows_the_row_of_its_files() {
 
 #[test]
 fn a_shell_call_that_changed_files_gets_one_row_under_its_result() {
-    let mut renamed = file("src/parse/expression.rs", FileChangeKind::Renamed, 2, 2);
+    let mut renamed = file("src/parse/expression.rs", ChangeKind::Renamed, 2, 2);
     renamed.from = Some("src/parse/expr.rs".to_owned());
-    let mut logo = file("assets/logo.png", FileChangeKind::Modified, 0, 0);
+    let mut logo = file("assets/logo.png", ChangeKind::Modified, 0, 0);
     logo.binary = true;
     let many = file_changes(
         vec![
-            file("src/a.rs", FileChangeKind::Modified, 3, 1),
-            file("old.rs", FileChangeKind::Deleted, 0, 40),
-            file("notes.md", FileChangeKind::Added, 12, 0),
-            file("src/b.rs", FileChangeKind::Modified, 1, 0),
+            file("src/a.rs", ChangeKind::Modified, 3, 1),
+            file("old.rs", ChangeKind::Deleted, 0, 40),
+            file("notes.md", ChangeKind::Added, 12, 0),
+            file("src/b.rs", ChangeKind::Modified, 1, 0),
         ],
         1,
     );
@@ -675,9 +675,9 @@ fn a_shell_call_that_changed_files_gets_one_row_under_its_result() {
 fn a_turn_that_changed_files_says_so_before_its_end() {
     let changes = file_changes(
         vec![
-            file("src/a.rs", FileChangeKind::Modified, 20, 7),
-            file("notes.md", FileChangeKind::Added, 4, 0),
-            file("old.rs", FileChangeKind::Deleted, 0, 0),
+            file("src/a.rs", ChangeKind::Modified, 20, 7),
+            file("notes.md", ChangeKind::Added, 4, 0),
+            file("old.rs", ChangeKind::Deleted, 0, 0),
         ],
         0,
     );
@@ -690,12 +690,12 @@ fn a_turn_that_changed_files_says_so_before_its_end() {
 
 #[test]
 fn a_whole_turn_that_writes_a_file_and_runs_a_command() {
-    let written = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
-    let formatted = file_changes(vec![file("src/lib.rs", FileChangeKind::Modified, 2, 2)], 0);
+    let written = file_changes(vec![file("src/main.rs", ChangeKind::Modified, 23, 1)], 0);
+    let formatted = file_changes(vec![file("src/lib.rs", ChangeKind::Modified, 2, 2)], 0);
     let all = file_changes(
         vec![
-            file("src/main.rs", FileChangeKind::Modified, 23, 1),
-            file("src/lib.rs", FileChangeKind::Modified, 2, 2),
+            file("src/main.rs", ChangeKind::Modified, 23, 1),
+            file("src/lib.rs", ChangeKind::Modified, 2, 2),
         ],
         0,
     );

@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "efr-snapshot"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "efr-protocol",
  "efr-scope",

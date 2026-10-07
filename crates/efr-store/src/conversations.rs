@@ -331,6 +331,17 @@ pub fn turns(conn: &Connection, conversation_id: ConversationId) -> Result<Vec<T
     )
 }
 
+/// One turn, with the conversation it belongs to.
+pub fn turn(conn: &Connection, turn_id: TurnId) -> Result<Option<Turn>, StoreError> {
+    let mut found = query_turns(
+        conn,
+        "SELECT id, conversation_id, command_id, prompt, status, queued_seq, started_at, ended_at, \
+         last_seq FROM turns WHERE id = ?1",
+        params![turn_id.to_string()],
+    )?;
+    Ok(found.pop())
+}
+
 /// Every turn that has not finished (queued, held or running), across conversations,
 /// oldest first: what the reconciliation after a restart looks at.
 pub fn unfinished_turns(conn: &Connection) -> Result<Vec<Turn>, StoreError> {

@@ -1,4 +1,4 @@
-use efr_protocol::{FileChange, FileChangeKind, FileChanges};
+use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 
@@ -6,7 +6,7 @@ use super::{DiffParts, call_row, diff_parts, more_lines, stat, turn_line};
 use crate::format::Tone;
 use crate::testing::readable;
 
-fn file(path: &str, kind: FileChangeKind, added: u32, removed: u32) -> FileChange {
+fn file(path: &str, kind: ChangeKind, added: u32, removed: u32) -> FileChange {
     FileChange { path: path.to_owned(), kind, from: None, added, removed, binary: false }
 }
 
@@ -24,10 +24,10 @@ fn text(pieces: &[(String, Tone)]) -> String {
 fn a_row_names_the_first_files_by_kind_and_counts_the_rest() {
     let changes = changes(
         vec![
-            file("src/a.rs", FileChangeKind::Modified, 3, 1),
-            file("old.rs", FileChangeKind::Deleted, 0, 40),
-            file("notes.md", FileChangeKind::Added, 12, 0),
-            file("b.rs", FileChangeKind::Modified, 1, 0),
+            file("src/a.rs", ChangeKind::Modified, 3, 1),
+            file("old.rs", ChangeKind::Deleted, 0, 40),
+            file("notes.md", ChangeKind::Added, 12, 0),
+            file("b.rs", ChangeKind::Modified, 1, 0),
         ],
         1,
     );
@@ -41,9 +41,9 @@ fn a_row_names_the_first_files_by_kind_and_counts_the_rest() {
 fn files_of_one_kind_share_their_word() {
     let changes = changes(
         vec![
-            file("a.rs", FileChangeKind::Modified, 3, 1),
-            file("gone.rs", FileChangeKind::Deleted, 0, 2),
-            file("b.rs", FileChangeKind::Modified, 0, 2),
+            file("a.rs", ChangeKind::Modified, 3, 1),
+            file("gone.rs", ChangeKind::Deleted, 0, 2),
+            file("b.rs", ChangeKind::Modified, 0, 2),
         ],
         0,
     );
@@ -55,9 +55,9 @@ fn files_of_one_kind_share_their_word() {
 
 #[test]
 fn a_rename_shows_both_paths_and_a_binary_file_no_counts() {
-    let mut renamed = file("src/new.rs", FileChangeKind::Renamed, 1, 1);
+    let mut renamed = file("src/new.rs", ChangeKind::Renamed, 1, 1);
     renamed.from = Some("src/old.rs".to_owned());
-    let mut logo = file("logo.png", FileChangeKind::Modified, 0, 0);
+    let mut logo = file("logo.png", ChangeKind::Modified, 0, 0);
     logo.binary = true;
     let changes = changes(vec![renamed, logo], 0);
     assert_eq!(
@@ -68,7 +68,7 @@ fn a_rename_shows_both_paths_and_a_binary_file_no_counts() {
 
 #[test]
 fn the_counts_are_in_the_success_and_error_roles_and_the_rest_is_muted() {
-    let changes = changes(vec![file("a.rs", FileChangeKind::Modified, 3, 1)], 0);
+    let changes = changes(vec![file("a.rs", ChangeKind::Modified, 3, 1)], 0);
     let row = call_row(&changes);
     assert!(row.contains(&("+3".to_owned(), Tone::Success)), "{row:?}");
     assert!(row.contains(&("\u{2212}1".to_owned(), Tone::Failure)), "{row:?}");
@@ -77,7 +77,7 @@ fn the_counts_are_in_the_success_and_error_roles_and_the_rest_is_muted() {
 
 #[test]
 fn a_path_cannot_drive_the_terminal() {
-    let changes = changes(vec![file("a\x1b[2Jb.rs", FileChangeKind::Added, 1, 0)], 0);
+    let changes = changes(vec![file("a\x1b[2Jb.rs", ChangeKind::Added, 1, 0)], 0);
     assert_eq!(text(&call_row(&changes)), "new a\u{241b}[2Jb.rs");
 }
 
@@ -96,14 +96,14 @@ fn nothing_changed_gives_no_row_and_no_line() {
 fn the_line_of_a_turn_counts_files_and_lines() {
     let three = changes(
         vec![
-            file("a.rs", FileChangeKind::Modified, 20, 7),
-            file("b.rs", FileChangeKind::Added, 4, 0),
-            file("c.rs", FileChangeKind::Deleted, 0, 0),
+            file("a.rs", ChangeKind::Modified, 20, 7),
+            file("b.rs", ChangeKind::Added, 4, 0),
+            file("c.rs", ChangeKind::Deleted, 0, 0),
         ],
         0,
     );
     assert_eq!(turn_line(&three).as_deref(), Some("3 files changed, +24 \u{2212}7"));
-    let one = changes(vec![file("a.rs", FileChangeKind::Modified, 5, 0)], 0);
+    let one = changes(vec![file("a.rs", ChangeKind::Modified, 5, 0)], 0);
     assert_eq!(turn_line(&one).as_deref(), Some("1 file changed, +5"));
 }
 
@@ -130,16 +130,16 @@ fn a_diff_splits_into_its_headers_its_lines_and_the_cut() {
 
 #[test]
 fn the_stat_lists_each_file_with_its_counts() {
-    let mut renamed = file("src/new.rs", FileChangeKind::Renamed, 0, 0);
+    let mut renamed = file("src/new.rs", ChangeKind::Renamed, 0, 0);
     renamed.from = Some("src/old.rs".to_owned());
-    let mut logo = file("logo.png", FileChangeKind::Added, 0, 0);
+    let mut logo = file("logo.png", ChangeKind::Added, 0, 0);
     logo.binary = true;
     let changes = changes(
         vec![
-            file("src/a.rs", FileChangeKind::Modified, 3, 1),
+            file("src/a.rs", ChangeKind::Modified, 3, 1),
             renamed,
             logo,
-            file("~/notes/old.md", FileChangeKind::Deleted, 0, 12),
+            file("~/notes/old.md", ChangeKind::Deleted, 0, 12),
         ],
         2,
     );
