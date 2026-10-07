@@ -20,5 +20,6 @@ mod receipts;
 mod reconcile;
 mod sandbox;
 mod shell_tool;
+mod snapshots;
 mod subscribe;
 mod support;

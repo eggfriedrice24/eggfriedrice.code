@@ -837,6 +837,7 @@ dependencies = [
  "efr-screen-ghostty",
  "efr-screen-vt100",
  "efr-shell",
+ "efr-snapshot",
  "efr-stdx",
  "efr-store",
  "efr-test-daemon",
@@ -1148,6 +1149,26 @@ dependencies = [
  "tokio",
  "tracing",
  "which",
+]
+
+[[package]]
+name = "efr-snapshot"
+version = "0.0.1"
+dependencies = [
+ "efr-protocol",
+ "efr-scope",
+ "efr-stdx",
+ "efr-test-support",
+ "futures",
+ "jiff",
+ "pretty_assertions",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

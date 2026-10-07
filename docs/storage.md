@@ -11,6 +11,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/daemon.lock` | exclusive `flock`; decides single instance | `efr-daemon/src/lock.rs` |
 | `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments | `efr-store/src/recording.rs` |
 | `$XDG_DATA_HOME/efr/scratch/<YYYY-MM-DD>-<slug>-<idtail>/` | `$SCRATCH` per conversation, claimed with a non-recursive `mkdir` | `efr-conversation/src/scratch.rs` |
+| `$XDG_DATA_HOME/efr/snapshots/<root-id>.git`, `<root-id>.index`, `<root-id>.root` | efr's own snapshot store: one bare git repository per project or `$SCRATCH` (`root-id` is the first 16 hex characters of the SHA-256 of the root's canonical path), its persistent index and the root's path; refs `refs/efr/<conversation>/<turn>/pre` and `/post` per turn. The sandbox masks it with the rest of the data root. The collector keeps the newest `snapshot.keep_turns` turns of each conversation and deletes a store without a snapshot for `snapshot.max_age_days` | `efr-snapshot` |
 | `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records | `efr-credentials/src/file_store.rs` |
 | `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration | `efr-store/src/migrations.rs` |
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |

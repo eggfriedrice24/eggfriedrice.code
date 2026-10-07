@@ -1,0 +1,50 @@
+use std::fs;
+use std::os::unix::fs::symlink;
+
+use pretty_assertions::assert_eq;
+
+use super::{MAX_IGNORED_BYTES, keep_others, parse_listing, small_ignored};
+
+#[test]
+fn a_listing_splits_tracked_changes_from_new_files() {
+    let out = b"C src/a.rs\0R gone.txt\0C gone.txt\0? new.txt\0? nested/\0";
+    let listing = parse_listing(out);
+    assert_eq!(
+        listing.changed.into_iter().collect::<Vec<_>>(),
+        ["gone.txt".to_owned(), "src/a.rs".to_owned()]
+    );
+    assert_eq!(listing.others, ["new.txt", "nested/"]);
+}
+
+#[test]
+fn new_files_above_the_limit_and_nested_repositories_are_left_out() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("small.txt"), "ok\n").unwrap();
+    fs::write(root.path().join("large.bin"), vec![0_u8; 2048]).unwrap();
+    symlink("/etc/passwd", root.path().join("link")).unwrap();
+    let others = vec![
+        "small.txt".to_owned(),
+        "large.bin".to_owned(),
+        "link".to_owned(),
+        "nested/".to_owned(),
+        "vanished.txt".to_owned(),
+    ];
+    assert_eq!(keep_others(root.path(), others, 1024), ["small.txt", "link", "vanished.txt"]);
+}
+
+#[test]
+fn small_ignored_files_outside_build_dirs_are_taken() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path();
+    fs::write(dir.join(".env"), "KEY=1\n").unwrap();
+    fs::write(dir.join("big.log"), vec![b'x'; MAX_IGNORED_BYTES as usize + 1]).unwrap();
+    fs::create_dir_all(dir.join("target/debug")).unwrap();
+    fs::write(dir.join("target/debug/out"), "x").unwrap();
+    fs::create_dir_all(dir.join("secret/node_modules")).unwrap();
+    fs::write(dir.join("secret/key"), "k").unwrap();
+    fs::write(dir.join("secret/node_modules/pkg.js"), "x").unwrap();
+    fs::create_dir_all(dir.join("secret/repo/.git")).unwrap();
+    fs::write(dir.join("secret/repo/file"), "x").unwrap();
+    let entries: Vec<String> = [".env", "big.log", "target/", "secret/"].map(str::to_owned).into();
+    assert_eq!(small_ignored(dir, &entries), [".env", "secret/key"]);
+}

@@ -70,6 +70,8 @@ fn ended(n: u8, exit_code: Option<i32>, refusal: Option<&str>) -> Event {
         exit_code,
         sandbox: None,
         refusal: refusal.map(str::to_owned),
+        changes: None,
+        diff: None,
     }
 }
 
@@ -110,7 +112,7 @@ fn turn_started() -> Event {
 
 fn turn_completed() -> Event {
     let usage = Usage { input_tokens: 18_200, output_tokens: 1_100 };
-    Event::TurnCompleted { turn_id: turn(), usage: Some(usage) }
+    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None }
 }
 
 /// A terminal's screen: the rows that the writes of a view leave on it. The escape

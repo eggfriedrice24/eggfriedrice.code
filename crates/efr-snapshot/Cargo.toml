@@ -1,0 +1,33 @@
+[package]
+name = "efr-snapshot"
+description = "efr's own snapshot store: hardened git trees of the files that the agent can change, before and after each call and turn"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-protocol.workspace = true
+efr-scope.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+jiff.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+efr-test-support.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

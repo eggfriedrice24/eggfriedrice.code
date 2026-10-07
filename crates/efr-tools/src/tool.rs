@@ -11,7 +11,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::{ToolContext, ToolError, paths};
+use crate::{ToolContext, ToolError, WrittenDiff, paths};
 
 /// One tool the model can call.
 ///
@@ -303,6 +303,25 @@ pub struct ToolResult {
     /// launcher lost after it started the command, or a survivor of an approved exit.
     /// The daemon closes that shell, and the next call starts a new one.
     pub shell_tainted: bool,
+    /// The file that a file tool wrote and what the write changed in it; `None` for
+    /// other tools and for a write that failed.
+    pub written: Option<WrittenFile>,
+}
+
+/// The file that a file tool wrote, and what the write changed in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrittenFile {
+    /// The file, absolute.
+    pub path: PathBuf,
+    /// True when the write created the file.
+    pub created: bool,
+    /// True when the file held bytes that are not UTF-8 text before the write, so no
+    /// diff and no line counts are made.
+    pub binary: bool,
+    /// The diff of the write and its line counts: at most
+    /// [`MAX_CALL_DIFF_LINES`](efr_protocol::MAX_CALL_DIFF_LINES) lines. `None` for a
+    /// binary file and for a write that left the content as it was.
+    pub diff: Option<WrittenDiff>,
 }
 
 impl ToolResult {
@@ -316,6 +335,7 @@ impl ToolResult {
             sandbox: None,
             sandbox_failed: false,
             shell_tainted: false,
+            written: None,
         }
     }
 
@@ -363,6 +383,13 @@ impl ToolResult {
     #[must_use]
     pub fn with_shell_tainted(mut self, tainted: bool) -> Self {
         self.shell_tainted = tainted;
+        self
+    }
+
+    /// Sets the file that a file tool wrote.
+    #[must_use]
+    pub fn with_written(mut self, written: Option<WrittenFile>) -> Self {
+        self.written = written;
         self
     }
 }

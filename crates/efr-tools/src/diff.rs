@@ -8,7 +8,7 @@
 //! after [`MAX_LINES`] lines or [`MAX_BYTES`] bytes with a line that says how much is
 //! left out.
 
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 use std::path::Path;
 
 /// Lines of context around each change.
@@ -52,49 +52,126 @@ pub fn unified_diff(path: &Path, old: Option<&str>, new: &str) -> String {
     if old == Some(new) {
         return UNCHANGED.to_owned();
     }
-    let old_lines: Vec<&str> =
-        old.map(|old| old.split_inclusive('\n').collect()).unwrap_or_default();
-    let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
-    let steps = steps(&old_lines, &new_lines);
-
-    let mut lines = Vec::new();
-    for (start, end) in hunks(&steps) {
-        let hunk = &steps[start..end];
-        let old_count = hunk.iter().filter(|step| step.op != Op::Insert).count();
-        let new_count = hunk.iter().filter(|step| step.op != Op::Delete).count();
-        let first = hunk.first().map_or((0, 0), |step| (step.old_at, step.new_at));
-        let old_start = if old_count == 0 { first.0 } else { first.0 + 1 };
-        let new_start = if new_count == 0 { first.1 } else { first.1 + 1 };
-        lines.push(format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"));
-        for step in hunk {
-            let mark = match step.op {
-                Op::Keep => ' ',
-                Op::Delete => '-',
-                Op::Insert => '+',
-            };
-            match step.text.strip_suffix('\n') {
-                Some(text) => lines.push(format!("{mark}{text}")),
-                None => {
-                    lines.push(format!("{mark}{}", step.text));
-                    lines.push("\\ No newline at end of file".to_owned());
-                }
-            }
-        }
-    }
-
-    let from = if old.is_some() { format!("a{}", path.display()) } else { "/dev/null".to_owned() };
-    let mut out = format!("--- {from}\n+++ b{}\n", path.display());
+    let lines = Lines::new(old, new);
+    let mut out = header(path, old.is_some());
     let mut bytes = 0;
-    for (shown, line) in lines.iter().enumerate() {
+    for (shown, line) in lines.lines.iter().enumerate() {
         bytes += line.len() + 1;
         if shown == MAX_LINES || bytes > MAX_BYTES {
-            let _ = writeln!(out, "[... {} more lines of the diff]", lines.len() - shown);
+            let _ = writeln!(out, "[... {} more lines of the diff]", lines.lines.len() - shown);
             break;
         }
         out.push_str(line);
         out.push('\n');
     }
     out
+}
+
+/// What a write changed in a text file: its unified diff after the write and the
+/// number of lines it added and removed.
+///
+/// `Debug` shows the sizes, not the text: a file can hold secrets.
+#[derive(Clone, PartialEq, Eq)]
+pub struct WrittenDiff {
+    /// The unified diff with its two header lines, at most the asked number of lines
+    /// and [`MAX_WRITTEN_BYTES`] bytes below them, then a line `... N more lines`.
+    pub text: String,
+    /// Lines added.
+    pub added: usize,
+    /// Lines removed.
+    pub removed: usize,
+}
+
+impl fmt::Debug for WrittenDiff {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WrittenDiff")
+            .field("text_bytes", &self.text.len())
+            .field("added", &self.added)
+            .field("removed", &self.removed)
+            .finish()
+    }
+}
+
+/// The most bytes of lines that a [`WrittenDiff`] holds below its header lines, so an
+/// event that carries it stays small.
+pub const MAX_WRITTEN_BYTES: usize = 256 * 1024;
+
+/// The diff of a write from `old` (`None` for a new file) to `new` for the file at
+/// `path`, with three lines of context, cut after `max_lines` lines or
+/// [`MAX_WRITTEN_BYTES`] bytes with a last line `... N more lines`, and the counts of
+/// all lines added and removed. `None` when the content does not change.
+pub fn written_diff(
+    path: &Path,
+    old: Option<&str>,
+    new: &str,
+    max_lines: usize,
+) -> Option<WrittenDiff> {
+    if old == Some(new) {
+        return None;
+    }
+    let lines = Lines::new(old, new);
+    let mut text = header(path, old.is_some());
+    let mut bytes = 0;
+    for (shown, line) in lines.lines.iter().enumerate() {
+        bytes += line.len() + 1;
+        if shown == max_lines || bytes > MAX_WRITTEN_BYTES {
+            let _ = writeln!(text, "... {} more lines", lines.lines.len() - shown);
+            break;
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    Some(WrittenDiff { text, added: lines.added, removed: lines.removed })
+}
+
+/// The two header lines of a diff of `path`.
+fn header(path: &Path, existed: bool) -> String {
+    let from = if existed { format!("a{}", path.display()) } else { "/dev/null".to_owned() };
+    format!("--- {from}\n+++ b{}\n", path.display())
+}
+
+/// The lines of a diff below its header, with the counts of added and removed lines.
+struct Lines {
+    lines: Vec<String>,
+    added: usize,
+    removed: usize,
+}
+
+impl Lines {
+    fn new(old: Option<&str>, new: &str) -> Lines {
+        let old_lines: Vec<&str> =
+            old.map(|old| old.split_inclusive('\n').collect()).unwrap_or_default();
+        let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+        let steps = steps(&old_lines, &new_lines);
+        let added = steps.iter().filter(|step| step.op == Op::Insert).count();
+        let removed = steps.iter().filter(|step| step.op == Op::Delete).count();
+
+        let mut lines = Vec::new();
+        for (start, end) in hunks(&steps) {
+            let hunk = &steps[start..end];
+            let old_count = hunk.iter().filter(|step| step.op != Op::Insert).count();
+            let new_count = hunk.iter().filter(|step| step.op != Op::Delete).count();
+            let first = hunk.first().map_or((0, 0), |step| (step.old_at, step.new_at));
+            let old_start = if old_count == 0 { first.0 } else { first.0 + 1 };
+            let new_start = if new_count == 0 { first.1 } else { first.1 + 1 };
+            lines.push(format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"));
+            for step in hunk {
+                let mark = match step.op {
+                    Op::Keep => ' ',
+                    Op::Delete => '-',
+                    Op::Insert => '+',
+                };
+                match step.text.strip_suffix('\n') {
+                    Some(text) => lines.push(format!("{mark}{text}")),
+                    None => {
+                        lines.push(format!("{mark}{}", step.text));
+                        lines.push("\\ No newline at end of file".to_owned());
+                    }
+                }
+            }
+        }
+        Lines { lines, added, removed }
+    }
 }
 
 /// Every line of `old` and `new` as kept, deleted or inserted, in order.

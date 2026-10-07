@@ -527,7 +527,7 @@ impl Replay {
     pub async fn bless(name: &str) -> Result<PathBuf, TestDaemonError> {
         let mut scenario = Scenario::load(name)?;
         for _ in 0..MAX_BLESS_RUNS {
-            let mut replay = Replay::launch(scenario.clone(), true).await?;
+            let mut replay = Box::pin(Replay::launch(scenario.clone(), true)).await?;
             let mut outcome = Ok(());
             while outcome.is_ok() {
                 match replay.step().await {

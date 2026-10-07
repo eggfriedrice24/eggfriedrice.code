@@ -27,6 +27,7 @@ Where things are:
 | `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary`, `Blocked`, `BlockReason`, `SurfaceChange`, `ReportedFile` |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
+| `src/changes.rs` | what a call or a turn changed in files: `FileChanges`, `FileChange`, `ChangeKind`, and the caps `MAX_LISTED_FILES`, `MAX_CALL_DIFF_LINES` and `MAX_TURN_DIFF_LINES` |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage` |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |

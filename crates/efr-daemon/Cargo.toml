@@ -52,6 +52,7 @@ efr-screen.workspace = true
 efr-screen-ghostty = { workspace = true, optional = true }
 efr-screen-vt100.workspace = true
 efr-shell.workspace = true
+efr-snapshot.workspace = true
 efr-stdx.workspace = true
 efr-store.workspace = true
 efr-tools.workspace = true

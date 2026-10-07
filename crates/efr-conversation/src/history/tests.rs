@@ -59,6 +59,8 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
         exit_code: None,
         sandbox: None,
         refusal: None,
+        changes: None,
+        diff: None,
     }
 }
 
@@ -267,7 +269,7 @@ async fn only_finished_turns_other_than_the_current_one_count() {
             a,
             "first",
             vec![completed(a, 0, "One.")],
-            Event::TurnCompleted { turn_id: a, usage: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
         ),
         whole_turn(
             b,
@@ -354,13 +356,13 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
             a,
             "first",
             vec![completed(a, 0, "One.")],
-            Event::TurnCompleted { turn_id: a, usage: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
         ),
         whole_turn(
             b,
             "second",
             vec![completed(b, 0, "Two.")],
-            Event::TurnCompleted { turn_id: b, usage: None },
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None },
         ),
     ])
     .await;
@@ -383,7 +385,7 @@ async fn a_cached_turn_keeps_its_provider_items_only_for_the_same_provider_and_m
         a,
         "first",
         vec![started(a, c, "shell"), finished(a, c, "ok"), completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
     )])
     .await;
     let raw = json!([
@@ -425,19 +427,19 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
             a,
             "first",
             vec![completed(a, 0, &long)],
-            Event::TurnCompleted { turn_id: a, usage: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
         ),
         whole_turn(
             b,
             "second",
             vec![completed(b, 0, "Two.")],
-            Event::TurnCompleted { turn_id: b, usage: None },
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None },
         ),
         whole_turn(
             c,
             "third",
             vec![completed(c, 0, "Three.")],
-            Event::TurnCompleted { turn_id: c, usage: None },
+            Event::TurnCompleted { turn_id: c, usage: None, changes: None },
         ),
     ])
     .await;
@@ -517,7 +519,7 @@ async fn a_saved_turn_takes_the_place_of_the_cache_after_a_restart() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
     )])
     .await;
     let raw = json!([{ "type": "reasoning", "encrypted_content": "opaque" }]);
@@ -542,7 +544,7 @@ async fn a_saved_turn_that_cannot_be_read_back_is_rebuilt() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
     )])
     .await;
     save(&store, a, "replay", vec![json!({ "role": "nobody" })]).await;
@@ -586,7 +588,7 @@ async fn saved_messages_that_cannot_be_read_are_logged_without_their_text() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
     )])
     .await;
     // A string where the content's list belongs, as after a change of the schema.

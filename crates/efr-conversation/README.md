@@ -188,6 +188,11 @@ by field:
 - `turn_report`: the files that the turn changed through the launcher and that run
   code later outside the sandbox; the turn records them as `turn_surface_report` right
   before its terminal event; the default reports none;
+- `turn_changes`: the files that the turn changed, from the toolbox's snapshots; the
+  turn asks once before its terminal event, whatever the ending, and records the
+  answer in `turn_completed`; the default takes no snapshot. A call's own changes and
+  a file tool's diff come back in `ToolOutcome::changes` and `ToolOutcome::diff`, which
+  the turn records in `tool_call_completed`;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
   interrupted command does not keep running in the hidden shell;
 - `preview`: the diff of a `write_file` call, once the tools offer one;

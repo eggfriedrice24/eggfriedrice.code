@@ -159,3 +159,21 @@ No protocol version has shipped yet.
   flag gets no drafts. The `conversation_subscribe_params.json` fixture now sets the
   flag; the new `conversation_subscribe_item_draft.json` and `draft_parts.json` freeze
   the item and every kind of part.
+- Version 1, additive: what the agent changed in files. New types `file_change`
+  (`path` as a client shows it: relative to the turn's project root, under `$SCRATCH/`,
+  under `~/` or absolute; `kind`, one of `added`, `modified`, `deleted` and `renamed`;
+  an optional `from` for a rename; `added` and `removed` line counts; `binary`, false
+  when absent) and `file_changes` (`files`, at most 50 and sorted by path, `more`, the
+  files left out, and the `added` and `removed` totals). The `tool_call_completed`
+  event gains an optional `changes` (a file tool's write, or what a `shell` call changed
+  in the turn's project, `$SCRATCH` and, in `auto`, the projects that the line names)
+  and an optional `diff` (the unified diff of a file tool's write, at most 2000 lines
+  and then `... N more lines`). The `turn_completed` event gains an optional `changes`:
+  the turn's first snapshot against its last. New method `conversation.diff` (scope
+  `read`, no command id) with an optional `conversation_id` (absent: the active
+  conversation of the hello's terminal), an optional `turn_id` (absent: the newest turn
+  with snapshots) and a `stat` flag, false when absent; its result has the `turn_id`,
+  the `changes` and, without `stat`, the unified `diff`, at most 20000 lines. The
+  fixtures `events/tool_call_completed.json` and `events/turn_completed.json` now set
+  the new members; `conversation_diff_params.json` and `conversation_diff_result.json`
+  are new.

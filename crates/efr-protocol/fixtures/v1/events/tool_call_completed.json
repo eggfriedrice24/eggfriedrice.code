@@ -41,5 +41,45 @@
     ],
     "setup_error": "bwrap: Can't mount proc on /newroot/proc"
   },
-  "refusal": "efr's config (floor)"
+  "refusal": "efr's config (floor)",
+  "changes": {
+    "files": [
+      {
+        "path": "src/a.rs",
+        "kind": "modified",
+        "added": 3,
+        "removed": 1
+      },
+      {
+        "path": "notes.md",
+        "kind": "added",
+        "added": 12,
+        "removed": 0
+      },
+      {
+        "path": "old.rs",
+        "kind": "deleted",
+        "added": 0,
+        "removed": 40
+      },
+      {
+        "path": "src/new_name.rs",
+        "kind": "renamed",
+        "from": "src/old_name.rs",
+        "added": 0,
+        "removed": 0
+      },
+      {
+        "path": "$SCRATCH/plot.png",
+        "kind": "added",
+        "added": 0,
+        "removed": 0,
+        "binary": true
+      }
+    ],
+    "more": 2,
+    "added": 24,
+    "removed": 47
+  },
+  "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-    run();\n+    run_all();\n... 12 more lines\n"
 }

@@ -28,7 +28,7 @@ use efr_config::{Settings, SudoCache};
 use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
 use efr_permissions::{Engine, Requirements};
 use efr_protocol::{
-    ConversationId, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
+    ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
 };
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
@@ -46,8 +46,10 @@ use crate::connections::Connections;
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
 
 mod settings_tool;
+mod snapshot;
 
 pub(crate) use settings_tool::SettingsTool;
+pub(crate) use snapshot::CallSnapshots;
 
 /// What the model reads for a call that must run through the sandbox's launcher while
 /// this toolbox has no sandbox; it never runs in the hidden shell instead.
@@ -85,6 +87,8 @@ pub(crate) struct DaemonToolbox {
     /// The `auto` sandbox and the engine whose locations a call's facts and spec read;
     /// `None` refuses every call through the launcher.
     sandbox: Option<(SandboxService, watch::Receiver<Arc<Engine>>)>,
+    /// The snapshots of the calls that can write; `None` takes none.
+    snapshots: Option<CallSnapshots>,
 }
 
 impl DaemonToolbox {
@@ -107,6 +111,48 @@ impl DaemonToolbox {
             connections,
             settings,
             sandbox: None,
+            snapshots: None,
+        }
+    }
+
+    /// Takes snapshots before and after the calls that can write, with `snapshots`.
+    pub(crate) fn with_snapshots(mut self, snapshots: CallSnapshots) -> Self {
+        self.snapshots = Some(snapshots);
+        self
+    }
+
+    /// The snapshots before a `shell` call of `call`; `named` adds the projects that a
+    /// line of `auto` names.
+    async fn snapshot_before(
+        &self,
+        call: &CallContext,
+        named: &[PathBuf],
+    ) -> Option<(efr_snapshot::CallSnapshot, efr_snapshot::Limits)> {
+        self.snapshots.as_ref()?.before_call(call, named).await
+    }
+
+    /// What a `shell` call changed since [`snapshot_before`](Self::snapshot_before).
+    async fn snapshot_after(
+        &self,
+        before: Option<(efr_snapshot::CallSnapshot, efr_snapshot::Limits)>,
+    ) -> Option<FileChanges> {
+        self.snapshots.as_ref()?.after_call(before).await
+    }
+
+    /// Before a `write_file` call: the turn's first snapshot of the root that holds
+    /// its target.
+    async fn snapshot_before_write(&self, call: &ToolCall) {
+        let Some(snapshots) = &self.snapshots else { return };
+        let context = self.context(&call.context);
+        let Ok(declared) = self.registry.requirements(&call.name, &context, &call.input) else {
+            return;
+        };
+        let projects = match &self.sandbox {
+            Some((sandbox, _)) => sandbox.projects().await,
+            None => Vec::new(),
+        };
+        for access in &declared.paths {
+            snapshots.before_write(&call.context, &access.path, &projects).await;
         }
     }
 
@@ -272,6 +318,9 @@ impl DaemonToolbox {
             }
         };
         let turn_id = call.context.turn_id;
+        // NOTE: under the plan lock, so no other call of these projects writes while
+        // the snapshot reads them.
+        let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
         let watch = Stopwatch::start();
         sandbox
             .turns()
@@ -329,6 +378,7 @@ impl DaemonToolbox {
             }
             Err(error) => ToolOutcome::error(for_model(&error)),
         };
+        outcome.changes = self.snapshot_after(snapshot).await;
         if !notes.is_empty() {
             outcome.output = format!("{}\n{}", outcome.output, notes.join("\n"));
         }
@@ -418,16 +468,35 @@ impl Toolbox for DaemonToolbox {
         // NOTE: a file write takes the plan lock of its project for its own work, so it
         // never races the plan of a call that is about to start there.
         let _writing = self.lock_write(&call).await;
+        let shell = call.name == ShellTool::NAME;
+        let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
+        if call.name == WriteFileTool::NAME {
+            self.snapshot_before_write(&call).await;
+        }
         let context = self.context(&call.context);
+        let call_context = call.context.clone();
         let mut sink = CallSink {
             out,
             connections: &self.connections,
             conversation_id: call.context.conversation_id,
         };
-        match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
-            Ok(result) => outcome(result),
-            Err(error) => ToolOutcome::error(for_model(&error)),
+        let mut outcome =
+            match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
+                Ok(result) => {
+                    let written = result.written.clone();
+                    let mut outcome = outcome(result);
+                    if let (Some(written), Some(snapshots)) = (written, &self.snapshots) {
+                        let (changes, diff) = snapshots.written(&call_context, &written);
+                        outcome = outcome.with_changes(changes).with_diff(diff);
+                    }
+                    outcome
+                }
+                Err(error) => ToolOutcome::error(for_model(&error)),
+            };
+        if shell {
+            outcome.changes = self.snapshot_after(snapshot).await;
         }
+        outcome
     }
 
     async fn shell_cwd(&self, conversation_id: ConversationId) -> Option<PathBuf> {
@@ -462,6 +531,14 @@ impl Toolbox for DaemonToolbox {
         let Some((sandbox, _)) = &self.sandbox else { return Vec::new() };
         let patterns = self.settings.borrow().sandbox.surface_files.clone();
         sandbox.turns().finish(turn_id, &patterns, sandbox.git(), sandbox.home()).await
+    }
+
+    async fn turn_changes(
+        &self,
+        conversation_id: ConversationId,
+        turn_id: TurnId,
+    ) -> Option<FileChanges> {
+        self.snapshots.as_ref()?.finish_turn(conversation_id, turn_id).await
     }
 
     async fn cancel(&self, call: &CallContext) {

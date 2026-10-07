@@ -20,24 +20,25 @@ use crate::{
     AdminLoginOpenAiItem, AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove,
     AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus,
     AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes,
-    BlockReason, Blocked, BusKind, CacheMode, CallId, Capabilities, Cell, CheckOutcome,
-    ClientFrame, Color, CommandId, ConfigFileError, ConfigStatus, ConversationHistory,
-    ConversationHistoryResult, ConversationId, ConversationSnapshot, ConversationStatus,
-    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
-    ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots, DeviceId, Draft,
-    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
-    ExitKind, ExitRecord, ExitSource, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
-    InputRespondResult, InputWait, JudgeKind, Judgement, Launch, LeaseReport, LeaseReportResult,
-    Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode,
-    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact,
-    ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
-    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, ReportedFile, RequestId, Risk, RootDir, RootSource, RowCells,
-    SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths,
-    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope,
-    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange,
-    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, Usage, UserAuthorization, Verdict,
+    BlockReason, Blocked, BusKind, CacheMode, CallId, Capabilities, Cell, ChangeKind, CheckOutcome,
+    ClientFrame, Color, CommandId, ConfigFileError, ConfigStatus, ConversationDiff,
+    ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
+    DaemonRoots, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
+    GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond, InputRespondResult, InputWait,
+    JudgeKind, Judgement, Launch, LeaseReport, LeaseReportResult, Method, Mode, ModeFallback,
+    ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin, OverriddenSettings,
+    PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
+    ProjectsListResult, PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem,
+    PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile,
+    RequestId, Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
+    UserAuthorization, Verdict,
 };
 
 /// The directory of the frozen fixtures.
@@ -510,7 +511,63 @@ pub(crate) fn method_samples() -> Vec<Method> {
             keep: false,
         }),
         Method::AdminSandboxCheck(AdminSandboxCheck {}),
+        Method::ConversationDiff(ConversationDiff {
+            conversation_id: Some(conversation_id()),
+            turn_id: Some(turn_id()),
+            stat: true,
+        }),
     ]
+}
+
+/// A list with every kind of change and every member set.
+fn file_changes() -> FileChanges {
+    FileChanges {
+        files: vec![
+            FileChange {
+                path: "src/a.rs".into(),
+                kind: ChangeKind::Modified,
+                from: None,
+                added: 3,
+                removed: 1,
+                binary: false,
+            },
+            FileChange {
+                path: "notes.md".into(),
+                kind: ChangeKind::Added,
+                from: None,
+                added: 12,
+                removed: 0,
+                binary: false,
+            },
+            FileChange {
+                path: "old.rs".into(),
+                kind: ChangeKind::Deleted,
+                from: None,
+                added: 0,
+                removed: 40,
+                binary: false,
+            },
+            FileChange {
+                path: "src/new_name.rs".into(),
+                kind: ChangeKind::Renamed,
+                from: Some("src/old_name.rs".into()),
+                added: 0,
+                removed: 0,
+                binary: false,
+            },
+            FileChange {
+                path: "$SCRATCH/plot.png".into(),
+                kind: ChangeKind::Added,
+                from: None,
+                added: 0,
+                removed: 0,
+                binary: true,
+            },
+        ],
+        more: 2,
+        added: 24,
+        removed: 47,
+    }
 }
 
 /// The result of every unary method and each item variant of every streaming method.
@@ -574,6 +631,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     Event::TurnCompleted {
                         turn_id: turn_id(),
                         usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+                        changes: None,
                     },
                 )],
                 next_cursor: Some(PageCursor::new("h1:10")),
@@ -741,6 +799,17 @@ fn answer_fixtures() -> Vec<Fixture> {
             },
         ),
         fixture(
+            "conversation_diff_result.json",
+            &ConversationDiffResult {
+                turn_id: turn_id(),
+                changes: file_changes(),
+                diff: Some(
+                    "diff --git a/src/a.rs b/src/a.rs\nindex 3b18e51..a042389 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
+                        .into(),
+                ),
+            },
+        ),
+        fixture(
             "sandbox_surface_respond_result.json",
             &SandboxSurfaceRespondResult { seq: Seq::new(47) },
         ),
@@ -879,6 +948,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
             }),
             refusal: Some("efr's config (floor)".into()),
+            changes: Some(file_changes()),
+            diff: Some(
+                "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-    run();\n+    run_all();\n... 12 more lines\n"
+                    .into(),
+            ),
         },
         Event::ApprovalRequested {
             turn_id: turn_id(),
@@ -911,6 +985,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::TurnCompleted {
             turn_id: turn_id(),
             usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+            changes: Some(file_changes()),
         },
         Event::TurnFailed {
             turn_id: turn_id(),

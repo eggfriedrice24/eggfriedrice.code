@@ -38,7 +38,7 @@ fn completed(text: &str) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
 }
 
 /// Reads the subscribe request and checks where it starts.
@@ -439,7 +439,11 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             origin: Origin::Shell,
         };
         conn.item(sub, &item(11, resolved)).await;
-        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: running, usage: None })).await;
+        conn.item(
+            sub,
+            &item(12, Event::TurnCompleted { turn_id: running, usage: None, changes: None }),
+        )
+        .await;
         let started = Event::TurnStarted {
             turn_id: turn(),
             cwd: PathBuf::from("/home/u"),
@@ -586,6 +590,8 @@ fn shell_completed(exit_code: i32) -> Event {
         exit_code: Some(exit_code),
         sandbox: None,
         refusal: None,
+        changes: None,
+        diff: None,
     }
 }
 
@@ -1024,6 +1030,8 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                         exit_code: Some(0),
                         sandbox: None,
                         refusal: None,
+                        changes: None,
+                        diff: None,
                     },
                 ),
                 envelope(6, output(sudo, "[sudo] password for egg: ")),
@@ -1049,10 +1057,16 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             exit_code: Some(0),
             sandbox: None,
             refusal: None,
+            changes: None,
+            diff: None,
         };
         conn.item(sub, &item(12, completed)).await;
         presser.stopped().await;
-        conn.item(sub, &item(13, Event::TurnCompleted { turn_id: running, usage: None })).await;
+        conn.item(
+            sub,
+            &item(13, Event::TurnCompleted { turn_id: running, usage: None, changes: None }),
+        )
+        .await;
         let started = Event::TurnStarted {
             turn_id: turn(),
             cwd: PathBuf::from("/home/u"),

@@ -51,6 +51,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-oauth-openai", &["efr-http", "efr-credentials", "efr-provider", "efr-stdx"]),
     // The sandbox launcher: efr-sbx run, inner, bridge and probe. No async runtime.
     ("efr-sbx", &["efr-sandbox", "efr-protocol"]),
+    // efr's own snapshot store: hardened git through efr-scope's Git::command (phase 4
+    // of the auto spec, section 15.1).
+    ("efr-snapshot", &["efr-scope", "efr-protocol", "efr-stdx"]),
     // The config file's schema, shared by efrd and efr; efr-tools must never reach it,
     // because it reaches efr-permissions.
     ("efr-config", &["efr-permissions", "efr-protocol", "efr-stdx"]),
@@ -90,6 +93,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-conversation",
             "efr-transport",
             "efr-sandbox",
+            "efr-snapshot",
         ],
     ),
     ("efr-cli", &["efr-client", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),

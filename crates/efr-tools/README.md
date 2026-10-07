@@ -29,7 +29,11 @@ The tools the model calls, and the registry that offers them.
 - `write_file` previews a write as a unified diff against the current file (every
   line added for a new file), at most 200 lines and 16 KiB, with a line that says
   how much is left out. `unified_diff` is that diff, public so the daemon's settings
-  tool shows a change of `config.toml` the same way.
+  tool shows a change of `config.toml` the same way. After a write, the result's
+  `written` (`WrittenFile`) names the file and holds `written_diff`'s diff of the
+  write (at most `MAX_CALL_DIFF_LINES` lines and 256 KiB, then `... N more lines`) with
+  the counts of added and removed lines; a file that held bytes that are not UTF-8
+  text is `binary` and gets no diff.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
   the home directory (`efr_scope::Home`), the clock, the write journal,

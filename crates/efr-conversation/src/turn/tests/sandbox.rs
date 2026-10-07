@@ -22,8 +22,8 @@ use crate::approvals;
 use crate::exit::{EXIT_DENIED, REFUSALS_STOPPED};
 use crate::preamble::LiveState;
 use crate::testing::{
-    Harness, Setup, answer, expect_request, find, planted, request, result_message, text_answer,
-    tool_answer, tool_message,
+    Harness, Setup, answer, edited, expect_request, find, planted, request, result_message,
+    text_answer, tool_answer, tool_message,
 };
 
 /// A setup whose turns run in `auto`, and the live state of its first turn.
@@ -711,6 +711,31 @@ async fn an_interrupt_during_the_surface_question_keeps_the_quarantine() {
             keep: false,
             origin: None,
         }
+    );
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_call_and_its_turn_carry_the_files_they_changed() {
+    let (setup, state) = auto("edit it");
+    let input = json!({ "command": "edit-files" });
+    let records = one_call(&setup, &state, "edit it", &input, "edited", false, "Edited.");
+    let mut h = setup.start(records).await;
+    *h.toolbox.turn_changes.lock().unwrap() = (Some(edited()), 0);
+
+    let sent = h.prompt("edit it").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(
+        matches!(&end, Event::TurnCompleted { changes: Some(changes), .. } if *changes == edited()),
+        "{end:?}"
+    );
+    assert_eq!(h.toolbox.turn_changes.lock().unwrap().1, 1, "asked once, at the end");
+    let events = h.events().await;
+    let completed = find(&events, |e| matches!(e, Event::ToolCallCompleted { .. }));
+    assert!(
+        matches!(&completed, Event::ToolCallCompleted { changes: Some(changes), diff: None, .. } if *changes == edited()),
+        "{completed:?}"
     );
     h.finish();
 }

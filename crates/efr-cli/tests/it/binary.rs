@@ -256,7 +256,10 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                     sub,
                     &event(4, Event::AssistantMessageCompleted { turn_id, index: 0, text }),
                 );
-                conn.item(sub, &event(5, Event::TurnCompleted { turn_id, usage: None }));
+                conn.item(
+                    sub,
+                    &event(5, Event::TurnCompleted { turn_id, usage: None, changes: None }),
+                );
             }
             Err(message) => {
                 let error = ErrorBody::new(ErrorCode::Internal, message);
@@ -334,7 +337,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
         let (sub, _) = conn.request();
         let text = "Done.".to_owned();
         conn.item(sub, &event(4, Event::AssistantMessageCompleted { turn_id, index: 0, text }));
-        conn.item(sub, &event(5, Event::TurnCompleted { turn_id, usage: None }));
+        conn.item(sub, &event(5, Event::TurnCompleted { turn_id, usage: None, changes: None }));
         conn.drain();
     });
     let output = roots

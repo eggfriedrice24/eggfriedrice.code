@@ -33,6 +33,7 @@ mod admin_project_remove;
 mod admin_sandbox_check;
 mod admin_status;
 mod approval_respond;
+mod conversation_diff;
 mod conversation_history;
 mod conversation_subscribe;
 mod conversations_list;
@@ -98,6 +99,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::SandboxExplain(_) => ScopeName::Read,
         Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
         Method::AdminSandboxCheck(_) => ScopeName::Admin,
+        Method::ConversationDiff(_) => ScopeName::Read,
     }
 }
 
@@ -265,6 +267,9 @@ impl Dispatcher for Methods {
                 }
                 Method::AdminSandboxCheck(params) => {
                     admin_sandbox_check::handle(state, params, &responder).await
+                }
+                Method::ConversationDiff(params) => {
+                    conversation_diff::handle(state, &context, params, &responder).await
                 }
             }
         };

@@ -28,7 +28,7 @@ fn a_tty_that_could_escape_the_directory_gets_no_file() {
 
 #[test]
 fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
-    let completed = Event::TurnCompleted { turn_id: turn(), usage: None };
+    let completed = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
     let failed = Event::TurnFailed {
         turn_id: turn(),
         error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
@@ -112,7 +112,7 @@ fn other_events_get_no_line() {
 
 #[test]
 fn a_notice_stays_on_one_short_line() {
-    let event = Event::TurnCompleted { turn_id: turn(), usage: None };
+    let event = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
     let title = format!("two\nlines\x1b[31m{}", "x".repeat(400));
 
     let text = line(&event, Some(&title)).unwrap();

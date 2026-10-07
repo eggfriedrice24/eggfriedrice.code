@@ -16,7 +16,7 @@ use crate::paths::{check_real, resolve};
 use crate::tool::parse_input;
 use crate::{
     FileSnapshot, JournalEntry, Original, Tool, ToolContext, ToolError, ToolOutputSink,
-    ToolRequirements, ToolResult, ToolSpec,
+    ToolRequirements, ToolResult, ToolSpec, WrittenFile,
 };
 
 /// The largest file `write_file` replaces: its original must fit in the journal.
@@ -120,13 +120,36 @@ impl Tool for WriteFileTool {
             Original::File { uid, gid, .. } => Some((*uid, *gid)),
             _ => None,
         };
+        // NOTE: the diff is made before the original moves into the journal, and only
+        // reported once the write has succeeded.
+        let written = written(&path, &snapshot.original, &input.content);
         ctx.journal.record(JournalEntry::new(ctx.ids, snapshot)).await?;
 
         let bytes = input.content.len();
         let target = path.clone();
         blocking(&path, move || write(&target, input.content.as_bytes(), mode, owner)).await?;
         let verb = if created { "created" } else { "replaced" };
-        Ok(ToolResult::ok(format!("{verb} {} ({bytes} bytes)", path.display())))
+        Ok(ToolResult::ok(format!("{verb} {} ({bytes} bytes)", path.display()))
+            .with_written(Some(written)))
+    }
+}
+
+/// What writing `content` over `original` at `path` changes.
+fn written(path: &Path, original: &Original, content: &str) -> WrittenFile {
+    let max_lines = efr_protocol::MAX_CALL_DIFF_LINES;
+    let (old, binary) = match original {
+        Original::File { content: old, .. } => match std::str::from_utf8(old) {
+            Ok(old) => (Some(old), false),
+            Err(_) => (None, true),
+        },
+        _ => (None, false),
+    };
+    let diff = if binary { None } else { diff::written_diff(path, old, content, max_lines) };
+    WrittenFile {
+        path: path.to_path_buf(),
+        created: matches!(original, Original::Missing),
+        binary,
+        diff,
     }
 }
 

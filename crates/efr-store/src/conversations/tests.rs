@@ -112,7 +112,11 @@ async fn the_status_follows_the_running_turn_and_its_approvals() {
         testing::started(1, "/etc"),
         approval_requested(1, 1),
         approval_resolved(1, 1),
-        Event::TurnCompleted { turn_id: testing::turn(1), usage: Some(Usage::default()) },
+        Event::TurnCompleted {
+            turn_id: testing::turn(1),
+            usage: Some(Usage::default()),
+            changes: None,
+        },
     ] {
         writer.append(Batch::new().event(id, event)).await.unwrap();
         seen.push(status(&writer, id).await);

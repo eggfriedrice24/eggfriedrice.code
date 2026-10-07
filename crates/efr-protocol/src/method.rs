@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
-    AdminStatus, ApprovalRespond, CommandId, ConversationHistory, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, LeaseReport, ModelsList, ProjectsList, PromptSend,
-    PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName,
-    TurnInterrupt, TurnSteer,
+    AdminStatus, ApprovalRespond, CommandId, ConversationDiff, ConversationHistory,
+    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, ModelsList,
+    ProjectsList, PromptSend, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -94,6 +94,9 @@ pub enum Method {
     /// `admin.sandbox_check`: run the sandbox probe now (Unix socket only).
     #[serde(rename = "admin.sandbox_check")]
     AdminSandboxCheck(AdminSandboxCheck),
+    /// `conversation.diff`: what a turn changed in files.
+    #[serde(rename = "conversation.diff")]
+    ConversationDiff(ConversationDiff),
 }
 
 impl Method {
@@ -124,6 +127,7 @@ impl Method {
             Method::SandboxExplain(_) => "sandbox.explain",
             Method::SandboxSurfaceRespond(_) => "sandbox.surface_respond",
             Method::AdminSandboxCheck(_) => "admin.sandbox_check",
+            Method::ConversationDiff(_) => "conversation.diff",
         }
     }
 
@@ -154,7 +158,8 @@ impl Method {
             | Method::AdminConfigReload(_)
             | Method::AdminLoginOpenAi(_)
             | Method::SandboxExplain(_)
-            | Method::AdminSandboxCheck(_) => None,
+            | Method::AdminSandboxCheck(_)
+            | Method::ConversationDiff(_) => None,
         }
     }
 
@@ -184,7 +189,8 @@ impl Method {
             | Method::AdminConfigReload(_)
             | Method::SandboxExplain(_)
             | Method::SandboxSurfaceRespond(_)
-            | Method::AdminSandboxCheck(_) => false,
+            | Method::AdminSandboxCheck(_)
+            | Method::ConversationDiff(_) => false,
         }
     }
 }
@@ -192,9 +198,10 @@ impl Method {
 impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
-    /// `hello`, `lease.report`, `models.list`, `projects.list` and `sandbox.explain` need
-    /// only `read`, which every connection holds. Adding or removing a project changes what the
-    /// `auto` mode trusts, so it needs `admin`, which a phone never holds.
+    /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain` and
+    /// `conversation.diff` need only `read`, which every connection holds. Adding or
+    /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
+    /// a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
@@ -204,7 +211,8 @@ impl ScopeName {
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
             | Method::ProjectsList(_)
-            | Method::SandboxExplain(_) => ScopeName::Read,
+            | Method::SandboxExplain(_)
+            | Method::ConversationDiff(_) => ScopeName::Read,
             Method::PromptSend(_) | Method::TurnInterrupt(_) | Method::TurnSteer(_) => {
                 ScopeName::Operate
             }

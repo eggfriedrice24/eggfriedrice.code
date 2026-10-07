@@ -274,7 +274,7 @@ async fn a_text_turn_records_the_answer_and_completes() {
     let end = h.wait_end(sent.turn_id).await;
 
     let usage = Some(Usage { input_tokens: 10, output_tokens: 4 });
-    assert_eq!(end, Event::TurnCompleted { turn_id: sent.turn_id, usage });
+    assert_eq!(end, Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None });
     assert_eq!(
         h.kinds().await,
         kinds(&[
@@ -369,6 +369,8 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             exit_code: None,
             sandbox: None,
             refusal: None,
+            changes: None,
+            diff: None,
         }
     );
     h.finish();
@@ -710,6 +712,8 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
             exit_code: None,
             sandbox: None,
             refusal: None,
+            changes: None,
+            diff: None,
         }
     );
     h.finish();
@@ -1361,6 +1365,8 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
                 exit_code: Some(0),
                 sandbox: None,
                 refusal: None,
+                changes: None,
+                diff: None,
             },
         ]
     );

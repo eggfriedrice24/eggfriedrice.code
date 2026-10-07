@@ -79,7 +79,7 @@ fn resolved(origin: Origin) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
 }
 
 /// `step` with the frame that shows it, at a time that never moves, in its `out`.
@@ -157,6 +157,8 @@ fn notes_sit_between_messages_and_dim() {
                 exit_code: Some(3),
                 sandbox: None,
                 refusal: None,
+                changes: None,
+                diff: None,
             },
             completed(1, "It exited with 3."),
         ],
@@ -199,6 +201,8 @@ fn refused_call_completed() -> Event {
         exit_code: None,
         sandbox: None,
         refusal: None,
+        changes: None,
+        diff: None,
     }
 }
 
@@ -253,6 +257,8 @@ fn a_call_that_efr_refused_says_why() {
         exit_code: None,
         sandbox: None,
         refusal: Some("efr's config (floor)".to_owned()),
+        changes: None,
+        diff: None,
     };
     let contained = Event::ToolCallStarted {
         turn_id: turn(),
@@ -563,6 +569,8 @@ fn call_completed(exit_code: i32) -> Event {
         exit_code: Some(exit_code),
         sandbox: None,
         refusal: None,
+        changes: None,
+        diff: None,
     }
 }
 
@@ -1346,6 +1354,8 @@ fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event
         exit_code: Some(exit_code),
         sandbox,
         refusal: None,
+        changes: None,
+        diff: None,
     }
 }
 
@@ -1980,6 +1990,8 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
         exit_code: Some(0),
         sandbox: None,
         refusal: None,
+        changes: None,
+        diff: None,
     };
     view.envelope(&sent(13, 50, done), SIZE, false);
     assert!(view.frame(SIZE, at(50)).contains("waiting for the model"));
@@ -2023,7 +2035,7 @@ fn ended(look: Look, end: Event, millis: i64) -> String {
 #[test]
 fn a_completed_turn_ends_with_its_time_and_tokens() {
     let usage = Usage { input_tokens: 18_250, output_tokens: 1_100 };
-    let end = Event::TurnCompleted { turn_id: turn(), usage: Some(usage) };
+    let end = Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None };
     insta::assert_snapshot!(ended(ALL, end, 42_000));
 }
 
@@ -2060,7 +2072,7 @@ fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
 
 #[test]
 fn without_the_summary_a_turn_ends_as_before() {
-    let end = Event::TurnCompleted { turn_id: turn(), usage: None };
+    let end = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
     let frame = ended(Look::default(), end, 5_000);
     assert!(!frame.contains("done"), "{frame}");
     let frame = ended(Look::default(), Event::TurnInterrupted { turn_id: turn() }, 5_000);
@@ -2117,6 +2129,7 @@ fn piped_output_has_no_status_row_and_no_escape_sequences() {
         Event::TurnCompleted {
             turn_id: turn(),
             usage: Some(Usage { input_tokens: 5, output_tokens: 1 }),
+            changes: None,
         },
     ]) {
         let step = view.envelope(&sent(seq, 0, event), SIZE, false);

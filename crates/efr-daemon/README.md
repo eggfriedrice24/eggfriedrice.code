@@ -338,6 +338,30 @@ spec; `docs/sandbox.md` for the user's view):
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`).
 
+### What a call changed
+
+`tools/snapshot.rs` (`CallSnapshots`) uses `efr-snapshot`, efr's own snapshot store in
+`$XDG_DATA_HOME/efr/snapshots/`, which the sandbox masks:
+
+- A `shell` call: a snapshot of each root before and after it, and the changes go to
+  `tool_call_completed`. The roots are the turn's registered project and `$SCRATCH`
+  in every mode, and in `auto` the registered projects that the line names (the
+  plan's project roots; that snapshot is taken under the plan lock). Nothing outside
+  these roots is snapshotted, git repository or not.
+- A `write_file` call: the tool's own diff and line counts (`efr_tools::WrittenFile`)
+  go to `tool_call_completed` as `changes` and `diff`, in every directory. Before it
+  writes into a root, the turn gets its first snapshot of that root.
+- At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the
+  refs `refs/efr/<conversation>/<turn>/pre` and `/post`, and the turn's changes for
+  `turn_completed`.
+- `conversation.diff` (`methods/conversation_diff.rs`) reads the refs back: the newest
+  turn with snapshots of the terminal's conversation unless the params name one.
+- An hourly task keeps the refs of the newest `snapshot.keep_turns` turns of each
+  conversation and deletes a store without a snapshot for `snapshot.max_age_days`.
+  `snapshot.enabled = false` takes no snapshot; a file tool still shows its diff.
+- At start, efrd reads the user's own `core.excludesFile` once, because the store's
+  git reads no global config.
+
 ### Notices
 
 When a turn finishes or fails, or an approval waits, and no subscription from the
@@ -383,8 +407,10 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
 `efr-provider-openai`, `efr-oauth-openai`, `efr-config`, `efr-conversation`,
-`efr-transport` and `efr-sandbox` (the spec of a sandboxed call, the worktree record,
-the probe's report and the plan that `sandbox.explain` reads). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
+`efr-transport`, `efr-sandbox` (the spec of a sandboxed call, the worktree record,
+the probe's report and the plan that `sandbox.explain` reads) and `efr-snapshot` (the
+snapshots before and after each call that can write, the turn's changes and
+`conversation.diff`). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,

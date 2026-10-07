@@ -390,6 +390,22 @@ pub enum DaemonError {
         #[source]
         source: efr_sandbox::SandboxError,
     },
+    /// The conversation has no snapshot of a turn to show.
+    #[error("no turn of the conversation {conversation_id} has snapshots")]
+    NoSnapshot {
+        /// The conversation.
+        conversation_id: ConversationId,
+    },
+    /// A method that takes the terminal's conversation came from a connection whose
+    /// terminal has no active conversation.
+    #[error("this terminal has no active conversation")]
+    NoActiveConversation,
+    /// The snapshot store could not answer.
+    #[error("the snapshot store could not answer")]
+    Snapshot {
+        #[source]
+        source: efr_snapshot::SnapshotError,
+    },
     /// The method needs a scope that a process started by the model's commands does
     /// not get.
     #[error("{method} is not open to a process that the model's commands started")]
@@ -420,6 +436,8 @@ impl DaemonError {
             DaemonError::ProjectNotRegistered { .. } => ErrorCode::NotFound,
             DaemonError::Registry { source } => registry_code(source),
             DaemonError::ConversationNotFound { .. }
+            | DaemonError::NoSnapshot { .. }
+            | DaemonError::NoActiveConversation
             | DaemonError::ApprovalNotPending { .. }
             | DaemonError::PtyNotFound { .. }
             | DaemonError::CallNotRunning { .. } => ErrorCode::NotFound,
@@ -457,6 +475,7 @@ impl DaemonError {
             | DaemonError::OpenAi { .. }
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }
+            | DaemonError::Snapshot { .. }
             | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }

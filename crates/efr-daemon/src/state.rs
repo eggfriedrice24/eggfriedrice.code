@@ -8,6 +8,7 @@ use efr_permissions::Engine;
 use efr_protocol::{DaemonId, DaemonRoots};
 use efr_scope::Git;
 use efr_shell::ShellSessions;
+use efr_snapshot::Snapshots;
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -74,4 +75,7 @@ pub(crate) struct State {
     pub(crate) providers: Providers,
     /// The `auto` sandbox: the launcher, the probe's status, the call dirs.
     pub(crate) sandbox: SandboxService,
+    /// efr's own snapshot store, which `conversation.diff` reads and the collector
+    /// keeps small.
+    pub(crate) snapshots: Snapshots,
 }

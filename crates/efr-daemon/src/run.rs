@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::os::unix::ffi::OsStringExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +26,7 @@ use efr_http::{HttpClient, HttpConfig};
 use efr_protocol::{DaemonId, DaemonRoots, Mode, PROTOCOL_VERSION, RootDir, RootSource};
 use efr_scope::{Git, Home, Registry};
 use efr_shell::ScreenFactory;
+use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, SNAPSHOTS_DIR, SnapshotParts, Snapshots};
 use efr_stdx::env::Var;
 use efr_stdx::paths::{Dirs, RootSource as StdxRootSource, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
@@ -51,7 +53,7 @@ use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
-use crate::tools::{self, DaemonToolbox, SettingsTool};
+use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
 use crate::{DaemonError, gc, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
@@ -62,6 +64,9 @@ const CLOSE_GRACE: Duration = Duration::from_secs(10);
 
 /// How often the cache layers' collector of the sandbox looks.
 const SANDBOX_GC_INTERVAL: Duration = Duration::from_secs(3600);
+
+/// How often the snapshot collector looks.
+const SNAPSHOT_GC_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// What the daemon takes from the outside world.
 #[non_exhaustive]
@@ -455,6 +460,23 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     })
     .await;
     sandbox.probe(&settings).await;
+    // NOTE: boxed, so the start future stays small.
+    let excludes_file =
+        if isolated_git { None } else { Box::pin(user_excludes_file(&git, &home)).await };
+    let snapshots = Snapshots::new(SnapshotParts {
+        dir: dirs.data().join(SNAPSHOTS_DIR),
+        git: git.clone().with_timeout(DEFAULT_SNAPSHOT_TIMEOUT),
+        home: home.clone(),
+        clock: Arc::clone(&clock),
+        excludes_file,
+        timeout: DEFAULT_SNAPSHOT_TIMEOUT,
+    });
+    let call_snapshots = CallSnapshots::new(
+        snapshots.clone(),
+        engine_receiver.clone(),
+        settings_receiver.clone(),
+        home.clone(),
+    );
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
         shells.clone(),
@@ -464,7 +486,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings_receiver.clone(),
         settings_tool,
     )
-    .with_sandbox(sandbox.clone(), engine_receiver.clone());
+    .with_sandbox(sandbox.clone(), engine_receiver.clone())
+    .with_snapshots(call_snapshots);
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -519,6 +542,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         ptys,
         providers,
         sandbox,
+        snapshots,
     });
 
     // The socket opens only now, after migrations and reconciliation.
@@ -542,6 +566,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
         tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
+        tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
     ];
     if watch_config && let Some(watching) = reload::watcher::watch(&state).await {
         let follow = reload::watcher::follow(Arc::clone(&state), watching, stop.clone());
@@ -644,6 +669,43 @@ async fn collect_sandbox_layers(state: Arc<State>, stop: CancellationToken) {
         }
         let settings = Arc::clone(&state.settings.borrow());
         state.sandbox.gc(&settings).await;
+    }
+}
+
+/// Keeps the snapshot store small, once an hour: the refs of the newest
+/// `snapshot.keep_turns` turns of each conversation stay, and a store without a
+/// snapshot for `snapshot.max_age_days` goes.
+async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = state.clock.sleep(SNAPSHOT_GC_INTERVAL) => {}
+        }
+        let (keep_turns, max_age) = {
+            let settings = state.settings.borrow();
+            let days = u64::from(settings.snapshot.max_age_days);
+            (settings.snapshot.keep_turns as usize, Duration::from_secs(days * 24 * 3600))
+        };
+        let report = state.snapshots.gc(keep_turns, max_age).await;
+        tracing::debug!(?report, "collected old snapshots");
+    }
+}
+
+/// The user's own `core.excludesFile`, from the user's git config, read once at start:
+/// the snapshot store's git reads no global config, so it gets the file by name.
+/// `None` when the user set none; git then reads `$XDG_CONFIG_HOME/git/ignore` itself.
+async fn user_excludes_file(git: &Git, home: &Home) -> Option<PathBuf> {
+    let found =
+        git.run(home.path(), home, ["config", "--global", "--path", "--get", "core.excludesFile"]);
+    match found.await {
+        Ok(Some(path)) if !path.is_empty() => {
+            Some(PathBuf::from(std::ffi::OsString::from_vec(path)))
+        }
+        Ok(_) => None,
+        Err(error) => {
+            tracing::debug!(error = %efr_stdx::with_causes(&error), "the user's core.excludesFile could not be read");
+            None
+        }
     }
 }
 

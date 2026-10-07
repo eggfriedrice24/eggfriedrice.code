@@ -45,7 +45,11 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
             text: "Fresh.".to_owned(),
         };
         conn.item(sub, &item(6, done)).await;
-        conn.item(sub, &item(7, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(7, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
         params
     };
@@ -76,7 +80,11 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
         let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
         conn.reply(id, &sent()).await;
         let (sub, _) = conn.request().await;
-        conn.item(sub, &item(6, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(6, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
         params
     };
@@ -118,7 +126,11 @@ async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
         let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
         conn.reply(id, &sent()).await;
         let (sub, _) = conn.request().await;
-        conn.item(sub, &item(6, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(6, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
         params
     };

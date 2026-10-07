@@ -2,7 +2,8 @@
 //!
 //! Frames, the `Method` enum with one params type per method, results and stream items,
 //! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
-//! sandbox's launches, grants, exits and reports, screen snapshots, wire errors, the
+//! sandbox's launches, grants, exits and reports, the files a call or a turn changed,
+//! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
 //! reads `docs/protocol.md` and the frozen fixtures in `fixtures/v1/`.
@@ -17,6 +18,7 @@
 #![warn(missing_docs)]
 
 mod capabilities;
+mod changes;
 mod error;
 mod event;
 #[cfg(test)]
@@ -37,6 +39,9 @@ mod shell_context;
 mod version;
 
 pub use capabilities::Capabilities;
+pub use changes::{
+    ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,
+};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, Usage};
 pub use frame::{ClientFrame, ServerFrame};
@@ -54,6 +59,7 @@ pub use methods::admin_status::{
     AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
+pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_subscribe::{
     ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,

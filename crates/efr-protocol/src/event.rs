@@ -11,9 +11,9 @@ use serde_json::{Map, Value};
 
 use crate::{
     CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind,
-    ExitRecord, ExitSource, Grant, JudgeKind, Launch, Origin, PtyId, QuestionId, ReportedFile,
-    Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
-    UserAuthorization, Verdict,
+    ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch, Origin, PtyId, QuestionId,
+    ReportedFile, Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId,
+    TurnSettings, UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -213,6 +213,19 @@ pub enum Event {
         /// denied or that no answer reached.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         refusal: Option<String>,
+        /// The files that the call changed: for a file tool, the file it wrote; for a
+        /// `shell` call, what changed in the turn's registered project, `$SCRATCH` and,
+        /// in `auto`, the registered projects that the line names, as efr's own
+        /// snapshots before and after the call show it. Absent when nothing changed
+        /// there, for a tool that cannot write, and when efr took no snapshot.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changes: Option<FileChanges>,
+        /// The unified diff of a file tool's write, at most
+        /// [`MAX_CALL_DIFF_LINES`](crate::MAX_CALL_DIFF_LINES) lines and then a line
+        /// `... N more lines`. Absent for other tools, for a binary file and when the
+        /// content did not change.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<String>,
     },
 
     /// A tool call needs the user's approval before it runs.
@@ -288,6 +301,12 @@ pub enum Event {
         /// The tokens that the turn used, when the provider reported them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Usage>,
+        /// The files that the turn changed: its first snapshot against its last, in the
+        /// turn's registered project, `$SCRATCH` and the registered projects that its
+        /// calls wrote. Absent when nothing changed there. `conversation.diff` returns
+        /// the diff.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changes: Option<FileChanges>,
     },
 
     /// A turn ended with an error, such as a provider failure.

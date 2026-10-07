@@ -46,6 +46,50 @@ async fn a_new_file_is_created_and_journalled_as_missing() {
 }
 
 #[tokio::test]
+async fn a_write_reports_its_diff_and_line_counts() {
+    let fixture = Fixture::new();
+    let path = fixture.cwd().join("notes.md");
+    std::fs::write(&path, "one\ntwo\nthree\n").unwrap();
+    let result = WriteFileTool::new()
+        .invoke(
+            fixture.context(),
+            json!({"path": "notes.md", "content": "one\n2\nthree\nfour\n"}),
+            &mut NoOutput,
+        )
+        .await
+        .unwrap();
+    let written = result.written.unwrap();
+    assert_eq!(written.path, path);
+    assert!(!written.created && !written.binary);
+    let diff = written.diff.unwrap();
+    assert_eq!((diff.added, diff.removed), (2, 1));
+    assert!(diff.text.contains("\n-two\n+2\n three\n+four\n"), "{}", diff.text);
+
+    let same = WriteFileTool::new()
+        .invoke(
+            fixture.context(),
+            json!({"path": "notes.md", "content": "one\n2\nthree\nfour\n"}),
+            &mut NoOutput,
+        )
+        .await
+        .unwrap();
+    assert_eq!(same.written.unwrap().diff, None, "no change, no diff");
+}
+
+#[tokio::test]
+async fn a_write_over_binary_bytes_has_no_diff() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.cwd().join("blob"), [0xff, 0xfe, 0x00]).unwrap();
+    let result = WriteFileTool::new()
+        .invoke(fixture.context(), json!({"path": "blob", "content": "text\n"}), &mut NoOutput)
+        .await
+        .unwrap();
+    let written = result.written.unwrap();
+    assert!(written.binary);
+    assert_eq!(written.diff, None);
+}
+
+#[tokio::test]
 async fn an_existing_file_is_snapshotted_and_keeps_its_mode() {
     let fixture = Fixture::new();
     let path = fixture.cwd().join("script.sh");

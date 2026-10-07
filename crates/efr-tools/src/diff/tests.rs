@@ -2,7 +2,7 @@ use std::path::Path;
 
 use pretty_assertions::assert_eq;
 
-use super::{MAX_LINES, UNCHANGED, unified_diff};
+use super::{MAX_LINES, UNCHANGED, unified_diff, written_diff};
 
 fn diff(old: Option<&str>, new: &str) -> String {
     unified_diff(Path::new("/home/u/.zshrc"), old, new)
@@ -92,4 +92,24 @@ fn a_middle_too_large_for_the_table_is_one_replacement() {
     let lines: Vec<&str> = preview.lines().collect();
     assert_eq!(lines[2], "@@ -1,1100 +1,1100 @@");
     assert!(lines[3..].iter().take(10).all(|line| line.starts_with("-old ")), "{preview}");
+}
+
+#[test]
+fn a_written_diff_counts_every_line_and_cuts_with_a_plain_note() {
+    let old: String = (0..30).map(|n| format!("line {n}\n")).collect();
+    let new: String = (0..30).map(|n| format!("LINE {n}\n")).collect();
+    let written = written_diff(Path::new("/p/a.txt"), Some(&old), &new, 10).unwrap();
+    assert_eq!((written.added, written.removed), (30, 30));
+    let lines: Vec<&str> = written.text.lines().collect();
+    assert_eq!(lines[0], "--- a/p/a.txt");
+    assert_eq!(lines.len(), 2 + 10 + 1);
+    assert_eq!(lines.last(), Some(&"... 51 more lines"));
+}
+
+#[test]
+fn a_written_diff_of_a_new_file_and_of_no_change() {
+    let written = written_diff(Path::new("/p/new.txt"), None, "a\nb\n", 2000).unwrap();
+    assert_eq!((written.added, written.removed), (2, 0));
+    assert_eq!(written.text, "--- /dev/null\n+++ b/p/new.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n");
+    assert_eq!(written_diff(Path::new("/p/same"), Some("x\n"), "x\n", 2000), None);
 }

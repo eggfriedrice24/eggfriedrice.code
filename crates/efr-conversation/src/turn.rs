@@ -445,16 +445,23 @@ impl Turn {
     /// result, which later turns could not send; it gets an error result.
     async fn finish(mut self, ending: Ending) -> TurnEnd {
         let turn_id = self.turn_id();
+        let conversation_id = self.shared.conversation_id;
+        // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
+        // interrupted or failed turn too; only a completed turn reports the changes.
+        let watch = Stopwatch::start();
+        let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await;
+        tracing::debug!(phase = "turn_changes", elapsed_ms = %watch, "phase=turn_changes elapsed_ms={}", watch);
         let event = match ending {
-            Ending::Completed => {
-                Event::TurnCompleted { turn_id, usage: self.usage.map(efr_protocol::Usage::from) }
-            }
+            Ending::Completed => Event::TurnCompleted {
+                turn_id,
+                usage: self.usage.map(efr_protocol::Usage::from),
+                changes,
+            },
             Ending::Failed(error) => Event::TurnFailed { turn_id, error },
             Ending::Interrupted => Event::TurnInterrupted { turn_id },
         };
         let key = self.model_key();
         close_open_calls(&mut self.transcript);
-        let conversation_id = self.shared.conversation_id;
         let mut batch = Batch::new();
         // NOTE: the report comes before the terminal event, so a view that stops at
         // the end of the turn has shown it.
@@ -652,6 +659,8 @@ impl Turn {
                 exit_code: outcome.exit_code,
                 sandbox: outcome.sandbox.clone(),
                 refusal: refused,
+                changes: outcome.changes.take(),
+                diff: outcome.diff.take(),
             }];
             let mut quarantined = Vec::new();
             if let Some(summary) = &outcome.sandbox {

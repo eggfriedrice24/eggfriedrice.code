@@ -6,10 +6,10 @@ use serde_json::json;
 use crate::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
-    InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList, PromptSend, PtyAttach,
-    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
-    SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
+    ConversationDiff, ConversationHistory, ConversationId, ConversationSubscribe,
+    ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList,
+    PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -228,6 +228,13 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             Method::AdminSandboxCheck(AdminSandboxCheck {}),
             "admin.sandbox_check",
             ScopeName::Admin,
+            false,
+            false,
+        ),
+        (
+            Method::ConversationDiff(ConversationDiff::default()),
+            "conversation.diff",
+            ScopeName::Read,
             false,
             false,
         ),

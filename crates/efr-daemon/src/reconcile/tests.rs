@@ -93,6 +93,8 @@ async fn scene() -> Scene {
                 exit_code: Some(0),
                 sandbox: None,
                 refusal: None,
+                changes: None,
+                diff: None,
             },
         )
         .event(busy, call_started(t1, call))
@@ -111,7 +113,7 @@ async fn scene() -> Scene {
         .event(idle, created())
         .event(idle, queued(t3, 3))
         .event(idle, started(t3))
-        .event(idle, Event::TurnCompleted { turn_id: t3, usage: None })
+        .event(idle, Event::TurnCompleted { turn_id: t3, usage: None, changes: None })
         .enqueue(NewOutboxItem::process_bound("notify", json!({})))
         .enqueue(NewOutboxItem::replay_safe("index", json!({})));
     let hwm = store.writer().append(batch).await.unwrap().last_seq();
@@ -161,6 +163,8 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
                     exit_code: None,
                     sandbox: None,
                     refusal: None,
+                    changes: None,
+                    diff: None,
                 }
             ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),

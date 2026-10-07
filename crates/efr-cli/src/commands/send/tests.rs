@@ -49,7 +49,8 @@ async fn answer(
     let message =
         Event::AssistantMessageCompleted { turn_id: turn(), index: 0, text: reply.to_owned() };
     conn.item(sub, &item(11, message)).await;
-    conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+    conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }))
+        .await;
     conn.until_closed().await;
     params
 }
@@ -242,7 +243,11 @@ async fn a_queued_prompt_says_so_and_still_follows_its_turn() {
             text: "Later.".to_owned(),
         };
         conn.item(sub, &item(11, message)).await;
-        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
@@ -296,7 +301,11 @@ async fn on_a_terminal_the_reply_is_rendered() {
             .until(|| seen.stdout().matches("\x1b[?2026h").count() == 4)
             .await
             .unwrap();
-        conn.item(sub, &item(14, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(14, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
@@ -646,7 +655,11 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
         assert!(matches!(method, Method::ConversationHistory(_)), "{}", method.name());
         conn.reply(id, &ConversationHistoryResult::default()).await;
         let (sub, _) = conn.request().await;
-        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
@@ -680,7 +693,11 @@ async fn on_a_terminal_the_settings_note_is_dim() {
         };
         conn.item(sub, &item(11, done)).await;
         Wait::new("the message").until(|| seen.stdout().contains("Restart")).await.unwrap();
-        conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
+        conn.item(
+            sub,
+            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+        )
+        .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);

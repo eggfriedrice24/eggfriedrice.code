@@ -400,6 +400,8 @@ fn sandbox_events() -> Vec<EventEnvelope> {
                 ..SandboxSummary::default()
             }),
             refusal: None,
+            changes: None,
+            diff: None,
         },
         Event::ExitRequested {
             turn_id: turn(),

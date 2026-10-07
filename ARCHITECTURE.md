@@ -51,6 +51,7 @@ shipped binary.
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
+| `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; in `auto` the launch of each shell call, exit questions and their records, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
@@ -192,6 +193,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   protection and how a command line is read: `docs/permissions.md`.
 - The settings tool, the model's only way to change `config.toml`, after an approval
   with the diff: `crates/efr-daemon/src/tools/settings_tool.rs`.
+- What a call or a turn changed in files: the snapshot store in `crates/efr-snapshot/`,
+  which roots a call snapshots in `crates/efr-daemon/src/tools/snapshot.rs`, and the
+  diff of a turn in `crates/efr-daemon/src/methods/conversation_diff.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

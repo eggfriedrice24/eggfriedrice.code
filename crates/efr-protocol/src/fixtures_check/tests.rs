@@ -62,10 +62,11 @@ fn method_index(method: &Method) -> usize {
         Method::SandboxExplain(_) => 20,
         Method::SandboxSurfaceRespond(_) => 21,
         Method::AdminSandboxCheck(_) => 22,
+        Method::ConversationDiff(_) => 23,
     }
 }
 
-const METHOD_COUNT: usize = 23;
+const METHOD_COUNT: usize = 24;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

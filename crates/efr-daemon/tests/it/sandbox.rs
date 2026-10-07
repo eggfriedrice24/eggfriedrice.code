@@ -686,6 +686,85 @@ async fn shell_a_contained_call_runs_in_the_real_sandbox() {
     daemon.stop().await.unwrap();
 }
 
+#[tokio::test]
+async fn shell_a_contained_call_cannot_reach_the_snapshot_store() {
+    let test = "shell_a_contained_call_cannot_reach_the_snapshot_store";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    // NOTE: below the target dir, not /tmp, which the sandbox replaces with its own.
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    std::fs::write(project.join("a.txt"), "old\n").unwrap();
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+    ]);
+    let store = dirs.dirs().data().join("snapshots");
+    // NOTE: the snapshot before the call made the store, so it exists while the line
+    // runs; the line reads it, plants a file and deletes what it finds. The store's
+    // path hides in `sh -c`, so efr predicts no exit and the sandbox alone must stop it.
+    let line = format!(
+        "echo new > a.txt; S={} sh -c 'ls -A \"$S\"; echo listed=$?; touch \"$S/planted\"; \
+         echo touched=$?; rm -rf \"$S\"/*; echo removed=$?'",
+        store.display()
+    );
+    let model = ScriptedModel::new(vec![json!({ "command": line })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
+        return;
+    }
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    let before: Vec<_> = std::fs::read_dir(&store).map(|dir| dir.count()).into_iter().collect();
+    assert!(before.is_empty() || before == [0], "no store before the turn");
+
+    let (_, events) = run_turn(&daemon, "try it", Mode::Auto, ApprovalDecision::Deny).await;
+    assert_eq!(started_settings(&events).mode, Mode::Auto);
+    let [(output, _)] = completed(&events).try_into().unwrap();
+    assert!(!output.contains(".git"), "the masked store lists nothing: {output}");
+    assert!(output.contains("touched=1"), "{output}");
+
+    let mut names: Vec<String> = std::fs::read_dir(&store)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    // NOTE: one store for the project and one for $SCRATCH, each with its repository,
+    // its index and its root file.
+    let stores = names.iter().filter(|name| name.ends_with(".git")).count();
+    assert_eq!((stores, names.len()), (2, 6), "{names:?}");
+    assert!(!store.join("planted").exists());
+    let changes = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { changes, .. } => changes.clone(),
+        _ => None,
+    });
+    let changes = changes.unwrap();
+    assert_eq!(changes.files[0].path, "a.txt", "the call's own change is listed");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
 /// A peer that the model's command leaves behind: it sends the frames in `frames/` to
 /// the daemon's socket and writes every byte of the answers to `out`.
 const PEER: &str = r#"

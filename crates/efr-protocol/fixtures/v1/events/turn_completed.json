@@ -4,5 +4,44 @@
   "usage": {
     "input_tokens": 1200,
     "output_tokens": 340
+  },
+  "changes": {
+    "files": [
+      {
+        "path": "src/a.rs",
+        "kind": "modified",
+        "added": 3,
+        "removed": 1
+      },
+      {
+        "path": "notes.md",
+        "kind": "added",
+        "added": 12,
+        "removed": 0
+      },
+      {
+        "path": "old.rs",
+        "kind": "deleted",
+        "added": 0,
+        "removed": 40
+      },
+      {
+        "path": "src/new_name.rs",
+        "kind": "renamed",
+        "from": "src/old_name.rs",
+        "added": 0,
+        "removed": 0
+      },
+      {
+        "path": "$SCRATCH/plot.png",
+        "kind": "added",
+        "added": 0,
+        "removed": 0,
+        "binary": true
+      }
+    ],
+    "more": 2,
+    "added": 24,
+    "removed": 47
   }
 }

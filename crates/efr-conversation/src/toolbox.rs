@@ -15,8 +15,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, InputWait, Launch, Origin, ReportedFile, SandboxSummary, Scope,
-    SurfaceChange, TurnId,
+    CallId, ConversationId, FileChanges, InputWait, Launch, Origin, ReportedFile, SandboxSummary,
+    Scope, SurfaceChange, TurnId,
 };
 use efr_provider::ToolDefinition;
 use serde_json::Value;
@@ -91,6 +91,18 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         _turn_id: TurnId,
     ) -> Vec<ReportedFile> {
         Vec::new()
+    }
+
+    /// The files that the turn `turn_id` changed, from the toolbox's snapshots before its
+    /// first call that can write and at its end, for `turn_completed`. The turn asks
+    /// once, before its terminal event, whatever the ending, so the toolbox can keep
+    /// the turn's last snapshot. The default takes no snapshot.
+    async fn turn_changes(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Option<FileChanges> {
+        None
     }
 }
 
@@ -264,6 +276,10 @@ pub struct ToolOutcome {
     /// only, never values. The turn records it with the call's completion, and asks the
     /// user about each change that the launcher moved to quarantine.
     pub sandbox: Option<SandboxSummary>,
+    /// The files that the call changed, for `tool_call_completed`.
+    pub changes: Option<FileChanges>,
+    /// The unified diff of a file tool's write, for `tool_call_completed`.
+    pub diff: Option<String>,
 }
 
 impl ToolOutcome {
@@ -275,6 +291,8 @@ impl ToolOutcome {
             is_error: false,
             exit_code: None,
             sandbox: None,
+            changes: None,
+            diff: None,
         }
     }
 
@@ -301,6 +319,20 @@ impl ToolOutcome {
     #[must_use]
     pub fn with_sandbox(mut self, sandbox: Option<SandboxSummary>) -> Self {
         self.sandbox = sandbox;
+        self
+    }
+
+    /// Sets the files that the call changed.
+    #[must_use]
+    pub fn with_changes(mut self, changes: Option<FileChanges>) -> Self {
+        self.changes = changes;
+        self
+    }
+
+    /// Sets the unified diff of a file tool's write.
+    #[must_use]
+    pub fn with_diff(mut self, diff: Option<String>) -> Self {
+        self.diff = diff;
         self
     }
 }
