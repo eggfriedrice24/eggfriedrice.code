@@ -103,7 +103,12 @@ async fn subscribe_after(
     after: Seq,
     answers_input: bool,
 ) -> ItemStream<ConversationSubscribeItem> {
-    let params = ConversationSubscribe { conversation_id, after_seq: Some(after), answers_input };
+    let params = ConversationSubscribe {
+        conversation_id,
+        after_seq: Some(after),
+        answers_input,
+        drafts: false,
+    };
     client.stream(Method::ConversationSubscribe(params)).await.unwrap()
 }
 

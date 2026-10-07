@@ -210,6 +210,7 @@ pub(crate) fn subscribe_frame(id: u64) -> ClientFrame {
                 .unwrap(),
             after_seq: None,
             answers_input: false,
+            drafts: false,
         }),
     }
 }

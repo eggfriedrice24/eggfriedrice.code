@@ -579,6 +579,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         let mut events = Vec::new();

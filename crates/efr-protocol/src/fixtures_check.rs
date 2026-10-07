@@ -24,9 +24,9 @@ use crate::{
     ClientFrame, Color, CommandId, ConfigFileError, ConfigStatus, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSnapshot, ConversationStatus,
     ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
-    ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots, DeviceId,
-    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
-    ExitRecord, ExitSource, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
+    ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots, DeviceId, Draft,
+    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
     InputRespondResult, InputWait, JudgeKind, Judgement, Launch, LeaseReport, LeaseReportResult,
     Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode,
     Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact,
@@ -102,7 +102,21 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("exit_kinds.json", &ExitKind::ALL.to_vec()));
     fixtures.push(fixture("grants.json", &grant_samples()));
     fixtures.push(fixture("launches.json", &launch_samples()));
+    fixtures.push(fixture("draft_parts.json", &draft_part_samples()));
     fixtures
+}
+
+/// One sample of every kind of draft part.
+pub(crate) fn draft_part_samples() -> Vec<DraftPart> {
+    vec![
+        DraftPart::Text { index: 0, offset: 49, delta: " The largest part is".to_owned() },
+        DraftPart::Reasoning {
+            offset: 0,
+            delta: "**Reading the journal size**\n\nThe user asks".to_owned(),
+            title: Some("Reading the journal size".to_owned()),
+        },
+        DraftPart::ToolInput { call: 0, tool: "write_file".to_owned(), bytes: 3277 },
+    ]
 }
 
 fn parse<T: FromStr>(text: &str) -> T
@@ -419,6 +433,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             after_seq: Some(Seq::new(40)),
             answers_input: true,
+            drafts: true,
         }),
         Method::ConversationHistory(ConversationHistory {
             conversation_id: conversation_id(),
@@ -537,6 +552,18 @@ fn answer_fixtures() -> Vec<Fixture> {
                 events: vec![envelope(42, message_updated())],
                 history_cursor: Some(PageCursor::new("h1:42")),
                 hwm: Seq::new(42),
+            }),
+        ),
+        fixture(
+            "conversation_subscribe_item_draft.json",
+            &ConversationSubscribeItem::Draft(Draft {
+                turn_id: turn_id(),
+                after_seq: Seq::new(41),
+                draft: DraftPart::Text {
+                    index: 0,
+                    offset: 49,
+                    delta: " The largest part is".to_owned(),
+                },
             }),
         ),
         fixture(

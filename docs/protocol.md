@@ -146,3 +146,16 @@ No protocol version has shipped yet.
   (floor)`. It is absent for a call that ran and for one that the user denied. A client
   shows it in place of a plain "failed". The `events/tool_call_completed.json` fixture
   now sets it.
+- Version 1, additive: drafts. `conversation.subscribe` takes an optional `drafts`
+  flag, false when absent. With it, the stream also carries items of the new kind
+  `draft` (`turn_id`, `after_seq`, and a `draft` object): what a running turn got from
+  the model before the event log has it. The `draft` object is `text` (`index`,
+  `offset`, `delta`, as in `assistant_message_updated`), `reasoning` (`offset` in the
+  reasoning of the turn, `delta`, an optional `title`) or `tool_input` (`call`, the
+  position of the call in the answer, `tool`, and `bytes` of input so far). `after_seq`
+  is the last event that the turn recorded before the draft. A draft has no sequence
+  number of its own, the daemon never stores it, drops it when the queue of the
+  subscriber is full, and never closes a subscription for it. A client without the
+  flag gets no drafts. The `conversation_subscribe_params.json` fixture now sets the
+  flag; the new `conversation_subscribe_item_draft.json` and `draft_parts.json` freeze
+  the item and every kind of part.

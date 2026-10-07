@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{ConversationId, ConversationSummary, EventEnvelope, PageCursor, Seq};
+use crate::{ConversationId, ConversationSummary, EventEnvelope, PageCursor, Seq, TurnId};
 
 /// The params of `conversation.subscribe`, a streaming method.
 ///
@@ -25,6 +25,11 @@ pub struct ConversationSubscribe {
     /// can answer. Absent means false, so an older client counts as one that cannot.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub answers_input: bool,
+    /// True when the client wants [`Draft`] items: the text, the reasoning and the
+    /// tool input of a running turn as they arrive from the model, before the event
+    /// log has them. Absent means false, so an older client gets no drafts.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub drafts: bool,
 }
 
 /// One item of a `conversation.subscribe` stream.
@@ -37,6 +42,78 @@ pub enum ConversationSubscribeItem {
     /// A bounded view of the conversation, sent instead of a replay that would be too
     /// large.
     Snapshot(ConversationSnapshot),
+    /// What a running turn got from the model since the last draft. Only a subscriber
+    /// that asked for `drafts` gets it. It is not an event: it has no sequence number
+    /// of its own, and the daemon does not store it.
+    Draft(Draft),
+}
+
+/// A draft: part of a running turn as it arrives from the model, before the event log
+/// has it.
+///
+/// Drafts are best effort. The daemon sends at most one draft of each part per
+/// `conversation.draft_interval_ms` (the first one at once). It drops a draft when the
+/// subscriber's queue is full, and it never closes a subscription because of a draft.
+/// The events stay the source of truth: `assistant_message_updated` and
+/// `assistant_message_completed` carry the same text at the same offsets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Draft {
+    /// The turn that the draft belongs to.
+    pub turn_id: TurnId,
+    /// The sequence number of the last event that the turn recorded before it made
+    /// this draft. Every event of the stream at or below it comes before the draft. An
+    /// event of the turn with a larger number came after the draft. The daemon does
+    /// not send a draft that is older than an `assistant_message_completed`, a
+    /// `tool_call_started` or the end of a turn that it sent on the stream before.
+    pub after_seq: Seq,
+    /// What arrived.
+    pub draft: DraftPart,
+}
+
+/// The part of a running turn that a [`Draft`] carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DraftPart {
+    /// More text of an assistant message. `index`, `offset` and `delta` have the
+    /// meaning that they have in `assistant_message_updated`: `offset` is the byte
+    /// offset of `delta` in the whole text of message `index`. Drafts and updates count
+    /// the same text, so a client can merge the two.
+    Text {
+        /// The position of the message among the assistant messages of the turn that
+        /// have text.
+        index: u32,
+        /// The byte offset of `delta` in the text of the message.
+        offset: u64,
+        /// The text after `offset`.
+        delta: String,
+    },
+    /// More of the reasoning summary of the model. Reasoning never goes into the event
+    /// log.
+    Reasoning {
+        /// The byte offset of `delta` in the reasoning text of the whole turn. The
+        /// reasoning of a later model call in the same turn continues the text after a
+        /// blank line.
+        offset: u64,
+        /// The reasoning text after `offset`.
+        delta: String,
+        /// The title of the newest reasoning section: the last line of the reasoning
+        /// so far that is all bold (`**Title**`), without the stars. Absent until
+        /// such a line comes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    /// The model writes the input of a tool call. `tool_call_started` comes only
+    /// after the whole answer of the model is in.
+    ToolInput {
+        /// The position of the call among the tool calls of this answer of the model,
+        /// from 0, so a client can tell two calls of one answer apart.
+        call: u32,
+        /// The name of the tool.
+        tool: String,
+        /// How many bytes of input the model has written so far.
+        bytes: u64,
+    },
 }
 
 /// A bounded view of a conversation: its summary and its most recent events.

@@ -53,6 +53,10 @@ Where things are:
   fields are ignored, and ids are lowercase hyphenated UUIDs. `Seq` and `RequestId` are
   JSON numbers. Timestamps are RFC 3339 strings in UTC. PTY bytes are standard base64.
 - Every internally tagged enum uses the member `kind` as its tag.
+- `conversation.subscribe` with `drafts` also streams `draft` items: parts of a running
+  turn before the event log has them. A draft has no sequence number of its own, the
+  daemon never stores it, and it is best effort. Its `after_seq` names the last event
+  that the turn recorded before it.
 - An event of a kind that this build does not know decodes as `Event::Unknown` and
   encodes back to the same JSON, so old readers keep advancing their cursor.
 - `ErrorCode` is a closed set; a new code bumps the protocol version. New optional

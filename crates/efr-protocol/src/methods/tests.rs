@@ -3,9 +3,10 @@ use serde_json::json;
 
 use crate::{
     AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
-    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe, EffectiveSettings,
-    InputRespond, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
-    ProjectInfo, PromptSend, PromptSendResult, RootSource, Seq, TurnSettings,
+    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
+    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, Mode, ModelInfo,
+    ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend,
+    PromptSendResult, RootSource, Seq, TurnSettings,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -69,6 +70,7 @@ fn answers_input_is_written_only_when_true() {
         conversation_id: CONVERSATION.parse().unwrap(),
         after_seq: None,
         answers_input: false,
+        drafts: false,
     };
     assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
     params.answers_input = true;
@@ -76,6 +78,55 @@ fn answers_input_is_written_only_when_true() {
     assert_eq!(value, json!({ "conversation_id": CONVERSATION, "answers_input": true }));
     let back: ConversationSubscribe = serde_json::from_value(value).unwrap();
     assert_eq!(back, params);
+}
+
+#[test]
+fn drafts_are_off_when_absent_and_written_only_when_on() {
+    let old = json!({ "conversation_id": CONVERSATION, "answers_input": true });
+    let params: ConversationSubscribe = serde_json::from_value(old).unwrap();
+    assert!(!params.drafts, "an older client gets no drafts");
+
+    let mut params = ConversationSubscribe {
+        conversation_id: CONVERSATION.parse().unwrap(),
+        after_seq: None,
+        answers_input: false,
+        drafts: false,
+    };
+    assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
+    params.drafts = true;
+    let value = serde_json::to_value(&params).unwrap();
+    assert_eq!(value, json!({ "conversation_id": CONVERSATION, "drafts": true }));
+    let back: ConversationSubscribe = serde_json::from_value(value).unwrap();
+    assert_eq!(back, params);
+}
+
+#[test]
+fn a_draft_item_has_the_wire_form_of_the_spec() {
+    let item = ConversationSubscribeItem::Draft(Draft {
+        turn_id: TURN.parse().unwrap(),
+        after_seq: Seq::new(1234),
+        draft: DraftPart::Text { index: 0, offset: 12, delta: "takes 3.1 GiB".to_owned() },
+    });
+    let value = serde_json::to_value(&item).unwrap();
+    assert_eq!(
+        value,
+        json!({
+            "kind": "draft",
+            "turn_id": TURN,
+            "after_seq": 1234,
+            "draft": { "kind": "text", "index": 0, "offset": 12, "delta": "takes 3.1 GiB" },
+        })
+    );
+    let back: ConversationSubscribeItem = serde_json::from_value(value).unwrap();
+    assert_eq!(back, item);
+}
+
+#[test]
+fn a_reasoning_draft_without_a_title_leaves_it_out() {
+    let part = DraftPart::Reasoning { offset: 0, delta: "Look".to_owned(), title: None };
+    let value = serde_json::to_value(&part).unwrap();
+    assert_eq!(value, json!({ "kind": "reasoning", "offset": 0, "delta": "Look" }));
+    assert_eq!(serde_json::from_value::<DraftPart>(value).unwrap(), part);
 }
 
 #[test]

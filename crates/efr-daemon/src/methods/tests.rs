@@ -36,6 +36,7 @@ fn every_method() -> Vec<Method> {
             conversation_id,
             after_seq: None,
             answers_input: false,
+            drafts: false,
         }),
         Method::ConversationHistory(ConversationHistory {
             conversation_id,

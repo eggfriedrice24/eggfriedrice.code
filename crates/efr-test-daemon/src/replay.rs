@@ -637,6 +637,7 @@ impl Replay {
             conversation_id,
             after_seq: Some(self.last_seq),
             answers_input: false,
+            drafts: false,
         };
         self.pending.clear();
         self.subscription = Some(self.client.stream(Method::ConversationSubscribe(params)).await?);

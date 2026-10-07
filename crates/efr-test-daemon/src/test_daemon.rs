@@ -504,6 +504,7 @@ impl TestDaemon {
             conversation_id,
             after_seq: Some(Seq::ZERO),
             answers_input: false,
+            drafts: false,
         };
         Ok(client.stream(Method::ConversationSubscribe(params)).await?)
     }

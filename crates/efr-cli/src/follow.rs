@@ -363,6 +363,7 @@ impl Follower<'_> {
             // answered here; without one, the daemon stops a command that waits for a
             // password nobody can type.
             answers_input: self.ctx.keys.available(),
+            drafts: false,
         });
         Ok(self.client.stream(method).await?)
     }

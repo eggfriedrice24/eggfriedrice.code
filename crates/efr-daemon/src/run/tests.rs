@@ -70,6 +70,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         let mut answer = None;
@@ -121,6 +122,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         loop {
@@ -223,6 +225,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         while let Some(item) = client.next(stream).await.unwrap() {
@@ -322,6 +325,7 @@ mod daemon {
             conversation_id: sent.conversation_id,
             after_seq: Some(sent.seq),
             answers_input: false,
+            drafts: false,
         })
     }
 
@@ -477,6 +481,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         let mut pty = None;
@@ -574,6 +579,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                drafts: false,
             }))
             .await;
         let mut asked = false;

@@ -5,10 +5,12 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FIXTURES_DIR, all, daemon_roots, event_path, event_samples, grant_samples, input_wait_samples,
-    launch_samples, method_samples, method_stem, models_list_sample,
+    FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples, grant_samples,
+    input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
 };
-use crate::{Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource};
+use crate::{
+    DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource,
+};
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
                      fixtures_check::tests::bless_fixtures";
@@ -200,6 +202,17 @@ fn launch_index(launch: &Launch) -> usize {
 
 const LAUNCH_COUNT: usize = 3;
 
+/// The position of a draft part in the enum, for the same purpose as `method_index`.
+fn draft_part_index(part: &DraftPart) -> usize {
+    match part {
+        DraftPart::Text { .. } => 0,
+        DraftPart::Reasoning { .. } => 1,
+        DraftPart::ToolInput { .. } => 2,
+    }
+}
+
+const DRAFT_PART_COUNT: usize = 3;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -319,6 +332,12 @@ fn every_grant_and_launch_has_a_sample() {
     assert_eq!(grants, (0..GRANT_COUNT).collect());
     let launches: BTreeSet<usize> = launch_samples().iter().map(launch_index).collect();
     assert_eq!(launches, (0..LAUNCH_COUNT).collect());
+}
+
+#[test]
+fn every_draft_part_has_a_sample() {
+    let covered: Vec<usize> = draft_part_samples().iter().map(draft_part_index).collect();
+    assert_eq!(covered, (0..DRAFT_PART_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

@@ -56,7 +56,7 @@ pub use methods::admin_status::{
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_subscribe::{
-    ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
 };
 pub use methods::conversations_list::{
     ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
