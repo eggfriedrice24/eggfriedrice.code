@@ -10,7 +10,9 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use efr_permissions::{Cause, Decision, Engine, ExitNeed, PathClass, Requirements, WriteBind};
+use efr_permissions::{
+    Cause, Decision, Engine, ExitNeed, PathClass, Requirements, TargetKind, WriteBind,
+};
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
     ExitSource, Grant, HostFact, Launch, PathClassName, ProgramFact, SandboxSummary, Scope,
@@ -115,10 +117,12 @@ pub(crate) fn info(
 }
 
 /// efr's own facts for the question, one short sentence each: a target that does not
-/// exist yet, and what a write grant does beyond a plain bind. What a grant opens is
-/// the question's own line, which a client builds from the launch. A target that
-/// exists gets no fact: the question names it already, and a line that says so only
-/// makes the question longer. The record keeps whether each target exists.
+/// exist yet, a target that is a directory, and what a write grant does beyond a plain
+/// bind. What a grant opens is the question's own line, which a client builds from the
+/// launch. A file that exists gets no fact: the question names it already, and a line
+/// that says so only makes the question longer. A directory does: a write grant of it
+/// opens every file below it, which its name alone does not say. The record keeps
+/// whether each target exists.
 fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path) -> Vec<String> {
     let mut facts: Vec<String> = Vec::new();
     let mut push = |fact: String| {
@@ -129,9 +133,20 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
     for need in decision.exits() {
         let Some(target) = &need.target else { continue };
         let shown = tilde(target, home);
-        let found = requirements.facts.as_ref().and_then(|facts| facts.target(target));
-        if matches!(found, Some(None)) {
-            push(format!("{shown} does not exist yet"));
+        match requirements.facts.as_ref().and_then(|facts| facts.target(target)) {
+            Some(None) => push(format!("{shown} does not exist yet")),
+            Some(Some(TargetKind::Dir)) => {
+                let opened = need.grants.iter().any(|grant| match grant {
+                    Grant::Write { path } => path == target,
+                    _ => false,
+                });
+                push(if opened {
+                    format!("{shown} is a directory: the call can write every file in it")
+                } else {
+                    format!("{shown} is a directory")
+                });
+            }
+            _ => {}
         }
         match &need.bind {
             Some(WriteBind::TargetOnly) => {

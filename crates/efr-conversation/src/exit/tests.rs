@@ -387,6 +387,21 @@ fn a_write_in_a_shared_directory_says_how_it_binds() {
     assert_eq!(in_place.facts, vec!["in-place writes only; a rename over ~/.notes fails"]);
 }
 
+#[test]
+fn a_write_grant_of_a_directory_says_that_it_opens_every_file_in_it() {
+    let documents = PathBuf::from("/home/u/Documents");
+    let facts = CallFacts {
+        targets: vec![(documents.clone(), Some(TargetKind::Dir))],
+        ..CallFacts::default()
+    };
+    let requirements = shell("cp report.pdf ~/Documents/").with_write(&documents).with_facts(facts);
+    let decision = decide(&engine(), requirements.clone());
+    let launch = grant(&decision);
+    assert_eq!(launch, Launch::Contained { grants: vec![Grant::Write { path: documents }] });
+    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    assert_eq!(info.facts, vec!["~/Documents is a directory: the call can write every file in it"]);
+}
+
 /// The question of `line` with `needs.outside`, with `facts` from the daemon.
 fn outside_question(line: &str, facts: CallFacts) -> efr_protocol::ExitInfo {
     let needs = Needs { outside: true, ..Needs::default() };
