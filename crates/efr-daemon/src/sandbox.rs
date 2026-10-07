@@ -491,12 +491,12 @@ impl SandboxService {
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();
         let watch = Stopwatch::start();
         let guard = self.inner.locks.lock(&roots).await;
-        tracing::debug!(phase = "plan_lock", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "plan_lock", elapsed_ms = %watch, "phase=plan_lock elapsed_ms={}", watch);
         // NOTE: the plan reads records, links and project dirs: a few small reads, done
         // here under the plan lock.
         let watch = Stopwatch::start();
         let planned = plan::build(&plan_input);
-        tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
         let spec = planned.spec;
         make_targets(&call.exits).await?;
         let call_dir = spec.runtime.call_dir.clone();
@@ -520,7 +520,7 @@ impl SandboxService {
         })
         .await
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
-        tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase=call_dir_write elapsed_ms={}", watch);
         self.running().entry(call.conversation_id).and_modify(|count| *count += 1).or_insert(1);
         let launch = match spec.launch {
             SpecLaunch::Unsandboxed => SpecLaunch::Unsandboxed,

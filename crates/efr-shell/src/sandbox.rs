@@ -147,7 +147,7 @@ async fn log_times(dir: &Path) {
     let call_id = dir.file_name().map(|name| name.to_string_lossy().into_owned());
     for (step, seconds) in wrapper_times(&text) {
         let elapsed_ms = format!("{:.1}", seconds * 1000.0);
-        tracing::debug!(?call_id, phase = %format!("wrapper_{step}"), %elapsed_ms, "phase");
+        tracing::debug!(?call_id, phase = %format!("wrapper_{step}"), %elapsed_ms, "phase={} elapsed_ms={}", format!("wrapper_{step}"), elapsed_ms);
     }
 }
 

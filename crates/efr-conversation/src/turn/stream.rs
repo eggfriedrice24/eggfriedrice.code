@@ -59,7 +59,7 @@ impl Turn {
             () = interrupt.raised() => return Ok(Response::Interrupted),
             opened = provider.stream(request).instrument(span.clone()) => opened,
         };
-        tracing::debug!(parent: &span, phase = "model_open", elapsed_ms = %watch, "phase");
+        tracing::debug!(parent: &span, phase = "model_open", elapsed_ms = %watch, "phase=model_open elapsed_ms={}", watch);
         let mut stream = match opened {
             Ok(stream) => stream,
             Err(error) => return Ok(Response::Failed(error)),
@@ -82,11 +82,11 @@ impl Turn {
                     Some(Ok(event)) => {
                         if first_event {
                             first_event = false;
-                            tracing::debug!(parent: &span, phase = "model_first_event", elapsed_ms = %watch, "phase");
+                            tracing::debug!(parent: &span, phase = "model_first_event", elapsed_ms = %watch, "phase=model_first_event elapsed_ms={}", watch);
                         }
                         if first_tool_call && matches!(event, ProviderEvent::ToolCallStart { .. }) {
                             first_tool_call = false;
-                            tracing::debug!(parent: &span, phase = "model_first_tool_call", elapsed_ms = %watch, "phase");
+                            tracing::debug!(parent: &span, phase = "model_first_tool_call", elapsed_ms = %watch, "phase=model_first_tool_call elapsed_ms={}", watch);
                         }
                         if let ProviderEvent::Raw(raw) = &event {
                             tracing::debug!(raw = %raw, "the provider sent an event with no canonical form");
@@ -105,7 +105,7 @@ impl Turn {
         // NOTE: dropping the stream closes the provider's connection, so an interrupted
         // answer stops costing tokens before the interrupt is recorded as done.
         drop(stream);
-        tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, "phase");
+        tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, "phase=model_answer elapsed_ms={}", watch);
         let partial = builder.text();
         let failure = match streamed {
             Streamed::Ended => match builder.finish() {

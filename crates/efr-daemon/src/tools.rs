@@ -239,7 +239,7 @@ impl DaemonToolbox {
             Some(timeout) => self.shells.until_free(call.context.conversation_id, timeout).await,
             None => Ok(()),
         };
-        tracing::debug!(phase = "shell_free_wait", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "shell_free_wait", elapsed_ms = %watch, "phase=shell_free_wait elapsed_ms={}", watch);
         if let Some(timeout) = timeout
             && free.is_err()
         {
@@ -252,7 +252,7 @@ impl DaemonToolbox {
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
         let watch = Stopwatch::start();
         let prepared = sandbox.prepare(&call.context, &input).await;
-        tracing::debug!(phase = "sandbox_prepare", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "sandbox_prepare", elapsed_ms = %watch, "phase=sandbox_prepare elapsed_ms={}", watch);
         let prepared = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -284,7 +284,7 @@ impl DaemonToolbox {
                 &self.home,
             )
             .await;
-        tracing::debug!(phase = "surface_before", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "surface_before", elapsed_ms = %watch, "phase=surface_before elapsed_ms={}", watch);
         let context = context.with_sandbox(Some(prepared.run.clone()));
         let started = prepared.started.clone();
         let notes = prepared.notes.clone();
@@ -296,7 +296,7 @@ impl DaemonToolbox {
         let invoke = self.registry.invoke(&call.name, context, call.input, &mut sink);
         let watch = Stopwatch::start();
         let result = lock::run_holding(prepared.guard, &started, &*self.clock, invoke).await;
-        tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase=sandboxed_run elapsed_ms={}", watch);
         let mut outcome = match result {
             Ok(result) => {
                 if result.sandbox_failed {
@@ -323,7 +323,7 @@ impl DaemonToolbox {
                 if result.sandbox.is_some() || result.sandbox_failed {
                     let watch = Stopwatch::start();
                     remove_call_dir(prepared.run.dir.clone()).await;
-                    tracing::debug!(phase = "call_dir_remove", elapsed_ms = %watch, "phase");
+                    tracing::debug!(phase = "call_dir_remove", elapsed_ms = %watch, "phase=call_dir_remove elapsed_ms={}", watch);
                 }
                 outcome(result)
             }
@@ -368,7 +368,7 @@ impl Toolbox for DaemonToolbox {
         let home = self.home.clone();
         let watch = Stopwatch::start();
         let resolved = tokio::task::spawn_blocking(move || declared.with_real_paths(&home)).await;
-        tracing::debug!(phase = "real_paths", elapsed_ms = %watch, "phase");
+        tracing::debug!(phase = "real_paths", elapsed_ms = %watch, "phase=real_paths elapsed_ms={}", watch);
         match resolved {
             Ok(declared) => {
                 // NOTE: only `auto` reads the facts, and collecting them runs git in
@@ -377,7 +377,7 @@ impl Toolbox for DaemonToolbox {
                 let facts =
                     if call.context.auto { self.facts(call, &declared).await } else { None };
                 if facts.is_some() {
-                    tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase");
+                    tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase=facts elapsed_ms={}", watch);
                 }
                 let requirements = permission_requirements(declared);
                 Ok(match facts {

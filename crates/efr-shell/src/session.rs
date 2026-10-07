@@ -193,7 +193,7 @@ impl Active {
         if !self.started && self.machine.running() {
             self.started = true;
             self.progress.send_modify(|progress| progress.started = true);
-            tracing::debug!(call_id = ?self.call, phase = "shell_typing", elapsed_ms = %self.typed, "phase");
+            tracing::debug!(call_id = ?self.call, phase = "shell_typing", elapsed_ms = %self.typed, "phase=shell_typing elapsed_ms={}", self.typed);
             self.ran = Some(Stopwatch::start());
         }
     }
@@ -780,13 +780,13 @@ impl SessionCore {
         // run from the typed line.
         let call_id = active.call;
         if let Some(ran) = &active.ran {
-            tracing::debug!(call_id = ?call_id, phase = "shell_command", elapsed_ms = %ran, "phase");
+            tracing::debug!(call_id = ?call_id, phase = "shell_command", elapsed_ms = %ran, "phase=shell_command elapsed_ms={}", ran);
         }
         for step in output.sandbox.iter().flat_map(|result| &result.timings) {
             let elapsed_ms = format!("{:.1}", step.us as f64 / 1000.0);
-            tracing::debug!(call_id = ?call_id, phase = %format!("launcher_{}", step.phase), %elapsed_ms, "phase");
+            tracing::debug!(call_id = ?call_id, phase = %format!("launcher_{}", step.phase), %elapsed_ms, "phase={} elapsed_ms={}", format!("launcher_{}", step.phase), elapsed_ms);
         }
-        tracing::debug!(call_id = ?call_id, phase = "shell_total", elapsed_ms = %active.typed, "phase");
+        tracing::debug!(call_id = ?call_id, phase = "shell_total", elapsed_ms = %active.typed, "phase=shell_total elapsed_ms={}", active.typed);
         let delimiter = active.machine.delimiter();
         // Without the integration the sentinel's `$PWD` is the shell's own directory.
         // In a nested shell it is the nested one's, which says nothing about the
@@ -865,7 +865,7 @@ impl SessionActor {
                         let (pty_id, shell) = (self.core.pty_id(), self.core.state().pid);
                         let watch = Stopwatch::start();
                         let facts = sandbox::facts(&*self.holder, pty_id, shell, &order.dir).await;
-                        tracing::debug!(phase = "shell_check", elapsed_ms = %watch, "phase");
+                        tracing::debug!(phase = "shell_check", elapsed_ms = %watch, "phase=shell_check elapsed_ms={}", watch);
                         let writes = self.core.checked(&order, &facts);
                         write_all(&self.writer, writes).await;
                     }

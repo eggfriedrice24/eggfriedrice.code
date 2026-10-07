@@ -398,8 +398,9 @@ register a project.
 ## Where the time of a call goes
 
 Each step of a call writes a debug line to the log of efrd. The line has the name of
-the step (`phase`) and its time in milliseconds (`elapsed_ms`). To see the lines of
-one prompt:
+the step (`phase`) and its time in milliseconds (`elapsed_ms`), in its text and as
+fields. journald keeps the fields apart from the text, as `F_PHASE` and
+`F_ELAPSED_MS`, so the text must hold them too. To see the lines of one prompt:
 
 1. Set the log filter: `efr config set log 'info,efr_=debug'`. efrd applies it at
    once, with no restart.
