@@ -2,4 +2,4 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(element(\"links\"), &options))"
 ---
-See \e[4;34mthe docs\e[0m\e[2m (https://example.com/docs)\e[0m, \e[4;34mhttps://example.com\e[0m, \e[4;34mhttps://example.com/bare\e[0m, \e[4;34mhosts\e[0m\e[2m (/etc/hosts)\e[0m, \e[33m/var/log/syslog\e[0m and \e[4;34ma relative link\e[0m\e[2m (src/lib.rs)\e[0m.
+See \e[4;34mthe docs\e[0m\e[2m (https://example.com/docs)\e[0m, \e[4;34mhttps://example.com\e[0m, \e[4;34mhttps://example.com/bare\e[0m, \e[4;34mhosts\e[0m\e[2m (/etc/hosts)\e[0m, \e[36m/var/log/syslog\e[0m and \e[4;34ma relative link\e[0m\e[2m (src/lib.rs)\e[0m.

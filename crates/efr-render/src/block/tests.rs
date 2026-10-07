@@ -4,6 +4,8 @@ use super::{Continuation, Ctx, Flow, ListTail, ends_with_blank_line, render_slic
 use crate::code::CodeBlock;
 use crate::highlight::ASSETS;
 use crate::options::{ColourMode, RenderOptions};
+use crate::palette::{Palette, Role};
+use crate::style::Colour;
 
 /// Removes CSI and OSC sequences, so a test can look at the visible text.
 fn strip(painted: &str) -> String {
@@ -61,12 +63,28 @@ fn soft_breaks_keep_the_authors_lines_and_prose_is_not_wrapped() {
 }
 
 #[test]
-fn headings_are_bold_and_coloured_without_hashes() {
+fn headings_have_one_colour_and_show_their_level_by_weight() {
     let options = RenderOptions::new(80);
-    assert_eq!(paint("# One\n", options.clone()), "\x1b[1;35mOne\x1b[0m\n");
+    assert_eq!(paint("# One\n", options.clone()), "\x1b[1;4;33mOne\x1b[0m\n");
+    assert_eq!(paint("## Two\n", options.clone()), "\x1b[1;33mTwo\x1b[0m\n");
+    assert_eq!(paint("### Three\n", options.clone()), "\x1b[1mThree\x1b[0m\n");
+    assert_eq!(paint("#### Four\n", options.clone()), "\x1b[1;3mFour\x1b[0m\n");
+    assert_eq!(paint("###### Six\n", options.clone()), "\x1b[1;3mSix\x1b[0m\n");
+    assert_eq!(paint("Setext\n===\n", options), "\x1b[1;4;33mSetext\x1b[0m\n");
+    let no_colour = RenderOptions::new(80).with_colour(ColourMode::None);
+    assert_eq!(paint("# One\n", no_colour.clone()), "\x1b[1;4mOne\x1b[0m\n");
+    assert_eq!(paint("## Two\n", no_colour), "\x1b[1mTwo\x1b[0m\n");
+}
+
+#[test]
+fn headings_take_the_accent_or_their_own_colour() {
+    let accent = Palette::new().with(Role::Accent, Colour::Palette(5));
+    let options = RenderOptions::new(80).with_palette(accent.clone());
+    assert_eq!(paint("## Two\n", options), "\x1b[1;35mTwo\x1b[0m\n");
+    let own = accent.with(Role::Heading, Colour::Palette(4));
+    let options = RenderOptions::new(80).with_palette(own);
     assert_eq!(paint("## Two\n", options.clone()), "\x1b[1;34mTwo\x1b[0m\n");
-    assert_eq!(paint("### Three\n", options.clone()), "\x1b[1;36mThree\x1b[0m\n");
-    assert_eq!(paint("Setext\n===\n", options), "\x1b[1;35mSetext\x1b[0m\n");
+    assert_eq!(paint("### Three\n", options), "\x1b[1mThree\x1b[0m\n");
 }
 
 #[test]
@@ -79,7 +97,7 @@ fn emphasis_strong_and_strikethrough_are_sgr() {
 
 #[test]
 fn inline_code_is_coloured_or_keeps_backticks_without_colour() {
-    assert_eq!(paint("run `ls`\n", RenderOptions::new(80)), "run \x1b[33mls\x1b[0m\n");
+    assert_eq!(paint("run `ls`\n", RenderOptions::new(80)), "run \x1b[36mls\x1b[0m\n");
     let no_colour = RenderOptions::new(80).with_colour(ColourMode::None);
     assert_eq!(paint("run `ls`\n", no_colour), "run `ls`\n");
 }
@@ -138,15 +156,35 @@ fn quotes_have_a_bar_on_every_line() {
         "\u{2502} one\n\u{2502}\n\u{2502} two two two two\n\u{2502} two two\n"
     );
     let painted = paint("> q\n", RenderOptions::new(80));
-    assert_eq!(painted, "\x1b[2m\u{2502} \x1b[0mq\n");
+    assert_eq!(painted, "\x1b[2m\u{2502} \x1b[0m\x1b[3mq\x1b[0m\n");
 }
 
 #[test]
-fn code_blocks_have_a_dim_label_and_are_never_wrapped() {
+fn quote_text_is_italic_in_items_too_and_code_in_it_is_not() {
+    let painted = paint("> - item\n>\n> ```\n> code\n> ```\n", RenderOptions::new(80));
+    assert_eq!(
+        painted,
+        "\x1b[2m\u{2502} \x1b[0m\u{2022} \x1b[3mitem\x1b[0m\n\
+         \x1b[2m\u{2502}\x1b[0m\n\
+         \x1b[2m\u{2502} \x1b[0mcode\n"
+    );
+}
+
+#[test]
+fn code_blocks_have_a_muted_label_and_are_never_wrapped() {
     let code = "fn main() { println!(\"a line far wider than twenty columns\"); }";
     let painted = paint(&format!("```rust\n{code}\n```\n"), RenderOptions::new(20));
     assert!(painted.starts_with("\x1b[2mrust\x1b[0m\n"));
     assert_eq!(strip(&painted), format!("rust\n{code}\n"));
+}
+
+#[test]
+fn a_plain_code_block_has_no_label_and_a_file_name_is_one() {
+    assert_eq!(visible("```text\nsome log line\n```\n", 80), "some log line\n");
+    assert_eq!(
+        visible("```rust src/parse.rs\nfn parse() {}\n```\n", 80),
+        "src/parse.rs\nfn parse() {}\n"
+    );
 }
 
 #[test]
@@ -219,9 +257,11 @@ fn images_show_their_alt_text() {
 }
 
 #[test]
-fn a_rule_spans_the_width() {
+fn a_rule_spans_the_width_up_to_forty_columns() {
     assert_eq!(visible("---\n", 10), format!("{}\n", "\u{2500}".repeat(10)));
     assert_eq!(visible("- a\n\n  ***\n", 10), format!("\u{2022} a\n  {}\n", "\u{2500}".repeat(8)));
+    assert_eq!(visible("---\n", 120), format!("{}\n", "\u{2500}".repeat(40)));
+    assert_eq!(visible("---\n", 2), format!("{}\n", "\u{2500}".repeat(3)));
 }
 
 #[test]
@@ -279,7 +319,7 @@ fn a_continuing_bullet_list_stays_unnumbered() {
 fn a_continuing_code_block_renders_only_its_new_lines() {
     let options = RenderOptions::new(80);
     let ctx = Ctx::new(options.clone(), &ASSETS);
-    let mut block = CodeBlock::new("", ctx.code);
+    let mut block = CodeBlock::new("", &ctx.code);
     block.start();
     block.line("first");
     let mut flow = Flow { continuation: Continuation::Code { block, skip: 1 }, ..Flow::default() };

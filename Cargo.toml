@@ -102,10 +102,13 @@ sd-notify = "0.5.0"
 
 # Markdown rendering (efr-render, structure document addendum A). syntect uses the
 # pure-Rust fancy-regex backend, so no oniguruma C build; two-face must match it.
+# plist-load reads the user's own .tmTheme file (`code_theme` of a palette file).
 pulldown-cmark = { version = "0.13.4", default-features = false }
-syntect = { version = "5.3.0", default-features = false, features = ["parsing", "dump-load", "regex-fancy"] }
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "dump-load", "regex-fancy", "plist-load"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 unicode-width = { version = "0.2.2", default-features = false }
+# Widths by grapheme cluster, as Ghostty counts them (efr-render, `WidthMethod`).
+unicode-segmentation = "1.13.3"
 
 # Screen backends
 vt100 = "0.16.2"

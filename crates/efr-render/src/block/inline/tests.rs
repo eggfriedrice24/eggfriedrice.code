@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 
 use super::{Inline, InlineKind};
-use crate::style::{BLUE, Span, Style, line_text};
+use crate::style::{BLUE, Colour, Span, Style, line_text};
 
 fn texts(lines: &[Vec<Span>]) -> Vec<String> {
     lines.iter().map(|line| line_text(line)).collect()
@@ -72,6 +72,21 @@ fn headings_carry_their_base_style() {
     let heading = Style::PLAIN.bold();
     assert_eq!(Inline::new(InlineKind::Heading(heading)).base_style(), heading);
     assert_eq!(Inline::new(InlineKind::Paragraph).base_style(), Style::PLAIN);
+}
+
+#[test]
+fn a_base_and_a_link_style_can_be_given() {
+    let quote = Style::PLAIN.italic();
+    let link = Style::fg(Colour::Palette(12)).underline();
+    let inline = Inline::new(InlineKind::Heading(Style::PLAIN.bold())).with_base(quote);
+    assert_eq!(inline.base_style(), Style::PLAIN.bold().italic());
+    let mut inline = Inline::new(InlineKind::Paragraph).with_link(link);
+    inline.push_text("at https://a.io", Style::PLAIN, None, true);
+    let target = Some("https://a.io".to_owned());
+    assert_eq!(
+        inline.finish(),
+        [vec![Span::plain("at "), Span::linked("https://a.io", link, target)]]
+    );
 }
 
 #[test]

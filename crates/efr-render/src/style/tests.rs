@@ -1,8 +1,8 @@
 use pretty_assertions::assert_eq;
 
 use super::{
-    BLUE, Colour, GREEN, Painter, RED, Span, Style, display_width, expand_tabs, push_span,
-    sanitize, to_ansi16,
+    BLUE, Colour, GREEN, Painter, RED, Span, Style, expand_tabs, push_span, sanitize,
+    sgr_parameters, to_ansi16, wrap_sgr,
 };
 use crate::options::ColourMode;
 
@@ -125,9 +125,18 @@ fn expand_tabs_goes_to_the_next_multiple_of_four() {
 }
 
 #[test]
-fn display_width_skips_escape_sequences() {
-    assert_eq!(display_width("\x1b[1;31mred\x1b[0m"), 3);
-    assert_eq!(display_width("\x1b]8;;https://x\x1b\\link\x1b]8;;\x1b\\"), 4);
-    assert_eq!(display_width("\x1b]8;;https://x\x07link"), 4);
-    assert_eq!(display_width("wide \u{4e16}\u{754c}"), 9);
+fn the_text_colour_fills_spans_without_a_colour() {
+    let mut out = String::new();
+    let painter = Painter::new(ColourMode::Ansi16, true).with_text(Some(Colour::Palette(7)));
+    painter.paint(&mut out, &[Span::plain("a "), Span::new("b", Style::fg(RED))]);
+    assert_eq!(out, "\x1b[37ma \x1b[0m\x1b[31mb\x1b[0m\n");
+}
+
+#[test]
+fn sgr_helpers_write_one_sequence() {
+    assert_eq!(wrap_sgr(Style::fg(RED).bold(), "x"), "\x1b[1;31mx\x1b[0m");
+    assert_eq!(wrap_sgr(Style::PLAIN, "x"), "x");
+    assert_eq!(wrap_sgr(Style::PLAIN.dim(), ""), "");
+    assert_eq!(sgr_parameters(Style::fg(GREEN).bold()).as_deref(), Some("1;32"));
+    assert_eq!(sgr_parameters(Style::PLAIN), None);
 }

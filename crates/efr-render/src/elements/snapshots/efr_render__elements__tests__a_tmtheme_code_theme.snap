@@ -1,0 +1,37 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: shown
+---
+TrueColor:
+\e[2mrust\e[0m
+\e[1;38;2;242;193;78mfn\e[0m\e[38;2;232;226;212m \e[0m\e[38;2;127;180;202mmain\e[0m\e[38;2;232;226;212m() {\e[0m
+\e[38;2;232;226;212m    \e[0m\e[1;38;2;242;193;78mlet\e[0m\e[38;2;232;226;212m greeting \e[0m\e[1;38;2;242;193;78m=\e[0m\e[38;2;232;226;212m \e[0m\e[38;2;159;194;122m"hello"\e[0m\e[38;2;232;226;212m; \e[0m\e[3;38;2;122;114;102m// a comment\e[0m
+\e[38;2;232;226;212m    println!(\e[0m\e[38;2;159;194;122m"{greeting}, from a line that is wider than forty columns"\e[0m\e[38;2;232;226;212m);\e[0m
+\e[38;2;232;226;212m}\e[0m
+
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+\e[36m@@ -1,3 +1,3 @@\e[0m fn main() {
+ \e[1;38;2;242;193;78mfn\e[0m\e[38;2;232;226;212m \e[0m\e[38;2;127;180;202mmain\e[0m\e[38;2;232;226;212m() {\e[0m
+\e[1;31;48;2;74;34;37m-\e[0m\e[38;2;232;226;212;48;2;74;34;37m    println!(\e[0m\e[38;2;159;194;122;48;2;74;34;37m"old"\e[0m\e[38;2;232;226;212;48;2;74;34;37m);\e[0m
+\e[1;32;48;2;32;60;35m+\e[0m\e[38;2;232;226;212;48;2;32;60;35m    println!(\e[0m\e[38;2;159;194;122;48;2;32;60;35m"new"\e[0m\e[38;2;232;226;212;48;2;32;60;35m);\e[0m
+ \e[38;2;232;226;212m}\e[0m
+
+Ansi16:
+\e[2mrust\e[0m
+\e[1;33mfn\e[0m\e[37m \e[0m\e[90mmain\e[0m\e[37m() {\e[0m
+\e[37m    \e[0m\e[1;33mlet\e[0m\e[37m greeting \e[0m\e[1;33m=\e[0m\e[37m \e[0m\e[90m"hello"\e[0m\e[37m; \e[0m\e[3;90m// a comment\e[0m
+\e[37m    println!(\e[0m\e[90m"{greeting}, from a line that is wider than forty columns"\e[0m\e[37m);\e[0m
+\e[37m}\e[0m
+
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+\e[36m@@ -1,3 +1,3 @@\e[0m fn main() {
+ \e[1;33mfn\e[0m\e[37m \e[0m\e[90mmain\e[0m\e[37m() {\e[0m
+\e[1;31m-\e[0m\e[37m    println!(\e[0m\e[90m"old"\e[0m\e[37m);\e[0m
+\e[1;32m+\e[0m\e[37m    println!(\e[0m\e[90m"new"\e[0m\e[37m);\e[0m
+ \e[37m}\e[0m

@@ -2,10 +2,10 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-\e[1;35mHeading one\e[0m
+\e[1;4;33mHeading one\e[0m
 
-\e[1;34mHeading two\e[0m
+\e[1;33mHeading two\e[0m
 
-\e[1;36mHeading three\e[0m
+\e[1mHeading three\e[0m
 
-\e[1;35mSetext heading\e[0m
+\e[1;4;33mSetext heading\e[0m

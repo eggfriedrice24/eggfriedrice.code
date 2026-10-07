@@ -2,12 +2,13 @@ use pretty_assertions::assert_eq;
 
 use super::{Diff, Kind, hunk_counts};
 use crate::code::CodeStyle;
+use crate::code_theme::CodeTheme;
 use crate::highlight::{ASSETS, Assets};
-use crate::options::{ColourMode, Theme};
+use crate::options::{ColourMode, RenderOptions, Theme};
 use crate::style::{CYAN, Colour, GREEN, RED, Span, Style};
 
 fn style(colour: ColourMode, theme: Theme) -> CodeStyle {
-    CodeStyle { colour, theme, assets: &ASSETS }
+    CodeStyle::new(&RenderOptions::new(80).with_colour(colour).with_theme(theme), &ASSETS)
 }
 
 fn kinds(lines: &[&str]) -> Vec<Kind> {
@@ -116,9 +117,36 @@ fn truecolor_themes_tint_changed_lines_and_palette_themes_do_not() {
 }
 
 #[test]
+fn a_code_theme_from_a_file_tints_changed_lines_in_truecolor() {
+    let theme = CodeTheme::from_tmtheme(crate::elements::SAMPLE_TMTHEME).unwrap();
+    let options =
+        RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_code_theme(Some(theme));
+    let mut diff = Diff::new(CodeStyle::new(&options, &ASSETS));
+    let line = diff.line("+x");
+    // A quarter of the green tint over the theme's background #1c1b19.
+    assert!(line.iter().all(|span| span.style.bg == Some(Colour::Rgb(32, 60, 35))));
+}
+
+#[test]
+fn the_diff_roles_of_the_palette_colour_the_lines() {
+    let palette = crate::Palette::new()
+        .with(crate::Role::DiffAdd, Colour::Palette(10))
+        .with(crate::Role::DiffHunk, Colour::Palette(5));
+    let options = RenderOptions::new(80).with_palette(palette);
+    let mut diff = Diff::new(CodeStyle::new(&options, &ASSETS));
+    assert_eq!(diff.line("+x")[0], Span::new("+", Style::fg(Colour::Palette(10)).bold()));
+    assert_eq!(
+        diff.line("@@ -1 +1 @@")[0],
+        Span::new("@@ -1 +1 @@", Style::fg(Colour::Palette(5)))
+    );
+    assert_eq!(diff.line("-y")[0], Span::new("-", Style::fg(RED).bold()));
+}
+
+#[test]
 fn no_colour_loads_no_grammar() {
     let assets: &'static Assets = Box::leak(Box::new(Assets::new()));
-    let mut diff = Diff::new(CodeStyle { colour: ColourMode::None, theme: Theme::ANSI, assets });
+    let options = RenderOptions::new(80).with_colour(ColourMode::None);
+    let mut diff = Diff::new(CodeStyle::new(&options, assets));
     diff.line("diff --git a/x.rs b/x.rs");
     diff.line("+++ b/x.rs");
     diff.line("+fn x() {}");

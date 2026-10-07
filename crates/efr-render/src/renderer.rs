@@ -14,7 +14,7 @@ use crate::code::{CodeBlock, source_lines};
 use crate::highlight::{ASSETS, Assets};
 use crate::options::RenderOptions;
 use crate::outline::{CodeText, Kind, line_start, outline};
-use crate::style::display_width;
+use crate::width::{WidthMethod, display_width};
 
 /// Renders a whole markdown document at once. The result equals everything a
 /// [`Renderer`] commits for the same text pushed in any pieces, followed by its
@@ -33,6 +33,7 @@ pub struct Update {
     live: String,
     live_rows: usize,
     width: usize,
+    method: WidthMethod,
 }
 
 impl Update {
@@ -64,7 +65,7 @@ impl Update {
         let mut rows = 0;
         let mut start = self.live.len();
         for line in self.live.split_inclusive('\n').rev() {
-            rows += rows_of(line, self.width);
+            rows += rows_of(line, self.width, self.method);
             if rows > max_rows {
                 break;
             }
@@ -79,9 +80,9 @@ impl Update {
     }
 }
 
-fn rows_of(line: &str, width: usize) -> usize {
+fn rows_of(line: &str, width: usize, method: WidthMethod) -> usize {
     let line = line.strip_suffix('\n').unwrap_or(line);
-    display_width(line).div_ceil(width.max(1)).max(1)
+    display_width(line, method).div_ceil(width.max(1)).max(1)
 }
 
 /// A streaming markdown renderer for one reply.
@@ -134,9 +135,10 @@ impl Renderer {
     /// inside `**` or a code fence.
     pub fn push(&mut self, markdown: &str) -> Update {
         let width = self.ctx.options.columns();
+        let method = self.ctx.options.width_method();
         if !self.ctx.options.is_terminal() {
             let committed = markdown.to_owned();
-            return Update { committed, live: String::new(), live_rows: 0, width };
+            return Update { committed, live: String::new(), live_rows: 0, width, method };
         }
         self.pending.push_str(markdown);
         let mut committed = String::new();
@@ -145,8 +147,8 @@ impl Renderer {
             self.step(&mut committed);
         }
         let live = self.live();
-        let live_rows = live.split_inclusive('\n').map(|line| rows_of(line, width)).sum();
-        Update { committed, live, live_rows, width }
+        let live_rows = live.split_inclusive('\n').map(|line| rows_of(line, width, method)).sum();
+        Update { committed, live, live_rows, width, method }
     }
 
     /// Commits everything still pending, as if the reply ended here. Returns the
@@ -232,7 +234,7 @@ impl Renderer {
             Continuation::Code { block, skip } => (block, skip),
             _ => {
                 self.flow.begin_block();
-                (CodeBlock::new(&code.info, self.ctx.code), 0)
+                (CodeBlock::new(&code.info, &self.ctx.code), 0)
             }
         };
         if let Some(label) = block.start() {

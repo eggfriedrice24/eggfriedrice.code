@@ -7,7 +7,11 @@ use std::str::FromStr;
 
 use two_face::theme::EmbeddedThemeName;
 
+use crate::code_theme::CodeTheme;
 use crate::error::RenderError;
+use crate::palette::{Palette, Role};
+use crate::style::{Style, sgr_parameters, wrap_sgr};
+use crate::width::WidthMethod;
 
 /// The width used when the caller passes 0, which is what a terminal size query
 /// returns when it fails.
@@ -141,10 +145,11 @@ fn squash(name: &str) -> String {
     name.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect()
 }
 
-/// How to render: the width of the terminal, the colours it may use, the theme for
-/// code, whether to emit OSC 8 hyperlinks, and whether the output is a terminal.
+/// How to render: the width of the terminal, the colours it may use, the colour of
+/// each role, the theme for code, whether to emit OSC 8 hyperlinks, how the terminal
+/// counts widths, and whether the output is a terminal.
 ///
-/// The CLI builds this from the environment: `NO_COLOR` selects
+/// The CLI builds this from the environment and the config: `NO_COLOR` selects
 /// [`ColourMode::None`]; a pipe, a file or `TERM=dumb` clears
 /// [`is_terminal`](RenderOptions::is_terminal), which turns formatting off entirely and
 /// passes the markdown through unchanged.
@@ -152,22 +157,36 @@ fn squash(name: &str) -> String {
 pub struct RenderOptions {
     width: u16,
     colour: ColourMode,
+    palette: Palette,
     theme: Theme,
+    code_theme: Option<CodeTheme>,
     hyperlinks: bool,
+    width_method: WidthMethod,
     terminal: bool,
 }
 
 impl RenderOptions {
     /// Options for a terminal `width` columns wide with the defaults: 16 colours, the
-    /// `ansi` theme, hyperlinks on. A width of 0 means unknown and renders at 80.
+    /// default palette, the `ansi` theme, hyperlinks on, widths by code point. A width
+    /// of 0 means unknown and renders at 80.
     pub fn new(width: u16) -> Self {
         RenderOptions {
             width,
             colour: ColourMode::default(),
+            palette: Palette::default(),
             theme: Theme::default(),
+            code_theme: None,
             hyperlinks: true,
+            width_method: WidthMethod::default(),
             terminal: true,
         }
+    }
+
+    /// The same options for a terminal `width` columns wide, after a resize.
+    #[must_use]
+    pub fn with_width(mut self, width: u16) -> Self {
+        self.width = width;
+        self
     }
 
     /// Sets how many colours the output may use.
@@ -177,10 +196,35 @@ impl RenderOptions {
         self
     }
 
-    /// Sets the theme for code blocks and diffs.
+    /// Sets the colour of each role.
+    #[must_use]
+    pub fn with_palette(mut self, palette: Palette) -> Self {
+        self.palette = palette;
+        self
+    }
+
+    /// Sets the embedded theme for code blocks and diffs. A
+    /// [`code theme`](Self::with_code_theme) wins over it.
     #[must_use]
     pub fn with_theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    /// Sets a code theme from a `.tmTheme` file, or with `None` removes it. While one
+    /// is set, code blocks and diffs use it, not the [`theme`](Self::theme).
+    #[must_use]
+    pub fn with_code_theme(mut self, code_theme: Option<CodeTheme>) -> Self {
+        self.code_theme = code_theme;
+        self
+    }
+
+    /// Sets how the terminal counts the width of text: by code point (most terminals,
+    /// tmux) or by grapheme cluster (Ghostty outside tmux). The row count of the live
+    /// zone and the cut of a trace line use it.
+    #[must_use]
+    pub fn with_width_method(mut self, method: WidthMethod) -> Self {
+        self.width_method = method;
         self
     }
 
@@ -210,9 +254,20 @@ impl RenderOptions {
         self.colour
     }
 
-    /// The theme for code blocks and diffs.
+    /// The colour of each role.
+    pub fn palette(&self) -> &Palette {
+        &self.palette
+    }
+
+    /// The embedded theme for code blocks and diffs, used when there is no
+    /// [`code_theme`](Self::code_theme).
     pub fn theme(&self) -> Theme {
         self.theme
+    }
+
+    /// The code theme from a `.tmTheme` file, when there is one.
+    pub fn code_theme(&self) -> Option<&CodeTheme> {
+        self.code_theme.as_ref()
     }
 
     /// Whether links are written as OSC 8 hyperlinks.
@@ -220,9 +275,40 @@ impl RenderOptions {
         self.hyperlinks
     }
 
+    /// How the terminal counts the width of text.
+    pub fn width_method(&self) -> WidthMethod {
+        self.width_method
+    }
+
     /// Whether the output is a terminal.
     pub fn is_terminal(&self) -> bool {
         self.terminal
+    }
+
+    /// `text` in the colour and attributes of `role`, followed by a reset, for the
+    /// CLI's own lines. `text` stays as it is when the output is not a terminal or the
+    /// role is plain here (`text` in the default palette, `code` without colour). The
+    /// caller makes `text` safe first: control characters in it reach the terminal.
+    pub fn paint(&self, role: Role, text: &str) -> String {
+        if !self.terminal {
+            return text.to_owned();
+        }
+        wrap_sgr(self.role_style(role), text)
+    }
+
+    /// The SGR parameters of `role`, such as `2` or `1;33`, to write as
+    /// `ESC [ <parameters> m` before text in that role; `None` when the role is plain
+    /// here or the output is not a terminal.
+    pub fn sgr(&self, role: Role) -> Option<String> {
+        if !self.terminal {
+            return None;
+        }
+        sgr_parameters(self.role_style(role))
+    }
+
+    /// The style of `role` in this colour mode and palette.
+    pub(crate) fn role_style(&self, role: Role) -> Style {
+        self.palette.style(role, self.colour)
     }
 
     pub(crate) fn columns(&self) -> usize {

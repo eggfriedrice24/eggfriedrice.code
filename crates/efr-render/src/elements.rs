@@ -62,6 +62,18 @@ pub(crate) const ELEMENTS: &[(&str, &str)] = &[
     ("html", "<details>\n<summary>More</summary>\n</details>\n"),
 ];
 
+/// A document that shows every role the markdown paints: headings (accent, heading),
+/// prose (text), inline code, a link, a quote, task boxes (success), a rule and a code
+/// label (muted), a diff and a code block with a file name.
+pub(crate) const ROLES: &str = "# Accent heading\n\n## Second heading\n\n### Third heading\n\n\
+#### Fourth heading\n\nProse with `code`, a [link](https://example.com) and **bold**.\n\n\
+> A quoted line.\n\n- [x] done\n- [ ] open\n\n---\n\n\
+```diff\n@@ -1 +1 @@\n-old\n+new\n```\n\n\
+```rust src/main.rs\nfn main() { let s = \"hi\"; } // note\n```\n";
+
+/// A `.tmTheme` file with a name, a background and four scopes.
+pub(crate) const SAMPLE_TMTHEME: &[u8] = include_bytes!("../fixtures/sample_theme.tmTheme");
+
 /// The sample for `name`.
 pub(crate) fn element(name: &str) -> &'static str {
     ELEMENTS.iter().find(|(element, _)| *element == name).map_or("", |(_, markdown)| markdown)

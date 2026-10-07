@@ -12,6 +12,7 @@ use syntect::highlighting::{
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use two_face::theme::EmbeddedLazyThemeSet;
 
+use crate::code_theme::CodeTheme;
 use crate::options::Theme;
 use crate::style::{Colour, Style};
 
@@ -99,12 +100,28 @@ fn is_plain_text(syntaxes: &SyntaxSet, syntax: &SyntaxReference) -> bool {
     std::ptr::eq(syntax, syntaxes.find_syntax_plain_text())
 }
 
+/// The theme of a highlighted block: an embedded one or the user's own.
+#[derive(Clone, Debug)]
+pub(crate) enum ThemeRef {
+    Embedded(&'static SyntectTheme),
+    Custom(CodeTheme),
+}
+
+impl ThemeRef {
+    pub(crate) fn get(&self) -> &SyntectTheme {
+        match self {
+            ThemeRef::Embedded(theme) => theme,
+            ThemeRef::Custom(theme) => theme.syntect(),
+        }
+    }
+}
+
 /// The state of one highlighted run of lines: a grammar's parse state and a theme's
 /// style stack, carried from line to line.
 #[derive(Clone, Debug)]
 pub(crate) struct Highlight {
     syntaxes: &'static SyntaxSet,
-    theme: &'static SyntectTheme,
+    theme: ThemeRef,
     parse: ParseState,
     state: HighlightState,
 }
@@ -113,16 +130,11 @@ impl Highlight {
     pub(crate) fn new(
         assets: &'static Assets,
         syntax: &SyntaxReference,
-        theme: Theme,
+        theme: ThemeRef,
     ) -> Highlight {
-        let theme = assets.theme(theme);
-        let highlighter = Highlighter::new(theme);
-        Highlight {
-            syntaxes: assets.syntaxes(),
-            theme,
-            parse: ParseState::new(syntax),
-            state: HighlightState::new(&highlighter, ScopeStack::new()),
-        }
+        let highlighter = Highlighter::new(theme.get());
+        let state = HighlightState::new(&highlighter, ScopeStack::new());
+        Highlight { syntaxes: assets.syntaxes(), theme, parse: ParseState::new(syntax), state }
     }
 
     /// Highlights the next line, given without its newline. `None` when the grammar
@@ -131,7 +143,7 @@ impl Highlight {
         // The grammars are the "newlines" set, which expect each line to end in one.
         let text = format!("{line}\n");
         let ops = self.parse.parse_line(&text, self.syntaxes).ok()?;
-        let highlighter = Highlighter::new(self.theme);
+        let highlighter = Highlighter::new(self.theme.get());
         let mut tokens = Vec::new();
         for (style, piece) in HighlightIterator::new(&mut self.state, &ops, &text, &highlighter) {
             let piece = piece.strip_suffix('\n').unwrap_or(piece);

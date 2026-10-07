@@ -6,6 +6,7 @@ use crate::block::{Ctx, Flow, render_slice};
 use crate::elements::{ELEMENTS, element};
 use crate::highlight::{ASSETS, Assets};
 use crate::options::{ColourMode, RenderOptions, Theme};
+use crate::width::WidthMethod;
 
 fn options() -> RenderOptions {
     RenderOptions::new(80)
@@ -62,9 +63,9 @@ fn a_partial_line_is_never_committed() {
     let mut renderer = Renderer::new(options());
     let update = renderer.push("# Tit");
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "\x1b[1;35mTit\x1b[0m\n");
+    assert_eq!(update.live(), "\x1b[1;4;33mTit\x1b[0m\n");
     let update = renderer.push("le\n");
-    assert_eq!(update.committed(), "\x1b[1;35mTitle\x1b[0m\n");
+    assert_eq!(update.committed(), "\x1b[1;4;33mTitle\x1b[0m\n");
     assert_eq!(update.live(), "");
 }
 
@@ -161,6 +162,33 @@ fn live_rows_count_wrapped_rows() {
     assert_eq!(update.live_tail(2), "short\n");
     assert_eq!(update.live_tail(3), update.live());
     assert_eq!(update.live_tail(0), "");
+}
+
+/// The rows of a live zone of ten `piece`s and a space each, 20 columns wide, when the
+/// terminal counts by `method`.
+fn live_rows_of(piece: &str, method: WidthMethod) -> usize {
+    let options = RenderOptions::new(20).with_width_method(method);
+    let mut renderer = Renderer::new(options);
+    let update = renderer.push(&format!("{piece} ").repeat(10));
+    assert_eq!(update.live_tail(update.live_rows()), update.live());
+    assert_eq!(update.live_tail(update.live_rows() - 1), "");
+    update.live_rows()
+}
+
+#[test]
+fn live_rows_count_as_the_terminal_counts_widths() {
+    let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+    let heart = "\u{2764}\u{fe0f}";
+    let flag = "\u{1f1fa}\u{1f1f8}";
+    // 69 columns by code point, 29 by grapheme cluster.
+    assert_eq!(live_rows_of(family, WidthMethod::CodePoint), 4);
+    assert_eq!(live_rows_of(family, WidthMethod::Grapheme), 2);
+    // 19 columns by code point, 29 by grapheme cluster.
+    assert_eq!(live_rows_of(heart, WidthMethod::CodePoint), 1);
+    assert_eq!(live_rows_of(heart, WidthMethod::Grapheme), 2);
+    // 29 columns both ways.
+    assert_eq!(live_rows_of(flag, WidthMethod::CodePoint), 2);
+    assert_eq!(live_rows_of(flag, WidthMethod::Grapheme), 2);
 }
 
 #[test]

@@ -1,0 +1,42 @@
+---
+source: crates/efr-render/src/elements/tests.rs
+expression: every_role(&options)
+---
+\e[1;4mAccent heading\e[0m
+
+\e[1mSecond heading\e[0m
+
+\e[1mThird heading\e[0m
+
+\e[1;3mFourth heading\e[0m
+
+Prose with `code`, a \e]8;;https://example.com\e\\e[4mlink\e]8;;\e\\e[0m and \e[1mbold\e[0m.
+
+\e[2m│ \e[0m\e[3mA quoted line.\e[0m
+
+[x] done
+[ ] open
+
+\e[2m────────────────────────────────────────\e[0m
+
+@@ -1 +1 @@
+\e[1m-\e[0mold
+\e[1m+\e[0mnew
+
+\e[2msrc/main.rs\e[0m
+fn main() { let s = "hi"; } // note
+
+text
+\e[2mmuted\e[0m
+\e[1maccent\e[0m
+\e[1mheading\e[0m
+\e[4mlink\e[0m
+code
+success
+\e[1mwarning\e[0m
+\e[1merror\e[0m
+\e[3mquote\e[0m
+diff.add
+diff.remove
+diff.hunk
+\e[2mshell: cargo test\e[0m

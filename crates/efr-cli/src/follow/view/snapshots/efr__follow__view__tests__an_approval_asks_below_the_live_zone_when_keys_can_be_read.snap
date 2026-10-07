@@ -3,7 +3,6 @@ source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
 \e[?2026h\e[1;33mapproval needed:\e[0m write ~/.zshrc
-\e[2mdiff\e[0m
 \e[1;31m-\e[0m\e[31ma\e[0m
 \e[1;32m+\e[0m\e[32mb\e[0m
 \e[2mallow? y = yes, n = no\e[0m

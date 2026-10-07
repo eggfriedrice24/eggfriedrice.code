@@ -19,9 +19,8 @@ use crate::highlight::Assets;
 use crate::link::{code_target, link_target};
 use crate::options::{ColourMode, MIN_TEXT_WIDTH, RenderOptions};
 use crate::outline::parser_options;
-use crate::style::{
-    BLUE, CYAN, GREEN, Line, MAGENTA, Painter, Span, Style, YELLOW, line_width, sanitize,
-};
+use crate::palette::Role;
+use crate::style::{Line, Painter, Span, Style, line_width, sanitize};
 use crate::table::Table;
 use crate::wrap::wrap;
 
@@ -30,6 +29,10 @@ use inline::{Inline, InlineKind};
 const QUOTE_BAR: &str = "\u{2502} ";
 const BULLETS: [&str; 3] = ["\u{2022}", "\u{25e6}", "\u{25aa}"];
 const RULE: &str = "\u{2500}";
+
+/// A rule is never wider than this, so it does not wrap onto a second row when the
+/// terminal gets narrower and reflows its scrollback.
+const RULE_MAX_WIDTH: usize = 40;
 
 /// Everything rendering needs that stays the same for a whole stream.
 #[derive(Debug)]
@@ -41,13 +44,19 @@ pub(crate) struct Ctx {
 
 impl Ctx {
     pub(crate) fn new(options: RenderOptions, assets: &'static Assets) -> Ctx {
-        let painter = Painter::new(options.colour(), options.hyperlinks());
-        let code = CodeStyle { colour: options.colour(), theme: options.theme(), assets };
+        let painter = Painter::new(options.colour(), options.hyperlinks())
+            .with_text(options.palette().colour(Role::Text));
+        let code = CodeStyle::new(&options, assets);
         Ctx { options, painter, code }
     }
 
     fn no_colour(&self) -> bool {
         self.options.colour() == ColourMode::None
+    }
+
+    /// The style of `role` in this stream's palette and colour mode.
+    pub(crate) fn role(&self, role: Role) -> Style {
+        self.options.role_style(role)
     }
 }
 
@@ -143,13 +152,15 @@ struct Item {
 }
 
 impl Item {
-    fn marker(&self) -> Line {
+    /// The marker of the item's first line; a done task box is in `done`, the
+    /// `success` role.
+    fn marker(&self, done: Style) -> Line {
         let mut line = Vec::new();
         if let Some(number) = self.number {
             line.push(Span::plain(format!("{number}. ")));
         }
         match self.task {
-            Some(true) => line.extend([Span::new("[x]", Style::fg(GREEN)), Span::plain(" ")]),
+            Some(true) => line.extend([Span::new("[x]", done), Span::plain(" ")]),
             Some(false) => line.push(Span::plain("[ ] ")),
             None if self.number.is_none() => {
                 line.push(Span::plain(format!("{} ", BULLETS[self.level % BULLETS.len()])));
@@ -225,8 +236,9 @@ impl Writer<'_> {
             Event::SoftBreak | Event::HardBreak => self.line_break(),
             Event::Rule => {
                 self.block_start(self.depth == 0);
-                let width = self.available_width().max(3);
-                self.emit(&[Span::new(RULE.repeat(width), Style::PLAIN.dim())], false);
+                let width = self.available_width().clamp(3, RULE_MAX_WIDTH);
+                let muted = self.ctx.role(Role::Muted);
+                self.emit(&[Span::new(RULE.repeat(width), muted)], false);
             }
             Event::TaskListMarker(done) => {
                 if let Some(Container::Item(item)) =
@@ -242,11 +254,12 @@ impl Writer<'_> {
         match tag {
             Tag::Paragraph => {
                 self.block_start(top);
-                self.inline = Some(Inline::new(InlineKind::Paragraph));
+                self.inline = Some(self.new_inline(InlineKind::Paragraph));
             }
             Tag::Heading { level, .. } => {
                 self.block_start(top);
-                self.inline = Some(Inline::new(InlineKind::Heading(heading_style(level))));
+                let style = self.heading_style(level);
+                self.inline = Some(self.new_inline(InlineKind::Heading(style)));
             }
             Tag::BlockQuote(_) => {
                 self.block_start(top);
@@ -270,7 +283,7 @@ impl Writer<'_> {
                         CodeBlockKind::Fenced(info) => info.as_ref(),
                         CodeBlockKind::Indented => "",
                     };
-                    (CodeBlock::new(info, self.ctx.code), 0)
+                    (CodeBlock::new(info, &self.ctx.code), 0)
                 });
                 self.code = Some((block, String::new(), skip));
             }
@@ -294,14 +307,14 @@ impl Writer<'_> {
             Tag::Item => self.start_item(range),
             Tag::Table(aligns) => {
                 self.block_start(top);
-                self.table = Some(Table::new(aligns));
+                self.table = Some(Table::new(aligns, self.ctx.role(Role::Muted)));
             }
             Tag::TableHead | Tag::TableRow => {
                 if let Some(table) = &mut self.table {
                     table.start_row();
                 }
             }
-            Tag::TableCell => self.inline = Some(Inline::new(InlineKind::Cell)),
+            Tag::TableCell => self.inline = Some(self.new_inline(InlineKind::Cell)),
             Tag::Emphasis => self.styles.push(Style::PLAIN.italic()),
             Tag::Strong => self.styles.push(Style::PLAIN.bold()),
             Tag::Strikethrough => self.styles.push(Style::PLAIN.strike()),
@@ -314,7 +327,7 @@ impl Writer<'_> {
                     start,
                     alt: None,
                 });
-                self.styles.push(link_style());
+                self.styles.push(self.ctx.role(Role::Link));
             }
             Tag::Image { dest_url, .. } => {
                 let start = self.inline_mut().position();
@@ -350,9 +363,10 @@ impl Writer<'_> {
             }
             TagEnd::HtmlBlock => {
                 if let Some(html) = self.html.take() {
+                    let muted = self.ctx.role(Role::Muted);
                     for line in source_lines(&html) {
                         let text = sanitize(line.strip_suffix('\r').unwrap_or(line)).into_owned();
-                        self.emit(&[Span::new(text, Style::PLAIN.dim())], false);
+                        self.emit(&[Span::new(text, muted)], false);
                     }
                 }
             }
@@ -442,6 +456,7 @@ impl Writer<'_> {
         if shown || link.destination.is_empty() {
             return;
         }
+        let muted = self.ctx.role(Role::Muted);
         let inline = self.inline_mut();
         let text = inline.text_since(link.start);
         let redundant = text.as_deref().is_some_and(|text| {
@@ -449,7 +464,7 @@ impl Writer<'_> {
         });
         if !redundant {
             let destination = sanitize(&link.destination).into_owned();
-            inline.push_span(Span::new(format!(" ({destination})"), Style::PLAIN.dim()));
+            inline.push_span(Span::new(format!(" ({destination})"), muted));
         }
     }
 
@@ -462,12 +477,13 @@ impl Writer<'_> {
             format!("[image: {}]", sanitize(alt.trim()))
         };
         let shown = self.ctx.options.hyperlinks() && image.target.is_some();
-        let style = self.style().patch(Style::PLAIN.dim());
+        let muted = self.ctx.role(Role::Muted);
+        let style = self.style().patch(muted);
         let inline = self.inline_mut();
         inline.push_span(Span::linked(text, style, image.target));
         if !shown && !image.destination.is_empty() {
             let destination = sanitize(&image.destination).into_owned();
-            inline.push_span(Span::new(format!(" ({destination})"), Style::PLAIN.dim()));
+            inline.push_span(Span::new(format!(" ({destination})"), muted));
         }
     }
 
@@ -493,7 +509,7 @@ impl Writer<'_> {
         }
         let clean = sanitize(code);
         let text = if self.ctx.no_colour() { format!("`{clean}`") } else { clean.into_owned() };
-        let style = self.style().patch(Style::fg(YELLOW));
+        let style = self.style().patch(self.ctx.role(Role::Code));
         let link = self.link().or_else(|| code_target(code));
         self.inline_mut().push_span(Span::linked(text, style, link));
     }
@@ -516,8 +532,17 @@ impl Writer<'_> {
     /// The style for inline text here: the inline's base style with every open
     /// emphasis, strong, strikethrough and link style on top.
     fn style(&self) -> Style {
-        let base = self.inline.as_ref().map_or(Style::PLAIN, Inline::base_style);
+        let base = self.inline.as_ref().map_or_else(|| self.container_style(), Inline::base_style);
         self.styles.iter().fold(base, |style, over| style.patch(*over))
+    }
+
+    /// The style the containers give text: the `quote` role inside a quote.
+    fn container_style(&self) -> Style {
+        if self.containers.iter().any(|container| matches!(container, Container::Quote { .. })) {
+            self.ctx.role(Role::Quote)
+        } else {
+            Style::PLAIN
+        }
     }
 
     fn link(&self) -> Option<String> {
@@ -527,7 +552,28 @@ impl Writer<'_> {
     /// The current inline, starting one for text that arrives without a paragraph
     /// around it, as the text of a tight list item does.
     fn inline_mut(&mut self) -> &mut Inline {
-        self.inline.get_or_insert_with(|| Inline::new(InlineKind::Paragraph))
+        let inline = match self.inline.take() {
+            Some(inline) => inline,
+            None => self.new_inline(InlineKind::Paragraph),
+        };
+        self.inline.insert(inline)
+    }
+
+    /// A new inline of `kind`: links in the `link` role, and text inside a quote in the
+    /// `quote` role.
+    fn new_inline(&self, kind: InlineKind) -> Inline {
+        Inline::new(kind).with_link(self.ctx.role(Role::Link)).with_base(self.container_style())
+    }
+
+    /// The style of a heading of `level`: the `heading` role for levels 1 and 2, level
+    /// 1 also underlined; bold in the text colour for level 3, bold italic below.
+    fn heading_style(&self, level: HeadingLevel) -> Style {
+        match level {
+            HeadingLevel::H1 => self.ctx.role(Role::Heading).underline(),
+            HeadingLevel::H2 => self.ctx.role(Role::Heading),
+            HeadingLevel::H3 => Style::PLAIN.bold(),
+            _ => Style::PLAIN.bold().italic(),
+        }
     }
 
     /// Writes out the paragraph or heading in progress.
@@ -565,7 +611,7 @@ impl Writer<'_> {
             .map(|container| match container {
                 Container::Quote { .. } => QUOTE_BAR.chars().count(),
                 Container::Item(item) => {
-                    item.marker_width.unwrap_or_else(|| line_width(&item.marker()))
+                    item.marker_width.unwrap_or_else(|| line_width(&item.marker(Style::PLAIN)))
                 }
             })
             .sum();
@@ -596,17 +642,19 @@ impl Writer<'_> {
     fn prefixes(&mut self) -> (Line, Line) {
         let mut first = Vec::new();
         let mut rest = Vec::new();
+        let muted = self.ctx.role(Role::Muted);
+        let done = self.ctx.role(Role::Success);
         for container in &mut self.containers {
             match container {
                 Container::Quote { .. } => {
-                    first.push(Span::new(QUOTE_BAR, Style::PLAIN.dim()));
-                    rest.push(Span::new(QUOTE_BAR, Style::PLAIN.dim()));
+                    first.push(Span::new(QUOTE_BAR, muted));
+                    rest.push(Span::new(QUOTE_BAR, muted));
                 }
                 Container::Item(item) => {
                     if let Some(width) = item.marker_width {
                         first.push(Span::plain(" ".repeat(width)));
                     } else {
-                        let marker = item.marker();
+                        let marker = item.marker(done);
                         let width = line_width(&marker);
                         item.marker_width = Some(width);
                         first.extend(marker);
@@ -621,9 +669,10 @@ impl Writer<'_> {
     /// A blank line inside the current containers: quote bars stay, indents go.
     fn blank_line(&mut self) {
         let mut line = Vec::new();
+        let muted = self.ctx.role(Role::Muted);
         for container in &self.containers {
             match container {
-                Container::Quote { .. } => line.push(Span::new(QUOTE_BAR, Style::PLAIN.dim())),
+                Container::Quote { .. } => line.push(Span::new(QUOTE_BAR, muted)),
                 Container::Item(item) => {
                     line.push(Span::plain(" ".repeat(item.marker_width.unwrap_or(0))));
                 }
@@ -631,19 +680,6 @@ impl Writer<'_> {
         }
         self.flow.write(self.ctx, &mut self.out, &line);
     }
-}
-
-fn heading_style(level: HeadingLevel) -> Style {
-    let colour = match level {
-        HeadingLevel::H1 => MAGENTA,
-        HeadingLevel::H2 => BLUE,
-        _ => CYAN,
-    };
-    Style::fg(colour).bold()
-}
-
-fn link_style() -> Style {
-    Style::fg(BLUE).underline()
 }
 
 /// True when the last line of `text` (before its final newline) is blank, as the

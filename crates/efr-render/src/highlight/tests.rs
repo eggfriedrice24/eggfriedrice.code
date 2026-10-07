@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use syntect::highlighting::Color;
 
-use super::{ASSETS, Assets, Highlight, theme_background, theme_colour};
+use super::{ASSETS, Assets, Highlight, ThemeRef, theme_background, theme_colour};
 use crate::options::Theme;
 use crate::style::Colour;
 
@@ -48,7 +48,8 @@ fn paths_find_grammars_without_opening_files() {
 #[test]
 fn a_line_highlights_into_tokens_that_rebuild_it() {
     let syntax = ASSETS.syntax_for_label("rust").unwrap();
-    let mut highlight = Highlight::new(&ASSETS, syntax, Theme::ANSI);
+    let mut highlight =
+        Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(Theme::ANSI)));
     let tokens = highlight.line("fn main() {}").unwrap();
     let text: String = tokens.iter().map(|(_, piece)| piece.as_str()).collect();
     assert_eq!(text, "fn main() {}");
@@ -58,7 +59,8 @@ fn a_line_highlights_into_tokens_that_rebuild_it() {
 #[test]
 fn state_carries_across_lines() {
     let syntax = ASSETS.syntax_for_label("rust").unwrap();
-    let mut highlight = Highlight::new(&ASSETS, syntax, Theme::ANSI);
+    let mut highlight =
+        Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(Theme::ANSI)));
     let comment_style = highlight.line("/* open").unwrap()[0].0;
     let inside = highlight.line("still a comment").unwrap();
     assert_eq!(inside.len(), 1);

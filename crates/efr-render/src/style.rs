@@ -10,13 +10,18 @@ use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::options::ColourMode;
 
-/// A colour as a theme or this crate names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Colour {
-    /// A palette entry: 0 to 15 are the 16 named colours, 16 to 255 the xterm colour
-    /// cube and grey ramp.
+/// A colour: an entry of the terminal's palette or 24-bit RGB.
+///
+/// A palette entry follows the terminal's theme. An RGB colour is written as RGB in
+/// [`ColourMode::TrueColor`], as the nearest of the 16 palette entries in
+/// [`ColourMode::Ansi16`], and not at all in [`ColourMode::None`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Colour {
+    /// A palette entry: 0 to 15 are the 16 named colours (0 black, 1 red, 2 green,
+    /// 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white, then 8 to 15 their bright
+    /// forms), 16 to 255 the xterm colour cube and grey ramp.
     Palette(u8),
-    /// 24-bit colour.
+    /// 24-bit colour: red, green and blue.
     Rgb(u8, u8, u8),
 }
 
@@ -24,7 +29,6 @@ pub(crate) const RED: Colour = Colour::Palette(1);
 pub(crate) const GREEN: Colour = Colour::Palette(2);
 pub(crate) const YELLOW: Colour = Colour::Palette(3);
 pub(crate) const BLUE: Colour = Colour::Palette(4);
-pub(crate) const MAGENTA: Colour = Colour::Palette(5);
 pub(crate) const CYAN: Colour = Colour::Palette(6);
 
 /// SGR attributes and colours of a piece of text.
@@ -54,19 +58,19 @@ impl Style {
         Style { fg: Some(colour), ..Style::PLAIN }
     }
 
-    pub(crate) fn bold(self) -> Style {
+    pub(crate) const fn bold(self) -> Style {
         Style { bold: true, ..self }
     }
 
-    pub(crate) fn dim(self) -> Style {
+    pub(crate) const fn dim(self) -> Style {
         Style { dim: true, ..self }
     }
 
-    pub(crate) fn italic(self) -> Style {
+    pub(crate) const fn italic(self) -> Style {
         Style { italic: true, ..self }
     }
 
-    pub(crate) fn underline(self) -> Style {
+    pub(crate) const fn underline(self) -> Style {
         Style { underline: true, ..self }
     }
 
@@ -161,11 +165,19 @@ const RESET: &str = "\x1b[0m";
 pub(crate) struct Painter {
     colour: ColourMode,
     hyperlinks: bool,
+    /// The colour of the `text` role: every span without a colour of its own gets it.
+    /// `None` leaves such spans in the terminal's default colour.
+    text: Option<Colour>,
 }
 
 impl Painter {
     pub(crate) fn new(colour: ColourMode, hyperlinks: bool) -> Painter {
-        Painter { colour, hyperlinks }
+        Painter { colour, hyperlinks, text: None }
+    }
+
+    /// The painter with `text` as the colour of spans that have none of their own.
+    pub(crate) fn with_text(self, text: Option<Colour>) -> Painter {
+        Painter { text, ..self }
     }
 
     /// Writes one line and its newline. The line starts with no SGR state and no open
@@ -208,15 +220,43 @@ impl Painter {
         out.push('\n');
     }
 
-    /// The style with its colours reduced to what the mode allows.
+    /// The style with the text colour where it has no colour, and its colours reduced
+    /// to what the mode allows.
     fn reduce(&self, style: Style) -> Style {
-        let colour = |c: Option<Colour>| match self.colour {
-            ColourMode::None => None,
-            ColourMode::Ansi16 => c.map(to_ansi16),
-            ColourMode::TrueColor => c,
-        };
-        Style { fg: colour(style.fg), bg: colour(style.bg), ..style }
+        let colour = |c: Option<Colour>| reduce_colour(c, self.colour);
+        Style { fg: colour(style.fg.or(self.text)), bg: colour(style.bg), ..style }
     }
+}
+
+/// `colour` as the mode allows it: none without colour, one of the 16 palette entries
+/// in 16-colour mode, unchanged in truecolor.
+pub(crate) fn reduce_colour(colour: Option<Colour>, mode: ColourMode) -> Option<Colour> {
+    match mode {
+        ColourMode::None => None,
+        ColourMode::Ansi16 => colour.map(to_ansi16),
+        ColourMode::TrueColor => colour,
+    }
+}
+
+/// `text` between the SGR sequence of `style` and a reset; `text` alone when the style
+/// is plain or the text empty. `style` must already be reduced to the colour mode.
+pub(crate) fn wrap_sgr(style: Style, text: &str) -> String {
+    if style == Style::PLAIN || text.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    write_sgr(&mut out, style);
+    out.push_str(text);
+    out.push_str(RESET);
+    out
+}
+
+/// The SGR parameters of `style`, such as `1;33`, without `ESC [` and `m`; `None` for
+/// a plain style. `style` must already be reduced to the colour mode.
+pub(crate) fn sgr_parameters(style: Style) -> Option<String> {
+    let mut out = String::new();
+    write_sgr(&mut out, style);
+    out.strip_prefix("\x1b[").and_then(|rest| rest.strip_suffix('m')).map(str::to_owned)
 }
 
 /// Where a line's visible content ends: the number of spans to write and the byte
@@ -379,40 +419,6 @@ pub(crate) fn expand_tabs(text: &str) -> Cow<'_, str> {
         }
     }
     Cow::Owned(out)
-}
-
-/// The number of columns painted text takes, skipping CSI and OSC sequences.
-pub(crate) fn display_width(painted: &str) -> usize {
-    let mut width = 0;
-    let mut chars = painted.chars();
-    while let Some(c) = chars.next() {
-        if c != '\x1b' {
-            width += c.width().unwrap_or(0);
-            continue;
-        }
-        match chars.next() {
-            Some('[') => {
-                for c in chars.by_ref() {
-                    if ('\u{40}'..='\u{7e}').contains(&c) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                while let Some(c) = chars.next() {
-                    if c == '\x07' {
-                        break;
-                    }
-                    if c == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    width
 }
 
 #[cfg(test)]

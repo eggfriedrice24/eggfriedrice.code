@@ -13,4 +13,17 @@ pub enum RenderError {
         /// The name as the caller gave it.
         name: String,
     },
+    /// A role name matches none of the colour roles.
+    #[error("there is no colour role named {name:?}")]
+    UnknownRole {
+        /// The name as the caller gave it.
+        name: String,
+    },
+    /// The bytes of a code theme are not a `.tmTheme` file that syntect can read.
+    #[error("the code theme is not a valid .tmTheme file")]
+    CodeTheme {
+        /// The error from syntect.
+        #[source]
+        source: syntect::LoadingError,
+    },
 }

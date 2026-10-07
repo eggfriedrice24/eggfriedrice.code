@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use pretty_assertions::assert_eq;
 
 use super::{ColourMode, RenderOptions, Theme};
-use crate::RenderError;
+use crate::elements::SAMPLE_TMTHEME;
+use crate::{CodeTheme, Colour, Palette, RenderError, Role, WidthMethod};
 
 #[test]
 fn defaults_are_sixteen_colours_ansi_theme_hyperlinks_and_a_terminal() {
@@ -23,15 +24,43 @@ fn zero_width_renders_at_eighty_columns() {
 #[test]
 fn builders_set_each_field() {
     let theme = Theme::from_name("nord").unwrap();
+    let palette = Palette::new().with(Role::Accent, Colour::Palette(5));
+    let code_theme = CodeTheme::from_tmtheme(SAMPLE_TMTHEME).unwrap();
     let options = RenderOptions::new(40)
         .with_colour(ColourMode::None)
+        .with_palette(palette.clone())
         .with_theme(theme)
+        .with_code_theme(Some(code_theme.clone()))
         .with_hyperlinks(false)
+        .with_width_method(WidthMethod::Grapheme)
         .with_terminal(false);
     assert_eq!(options.colour(), ColourMode::None);
+    assert_eq!(options.palette(), &palette);
     assert_eq!(options.theme(), theme);
+    assert_eq!(options.code_theme(), Some(&code_theme));
     assert!(!options.hyperlinks());
+    assert_eq!(options.width_method(), WidthMethod::Grapheme);
     assert!(!options.is_terminal());
+    assert_eq!(options.clone().with_code_theme(None).code_theme(), None);
+}
+
+#[test]
+fn a_new_width_keeps_every_other_option() {
+    let options = RenderOptions::new(40)
+        .with_colour(ColourMode::TrueColor)
+        .with_palette(Palette::new().with(Role::Muted, Colour::Palette(8)))
+        .with_width_method(WidthMethod::Grapheme);
+    let wider = options.clone().with_width(120);
+    assert_eq!(wider.width(), 120);
+    assert_eq!(wider.with_width(40), options);
+}
+
+#[test]
+fn the_defaults_have_the_default_palette_and_count_by_code_point() {
+    let options = RenderOptions::new(80);
+    assert_eq!(options.palette(), &Palette::new());
+    assert_eq!(options.code_theme(), None);
+    assert_eq!(options.width_method(), WidthMethod::CodePoint);
 }
 
 #[test]

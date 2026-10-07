@@ -2,7 +2,6 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-\e[2mdiff\e[0m
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
 \e[1mindex 1111111..2222222 100644\e[0m
 \e[1m--- a/src/main.rs\e[0m

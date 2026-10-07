@@ -25,7 +25,8 @@ line five
 line six
 
 • one
-• two, with text long enough to wrap inside the item at forty columns
+• two, with text long enough to wrap
+  inside the item at forty columns
   ◦ nested
     ▪ deeper
 • three
@@ -33,14 +34,17 @@ line six
 1. first
 2. second
 3. third
-   with a second paragraph in the third item
+   with a second paragraph in the third
+   item
 4. fourth
 
 [ ] to do
 [x] done
-[ ] a task whose text is long enough to wrap at forty columns
+[ ] a task whose text is long enough to
+    wrap at forty columns
 
-\e[2m│ \e[0m\e[3mA quote long enough to wrap when the terminal is forty columns wide.\e[0m
+\e[2m│ \e[0m\e[3mA quote long enough to wrap when the\e[0m
+\e[2m│ \e[0m\e[3mterminal is forty columns wide.\e[0m
 \e[2m│\e[0m
 \e[2m│ \e[0m\e[3mIts second paragraph.\e[0m
 \e[2m│\e[0m
@@ -75,10 +79,11 @@ plain text
 `efr-render`\e[2m │ \e[0mlib \e[2m │ \e[0m   1
 efrd        \e[2m │ \e[0m\e[1mbin\e[0m \e[2m │ \e[0m  22
 
-\e[1mOption\e[0m\e[2m │ \e[0m\e[1mMeaning\e[0m
-\e[2m───────┼──────────────────────────────────────────\e[0m
-width \e[2m │ \e[0mthe number of columns text is laid out in
-theme \e[2m │ \e[0mthe syntax theme of code blocks and diffs
+\e[1mOption:\e[0m width
+\e[1mMeaning:\e[0m the number of columns text is laid out in
+
+\e[1mOption:\e[0m theme
+\e[1mMeaning:\e[0m the syntax theme of code blocks and diffs
 
 See \e]8;;https://example.com/docs\e\\e[4mthe docs\e]8;;\e\\e[0m, \e]8;;https://example.com\e\\e[4mhttps://example.com\e]8;;\e\\e[0m, \e]8;;https://example.com/bare\e\\e[4mhttps://example.com/bare\e]8;;\e\\e[0m, \e]8;;file:///etc/hosts\e\\e[4mhosts\e]8;;\e\\e[0m, \e]8;;file:///var/log/syslog\e\`/var/log/syslog`\e]8;;\e\ and \e[4ma relative link\e[0m\e[2m (src/lib.rs)\e[0m.
 

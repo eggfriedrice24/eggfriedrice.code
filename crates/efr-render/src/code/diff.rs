@@ -1,11 +1,12 @@
-//! Unified diffs: added lines green, removed lines red, hunk headers cyan, file
-//! headers bold, and the diffed file's syntax colours inside the changed lines. The
+//! Unified diffs: added lines in the `diff.add` role (green), removed lines in
+//! `diff.remove` (red), hunk headers in `diff.hunk` (cyan), file headers bold, and the
+//! diffed file's syntax colours inside the changed lines. The
 //! old and new sides keep separate highlighting state, as delta does, so a line
 //! removed inside a string does not confuse the colours of the lines added after it.
 
 use crate::highlight::{Highlight, theme_background};
 use crate::options::ColourMode;
-use crate::style::{CYAN, Colour, GREEN, Line, RED, Span, Style, push_span};
+use crate::style::{Colour, Line, Span, Style, push_span};
 
 use super::CodeStyle;
 
@@ -45,8 +46,8 @@ pub(crate) struct Diff {
 
 impl Diff {
     pub(crate) fn new(style: CodeStyle) -> Diff {
-        let tint = (style.colour == ColourMode::TrueColor && !style.theme.uses_palette())
-            .then(|| theme_background(style.assets.theme(style.theme)))
+        let tint = (style.colour == ColourMode::TrueColor && !style.uses_palette())
+            .then(|| theme_background(style.theme_ref().get()))
             .flatten()
             .map(|background| (blend(background, ADDED_TINT), blend(background, REMOVED_TINT)));
         Diff { style, hunk: None, old: None, new: None, tint }
@@ -55,11 +56,11 @@ impl Diff {
     pub(crate) fn line(&mut self, text: &str) -> Line {
         match self.classify(text) {
             Kind::Meta | Kind::File => vec![Span::new(text, Style::PLAIN.bold())],
-            Kind::HunkHeader => hunk_header(text),
+            Kind::HunkHeader => hunk_header(text, self.style.hunk),
             Kind::Added => self.changed(text, true),
             Kind::Removed => self.changed(text, false),
             Kind::Context => self.context(text),
-            Kind::Note => vec![Span::new(text, Style::PLAIN.dim())],
+            Kind::Note => vec![Span::new(text, self.style.label)],
             Kind::Other => vec![Span::plain(text)],
         }
     }
@@ -150,20 +151,20 @@ impl Diff {
             .style
             .assets
             .syntax_for_path(path)
-            .map(|syntax| Highlight::new(self.style.assets, syntax, self.style.theme));
+            .map(|syntax| Highlight::new(self.style.assets, syntax, self.style.theme_ref()));
         self.old.clone_from(&highlight);
         self.new = highlight;
     }
 
     fn changed(&mut self, text: &str, added: bool) -> Line {
-        let (sign_colour, tint) = if added {
-            (GREEN, self.tint.map(|(added, _)| added))
+        let (role, tint) = if added {
+            (self.style.added, self.tint.map(|(added, _)| added))
         } else {
-            (RED, self.tint.map(|(_, removed)| removed))
+            (self.style.removed, self.tint.map(|(_, removed)| removed))
         };
         let base = tint.map_or(Style::PLAIN, |tint| Style::PLAIN.on(tint));
         let (sign, content) = text.split_at(1);
-        let mut line = vec![Span::new(sign, base.patch(Style::fg(sign_colour).bold()))];
+        let mut line = vec![Span::new(sign, base.patch(role.bold()))];
         let side = if added { &mut self.new } else { &mut self.old };
         match side.as_mut().and_then(|highlight| highlight.line(content)) {
             Some(tokens) => {
@@ -171,7 +172,7 @@ impl Diff {
                     push_span(&mut line, Span::new(piece, base.patch(style)));
                 }
             }
-            None => push_span(&mut line, Span::new(content, base.patch(Style::fg(sign_colour)))),
+            None => push_span(&mut line, Span::new(content, base.patch(role))),
         }
         line
     }
@@ -216,10 +217,10 @@ fn hunk_counts(header: &str) -> Option<(u32, u32)> {
     Some((old, new))
 }
 
-fn hunk_header(text: &str) -> Line {
+fn hunk_header(text: &str, style: Style) -> Line {
     let end = text[2..].find("@@").map_or(text.len(), |at| at + 4);
     let (header, rest) = text.split_at(end);
-    vec![Span::new(header, Style::fg(CYAN)), Span::plain(rest)]
+    vec![Span::new(header, style), Span::plain(rest)]
 }
 
 /// Three parts background to one part tint.

@@ -13,14 +13,16 @@ const RULE_CROSS: &str = "\u{2500}\u{253c}\u{2500}";
 #[derive(Debug, Default)]
 pub(crate) struct Table {
     aligns: Vec<Alignment>,
+    /// The rule under the header and the gaps between columns: the `muted` role.
+    muted: Style,
     head: Vec<Line>,
     rows: Vec<Vec<Line>>,
     row: Vec<Line>,
 }
 
 impl Table {
-    pub(crate) fn new(aligns: Vec<Alignment>) -> Table {
-        Table { aligns, ..Table::default() }
+    pub(crate) fn new(aligns: Vec<Alignment>, muted: Style) -> Table {
+        Table { aligns, muted, ..Table::default() }
     }
 
     pub(crate) fn start_row(&mut self) {
@@ -65,7 +67,7 @@ impl Table {
             lines.push(self.grid_row(&self.head, widths, true));
             let rule: Vec<String> =
                 widths.iter().map(|width| RULE.to_string().repeat(*width)).collect();
-            lines.push(vec![Span::new(rule.join(RULE_CROSS), Style::PLAIN.dim())]);
+            lines.push(vec![Span::new(rule.join(RULE_CROSS), self.muted)]);
         }
         for row in &self.rows {
             lines.push(self.grid_row(row, widths, false));
@@ -77,7 +79,7 @@ impl Table {
         let mut line = Vec::new();
         for (column, width) in widths.iter().enumerate() {
             if column > 0 {
-                push_span(&mut line, Span::new(COLUMN_GAP, Style::PLAIN.dim()));
+                push_span(&mut line, Span::new(COLUMN_GAP, self.muted));
             }
             let cell = row.get(column).map_or(&[][..], Vec::as_slice);
             let pad = width.saturating_sub(line_width(cell));

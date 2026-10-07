@@ -3,9 +3,7 @@
 //! the terminal soft-wraps long lines), with bare URLs made into links.
 
 use crate::link::{encode, find_urls};
-use crate::style::{Line, Span, Style, line_text, push_span, sanitize};
-
-use super::link_style;
+use crate::style::{BLUE, Line, Span, Style, line_text, push_span, sanitize};
 
 pub(crate) enum InlineKind {
     Paragraph,
@@ -25,6 +23,10 @@ struct Run {
 
 pub(crate) struct Inline {
     kind: InlineKind,
+    /// The style every span starts from: a heading's style, or a quote's.
+    base: Style,
+    /// The style of a bare URL made into a link: the `link` role.
+    link: Style,
     lines: Vec<Line>,
     line: Line,
     run: Option<Run>,
@@ -32,14 +34,28 @@ pub(crate) struct Inline {
 
 impl Inline {
     pub(crate) fn new(kind: InlineKind) -> Inline {
-        Inline { kind, lines: Vec::new(), line: Vec::new(), run: None }
+        let base = match kind {
+            InlineKind::Heading(style) => style,
+            InlineKind::Paragraph | InlineKind::Cell => Style::PLAIN,
+        };
+        let link = Style::fg(BLUE).underline();
+        Inline { kind, base, link, lines: Vec::new(), line: Vec::new(), run: None }
+    }
+
+    /// The inline with `style` added to its base style.
+    pub(crate) fn with_base(mut self, style: Style) -> Inline {
+        self.base = self.base.patch(style);
+        self
+    }
+
+    /// The inline with `style` for the bare URLs it makes into links.
+    pub(crate) fn with_link(mut self, style: Style) -> Inline {
+        self.link = style;
+        self
     }
 
     pub(crate) fn base_style(&self) -> Style {
-        match self.kind {
-            InlineKind::Heading(style) => style,
-            InlineKind::Paragraph | InlineKind::Cell => Style::PLAIN,
-        }
+        self.base
     }
 
     /// Whether a soft break starts a new output line here. Headings and table cells
@@ -107,7 +123,7 @@ impl Inline {
         for url in find_urls(&text) {
             push_span(&mut self.line, Span::new(&text[at..url.start], run.style));
             let target = Some(encode(&text[url.clone()]));
-            let style = run.style.patch(link_style());
+            let style = run.style.patch(self.link);
             push_span(&mut self.line, Span::linked(&text[url.clone()], style, target));
             at = url.end;
         }

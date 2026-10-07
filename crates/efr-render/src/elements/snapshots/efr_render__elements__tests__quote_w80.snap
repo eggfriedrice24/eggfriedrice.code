@@ -2,8 +2,8 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-\e[2m│ \e[0mA quote long enough to wrap when the terminal is forty columns wide.
+\e[2m│ \e[0m\e[3mA quote long enough to wrap when the terminal is forty columns wide.\e[0m
 \e[2m│\e[0m
-\e[2m│ \e[0mIts second paragraph.
+\e[2m│ \e[0m\e[3mIts second paragraph.\e[0m
 \e[2m│\e[0m
-\e[2m│ \e[0m• a list inside the quote
+\e[2m│ \e[0m• \e[3ma list inside the quote\e[0m

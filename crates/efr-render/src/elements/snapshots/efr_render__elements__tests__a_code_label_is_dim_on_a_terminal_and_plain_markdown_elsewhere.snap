@@ -10,7 +10,6 @@ ls\e[36m -la\e[0m
 
 It prints:
 
-\e[2mtext\e[0m
 total 0
 
 None:
@@ -21,5 +20,4 @@ ls -la
 
 It prints:
 
-\e[2mtext\e[0m
 total 0

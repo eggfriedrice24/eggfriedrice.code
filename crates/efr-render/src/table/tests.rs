@@ -2,10 +2,10 @@ use pretty_assertions::assert_eq;
 use pulldown_cmark::Alignment;
 
 use super::Table;
-use crate::style::{Span, line_text};
+use crate::style::{Span, Style, line_text};
 
 fn table(aligns: Vec<Alignment>, head: &[&str], rows: &[&[&str]]) -> Table {
-    let mut table = Table::new(aligns);
+    let mut table = Table::new(aligns, Style::PLAIN.dim());
     table.start_row();
     for cell in head {
         table.push_cell(vec![Span::plain(*cell)]);
