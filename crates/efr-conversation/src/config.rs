@@ -15,9 +15,9 @@ use efr_stdx::time::Clock;
 use efr_store::{Readers, WriterHandle};
 use jiff::tz::TimeZone;
 use serde_json::{Map, Value};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
-use crate::{ExitJudge, HistoryLimits, ScopeResolver, Toolbox};
+use crate::{ConversationDraft, ExitJudge, HistoryLimits, ScopeResolver, Toolbox};
 
 /// The settings of one conversation.
 #[derive(Debug, Clone)]
@@ -58,6 +58,10 @@ pub struct ConversationConfig {
     /// The shortest time between two `assistant_message_updated` events, and between
     /// two `tool_call_output_updated` events of one call.
     pub update_interval: Duration,
+    /// The shortest time between two drafts of a turn ([`ConversationDraft`]): the text,
+    /// the reasoning and the tool input as they arrive from the model, for live clients
+    /// only. Zero sends a draft for every change. Read when the turn starts.
+    pub draft_interval: Duration,
     /// How long a parked approval waits before it expires; `None` waits until the user
     /// answers or interrupts.
     pub approval_timeout: Option<Duration>,
@@ -71,8 +75,8 @@ impl ConversationConfig {
     /// Settings for `model` with scratch directories under `scratch_root`, and the
     /// defaults for the rest: the backend's default effort, the `cautious` mode, no
     /// model list (any model), no system prompt, UTC dates, no machine facts, no
-    /// conversation rules, [`HistoryLimits::default`], 200 ms between updates, no
-    /// approval timeout, 64 model calls per turn and 16 queued prompts.
+    /// conversation rules, [`HistoryLimits::default`], 200 ms between updates, 16 ms
+    /// between drafts, no approval timeout, 64 model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -88,6 +92,7 @@ impl ConversationConfig {
             policy: Policy::empty(),
             history: HistoryLimits::default(),
             update_interval: Duration::from_millis(200),
+            draft_interval: Duration::from_millis(16),
             approval_timeout: None,
             max_model_calls: 64,
             max_queued: 16,
@@ -184,6 +189,10 @@ pub struct ConversationDeps {
     /// Who judges an exit before the user (the classifier, from phase 3); `None` asks
     /// the user about every exit, as phase 1 does.
     pub judge: Option<Arc<dyn ExitJudge>>,
+    /// Where the turns send their drafts, for the subscribers that asked for them. The
+    /// daemon holds the other end; nothing stores a draft. A send without a receiver
+    /// costs nothing, and a turn does no draft work while nobody listens.
+    pub drafts: broadcast::Sender<ConversationDraft>,
 }
 
 /// How a conversation's actor starts.

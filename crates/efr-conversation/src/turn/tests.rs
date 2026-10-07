@@ -23,6 +23,7 @@ use crate::testing::{
 };
 use crate::{ConversationError, approvals};
 
+mod drafts;
 mod sandbox;
 
 fn kinds(names: &[&str]) -> Vec<String> {

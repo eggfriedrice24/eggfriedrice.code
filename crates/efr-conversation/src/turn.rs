@@ -25,6 +25,7 @@
 //! programs asks the user whether to keep them before the next call.
 
 mod coalesce;
+mod drafter;
 mod stream;
 
 use std::collections::HashMap;
@@ -48,6 +49,7 @@ use tokio::sync::{mpsc, watch};
 use tracing::Instrument as _;
 
 use self::coalesce::{Coalescer, sleep_or_pending};
+use self::drafter::Drafter;
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
 use crate::exit::{self, TurnExits};
@@ -222,6 +224,8 @@ struct Turn {
     assistant_index: u32,
     /// How many bytes of that message's text `assistant_message_updated` events hold.
     streamed: usize,
+    /// The drafts of the turn, for live clients only.
+    drafter: Drafter,
     usage: Option<TokenUsage>,
     /// The user messages of the conversation so far, for the record of an exit.
     user_messages: Vec<String>,
@@ -276,6 +280,12 @@ impl Turn {
         let cwd = shared.deps.home.path().to_path_buf();
         let config = shared.config.current();
         let scratch = config.scratch_root.clone();
+        let drafter = Drafter::new(
+            shared.deps.drafts.clone(),
+            shared.conversation_id,
+            spec.turn_id,
+            config.draft_interval,
+        );
         Turn {
             shared,
             config,
@@ -288,6 +298,7 @@ impl Turn {
             transcript: Vec::new(),
             assistant_index: 0,
             streamed: 0,
+            drafter,
             usage: None,
             user_messages: Vec::new(),
             exits: TurnExits::default(),
@@ -1144,7 +1155,10 @@ impl Turn {
         let batch = events
             .into_iter()
             .fold(Batch::new(), |batch, event| batch.event(conversation_id, event));
-        self.shared.deps.writer.append(batch).await.map_err(ConversationError::from_store)
+        let committed =
+            self.shared.deps.writer.append(batch).await.map_err(ConversationError::from_store)?;
+        self.drafter.recorded(committed.last_seq());
+        Ok(committed)
     }
 }
 

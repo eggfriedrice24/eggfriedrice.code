@@ -9,6 +9,7 @@
 
 mod approvals;
 mod backtrace;
+mod drafts;
 mod hello;
 mod input_respond;
 mod interrupt;

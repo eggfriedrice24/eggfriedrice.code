@@ -66,6 +66,7 @@ pub(crate) fn conversation_config(
     config.max_queued = settings.conversation.max_queued;
     config.approval_timeout = settings.conversation.approval_timeout_secs.map(Duration::from_secs);
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
+    config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
     config
 }
 

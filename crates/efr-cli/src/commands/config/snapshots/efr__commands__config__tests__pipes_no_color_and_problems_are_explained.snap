@@ -28,6 +28,7 @@ shell.interactive_timeout_minutes = 60  # default
 conversation.max_queued = 16  # default
 conversation.approval_timeout_secs = (unset)  # default
 conversation.update_interval_ms = 200  # default
+conversation.draft_interval_ms = 16  # default
 conversation.tty_idle_hours = 12  # default
 sandbox.enabled = true  # default
 sandbox.bwrap = (unset)  # default

@@ -67,14 +67,20 @@ impl Turn {
         let mut builder = CompletionBuilder::new();
         let mut updates = Coalescer::new(self.config.update_interval);
         self.streamed = 0;
+        self.drafter.begin_call();
         let streamed = loop {
-            let flush = updates.flush_after(clock.now());
+            let now = clock.now();
+            let flush = updates.flush_after(now);
+            let draft_flush = self.drafter.flush_after(now);
             tokio::select! {
                 biased;
                 () = interrupt.raised() => break Streamed::Interrupted,
                 () = sleep_or_pending(&*clock, flush) => {
                     updates.flushed(clock.now());
                     self.record_text(builder.text()).await?;
+                }
+                () = sleep_or_pending(&*clock, draft_flush) => {
+                    self.drafter.flush(clock.now(), &builder, self.assistant_index);
                 }
                 item = stream.next() => match item {
                     None => break Streamed::Ended,
@@ -93,6 +99,11 @@ impl Turn {
                         }
                         if let Err(error) = builder.push(&event) {
                             break Streamed::Failed(error);
+                        }
+                        // NOTE: the draft goes before the update, which waits for the commit,
+                        // so a live client sees the text first.
+                        if self.drafter.push(&event) {
+                            self.drafter.offer(clock.now(), &builder, self.assistant_index);
                         }
                         let text_grew = matches!(&event, ProviderEvent::TextDelta { text } if !text.is_empty());
                         if text_grew && updates.offer(clock.now()) {

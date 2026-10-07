@@ -144,7 +144,9 @@ dependencies of its own, or a second binary needs it.
   never interleave. A file with an error changes nothing, and the keys that need a
   restart keep their running values.
 - Every fan-out has a bounded queue per consumer. Overflow closes that consumer with
-  `Overflow { last_seq }`; it never slows the producer.
+  `Overflow { last_seq }`; it never slows the producer. Drafts of a running turn are the
+  one lossy item: they have a small room of their own in that queue, and a full room
+  drops the draft without closing the consumer.
 
 ## Startup and restart order
 

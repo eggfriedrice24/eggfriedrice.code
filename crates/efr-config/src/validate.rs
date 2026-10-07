@@ -104,6 +104,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         "between 0 and 60000",
     )?;
     within(
+        "conversation.draft_interval_ms",
+        conversation.draft_interval_ms,
+        0..=1_000,
+        "between 0 and 1000 (a second)",
+    )?;
+    within(
         "conversation.tty_idle_hours",
         conversation.tty_idle_hours,
         0..=8_760,

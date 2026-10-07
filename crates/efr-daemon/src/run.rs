@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::Settings;
-use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo};
+use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo, draft_channel};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
@@ -476,6 +476,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         host,
         time_zone.unwrap_or_else(TimeZone::system),
     );
+    let drafts = draft_channel();
     let conversation_deps = ConversationDeps {
         provider: providers.active(),
         toolbox: Arc::new(toolbox),
@@ -488,6 +489,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         home,
         sandbox: sandbox.status(),
         judge: None,
+        drafts: drafts.clone(),
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let roots = roots(&dirs, root_sources);
@@ -509,6 +511,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         rng,
         writer: writer.clone(),
         readers,
+        drafts,
         recordings,
         conversations: Conversations::new(Arc::new(live_settings), conversation_deps, ttys),
         connections,

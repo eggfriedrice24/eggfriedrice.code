@@ -1,10 +1,12 @@
-//! Coalescing: at most one update event per interval for a value that changes often.
+//! Coalescing: at most one update per interval for a value that changes often.
 //!
-//! Every `assistant_message_updated` and `tool_call_output_updated` event carries the
-//! whole value so far, so a subscriber can resume anywhere, and writing one per token
-//! would make the log grow with the square of a message's length. The first change is
-//! sent at once; later changes inside the interval are held, and the newest of them is
-//! sent when the interval ends, measured on the injected clock.
+//! An `assistant_message_updated` event carries only the text added since the previous
+//! one, with its byte offset; a `tool_call_output_updated` event carries the output's
+//! bounded tail. One event per token would still fill the log with rows, so the turn
+//! sends at most one per `update_interval`. The drafts of a turn use the same rule with
+//! `draft_interval`. The first change is sent at once; later changes inside the
+//! interval are held, and the newest state is sent when the interval ends, measured on
+//! the injected clock.
 
 use std::time::Duration;
 

@@ -104,8 +104,14 @@
 # until you answer.
 # approval_timeout_secs = 600
 
-# The shortest time between two streamed text updates, in milliseconds, up to 60000.
+# The shortest time between two streamed text updates in the log, in milliseconds, up
+# to 60000. Live clients see the text sooner, through drafts.
 # update_interval_ms = 200
+
+# The shortest time between two drafts of a running turn, in milliseconds, up to
+# 1000: the text, the reasoning and the tool input that a terminal shows as they
+# arrive. Drafts go only to live clients and never into the log; 0 sends every change.
+# draft_interval_ms = 16
 
 # Hours without activity after which a terminal's next , line starts a new
 # conversation, up to a year; 0 continues the old one forever.

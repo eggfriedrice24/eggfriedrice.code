@@ -114,7 +114,16 @@ request:
 It streams the provider and records coalesced `assistant_message_updated` events (at
 most one per `update_interval` on the injected clock, the text held back sent when the
 interval ends), each with only the text added since the previous one and its byte
-offset, then `assistant_message_completed` with the whole text. Earlier turns are
+offset, then `assistant_message_completed` with the whole text. While text, reasoning and
+tool input arrive, the turn also sends drafts (`ConversationDraft`, through
+`ConversationDeps::drafts`, a broadcast that the daemon holds): at most one batch per
+`ConversationConfig::draft_interval` (16 ms by default, the first at once), each with
+the sequence number of the last event the turn recorded before it. A text draft
+carries the same `index` and byte offsets as the updates; a reasoning draft carries
+the new reasoning at its offset in the reasoning of the whole turn, with the title of
+the newest section (the last all-bold line); a tool-input draft carries the tool and the input bytes so far of each
+call of the answer. Drafts never reach the log, and a turn that nobody follows live
+does no draft work and sets no timer. Earlier turns are
 rebuilt from the newest events without `tool_call_output_updated`, so a long command's
 progress cannot push them out of the page. Every tool call is recorded
 with `tool_call_started`, judged at the check point, run when allowed or approved
@@ -271,7 +280,9 @@ call allowed, denied, asked then approved or denied, a phone turn that asks, the
 of each turn deciding a write, an interrupt mid-stream, during an approval and during
 a tool call, an approval that times out, a provider 401, a cwd move between turns,
 provider items passed back to the same provider, also after a restart, and dropped
-for another provider, steering, coalesced updates, a queued second prompt, receipts and
+for another provider, steering, coalesced updates, drafts (`turn/tests/drafts.rs`: their parts
+and `after_seq`, coalescing on the clock, the same log with and without a listener, no
+timer without one), a queued second prompt, receipts and
 the refusals. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to

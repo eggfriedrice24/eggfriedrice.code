@@ -155,6 +155,13 @@
             "null"
           ]
         },
+        "draft_interval_ms": {
+          "default": 16,
+          "description": "The shortest time between two drafts of a running turn, in milliseconds: the\ntext, the reasoning and the tool input that a terminal shows as they arrive.\nDrafts go only to live clients and never into the log; 0 sends every change.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "max_queued": {
           "default": 16,
           "description": "The most prompts that may wait behind a running turn.",
@@ -171,7 +178,7 @@
         },
         "update_interval_ms": {
           "default": 200,
-          "description": "The shortest time between two streamed text updates, in milliseconds.",
+          "description": "The shortest time between two streamed text updates in the log, in\nmilliseconds. Live clients see the text sooner, through drafts.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -938,6 +945,7 @@
     "conversation": {
       "$ref": "#/$defs/ConversationSettings",
       "default": {
+        "draft_interval_ms": 16,
         "max_queued": 16,
         "tty_idle_hours": 12,
         "update_interval_ms": 200

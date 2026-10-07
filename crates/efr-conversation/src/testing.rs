@@ -34,8 +34,9 @@ use crate::preamble::LiveState;
 use crate::resolver::machine;
 use crate::scratch;
 use crate::{
-    CallContext, ConversationActor, ConversationConfig, ConversationDeps, ConversationHandle,
-    ConversationStart, HostInfo, OutputSink, ScopeResolver, ToolCall, ToolOutcome, Toolbox,
+    CallContext, ConversationActor, ConversationConfig, ConversationDeps, ConversationDraft,
+    ConversationHandle, ConversationStart, HostInfo, OutputSink, ScopeResolver, ToolCall,
+    ToolOutcome, Toolbox, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -320,6 +321,8 @@ pub(crate) struct Setup {
     pub(crate) project: Option<(ProjectId, PathBuf)>,
     /// What the sandbox probe says; ready unless a test says otherwise.
     pub(crate) sandbox: SandboxStatus,
+    /// The channel of the turns' drafts; a test subscribes to it to see them.
+    pub(crate) drafts: broadcast::Sender<ConversationDraft>,
     /// The seed of the actor's generator. A restarted actor needs another one, or it
     /// would make the ids of the first actor again.
     rng_seed: u64,
@@ -346,6 +349,7 @@ impl Setup {
             scope: FakeScope::default(),
             project: None,
             sandbox: ready(),
+            drafts: draft_channel(),
             rng_seed: 7,
         }
     }
@@ -436,6 +440,7 @@ impl Setup {
             home,
             sandbox: sandbox_receiver,
             judge: None,
+            drafts: self.drafts.clone(),
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
         let handle =
@@ -498,6 +503,7 @@ impl Harness {
             scope: FakeScope::default(),
             project: None,
             sandbox: self.sandbox.borrow().clone(),
+            drafts: draft_channel(),
             rng_seed: 8,
         };
         let mut harness = setup

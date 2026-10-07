@@ -32,6 +32,8 @@ fn without_a_file_every_value_is_the_default() {
     assert_eq!(settings.shell.sudo_cache, SudoCache::Keep);
     assert_eq!(settings.shell.interactive_timeout_minutes, 60);
     assert_eq!(settings.conversation.max_queued, 16);
+    assert_eq!(settings.conversation.update_interval_ms, 200, "drafts keep the log at 200 ms");
+    assert_eq!(settings.conversation.draft_interval_ms, 16);
     assert_eq!(settings.source("log"), Source::Default);
     assert_eq!(settings.path, PathBuf::from(PATH));
     assert_eq!(settings, Settings { path: PathBuf::from(PATH), ..Settings::default() });
@@ -73,6 +75,7 @@ fn the_file_sets_what_it_names() {
         max_queued = 4
         approval_timeout_secs = 600
         update_interval_ms = 50
+        draft_interval_ms = 8
         tty_idle_hours = 0
 
         [render]
@@ -105,6 +108,7 @@ fn the_file_sets_what_it_names() {
     assert_eq!(settings.conversation.max_queued, 4);
     assert_eq!(settings.conversation.approval_timeout_secs, Some(600));
     assert_eq!(settings.conversation.update_interval_ms, 50);
+    assert_eq!(settings.conversation.draft_interval_ms, 8);
     assert_eq!(settings.conversation.tty_idle_hours, 0);
     assert_eq!(settings.render.theme.as_deref(), Some("ansi"));
     assert_eq!(settings.source("model.name"), Source::File);
@@ -189,6 +193,7 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         ("[conversation]\nmax_queued = 0\n", "conversation.max_queued"),
         ("[conversation]\napproval_timeout_secs = 0\n", "conversation.approval_timeout_secs"),
         ("[conversation]\nupdate_interval_ms = 60001\n", "conversation.update_interval_ms"),
+        ("[conversation]\ndraft_interval_ms = 1001\n", "conversation.draft_interval_ms"),
         ("[conversation]\ntty_idle_hours = 9000\n", "conversation.tty_idle_hours"),
         ("[render]\ntheme = \"\"\n", "render.theme"),
         ("[render]\npalette = \"themes/efr.toml\"\n", "render.palette"),
@@ -259,7 +264,7 @@ fn the_message_of_a_value_out_of_range_says_what_is_allowed() {
 fn the_edges_of_each_range_are_allowed() {
     let text = "[model]\nmax_output_tokens = 1\n[shell]\nidle_minutes = 0\n\
                 [conversation]\nmax_queued = 1024\napproval_timeout_secs = 1\n\
-                update_interval_ms = 0\ntty_idle_hours = 8760\n";
+                update_interval_ms = 0\ndraft_interval_ms = 1000\ntty_idle_hours = 8760\n";
 
     let settings = parse(text).unwrap();
 

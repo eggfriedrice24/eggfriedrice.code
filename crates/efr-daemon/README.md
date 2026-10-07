@@ -189,7 +189,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `provider_options`. A turn from a remote origin runs with at most `cautious`.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
-  history cursor, then forwards live events through a 64-item queue.
+  history cursor, then forwards live events through a 64-item queue. With `drafts`,
+  it also forwards the drafts of the running turn (`State::drafts`, a broadcast from
+  the turns): after the commits that wait, through the queue's lossy room of 16. It
+  drops a draft that is older than an event it sent that ends what the draft shows. A
+  draft never closes the subscription.
 - `pty.attach` registers for live output, then sends the output after `since_seq` from
   the recording (a gap of at most 1 MiB) or a screen snapshot plus what was recorded
   after it; live output follows with any overlap cut by offset. `pty.resize` refuses a
@@ -448,7 +452,7 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`, `sandbox`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`, `drafts`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -456,6 +460,13 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `drafts` module checks the drafts end to end with a model that streams text: only
+a subscriber that asked gets them, each after the events that its `after_seq` names;
+the log is the same with and without them; with the test clock following real time,
+a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
+interval); and a subscriber on a raw socket that does not read loses drafts but keeps
+its subscription and gets every event.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

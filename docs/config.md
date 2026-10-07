@@ -83,7 +83,8 @@ Queues, approvals, streaming and terminals.
 |---|---|---|---|
 | `max_queued` | `16` | live | The most prompts that may wait behind a running turn. |
 | `approval_timeout_secs` | unset | live | Seconds an approval request waits before it expires. Unset: it waits until the user answers. |
-| `update_interval_ms` | `200` | live | The shortest time between two streamed text updates, in milliseconds. |
+| `update_interval_ms` | `200` | live | The shortest time between two streamed text updates in the log, in milliseconds. Live clients see the text sooner, through drafts. |
+| `draft_interval_ms` | `16` | live | The shortest time between two drafts of a running turn, in milliseconds: the text, the reasoning and the tool input that a terminal shows as they arrive. Drafts go only to live clients and never into the log; 0 sends every change. |
 | `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line starts a new conversation instead of continuing the old one; 0 continues it forever. |
 
 ## [sandbox]

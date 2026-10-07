@@ -18,6 +18,9 @@
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
 //!   `efr_tools::ToolRegistry`.
+//! - Drafts ([`ConversationDraft`], [`draft_channel`]): the text, the reasoning and the
+//!   tool input of a running turn as they arrive from the model, sent at most once per
+//!   [`ConversationConfig::draft_interval`] to the daemon for live clients, never stored.
 //! - [`ScopeResolver`] ([`GitScopeResolver`]): the scope of each turn, derived again
 //!   from the shell's working directory through `efr-scope`.
 //! - The `auto` sandbox: the check point runs a contained call with no question, asks
@@ -36,6 +39,7 @@
 mod actor;
 mod approvals;
 mod config;
+mod drafts;
 mod error;
 mod exit;
 mod history;
@@ -54,6 +58,7 @@ mod turn;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
+pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::ConversationError;
 pub use history::HistoryLimits;
 pub use judge::ExitJudge;

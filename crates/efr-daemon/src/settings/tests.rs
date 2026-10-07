@@ -19,6 +19,7 @@ fn the_conversation_settings_follow_the_config() {
     config.conversation.max_queued = 3;
     config.conversation.approval_timeout_secs = Some(90);
     config.conversation.update_interval_ms = 50;
+    config.conversation.draft_interval_ms = 8;
     config.model.system_prompt = "be brief".to_owned();
     config.permissions.mode = Mode::Auto;
     let host = HostInfo::new(Some("box".to_owned()), Some("Arch Linux".to_owned()));
@@ -33,6 +34,7 @@ fn the_conversation_settings_follow_the_config() {
     assert_eq!(settings.max_queued, 3);
     assert_eq!(settings.approval_timeout, Some(Duration::from_secs(90)));
     assert_eq!(settings.update_interval, Duration::from_millis(50));
+    assert_eq!(settings.draft_interval, Duration::from_millis(8));
     assert_eq!(settings.host, host);
     assert_eq!(settings.mode, Mode::Auto);
     assert_eq!(settings.effort, None);

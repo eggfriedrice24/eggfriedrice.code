@@ -232,8 +232,13 @@ pub struct ConversationSettings {
     /// user answers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_timeout_secs: Option<u64>,
-    /// The shortest time between two streamed text updates, in milliseconds.
+    /// The shortest time between two streamed text updates in the log, in
+    /// milliseconds. Live clients see the text sooner, through drafts.
     pub update_interval_ms: u64,
+    /// The shortest time between two drafts of a running turn, in milliseconds: the
+    /// text, the reasoning and the tool input that a terminal shows as they arrive.
+    /// Drafts go only to live clients and never into the log; 0 sends every change.
+    pub draft_interval_ms: u64,
     /// Hours without activity after which a terminal's next `,` line starts a new
     /// conversation instead of continuing the old one; 0 continues it forever.
     pub tty_idle_hours: u64,
@@ -245,6 +250,7 @@ impl Default for ConversationSettings {
             max_queued: 16,
             approval_timeout_secs: None,
             update_interval_ms: 200,
+            draft_interval_ms: 16,
             tty_idle_hours: 12,
         }
     }

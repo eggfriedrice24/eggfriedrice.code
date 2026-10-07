@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use efr_config::Settings;
+use efr_conversation::ConversationDraft;
 use efr_permissions::Engine;
 use efr_protocol::{DaemonId, DaemonRoots};
 use efr_scope::Git;
@@ -13,7 +14,7 @@ use efr_stdx::time::Clock;
 use efr_store::recording::Recordings;
 use efr_store::{Readers, WriterHandle};
 use jiff::Timestamp;
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::connections::Connections;
 use crate::conversations::Conversations;
@@ -62,6 +63,9 @@ pub(crate) struct State {
     pub(crate) rng: Arc<dyn Rng>,
     pub(crate) writer: WriterHandle,
     pub(crate) readers: Readers,
+    /// The drafts of every running turn. `conversation.subscribe` subscribes one
+    /// receiver for each subscriber that asked for drafts; nothing stores them.
+    pub(crate) drafts: broadcast::Sender<ConversationDraft>,
     pub(crate) recordings: Recordings,
     pub(crate) conversations: Conversations,
     pub(crate) connections: Arc<Connections>,
