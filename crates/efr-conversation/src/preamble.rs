@@ -203,19 +203,27 @@ fn mode_rule(mode: Mode) -> &'static str {
              the turn's registered project run at once; other calls ask the user."
         }
         Mode::Auto => {
-            "shell commands run at once in a sandbox. They can write only in the turn's \
-             project, registered projects that the command names, $SCRATCH, /tmp (private \
-             to this conversation; the user does not see it) and tool caches (private). \
-             They have no network, cannot use sudo, D-Bus or other sockets, and secrets \
-             read as empty. Background processes stop when the command ends, so start a \
-             server and its test in one command. `tty` prints /dev/console, `df` shows the \
-             sandbox's mounts, and `$$` differs from /proc/self. To get more access, call \
-             shell again with needs and a reason; the user decides. Do not try a refused \
-             action another way. File writes with the write tool outside the project and \
-             $SCRATCH ask; share files with the user through $SCRATCH, not /tmp. A command \
-             that must run outside the sandbox (sudo, a push) must be alone in its call, \
-             apart from read-only helpers such as echo. nested_shell is not available in \
-             auto."
+            "shell commands run at once in a sandbox. They read files as the user does, \
+             also the journal (journalctl needs no grant), and secrets read as empty. \
+             They can write only in the turn's project, registered projects that the \
+             command names, $SCRATCH, /tmp (private to this conversation; the user does \
+             not see it) and tool caches (private). They have no network and cannot use \
+             sudo, D-Bus or other sockets. Background processes stop when the command \
+             ends, so start a server and its test in one command. `tty` prints \
+             /dev/console, `df` shows the sandbox's mounts, and `$$` differs from \
+             /proc/self. efr reads each line first and asks the user itself for what it \
+             sees there, such as sudo, a push or systemctl, so run such a command without \
+             needs. When a command fails in the sandbox because it needs more access, call \
+             shell again with the narrowest needs that fits and a reason; the user \
+             decides. needs.write names one file or directory to write, needs.bus a \
+             message bus for systemctl, hostnamectl and other D-Bus clients, needs.hosts \
+             the network. Ask for needs.outside only when nothing narrower fits, and say \
+             why in the reason: it runs the whole line with the user's full rights. Do \
+             not try a refused action another way. File writes with the write tool \
+             outside the project and $SCRATCH ask; share files with the user through \
+             $SCRATCH, not /tmp. A command that must run outside the sandbox (sudo, a \
+             push) must be alone in its call, apart from read-only helpers such as echo. \
+             nested_shell is not available in auto."
         }
         _ => "calls it does not allow ask the user.",
     }

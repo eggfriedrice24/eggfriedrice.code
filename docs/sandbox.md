@@ -19,7 +19,11 @@ decision.
   the sandbox, such as `sudo`, `git push` or a write to `~/.zshrc`, efr asks you first.
   This is an exit.
 - After a failure, the model can call the shell again with `needs`, for example a
-  path to write or the network. That call is an exit too, and it asks you.
+  path to write or the network. That call is an exit too, and it asks you. efr tells
+  the model to ask for the narrowest need: a write grant for one file, the bus for
+  `systemctl`, and `outside` only when nothing narrower fits.
+- Reads work as they do for you, except for secrets. So `journalctl` shows in the
+  sandbox the journal that you can read, with no grant.
 - `read_file`, `write_file` and `edit` run in efrd, not in the sandbox. In `auto` they
   follow the rules of `cautious`, plus two: a read of a sandbox mask asks, and a write
   to a floor path asks.

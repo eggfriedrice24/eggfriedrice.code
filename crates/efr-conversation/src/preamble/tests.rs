@@ -129,7 +129,11 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
             "\n- cautious: reads outside secrets, the read-only commands, and writes in \
              $SCRATCH and in the turn's registered project run at once",
             "\n- auto: shell commands run at once in a sandbox.",
-            "To get more access, call shell again with needs and a reason; the user decides.",
+            "call shell again with the narrowest needs that fits and a reason; the user \
+             decides.",
+            "needs.bus a message bus for systemctl",
+            "journalctl needs no grant",
+            "Ask for needs.outside only when nothing narrower fits, and say why in the reason",
             "A command that must run outside the sandbox (sudo, a push) must be alone in its \
              call",
             "nested_shell is not available in auto.",

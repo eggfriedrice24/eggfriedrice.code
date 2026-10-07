@@ -41,17 +41,44 @@ struct ShellInput {
     #[serde(default)]
     nested_shell: bool,
     /// Only in the auto mode, after a command failed in the sandbox because it needs
-    /// more: the paths to write, hosts, Unix sockets, a message bus, a device and
-    /// masked paths to read, or outside to run outside the sandbox, with a reason that
-    /// the user sees. The user decides; other modes ignore it.
+    /// more access. Ask for the narrowest member that fits, with a reason that the user
+    /// sees; the user decides. efr already asks for what it sees in the line itself,
+    /// such as sudo, a push or systemctl, so leave that out. Other modes ignore it.
     #[serde(default)]
     #[schemars(with = "NeedsInput")]
     needs: Option<Needs>,
 }
 
 /// The schema of `needs` as the model sees it: [`Needs`] with the limits that
-/// `Needs::check` holds.
+/// `Needs::check` holds, and what each member is for. The descriptions steer the model
+/// to the narrowest member: a model that does not know that a bus or a write grant
+/// exists asks to run outside the sandbox, with the user's full rights.
 struct NeedsInput;
+
+/// What each member of `needs` is for, as the model reads it.
+const NEEDS_MEMBERS: &[(&str, &str)] = &[
+    (
+        "write",
+        "Paths to write outside the sandbox's write roots, such as one file in ~. A grant \
+         opens only these paths.",
+    ),
+    ("hosts", "Hosts to reach over the network, such as crates.io."),
+    ("sockets", "Unix sockets to connect to, such as a tool's own socket."),
+    (
+        "bus",
+        "A message bus: system for systemctl, hostnamectl, timedatectl and other D-Bus \
+         clients of the system; session for the user's own services.",
+    ),
+    ("device", "A device node, such as /dev/nvme0n1."),
+    ("unmask", "Masked paths to read, such as a project's .env, which read as empty."),
+    (
+        "outside",
+        "Runs the whole line outside the sandbox with the user's full rights: files, \
+         secrets and network. Ask for it only when no other member fits, such as for a \
+         debugger that attaches to a process or git over ssh, and say why in reason.",
+    ),
+    ("reason", "Why the command needs this, in one sentence. The user reads it."),
+];
 
 impl JsonSchema for NeedsInput {
     fn schema_name() -> Cow<'static, str> {
@@ -63,7 +90,15 @@ impl JsonSchema for NeedsInput {
     }
 
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        match Needs::input_schema() {
+        let mut schema = Needs::input_schema();
+        if let Some(Value::Object(properties)) = schema.get_mut("properties") {
+            for (name, text) in NEEDS_MEMBERS {
+                if let Some(Value::Object(member)) = properties.get_mut(*name) {
+                    member.insert("description".to_owned(), Value::from(*text));
+                }
+            }
+        }
+        match schema {
             Value::Object(map) => Schema::from(map),
             _ => Schema::default(),
         }
@@ -302,7 +337,9 @@ impl Tool for ShellTool {
              with a message that says so. Give a command its text yourself (git commit \
              -m) or use write_file. In the auto permission mode each command runs at once \
              in a sandbox; when one fails there because it needs more access, call shell \
-             again with needs and a reason, and the user decides. An approved command that \
+             again with the narrowest needs that fits and a reason, and the user decides. \
+             needs.outside runs the whole line with the user's full rights, so ask for it \
+             only when no narrower member fits. An approved command that \
              runs outside the sandbox does not see exports or functions that sandboxed \
              commands made, and its background processes stop when it ends. In auto, \
              nested_shell is refused. The \
@@ -436,7 +473,9 @@ const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox: it can write onl
                             $SCRATCH, /tmp (private) and the tool caches (private), has no \
                             network, and cannot use sudo, D-Bus or other sockets; secrets \
                             read as empty. If it failed for that reason, call shell again \
-                            with needs.]";
+                            with the narrowest needs that fits: needs.write for a file or \
+                            directory, needs.bus for D-Bus, needs.hosts for the network; \
+                            needs.outside only when nothing narrower fits.]";
 
 /// How a sandboxed run failed, with the launcher's reason.
 enum SandboxFailure {

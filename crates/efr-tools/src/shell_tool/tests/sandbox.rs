@@ -31,6 +31,32 @@ fn the_schema_carries_needs_with_the_limits_of_the_spec() {
 }
 
 #[test]
+fn the_schema_steers_the_model_to_the_narrowest_need() {
+    let schema = tool().spec().input_schema;
+    let needs = &schema["properties"]["needs"];
+    let text = |path: &Value| path.as_str().unwrap_or_default().to_owned();
+    assert!(text(&needs["description"]).contains("narrowest"), "{needs}");
+    // Each member says what it is for, so the model need not ask for outside to get a
+    // bus or one file.
+    for member in ["write", "hosts", "sockets", "bus", "device", "unmask", "outside", "reason"] {
+        assert!(
+            !text(&needs["properties"][member]["description"]).is_empty(),
+            "{member} has no description"
+        );
+    }
+    assert!(text(&needs["properties"]["bus"]["description"]).contains("systemctl"));
+    assert!(text(&needs["properties"]["write"]["description"]).contains("one file"));
+    let outside = text(&needs["properties"]["outside"]["description"]);
+    assert!(outside.contains("full rights") && outside.contains("only when"), "{outside}");
+    // The descriptions add to the protocol's schema; the limits stay its own.
+    assert_eq!(needs["properties"]["bus"]["enum"], json!(["system", "session"]));
+    let description = text(&schema["properties"]["needs"]["description"]);
+    assert!(description.contains("systemctl"), "{description}");
+    let tool_text = tool().spec().description;
+    assert!(tool_text.contains("narrowest needs"), "{tool_text}");
+}
+
+#[test]
 fn needs_and_nested_shell_are_declared() {
     let fixture = Fixture::new();
     let input = json!({
@@ -117,7 +143,9 @@ async fn a_failed_contained_call_ends_with_the_sandbox_note() {
          in the turn's project, registered projects that the command names, $SCRATCH, /tmp \
          (private) and the tool caches (private), has no network, and cannot use sudo, D-Bus \
          or other sockets; secrets read as empty. If it failed for that reason, call shell \
-         again with needs.]"
+         again with the narrowest needs that fits: needs.write for a file or directory, \
+         needs.bus for D-Bus, needs.hosts for the network; needs.outside only when nothing \
+         narrower fits.]"
     );
     // No note for a call that worked, nor for one that ran in the exit child.
     let worked = answer(0, json!({ "started": true, "summary": { "confined": true } })).await;
@@ -184,7 +212,17 @@ async fn a_run_that_is_still_going_gets_no_sandbox_note() {
 #[test]
 fn the_description_names_needs_and_the_rules_of_auto() {
     let description = tool().spec().description;
-    assert!(description.contains("call shell again with needs and a reason"), "{description}");
+    assert!(
+        description.contains("call shell again with the narrowest needs that fits and a reason"),
+        "{description}"
+    );
+    assert!(
+        description.contains(
+            "needs.outside runs the whole line with the user's full rights, so ask for it only \
+             when no narrower member fits"
+        ),
+        "{description}"
+    );
     assert!(
         description.contains(
             "An approved command that runs outside the sandbox does not see exports or \
