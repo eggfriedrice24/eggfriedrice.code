@@ -34,7 +34,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Notify, mpsc, watch};
 
 use crate::cli::{Cli, Command};
-use crate::context::{Browser, Context, Interrupt, Resize, Resizes, Stop};
+use crate::context::{Browser, Context, Interrupt, Resize, Resume, Signals, Stop};
 use crate::error::CliError;
 use crate::keys::{KeyReader, Keys};
 use crate::output::Output;
@@ -348,13 +348,33 @@ impl TestResize {
 }
 
 impl Resize for TestResize {
-    fn resizes(&self) -> Resizes {
-        let notify = Arc::clone(&self.0);
-        Box::pin(futures::stream::unfold(notify, |notify| async move {
-            notify.notified().await;
-            Some(((), notify))
-        }))
+    fn resizes(&self) -> Signals {
+        notified(&self.0)
     }
+}
+
+/// Returns from a stop that the test triggers. A trigger before anyone waits is kept.
+#[derive(Debug, Default)]
+pub(crate) struct TestResume(Arc<Notify>);
+
+impl TestResume {
+    pub(crate) fn trigger(&self) {
+        self.0.notify_one();
+    }
+}
+
+impl Resume for TestResume {
+    fn resumes(&self) -> Signals {
+        notified(&self.0)
+    }
+}
+
+/// One item for each notification of `notify`.
+fn notified(notify: &Arc<Notify>) -> Signals {
+    Box::pin(futures::stream::unfold(Arc::clone(notify), |notify| async move {
+        notify.notified().await;
+        Some(((), notify))
+    }))
 }
 
 /// A `Ctrl+\` that the test triggers; it counts how many waits for it live and how many
@@ -575,6 +595,7 @@ impl TestEnv {
             keys: Arc::new(NoKeys),
             interrupt: Arc::new(TestInterrupt::default()),
             resize: Arc::new(TestResize::default()),
+            resume: Arc::new(TestResume::default()),
             quit: Arc::new(TestQuit::default()),
             browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),

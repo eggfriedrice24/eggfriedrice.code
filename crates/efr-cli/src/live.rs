@@ -84,6 +84,13 @@ impl LiveZone {
         self.draw(committed, live, measured, "", size)
     }
 
+    /// Forgets the live zone on the screen: the next draw starts a new one at the
+    /// cursor and moves nothing up. After a stop, the shell's lines stand below the
+    /// old live zone, which stays as it was.
+    pub(crate) fn forget(&mut self) {
+        *self = LiveZone::new(self.method);
+    }
+
     /// The bytes that erase the live zone, write `committed` once, and show `body` and
     /// then the status row `status` (one line with its newline, or empty) in its place.
     /// `measured` is the renderer's count of the rows `body` takes, used when it was

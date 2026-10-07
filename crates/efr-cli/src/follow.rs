@@ -29,6 +29,8 @@
 //! fast drafts and events come. A question, an answer, a key and the end of the turn
 //! show at once. While the turn runs, a tick every [`TICK`] moves the status row on,
 //! and a resize of the window (SIGWINCH) draws the live zone again at the new width.
+//! After a stop (Ctrl+Z, then `fg`, SIGCONT) the live zone starts again below the
+//! shell's lines, and the cursor hides again.
 //! Every way out writes a last frame, which shows the cursor again and clears the
 //! progress bar; a panic and the default action of SIGQUIT write what
 //! [`TurnView::restore`] last said instead (`crate::output::set_restore`).
@@ -363,6 +365,7 @@ impl Follower<'_> {
     async fn run(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
         let mut interrupt = self.ctx.interrupt.wait();
         let mut resizes = self.ctx.resize.resizes();
+        let mut resumes = self.ctx.resume.resumes();
         let mut resubscribes = 0;
         loop {
             let mut stream = self.subscribe().await?;
@@ -389,6 +392,10 @@ impl Follower<'_> {
                         self.paint(out, view, true)?;
                     }
                     Some(()) = resizes.next() => {
+                        self.paint(out, view, false)?;
+                    }
+                    Some(()) = resumes.next() => {
+                        view.resumed();
                         self.paint(out, view, false)?;
                     }
                     () = pressed(&mut self.quit) => {

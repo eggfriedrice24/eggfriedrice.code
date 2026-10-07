@@ -588,6 +588,16 @@ impl TurnView {
         self.status.is_some() && !self.ended
     }
 
+    /// The process runs again after a stop (Ctrl+Z, then `fg`). The shell wrote its
+    /// lines below the live zone and showed the cursor, so the next frame starts a new
+    /// live zone below them, hides the cursor again and sends the progress bar again.
+    pub(crate) fn resumed(&mut self) {
+        self.live.forget();
+        self.cursor_hidden = false;
+        self.progress_sent = None;
+        self.dirty = true;
+    }
+
     /// What a sudden way out must write to leave the terminal as it was: the cursor
     /// back, and no progress bar.
     pub(crate) fn restore(&self) -> String {

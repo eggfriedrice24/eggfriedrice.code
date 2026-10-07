@@ -21,7 +21,7 @@ use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
     Captured, Conn, GateClock, ResizableScreen, ScriptedKeys, TestEnv, TestInterrupt, TestQuit,
-    TestResize, call, capture, conversation, envelope, item, now, readable, turn,
+    TestResize, TestResume, call, capture, conversation, envelope, item, now, readable, turn,
 };
 
 fn target() -> Target {
@@ -1598,6 +1598,30 @@ async fn a_resize_draws_the_live_zone_again_at_the_new_width() {
         shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
         let redraw = seen.stdout()[before..].to_owned();
         assert!(redraw.starts_with("\x1b[?2026h\r\x1b[3A\x1b[J"), "{}", readable(&redraw));
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn after_a_stop_the_live_zone_starts_again_below_the_shells_lines() {
+    let env = TestEnv::new();
+    let resume = Arc::new(TestResume::default());
+    let ctx = Context { resume: resume.clone(), ..env.context() };
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, updated("Partial answer"))).await;
+        shows(&seen, "Partial answer").await;
+        let before = seen.stdout().len();
+        // Ctrl+Z, then fg: the shell wrote its lines and showed the cursor.
+        resume.trigger();
+        shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
+        let again = seen.stdout()[before..].to_owned();
+        assert!(again.starts_with("\x1b[?25l\x1b[?2026hPartial answer"), "{}", readable(&again));
+        assert!(!again.contains("A\x1b["), "nothing above the cursor moves: {}", readable(&again));
+        assert!(again.ends_with(progress::RUNNING), "{}", readable(&again));
         conn.item(sub, &item(12, turn_completed())).await;
         conn.until_closed().await;
     })

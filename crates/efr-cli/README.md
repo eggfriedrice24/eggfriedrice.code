@@ -86,7 +86,9 @@ Replies:
   a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
   so the screen gets at most 60 frames a second. A question, an answer, a key, the end
   of the turn and an error show at once. A resize of the window (SIGWINCH) draws the
-  live zone again at the new width. The times come from the injected clock.
+  live zone again at the new width. After a stop (Ctrl+Z, then `fg`, SIGCONT), the
+  shell's lines stand below the old live zone: the next frame starts a new live zone
+  below them, moves nothing above the cursor, and hides the cursor again. The times come from the injected clock.
 - The subscription asks for drafts (`drafts: true`): the text, the reasoning and the
   tool input of the running turn before the daemon records them, about every 16 ms.
   Draft text merges with the persisted updates of its message by byte offset: a
@@ -449,10 +451,11 @@ editing of an answer line. The frame tests drive the view and the follow loop wi
 `efr-test-support`'s `TestClock`: snapshots of the frames and the status row at its
 ticks, a burst of 50 events inside one frame time that gives one frame, a question
 and the end that never wait, a tick that writes only the status row, a resize that
-SIGWINCH stands for, the cursor and the progress bar on every way out, the allowlist
+SIGWINCH stands for, a new live zone after SIGCONT, the cursor and the progress bar on
+every way out, the allowlist
 of the progress bar, drafts that merge with persisted updates without a line twice
-(and without a log line), a dropped draft that heals, and a proptest that pacing keeps
-what `render` makes of the whole text. The call tests cover the running line with its
+(and without a log line), a dropped draft that heals, and a proptest that pushing text in any
+pieces keeps what `render` makes of the whole text. The call tests cover the running line with its
 spinner, time and three lines of output at 40 and 80 columns, the one committed line
 of a call (with no time under 1 s, the exit code, the refusal and the failure's last
 lines), a call whose approval waits, and consecutive calls without blank lines. The
