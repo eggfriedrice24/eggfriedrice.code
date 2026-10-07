@@ -766,14 +766,19 @@ _efr_precmd() {
 # Sets EFR_TERMINAL_BG to dark or light, for render.theme = "auto" in efr's config. It
 # asks the terminal once, when the plugin loads: OSC 11 (the background colour), then
 # DA1, which every terminal answers, so its reply marks the end. A background whose
-# luminance (0.299 R + 0.587 G + 0.114 B) is over one half is light. No reply in 200 ms,
-# or none to OSC 11, means dark.
+# luminance (0.299 R + 0.587 G + 0.114 B) is over one half is light. No reply to OSC 11
+# before the DA1 reply means dark.
+#
+# The plugin reads until the DA1 reply comes, for at most one second, also over a slow
+# ssh connection: a reply that came later would go to the line editor as typed text.
+# Only a terminal that answers nothing makes the shell start one second later.
 #
 # efr never asks itself: a reply comes in on stdin, and efr would take the keys that the
 # user typed ahead for the shell. Here no key is lost: there is no question when keys
-# wait already (their reply would come after them), and keys typed while the reply is
-# on its way go back to the line editor. A value set by hand, a re-source, a terminal
-# that is not one or a dumb one ask nothing.
+# wait already (their reply would come after them), and keys typed while the replies
+# are on their way go back to the line editor without the replies. When the DA1 reply
+# does not come, only the keys before the first escape go back. A value set by hand, a
+# re-source, a terminal that is not one or a dumb one ask nothing.
 _efr_probe_background() {
   emulate -L zsh
   setopt extended_glob
@@ -789,18 +794,27 @@ _efr_probe_background() {
   command stty -icanon -echo min 1 time 0 2>/dev/null || return 0
   print -rn -- $'\e]11;?\e\\\e[c'
   local answer='' key=''
-  local -F deadline=$(( EPOCHREALTIME + 0.2 )) left
-  local -i hundredths
+  local -F deadline=$(( EPOCHREALTIME + 1 )) left
+  local -i hundredths ended=0
   while (( (left = deadline - EPOCHREALTIME) > 0 )); do
     (( hundredths = left * 100 + 1 ))
     zselect -a ready -t $hundredths -r 0 || continue
     read -r -s -k 1 -u 0 key || break
     answer+=$key
-    [[ $answer == *$'\e['\?[0-9\;]#c ]] && break
+    if [[ $answer == *$'\e['\?[0-9\;]#c ]]; then
+      ended=1
+      break
+    fi
   done
   command stty $saved 2>/dev/null
-  # What came before the first reply was typed: it goes back to the line editor.
-  local typed=${answer%%$'\e'*}
+  # What is not a reply was typed: it goes back to the line editor.
+  local typed
+  if (( ended )); then
+    typed=${answer%$'\e['\?[0-9\;]#c}
+    typed=${typed/$'\e]11;'[^$'\a\e']#($'\a'|$'\e\\')}
+  else
+    typed=${answer%%$'\e'*}
+  fi
   [[ -n $typed ]] && print -rz -- $typed
   local background=dark
   if [[ $answer == (#b)*$'\e]11;rgb:'([[:xdigit:]]##)/([[:xdigit:]]##)/([[:xdigit:]]##)* ]]; then

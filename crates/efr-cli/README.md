@@ -482,8 +482,10 @@ fake prints canned output for `efr settings` and `efr models`, so the tests cove
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
 temporary tree). The question about the background runs against a driver that plays the
 terminal on a pseudo-terminal: a light and a dark OSC 11 reply (ended by ST or BEL), a
-terminal that answers only DA1, no reply at all (dark after 200 ms), keys typed while
-the reply is on its way (they stay for the shell), and no question without a terminal,
+terminal that answers only DA1, no reply at all (dark after one second), a reply that
+comes after 300 ms (it sets the background and never reaches the line editor), keys
+typed while the replies are on their way and between them (they stay for the shell,
+without the replies), and no question without a terminal,
 with keys typed ahead or with `EFR_TERMINAL_BG` set. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
 tag of the terminal's settings before the robot, the bare setting words of sticky
 mode, a `,word` that names nothing as a prompt) are tested by typing into

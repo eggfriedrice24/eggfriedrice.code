@@ -1538,17 +1538,20 @@ fn e2e_efr_paths_and_the_plugin_find_the_same_runtime_root() {
 
 /// Drives an interactive zsh on a pseudo-terminal as [`DRIVER`] does, and plays the
 /// terminal's part in the question about the background: after `source` it waits for
-/// the OSC 11 query, types `$EFR_TYPED` (keys typed while the reply is on its way) and
-/// `$EFR_ANSWER` (the terminal's reply; nothing when it is empty), waits for the next
-/// prompt, and prints the variable that the plugin set.
+/// the OSC 11 query, waits `$EFR_DELAY` hundredths of a second, types `$EFR_TYPED`
+/// (keys typed while the reply is on its way) and `$EFR_ANSWER` (the terminal's reply;
+/// nothing when it is empty), waits for the next prompt, and prints the variable that
+/// the plugin set.
 const PROBE_DRIVER: &str = r#"
 zmodload zsh/zpty || exit 90
+zmodload zsh/zselect || exit 94
 zpty user "TERM=xterm zsh -f -i"
 zpty -r user screen $'*\e\\[\\?2004h*' || exit 91
 print -rn -- "$screen"
 zpty -w -n user "source $EFR_PLUGIN"$'\r'
 zpty -r user screen $'*\e\\]11;\\?*' || exit 92
 print -rn -- "$screen"
+(( EFR_DELAY )) && zselect -t $EFR_DELAY
 zpty -w -n user "$EFR_TYPED$EFR_ANSWER"
 zpty -r user screen $'*\e\\[\\?2004h*' || exit 93
 print -rn -- "$screen"
@@ -1559,10 +1562,17 @@ while zpty -r user chunk; do print -rn -- "$chunk"; done
 /// What the terminal showed when it answered the question about the background with
 /// `answer`, after the keys `typed`.
 fn probe(typed: &str, answer: &str) -> String {
+    probe_after(0, typed, answer)
+}
+
+/// What the terminal showed when it answered the question about the background with
+/// `answer`, after the keys `typed`, `hundredths` hundredths of a second late.
+fn probe_after(hundredths: u32, typed: &str, answer: &str) -> String {
     let home = Home::new();
     let output = home
         .zsh()
         .env("EFR_PLUGIN", plugin())
+        .env("EFR_DELAY", hundredths.to_string())
         .env("EFR_TYPED", typed)
         .env("EFR_ANSWER", answer)
         .args(["-f", "-c", PROBE_DRIVER])
@@ -1618,6 +1628,31 @@ fn e2e_keys_typed_while_the_reply_is_on_its_way_stay_for_the_shell() {
     let screen = probe("echo typed-", answer);
     // The typed keys start the next line, and what follows joins them.
     assert!(screen.contains("typed-print -r -- bg=light"), "{screen:?}");
+}
+
+#[test]
+fn e2e_a_late_reply_sets_the_background_and_never_reaches_the_line_editor() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // Over a slow ssh connection the reply comes after 300 ms.
+    let answer = "\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b[?62;22c";
+    let screen = probe_after(30, "", answer);
+    assert_eq!(background(&screen), "light");
+    assert!(!screen.contains("11;rgb"), "the reply reached the line editor: {screen:?}");
+    assert!(!screen.contains("62;22c"), "the reply reached the line editor: {screen:?}");
+}
+
+#[test]
+fn e2e_keys_typed_between_the_replies_stay_for_the_shell_without_the_replies() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let answer = "\x1b]11;rgb:0000/0000/0000\x07echo be\x1b[?62;22c";
+    let screen = probe("", answer);
+    // The typed keys start the next line, and what follows joins them.
+    assert!(screen.contains("\nbeprint -r -- bg=dark"), "{screen:?}");
+    assert!(!screen.contains("11;rgb"), "{screen:?}");
 }
 
 #[test]
