@@ -7,6 +7,8 @@
 //! - [`render`]: a whole document at once, identical to what a [`Renderer`] commits
 //!   for the same text in any pieces.
 //! - [`render_trace`]: one muted line for a tool call trace or reasoning.
+//! - [`diff_rows`]: a unified diff as painted rows of a fixed width, for a caller that
+//!   lays the diff out itself.
 //! - [`RenderOptions`]: width, [`ColourMode`], [`Palette`], [`Theme`] or
 //!   [`CodeTheme`], hyperlinks, [`WidthMethod`], and whether the output is a terminal
 //!   at all (when it is not, markdown passes through unchanged).
@@ -33,6 +35,7 @@
 mod block;
 mod code;
 mod code_theme;
+mod diff_rows;
 #[cfg(test)]
 mod elements;
 mod error;
@@ -49,6 +52,7 @@ mod width;
 mod wrap;
 
 pub use code_theme::CodeTheme;
+pub use diff_rows::diff_rows;
 pub use error::RenderError;
 pub use options::{ColourMode, RenderOptions, Theme};
 pub use palette::{Palette, Role};

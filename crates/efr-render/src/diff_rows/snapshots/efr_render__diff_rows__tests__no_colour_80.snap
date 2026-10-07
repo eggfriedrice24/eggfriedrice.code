@@ -1,0 +1,17 @@
+---
+source: crates/efr-render/src/diff_rows/tests.rs
+expression: shown(&plain)
+---
+\e[1m--- a/src/main.rs\e[0m
+
+\e[1m+++ b/src/main.rs\e[0m
+
+@@ -1,3 +1,3 @@
+
+ fn main() {
+
+\e[1m-\e[0m    println!("old");
+
+\e[1m+\e[0m    println!("a new line that is much longer than forty columns");
+
+ }

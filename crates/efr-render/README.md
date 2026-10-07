@@ -13,6 +13,11 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   text pushed in any pieces.
 - `render_trace`: one muted line, cut to the width, for a tool call trace or
   reasoning.
+- `diff_rows`: a unified diff as painted rows, for a caller that lays a diff out
+  itself (the CLI under a file write): the colours of a diff in a code block, each
+  line cut at the width into rows that read back as the line (never at a space,
+  because a diff shows code), the spaces before a cut kept. Without a terminal, each
+  line is one plain row.
 - `RenderOptions`: the width, the `ColourMode` (none, 16 colours, truecolor), the
   `Palette`, the `Theme` for code or a `CodeTheme` from a `.tmTheme` file, OSC 8
   hyperlinks on or off, the `WidthMethod`, and whether the output is a terminal.
@@ -141,9 +146,10 @@ Snapshots (`insta`) cover every element at 80 and 40 columns with the `ansi` the
 plus every element without colour at both widths, a diff in a truecolor theme and
 links without hyperlinks; a document of every role in 16 colours, without colour,
 with overrides and with a hex palette in truecolor and in 16 colours; and the
-`.tmTheme` fixture `fixtures/sample_theme.tmTheme`. Escape bytes appear as `\e`. Unit
-tests check the widths of ZWJ emoji, flags and variation selectors both ways, and the
-live-zone row count with them. Property tests check that any chunking of a
+`.tmTheme` fixture `fixtures/sample_theme.tmTheme`; the rows of `diff_rows` at 40 and
+80 columns with and without colour. Escape bytes appear as `\e`. Unit tests check the
+widths of ZWJ emoji, flags and variation selectors both ways, the live-zone row count
+with them, and that the rows of a diff fit the width and read back as its lines. Property tests check that any chunking of a
 document, byte-by-byte streaming included, commits what `render` does, and that early
 commits render the elements exactly as one parse of the whole document does. Nothing
 touches the network, the terminal or the home directory.
