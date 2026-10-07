@@ -1,0 +1,59 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\nShot(\"running\"), Sent(640, ended(1, Some(0), None)),])"
+---
+=== 40 columns, colour
+[running]
+\e[33m•\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find ta…\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find \e[0m\e[2m\\e[0m
+        \e[36mtarget/debug/build -path \e[0m\e[2m\\e[0m
+        \e[36m'*libghostty*' -type f | awk \e[0m\e[2m\\e[0m
+        \e[36m-F/ '{print $4}' | sort -u\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[running]
+\e[1m•\e[0m $ cd ~/p/eggfriedrice.code && find ta…
+
+[end]
+\e[1m·\e[0m $ cd ~/p/eggfriedrice.code && find \e[2m\\e[0m
+        target/debug/build -path \e[2m\\e[0m
+        '*libghostty*' -type f | awk \e[2m\\e[0m
+        -F/ '{print $4}' | sort -u
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[running]
+\e[33m•\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -t…\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
+        \e[36m-type f | awk -F/ '{print $4}' | sort -u\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[running]
+\e[1m•\e[0m $ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -t…
+
+[end]
+\e[1m·\e[0m $ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[2m\\e[0m
+        -type f | awk -F/ '{print $4}' | sort -u
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[running]
+stdout:
+stderr:
+· $ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -type f | awk -F/ '{print $4}' | sort -u
+
+[end]
+stdout:
+stderr:
+· $ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -type f | awk -F/ '{print $4}' | sort -u
+  ✓

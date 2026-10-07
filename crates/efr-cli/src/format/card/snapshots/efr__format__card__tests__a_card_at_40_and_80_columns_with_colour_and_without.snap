@@ -1,0 +1,36 @@
+---
+source: crates/efr-cli/src/format/card/tests.rs
+expression: "shown.join(\"\\n\")"
+---
+40 columns, colour:
+\e[1;33m? allow this command\e[0m
+\e[2m│ \e[0m\e[36mcd ~/p/eggfriedrice.code && find \e[0m\e[2m\\e[0m
+\e[2m│ \e[0m    \e[36mtarget/debug/build -path \e[0m\e[2m\\e[0m
+\e[2m│ \e[0m    \e[36m'*libghostty*' -type f | awk \e[0m\e[2m\\e[0m
+\e[2m│ \e[0m    \e[36m'{print $1}'\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+40 columns, NO_COLOR:
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mcd ~/p/eggfriedrice.code && find \e[2m\\e[0m
+\e[2m│ \e[0m    target/debug/build -path \e[2m\\e[0m
+\e[2m│ \e[0m    '*libghostty*' -type f | awk \e[2m\\e[0m
+\e[2m│ \e[0m    '{print $1}'
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+80 columns, colour:
+\e[1;33m? allow this command\e[0m
+\e[2m│ \e[0m\e[36mcd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
+\e[2m│ \e[0m    \e[36m-type f | awk '{print $1}'\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+80 columns, NO_COLOR:
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mcd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[2m\\e[0m
+\e[2m│ \e[0m    -type f | awk '{print $1}'
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+not a terminal:
+? allow this command
+│ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -type f | awk '{print $1}'
+│ waiting for another client to answer

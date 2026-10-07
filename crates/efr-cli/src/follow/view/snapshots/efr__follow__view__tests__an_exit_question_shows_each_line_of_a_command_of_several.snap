@@ -2,8 +2,8 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-approval needed: shell: run 2 lines:
-  1  systemctl --failed --no-pager
-  2  journalctl -b -n 20 --no-pager
-leaves the sandbox: the system bus; runs in the sandbox with the system bus for this call
-allow? y = yes, n = no
+? allow the system bus for this call
+│ systemctl --failed --no-pager
+│ journalctl -b -n 20 --no-pager
+│ why: the system bus
+│ y allow · n deny

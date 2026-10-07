@@ -3,12 +3,12 @@ use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{Call, Outcome, last_lines, output_lines, tail};
+use super::{Call, Outcome, last_lines, notes, output_lines, tail};
 use crate::format;
 use crate::testing::{call, now, readable};
 
 fn shell(command: &str) -> Call {
-    Call::new(call(), format::call_line("shell", &json!({ "command": command })), Some(now()))
+    Call::new(call(), format::call_text("shell", &json!({ "command": command })), Some(now()))
 }
 
 fn at(millis: i64) -> jiff::Timestamp {
@@ -19,16 +19,13 @@ fn at(millis: i64) -> jiff::Timestamp {
 fn a_call_under_a_second_shows_no_time() {
     let options = RenderOptions::new(80);
     let call = shell("make");
+    assert_eq!(readable(&call.result(Some(at(400)), Outcome::Ran, &options)), "  \\e[32m✓\\e[0m\n");
     assert_eq!(
-        readable(&call.ended(Some(at(400)), Outcome::Ran, &options)),
-        "\\e[2m$ make\\e[0m\n"
-    );
-    assert_eq!(
-        readable(&call.ended(Some(at(6_200)), Outcome::Ran, &options)),
-        "\\e[2m$ make\\e[0m  \\e[2m6.2s\\e[0m\n"
+        readable(&call.result(Some(at(6_200)), Outcome::Ran, &options)),
+        "  \\e[32m✓ 6.2s\\e[0m\n"
     );
     // Without the daemon's times, no time shows.
-    assert_eq!(readable(&call.ended(None, Outcome::Ran, &options)), "\\e[2m$ make\\e[0m\n");
+    assert_eq!(readable(&call.result(None, Outcome::Ran, &options)), "  \\e[32m✓\\e[0m\n");
 }
 
 #[test]
@@ -37,91 +34,107 @@ fn a_failure_names_its_exit_code_in_the_error_role() {
     let call = shell("cargo test -p app");
     let exited = Outcome::Exited { code: 101, contained: false };
     assert_eq!(
-        readable(&call.ended(Some(at(6_200)), exited, &options)),
-        "\\e[2m$ cargo test -p app\\e[0m  \\e[31mexit 101\\e[0m  \\e[2m6.2s\\e[0m\n"
+        readable(&call.result(Some(at(6_200)), exited, &options)),
+        "  \\e[31m✗ exit 101 · 6.2s\\e[0m\n"
     );
     let sandboxed = Outcome::Exited { code: 2, contained: true };
     assert_eq!(
-        readable(&call.ended(Some(at(400)), sandboxed, &options)),
-        "\\e[2m$ cargo test -p app\\e[0m  \\e[31mexit 2\\e[0m\\e[2m (sandbox)\\e[0m\n"
+        readable(&call.result(Some(at(400)), sandboxed, &options)),
+        "  \\e[31m✗ exit 2 (sandbox)\\e[0m\n"
     );
     let failed = Outcome::Failed { contained: false };
-    assert_eq!(
-        readable(&call.ended(None, failed, &options)),
-        "\\e[2m$ cargo test -p app\\e[0m  \\e[31mfailed\\e[0m\n"
-    );
+    assert_eq!(readable(&call.result(None, failed, &options)), "  \\e[31m✗ failed\\e[0m\n");
     assert!(exited.failed() && failed.failed() && !Outcome::Ran.failed());
 }
 
 #[test]
-fn a_refusal_says_why_in_the_warning_role() {
+fn a_refusal_says_why_on_a_row_of_its_own() {
     let options = RenderOptions::new(80);
     let call = shell("rm -rf build");
     let refused = Outcome::Refused("efr's config (floor)");
     assert_eq!(
-        readable(&call.ended(Some(at(3_000)), refused, &options)),
-        "\\e[2m$ rm -rf build\\e[0m  \\e[1;33mrefused: efr's config (floor)\\e[0m\n"
+        readable(&call.result(Some(at(3_000)), refused, &options)),
+        "  \\e[31m✗ refused: efr's config (floor)\\e[0m\n"
     );
     assert!(!refused.failed());
-}
-
-#[test]
-fn the_lines_are_plain_when_the_output_has_no_colour() {
-    let options = RenderOptions::new(80).with_colour(ColourMode::None);
-    let call = shell("make");
-    let exited = Outcome::Exited { code: 2, contained: false };
+    let not_started = Outcome::NotStarted("bwrap: no user namespaces");
     assert_eq!(
-        readable(&call.ended(Some(at(1_500)), exited, &options)),
-        "\\e[2m$ make\\e[0m  \\e[1mexit 2\\e[0m  \\e[2m1.5s\\e[0m\n"
+        readable(&call.result(Some(at(3_000)), not_started, &options)),
+        "  \\e[31m✗ the sandbox could not start: bwrap: no user namespaces; efr checks it again\\e[0m\n"
     );
 }
 
 #[test]
-fn a_call_line_is_cut_to_the_width_and_keeps_its_end() {
-    let long = format!("cargo test {}", "x".repeat(100));
+fn the_rows_are_plain_when_the_output_is_not_a_terminal() {
+    let options = RenderOptions::new(80).with_terminal(false);
+    let call = shell("make\nmake install");
+    let exited = Outcome::Exited { code: 2, contained: false };
+    assert_eq!(call.header(&options), "· $ make\n    make install\n");
+    assert_eq!(call.result(Some(at(1_500)), exited, &options), "  ✗ exit 2 · 1.5s\n");
+    assert_eq!(
+        notes(&["network: blocked a:443".to_owned()], &options),
+        "  network: blocked a:443\n"
+    );
+}
+
+#[test]
+fn a_long_command_goes_on_in_the_next_row_and_is_never_cut() {
+    let long = format!("cargo test {} --no-fail-fast", "x".repeat(100));
     let call = shell(&long);
-    let exited = Outcome::Exited { code: 101, contained: false };
     for columns in [40_u16, 80] {
-        let options = RenderOptions::new(columns);
-        let line = call.ended(Some(at(6_200)), exited, &options);
-        let width = efr_render::display_width(line.trim_end(), WidthMethod::CodePoint);
-        assert_eq!(width, usize::from(columns), "{}", readable(&line));
-        assert!(line.contains("exit 101") && line.contains("6.2s"), "{}", readable(&line));
-        assert!(line.contains('\u{2026}'));
+        let options = RenderOptions::new(columns).with_colour(ColourMode::None);
+        let header = call.header(&options);
+        let plain: String =
+            header.replace("\x1b[1m", "").replace("\x1b[2m", "").replace("\x1b[0m", "");
+        for row in plain.lines() {
+            let width = efr_render::display_width(row, WidthMethod::CodePoint);
+            assert!(width <= usize::from(columns), "{}", readable(&header));
+        }
+        let joined: String = plain
+            .lines()
+            .map(|row| {
+                let row = row.trim_start_matches("· $ ").trim_start();
+                row.strip_suffix('\\').unwrap_or(row).to_owned()
+            })
+            .collect();
+        assert_eq!(joined, long);
+        assert!(!header.contains('\u{2026}'));
+        // The live row is cut with a mark, and keeps its time.
         let mut running = shell(&long);
         running.show(now());
-        let row = running.running('⠋', at(12_000), &options);
+        let row = running.running('⠋', at(12_000), &RenderOptions::new(columns));
         let width = efr_render::display_width(row.trim_end(), WidthMethod::CodePoint);
         assert_eq!(width, usize::from(columns), "{}", readable(&row));
-        assert!(row.ends_with("12s\u{1b}[0m\n"), "{}", readable(&row));
+        assert!(row.contains('\u{2026}') && row.ends_with("12s\u{1b}[0m\n"), "{}", readable(&row));
     }
     insta::assert_snapshot!(
-        [40_u16, 80]
-            .map(|columns| {
-                let options = RenderOptions::new(columns);
-                readable(&call.ended(Some(at(6_200)), exited, &options))
-            })
-            .join("")
+        [40_u16, 80].map(|columns| readable(&call.header(&RenderOptions::new(columns)))).join("")
     );
 }
 
 #[test]
-fn the_running_line_shows_its_time_from_one_second_on() {
+fn the_running_rows_show_the_time_from_one_second_on_and_a_few_lines() {
     let options = RenderOptions::new(80);
     let mut call = shell("cargo build");
     call.show(at(0));
     assert_eq!(
         readable(&call.running('⠹', at(900), &options)),
-        "\\e[33m\u{2839}\\e[0m \\e[2m$ cargo build\\e[0m\n"
+        "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m\n"
     );
     assert_eq!(
         readable(&call.running('⠹', at(12_300), &options)),
-        "\\e[33m\u{2839}\\e[0m \\e[2m$ cargo build\\e[0m  \\e[2m12s\\e[0m\n"
+        "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m  \\e[2m12s\\e[0m\n"
     );
     // An approval answered later starts the time again.
     call.approved(Some(at(20_000)));
     call.show(at(20_000));
     assert!(!call.running('⠹', at(20_500), &options).contains("s\u{1b}[0m\n"));
+    let several = shell("cd src\nls\nmake\nmake test\nmake install");
+    let rows = several.running('⠹', at(0), &options.with_colour(ColourMode::None));
+    assert_eq!(
+        readable(&rows),
+        "\\e[1m\u{2839}\\e[0m $ cd src\n    ls\n    make\n    \\e[2m(2 more lines)\\e[0m\n"
+    );
 }
 
 #[test]

@@ -1,0 +1,116 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\", json!({ \"command\": line }), Some(Launch::contained()))),\nSent(20, exit_requested(1, line, ExitFacts::default(), &info)),\nSent(20,\nasked(1, \"shell: run \\\"cp report.pdf ~/Documents/\\\"\", Some(info.clone()))),\nShot(\"asked\"), Key(1, ApprovalDecision::Allow),\nSent(3_000, Event::ApprovalResolved\n{\n    turn_id: turn(), call_id: id(1), decision: ApprovalDecision::Allow,\n    origin: Origin::Shell,\n}), Shot(\"allowed\"), Sent(3_200, ended(1, Some(0), None)),])"
+---
+=== 40 columns, colour
+[asked]
+\e[1;33m? allow ~/Documents writable for this\e[0m
+  \e[1;33mcall\e[0m
+\e[2m│ \e[0m\e[36mcp report.pdf ~/Documents/\e[0m
+\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
+\e[2m│ \e[0m\e[2mthe model says: "you asked for the\e[0m
+\e[2m│ \e[0m  \e[2mreport in Documents"\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[allowed]
+\e[32m✓ allowed\e[0m
+\e[33m•\e[0m \e[36m$ cp report.pdf ~/Documents/\e[0m
+
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ cp report.pdf ~/Documents/\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 40 columns, NO_COLOR
+[asked]
+\e[1m? allow ~/Documents writable for this\e[0m
+  \e[1mcall\e[0m
+\e[2m│ \e[0mcp report.pdf ~/Documents/
+\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
+\e[2m│ \e[0m\e[2mthe model says: "you asked for the\e[0m
+\e[2m│ \e[0m  \e[2mreport in Documents"\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[allowed]
+✓ allowed
+\e[1m•\e[0m $ cp report.pdf ~/Documents/
+
+[end]
+✓ allowed
+\e[1m·\e[0m $ cp report.pdf ~/Documents/
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 80 columns, colour
+[asked]
+\e[1;33m? allow ~/Documents writable for this call\e[0m
+\e[2m│ \e[0m\e[36mcp report.pdf ~/Documents/\e[0m
+\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
+\e[2m│ \e[0m\e[2mthe model says: "you asked for the report in Documents"\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[allowed]
+\e[32m✓ allowed\e[0m
+\e[33m•\e[0m \e[36m$ cp report.pdf ~/Documents/\e[0m
+
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ cp report.pdf ~/Documents/\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 80 columns, NO_COLOR
+[asked]
+\e[1m? allow ~/Documents writable for this call\e[0m
+\e[2m│ \e[0mcp report.pdf ~/Documents/
+\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
+\e[2m│ \e[0m\e[2mthe model says: "you asked for the report in Documents"\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[allowed]
+✓ allowed
+\e[1m•\e[0m $ cp report.pdf ~/Documents/
+
+[end]
+✓ allowed
+\e[1m·\e[0m $ cp report.pdf ~/Documents/
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== not a terminal
+[asked]
+stdout:
+stderr:
+· $ cp report.pdf ~/Documents/
+
+? allow ~/Documents writable for this call
+│ cp report.pdf ~/Documents/
+│ why: write ~/Documents
+│ the model says: "you asked for the report in Documents"
+│ y allow · n deny
+
+[allowed]
+stdout:
+stderr:
+· $ cp report.pdf ~/Documents/
+
+? allow ~/Documents writable for this call
+│ cp report.pdf ~/Documents/
+│ why: write ~/Documents
+│ the model says: "you asked for the report in Documents"
+│ y allow · n deny
+✓ allowed
+
+[end]
+stdout:
+stderr:
+· $ cp report.pdf ~/Documents/
+
+? allow ~/Documents writable for this call
+│ cp report.pdf ~/Documents/
+│ why: write ~/Documents
+│ the model says: "you asked for the report in Documents"
+│ y allow · n deny
+✓ allowed
+  ✓

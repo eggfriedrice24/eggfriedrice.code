@@ -162,7 +162,8 @@ fn max_rows(size: Size) -> Option<usize> {
     (size.rows > 0).then(|| usize::from(size.rows) - 1)
 }
 
-fn fits(rows: usize, size: Size) -> bool {
+/// True when `rows` rows fit in the live zone of a screen of `size`.
+pub(crate) fn fits(rows: usize, size: Size) -> bool {
     max_rows(size).is_none_or(|max| rows <= max)
 }
 

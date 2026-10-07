@@ -75,11 +75,11 @@ fn tones_take_the_colours_of_their_roles_from_the_palette() {
 fn the_keys_of_a_question_are_bold_in_a_muted_line() {
     let terminal = RenderOptions::new(80);
     assert_eq!(
-        keys("allow? y = yes, n = no", &terminal),
-        "\x1b[2mallow? \x1b[0m\x1b[1my\x1b[0m\x1b[2m = yes, \x1b[0m\x1b[1mn\x1b[0m\x1b[2m = no\x1b[0m"
+        keys(&[("y", "allow"), ("n", "deny")], &terminal),
+        "\x1b[1my\x1b[0m\x1b[2m allow\x1b[0m\x1b[2m \u{b7} \x1b[0m\x1b[1mn\x1b[0m\x1b[2m deny\x1b[0m"
     );
     let pipe = RenderOptions::new(80).with_terminal(false);
-    assert_eq!(keys("keep it? y = yes, n = no", &pipe), "keep it? y = yes, n = no");
+    assert_eq!(keys(&[("y", "keep"), ("n", "leave")], &pipe), "y keep \u{b7} n leave");
 }
 
 #[test]
@@ -104,10 +104,17 @@ fn blocks_are_separated_by_blank_lines_and_notes_stay_together() {
         spacing.before(Block::Message),
         spacing.before(Block::Note),
         spacing.before(Block::Note),
-        spacing.before(Block::Approval),
+        spacing.before(Block::Question),
+        spacing.before(Block::Allowed),
+        spacing.before(Block::Call),
+        spacing.before(Block::Call),
+        spacing.before(Block::Question),
+        spacing.before(Block::Answer),
+        spacing.before(Block::Call),
         spacing.before(Block::Message),
     ];
-    assert_eq!(separators, ["", "\n", "\n", "", "\n", "\n"]);
+    // An answer follows its question, and the call it allowed follows the answer.
+    assert_eq!(separators, ["", "\n", "\n", "", "\n", "", "", "\n", "\n", "", "\n", "\n"]);
 }
 
 #[test]

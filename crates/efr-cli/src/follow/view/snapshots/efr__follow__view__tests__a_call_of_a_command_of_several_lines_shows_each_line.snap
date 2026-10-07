@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\e[33m•\e[0m \e[36m$ systemctl --failed --no-pager\e[0m
+    \e[36mjournalctl -b -n 20 --no-pager\e[0m
+\e[?2026l

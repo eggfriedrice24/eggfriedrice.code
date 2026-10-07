@@ -21,6 +21,7 @@ use jiff::Timestamp;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation as _;
 
+pub(crate) mod card;
 pub(crate) mod sandbox;
 
 /// Keys of a tool's input that best describe a call in one line, in order of
@@ -41,6 +42,12 @@ pub(crate) enum Tone {
     Attention,
     /// The `error` role: a failure, such as a failed exit code.
     Failure,
+    /// The `success` role: a call that went well, an allowed question.
+    Success,
+    /// The `code` role: what a call runs.
+    Code,
+    /// The `accent` role: the mark at the start of a call.
+    Accent,
 }
 
 impl Tone {
@@ -51,6 +58,9 @@ impl Tone {
             Tone::Dim => Some(Role::Muted),
             Tone::Attention => Some(Role::Warning),
             Tone::Failure => Some(Role::Error),
+            Tone::Success => Some(Role::Success),
+            Tone::Code => Some(Role::Code),
+            Tone::Accent => Some(Role::Accent),
         }
     }
 }
@@ -62,14 +72,22 @@ pub(crate) enum Block {
     Prompt,
     /// An assistant message.
     Message,
-    /// A dim note: a tool call, an answer, the end of a turn.
+    /// A dim note: an answer line, a steer, the end of a turn.
     Note,
-    /// An approval request.
-    Approval,
+    /// A tool call: its command, its output's tail and its result.
+    Call,
+    /// A question: an approval or the quarantine question.
+    Question,
+    /// The answer that takes a question's place: "allowed", which the call it allowed
+    /// follows at once.
+    Allowed,
+    /// Any other answer that takes a question's place.
+    Answer,
 }
 
 /// Separates blocks by a blank line, except consecutive notes, which read as one
-/// group.
+/// group, the answer right after the question it answers, and the call right after the
+/// answer that allowed it.
 #[derive(Debug, Default)]
 pub(crate) struct Spacing {
     last: Option<Block>,
@@ -87,7 +105,10 @@ impl Spacing {
     /// that shows in the live zone before it is written.
     pub(crate) fn peek(&self, kind: Block) -> &'static str {
         match (self.last, kind) {
-            (None, _) | (Some(Block::Note), Block::Note) => "",
+            (None, _)
+            | (Some(Block::Note), Block::Note)
+            | (Some(Block::Question), Block::Allowed | Block::Answer)
+            | (Some(Block::Allowed), Block::Call) => "",
             _ => "\n",
         }
     }
@@ -106,25 +127,17 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
     }
 }
 
-/// The line under a question that says which key does what, such as `allow? y = yes,
-/// n = no`: muted, with each key (a word of one character before `=`) in bold.
-pub(crate) fn keys(text: &str, options: &RenderOptions) -> String {
-    let words: Vec<&str> = text.split(' ').collect();
+/// The line under a question that says which key does what, such as `y allow · n
+/// deny`: muted, with each key in bold.
+pub(crate) fn keys(pairs: &[(&str, &str)], options: &RenderOptions) -> String {
     let mut out = String::new();
-    let mut muted = String::new();
-    for (at, word) in words.iter().enumerate() {
+    for (at, (key, what)) in pairs.iter().enumerate() {
         if at > 0 {
-            muted.push(' ');
+            out.push_str(&paint(" \u{b7} ", Tone::Dim, options));
         }
-        let key = word.chars().count() == 1 && words.get(at + 1) == Some(&"=");
-        if key {
-            out.push_str(&paint(&std::mem::take(&mut muted), Tone::Dim, options));
-            out.push_str(&paint(word, Tone::Bold, options));
-        } else {
-            muted.push_str(word);
-        }
+        out.push_str(&paint(key, Tone::Bold, options));
+        out.push_str(&paint(&format!(" {what}"), Tone::Dim, options));
     }
-    out.push_str(&paint(&muted, Tone::Dim, options));
     out
 }
 
@@ -343,6 +356,182 @@ impl CallLine {
             }
             None => format!("{}{}", self.head, self.more),
         }
+    }
+}
+
+/// What a call does, for the block of a call: the words that name it (`$`, `read`,
+/// `write`, `settings`, else the tool and a colon) and each line of what it does,
+/// safe to print. Nothing of it is ever left out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CallText {
+    pub(crate) name: String,
+    pub(crate) lines: Vec<String>,
+}
+
+/// The text of a call of `tool` with `input`, such as `$` and `cargo test -p app`.
+pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
+    let detail = match input {
+        Value::Object(members) => DETAIL_KEYS
+            .iter()
+            .find_map(|key| members.get(*key).and_then(Value::as_str))
+            .map_or_else(|| input.to_string(), str::to_owned),
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    };
+    let lines = command_lines(&detail).into_iter().map(command_line).collect();
+    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines }
+}
+
+/// What ends a row of a command that goes on in the next row. A shell reads a
+/// backslash before a line break as no break at all, so the rows read as the line.
+pub(crate) const WRAP_MARK: &str = "\\";
+
+/// The rows of `line`, one line of a command that is safe to print, at `first` columns
+/// for the first row and `rest` for each row after it, as a terminal that counts
+/// widths by `method` shows them. Each row but the last is cut after a space where one
+/// is near the end, and is marked to go on: its text and [`WRAP_MARK`] fit the row.
+/// Nothing of the line is left out.
+pub(crate) fn wrap_command(
+    line: &str,
+    first: usize,
+    rest: usize,
+    method: WidthMethod,
+) -> Vec<(String, bool)> {
+    let mut rows = Vec::new();
+    let mut left = line;
+    let mut room = first;
+    loop {
+        if text_width(left, method) <= room {
+            rows.push((left.to_owned(), false));
+            return rows;
+        }
+        let budget = room.saturating_sub(text_width(WRAP_MARK, method));
+        let (mut end, mut used, mut after_space) = (0, 0, None);
+        for piece in pieces(left, method) {
+            let width = text_width(piece, method);
+            // One piece at least, so every row takes something.
+            if end > 0 && used + width > budget {
+                break;
+            }
+            end += piece.len();
+            used += width;
+            if piece == " " {
+                after_space = Some((end, used));
+            }
+        }
+        // A cut after a space in the first half of the row would waste the rest of it.
+        let cut = match after_space {
+            Some((at, width)) if width * 2 >= budget => at,
+            _ => end,
+        };
+        if cut >= left.len() {
+            rows.push((left.to_owned(), false));
+            return rows;
+        }
+        let (row, after) = left.split_at(cut);
+        rows.push((row.to_owned(), true));
+        left = after;
+        room = rest;
+    }
+}
+
+/// The rows of `spans`, pieces of text with their tone, at `first` columns for the
+/// first row and `rest` for each row after it: cut at spaces, and inside a word only
+/// when the word alone is wider than a row. The spaces at a cut go. Nothing else of
+/// the text is left out.
+pub(crate) fn wrap_spans(
+    spans: &[(String, Tone)],
+    first: usize,
+    rest: usize,
+    method: WidthMethod,
+) -> Vec<Vec<(String, Tone)>> {
+    let mut rows: Vec<Vec<(String, Tone)>> = vec![Vec::new()];
+    let mut used = 0;
+    let mut room = first;
+    for (text, tone) in spans {
+        for token in runs(text) {
+            let width = text_width(token, method);
+            let space = token.starts_with(' ');
+            if space && used == 0 && rows.len() > 1 {
+                continue;
+            }
+            if used + width <= room {
+                push_span(&mut rows, token, *tone);
+                used += width;
+                continue;
+            }
+            rows.push(Vec::new());
+            used = 0;
+            room = rest;
+            if space {
+                continue;
+            }
+            let mut left = token;
+            while text_width(left, method) > room {
+                let mut end = 0;
+                let mut taken = 0;
+                for piece in pieces(left, method) {
+                    let width = text_width(piece, method);
+                    if end > 0 && taken + width > room {
+                        break;
+                    }
+                    end += piece.len();
+                    taken += width;
+                }
+                let (row, after) = left.split_at(end);
+                push_span(&mut rows, row, *tone);
+                if after.is_empty() {
+                    break;
+                }
+                rows.push(Vec::new());
+                left = after;
+            }
+            push_span(&mut rows, left, *tone);
+            used = text_width(left, method);
+        }
+    }
+    for row in &mut rows {
+        if let Some((text, _)) = row.last_mut() {
+            let kept = text.trim_end_matches(' ').len();
+            text.truncate(kept);
+        }
+        row.retain(|(text, _)| !text.is_empty());
+    }
+    while rows.len() > 1 && rows.last().is_some_and(Vec::is_empty) {
+        rows.pop();
+    }
+    rows
+}
+
+/// `text` as runs of spaces and runs of other characters.
+fn runs(text: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    let mut space = None;
+    for (at, c) in text.char_indices() {
+        let is_space = c == ' ';
+        if space.is_some_and(|was| was != is_space) {
+            tokens.push(&text[start..at]);
+            start = at;
+        }
+        space = Some(is_space);
+    }
+    if start < text.len() {
+        tokens.push(&text[start..]);
+    }
+    tokens
+}
+
+/// Adds `text` in `tone` to the last row, joined with a piece of the same tone.
+fn push_span(rows: &mut [Vec<(String, Tone)>], text: &str, tone: Tone) {
+    if text.is_empty() {
+        return;
+    }
+    let Some(row) = rows.last_mut() else { return };
+    match row.last_mut() {
+        Some((last, last_tone)) if *last_tone == tone => last.push_str(text),
+        _ => row.push((text.to_owned(), tone)),
     }
 }
 

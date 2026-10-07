@@ -1,0 +1,39 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: shown
+---
+[asked]
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mecho step 1
+\e[2m│ \e[0mecho step 2
+\e[2m│ \e[0mecho step 3
+\e[2m│ \e[0mecho step 4
+\e[2m│ \e[0mecho step 5
+\e[2m│ \e[0mecho step 6
+\e[2m│ \e[0mecho step 7
+\e[2m│ \e[0mecho step 8
+\e[2m│ \e[0mecho step 9
+\e[2m│ \e[0mecho step 10
+\e[2m│ \e[0mecho step 11
+\e[2m│ \e[0mecho step 12
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mecho step 1
+\e[2m│ \e[0mecho step 2
+\e[2m│ \e[0mecho step 3
+\e[2m│ \e[0mecho step 4
+\e[2m│ \e[0mecho step 5
+\e[2m│ \e[0mecho step 6
+\e[2m│ \e[0mecho step 7
+\e[2m│ \e[0mecho step 8
+\e[2m│ \e[0mecho step 9
+\e[2m│ \e[0mecho step 10
+\e[2m│ \e[0mecho step 11
+\e[2m│ \e[0mecho step 12
+✓ allowed
+\e[1m•\e[0m $ echo step 1
+    echo step 2
+    echo step 3
+    \e[2m(9 more lines)\e[0m

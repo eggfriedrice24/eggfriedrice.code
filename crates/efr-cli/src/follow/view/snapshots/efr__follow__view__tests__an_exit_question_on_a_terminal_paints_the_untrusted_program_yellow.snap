@@ -2,10 +2,16 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
-\e[?2026h\e[1;33mapproval needed:\e[0m shell: run "sudo ./scripts/setup.sh"
-runs outside the sandbox: sudo (you may need to type your password)
-\e[1;33mthe whole line runs with your full rights (files, secrets, network)\e[0m
-programs: sudo /usr/bin/sudo; ./scripts/setup.sh ~/project/scripts/setup.sh\e[1;33m in a write root, changed this turn (untrusted: written in the sandbox)\e[0m
-\e[2mefr: only you can allow this\e[0m
-\e[2mallow? \e[0m\e[1my\e[0m\e[2m = yes, \e[0m\e[1mn\e[0m\e[2m = no\e[0m
+\e[?2026h\e[1;33m? allow outside the sandbox\e[0m
+\e[2m│ \e[0m\e[36msudo ./scripts/setup.sh\e[0m
+\e[2m│ \e[0m\e[1;33mruns with your full rights: files,\e[0m
+\e[2m│ \e[0m  \e[1;33msecrets, network\e[0m
+\e[2m│ \e[0m\e[2mwhy: sudo (you may need to type your\e[0m
+\e[2m│ \e[0m  \e[2mpassword)\e[0m
+\e[2m│ \e[0m\e[2mprograms: sudo, ./scripts/setup.sh\e[0m
+\e[2m│ \e[0m  \e[2m~/project/scripts/setup.sh\e[0m
+\e[2m│ \e[0m  \e[1;33m(untrusted: written in the sandbox;\e[0m
+\e[2m│ \e[0m  \e[1;33min a write root, changed this turn)\e[0m
+\e[2m│ \e[0m\e[2mefr: only you can allow this\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 \e[?2026l

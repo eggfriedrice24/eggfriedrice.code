@@ -1,0 +1,97 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make install\")),\nSent(20, asked(1, \"shell: run \\\"make install\\\"\", None)),\nKey(1, ApprovalDecision::Allow),\nSent(1_000, resolved(1, ApprovalDecision::Allow, Origin::Shell)),\nSent(2_500, ended(1, Some(0), None)), Sent(2_600, shell(2, \"rm -rf build\")),\nSent(2_610, asked(2, \"shell: run \\\"rm -rf build\\\"\", None)),\nKey(2, ApprovalDecision::Deny),\nSent(3_000, resolved(2, ApprovalDecision::Deny, Origin::Shell)),\nSent(3_010, ended(2, None, None)), Sent(3_100, shell(3, \"git push\")),\nSent(3_110, asked(3, \"shell: run \\\"git push\\\"\", None)),\nSent(4_000, resolved(3, ApprovalDecision::Allow, Origin::Phone)),\nSent(4_400, ended(3, Some(0), None)),\nSent(4_500, shell(4, \"systemctl --user restart app\")),\nSent(4_510, asked(4, \"shell: run \\\"systemctl --user restart app\\\"\", None)),\nSent(9_000, Event::ApprovalExpired { turn_id: turn(), call_id: id(4) }),\nSent(9_010, ended(4, None, None)),])"
+---
+=== 40 columns, colour
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ make install\e[0m
+  \e[32m✓ 1.5s\e[0m
+
+\e[31m✗ denied\e[0m
+
+\e[32m✓ allowed from the phone\e[0m
+\e[33m·\e[0m \e[36m$ git push\e[0m
+  \e[32m✓\e[0m
+
+\e[31m✗ the approval expired\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+✓ allowed
+\e[1m·\e[0m $ make install
+  ✓ 1.5s
+
+\e[1m✗ denied\e[0m
+
+✓ allowed from the phone
+\e[1m·\e[0m $ git push
+  ✓
+
+\e[1m✗ the approval expired\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 80 columns, colour
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ make install\e[0m
+  \e[32m✓ 1.5s\e[0m
+
+\e[31m✗ denied\e[0m
+
+\e[32m✓ allowed from the phone\e[0m
+\e[33m·\e[0m \e[36m$ git push\e[0m
+  \e[32m✓\e[0m
+
+\e[31m✗ the approval expired\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+✓ allowed
+\e[1m·\e[0m $ make install
+  ✓ 1.5s
+
+\e[1m✗ denied\e[0m
+
+✓ allowed from the phone
+\e[1m·\e[0m $ git push
+  ✓
+
+\e[1m✗ the approval expired\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ make install
+
+? allow this command
+│ make install
+│ y allow · n deny
+✓ allowed
+  ✓ 1.5s
+
+· $ rm -rf build
+
+? allow this command
+│ rm -rf build
+│ y allow · n deny
+✗ denied
+
+· $ git push
+
+? allow this command
+│ git push
+│ y allow · n deny
+✓ allowed from the phone
+  ✓
+
+· $ systemctl --user restart app
+
+? allow this command
+│ systemctl --user restart app
+│ y allow · n deny
+✗ the approval expired

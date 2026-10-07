@@ -139,73 +139,122 @@ Replies:
   terminal multiplexer (below); other terminals read OSC 9 as a notification. `on` sends it whenever stdout
   is a terminal, `off` never. No query decides any of this: a query needs a reply on
   stdin, which would take the keys typed ahead for the shell.
+- A turn is a list of blocks with one blank line between them: prose, a tool call, a
+  question, a note. There is no blank line inside a block, between notes that follow
+  each other, between a question and the line of its answer, and between `✓ allowed`
+  and the call that it allowed.
 - A tool call is named by what it does: `$ cargo test` for a shell call, `read
   src/main.rs` and `write src/main.rs` for the file tools, `settings ...` for the
-  settings tool, `<tool>: <detail>` for any other. A command of several lines never
-  shows its lines joined: the line is its first line and how many follow, such as
-  `$ cd src (and 3 more lines)`, and a cut to the width keeps that count.
+  settings tool, `<tool>: <detail>` for any other. The block of a call starts with
+  `·` in the `accent` role and what the call does in the `code` role:
+
+  ```text
+  · $ cargo metadata --no-deps | jq -r '.packages[].name'
+    ✓ 1.4s
+
+  · $ make
+    │ cc -c a.c
+    │ make: *** No rule to make target 'all'.  Stop.
+    ✗ exit 2
+  ```
+
+  Each line of a command of several lines shows on its own row, under the first, so
+  two commands never look like one with more arguments. A line wider than the screen
+  goes on in the next row, indented 4 more columns, after a muted `\` at the end of
+  the row: nothing of what runs is cut. A shell reads a backslash before a line break
+  as no break, so the rows read as the line.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
-  spinner (accent), the call (muted) and from 1 s on how long it has run, such as
-  `⠹ $ cargo test -p app  12s`, then the last three lines of its output with text in
-  them (from `tool_call_output_updated`), each after `  │ `, muted and cut to the
-  width. The status row hides meanwhile, because the call's line carries the spinner.
-  A call whose approval waits shows nothing until the answer, and its time counts
-  from the answer. When the call ends, one muted line is written once in place of the
-  live lines: `$ cargo test -p app  6.2s`, with `exit 101` (or `failed`) in the
-  `error` role when it failed, `(sandbox)` after the code of a failed contained call,
-  and `refused: efr's config (floor)` in the `warning` role when efr refused it before
-  it ran (`tool_call_completed` with a `refusal`). The time shows for a call of 1 s or
-  more. A failed call keeps the last three lines of its output below its line (from
-  the last `tool_call_output_updated`, else from the output that the model got, without
-  efr's own notes in brackets at its end); a call that went well keeps none. A call
-  that the user denied, or whose approval expired, writes no line of its own. Lines of
-  consecutive calls have no blank line between them. Answers and the end of a turn are
-  muted notes, one line each. When stdout is not a terminal, a call is one note on
-  stderr when it starts, such as `$ make`, and one more when it fails, such as `shell
-  exited with 2`.
-- An approval question shows the daemon's summary on one line and, when the daemon
-  named the simple commands of a long line that ask, a second line
-  `asks for: hostnamectl, systemctl --failed`. A shell call whose command has several
-  lines shows `shell: run 2 lines:` and then each line on its own, numbered, so two
-  commands never look like one with more arguments; the whole command shows, and a
-  terminal wraps a long line. This needs a summary that quotes exactly the command of
-  the call's `tool_call_started` (what the summary says after it follows after
-  `also:`); any other summary shows as before. The heading is in the `warning` role,
-  the rest is plain. Only a last line of plain names counts
-  as that line; anything else stays on the first line. `efr history` joins both with
-  `; `, as the daemon's notices do.
-- The `auto` sandbox (`docs/sandbox.md`). The first call of a turn that runs in the
-  sandbox (`tool_call_started` with a contained `launch`) gets one dim line,
-  `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, and a failed
-  contained call ends `$ make  exit 2 (sandbox)` (`shell exited with 2 (sandbox)` when
-  stdout is not a terminal). A call's `sandbox` summary adds
-  `network: blocked <host>:<port> (<reason>)` and the background jobs that stopped. A
-  turn whose `auto` fell back to `cautious` (`EffectiveSettings.fallback`) starts with
-  `auto is not available here; this turn runs as cautious: <reason>`.
+  spinner (accent), the call (code) cut to the width with `…` at the cut, and from 1 s
+  on how long it has run, such as `⠹ $ cargo test -p app  12s`; up to three more lines
+  of a command of several (or two and `(5 more lines)`); then the last three lines of
+  its output with text in them (from `tool_call_output_updated`), each after `  │ `,
+  muted and cut to the width. The status row hides meanwhile, because the call's row
+  carries the spinner. A call whose approval waits shows nothing until the answer, and
+  its time counts from the answer.
+- When the call ends, its block is written once in place of the live rows, with its
+  result on a row of its own: `✓` in the `success` role, or `✗ exit 101` (or `✗
+  failed`) in the `error` role, `(sandbox)` after the code of a failed contained call,
+  and `✗ refused: efr's config (floor)` when efr refused it before it ran
+  (`tool_call_completed` with a `refusal`). The time follows for a call that ran 1 s or
+  more: `✓ 6.2s`, `✗ exit 2 · 1.5s`. A failed call keeps the last three lines of its
+  output above its result (from the last `tool_call_output_updated`, else from the
+  output that the model got, without efr's own notes in brackets at its end); a call
+  that went well keeps none. A call that the user denied, or whose approval expired,
+  writes no block: the line of the answer says it. Notes and the end of a turn are
+  muted lines.
+- When stdout is not a terminal, the blocks go to stderr in plain text: the first rows
+  of a call when it starts, and its result (with the last lines of a failure's output)
+  when it ends. Nothing wraps there, because no screen sets a width.
+- A question is a card in the live zone, below the rest:
+
+  ```text
+  ? allow outside the sandbox
+  │ cd ~/p/app && find target/debug/build \
+  │     -path '*ghostty*' -type f | awk '{print $1}'
+  │ runs with your full rights: files, secrets, network
+  │ programs: cd, find, awk
+  │ y allow · n deny
+  ```
+
+  The title (`? ` and what the user decides) is in the `warning` role, the bar `│ ` is
+  muted, what runs is in the `code` role, one row for each line of a command, wrapped
+  as in a call's block. Secondary facts are muted: why the call asks (`why: ...`), the
+  parts of a long line that ask (`asks for: hostnamectl, systemctl --failed`), the
+  programs, efr's own facts after `efr:` and the model's reason as `the model says:
+  "..."`. The last row gives the keys, muted with the keys in bold, or `waiting for
+  another client to answer`. A text row wider than the screen goes on in the next
+  row, indented 2 more columns. The title of an approval says what a "yes" allows:
+  `allow this command`, `allow this write`, `allow this read`, or for an exit `allow
+  outside the sandbox`, `allow ~/notes writable for this call` and the like. An
+  approval of the turn that the followed one waits behind starts `the running turn
+  asks:`. A diff preview shows after the bar, rendered as a diff at the width less the
+  bar.
+- A shell call's card shows each line of its command when the summary quotes exactly
+  the command of the call's `tool_call_started`; what the summary says besides follows
+  after `why:`. Any other summary shows as one plain row. Only a last line of plain
+  names counts as the line of the parts that ask; anything else stays on the first
+  row. `efr history` joins both with `; `, as the daemon's notices do.
+- When the question is answered, its card gives its place to one line: `✓ allowed` in
+  the `success` role, `✗ denied` in the `error` role, `✓ allowed from the phone` for
+  an answer from another client, `✗ the approval expired`. The command is written
+  once, in the block of the call that follows. A card taller than the screen (the live
+  zone must stay smaller than the screen, or rows that scroll off the top could never
+  be erased) is written to the scrollback whole instead, with its keys left in the
+  live zone; the line of the answer then follows it. When stdout is not a terminal,
+  the card goes to stderr whole, and the line of the answer after it.
+- The `auto` sandbox (`docs/sandbox.md`). A turn in which a call ran in the sandbox
+  (`tool_call_started` with a contained `launch`, not refused) ends with one muted
+  line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
+  the end-of-turn line, and a failed contained call ends `✗ exit 2 (sandbox)`. A
+  call's `sandbox` summary adds muted rows under its result: `network: blocked
+  <host>:<port> (<reason>)` and the background jobs that stopped. A sandbox that could
+  not start is the call's result: `✗ the sandbox could not start: <reason>; efr checks
+  it again`. A turn whose `auto` fell back to `cautious`
+  (`EffectiveSettings.fallback`) starts with `auto is not available here; this turn
+  runs as cautious: <reason>`.
 - An approval with `exit` (an action that leaves the sandbox) shows the whole line of
-  the call from its `exit_requested` record instead of the summary (each line of a
-  command of several on its own, numbered), then
-  what leaves and how the call runs after a "yes" (`leaves the sandbox: network; runs
-  in the sandbox with full network for this call`, or `runs outside the sandbox: sudo
-  (you may need to type your password)`). A line that runs outside the sandbox also
-  gets `the whole line runs with your full rights (files, secrets, network)` and
-  `programs:` with every program word and the path it resolves to, or `(builtin)` for
-  a word that the shell runs itself; a program in a
-  write root or changed this turn gets `(untrusted: written in the sandbox)`. Only the
-  facts that matter most are in the `warning` role: the heading (`approval needed:`),
-  the full-rights line and the untrusted mark. The other fact lines are plain text.
-  efr's own facts follow muted after `efr:`, then the model's reason as `the model
-  says: "..."`, and the key line is muted with the keys in bold (`allow? y = yes, n =
-  no`). Every part passes through `format::one_line`, and each line of a command
-  through `format::command_line`.
-- The quarantine question (`surface_question_requested`) is not an approval: it names
-  the git settings that the last call changed and the launcher moved to quarantine,
-  and asks `keep it? y = yes, n = no` with one key: the heading in the `warning` role,
-  the changes plain, the key line muted with bold keys. The answer goes with
-  `sandbox.surface_respond` and the question's own `QuestionId`; nobody answering
-  leaves the change in quarantine. At the end of an `auto` turn, the files that run
-  code later outside the sandbox (`turn_surface_report`) show as three dim lines.
-- When stdout is not a terminal, the raw markdown is written, and notes and approval
+  the call from its `exit_requested` record instead of the summary, each line of a
+  command of several on its own row. A line that runs outside the sandbox also gets
+  the risk row `runs with your full rights: files, secrets, network` in the `warning`
+  role and `programs:` with every program word as a plain name. A program in a write
+  root or changed this turn also shows the path it resolves to and the mark
+  `(untrusted: written in the sandbox; in a write root, changed this turn)` in the
+  `warning` role; a word that resolves to nothing gets `(not found)`. `why:` names what
+  leaves (`write ~/.zshrc`, `network (example.com)`, `sudo (you may need to type your
+  password)`). Every part passes through `format::one_line`, and each line of a command
+  through `format::command_line`, so a control or format character shows as a
+  stand-in.
+- The quarantine question (`surface_question_requested`) is not an approval: its card
+  (`? keep the git settings that the last command changed`) names the git settings
+  that the last call changed and the launcher moved to quarantine, and its keys are
+  `y keep · n leave in quarantine`. Its answer line is `✓ kept` or `✗ left in
+  quarantine`. The answer goes with `sandbox.surface_respond` and the question's own
+  `QuestionId`; nobody answering leaves the change in quarantine. At the end of an
+  `auto` turn, the files that run code later outside the sandbox
+  (`turn_surface_report`) show as three dim lines.
+- Under `NO_COLOR` the blocks keep their structure and their marks, and the CLI's lines
+  keep bold and dim, as the rest of the reply does, without a colour.
+- When stdout is not a terminal, the raw markdown is written, and notes, calls and
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`
   (no colour), `COLORTERM=truecolor` or `24bit` (24-bit colour, otherwise 16), `TERM`
@@ -464,10 +513,18 @@ SIGWINCH stands for, a new live zone after SIGCONT, the cursor and the progress 
 every way out, the allowlist
 of the progress bar, drafts that merge with persisted updates without a line twice
 (and without a log line), a dropped draft that heals, and a proptest that pushing text in any
-pieces keeps what `render` makes of the whole text. The call tests cover the running line with its
-spinner, time and three lines of output at 40 and 80 columns, the one committed line
-of a call (with no time under 1 s, the exit code, the refusal and the failure's last
-lines), a call whose approval waits, and consecutive calls without blank lines. The
+pieces keeps what `render` makes of the whole text. The call tests cover the running rows with
+the spinner, time, the lines of a command and three lines of output at 40 and 80
+columns, the committed block of a call (with no time under 1 s, the exit code, the
+refusal and the failure's last lines), a long line that goes on in the next row and
+is never cut, a call whose approval waits, and a blank line between calls. The layout
+tests (`follow/view/tests/layout.rs`) play each case on a simulated screen 40 and 80
+columns wide, with colour and with `NO_COLOR`, and through a pipe: a call that went
+well, a failed call with its tail, a refused call, a command of several lines, a long
+command, the file tools, a question for a grant in the sandbox, a question for a run
+with full rights with an untrusted program, the answer lines, a card taller than the
+screen, and a whole turn with prose, two calls and a question. The card tests check
+that every row fits the width and that the rows give the command back whole. The
 colour tests run the status row, a call and a question in 16 colours, in truecolor and
 under `NO_COLOR` with a palette of the user's, and check that `COLOR_ROLES` equals the
 roles of `efr-render`; the settings tests lay `[render.colors]` over a theme file, read

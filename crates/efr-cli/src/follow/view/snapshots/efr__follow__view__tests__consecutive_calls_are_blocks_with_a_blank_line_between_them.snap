@@ -1,0 +1,29 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: shown
+---
+\e[?2026hChecking.
+\e[?2026l
+---
+\e[?2026h
+\e[33m•\e[0m \e[36m$ uptime\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J
+\e[33m·\e[0m \e[36m$ uptime\e[0m
+  \e[32m✓\e[0m
+\e[?2026l
+---
+\e[?2026h
+\e[33m•\e[0m \e[36m$ df -h\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J
+\e[33m·\e[0m \e[36m$ df -h\e[0m
+\e[2m  │ ...\e[0m
+  \e[31m✗ exit 1\e[0m
+\e[?2026l
+---
+\e[?2026h
+Done.
+\e[?2026l

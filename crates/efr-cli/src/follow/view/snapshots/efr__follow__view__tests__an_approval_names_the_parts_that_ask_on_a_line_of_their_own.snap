@@ -2,7 +2,10 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
-\e[?2026h\e[1;33mapproval needed:\e[0m shell: run "printf x; hostnamectl; uptime; systemctl --failed"
-asks for: hostnamectl, systemctl --failed
-\e[2mallow? \e[0m\e[1my\e[0m\e[2m = yes, \e[0m\e[1mn\e[0m\e[2m = no\e[0m
+\e[?2026h\e[1;33m? allow this call\e[0m
+\e[2m│ \e[0mshell: run "printf x; hostnamectl;
+\e[2m│ \e[0m  uptime; systemctl --failed"
+\e[2m│ \e[0m\e[2masks for: hostnamectl, systemctl\e[0m
+\e[2m│ \e[0m  \e[2m--failed\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 \e[?2026l

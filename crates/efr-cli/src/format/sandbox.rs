@@ -17,11 +17,15 @@ use efr_protocol::{
     Verdict,
 };
 
+use super::card::{self, Card, Row};
 use super::{Tone, command_line, numbered_lines, one_line, run_heading};
 
 /// The line under an unsandboxed exit: the exit child runs the whole line with every
 /// right the user has.
 const FULL_RIGHTS: &str = "the whole line runs with your full rights (files, secrets, network)";
+
+/// The risk line of a card for a run outside the sandbox.
+const RISK: &str = "runs with your full rights: files, secrets, network";
 
 /// The mark of a program that a sandboxed call wrote or may have written.
 const UNTRUSTED: &str = "untrusted: written in the sandbox";
@@ -34,12 +38,12 @@ pub(crate) const CONTAINED_IN_PROJECT: &str =
 /// The same trace for a turn outside a registered project.
 pub(crate) const CONTAINED: &str = "sandbox: writes in $SCRATCH, private /tmp; no network";
 
-/// The first line of the quarantine question.
+/// The quarantine question in one line, for `efr history`.
 pub(crate) const SURFACE_QUESTION: &str =
     "question: the last command changed git settings that run programs";
 
-/// The line under the quarantine question.
-pub(crate) const KEEP_QUESTION: &str = "keep it? y = yes, n = no";
+/// The title of the quarantine question's card.
+const SURFACE_TITLE: &str = "keep the git settings that the last command changed";
 
 /// `path` with the home directory written as `~`, safe to print.
 pub(crate) fn tilde(path: &Path, home: Option<&Path>) -> String {
@@ -442,6 +446,116 @@ pub(crate) fn exit_lines(
         lines.push(vec![(format!("the model says: \"{}\"", one_line(reason)), Tone::Dim)]);
     }
     lines
+}
+
+/// The card of an approval for an exit. The title says what a "yes" allows: to run
+/// outside the sandbox, or what the sandbox opens for this call. The rows show:
+///
+/// - the whole line of the call from its record, each line of a command on its own,
+///   so nothing of it hides behind a summary; `subject` when the record has no line
+///   (a file tool, or no record): the rows of the daemon's summary;
+/// - for a run outside the sandbox, the full-rights warning (in the `warning` role);
+/// - why the call leaves the sandbox, such as `why: write ~/.zshrc` (muted);
+/// - for a run outside the sandbox, every program word as a plain name, with the path
+///   it resolves to and the untrusted mark (in the `warning` role) only for a program
+///   that the sandbox wrote or may have written (muted);
+/// - efr's own facts after `efr:`, and the model's reason as `the model says: "..."`
+///   (muted).
+pub(crate) fn exit_card(
+    info: &ExitInfo,
+    record: Option<&ExitRecord>,
+    home: Option<&Path>,
+    subject: Vec<Row>,
+) -> Card {
+    let unsandboxed = matches!(info.launch, Launch::Unsandboxed);
+    let title = match &info.launch {
+        Launch::Unsandboxed => "allow outside the sandbox".to_owned(),
+        Launch::Contained { grants } if grants.is_empty() => "allow in the sandbox".to_owned(),
+        Launch::Contained { grants } => {
+            let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
+            format!("allow {} for this call", opened.join(", "))
+        }
+        Launch::Direct => "allow the file tool outside the sandbox".to_owned(),
+        _ => "allow this call".to_owned(),
+    };
+    let mut rows = match record.map(|record| record.action.line.as_str()) {
+        Some(line) if !line.is_empty() => card::command_rows(line),
+        _ => subject,
+    };
+    if unsandboxed {
+        rows.push(Row::text(RISK, Tone::Attention));
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for kind in &info.kinds {
+        // NOTE: an outside exit names only the first program, which the line shows.
+        if *kind == ExitKind::Outside {
+            continue;
+        }
+        let part = kind_part(*kind, info, record, home);
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    if !parts.is_empty() {
+        rows.push(Row::text(format!("why: {}", parts.join("; ")), Tone::Dim));
+    }
+    if unsandboxed && let Some(record) = record.filter(|record| !record.facts.programs.is_empty()) {
+        let mut pieces = vec![("programs: ".to_owned(), Tone::Dim)];
+        for (at, fact) in record.facts.programs.iter().enumerate() {
+            let separator = if at == 0 { "" } else { ", " };
+            let (text, mark) = program_name(fact, home);
+            pieces.push((format!("{separator}{text}"), Tone::Dim));
+            pieces.extend(mark.map(|mark| (mark, Tone::Attention)));
+        }
+        rows.push(Row::Text(pieces));
+    }
+    let mut facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
+    if info.user_only {
+        facts.push("only you can allow this".to_owned());
+    }
+    if !facts.is_empty() {
+        rows.push(Row::text(format!("efr: {}", facts.join("; ")), Tone::Dim));
+    }
+    if let Some(reason) = &info.model_reason {
+        rows.push(Row::text(format!("the model says: \"{}\"", one_line(reason)), Tone::Dim));
+    }
+    Card { title, rows }
+}
+
+/// A program word as the card of an exit names it: the word alone, `(not found)`
+/// after a word that resolves to nothing, and for a program that the sandbox wrote or
+/// may have written the path it resolves to and the mark, such as ` (untrusted: in a
+/// write root, changed this turn)`.
+fn program_name(program: &ProgramFact, home: Option<&Path>) -> (String, Option<String>) {
+    let word = one_line(&program.word);
+    let mut marks = Vec::new();
+    if program.in_write_root {
+        marks.push("in a write root");
+    }
+    if program.changed_this_turn {
+        marks.push("changed this turn");
+    }
+    if marks.is_empty() {
+        let text = if program.resolved.is_none() { format!("{word} (not found)") } else { word };
+        return (text, None);
+    }
+    let text = match &program.resolved {
+        Some(resolved) if resolved.is_absolute() && tilde(resolved, home) != word => {
+            format!("{word} {}", tilde(resolved, home))
+        }
+        _ => word,
+    };
+    (text, Some(format!(" ({UNTRUSTED}; {})", marks.join(", "))))
+}
+
+/// The card of the quarantine question: the git settings that the last call changed,
+/// each on its own row.
+pub(crate) fn surface_card(changes: &[SurfaceChange], home: Option<&Path>) -> Card {
+    let rows = changes
+        .iter()
+        .map(|change| Row::text(surface_change(change, home).trim().to_owned(), Tone::Plain))
+        .collect();
+    Card { title: SURFACE_TITLE.to_owned(), rows }
 }
 
 /// One line for an exit in `efr history`: the heading's line and every exit line,

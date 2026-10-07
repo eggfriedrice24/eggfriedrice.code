@@ -5,11 +5,14 @@
 //!
 //! On a terminal, assistant messages stream through an `efr_render::Renderer`: its
 //! committed output is written once and its live zone is redrawn in place through a
-//! [`LiveZone`]. Notes (tool calls, answers, the end of the turn) are muted lines
-//! between the messages, and a pending approval question sits below the live zone. Every
-//! colour goes through a role of the palette in the render options. When stdout
-//! is not a terminal, the messages are written as raw markdown and everything else
-//! goes to stderr, so stdout holds the reply alone.
+//! [`LiveZone`]. A turn is a list of blocks with one blank line between them: prose,
+//! tool calls (`call`), questions and notes. A pending question is a card in the live
+//! zone (`format::card`): when it is answered, it gives its place to one line, such as
+//! `✓ allowed`, so what runs is written once, in the block of the call. A card taller
+//! than the screen is written to the scrollback instead, and its keys stay live. Every
+//! colour goes through a role of the palette in the render options. When stdout is not
+//! a terminal, the messages are written as raw markdown and everything else goes to
+//! stderr in the same blocks, so stdout holds the reply alone.
 //!
 //! While the turn waits behind another one, the other turn's approvals show too, and so
 //! do its running call's last output line and the input it waits for: that turn may be
@@ -17,12 +20,12 @@
 //! answered. This client tells the daemon that a person here can answer, so it must
 //! ask for the running turn's input as well.
 //!
-//! While a tool call of this turn runs on a terminal, its line (`call`) sits in the live
-//! zone with the spinner and its time, in place of the status row, and the last three
-//! lines of its output with text in them follow, muted and cut to the width. When the
-//! call ends, one line is written once in its place, with the exit code of a failure,
-//! and a failed call keeps its last lines of output. When the call's command waits for
-//! input and keys can be read, the view
+//! While a tool call of this turn runs on a terminal, its block (`call`) sits in the
+//! live zone with the spinner and its time, in place of the status row, and the last
+//! three lines of its output with text in them follow, muted and cut to the width. When
+//! the call ends, its block is written once in its place, with its result, and a failed
+//! call keeps its last lines of output. When the call's command waits for input and
+//! keys can be read, the view
 //! asks for an answer line below it: a hidden answer (a password) never reaches the
 //! view at all, and a visible one is echoed here as the user types it, unless its
 //! prompt looks like a password prompt behind another program (`looks_secret`).
@@ -66,12 +69,12 @@
 //! tokens, and a progress bar in the terminal's tab (OSC 9;4) runs while the turn does,
 //! when the terminal draws one.
 //!
-//! In `auto`, the first call of a turn that runs in the sandbox gets one dim line that
-//! says where it can write, and a failed contained call ends with `(sandbox)`. An
-//! approval for an exit shows the whole line of the call, what leaves the sandbox and
-//! how the call runs after a "yes", every program word of a line that runs outside
-//! the sandbox (with the untrusted mark for a program that the sandbox wrote), efr's
-//! own facts and the model's reason, labelled as the model's. A turn whose mode fell
+//! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that
+//! says where the sandbox can write, and a failed contained call ends with `(sandbox)`.
+//! An approval for an exit shows the whole line of the call, what a "yes" allows and
+//! why, the full-rights warning and every program word of a line that runs outside the
+//! sandbox (with the untrusted mark for a program that the sandbox wrote), efr's own
+//! facts and the model's reason, labelled as the model's. A turn whose mode fell
 //! back says so at its start. When a call changed git settings that run programs, the
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
@@ -88,12 +91,13 @@ use efr_protocol::{
     ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
     ExitRecord, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange, TurnId,
 };
-use efr_render::{RenderOptions, render, render_trace};
+use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
+use crate::format::card::{self, Card, Footer};
 use crate::format::{self, Block, Spacing, Tone, sandbox};
-use crate::live::{LiveZone, Measured, effective_width};
+use crate::live::{LiveZone, Measured, effective_width, fits, rows_of};
 use crate::progress;
 use crate::terminal::{Size, at_width};
 use call::{Call, Outcome};
@@ -108,14 +112,15 @@ const HIDE_CURSOR: &str = "\x1b[?25l";
 /// Shows the cursor again.
 const SHOW_CURSOR: &str = "\x1b[?25h";
 
-/// The question under a pending approval.
-const QUESTION: &str = "allow? y = yes, n = no";
+/// What starts the title of an approval of the turn that the followed one waits
+/// behind.
+const BLOCKING: &str = "the running turn asks: ";
 
-/// The heading of an approval of the followed turn.
-const APPROVAL: &str = "approval needed:";
+/// The mark of a good answer.
+const YES: &str = "\u{2713} ";
 
-/// The heading of an approval of the turn that the followed one waits behind.
-const BLOCKING_APPROVAL: &str = "the running turn needs approval:";
+/// The mark of a refusal or of a failure.
+const NO: &str = "\u{2717} ";
 
 /// The line under the prompt of a command that waits for hidden input. It promises no
 /// more than echo being off: the prompt text comes from the command, and the program
@@ -267,6 +272,24 @@ pub(crate) enum Ask {
     Surface(QuestionId),
 }
 
+/// What a question on the screen asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum About {
+    Approval(CallId),
+    Surface(QuestionId),
+}
+
+/// The question on a terminal, as a card in the live zone until it is answered.
+#[derive(Debug)]
+struct Shown {
+    card: Card,
+    about: About,
+    footer: Footer,
+    /// The card is in the scrollback, because it did not fit on the screen; only its
+    /// keys stay in the live zone.
+    committed: bool,
+}
+
 /// The tool call whose output is arriving now.
 #[derive(Debug)]
 struct Running {
@@ -353,6 +376,12 @@ pub(crate) struct TurnView {
     tools: HashMap<CallId, String>,
     live: LiveZone,
     spacing: Spacing,
+    /// The blocks on stderr when stdout is not a terminal.
+    err_spacing: Spacing,
+    /// The question on a terminal's screen.
+    question: Option<Shown>,
+    /// The size of the screen at the last event or frame.
+    size: Size,
     /// Raw markdown messages written so far, to separate them by a blank line.
     raw_messages: u32,
     /// The approval waiting for a key.
@@ -383,7 +412,8 @@ pub(crate) struct TurnView {
     home: Option<PathBuf>,
     /// The turn runs in a registered project, which its sandbox can write.
     in_project: bool,
-    /// The line that says where a contained call can write is shown for this turn.
+    /// A call of this turn runs in the sandbox: the end of the turn says where it can
+    /// write.
     traced: bool,
     /// Calls that run in the sandbox, whose failure says so.
     contained: HashSet<CallId>,
@@ -435,6 +465,9 @@ impl TurnView {
             next_index: 0,
             tools: HashMap::new(),
             spacing: Spacing::default(),
+            err_spacing: Spacing::default(),
+            question: None,
+            size: Size::default(),
             raw_messages: 0,
             asking: None,
             answered: None,
@@ -525,6 +558,7 @@ impl TurnView {
     /// a tool call only change the status row. A draft of another turn, or one older
     /// than an event of this turn that ends what drafts show, changes nothing.
     pub(crate) fn draft(&mut self, draft: &Draft, size: Size) -> Step {
+        self.size = size;
         if draft.turn_id != self.turn
             || self.ended
             || self.draft_boundary.is_some_and(|seq| draft.after_seq < seq)
@@ -616,10 +650,12 @@ impl TurnView {
         if !self.terminal() {
             return String::new();
         }
+        self.size = size;
         if let Some(message) = &mut self.message {
             let committed = message.push_all();
             self.pending.push_str(&committed);
         }
+        self.fit_question(size, now);
         let committed = std::mem::take(&mut self.pending);
         self.dirty = false;
         let call_shown = self.call_shown();
@@ -736,6 +772,42 @@ impl TurnView {
         at_width(&self.options, effective_width(size))
     }
 
+    /// The options at the size of the last event or frame.
+    fn options_now(&self) -> RenderOptions {
+        self.options_at(self.size)
+    }
+
+    /// Writes the card of the question to the scrollback when the live zone with it
+    /// would not fit on the screen: rows that scroll off the top can never be erased,
+    /// and the live zone would show only the card's last rows. Its keys stay live.
+    fn fit_question(&mut self, size: Size, now: Timestamp) {
+        if !self.question.as_ref().is_some_and(|shown| !shown.committed) {
+            return;
+        }
+        let (body, _) = self.live_body(size, now);
+        // One row more for a status row under it.
+        let rows = rows_of(&body, effective_width(size), self.options.width_method()) + 1;
+        if !fits(rows, size) {
+            self.commit_question();
+        }
+    }
+
+    /// Writes the card of the question on the screen to the scrollback once, without
+    /// its keys, which stay in the live zone while the question waits.
+    fn commit_question(&mut self) {
+        let options = self.options_now();
+        let text = match &self.question {
+            Some(shown) if !shown.committed => shown.card.render(None, &options),
+            _ => return,
+        };
+        let mut committed = self.spacing.before(Block::Question).to_owned();
+        committed.push_str(&text);
+        if let Some(shown) = &mut self.question {
+            shown.committed = true;
+        }
+        self.stage(&committed);
+    }
+
     /// True when the live zone shows the line of the running call of this turn: it
     /// runs, no question about it or another waits, and the view did not end.
     fn call_shown(&self) -> bool {
@@ -749,6 +821,7 @@ impl TurnView {
     /// except approvals while this turn waits behind another one. `can_ask` says
     /// whether one-key answers can be read.
     pub(crate) fn event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
+        self.size = size;
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
         }
@@ -766,6 +839,8 @@ impl TurnView {
                 // A call or a question of the turn ahead that is still shown or kept is
                 // over now.
                 self.call = None;
+                self.commit_question();
+                self.question = None;
                 let retained = self.retained.take().is_some();
                 let surface = self.surface.take().is_some();
                 let mut step = match self.running.take() {
@@ -826,28 +901,19 @@ impl TurnView {
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                // On a terminal the call's line shows in the live zone while it runs and
-                // is written once when it ends; elsewhere a note says that it starts.
-                let mut step = if self.terminal() {
-                    let line = format::call_line(tool, input);
-                    self.call = Some(Call::new(*call_id, line, self.event_at));
+                let call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
+                // On a terminal the call's block shows in the live zone while it runs
+                // and is written once when it ends; elsewhere its first rows go to
+                // stderr now, and its result when it ends.
+                let step = if self.terminal() {
+                    self.call = Some(call);
                     self.commit(before)
                 } else {
-                    let line = format::tool_call(tool, input, None);
-                    self.note_after(before, &line, size)
+                    let mut err = self.err_spacing.before(Block::Call).to_owned();
+                    err.push_str(&call.header(&self.options_at(size)));
+                    self.call = Some(call);
+                    Step { out: before, err: self.raw_err(err), ..Step::default() }
                 };
-                // One line per turn says that the sandbox is on, then nothing new.
-                if contained && !self.traced {
-                    self.traced = true;
-                    let trace = if self.in_project {
-                        sandbox::CONTAINED_IN_PROJECT
-                    } else {
-                        sandbox::CONTAINED
-                    };
-                    let noted = self.note(trace, size);
-                    step.out.push_str(&noted.out);
-                    step.err.push_str(&noted.err);
-                }
                 Step { settled, ..step }
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
@@ -876,27 +942,33 @@ impl TurnView {
                     || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
                 let denied = self.refused.contains(call_id);
+                // The end of the turn says once where the sandbox can write, when a call
+                // ran in it.
+                self.traced |= contained && !denied && refusal.is_none() && setup.is_none();
                 let mut notes: Vec<String> = Vec::new();
-                match self.call.take().filter(|call| call.call_id == *call_id) {
+                if let Some(summary) = summary {
+                    notes.extend(summary.blocked.iter().map(sandbox::blocked));
+                    notes.extend(sandbox::background_stopped(&summary.background_stopped));
+                    notes.extend(sandbox::survivors(&summary.survivors));
+                }
+                let step = match self.call.take().filter(|call| call.call_id == *call_id) {
                     // A denied call never ran: its question and the answer said it all.
-                    Some(_) if denied && refusal.is_none() => {}
+                    Some(_) if denied && refusal.is_none() => self.notes(&notes, size),
                     Some(call) => {
                         let outcome = match (refusal, setup, *exit_code) {
                             (Some(reason), _, _) => Outcome::Refused(reason),
-                            // A setup failure has its own line below.
-                            (None, Some(_), _) => Outcome::Ran,
+                            (None, Some(reason), _) => Outcome::NotStarted(reason),
                             (None, None, Some(code)) if code != 0 => {
                                 Outcome::Exited { code, contained }
                             }
                             (None, None, None) if *is_error => Outcome::Failed { contained },
                             _ => Outcome::Ran,
                         };
-                        self.call_line(&call, outcome, &lines, size);
+                        self.call_block(&call, outcome, &lines, &notes, size)
                     }
                     None => {
-                        // A setup failure has its own line; the call's status says
-                        // nothing more. A refused call never ran, in the sandbox or out
-                        // of it.
+                        // The start of the call was not seen: its end is a note. A
+                        // refused call never ran, in the sandbox or out of it.
                         let line =
                             match refusal {
                                 Some(reason) => Some(format::refused(tool, reason)),
@@ -906,17 +978,15 @@ impl TurnView {
                                         if contained { format!("{line} (sandbox)") } else { line }
                                     }),
                             };
-                        notes.extend(line);
+                        let mut all: Vec<String> =
+                            line.into_iter().map(|line| format!("{NO}{line}")).collect();
+                        all.extend(sandbox::setup_failed(setup));
+                        all.extend(notes);
+                        self.notes(&all, size)
                     }
-                }
-                notes.extend(sandbox::setup_failed(setup));
-                if let Some(summary) = summary {
-                    notes.extend(summary.blocked.iter().map(sandbox::blocked));
-                    notes.extend(sandbox::background_stopped(&summary.background_stopped));
-                    notes.extend(sandbox::survivors(&summary.survivors));
-                }
+                };
                 // The live tail goes either way.
-                Step { settled, ..self.notes(&notes, size) }
+                Step { settled, ..step }
             }
             Event::ExitRequested { call_id, record, .. } => {
                 self.exits.insert(*call_id, (**record).clone());
@@ -935,7 +1005,7 @@ impl TurnView {
                     self.state(State::Answer);
                 }
                 let request = Request {
-                    heading: APPROVAL,
+                    blocking: false,
                     summary,
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
@@ -1017,7 +1087,7 @@ impl TurnView {
                     self.interactive.insert(*call_id);
                 }
                 let request = Request {
-                    heading: BLOCKING_APPROVAL,
+                    blocking: true,
                     summary,
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
@@ -1070,13 +1140,41 @@ impl TurnView {
         }
         let settled = self.settle(call_id);
         let line = format!("{} from {}", format::decision(decision), format::origin(origin));
-        Step { settled, ..self.note(&line, size) }
+        let good = decision == ApprovalDecision::Allow;
+        Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
     }
 
     fn expired(&mut self, call_id: CallId, size: Size) -> Step {
         self.refused.insert(call_id);
         let settled = self.settle(call_id);
-        Step { settled, ..self.note("the approval expired", size) }
+        let step = self.answer_line(About::Approval(call_id), false, "the approval expired", size);
+        Step { settled, ..step }
+    }
+
+    /// The question about `about` is settled: on a terminal its card gives its place to
+    /// one line, such as `✓ allowed` (`good`) or `✗ denied`. An allowed call of this
+    /// turn follows the line at once; anything else comes after a blank line.
+    fn answer_line(&mut self, about: About, good: bool, line: &str, size: Size) -> Step {
+        if self.question.as_ref().is_some_and(|shown| shown.about == about) {
+            self.question = None;
+            self.dirty = true;
+        }
+        let options = self.options_at(size);
+        let (mark, tone) = if good { (YES, Tone::Success) } else { (NO, Tone::Failure) };
+        let mut text = format::paint(&format!("{mark}{}", format::one_line(line)), tone, &options);
+        text.push('\n');
+        if !self.terminal() {
+            // NOTE: the call's first rows went to stderr before its question.
+            let mut err = self.err_spacing.before(Block::Answer).to_owned();
+            err.push_str(&text);
+            return Step { err: self.raw_err(err), ..Step::default() };
+        }
+        let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
+        let block = if good && ours { Block::Allowed } else { Block::Answer };
+        let mut committed = self.spacing.before(block).to_owned();
+        committed.push_str(&text);
+        self.stage(&committed);
+        Step::default()
     }
 
     /// Dim note lines, one after the other; with none, only the live zone is redrawn.
@@ -1103,6 +1201,7 @@ impl TurnView {
             text.push('\n');
         }
         if !self.terminal() {
+            let text = format!("{}{text}", self.err_spacing.before(Block::Note));
             return Step { err: self.raw_err(text), ..Step::default() };
         }
         let mut committed = self.spacing.before(Block::Note).to_owned();
@@ -1123,15 +1222,9 @@ impl TurnView {
     ) -> Step {
         self.surfaces.insert(question_id);
         let before = self.finish_message();
-        let options = self.options_at(size);
-        let mut text = format::paint(sandbox::SURFACE_QUESTION, Tone::Attention, &options);
-        text.push('\n');
-        for change in changes {
-            text.push_str(&sandbox::surface_change(change, self.home.as_deref()));
-            text.push('\n');
-        }
+        let card = sandbox::surface_card(changes, self.home.as_deref());
         let mut step = Step { out: before, ..Step::default() };
-        if can_ask {
+        let footer = if can_ask {
             self.surface = Some(question_id);
             step.ask = Some(Ask::Surface(question_id));
             // One question at a time: the question's key reader replaces any other.
@@ -1142,14 +1235,11 @@ impl TurnView {
                 running.typed.clear();
                 running.hinted = false;
             }
-            if !self.terminal() {
-                text.push_str(sandbox::KEEP_QUESTION);
-                text.push('\n');
-            }
+            Footer::Keys(card::KEEP_KEYS)
         } else {
-            text.push_str(&render_trace("waiting for another client to answer", &options));
-        }
-        self.show_question(step, &text)
+            Footer::Waiting
+        };
+        self.show_question(step, card, About::Surface(question_id), footer, size)
     }
 
     /// The user answered the quarantine question `question_id` with a key here.
@@ -1164,7 +1254,7 @@ impl TurnView {
         }
         self.surface_answered = Some(question_id);
         let line = if keep { "kept" } else { "left in quarantine" };
-        self.note(line, size)
+        self.answer_line(About::Surface(question_id), keep, line, size)
     }
 
     /// The quarantine question `question_id` was answered, expired or ended with an
@@ -1184,19 +1274,30 @@ impl TurnView {
             self.surface = None;
         }
         let line = sandbox::surface_answered(keep, origin.map(format::origin));
-        Step { settled, ..self.note(&line, size) }
+        Step { settled, ..self.answer_line(About::Surface(question_id), keep, &line, size) }
     }
 
-    /// Writes the question `text` after `step`'s output: below the live zone on a
-    /// terminal, on stderr otherwise.
-    fn show_question(&mut self, mut step: Step, text: &str) -> Step {
+    /// Shows `card`, the question about `about`, with `footer`, after `step`'s output:
+    /// in the live zone on a terminal until it is answered, on stderr otherwise.
+    fn show_question(
+        &mut self,
+        mut step: Step,
+        card: Card,
+        about: About,
+        footer: Footer,
+        size: Size,
+    ) -> Step {
         if self.terminal() {
-            let mut committed = std::mem::take(&mut step.out);
-            committed.push_str(self.spacing.before(Block::Approval));
-            committed.push_str(text);
-            self.stage(&committed);
+            let before = std::mem::take(&mut step.out);
+            self.stage(&before);
+            // One card at a time: one that still waits goes to the scrollback whole.
+            self.commit_question();
+            self.question = Some(Shown { card, about, footer, committed: false });
+            self.dirty = true;
         } else {
-            step.err = self.raw_err(text.to_owned());
+            let mut text = self.err_spacing.before(Block::Question).to_owned();
+            text.push_str(&card.render(Some(footer), &self.options_at(size)));
+            step.err = self.raw_err(text);
         }
         step
     }
@@ -1210,7 +1311,9 @@ impl TurnView {
     fn note_after(&mut self, before: String, text: &str, size: Size) -> Step {
         let options = self.options_at(size);
         if !self.terminal() {
-            let err = self.raw_err(render_trace(text, &options));
+            let text =
+                format!("{}{}", self.err_spacing.before(Block::Note), render_trace(text, &options));
+            let err = self.raw_err(text);
             return Step { out: before, err, ..Step::default() };
         }
         let mut committed = before;
@@ -1518,7 +1621,9 @@ impl TurnView {
         if let Some(call) = self.call.as_mut().filter(|call| call.call_id == call_id) {
             call.approved(None);
         }
-        let step = self.note(format::decision(decision), size);
+        let good = decision == ApprovalDecision::Allow;
+        let step =
+            self.answer_line(About::Approval(call_id), good, format::decision(decision), size);
         if decision == ApprovalDecision::Allow && self.interactive.contains(&call_id) {
             self.retained = Some(call_id);
             return Step { ask: Some(Ask::Retain(call_id)), ..step };
@@ -1539,7 +1644,19 @@ impl TurnView {
         let committed = self.finish_message();
         // An echo line left open would carry what is written after the view.
         let err = self.raw_err(String::new());
-        Step { err, ..self.commit(committed) }
+        let mut step = Step { err, ..self.commit(committed) };
+        // A question that nobody answered stays in the scrollback.
+        self.commit_question();
+        self.question = None;
+        if std::mem::take(&mut self.traced) {
+            let trace =
+                if self.in_project { sandbox::CONTAINED_IN_PROJECT } else { sandbox::CONTAINED };
+            // Whole, not cut to the width as a note is: it says where the calls wrote.
+            let noted = self.dim_block(&[trace.to_owned()], self.size);
+            step.out.push_str(&noted.out);
+            step.err.push_str(&noted.err);
+        }
+        step
     }
 
     /// An update of message `index`: `delta` at byte `offset` of its text. An update
@@ -1632,51 +1749,24 @@ impl TurnView {
         can_ask: bool,
     ) -> Step {
         let before = self.finish_message();
-        let options = self.options_at(size);
-        let record = self.exits.get(&call_id);
+        let tool = self.tools.get(&call_id).map(String::as_str);
+        let command = self.commands.get(&call_id).map(String::as_str);
+        let mut card = card::approval(request.summary, tool, command);
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
-        let (heading, asking) = match request.exit.and_then(|_| sandbox::exit_heading(record)) {
-            Some(heading) => (heading, None),
-            None => {
-                let tool = self.tools.get(&call_id).map(String::as_str);
-                let command = self.commands.get(&call_id).map(String::as_str);
-                format::approval_heading(request.summary, tool.zip(command))
-            }
-        };
-        let mut text = format::paint(request.heading, Tone::Attention, &options);
-        for (at, line) in heading.iter().enumerate() {
-            if at == 0 {
-                text.push(' ');
-            }
-            text.push_str(line);
-            text.push('\n');
-        }
-        if let Some(asking) = asking {
-            text.push_str(&asking);
-            text.push('\n');
-        }
         if let Some(exit) = request.exit {
-            for line in sandbox::exit_lines(exit, record, self.home.as_deref()) {
-                for (piece, tone) in &line {
-                    text.push_str(&format::paint(piece, *tone, &options));
-                }
-                text.push('\n');
-            }
+            let record = self.exits.get(&call_id);
+            card = sandbox::exit_card(exit, record, self.home.as_deref(), card.rows);
         }
         if let Some(diff) = request.diff {
-            if self.terminal() {
-                text.push_str(&render(&format::code_block("diff", diff), &options));
-            } else {
-                text.push_str(&format::lines(diff));
-                if !diff.ends_with('\n') {
-                    text.push('\n');
-                }
-            }
+            card.rows.push(card::Row::Diff(diff.to_owned()));
+        }
+        if request.blocking {
+            card.title = format!("{BLOCKING}{}", card.title);
         }
         let mut step = Step { out: before, ..Step::default() };
         // Calls run one after another, so a call that kept keys is over by now.
         self.retained = None;
-        if can_ask {
+        let footer = if can_ask {
             self.asking = Some(call_id);
             step.ask = Some(Ask::Approval(call_id));
             // One question at a time: the approval's key reader replaces the input's.
@@ -1686,14 +1776,11 @@ impl TurnView {
                 running.typed.clear();
                 running.hinted = false;
             }
-            if !self.terminal() {
-                text.push_str(QUESTION);
-                text.push('\n');
-            }
+            Footer::Keys(card::ALLOW_KEYS)
         } else {
-            text.push_str(&render_trace("waiting for another client to answer", &options));
-        }
-        self.show_question(step, &text)
+            Footer::Waiting
+        };
+        self.show_question(step, card, About::Approval(call_id), footer, size)
     }
 
     /// Clears the question when it was about `call_id`; true when it was.
@@ -1752,16 +1839,33 @@ impl TurnView {
         self.dirty = true;
     }
 
-    /// The line of call `call`, which ended as `outcome` at the time of the event
-    /// being taken, written once; a failed call keeps `lines`, the last of its output.
-    fn call_line(&mut self, call: &Call, outcome: Outcome<'_>, lines: &[String], size: Size) {
+    /// The block of call `call`, which ended as `outcome` at the time of the event being
+    /// taken, written once, with `notes` under its result; a failed call keeps `lines`,
+    /// the last of its output. When stdout is not a terminal, its first rows went to
+    /// stderr when it started, and the rest follows now.
+    fn call_block(
+        &mut self,
+        call: &Call,
+        outcome: Outcome<'_>,
+        lines: &[String],
+        notes: &[String],
+        size: Size,
+    ) -> Step {
         let options = self.options_at(size);
-        let mut committed = self.spacing.before(Block::Note).to_owned();
-        committed.push_str(&call.ended(self.event_at, outcome, &options));
+        let mut block = String::new();
         if outcome.failed() {
-            committed.push_str(&call::tail(lines, false, &options));
+            block.push_str(&call::tail(lines, false, &options));
         }
+        block.push_str(&call.result(self.event_at, outcome, &options));
+        block.push_str(&call::notes(notes, &options));
+        if !self.terminal() {
+            return Step { err: self.raw_err(block), ..Step::default() };
+        }
+        let mut committed = self.spacing.before(Block::Call).to_owned();
+        committed.push_str(&call.header(&options));
+        committed.push_str(&block);
         self.stage(&committed);
+        Step::default()
     }
 
     /// The live zone above the status row at `now`: the current message's live text,
@@ -1780,7 +1884,7 @@ impl TurnView {
         if self.call_shown()
             && let Some(call) = &self.call
         {
-            live.push_str(self.spacing.peek(Block::Note));
+            live.push_str(self.spacing.peek(Block::Call));
             let spinner = match &self.status {
                 Some(status) => status.spinner(now),
                 None => spinner(self.look.motion, 0),
@@ -1802,19 +1906,15 @@ impl TurnView {
                 live.push('\n');
             }
         }
-        if live.len() != before {
-            measured = None;
+        if let Some(shown) = &self.question {
+            if shown.committed {
+                live.push_str(&card::footer_row(shown.footer, &options));
+            } else {
+                live.push_str(self.spacing.peek(Block::Question));
+                live.push_str(&shown.card.render(Some(shown.footer), &options));
+            }
         }
-        let question = if self.asking.is_some() {
-            Some(QUESTION)
-        } else if self.surface.is_some() {
-            Some(sandbox::KEEP_QUESTION)
-        } else {
-            None
-        };
-        if let Some(question) = question {
-            live.push_str(&format::keys(question, &options));
-            live.push('\n');
+        if live.len() != before {
             measured = None;
         }
         (live, measured)
@@ -1853,7 +1953,8 @@ fn last_line(tail: &str) -> String {
 
 /// An approval request as the view shows it.
 struct Request<'a> {
-    heading: &'static str,
+    /// It is an approval of the turn that the followed one waits behind.
+    blocking: bool,
     summary: &'a str,
     diff: Option<&'a str>,
     /// What the call would do outside the sandbox, for an exit.

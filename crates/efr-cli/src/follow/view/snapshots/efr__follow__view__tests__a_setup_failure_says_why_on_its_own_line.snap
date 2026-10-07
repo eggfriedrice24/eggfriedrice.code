@@ -2,6 +2,5 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-$ cargo test
-sandbox: writes in the project, $SCRATCH, private /tmp; no network
-sandbox: could not start: bwrap: Can't mount proc on /newroot/proc; efr checks the sandbox again
+· $ cargo test
+  ✗ the sandbox could not start: bwrap: Can't mount proc on /newroot/proc; efr checks it again

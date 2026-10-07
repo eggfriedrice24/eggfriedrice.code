@@ -2,9 +2,10 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-$ cargo nextest run -p efr-cli
-sandbox: writes in the project, $SCRATCH, private /tmp; no network
-$ cargo add serde
-shell exited with 101 (sandbox)
-network: blocked evil.example:443 (not on the allow list)
-sandbox: stopped when the call ended: vite
+· $ cargo nextest run -p efr-cli
+  ✓
+
+· $ cargo add serde
+  ✗ exit 101 (sandbox)
+  network: blocked evil.example:443 (not on the allow list)
+  sandbox: stopped when the call ended: vite

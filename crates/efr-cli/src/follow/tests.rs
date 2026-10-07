@@ -285,7 +285,10 @@ async fn a_key_answers_the_approval() {
     .await;
     result.unwrap();
     assert_eq!(keys.starts(), 1);
-    assert_eq!(err, "approval needed: run rm -rf build\nallow? y = yes, n = no\ndenied\n");
+    assert_eq!(
+        err,
+        "? allow this call\n\u{2502} run rm -rf build\n\u{2502} y allow \u{b7} n deny\n\u{2717} denied\n"
+    );
 }
 
 #[tokio::test]
@@ -336,10 +339,10 @@ async fn a_key_answers_the_quarantine_question_with_its_own_id() {
     assert_eq!(
         err,
         "\
-question: the last command changed git settings that run programs
-  /p/app/.git/commondir (core.fsmonitor); moved to quarantine
-keep it? y = yes, n = no
-kept
+? keep the git settings that the last command changed
+\u{2502} /p/app/.git/commondir (core.fsmonitor); moved to quarantine
+\u{2502} y keep \u{b7} n leave in quarantine
+\u{2713} kept
 "
     );
 }
@@ -370,7 +373,7 @@ async fn a_quarantine_answer_the_daemon_refuses_is_a_note() {
     result.unwrap();
     assert!(
         err.ends_with(
-            "left in quarantine\nthe answer was not taken: the question is not pending\n"
+            "\u{2717} left in quarantine\n\nthe answer was not taken: the question is not pending\n"
         ),
         "{err}"
     );
@@ -454,7 +457,8 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
     assert_eq!(keys.starts(), 1);
     assert_eq!(
         err,
-        "the running turn needs approval: write ~/.zshrc\nallow? y = yes, n = no\nallowed\n"
+        "? the running turn asks: allow this call\n\u{2502} write ~/.zshrc\n\
+         \u{2502} y allow \u{b7} n deny\n\u{2713} allowed\n"
     );
 }
 
@@ -482,7 +486,10 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
     })
     .await;
     result.unwrap();
-    assert!(err.ends_with("allowed\nthe answer was not taken: no pending approval\n"), "{err}");
+    assert!(
+        err.ends_with("\u{2713} allowed\n\nthe answer was not taken: no pending approval\n"),
+        "{err}"
+    );
 }
 
 #[tokio::test]
@@ -907,9 +914,9 @@ async fn without_keys_a_hidden_wait_is_a_note_and_nobody_answers() {
     result.unwrap();
     assert_eq!(
         err,
-        "$ sudo true\n\
-         the command waits for hidden input, such as a password; efr cannot ask for it here\n\
-         shell exited with 1\n"
+        "\u{b7} $ sudo true\n\n\
+         the command waits for hidden input, such as a password; efr cannot ask for it here\n  \
+         \u{2717} exit 1\n"
     );
 }
 
@@ -1550,7 +1557,7 @@ async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
             exit: None,
         };
         conn.item(sub, &item(12, request)).await;
-        shows(&seen, "allow? \x1b[0m\x1b[1my").await;
+        shows(&seen, "\x1b[1my\x1b[0m\x1b[2m allow").await;
         assert!(seen.stdout().contains("Writing to"), "the question brings what came before it");
         presser.press(b'y').await;
         let (id, _) = conn.request().await;

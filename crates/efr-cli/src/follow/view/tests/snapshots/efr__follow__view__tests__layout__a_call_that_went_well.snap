@@ -1,0 +1,61 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo metadata --no-deps | jq -r '.packages[].name'\")),\nSent(300, output(1, \"efr-cli\\nefr-render\\n\")), Shot(\"running\"),\nSent(1_400, ended(1, Some(0), None)),])"
+---
+=== 40 columns, colour
+[running]
+\e[33m•\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.…\e[0m
+\e[2m  │ efr-cli\e[0m
+\e[2m  │ efr-render\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ cargo metadata --no-deps | jq -r \e[0m\e[2m\\e[0m
+        \e[36m'.packages[].name'\e[0m
+  \e[32m✓ 1.3s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 40 columns, NO_COLOR
+[running]
+\e[1m•\e[0m $ cargo metadata --no-deps | jq -r '.…
+\e[2m  │ efr-cli\e[0m
+\e[2m  │ efr-render\e[0m
+
+[end]
+\e[1m·\e[0m $ cargo metadata --no-deps | jq -r \e[2m\\e[0m
+        '.packages[].name'
+  ✓ 1.3s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, colour
+[running]
+\e[33m•\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
+\e[2m  │ efr-cli\e[0m
+\e[2m  │ efr-render\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
+  \e[32m✓ 1.3s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, NO_COLOR
+[running]
+\e[1m•\e[0m $ cargo metadata --no-deps | jq -r '.packages[].name'
+\e[2m  │ efr-cli\e[0m
+\e[2m  │ efr-render\e[0m
+
+[end]
+\e[1m·\e[0m $ cargo metadata --no-deps | jq -r '.packages[].name'
+  ✓ 1.3s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== not a terminal
+[running]
+stdout:
+stderr:
+· $ cargo metadata --no-deps | jq -r '.packages[].name'
+
+[end]
+stdout:
+stderr:
+· $ cargo metadata --no-deps | jq -r '.packages[].name'
+  ✓ 1.3s

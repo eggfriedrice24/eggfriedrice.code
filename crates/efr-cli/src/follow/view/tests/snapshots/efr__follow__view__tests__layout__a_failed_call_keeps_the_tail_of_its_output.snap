@@ -1,0 +1,61 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\nSent(100,\noutput(1, \"cc -c a.c\\nmake: *** No rule to make target 'all'.  Stop.\\n\")),\nSent(210, ended(1, Some(2), None)),\nSent(220, shell(2, \"find / -name libghostty.so 2>/dev/null\")),\nSent(4_000, ended(2, Some(1), None)),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ make\e[0m
+\e[2m  │ cc -c a.c\e[0m
+\e[2m  │ make: *** No rule to make target 'a…\e[0m
+  \e[31m✗ exit 2\e[0m
+
+\e[33m·\e[0m \e[36m$ find / -name libghostty.so \e[0m\e[2m\\e[0m
+        \e[36m2>/dev/null\e[0m
+  \e[31m✗ exit 1 · 3.7s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ make
+\e[2m  │ cc -c a.c\e[0m
+\e[2m  │ make: *** No rule to make target 'a…\e[0m
+  \e[1m✗ exit 2\e[0m
+
+\e[1m·\e[0m $ find / -name libghostty.so \e[2m\\e[0m
+        2>/dev/null
+  \e[1m✗ exit 1 · 3.7s\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ make\e[0m
+\e[2m  │ cc -c a.c\e[0m
+\e[2m  │ make: *** No rule to make target 'all'.  Stop.\e[0m
+  \e[31m✗ exit 2\e[0m
+
+\e[33m·\e[0m \e[36m$ find / -name libghostty.so 2>/dev/null\e[0m
+  \e[31m✗ exit 1 · 3.7s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ make
+\e[2m  │ cc -c a.c\e[0m
+\e[2m  │ make: *** No rule to make target 'all'.  Stop.\e[0m
+  \e[1m✗ exit 2\e[0m
+
+\e[1m·\e[0m $ find / -name libghostty.so 2>/dev/null
+  \e[1m✗ exit 1 · 3.7s\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ make
+  │ cc -c a.c
+  │ make: *** No rule to make target 'all'.  Stop.
+  ✗ exit 2
+
+· $ find / -name libghostty.so 2>/dev/null
+  ✗ exit 1 · 3.7s

@@ -95,6 +95,9 @@ fn tone_name(tone: Tone) -> &'static str {
         Tone::Dim => "muted",
         Tone::Bold => "bold",
         Tone::Failure => "error",
+        Tone::Success => "success",
+        Tone::Code => "code",
+        Tone::Accent => "accent",
     }
 }
 

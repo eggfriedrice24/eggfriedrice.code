@@ -249,37 +249,34 @@ a separate call". The processes of such a run stop when the call ends.
 The question shows the whole line, what leaves the sandbox, and how the call runs:
 
 ```
-approval needed: shell: run "sudo ./scripts/setup.sh"
-runs outside the sandbox: sudo (you may need to type your password)
-the whole line runs with your full rights (files, secrets, network)
-programs: sudo /usr/bin/sudo; ./scripts/setup.sh ~/p/app/scripts/setup.sh in a write root, changed this turn (untrusted: written in the sandbox)
-efr: only you can allow this
-allow? y = yes, n = no
+? allow outside the sandbox
+│ sudo ./scripts/setup.sh
+│ runs with your full rights: files, secrets, network
+│ why: sudo (you may need to type your password)
+│ programs: sudo, ./scripts/setup.sh ~/p/app/scripts/setup.sh (untrusted: written in the sandbox; in a write root, changed this turn)
+│ efr: only you can allow this
+│ y allow · n deny
 ```
 
 ```
-approval needed: shell: run "npm ci"
-leaves the sandbox: network; runs in the sandbox with full network for this call
-allow? y = yes, n = no
+? allow full network for this call
+│ npm ci
+│ why: network
+│ y allow · n deny
 ```
 
-- A command of several lines shows each line on its own, numbered:
-
-  ```
-  approval needed: shell: run 2 lines:
-    1  systemctl --failed --no-pager
-    2  journalctl -b -n 20 --no-pager
-  ```
-
-  The line of a running call shows only the first line and how many follow, such as
-  `$ cd src (and 3 more lines)`.
-- Only the facts that matter most stand out in the `warning` colour: the heading, the
-  full-rights line and the `untrusted` mark. The other fact lines are plain, and the
-  lines of efr's facts and of the model's reason are dim.
-- `programs:` names every program word with the path it runs. A word that the shell
-  runs itself, such as `:` or `cd`, shows as `(builtin)`. A program in a write
-  root, or one that changed in this turn, is marked `untrusted: written in the
-  sandbox`: the sandbox wrote it, so it can do anything with your rights.
+- The title says what a "yes" allows. A command of several lines shows each line on
+  its own row. A line wider than the screen goes on in the next row after a `\`,
+  indented, so nothing of what runs is cut.
+- When you answer, the question gives its place to one line, `✓ allowed` or `✗
+  denied`, and the call shows once, in its own block.
+- Only the facts that matter most stand out in the `warning` colour: the title, the
+  full-rights line and the `untrusted` mark. What runs is in the `code` colour. The
+  other facts are dim.
+- `programs:` names every program word. A program in a write root, or one that changed
+  in this turn, also shows the path it runs and is marked `untrusted: written in the
+  sandbox`: the sandbox wrote it, so it can do anything with your rights. A word that
+  runs no program shows `(not found)`.
 - Lines that start with `efr:` are facts that efr found itself.
 - `the model says:` is the model's reason from `needs`. It is the model's text; treat
   it as a claim, not as a fact.
@@ -289,8 +286,8 @@ allow? y = yes, n = no
   The question still asks about what the model asked for. efr reads only the line, so
   a script or a build can need more than the line shows.
 - A refused exit does not run. The model reads that you denied it.
-- A floor refuses a call with no question, and the call's line says why, such as
-  `shell refused: efr's config (floor)`.
+- A floor refuses a call with no question, and the call's result says why, such as
+  `✗ refused: efr's config (floor)`.
 - Three refusals in a row without a person (by a floor) stop the turn.
 
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and

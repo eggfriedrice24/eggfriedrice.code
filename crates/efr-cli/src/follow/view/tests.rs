@@ -120,7 +120,7 @@ fn raw_output_is_the_markdown_as_it_streams() {
         out,
         "It failed because **make** ran out of memory.\n\nAdd swap:\n\n```sh\nswapon -a\n```\n"
     );
-    assert_eq!(err, "$ free -h\n");
+    assert_eq!(err, "\u{b7} $ free -h\n");
     assert_eq!(end, Some(TurnEnd::Completed));
 }
 
@@ -266,11 +266,11 @@ fn a_call_that_efr_refused_says_why() {
     };
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[contained, refused], false);
+    // The call never ran in the sandbox, so the end of the turn says nothing about it.
+    let (_, closing, _) = feed(&mut view, &[turn_completed()], false);
     assert_eq!(
-        err,
-        "$ echo x >> ~/.config/efr/config.toml\n\
-         sandbox: writes in $SCRATCH, private /tmp; no network\n\
-         shell refused: efr's config (floor)\n"
+        format!("{err}{closing}"),
+        "\u{b7} $ echo x >> ~/.config/efr/config.toml\n  \u{2717} refused: efr's config (floor)\n"
     );
 }
 
@@ -282,7 +282,8 @@ fn an_allowed_call_that_fails_is_still_reported() {
     framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view);
     let step = framed(view.event(&refused_call_completed(), SIZE, true), &mut view);
     let out = readable(&step.out);
-    assert!(out.contains("$ touch /root/x\\e[0m  \\e[31mfailed"), "{out}");
+    assert!(out.contains("$ touch /root/x\\e[0m\n"), "{out}");
+    assert!(out.contains("\n  \\e[31m\u{2717} failed\\e[0m\n"), "{out}");
 }
 
 #[test]
@@ -303,8 +304,8 @@ fn an_answer_from_elsewhere_settles_the_question() {
     let step = framed(view.event(&resolved(Origin::Phone), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
-    assert!(out.contains("allowed from the phone"), "{out}");
-    assert!(!out.contains("allow? y"), "the question is gone: {out}");
+    assert!(out.contains("\u{2713} allowed from the phone"), "{out}");
+    assert!(!out.contains(" deny"), "the question is gone: {out}");
 }
 
 #[test]
@@ -324,7 +325,10 @@ fn a_raw_approval_goes_to_stderr_with_the_question() {
     let mut view = raw_view();
     let step = framed(view.event(&approval(Some("-a\n+b")), SIZE, true), &mut view);
     assert_eq!(step.out, "");
-    assert_eq!(step.err, "approval needed: write ~/.zshrc\n-a\n+b\nallow? y = yes, n = no\n");
+    assert_eq!(
+        step.err,
+        "? allow this call\n\u{2502} write ~/.zshrc\n\u{2502} -a\n\u{2502} +b\n\u{2502} y allow \u{b7} n deny\n"
+    );
     assert_eq!(step.ask, Some(Ask::Approval(call())));
 }
 
@@ -355,8 +359,9 @@ fn a_raw_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
     let step = framed(view.event(&approval_of_parts(), SIZE, true), &mut view);
     assert_eq!(
         step.err,
-        "approval needed: shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
-         asks for: hostnamectl, systemctl --failed\nallow? y = yes, n = no\n"
+        "? allow this call\n\
+         \u{2502} shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
+         \u{2502} asks for: hostnamectl, systemctl --failed\n\u{2502} y allow \u{b7} n deny\n"
     );
 }
 
@@ -374,8 +379,8 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
     let step = framed(view.event(&event, SIZE, true), &mut view);
     assert_eq!(
         step.err,
-        "approval needed: write_file: write /home/u/a asks for: ls (user data)\n\
-         allow? y = yes, n = no\n"
+        "? allow this call\n\u{2502} write_file: write /home/u/a asks for: ls (user data)\n\
+         \u{2502} y allow \u{b7} n deny\n"
     );
 }
 
@@ -509,7 +514,7 @@ fn a_tool_call_completes_the_message_before_it() {
         false,
     );
     assert_eq!(out, "Let me check\n");
-    assert_eq!(err, "$ df -h\n");
+    assert_eq!(err, "\u{b7} $ df -h\n");
 }
 
 #[test]
@@ -520,7 +525,7 @@ fn on_a_terminal_the_message_is_committed_above_the_tool_call() {
     // The call's line shows live below a blank line, with the spinner.
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[2m$ df -h\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[36m$ df -h\\e[0m\n\\e[?2026l"
     );
 }
 
@@ -529,7 +534,7 @@ fn an_approval_completes_the_message_before_it() {
     let mut view = raw_view();
     let (out, err, _) = feed(&mut view, &[updated(0, "I will edit it."), approval(None)], false);
     assert_eq!(out, "I will edit it.\n");
-    assert!(err.starts_with("approval needed: write ~/.zshrc\n"), "{err}");
+    assert!(err.starts_with("? allow this call\n\u{2502} write ~/.zshrc\n"), "{err}");
 }
 
 fn output(tail: &str) -> Event {
@@ -618,19 +623,19 @@ fn a_wide_tail_takes_one_row_at_most() {
 }
 
 #[test]
-fn a_failed_call_commits_one_line_and_the_last_lines_of_its_output() {
+fn a_failed_call_commits_its_block_with_the_last_lines_of_its_output() {
     let mut view = terminal_view();
     framed(view.event(&tool_started("make"), SIZE, false), &mut view);
     framed(view.event(&output("cc -c a.c\nerror: no rule\n"), SIZE, false), &mut view);
     let out = readable(&framed(view.event(&call_completed(2), SIZE, false), &mut view).out);
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[2m$ make\\e[0m  \\e[31mexit 2\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[36m$ make\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n  \\e[31m\u{2717} exit 2\\e[0m\n\\e[?2026l"
     );
 }
 
 #[test]
-fn a_call_that_went_well_commits_one_line_and_none_of_its_output() {
+fn a_call_that_went_well_commits_its_block_and_none_of_its_output() {
     let mut view = terminal_view();
     framed(view.envelope(&sent(11, 0, tool_started("cargo build")), SIZE, false), &mut view);
     framed(view.event(&output("Compiling app\nFinished\n"), SIZE, false), &mut view);
@@ -639,7 +644,7 @@ fn a_call_that_went_well_commits_one_line_and_none_of_its_output() {
     );
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[2m$ cargo build\\e[0m  \\e[2m6.2s\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[36m$ cargo build\\e[0m\n  \\e[32m\u{2713} 6.2s\\e[0m\n\\e[?2026l"
     );
     // A call under a second shows no time.
     let mut view = terminal_view();
@@ -647,11 +652,11 @@ fn a_call_that_went_well_commits_one_line_and_none_of_its_output() {
     let out = readable(
         &framed(view.envelope(&sent(12, 900, call_completed(0)), SIZE, false), &mut view).out,
     );
-    assert!(out.ends_with("\\e[2m$ true\\e[0m\n\\e[?2026l"), "{out}");
+    assert!(out.ends_with("\\e[36m$ true\\e[0m\n  \\e[32m\u{2713}\\e[0m\n\\e[?2026l"), "{out}");
 }
 
 #[test]
-fn consecutive_call_lines_have_no_blank_line_between_them() {
+fn consecutive_calls_are_blocks_with_a_blank_line_between_them() {
     let mut view = terminal_view();
     let shown = writes(
         &mut view,
@@ -692,7 +697,8 @@ fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
     let mut view = raw_view();
     framed(view.event(&tool_started("make"), SIZE, false), &mut view);
     assert_eq!(framed(view.event(&output("building\n"), SIZE, false), &mut view), Step::default());
-    assert_eq!(framed(view.event(&call_completed(0), SIZE, false), &mut view), Step::default());
+    let step = framed(view.event(&call_completed(0), SIZE, false), &mut view);
+    assert_eq!((step.out.as_str(), step.err.as_str()), ("", "  \u{2713}\n"));
 }
 
 #[test]
@@ -761,9 +767,10 @@ fn a_completed_call_settles_its_input_and_drops_the_question() {
     let step = framed(view.event(&call_completed(1), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
-    // The question goes; the call's line and the last line of its output stay.
+    // The question goes; the call's block and the last line of its output stay.
     assert!(!out.contains("type the answer"), "{out}");
-    assert!(out.contains("$ sudo true\\e[0m  \\e[31mexit 1"), "{out}");
+    assert!(out.contains("$ sudo true\\e[0m\n"), "{out}");
+    assert!(out.contains("[sudo] password for egg:\\e[0m\n  \\e[31m\u{2717} exit 1"), "{out}");
 }
 
 #[test]
@@ -1349,7 +1356,7 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
     assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
     assert_eq!(
         step.err,
-        "sandbox: the command asked for a password; efr does not type secrets into the \
+        "\nsandbox: the command asked for a password; efr does not type secrets into the \
          sandbox\n"
     );
 }
@@ -1357,9 +1364,20 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
 #[test]
 fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
     let mut view = sandbox_view(false);
-    let (_, err, _) =
-        feed(&mut view, &[started_in(Scope::Machine, None), contained_started("ls")], true);
-    assert_eq!(err, "$ ls\nsandbox: writes in $SCRATCH, private /tmp; no network\n");
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("ls"),
+            contained_completed(0, None),
+            turn_completed(),
+        ],
+        true,
+    );
+    assert_eq!(
+        err,
+        "\u{b7} $ ls\n  \u{2713}\n\nsandbox: writes in $SCRATCH, private /tmp; no network\n"
+    );
 }
 
 #[test]
@@ -1447,9 +1465,10 @@ fn a_network_exit_question_runs_in_the_sandbox_with_full_network() {
     assert_eq!(
         err,
         "\
-approval needed: shell: run \"npm ci\"
-leaves the sandbox: network; runs in the sandbox with full network for this call
-allow? y = yes, n = no
+? allow full network for this call
+\u{2502} npm ci
+\u{2502} why: network
+\u{2502} y allow \u{b7} n deny
 "
     );
 }
@@ -1468,20 +1487,25 @@ fn an_exit_without_its_record_keeps_the_summary() {
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &[approval], false);
     assert!(
-        err.starts_with("approval needed: run `npm ci`\nleaves the sandbox: network;"),
+        err.starts_with(
+            "? allow full network for this call\n\u{2502} run `npm ci`\n\u{2502} why: network\n"
+        ),
         "{err}"
     );
 }
 
 #[test]
-fn the_progress_line_of_a_command_of_several_lines_says_how_many_follow() {
+fn a_call_of_a_command_of_several_lines_shows_each_line() {
     let mut view = terminal_view();
     let step = framed(view.event(&tool_started(FAILED_UNITS), SIZE, false), &mut view);
     insta::assert_snapshot!(readable(&step.out));
 
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC)], false);
-    assert_eq!(err, "$ cd src (and 3 more lines)\n");
+    assert_eq!(
+        err,
+        "\u{b7} $ cd src\n    export RUST_LOG=debug\n    cargo test -p efr-cli\n    unset RUST_LOG\n"
+    );
 }
 
 #[test]
@@ -1520,7 +1544,7 @@ fn a_question_without_an_exit_shows_each_line_of_a_command_of_several() {
     // line with its newlines escaped.
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[approval], true);
-    assert!(err.starts_with("approval needed: shell: run \"cd src\\nexport"), "{err}");
+    assert!(err.starts_with("? allow this call\n\u{2502} shell: run \"cd src\\nexport"), "{err}");
 }
 
 fn question_id() -> QuestionId {
@@ -1568,21 +1592,21 @@ fn a_quarantine_question_answered_elsewhere_or_expired_settles_with_a_note() {
     assert_eq!(
         err,
         "\
-question: the last command changed git settings that run programs
-  ~/project/.git/commondir (core.fsmonitor); moved to quarantine
-keep it? y = yes, n = no
+? keep the git settings that the last command changed
+\u{2502} ~/project/.git/commondir (core.fsmonitor); moved to quarantine
+\u{2502} y keep \u{b7} n leave in quarantine
 "
     );
     let step =
         framed(view.event(&surface_answered(true, Some(Origin::Phone)), WIDE, true), &mut view);
     assert!(step.settled);
-    assert_eq!(step.err, "the git change was kept, from the phone\n");
+    assert_eq!(step.err, "\u{2713} the git change was kept, from the phone\n");
 
     let mut view = sandbox_view(false);
     framed(view.event(&surface_requested(), WIDE, true), &mut view);
     let step = framed(view.event(&surface_answered(false, None), WIDE, true), &mut view);
     assert!(step.settled);
-    assert_eq!(step.err, "no answer; the git change stays in quarantine\n");
+    assert_eq!(step.err, "\u{2717} no answer; the git change stays in quarantine\n");
 
     // Without keys nobody here answers, and the end of the turn needs no keys stopped.
     let mut view = sandbox_view(false);
@@ -2042,7 +2066,7 @@ fn a_call_that_waits_for_its_approval_shows_no_line_and_its_time_counts_from_the
     assert!(!running.contains("waiting for"), "the call's line replaces the row");
     let done = view.envelope(&sent(15, 32_500, call_completed(0)), SIZE, true);
     let out = readable(&framed(done, &mut view).out);
-    assert!(out.contains("$ make install\\e[0m  \\e[2m2.5s"), "{out}");
+    assert!(out.contains("$ make install\\e[0m\n  \\e[32m\u{2713} 2.5s"), "{out}");
 }
 
 #[test]
@@ -2063,7 +2087,9 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
         .with(Role::Accent, Colour::Rgb(0xf2, 0xc1, 0x4e))
         .with(Role::Muted, Colour::Palette(8))
         .with(Role::Warning, Colour::Palette(5))
-        .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75));
+        .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75))
+        .with(Role::Code, Colour::Rgb(0x60, 0xe6, 0x54))
+        .with(Role::Success, Colour::Palette(10));
     let mut shown = Vec::new();
     for (name, colour, palette) in [
         ("16 colours, default palette", ColourMode::Ansi16, Palette::new()),
@@ -2082,8 +2108,12 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
         view.envelope(&sent(12, 2_000, call_completed(2)), SIZE, true);
         view.event(&approval(None), SIZE, true);
         frames.push(view.frame(SIZE, at(2_000)));
+        view.answered(call(), ApprovalDecision::Allow, SIZE);
+        frames.push(view.frame(SIZE, at(2_500)));
         let frames: Vec<String> = frames.iter().map(|frame| readable(frame)).collect();
         shown.push(format!("{name}:\n{}", frames.join("\n---\n")));
     }
     insta::assert_snapshot!(shown.join("\n===\n"));
 }
+
+mod layout;

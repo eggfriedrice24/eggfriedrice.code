@@ -1,0 +1,49 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"read_file\", json!({ \"path\": \"crates/efr-cli/README.md\" }), None)),\nSent(40, ended(1, None, None)),\nSent(50,\nstarted(2, \"write_file\", json!({ \"path\": \"notes/plan.md\", \"content\": \"x\" }),\nNone)), Sent(70, ended(2, None, None)),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36mread crates/efr-cli/README.md\e[0m
+  \e[32m✓\e[0m
+
+\e[33m·\e[0m \e[36mwrite notes/plan.md\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m read crates/efr-cli/README.md
+  ✓
+
+\e[1m·\e[0m write notes/plan.md
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36mread crates/efr-cli/README.md\e[0m
+  \e[32m✓\e[0m
+
+\e[33m·\e[0m \e[36mwrite notes/plan.md\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m read crates/efr-cli/README.md
+  ✓
+
+\e[1m·\e[0m write notes/plan.md
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· read crates/efr-cli/README.md
+  ✓
+
+· write notes/plan.md
+  ✓

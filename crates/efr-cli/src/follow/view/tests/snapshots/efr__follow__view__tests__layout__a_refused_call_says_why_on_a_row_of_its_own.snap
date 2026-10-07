@@ -1,0 +1,38 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nshell(1,\n\"printf 'theme = \\\"x\\\"' >> ~/.config/efr/config.toml && efr config reload\")),\nSent(20, ended(1, None, Some(\"efr's config (floor)\"))),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ printf 'theme = "x"' >> \e[0m\e[2m\\e[0m
+        \e[36m~/.config/efr/config.toml && \e[0m\e[2m\\e[0m
+        \e[36mefr config reload\e[0m
+  \e[31m✗ refused: efr's config (floor)\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ printf 'theme = "x"' >> \e[2m\\e[0m
+        ~/.config/efr/config.toml && \e[2m\\e[0m
+        efr config reload
+  \e[1m✗ refused: efr's config (floor)\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ printf 'theme = "x"' >> ~/.config/efr/config.toml && efr config reload\e[0m
+  \e[31m✗ refused: efr's config (floor)\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ printf 'theme = "x"' >> ~/.config/efr/config.toml && efr config reload
+  \e[1m✗ refused: efr's config (floor)\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ printf 'theme = "x"' >> ~/.config/efr/config.toml && efr config reload
+  ✗ refused: efr's config (floor)
