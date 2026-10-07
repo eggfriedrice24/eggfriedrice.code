@@ -103,8 +103,15 @@ fn args_start_with_the_namespaces_and_end_with_the_inner_stage() {
     let tail = &args[args.len() - 7..];
     assert_eq!(
         tail,
-        ["--chdir", PROJECT, "--", "/run/user/1000/efr-sbx/efr-sbx", "inner", "--policy-fd", "5"]
+        ["--chdir", "/", "--", "/run/user/1000/efr-sbx/efr-sbx", "inner", "--policy-fd", "5"]
     );
+    // With no cache overlay, bwrap enters the start dir itself.
+    let mut readonly = spec();
+    readonly.cache_mode = efr_protocol::CacheMode::Readonly;
+    let plan = MountPlan::build(&readonly, &fs).unwrap();
+    let plain =
+        strings(&plan.bwrap_args(&mut FdTable::new(&fs), &LAUNCH, Path::new(PROJECT)).unwrap());
+    assert_eq!(plain[plain.len() - 7..plain.len() - 5], ["--chdir", PROJECT]);
     assert!(args.windows(2).any(|w| w == ["--json-status-fd", "9"]));
     assert!(args.windows(3).any(|w| w == ["--perms", "0700", "--tmpfs"]));
     assert!(args.windows(4).any(|w| w == ["--perms", "1777", "--tmpfs", "/dev/shm"]));
@@ -171,6 +178,8 @@ fn args_mount_no_overlay_and_stage_the_layers_last() {
     assert_eq!(args[chdir - 7..chdir - 3], ["--perms", "0700", "--tmpfs", staging]);
     assert_eq!(args[chdir - 3], "--bind-fd");
     assert_eq!(args[chdir - 1], format!("{staging}/0"));
+    // bwrap's init stays in `/`, never below an overlay; the inner stage enters PROJECT.
+    assert_eq!(args[chdir + 1], "/");
     // The layer dir's bind has a descriptor of its own, like every bind.
     let used = args
         .windows(2)
@@ -185,4 +194,5 @@ fn args_mount_no_overlay_and_stage_the_layers_last() {
         strings(&plan.bwrap_args(&mut FdTable::new(&fs), &LAUNCH, Path::new(PROJECT)).unwrap());
     let chdir = args.iter().position(|arg| arg == "--chdir").unwrap();
     assert_eq!(args[chdir - 4..chdir], ["--perms", "0700", "--tmpfs", staging]);
+    assert_eq!(args[chdir + 1], "/");
 }

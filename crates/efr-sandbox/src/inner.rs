@@ -40,8 +40,8 @@ pub struct InnerPolicy {
     /// The handshake with the launcher's layer helper, when the plan has cache
     /// overlays: the inner stage waits until they are in place.
     pub layers_sync: Option<LayersSync>,
-    /// The start dir, which the inner stage enters again after the overlays are in
-    /// place: bwrap's `--chdir` happened before, below them.
+    /// The start dir, which the inner stage enters after the overlays are in place:
+    /// with overlays, bwrap starts in `/`.
     pub cwd: Option<PathBuf>,
 }
 

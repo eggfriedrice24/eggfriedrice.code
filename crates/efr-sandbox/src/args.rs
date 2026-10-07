@@ -84,7 +84,7 @@ pub struct LaunchFds {
 
 impl MountPlan {
     /// The argument list for `--args`: the namespaces, the fixed base, every mount in
-    /// order, `--chdir <cwd>` and the inner launcher. Opens one descriptor per bind
+    /// order, `--chdir <cwd>` (`--chdir /` with cache overlays) and the inner launcher. Opens one descriptor per bind
     /// into `fds`.
     pub fn bwrap_args(
         &self,
@@ -139,7 +139,12 @@ impl MountPlan {
                 push(&[&"--bind-fd", &fd, &layer.dir]);
             }
         }
-        push(&[&"--chdir", &cwd]);
+        // NOTE: with cache overlays, bwrap's init would keep a start dir below the
+        // overlay, where the masks inside the cache do not apply, and a process could
+        // read through `/proc/<init>/cwd`. So bwrap starts in `/`, and the inner stage
+        // enters the start dir once the overlays are in place (`InnerPolicy::cwd`).
+        let start: &Path = if self.layers.is_some() { Path::new("/") } else { cwd };
+        push(&[&"--chdir", &start]);
         push(&[&"--", &self.inside_launcher, &"inner", &"--policy-fd", &launch.policy.to_string()]);
         Ok(args)
     }

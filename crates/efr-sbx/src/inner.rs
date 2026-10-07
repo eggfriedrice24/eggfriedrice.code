@@ -5,7 +5,7 @@
 //!
 //! 1. Read the `InnerPolicy` from the policy descriptor and close it. When the call
 //!    has cache overlays, tell the launcher that bwrap's setup is done, wait while its
-//!    layer helper mounts them, and enter the start dir again.
+//!    layer helper mounts them, and enter the start dir (bwrap started in `/`).
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
 //! 3. (Phase 2: start `efr-sbx bridge` here, in a Landlock domain of its own.)
@@ -101,9 +101,9 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
 
 /// Tells the launcher that bwrap's setup is done, with this process's id as the host
 /// names it, and waits for its `g`: the layer helper mounts the cache overlays
-/// meanwhile. Then enters the start dir again, because bwrap's `--chdir` left this
-/// process in the directory below the overlay, where the masks inside the cache no
-/// longer are.
+/// meanwhile. Then enters the start dir: with overlays, bwrap starts in `/`, so that
+/// neither its init nor this process keeps the directory below an overlay, where the
+/// masks inside the cache are not.
 fn wait_for_layers(sync: LayersSync, cwd: Option<&Path>) -> Result<(), SbxError> {
     let failed = |error| SbxError::os("wait for the cache overlays", error);
     let ready = fds::adopt(sync.ready_fd).map_err(failed)?;

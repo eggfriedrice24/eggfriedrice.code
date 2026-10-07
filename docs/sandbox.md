@@ -98,7 +98,8 @@ efr mounts the cache overlays itself, not bubblewrap, because bubblewrap cannot 
 the options of an overlay:
 
 1. bubblewrap makes the sandbox with every mask and every read-only path, but with no
-   overlay. Then the call waits.
+   overlay. Then the call waits. bubblewrap starts in `/`, not in the start dir of the
+   call, so no process of bubblewrap keeps a directory below an overlay.
 2. The helper `efr-sbx layers` enters the namespaces of the call. It mounts each
    overlay with `index=off` and `xino=off`, and it moves the masks and read-only paths
    inside the cache onto the overlay, so they still apply.

@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Read;
 use std::net::{TcpListener, UdpSocket};
 use std::os::linux::net::SocketAddrExt;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::os::unix::net::{SocketAddr, UnixListener};
 use std::path::{Path, PathBuf};
 
@@ -654,19 +654,63 @@ fn escape_cache_masks_and_pins_win_over_the_overlay() {
         assert_eq!(fs::read_to_string(cargo.join("config.toml")).unwrap(), "[build]\n");
         assert_eq!(fs::read_to_string(cargo.join("registry/index")).unwrap(), "one\n");
         assert!(!cargo.join("bin/new").exists());
-        // A call that starts inside the cache: bwrap entered the dir below the overlay,
-        // where the mask is not; the inner stage enters it again.
-        let run = fixture.call(
-            "pwd; cat mozilla/firefox/cookies; cat /proc/1/cwd/mozilla/firefox/cookies; \
+        // A call that starts inside the cache. bwrap's init (the first bwrap above the
+        // child zsh; /proc is the host's procfs, so these are host pids) once kept the
+        // dir below the overlay as its working dir, where the mask is not.
+        let init_file = fixture.project.join("init");
+        let go = fixture.project.join("go");
+        let line = format!(
+            "pwd; cat mozilla/firefox/cookies; \
+             read -rA st < /proc/self/stat; p=$st[4]; \
+             while [[ $(</proc/$p/comm) != bwrap ]]; do read -rA st < /proc/$p/stat; p=$st[4]; done; \
+             print -r -- $p > {0}; cat /proc/$p/cwd/mozilla/firefox/cookies; \
+             for i in {{1..400}}; do [[ -e {1} ]] && break; sleep 0.05; done; \
              print new > here && cat here",
-            &cache,
-            |_| {},
+            q(&init_file),
+            q(&go)
         );
-        let what = format!("{mode:?}: {run:#?}");
+        let call_dir = fixture.prepare(&line);
+        let child = fixture.command(&call_dir, &cache).spawn().unwrap();
+        let init = wait_for_line(&init_file);
+        // The host sees where bwrap's init is: never the user's cache below the overlay.
+        let below = fs::metadata(&cache).unwrap();
+        let init_cwd = fs::metadata(format!("/proc/{init}/cwd"));
+        fs::write(&go, "").unwrap();
+        let output = child.wait_with_output().unwrap();
+        let run = fixture.collect(
+            &call_dir,
+            (
+                output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ),
+        );
+        let what = format!("{mode:?}: init {init}: {run:#?}");
+        let init_cwd = init_cwd.unwrap_or_else(|error| panic!("{error}: {what}"));
+        assert!(
+            (init_cwd.dev(), init_cwd.ino()) != (below.dev(), below.ino()),
+            "bwrap's init works below the overlay: {what}"
+        );
         assert!(run.stdout.starts_with(&format!("{}\n", cache.display())), "{what}");
         assert!(!run.stdout.contains("cache-secret"), "{what}");
         assert!(run.stdout.contains("new"), "{what}");
         assert!(!cache.join("here").exists(), "{what}");
+        fs::remove_file(&init_file).unwrap();
+        fs::remove_file(&go).unwrap();
+    }
+}
+
+/// The first line of `path` once a call wrote it; waits at most ten seconds.
+fn wait_for_line(path: &Path) -> String {
+    let start = std::time::Instant::now();
+    loop {
+        if let Ok(text) = fs::read_to_string(path)
+            && text.ends_with('\n')
+        {
+            return text.trim().to_owned();
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(10), "no line in {path:?}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 
