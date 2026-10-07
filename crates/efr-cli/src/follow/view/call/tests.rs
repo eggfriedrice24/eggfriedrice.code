@@ -167,7 +167,8 @@ fn the_output_for_the_model_loses_the_notes_of_efr_at_its_end() {
 fn a_note_of_one_long_url_starts_on_its_first_row() {
     let url = format!("https://registry.example.com/{}", "a".repeat(40));
     let options = RenderOptions::new(30).with_colour(ColourMode::None);
-    let shown = notes(&[url.clone()], &options).replace("\x1b[2m", "").replace("\x1b[0m", "");
+    let shown =
+        notes(std::slice::from_ref(&url), &options).replace("\x1b[2m", "").replace("\x1b[0m", "");
     let rows: Vec<&str> = shown.lines().collect();
     // No row is only its indent, and the rows give the URL back.
     assert!(rows.iter().all(|row| !row.trim().is_empty()), "{shown:?}");
