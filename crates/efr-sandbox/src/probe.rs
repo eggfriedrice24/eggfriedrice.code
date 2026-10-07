@@ -126,6 +126,13 @@ pub enum ProbeFailure {
         /// What got through.
         detail: String,
     },
+    /// The self-test did not run every check, so it proves less than it must.
+    SelfTestIncomplete {
+        /// The checks that did not run.
+        checks: Vec<String>,
+        /// Each check that did not run, with the reason when the probe knows it.
+        detail: String,
+    },
 }
 
 impl ProbeFailure {
@@ -149,7 +156,7 @@ impl ProbeFailure {
             ProbeFailure::NoZsh => "zsh",
             ProbeFailure::RelativePath { .. } => "path",
             ProbeFailure::BelowTmp { .. } => "dirs",
-            ProbeFailure::SelfTest { .. } => "self_test",
+            ProbeFailure::SelfTest { .. } | ProbeFailure::SelfTestIncomplete { .. } => "self_test",
         }
     }
 
@@ -208,6 +215,9 @@ impl ProbeFailure {
             ProbeFailure::SelfTest { detail } => {
                 format!("the sandbox let a test through: {detail}")
             }
+            ProbeFailure::SelfTestIncomplete { detail, .. } => {
+                format!("the self-test did not run every check: {detail}")
+            }
         }
     }
 
@@ -251,6 +261,9 @@ impl ProbeFailure {
                 .to_owned(),
             ProbeFailure::SelfTest { .. } => {
                 "file an issue; efr sandbox check has the details".to_owned()
+            }
+            ProbeFailure::SelfTestIncomplete { .. } => {
+                "remove the cause that the reason names, or file an issue".to_owned()
             }
         }
     }

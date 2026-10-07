@@ -44,6 +44,7 @@ pub(crate) struct Fixture {
     pts: Option<PathBuf>,
     landlock_only: PathBuf,
     socket_bound: bool,
+    unavailable: Vec<(&'static str, String)>,
     spec: SandboxSpec,
     // Held open for the life of the fixture: the self-test must see them exist.
     _listeners: Vec<UnixListener>,
@@ -140,14 +141,27 @@ impl Fixture {
         let cache_overlay = CacheOverlay::new(&cache, &sandbox_dir, &home);
         private_dir(&cache_overlay.upper)?;
         private_dir(&cache_overlay.work)?;
+        let mut unavailable = Vec::new();
         let socket = sockets.join("s");
-        // A path too long for a socket skips the socket check, not the probe.
-        let listener = UnixListener::bind(&socket).ok();
+        // A path too long for a socket leaves out the socket check, and the probe fails
+        // with this reason.
+        let listener = UnixListener::bind(&socket)
+            .map_err(|error| {
+                let reason = format!("no Unix socket at {}: {error}", socket.display());
+                unavailable.push(("unix_socket", reason));
+            })
+            .ok();
         let abstract_name = format!("efr-sbx-probe-{}-{stamp}", std::process::id());
         let abstract_listener = SocketAddr::from_abstract_name(abstract_name.as_bytes())
             .and_then(|address| UnixListener::bind_addr(&address))
             .map_err(|error| SbxError::os("bind an abstract socket", error))?;
-        let (pty, pts) = outside_pty();
+        let (pty, pts) = match outside_pty() {
+            Ok((pty, pts)) => (Some(pty), Some(pts)),
+            Err(reason) => {
+                unavailable.push(("other_pts", format!("no terminal outside: {reason}")));
+                (None, None)
+            }
+        };
         let runtime = RuntimePaths {
             home,
             user_runtime: user_runtime.clone(),
@@ -202,6 +216,7 @@ impl Fixture {
             pts,
             spec,
             socket_bound: listener.is_some(),
+            unavailable,
             _listeners: listener.into_iter().chain([abstract_listener]).collect(),
             _pty: pty,
         })
@@ -236,6 +251,11 @@ impl Fixture {
         args
     }
 
+    /// The checks that the fixture could not set up, each with the reason.
+    pub(crate) fn unavailable(&self) -> &[(&'static str, String)] {
+        &self.unavailable
+    }
+
     /// True when the self-test's write through the overlay reached the real cache.
     pub(crate) fn lower_changed(&self) -> bool {
         self.cache.join(".efr-self-test").exists()
@@ -249,19 +269,17 @@ impl Fixture {
     }
 }
 
-/// A pseudo-terminal opened outside and its slave's path.
-fn outside_pty() -> (Option<OwnedFd>, Option<PathBuf>) {
+/// A pseudo-terminal opened outside and its slave's path, or why there is none.
+fn outside_pty() -> Result<(OwnedFd, PathBuf), String> {
     use std::os::unix::ffi::OsStrExt;
 
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-    let Ok(master) = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY) else { return (None, None) };
-    if grantpt(&master).is_err() || unlockpt(&master).is_err() {
-        return (None, None);
-    }
-    let path = ptsname(&master, Vec::new())
-        .ok()
-        .map(|name| PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes())));
-    (Some(master), path)
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY)
+        .map_err(|error| format!("open a pty: {error}"))?;
+    grantpt(&master).map_err(|error| format!("grant the pty: {error}"))?;
+    unlockpt(&master).map_err(|error| format!("unlock the pty: {error}"))?;
+    let name = ptsname(&master, Vec::new()).map_err(|error| format!("name the pty: {error}"))?;
+    Ok((master, PathBuf::from(std::ffi::OsStr::from_bytes(name.to_bytes()))))
 }
 
 fn open_up(dir: &Path) {

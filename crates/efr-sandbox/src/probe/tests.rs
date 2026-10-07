@@ -82,6 +82,10 @@ fn every_failure_has_a_reason_a_fix_and_a_check() {
         ProbeFailure::RelativePath { entry: "bin".to_owned() },
         ProbeFailure::BelowTmp { what: "efr's state dir".to_owned(), path: "/tmp/x/state".into() },
         ProbeFailure::SelfTest { detail: "a write outside".to_owned() },
+        ProbeFailure::SelfTestIncomplete {
+            checks: vec!["unix_socket".to_owned()],
+            detail: "unix_socket: the socket path is too long".to_owned(),
+        },
     ];
     for failure in failures {
         let check = failure.check();

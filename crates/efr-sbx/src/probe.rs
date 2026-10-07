@@ -8,8 +8,10 @@
 //! full plan, whose inner stage runs `efr-sbx self-test`: writes inside and outside,
 //! a mask, sockets, signals, `/proc`, TCP, io_uring, vsock, nested user namespaces,
 //! other terminals, TIOCSTI and a cache overlay. When the overlay cannot mount, it
-//! tries the `tmp` cache mode and says so in a warning. It prints a `ProbeReport`;
-//! efrd turns it into the `SandboxStatus`.
+//! tries the `tmp` cache mode and says so in a warning. Every check of the self-test
+//! must pass and print its line: a check that did not run (its fixture could not be
+//! made) fails the probe with the reason. It prints a `ProbeReport`; efrd turns it into
+//! the `SandboxStatus`.
 
 mod fixture;
 
@@ -29,7 +31,7 @@ use crate::error::SbxError;
 use crate::launch::{self, Ending, Launch};
 use crate::os;
 use crate::real_fs::RealFs;
-use crate::self_test::CheckLine;
+use crate::self_test::{CHECKS, CheckLine};
 
 /// The arguments of `efr-sbx probe`.
 #[derive(Debug, Clone, clap::Args)]
@@ -317,6 +319,8 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
             if let Some(bad) = lines.iter().find(|line| !line.ok) {
                 let detail = format!("{}: {}", bad.name, bad.detail);
                 checks.fail(ProbeFailure::SelfTest { detail });
+            } else if let Some(failure) = missing_checks(&lines, fixture.unavailable()) {
+                checks.fail(failure);
             } else if fixture.lower_changed() {
                 checks.fail(ProbeFailure::SelfTest {
                     detail: "a write through the cache overlay reached the user's cache".to_owned(),
@@ -332,6 +336,33 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
             .fail(ProbeFailure::SelfTest { detail: "the self-test printed nothing".to_owned() }),
     }
     fixture.remove();
+}
+
+/// The failure when a check of [`CHECKS`] printed no line: the self-test then proves
+/// less than it must. It names each such check, with the fixture's reason when the
+/// fixture could not set the check up.
+fn missing_checks(lines: &[CheckLine], unavailable: &[(&str, String)]) -> Option<ProbeFailure> {
+    let missing: Vec<&str> = CHECKS
+        .iter()
+        .copied()
+        .filter(|name| !lines.iter().any(|line| line.name == *name))
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let detail = missing
+        .iter()
+        .map(|name| {
+            let reason = unavailable
+                .iter()
+                .find(|(check, _)| check == name)
+                .map_or("it printed no line", |(_, reason)| reason.as_str());
+            format!("{name}: {reason}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let checks = missing.into_iter().map(str::to_owned).collect();
+    Some(ProbeFailure::SelfTestIncomplete { checks, detail })
 }
 
 /// The failure of a probe launch that did not start, by bwrap's message.

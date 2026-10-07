@@ -59,3 +59,54 @@ fn a_state_or_runtime_dir_below_tmp_names_itself() {
     );
     assert_eq!(below_tmp(&args("/nonexistent/state/sandbox/probe", "/")), None);
 }
+
+fn line(name: &str) -> CheckLine {
+    CheckLine { name: name.to_owned(), ok: true, detail: String::new() }
+}
+
+#[test]
+fn a_check_that_printed_no_line_fails_the_probe_by_name() {
+    let all: Vec<CheckLine> = CHECKS.iter().map(|name| line(name)).collect();
+    assert_eq!(missing_checks(&all, &[]), None);
+    let some: Vec<CheckLine> = all
+        .iter()
+        .filter(|line| line.name != "unix_socket" && line.name != "vsock")
+        .cloned()
+        .collect();
+    let unavailable = [("unix_socket", "no Unix socket at /x/s: path too long".to_owned())];
+    let failure = missing_checks(&some, &unavailable).unwrap();
+    assert_eq!(
+        failure,
+        ProbeFailure::SelfTestIncomplete {
+            checks: vec!["unix_socket".to_owned(), "vsock".to_owned()],
+            detail: "unix_socket: no Unix socket at /x/s: path too long; vsock: it printed no line"
+                .to_owned(),
+        }
+    );
+    assert_eq!(failure.check_name(), "self_test");
+}
+
+#[test]
+fn the_fixture_says_why_it_could_not_make_a_socket() {
+    let temp = crate::testing::temp_dir();
+    let root = temp.path().canonicalize().unwrap();
+    // A sockaddr_un holds at most 108 bytes of path.
+    let dir = root.join("d".repeat(120));
+    let mut args = args(&dir.to_string_lossy(), &root.to_string_lossy());
+    args.home = Some(root.clone());
+    let programs = fixture::Programs {
+        bwrap: "/usr/bin/bwrap".into(),
+        zsh: "/usr/bin/zsh".into(),
+        launcher: "/usr/bin/true".into(),
+        shell_path: "/usr/bin".to_owned(),
+    };
+    let fixture = fixture::Fixture::make(&args, &programs).unwrap();
+    let socket = fixture.unavailable().iter().find(|(check, _)| *check == "unix_socket");
+    assert!(
+        socket.is_some_and(|(_, reason)| reason.starts_with("no Unix socket at ")),
+        "{:?}",
+        fixture.unavailable()
+    );
+    assert!(!fixture.self_test_args().contains(&"--socket".into()));
+    fixture.remove();
+}
