@@ -289,6 +289,11 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 - A refused exit does not run. The model reads that you denied it.
 - A floor refuses a call with no question, and the call's result says why, such as
   `✗ refused: efr's config (floor)`.
+- A call that fails in the sandbox ends with its exit code and its time, such as `✗
+  exit 2 · 1.5s`, and no word about the sandbox: every shell call of `auto` runs
+  there. A turn in which a call ran in the sandbox ends with one dim line that says
+  where the sandbox can write, such as `sandbox: writes in the project, $SCRATCH,
+  private /tmp; no network`.
 - Three refusals in a row without a person (by a floor) stop the turn.
 
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and

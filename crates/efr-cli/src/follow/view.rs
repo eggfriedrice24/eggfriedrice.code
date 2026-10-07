@@ -71,7 +71,7 @@
 //! when the terminal draws one.
 //!
 //! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that
-//! says where the sandbox can write, and a failed contained call ends with `(sandbox)`.
+//! says where the sandbox can write; the result of a failed call names no sandbox.
 //! An approval for an exit shows the whole line of the call, what a "yes" allows and
 //! why, the full-rights warning and every program word of a line that runs outside the
 //! sandbox (with the untrusted mark for a program that the sandbox wrote), efr's own
@@ -992,10 +992,8 @@ impl TurnView {
                         let outcome = match (refusal, setup, *exit_code) {
                             (Some(reason), _, _) => Outcome::Refused(reason),
                             (None, Some(reason), _) => Outcome::NotStarted(reason),
-                            (None, None, Some(code)) if code != 0 => {
-                                Outcome::Exited { code, contained }
-                            }
-                            (None, None, None) if *is_error => Outcome::Failed { contained },
+                            (None, None, Some(code)) if code != 0 => Outcome::Exited(code),
+                            (None, None, None) if *is_error => Outcome::Failed,
                             _ => Outcome::Ran,
                         };
                         self.call_block(&call, outcome, &lines, &notes, size)
@@ -1003,15 +1001,11 @@ impl TurnView {
                     None => {
                         // The start of the call was not seen: its end is a note. A
                         // refused call never ran, in the sandbox or out of it.
-                        let line =
-                            match refusal {
-                                Some(reason) => Some(format::refused(tool, reason)),
-                                None => format::tool_result(tool, *is_error, *exit_code)
-                                    .filter(|_| !denied && setup.is_none())
-                                    .map(|line| {
-                                        if contained { format!("{line} (sandbox)") } else { line }
-                                    }),
-                            };
+                        let line = match refusal {
+                            Some(reason) => Some(format::refused(tool, reason)),
+                            None => format::tool_result(tool, *is_error, *exit_code)
+                                .filter(|_| !denied && setup.is_none()),
+                        };
                         let mut all: Vec<String> =
                             line.into_iter().map(|line| format!("{NO}{line}")).collect();
                         all.extend(sandbox::setup_failed(setup));

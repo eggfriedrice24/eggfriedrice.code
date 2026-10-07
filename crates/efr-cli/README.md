@@ -175,10 +175,10 @@ Replies:
   its time counts from the answer.
 - When the call ends, its block is written once in place of the live rows, with its
   result on a row of its own: `✓` in the `success` role, or `✗ exit 101` (or `✗
-  failed`) in the `error` role, `(sandbox)` after the code of a failed contained call,
-  and `✗ refused: efr's config (floor)` when efr refused it before it ran
-  (`tool_call_completed` with a `refusal`). The time follows for a call that ran 1 s or
-  more: `✓ 6.2s`, `✗ exit 2 · 1.5s`. A failed call keeps the last three lines of its
+  failed`) in the `error` role, also for a contained call (the end of the turn says
+  where the sandbox can write), and `✗ refused: efr's config (floor)` when efr refused
+  it before it ran (`tool_call_completed` with a `refusal`). The time follows for a
+  call that ran 1 s or more: `✓ 6.2s`, `✗ exit 2 · 1.5s`. A failed call keeps the last three lines of its
   output above its result (from the last `tool_call_output_updated`, else from the
   output that the model got, without efr's own notes in brackets at its end); a call
   that went well keeps none. A call that the user denied, or whose approval expired,
@@ -231,7 +231,7 @@ Replies:
 - The `auto` sandbox (`docs/sandbox.md`). A turn in which a call ran in the sandbox
   (`tool_call_started` with a contained `launch`, not refused) ends with one muted
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
-  the end-of-turn line, and a failed contained call ends `✗ exit 2 (sandbox)`. A
+  the end-of-turn line; a failed contained call ends `✗ exit 2 · 1.5s`, as any other. A
   call's `sandbox` summary adds muted rows under its result: `network: blocked
   <host>:<port> (<reason>)` and the background jobs that stopped. A sandbox that could
   not start is the call's result: `✗ the sandbox could not start: <reason>; efr checks

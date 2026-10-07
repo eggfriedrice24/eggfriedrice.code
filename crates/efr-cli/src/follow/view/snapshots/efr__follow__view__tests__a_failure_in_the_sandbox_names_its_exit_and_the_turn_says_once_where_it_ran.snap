@@ -6,6 +6,8 @@ expression: err
   ✓
 
 · $ cargo add serde
-  ✗ exit 101 (sandbox)
+  ✗ exit 101
   network: blocked evil.example:443 (not on the allow list)
   sandbox: stopped when the call ended: vite
+
+sandbox: writes in the project, $SCRATCH, private /tmp; no network

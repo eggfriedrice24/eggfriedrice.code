@@ -73,9 +73,9 @@ pub(crate) enum Outcome<'a> {
     /// It ran and went well.
     Ran,
     /// Its command exited with this code.
-    Exited { code: i32, contained: bool },
+    Exited(i32),
     /// The tool failed without an exit code.
-    Failed { contained: bool },
+    Failed,
     /// efr refused it before it ran, for this reason.
     Refused(&'a str),
     /// Its sandbox could not start, for this reason.
@@ -85,20 +85,17 @@ pub(crate) enum Outcome<'a> {
 impl Outcome<'_> {
     /// True when the call failed, so its last output lines stay on the screen.
     pub(crate) fn failed(self) -> bool {
-        matches!(self, Outcome::Exited { .. } | Outcome::Failed { .. })
+        matches!(self, Outcome::Exited(_) | Outcome::Failed)
     }
 
     /// The result's text without the time, and its tone.
     fn result(self) -> (String, Tone) {
-        let sandbox = |contained: bool| if contained { " (sandbox)" } else { "" };
         match self {
             Outcome::Ran => ("\u{2713}".to_owned(), Tone::Success),
-            Outcome::Exited { code, contained } => {
-                (format!("\u{2717} exit {code}{}", sandbox(contained)), Tone::Failure)
-            }
-            Outcome::Failed { contained } => {
-                (format!("\u{2717} failed{}", sandbox(contained)), Tone::Failure)
-            }
+            // NOTE: no `(sandbox)` after a contained call: in `auto` every shell call
+            // runs in the sandbox, and the end of the turn says once where it can write.
+            Outcome::Exited(code) => (format!("\u{2717} exit {code}"), Tone::Failure),
+            Outcome::Failed => ("\u{2717} failed".to_owned(), Tone::Failure),
             Outcome::Refused(reason) => {
                 (format!("\u{2717} refused: {}", format::one_line(reason)), Tone::Failure)
             }

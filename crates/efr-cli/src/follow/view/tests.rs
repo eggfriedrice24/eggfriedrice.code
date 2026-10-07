@@ -1329,7 +1329,7 @@ fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event
 }
 
 #[test]
-fn a_routine_command_shows_the_sandbox_once_and_a_failure_says_sandbox() {
+fn a_failure_in_the_sandbox_names_its_exit_and_the_turn_says_once_where_it_ran() {
     let mut view = sandbox_view(false);
     let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
     let (_, err, _) = feed(
@@ -1355,6 +1355,7 @@ fn a_routine_command_shows_the_sandbox_once_and_a_failure_says_sandbox() {
                     ..SandboxSummary::default()
                 }),
             ),
+            turn_completed(),
         ],
         true,
     );

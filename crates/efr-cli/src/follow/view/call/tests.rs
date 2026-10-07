@@ -32,17 +32,17 @@ fn a_call_under_a_second_shows_no_time() {
 fn a_failure_names_its_exit_code_in_the_error_role() {
     let options = RenderOptions::new(80);
     let call = shell("cargo test -p app");
-    let exited = Outcome::Exited { code: 101, contained: false };
+    let exited = Outcome::Exited(101);
     assert_eq!(
         readable(&call.result(Some(at(6_200)), exited, &options)),
         "  \\e[31m✗ exit 101 · 6.2s\\e[0m\n"
     );
-    let sandboxed = Outcome::Exited { code: 2, contained: true };
+    // A call in the sandbox says nothing more: the end of the turn says where it ran.
     assert_eq!(
-        readable(&call.result(Some(at(400)), sandboxed, &options)),
-        "  \\e[31m✗ exit 2 (sandbox)\\e[0m\n"
+        readable(&call.result(Some(at(400)), Outcome::Exited(2), &options)),
+        "  \\e[31m✗ exit 2\\e[0m\n"
     );
-    let failed = Outcome::Failed { contained: false };
+    let failed = Outcome::Failed;
     assert_eq!(readable(&call.result(None, failed, &options)), "  \\e[31m✗ failed\\e[0m\n");
     assert!(exited.failed() && failed.failed() && !Outcome::Ran.failed());
 }
@@ -68,7 +68,7 @@ fn a_refusal_says_why_on_a_row_of_its_own() {
 fn the_rows_are_plain_when_the_output_is_not_a_terminal() {
     let options = RenderOptions::new(80).with_terminal(false);
     let call = shell("make\nmake install");
-    let exited = Outcome::Exited { code: 2, contained: false };
+    let exited = Outcome::Exited(2);
     assert_eq!(call.header(&options), "· $ make\n    make install\n");
     assert_eq!(call.result(Some(at(1_500)), exited, &options), "  ✗ exit 2 · 1.5s\n");
     assert_eq!(
