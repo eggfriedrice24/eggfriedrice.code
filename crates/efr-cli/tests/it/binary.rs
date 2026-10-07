@@ -55,10 +55,10 @@ impl Roots {
 
     /// [`Roots::efr`] as a standard command, which a test can start and signal.
     fn std_efr(&self) -> std::process::Command {
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_efr"));
+        let mut command =
+            efr_stdx::process::command(env!("CARGO_BIN_EXE_efr"), self.dir.path()).into_std();
         command
             .env_clear()
-            .current_dir(self.dir.path())
             .env("HOME", self.path("home"))
             .env("EFR_CONFIG_DIR", self.path("config"))
             .env("EFR_DATA_DIR", self.path("data"))
