@@ -13,10 +13,11 @@
 //! secondary facts are muted, and what runs is in the `code` role. Every line of a
 //! command shows, each on its own, and nothing of what runs is cut: a line wider than
 //! the screen goes on in the next row. A cut after a space ends in a muted `\` and the
-//! rows from there are indented; a word is cut only when no space fits in the row,
-//! with a muted `↩`, and goes on in the next row at the same column, so the rows show
-//! no space that the command does not have. Text rows go on in the next row, indented. When the output is not a terminal,
-//! nothing wraps and nothing is painted.
+//! rows from there are indented; a space cuts only a row that is then at least half
+//! full. Else a word is cut, with a muted `↩`, and goes on in the next row at the same
+//! column, so the rows show no space that the command does not have. Text rows go on
+//! in the next row, indented. When the output is not a terminal, nothing wraps and
+//! nothing is painted.
 
 use efr_render::{RenderOptions, render};
 

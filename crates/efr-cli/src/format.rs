@@ -428,8 +428,9 @@ impl CommandRow {
 /// The rows of `line`, one line of a command that is safe to print, as a terminal that
 /// counts widths by `method` shows them. A row has `room` columns, less `indent` from
 /// the first cut at a space on, because the rows from there are indented. A row is cut
-/// after the last space that fits, and inside a word only when no space fits; its text
-/// and its mark fit the row. Nothing of the line is left out.
+/// after the last space that fits when that fills at least half of the row; else it is
+/// cut inside a word, and the next row goes on at the same column. Its text and its
+/// mark fit the row. Nothing of the line is left out.
 pub(crate) fn wrap_command(
     line: &str,
     room: usize,
@@ -466,9 +467,14 @@ pub(crate) fn wrap_command(
                 word = true;
             }
         }
+        // NOTE: a cut at a space early in the row would leave a short first word alone,
+        // such as `cp \`, with the rest of the row empty: a space cuts only a row that
+        // is at least half full, or one that the word after it cannot reach.
         let (cut, kind) = match after_space {
-            Some(at) => (at, RowEnd::Space),
-            None => (end, RowEnd::Word),
+            Some(at) if at == end || text_width(&left[..at], method) * 2 >= here => {
+                (at, RowEnd::Space)
+            }
+            _ => (end, RowEnd::Word),
         };
         if cut >= left.len() {
             rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });

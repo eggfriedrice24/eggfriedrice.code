@@ -5,70 +5,62 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 === 40 columns, colour
 [asked]
 \e[1;33m? allow this command\e[0m
-\e[2m│ \e[0m\e[36mecho "built \e[0m\e[2m\\e[0m
-\e[2m│ \e[0m    \e[36m$HOME/p/eggfriedrice.code/target/\e[0m\e[2m↩\e[0m
-\e[2m│ \e[0m    \e[36mdebug/build/libghostty-vt-1a2b3c4\e[0m\e[2m↩\e[0m
-\e[2m│ \e[0m    \e[36md5e6f/out/lib/libghostty-vt.so"\e[0m
+\e[2m│ \e[0m\e[36mecho "built $HOME/p/eggfriedrice.code\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[36m/target/debug/build/libghostty-vt-1a2\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[36mb3c4d5e6f/out/lib/libghostty-vt.so"\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36m$ echo "built \e[0m\e[2m\\e[0m
-        \e[36m$HOME/p/eggfriedrice.code/targe\e[0m\e[2m↩\e[0m
-        \e[36mt/debug/build/libghostty-vt-1a2\e[0m\e[2m↩\e[0m
-        \e[36mb3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
-        \e[36m.so"\e[0m
+\e[33m·\e[0m \e[36m$ echo "built $HOME/p/eggfriedrice.co\e[0m\e[2m↩\e[0m
+    \e[36mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[36m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[36m.so"\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
 [asked]
 \e[1m? allow this command\e[0m
-\e[2m│ \e[0mecho "built \e[2m\\e[0m
-\e[2m│ \e[0m    $HOME/p/eggfriedrice.code/target/\e[2m↩\e[0m
-\e[2m│ \e[0m    debug/build/libghostty-vt-1a2b3c4\e[2m↩\e[0m
-\e[2m│ \e[0m    d5e6f/out/lib/libghostty-vt.so"
+\e[2m│ \e[0mecho "built $HOME/p/eggfriedrice.code\e[2m↩\e[0m
+\e[2m│ \e[0m/target/debug/build/libghostty-vt-1a2\e[2m↩\e[0m
+\e[2m│ \e[0mb3c4d5e6f/out/lib/libghostty-vt.so"
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ echo "built \e[2m\\e[0m
-        $HOME/p/eggfriedrice.code/targe\e[2m↩\e[0m
-        t/debug/build/libghostty-vt-1a2\e[2m↩\e[0m
-        b3c4d5e6f/out/lib/libghostty-vt\e[2m↩\e[0m
-        .so"
+\e[1m·\e[0m $ echo "built $HOME/p/eggfriedrice.co\e[2m↩\e[0m
+    de/target/debug/build/libghostty-vt\e[2m↩\e[0m
+    -1a2b3c4d5e6f/out/lib/libghostty-vt\e[2m↩\e[0m
+    .so"
   ✓
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
 [asked]
 \e[1;33m? allow this command\e[0m
-\e[2m│ \e[0m\e[36mecho "built \e[0m\e[2m\\e[0m
-\e[2m│ \e[0m    \e[36m$HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/o\e[0m\e[2m↩\e[0m
-\e[2m│ \e[0m    \e[36mut/lib/libghostty-vt.so"\e[0m
+\e[2m│ \e[0m\e[36mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[36m4d5e6f/out/lib/libghostty-vt.so"\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36m$ echo "built \e[0m\e[2m\\e[0m
-        \e[36m$HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f\e[0m\e[2m↩\e[0m
-        \e[36m/out/lib/libghostty-vt.so"\e[0m
+\e[33m·\e[0m \e[36m$ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
+    \e[36m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
 [asked]
 \e[1m? allow this command\e[0m
-\e[2m│ \e[0mecho "built \e[2m\\e[0m
-\e[2m│ \e[0m    $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/o\e[2m↩\e[0m
-\e[2m│ \e[0m    ut/lib/libghostty-vt.so"
+\e[2m│ \e[0mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c\e[2m↩\e[0m
+\e[2m│ \e[0m4d5e6f/out/lib/libghostty-vt.so"
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ echo "built \e[2m\\e[0m
-        $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f\e[2m↩\e[0m
-        /out/lib/libghostty-vt.so"
+\e[1m·\e[0m $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[2m↩\e[0m
+    3c4d5e6f/out/lib/libghostty-vt.so"
   ✓
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 

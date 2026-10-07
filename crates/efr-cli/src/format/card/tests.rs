@@ -52,20 +52,34 @@ fn a_command_goes_on_after_a_space_with_a_backslash() {
 }
 
 #[test]
-fn a_row_is_cut_at_a_space_even_early_in_the_row() {
-    // The space after `echo` is the only one: the path goes on in the next row,
-    // indented, and only the rows of the path itself are cut inside it, each at the
-    // column of the row before.
+fn a_space_early_in_the_row_does_not_leave_a_short_word_alone() {
+    // The space after `cp` is the only one, and a cut there would fill 3 columns of
+    // 20: the row is cut inside the path instead, and the path goes on at the same
+    // column, not indented.
     let path = format!("/a/{}", "b".repeat(30));
-    let rows = wrap_command(&format!("echo {path}"), 20, 4, WidthMethod::CodePoint);
-    assert_eq!(rows[0], row("echo ", false, RowEnd::Space));
-    assert!(rows[1..rows.len() - 1].iter().all(|row| row.end == RowEnd::Word), "{rows:?}");
-    assert!(rows[1..].iter().all(|row| row.indented), "{rows:?}");
+    let rows = wrap_command(&format!("cp {path}"), 20, 4, WidthMethod::CodePoint);
+    assert_eq!(rows[0], row(&format!("cp {}", &path[..16]), false, RowEnd::Word));
+    assert!(rows[..rows.len() - 1].iter().all(|row| row.end == RowEnd::Word), "{rows:?}");
+    assert!(rows.iter().all(|row| !row.indented), "{rows:?}");
     assert_eq!(rows.last().unwrap().end, RowEnd::Last);
-    for row in &rows[1..] {
+    for row in &rows {
         let mark = usize::from(row.mark().is_some());
-        assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 16, "{rows:?}");
+        assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 20, "{rows:?}");
     }
+    let joined: String = rows.iter().map(|row| row.text.as_str()).collect();
+    assert_eq!(joined, format!("cp {path}"));
+}
+
+#[test]
+fn a_space_cuts_a_row_that_is_at_least_half_full() {
+    // `echo hello ` fills 11 columns of 20: the cut stays at the space.
+    let rows = wrap_command("echo hello /a/bbbbbbbbbbbbbbbbbbbb", 20, 4, WidthMethod::CodePoint);
+    assert_eq!(rows[0], row("echo hello ", false, RowEnd::Space));
+    assert!(rows[1].indented, "{rows:?}");
+    // `echo hi ` fills 8 of 20, less than half: the row is cut inside the path.
+    let rows = wrap_command("echo hi /a/bbbbbbbbbbbbbbbbbbbbbbbb", 20, 4, WidthMethod::CodePoint);
+    assert_eq!(rows[0], row("echo hi /a/bbbbbbbb", false, RowEnd::Word));
+    assert!(!rows[1].indented, "{rows:?}");
 }
 
 #[test]

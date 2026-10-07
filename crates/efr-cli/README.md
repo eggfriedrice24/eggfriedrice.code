@@ -161,10 +161,12 @@ Replies:
   Each line of a command of several lines shows on its own row, under the first, so
   two commands never look like one with more arguments. A line wider than the screen
   goes on in the next row, and nothing of what runs is cut. A row is cut after the
-  last space that fits: a muted `\` ends it, and the rows after it are indented 4 more
-  columns, so the indent stands for that space. Only when no space fits is a row cut
-  inside a word: a muted `↩` ends it, and the word goes on in the next row at the same
-  column, so the rows show no space that the command does not have.
+  last space that fits when the row is then at least half full: a muted `\` ends it,
+  and the rows after it are indented 4 more columns, so the indent stands for that
+  space. Otherwise (no space fits, or the cut would leave a short word such as `cp`
+  alone in the row) the row is cut inside a word: a muted `↩` ends it, and the word
+  goes on in the next row at the same column, with no indent, so the rows show no
+  space that the command does not have.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
   spinner (accent), the call (code) cut to the width with `…` at the cut, and from 1 s
   on how long it has run, such as `⠹ $ cargo test -p app  12s`; up to three more lines
