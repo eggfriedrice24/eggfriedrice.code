@@ -1611,26 +1611,29 @@ impl TurnView {
         self.note(&line, size)
     }
 
-    /// The answer reached the command.
-    pub(crate) fn answer_sent(&mut self, size: Size) -> Step {
-        self.answer_note(ANSWER_SENT, size)
+    /// The answer of `kind` reached the command. A password, hidden or behind a relay,
+    /// gets no note: the line under its prompt said how it goes, and the command's own
+    /// output shows what came of it. Any other answer gets one, because its echo goes.
+    pub(crate) fn answer_sent(&mut self, kind: AnswerKind, size: Size) -> Step {
+        let note = (!kind.guards()).then_some(ANSWER_SENT);
+        self.answer_note(note, size)
     }
 
     /// The daemon refused the answer because the command no longer waits for it.
     pub(crate) fn answer_refused(&mut self, size: Size) -> Step {
-        self.answer_note(ANSWER_REFUSED, size)
+        self.answer_note(Some(ANSWER_REFUSED), size)
     }
 
     /// The daemon refused the answer for another reason, which `message` gives.
     pub(crate) fn answer_failed(&mut self, message: &str, size: Size) -> Step {
         let line = format!("the answer was not sent: {}", format::one_line(message));
-        self.answer_note(&line, size)
+        self.answer_note(Some(&line), size)
     }
 
-    /// A note about an answer; the echo of what was typed goes with it.
+    /// A note about an answer, if any; the echo of what was typed goes with it.
     /// A manual answer asks once: after it, the keys stop and the call's silence starts
     /// again.
-    fn answer_note(&mut self, text: &str, size: Size) -> Step {
+    fn answer_note(&mut self, text: Option<&str>, size: Size) -> Step {
         let mut freed = None;
         if let Some(running) = &mut self.running {
             running.typed.clear();
@@ -1640,7 +1643,10 @@ impl TurnView {
                 freed = Some(running.call_id);
             }
         }
-        let step = self.note(text, size);
+        let step = match text {
+            Some(text) => self.note(text, size),
+            None => self.commit(String::new()),
+        };
         match freed {
             Some(call) => self.manual_closed(Some(call), step),
             None => step,

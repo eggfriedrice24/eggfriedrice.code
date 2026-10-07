@@ -669,7 +669,7 @@ impl Follower<'_> {
         });
         let size = self.ctx.screen.size();
         let step = match self.client.call::<InputRespondResult>(method).await {
-            Ok(_) => view.answer_sent(size),
+            Ok(_) => view.answer_sent(kind, size),
             // The command ended or stopped reading, or the call is gone: the daemon
             // wrote nothing.
             Err(ClientError::Server { body })

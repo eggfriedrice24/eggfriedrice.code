@@ -338,9 +338,12 @@ command's prompt (its last output line) and how to answer:
 
 Printable text is added, Backspace removes one character, Ctrl+U clears the line, arrow
 keys and other escape sequences are ignored, and Enter sends the line with
-`input.respond` (an empty line too: it takes a question's default). After a send, a dim
-note says `answer sent`; when the daemon answers `conflict` or `not_found`, the note
-says that the command no longer waits and nothing was sent. A wait of `none` or the
+`input.respond` (an empty line too: it takes a question's default). After a visible or
+manual answer is sent, a dim note says `answer sent`. A password (a hidden answer, or
+a visible one behind a relay that looks secret) gets no note: the line under its
+prompt said how it goes, and the command's own output shows what came of it. When the
+daemon answers `conflict` or `not_found`, a note says that the command no longer waits
+and nothing was sent. A wait of `none` or the
 call's completion stops the key thread and drops any unsent text. A call that asked for
 a hidden answer is the exception: until it completes, the key thread keeps running and
 throws keys away, so a password typed again while `sudo` checks a wrong one neither

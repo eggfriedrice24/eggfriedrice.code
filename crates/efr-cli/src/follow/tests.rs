@@ -604,7 +604,7 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
     let keys = Arc::new(ScriptedKeys::default());
     let ctx = Context { keys: keys.clone(), ..env.context() };
     let presser = Arc::clone(&keys);
-    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, _| async move {
         let (sub, params) = subscription(&mut conn, 10).await;
         assert!(params.answers_input, "keys can be read, so a person here can answer");
         conn.item(sub, &item(11, shell_started("sudo pacman -Syu"))).await;
@@ -618,7 +618,6 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
         assert_eq!(params.text.expose_secret(), "hunter2");
         assert!(params.hidden);
         conn.reply(id, &InputRespondResult {}).await;
-        shows(&seen, "answer sent").await;
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_completed(0))).await;
         presser.stopped().await;
@@ -630,7 +629,8 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
     assert_eq!(keys.starts(), 1);
     assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
     assert!(out.contains("the agent sees it only if the program prints it"), "{out}");
-    assert!(out.contains("answer sent"), "{out}");
+    // A password gets no note when it is sent.
+    assert!(!out.contains("answer sent"), "{out}");
     // Not the answer, not a piece of it, in any frame or note.
     for written in [&out, &err] {
         assert!(!written.contains("hunter"), "{written}");
@@ -754,7 +754,6 @@ async fn keys_typed_ahead_never_join_a_hidden_answer_and_never_show() {
         assert_eq!(params.text.expose_secret(), "pw");
         assert!(params.hidden);
         conn.reply(id, &InputRespondResult {}).await;
-        shows(&seen, "answer sent").await;
         finish_shell(&mut conn, sub, &presser, 16).await;
     })
     .await;
@@ -791,7 +790,6 @@ async fn keys_typed_ahead_start_a_secret_looking_answer_without_showing() {
         assert_eq!(params.text.expose_secret(), "hunter2");
         assert!(!params.hidden, "it goes as the visible answer that the wait asked for");
         conn.reply(id, &InputRespondResult {}).await;
-        shows(&seen, "answer sent").await;
         finish_shell(&mut conn, sub, &presser, 16).await;
     })
     .await;
@@ -847,7 +845,6 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
         presser.type_bytes(b"hunter2\r").await;
         let (id, _) = input_respond(&mut conn).await;
         conn.reply(id, &InputRespondResult {}).await;
-        shows_on(&seen, Stream::Stderr, |text| text.contains("answer sent")).await;
         conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
         shows_on(&seen, Stream::Stderr, |text| text.ends_with("> ")).await;
@@ -863,7 +860,8 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
     .await;
     result.unwrap();
     assert_eq!(out, "");
-    assert!(err.contains("> yo\u{8} \u{8}es\nanswer sent\n"), "{err:?}");
+    assert!(err.contains("> yo\u{8} \u{8}es\n\nanswer sent\n"), "{err:?}");
+    assert_eq!(err.matches("answer sent").count(), 1, "only the visible answer: {err:?}");
     assert!(!err.contains("hunter") && !err.contains("ter2"), "{err:?}");
 }
 
@@ -934,7 +932,6 @@ async fn keys_stay_quiet_between_two_hidden_asks_of_one_call() {
         presser.type_bytes(b"wrong\r").await;
         let (id, _) = input_respond(&mut conn).await;
         conn.reply(id, &InputRespondResult {}).await;
-        shows(&seen, "answer sent").await;
         // sudo checks the password and says it was wrong: no wait for a while.
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_output("Sorry, try again."))).await;
@@ -1083,7 +1080,7 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
     let keys = Arc::new(ScriptedKeys::default());
     let ctx = Context { keys: keys.clone(), ..env.context() };
     let presser = Arc::clone(&keys);
-    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, seen| async move {
+    let (result, out, err) = run_view(&env, &ctx, terminal_view(), |mut conn, _| async move {
         let sub = subscribed(&mut conn, 10).await;
         conn.item(sub, &item(11, shell_started("sudo -u build passwd"))).await;
         conn.item(sub, &item(12, shell_output("Current password: "))).await;
@@ -1100,7 +1097,6 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
         assert!(!params.hidden, "the daemon reported a visible wait");
         assert!(!params.manual);
         conn.reply(id, &InputRespondResult {}).await;
-        shows(&seen, "answer sent").await;
         conn.item(sub, &item(14, input_changed(InputWait::None))).await;
         conn.item(sub, &item(15, shell_completed(0))).await;
         presser.stopped().await;

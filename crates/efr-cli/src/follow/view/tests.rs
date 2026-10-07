@@ -747,9 +747,12 @@ fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
     // Text passed for a hidden answer would never be shown.
     assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
 
-    let out = readable(&framed(view.answer_sent(SIZE), &mut view).out);
-    assert!(out.contains("answer sent"), "{out}");
-    assert!(out.contains("it is not shown"), "the question stays for the next line: {out}");
+    // A password gets no note when it is sent: the command's output shows what came of
+    // it, and the line under the prompt stays.
+    let out = readable(&framed(view.answer_sent(AnswerKind::Hidden, SIZE), &mut view).out);
+    assert!(!out.contains("answer sent"), "{out}");
+    let asking = view.running.as_ref().and_then(|running| running.asking);
+    assert_eq!(asking, Some(AnswerKind::Hidden), "the question stays for the next line");
 
     // sudo may ask again after a wrong password, so keys stay quiet until the call
     // completes.
@@ -788,7 +791,7 @@ fn a_visible_input_echoes_what_is_typed_until_it_is_sent() {
     let typed = framed(view.typed("y"), &mut view);
     insta::assert_snapshot!(readable(&typed.out));
 
-    let sent = readable(&framed(view.answer_sent(SIZE), &mut view).out);
+    let sent = readable(&framed(view.answer_sent(AnswerKind::Visible, SIZE), &mut view).out);
     assert!(sent.contains("answer sent"), "{sent}");
     assert!(!sent.contains("> y"), "the echo goes with the send: {sent}");
 }
@@ -868,7 +871,7 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     assert_eq!(framed(view.typed("y\u{6f22}"), &mut view).err, "\u{6f22}");
     assert_eq!(framed(view.typed(""), &mut view).err, "\u{8} \u{8}".repeat(3));
     framed(view.typed("n"), &mut view);
-    let sent = framed(view.answer_sent(SIZE), &mut view);
+    let sent = framed(view.answer_sent(AnswerKind::Visible, SIZE), &mut view);
     assert_eq!((sent.out.as_str(), sent.err.as_str()), ("", "\nanswer sent\n"));
     // Another answer to the same question starts a line of its own.
     assert_eq!(framed(view.typed("y"), &mut view).err, "> y");
@@ -953,6 +956,24 @@ fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
     // Asked again later, keys typed in between are thrown away, as for a hidden wait.
     let step = framed(view.event(&input(InputWait::None), size, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Discard(call())));
+}
+
+#[test]
+fn a_password_behind_a_relay_gets_no_note_when_it_is_sent() {
+    let mut view = terminal_view();
+    framed(view.event(&tool_started("sudo -u build passwd"), SIZE, true), &mut view);
+    framed(view.event(&output("Current password: "), SIZE, true), &mut view);
+    let step = framed(view.event(&secret_input(), SIZE, true), &mut view);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
+    let sent = framed(view.answer_sent(AnswerKind::Masked, SIZE), &mut view);
+    let out = readable(&sent.out);
+    assert!(!out.contains("answer sent") && sent.err.is_empty(), "{out}");
+    // What says how the answer goes stays under the prompt until the wait ends.
+    let asking = view.running.as_ref().and_then(|running| running.asking);
+    assert_eq!(asking, Some(AnswerKind::Masked));
+    // A refused answer still says so: that is news.
+    let refused = readable(&framed(view.answer_refused(SIZE), &mut view).out);
+    assert!(refused.contains("the command no longer waits"), "{refused}");
 }
 
 #[test]
@@ -1071,7 +1092,7 @@ fn ctrl_backslash_asks_for_a_manual_line_that_is_not_shown_and_one_answer_ends_i
     assert_eq!(framed(view.typed("yes"), &mut view), Step::default(), "nothing typed is shown");
     assert_eq!(view.manual_offer(), None);
 
-    let step = framed(view.answer_sent(size), &mut view);
+    let step = framed(view.answer_sent(AnswerKind::Manual, size), &mut view);
     assert!(step.settled, "the keys stop after a manual answer");
     assert!(view.silence().is_some(), "the silence starts again");
 }
@@ -1090,7 +1111,7 @@ fn a_manual_line_under_a_password_prompt_echoes_nothing() {
     assert!(!step.err.contains(ECHO_PREFIX), "{:?}", step.err);
     assert!(!AnswerKind::Manual.shown());
     assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
-    let sent = framed(view.answer_sent(size), &mut view);
+    let sent = framed(view.answer_sent(AnswerKind::Manual, size), &mut view);
     assert!(!sent.err.contains("hunter2"), "{:?}", sent.err);
 }
 
@@ -1197,7 +1218,7 @@ fn a_visible_wait_of_a_kept_call_asks_and_its_end_keeps_the_keys_again() {
     framed(view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true), &mut view);
     let step = framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
-    framed(view.answer_sent(SIZE), &mut view);
+    framed(view.answer_sent(AnswerKind::Visible, SIZE), &mut view);
     let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Retain(call())), "the next prompt of the call gets them too");
     assert!(!step.settled);
@@ -1253,7 +1274,7 @@ fn a_manual_line_of_a_kept_call_throws_the_keys_after_it_away() {
     // `Ctrl+\` still opens the next one.
     assert_eq!(view.manual_offer(), Some(call()));
     framed(view.manual(call(), size), &mut view);
-    let step = framed(view.answer_sent(size), &mut view);
+    let step = framed(view.answer_sent(AnswerKind::Manual, size), &mut view);
     assert_eq!((step.ask, step.settled), (Some(Ask::Discard(call())), false));
     framed(view.silent(call(), size), &mut view);
     assert_eq!(view.manual_offer(), Some(call()));
