@@ -146,7 +146,8 @@ fn the_question_says_what_efr_knows_and_what_the_model_says() {
     assert_eq!(info.kinds, vec![ExitKind::Persistence]);
     assert_eq!(info.launch, Launch::Unsandboxed);
     assert!(info.grants.is_empty());
-    assert_eq!(info.facts, vec!["~/.zshrc exists".to_owned()]);
+    // A target that exists needs no fact: the question names it already.
+    assert!(info.facts.is_empty(), "{:?}", info.facts);
     assert_eq!(info.model_reason.as_deref(), Some("you asked me to add the alias"));
     assert!(info.user_only);
     assert_eq!(info.judged, None);
@@ -383,13 +384,7 @@ fn a_write_in_a_shared_directory_says_how_it_binds() {
     let decision = decide(&engine, requirements.clone());
     let launch = grant(&decision);
     let in_place = info(&decision, &requirements, &launch, Path::new(HOME));
-    assert_eq!(
-        in_place.facts,
-        vec![
-            "~/.notes exists".to_owned(),
-            "in-place writes only; a rename over ~/.notes fails".to_owned()
-        ]
-    );
+    assert_eq!(in_place.facts, vec!["in-place writes only; a rename over ~/.notes fails"]);
 }
 
 /// The question of `line` with `needs.outside`, with `facts` from the daemon.
