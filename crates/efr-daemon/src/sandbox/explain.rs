@@ -122,7 +122,7 @@ impl SandboxService {
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox.explain" })?
         .map_err(|source| DaemonError::SandboxSpec { source })?;
         let (real, explanation) = explained;
-        let (reason, write_exit) = why(explanation.role, explanation.origin);
+        let (reason, write_exit) = why(explanation.origin);
         Ok(SandboxExplainResult {
             path: real,
             project: turn_project,
@@ -136,12 +136,9 @@ impl SandboxService {
     }
 }
 
-/// The one-sentence reason of a path's `role` from the mount `origin` that decides it,
+/// The one-sentence reason of a path's role from the mount `origin` that decides it,
 /// and the exit that a write of it would be.
-pub(crate) fn why(
-    role: SandboxPathRole,
-    origin: Option<MountOrigin>,
-) -> (&'static str, Option<ExitKind>) {
+pub(crate) fn why(origin: Option<MountOrigin>) -> (&'static str, Option<ExitKind>) {
     let floor = |reason| (reason, Some(ExitKind::Persistence));
     match origin {
         None => ("outside every write root, like the rest of the system", Some(ExitKind::Write)),
@@ -168,9 +165,8 @@ pub(crate) fn why(
         }
         Some(MountOrigin::Floor(kind)) => floor(floor_reason(kind)),
         Some(MountOrigin::Asset) => ("a file of efr's sandbox (read only)", None),
-        Some(_) if role == SandboxPathRole::ReadOnly => {
-            ("a socket or device of an approval (read only)", None)
-        }
+        Some(MountOrigin::Socket) => ("a socket or bus that an approval opens for one call", None),
+        Some(MountOrigin::Device) => ("a device that an approval opens for one call", None),
         Some(_) => ("a part of the sandbox", None),
     }
 }

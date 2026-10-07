@@ -62,4 +62,6 @@ pub enum SandboxPathRole {
     Masked,
     /// A floor: read only even inside a write root.
     Floor,
+    /// A socket, bus or device that an approval binds for one call: read and write.
+    Granted,
 }

@@ -393,6 +393,15 @@ fn plan_grants_bind_sockets_devices_and_open_the_network() {
     );
     // The masks stay with an open network.
     assert!(has_mount(&plan, &MountOp::Tmpfs { target: "/home/u/.ssh".into(), perms: 0o500 }));
+    // explain says what the binds do: the call can write a granted socket or device.
+    for path in ["/run/user/1000/bus", "/dev/nvme0n1"] {
+        let explained = plan.explain(Path::new(path));
+        assert_eq!(
+            (explained.role, explained.read, explained.write),
+            (SandboxPathRole::Granted, true, true),
+            "{path}"
+        );
+    }
 
     let mut spec = crate::testing::spec();
     spec.grants = vec![Grant::Device { path: "/home/u/p/app/src".into() }];

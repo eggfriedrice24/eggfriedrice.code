@@ -77,7 +77,9 @@ impl MountPlan {
             .rfind(|mount| is_within(path, mount.op.target()))
             .map(|mount| mount.origin);
         let role = match origin {
-            None | Some(MountOrigin::Socket | MountOrigin::Device) => SandboxPathRole::ReadOnly,
+            None => SandboxPathRole::ReadOnly,
+            // NOTE: the plan binds a granted socket or device read-write.
+            Some(MountOrigin::Socket | MountOrigin::Device) => SandboxPathRole::Granted,
             Some(MountOrigin::Runtime | MountOrigin::EfrState | MountOrigin::Mask(_)) => {
                 SandboxPathRole::Masked
             }
@@ -94,6 +96,7 @@ impl MountPlan {
             SandboxPathRole::WriteRoot
                 | SandboxPathRole::CacheOverlay
                 | SandboxPathRole::PrivateTmp
+                | SandboxPathRole::Granted
         );
         Explanation { role, origin, read, write }
     }
