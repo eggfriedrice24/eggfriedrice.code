@@ -17,6 +17,7 @@ Commands:
   config    Show, check, edit and change config.toml
   project   List, add and remove the projects that the permission modes trust
   paths     Show where efr keeps its files, and where the daemon keeps them
+  sandbox   Check the sandbox of the auto mode, or explain what it does with a path
   help      Print this message or the help of the given subcommand(s)
 
 Options:

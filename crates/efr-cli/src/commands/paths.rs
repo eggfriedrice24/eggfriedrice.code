@@ -6,14 +6,16 @@
 //! (absent, a file, or a link and its target), the database, the secrets directory and
 //! the socket. When the daemon answers, its roots follow, and each root it keeps
 //! elsewhere costs a warning with the fix: a daemon started with another `EFR_HOME` than
-//! this shell reads another config and another database. `--json` prints the same.
+//! this shell reads another config and another database. A daemon with the `auto`
+//! sandbox also names its launcher, bubblewrap and the sandbox's directories. `--json`
+//! prints the same.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use efr_client::ClientError;
 use efr_config::FileState;
-use efr_protocol::{DaemonRoots, RootDir, RootSource};
+use efr_protocol::{DaemonRoots, RootDir, RootSource, SandboxPaths, SandboxStatus};
 use efr_stdx::paths::{RootSource as LocalSource, RootSources};
 use serde_json::{Value, json};
 
@@ -23,6 +25,9 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::format;
 use crate::output::Output;
+
+/// The width of the first column, which fits `sandbox launcher`.
+const KEY_WIDTH: usize = 16;
 
 /// The fix for a daemon whose roots differ from this shell's.
 const FIX: &str = "give efrd.service the same EFR_HOME with systemctl --user edit efrd";
@@ -48,6 +53,11 @@ pub(crate) struct Facts {
     pub(crate) socket_exists: bool,
     /// The daemon's roots, or why there are none.
     pub(crate) daemon: Result<DaemonRoots, String>,
+    /// Where the daemon's sandbox keeps its launcher and files; `None` from a daemon
+    /// that does not report them.
+    pub(crate) sandbox_paths: Option<SandboxPaths>,
+    /// The daemon's sandbox status, which names bubblewrap.
+    pub(crate) sandbox: Option<SandboxStatus>,
 }
 
 pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &PathsArgs) -> Result<(), CliError> {
@@ -80,12 +90,16 @@ async fn gather(ctx: &Context) -> Facts {
     .await;
     let (roots, database_exists, socket_exists) =
         local.unwrap_or_else(|_| (local_roots(&ctx.dirs, sources), false, false));
-    let daemon = match status(ctx).await {
-        Ok(status) => status.roots.ok_or_else(|| "the daemon does not report its roots".to_owned()),
+    let (daemon, sandbox_paths, sandbox) = match status(ctx).await {
+        Ok(status) => (
+            status.roots.ok_or_else(|| "the daemon does not report its roots".to_owned()),
+            status.sandbox_paths,
+            status.sandbox,
+        ),
         Err(CliError::Client(ClientError::DaemonNotRunning { .. })) => {
-            Err("not running".to_owned())
+            (Err("not running".to_owned()), None, None)
         }
-        Err(error) => Err(format!("could not be asked: {error}")),
+        Err(error) => (Err(format!("could not be asked: {error}")), None, None),
     };
     Facts {
         roots,
@@ -96,6 +110,8 @@ async fn gather(ctx: &Context) -> Facts {
         socket: ctx.dirs.socket_path(),
         socket_exists,
         daemon,
+        sandbox_paths,
+        sandbox,
     }
 }
 
@@ -165,7 +181,7 @@ pub(crate) fn differences(facts: &Facts) -> Vec<String> {
 pub(crate) fn text(facts: &Facts) -> String {
     let mut out = String::new();
     let mut row = |key: &str, value: &str| {
-        let _ = writeln!(out, "{key:<14} {}", format::one_line(value));
+        let _ = writeln!(out, "{key:<KEY_WIDTH$} {}", format::one_line(value));
     };
     for root in &facts.roots {
         let state = if root.exists { "exists" } else { "missing" };
@@ -190,7 +206,40 @@ pub(crate) fn text(facts: &Facts) -> String {
         }
         Err(reason) => row("daemon", reason),
     }
+    if let Some(paths) = &facts.sandbox_paths {
+        row("sandbox launcher", &launcher(paths));
+    }
+    if let Some(sandbox) = &facts.sandbox {
+        let bwrap = match (&sandbox.bwrap, &sandbox.bwrap_version) {
+            (Some(path), Some(version)) => format!("{}  {version}", path.display()),
+            (Some(path), None) => path.display().to_string(),
+            (None, _) => "not found".to_owned(),
+        };
+        row("bubblewrap", &bwrap);
+    }
+    if let Some(paths) = &facts.sandbox_paths {
+        row("sandbox state", &paths.state.display().to_string());
+        row("sandbox runtime", &paths.runtime.display().to_string());
+    }
     out
+}
+
+/// The launcher's copy, with the file it came from and whether its SHA-256 matches.
+fn launcher(paths: &SandboxPaths) -> String {
+    let copy = match &paths.launcher {
+        Some(launcher) => launcher.display().to_string(),
+        None => "not copied yet".to_owned(),
+    };
+    let mut origin = Vec::new();
+    if let Some(source) = &paths.launcher_source {
+        origin.push(format!("from {}", source.display()));
+    }
+    match paths.launcher_sha256_ok {
+        Some(true) => origin.push("sha256 ok".to_owned()),
+        Some(false) => origin.push("sha256 differs".to_owned()),
+        None => {}
+    }
+    if origin.is_empty() { copy } else { format!("{copy}  ({})", origin.join(", ")) }
 }
 
 fn with_state(path: &Path, exists: bool) -> String {
@@ -233,7 +282,27 @@ fn json(facts: &Facts, warnings: &[String]) -> Value {
             "socket": { "path": facts.socket, "exists": facts.socket_exists },
         },
         "daemon": daemon,
+        "sandbox": sandbox_json(facts),
         "warnings": warnings,
+    })
+}
+
+/// The sandbox's paths and bubblewrap for `--json`; null from a daemon that does not
+/// report them.
+fn sandbox_json(facts: &Facts) -> Value {
+    if facts.sandbox_paths.is_none() && facts.sandbox.is_none() {
+        return Value::Null;
+    }
+    let paths = facts.sandbox_paths.as_ref();
+    let status = facts.sandbox.as_ref();
+    json!({
+        "launcher": paths.and_then(|paths| paths.launcher.as_ref()),
+        "launcher_source": paths.and_then(|paths| paths.launcher_source.as_ref()),
+        "launcher_sha256_ok": paths.and_then(|paths| paths.launcher_sha256_ok),
+        "state": paths.map(|paths| &paths.state),
+        "runtime": paths.map(|paths| &paths.runtime),
+        "bwrap": status.and_then(|status| status.bwrap.as_ref()),
+        "bwrap_version": status.and_then(|status| status.bwrap_version.as_ref()),
     })
 }
 

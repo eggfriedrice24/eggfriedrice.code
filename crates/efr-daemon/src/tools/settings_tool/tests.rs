@@ -90,7 +90,8 @@ impl Fixture {
 fn engine_for(home: &Path, config: &Path, settings: &Settings) -> Engine {
     let home = Home::new(home).unwrap();
     let secrets = home.path().join(".local/share/efr/secrets");
-    build(&home, &secrets, &protected_config(config), settings, &Registry::empty()).unwrap()
+    let facts = crate::engine::SandboxFacts::default();
+    build(&home, &secrets, &protected_config(config), settings, &Registry::empty(), &facts).unwrap()
 }
 
 fn call(n: u128, input: Value, origin: Origin) -> ToolCall {
@@ -635,7 +636,11 @@ mod daemon {
             Event::TurnStarted { settings, .. } => settings.clone(),
             _ => None,
         });
-        assert_eq!(started.map(|settings| settings.mode), Some(Mode::Auto));
+        // NOTE: the test daemon finds no sandbox launcher, so the turn that asked for
+        // `auto` runs as `cautious`; the engine's own tests hold that a settings change
+        // asks in `auto`.
+        let asked = started.and_then(|settings| settings.fallback).map(|fallback| fallback.asked);
+        assert_eq!(asked, Some(Mode::Auto));
         let asked = events.iter().find_map(|event| match event {
             Event::ApprovalRequested { summary, diff_preview, .. } => {
                 Some((summary.clone(), diff_preview.clone()))
@@ -711,5 +716,48 @@ mod daemon {
 
         drop(client);
         running.stop().await;
+    }
+}
+
+#[test]
+fn each_sandbox_key_that_opens_the_sandbox_loosens() {
+    use std::path::PathBuf;
+
+    use efr_config::{SandboxSettings, WriteProjects};
+
+    let base = SandboxSettings::default();
+    let changed = |change: fn(&mut SandboxSettings)| {
+        let mut next = base.clone();
+        change(&mut next);
+        next
+    };
+    let opening: Vec<(&str, SandboxSettings)> = vec![
+        ("sandbox.bwrap", changed(|s| s.bwrap = Some(PathBuf::from("/opt/bwrap")))),
+        ("sandbox.write_projects all", changed(|s| s.write_projects = WriteProjects::All)),
+        ("sandbox.write_roots added", changed(|s| s.write_roots.push("~/notes".into()))),
+        ("sandbox.caches added", changed(|s| s.caches.push("~/.stack".into()))),
+        ("sandbox.mask_globs removed", changed(|s| s.mask_globs.truncate(1))),
+        ("sandbox.env_keep added", changed(|s| s.env_keep.push("GH_TOKEN".to_owned()))),
+        ("sandbox.promote_env added", changed(|s| s.promote_env.push("PATH".to_owned()))),
+        ("sandbox.synced_dirs removed", changed(|s| s.synced_dirs.clear())),
+        ("sandbox.rebuildable added", changed(|s| s.rebuildable.push("src".to_owned()))),
+    ];
+    for (row, next) in &opening {
+        assert!(super::sandbox_loosens(&base, next), "{row} must loosen");
+    }
+    let closing: Vec<(&str, SandboxSettings)> = vec![
+        ("sandbox.enabled", changed(|s| s.enabled = false)),
+        ("sandbox.write_projects turn", changed(|s| s.write_projects = WriteProjects::Turn)),
+        ("sandbox.mask added", changed(|s| s.mask.push("~/private".into()))),
+        ("sandbox.mask_globs added", changed(|s| s.mask_globs.push("*.key".to_owned()))),
+        ("sandbox.protect added", changed(|s| s.protect.push("~/bin".into()))),
+        ("sandbox.env_deny added", changed(|s| s.env_deny.push("FOO".to_owned()))),
+        ("sandbox.export_deny added", changed(|s| s.export_deny.push("FOO".to_owned()))),
+        ("sandbox.cache_days", changed(|s| s.cache_days = 1)),
+        ("sandbox.caches removed", changed(|s| s.caches.clear())),
+        ("sandbox.offline_hints", changed(|s| s.offline_hints = false)),
+    ];
+    for (row, next) in &closing {
+        assert!(!super::sandbox_loosens(&base, next), "{row} must not loosen");
     }
 }

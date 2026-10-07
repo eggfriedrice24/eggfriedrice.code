@@ -8,6 +8,7 @@ pub(crate) mod models;
 pub(crate) mod new;
 pub(crate) mod paths;
 pub(crate) mod project;
+pub(crate) mod sandbox;
 pub(crate) mod send;
 pub(crate) mod settings;
 pub(crate) mod status;

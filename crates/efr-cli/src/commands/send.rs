@@ -116,7 +116,7 @@ pub(crate) async fn send(
     let result = send_prompt(ctx, &client, prompt).await?;
     let size = ctx.screen.size();
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
-    let mut view = TurnView::new(result.turn_id, options);
+    let mut view = TurnView::new(result.turn_id, options).with_home(ctx.home.clone());
     // NOTE: the note comes from the prompt.send result, so it is the reply's first line
     // even before the first event arrives.
     if let Some(note) = result.settings.as_ref().and_then(overrides) {

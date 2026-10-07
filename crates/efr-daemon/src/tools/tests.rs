@@ -14,7 +14,7 @@ use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, Locations,
     Requirements, Resource, Rule,
 };
-use efr_protocol::{CallId, ConversationId, Mode, Origin, Scope, TurnId};
+use efr_protocol::{CallId, ConversationId, Launch, Mode, Origin, Scope, TurnId};
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
 use efr_test_support::{TestClock, TestRng};
@@ -51,6 +51,9 @@ impl PtyHolder for NoHolder {
     }
     async fn list(&self) -> Result<Vec<PtyInfo>, HolderError> {
         Ok(Vec::new())
+    }
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError> {
+        Err(HolderError::NotFound { pty_id })
     }
     async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {
         Err(HolderError::NotFound { pty_id })
@@ -186,6 +189,23 @@ async fn an_unknown_tool_is_text_for_the_model() {
     let requirements = toolbox.requirements(&call("rm_rf", json!({}), home.path())).await;
 
     assert!(requirements.unwrap_err().contains("rm_rf"));
+}
+
+#[tokio::test]
+async fn a_call_for_the_sandbox_never_runs_in_the_hidden_shell() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    for launch in [Launch::contained(), Launch::Unsandboxed] {
+        let mut call = call("shell", json!({"command": "touch made"}), home.path());
+        call.context = call.context.with_launch(launch);
+        let mut sink = |_: &str, _: u64| {};
+
+        let outcome = toolbox.invoke(call, &mut sink).await;
+
+        assert!(outcome.is_error, "{outcome:?}");
+        assert_eq!(outcome.output, crate::tools::SANDBOX_NOT_STARTED);
+        assert!(!home.path().join("made").exists());
+    }
 }
 
 #[tokio::test]
@@ -328,6 +348,7 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
         &crate::engine::protected_config(&config),
         &Settings::default(),
         &efr_scope::Registry::empty(),
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
 
@@ -365,6 +386,8 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
             let effect = engine.decide(&input).effect();
             let expected = match (expected, mode) {
                 (Effect::Allow, Mode::Manual) => Effect::Ask,
+                // NOTE: auto runs every line in its sandbox.
+                (Effect::Allow, Mode::Auto) => Effect::Contain,
                 _ => expected,
             };
             assert_eq!(effect, expected, "{command:?} in {mode}");
@@ -395,6 +418,7 @@ async fn the_settings_tool_asks_while_write_file_and_the_shell_stay_denied_on_th
         &crate::engine::protected_config(&config),
         &settings,
         &efr_scope::Registry::empty(),
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
     let calls = [
@@ -457,12 +481,13 @@ async fn in_auto_a_copy_or_a_link_out_of_the_project_asks_wherever_its_options_s
         &[],
         &Settings::default(),
         &projects,
+        &crate::engine::SandboxFacts::default(),
     )
     .unwrap();
 
     for (command, expected) in [
-        ("cp x y", Effect::Allow),
-        ("cp x y -v", Effect::Allow),
+        ("cp x y", Effect::Contain),
+        ("cp x y -v", Effect::Contain),
         ("cp x ~/.bashrc", Effect::Ask),
         ("cp x ~/.bashrc --suffix y", Effect::Ask),
         ("cp x ~/.bashrc -S y", Effect::Ask),

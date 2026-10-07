@@ -1,0 +1,14 @@
+{
+  "kind": "sandbox_surface_changed",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "changes": [
+    {
+      "path": "/home/me/p/app/.git/commondir",
+      "rule": "commondir_in_main_git_dir",
+      "key": "core.fsmonitor",
+      "quarantined": true
+    }
+  ],
+  "quarantined": true
+}

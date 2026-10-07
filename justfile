@@ -20,9 +20,11 @@ default:
 build:
     cargo build
 
-# Release build of efrd and efr with the ghostty screen backend (needs Zig 0.16.0).
+# Release build of efrd, efr and the sandbox launcher efr-sbx, with the ghostty screen
+# backend (needs Zig 0.16.0). Only these three packages, so efrd never gets the test
+# seams that efr-test-daemon turns on.
 build-release:
-    cargo build --release -p efr-daemon -p efr-cli --features efr-daemon/screen-ghostty
+    cargo build --release -p efr-daemon -p efr-cli -p efr-sbx --features efr-daemon/screen-ghostty
 
 # Run efrd in the foreground on vt100 screens with throwaway directories; Ctrl+C stops it.
 run:
@@ -117,6 +119,101 @@ test-shell-ubuntu:
         -w /home/runner/work/efr "$image" \
         cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci -E '{{ shell_tests }}'
 
+# The auto sandbox on the real bwrap, Landlock and seccomp: the escape suite, the behaviour
+# tests, the probe, the launch cost gate (1000 calls) and the corpus run of efr-sbx.
+# Fails when a test skips on a machine whose probe says the sandbox is ready.
+test-sandbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "test-sandbox: building efr-sbx"
+    bin="$(cargo build -p efr-sbx --message-format=json-render-diagnostics \
+        | sed -nE 's/.*"executable":"([^"]*\/efr-sbx)".*/\1/p' | tail -n1)"
+    if [[ -z "$bin" || ! -x "$bin" ]]; then
+        echo "test-sandbox: cargo built no efr-sbx binary" >&2
+        exit 1
+    fi
+    # The probe's fake call lives in the target dir: never below /tmp, which the
+    # sandbox replaces with its private tmp.
+    probe_dir="$(dirname "$bin")/sbx-probe"
+    mkdir -p -m 700 "$probe_dir"
+    report="$("$bin" probe --json --dir "$probe_dir")"
+    if [[ "$report" == *'"failure":null'* ]]; then
+        echo "test-sandbox: the probe says the sandbox is ready here; a skipped test fails"
+        require=1
+    else
+        echo "test-sandbox: the probe says the sandbox is unavailable; the tests skip:"
+        echo "$report"
+        require=0
+    fi
+    export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE="$require" EFR_TEST_SBX_GATE=1
+    cargo nextest run -p efr-sbx -E 'not test(/^cost::|^corpus::/)'
+    # The launch cost and the corpus print their tables; show them.
+    cargo nextest run -p efr-sbx --success-output immediate -E 'test(/^cost::|^corpus::/)'
+    # efr-shell's behaviour tests through a real zsh and this launcher. They say
+    # `skipped:` on stderr when they cannot run, which fails on a ready machine.
+    log="$(dirname "$bin")/sbx-shell-tests.log"
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-shell --success-output immediate \
+        -E 'test(/e2e_zsh::launcher::/)' 2>&1 | tee "$log"
+    if [[ "$require" == 1 ]] && grep -q 'skipped:' "$log"; then
+        echo "test-sandbox: efr-shell's launcher tests skipped on a ready machine" >&2
+        exit 1
+    fi
+    # efrd's sandbox tests: a real zsh, the daemon's probe and one call through this
+    # launcher.
+    log="$(dirname "$bin")/sbx-daemon-tests.log"
+    EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon --success-output immediate \
+        -E 'test(/^sandbox::/)' 2>&1 | tee "$log"
+    if [[ "$require" == 1 ]] && grep -q 'skipped:' "$log"; then
+        echo "test-sandbox: efr-daemon's sandbox tests skipped on a ready machine" >&2
+        exit 1
+    fi
+
+# test-sandbox in the Ubuntu 24.04 container of test-shell-ubuntu, which shares this
+# machine's kernel (needs Docker and a kernel with Landlock ABI 9). bwrap needs three
+# relaxed container defaults: no seccomp profile (user namespaces), no AppArmor profile,
+# and a writable /proc/sys (--disable-userns writes max_user_namespaces).
+test-sandbox-ubuntu:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v docker >/dev/null; then
+        echo "test-sandbox-ubuntu: docker is not installed" >&2
+        exit 1
+    fi
+    toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
+    nextest="$(sed -nE 's/.*tool: cargo-nextest@([0-9.]+).*/\1/p' .github/workflows/ci.yml | head -n1)"
+    image=efr-shell-ubuntu
+    echo "test-sandbox-ubuntu: building $image (Rust $toolchain, cargo-nextest $nextest)"
+    docker build -t "$image" --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
+        --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
+        - < .github/ubuntu-shell.Dockerfile
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
+    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
+    echo "test-sandbox-ubuntu: running the sandbox tests, cached in $cache"
+    docker run --rm --init \
+        --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+        --security-opt systempaths=unconfined \
+        -v "$PWD:/home/runner/work/efr" \
+        -v "$cache/registry:/home/runner/.cargo/registry" \
+        -v "$cache/git:/home/runner/.cargo/git" \
+        -v "$cache/target:/home/runner/target" \
+        -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
+        -w /home/runner/work/efr "$image" bash -euo pipefail -c '
+            cargo build -p efr-sbx
+            bin=/home/runner/target/debug/efr-sbx
+            mkdir -p -m 700 /home/runner/target/debug/sbx-probe
+            report="$("$bin" probe --json --dir /home/runner/target/debug/sbx-probe)"
+            if [[ "$report" == *"\"failure\":null"* ]]; then
+                echo "test-sandbox-ubuntu: the probe says ready; a skipped test fails"
+                require=1
+            else
+                echo "test-sandbox-ubuntu: the probe says unavailable: $report"
+                require=0
+            fi
+            export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE="$require"
+            # procps of Ubuntu cannot find itself in the procfs of the container from a new
+            # pid namespace ("fatal library error, lookup self"), with plain bwrap too.
+            cargo nextest run -p efr-sbx -E "not test(ps_sees_host_processes)"'
+
 # Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
 # feature combination: CI's fmt, lint, deny, tidy and hack jobs.
 lint: fmt-check typos clippy doc-check deny tidy deps hack
@@ -181,18 +278,29 @@ doc: doc-check
 protocol-docs:
     cargo xtask protocol-docs
 
-# Install efrd and efr to ~/.local/bin and the user unit, reload systemd; never starts it.
+# Install efrd and efr to ~/.local/bin, the sandbox launcher to ~/.local/lib/efr and the
+# user unit, reload systemd; never starts it.
 install:
     #!/usr/bin/env bash
     set -euo pipefail
     bin="$HOME/.local/bin"
+    lib="$HOME/.local/lib/efr"
     unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     echo "install: building the release binaries (just build-release)"
     just build-release
+    # A build with the sandbox's test seams lets a test replace the launcher and the
+    # probe; it must never be installed.
+    if [[ "$(target/release/efrd --test-seams)" != "off" ]]; then
+        echo "install: target/release/efrd has the test-sandbox-fake feature; refusing" >&2
+        exit 1
+    fi
     echo "install: copying target/release/efrd to $bin/efrd"
     install -Dm755 target/release/efrd "$bin/efrd"
     echo "install: copying target/release/efr to $bin/efr"
     install -Dm755 target/release/efr "$bin/efr"
+    # efrd finds the launcher in ../lib/efr/ next to its own directory, never on PATH.
+    echo "install: copying target/release/efr-sbx to $lib/efr-sbx"
+    install -Dm755 target/release/efr-sbx "$lib/efr-sbx"
     echo "install: installing systemd/efrd.service to $unit_dir/efrd.service"
     install -Dm644 systemd/efrd.service "$unit_dir/efrd.service"
     echo "install: running systemctl --user daemon-reload"

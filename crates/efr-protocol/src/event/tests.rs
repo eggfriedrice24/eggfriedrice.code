@@ -163,6 +163,7 @@ fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
         model: "gpt-5.5".to_owned(),
         effort: Some("medium".to_owned()),
         overridden: OverriddenSettings { effort: true, ..OverriddenSettings::default() },
+        fallback: None,
     };
     let event = Event::TurnStarted {
         turn_id: turn(),
@@ -389,6 +390,7 @@ fn a_call_that_takes_a_manual_input_says_so_and_an_old_one_does_not() {
         tool: "shell".to_owned(),
         input: json!({ "command": "./deploy" }),
         manual_input,
+        launch: None,
     };
     let wire = json!({
         "kind": "tool_call_started",
@@ -421,6 +423,7 @@ fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not
         summary: "shell: sudo pacman -Syu".to_owned(),
         diff_preview: None,
         interactive,
+        exit: None,
     };
     let wire = json!({
         "kind": "approval_requested",

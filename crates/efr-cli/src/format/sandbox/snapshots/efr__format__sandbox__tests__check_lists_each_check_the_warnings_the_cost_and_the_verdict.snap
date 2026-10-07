@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: check(&check_result())
+---
+ok    Landlock ABI 10, errata 0xf
+ok    bubblewrap /usr/bin/bwrap 0.13.0, not setuid
+ok    user namespaces
+ok    write roots, masks, sockets, signals, /proc, network, seccomp, nested user ns, terminal
+ok    overlay caches on ext4
+warn  ~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it stays read-only in the sandbox
+ok    dev.tty.legacy_tiocsti = 0 (seccomp blocks TIOCSTI anyway)
+warn  the registered project ~ is your home directory; auto runs its turns as cautious
+launch 3.6 ms, with your rc snapshot 14.8 ms
+auto: ready

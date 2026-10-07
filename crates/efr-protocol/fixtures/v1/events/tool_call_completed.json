@@ -5,5 +5,40 @@
   "output": "3.1G\t/var/log/journal\n12K\t/var/log/pacman.log\n",
   "truncated": false,
   "is_error": false,
-  "exit_code": 0
+  "exit_code": 0,
+  "sandbox": {
+    "confined": true,
+    "cwd_changed": true,
+    "promoted": [
+      "RUST_LOG"
+    ],
+    "kept_out": [
+      "VIRTUAL_ENV"
+    ],
+    "dropped": [
+      "LD_PRELOAD"
+    ],
+    "background_stopped": [
+      "vite"
+    ],
+    "survivors": [
+      "sudo"
+    ],
+    "blocked": [
+      {
+        "host": "example.com",
+        "port": 443,
+        "reason": "not_allowed"
+      }
+    ],
+    "surface_changes": [
+      {
+        "path": "/home/me/p/app/.git/commondir",
+        "rule": "commondir_in_main_git_dir",
+        "key": "core.fsmonitor",
+        "quarantined": true
+      }
+    ],
+    "setup_error": "bwrap: Can't mount proc on /newroot/proc"
+  }
 }

@@ -1,0 +1,5 @@
+{"kind":"case","size":{"cols":40,"rows":3},"about":"the end mark of a sandboxed call: an invalid nonce is no mark, and neither form shows on the screen"}
+{"kind":"feed","text":"\u001b]133;C\u0007out\r\n\u001b]133;efr-sbx;nothex\u0007\u001b]133;efr-sbx;00112233445566778899aabbccddeeff\u0007\u001b]133;D;0\u0007","split_at":[50]}
+{"kind":"expect_marks","marks":[{"start":0,"end":8,"output_start":{}},{"start":34,"end":81,"sandbox_end":{"nonce":"00112233445566778899aabbccddeeff"}},{"start":81,"end":91,"command_end":{"exit_code":0}}]}
+{"kind":"expect_rows","rows":["out","",""]}
+{"kind":"expect_cursor","row":1,"col":0}

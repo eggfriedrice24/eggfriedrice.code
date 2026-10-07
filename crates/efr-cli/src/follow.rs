@@ -39,8 +39,8 @@ use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, InputRespond, InputRespondResult, Method, SecretText, Seq, TurnId,
-    TurnInterrupt, TurnInterruptResult,
+    ErrorCode, Event, InputRespond, InputRespondResult, Method, QuestionId, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, SecretText, Seq, TurnId, TurnInterrupt, TurnInterruptResult,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use futures::StreamExt as _;
@@ -167,6 +167,8 @@ enum Asking {
     /// Nothing yet: the keys typed for call `call_id`, which the user allowed here as one
     /// that may wait for input, wait in `line` for a visible wait of the call.
     Pending { call_id: CallId, line: AnswerLine },
+    /// The quarantine question, with one key.
+    Surface(QuestionId),
 }
 
 /// What an answer line starts with when it takes over the pending line of its call.
@@ -183,7 +185,7 @@ enum Seed {
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
     match asking {
-        Asking::Approval(_) => keys.stop().await,
+        Asking::Approval(_) | Asking::Surface(_) => keys.stop().await,
         Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
             keys.stop_discarding().await;
         }
@@ -227,8 +229,18 @@ impl Follower<'_> {
         for envelope in page.events.into_iter().filter(|envelope| envelope.seq <= self.target.after)
         {
             match &envelope.event {
-                Event::ApprovalRequested { turn_id, .. } if *turn_id != self.target.turn => {
+                // The record of an exit comes before its approval and shows in it.
+                Event::ApprovalRequested { turn_id, .. }
+                | Event::ExitRequested { turn_id, .. }
+                | Event::SurfaceQuestionRequested { turn_id, .. }
+                    if *turn_id != self.target.turn =>
+                {
                     pending.push(envelope.event);
+                }
+                Event::SurfaceQuestionAnswered { question_id, .. } => {
+                    pending.retain(|event| {
+                        !matches!(event, Event::SurfaceQuestionRequested { question_id: asked, .. } if asked == question_id)
+                    });
                 }
                 Event::ToolCallOutputUpdated { turn_id, call_id, .. }
                 | Event::ToolCallInputChanged { turn_id, call_id, .. }
@@ -470,6 +482,17 @@ impl Follower<'_> {
                 write(out, &step)?;
                 self.respond(call_id, decision, out, view).await
             }
+            Asking::Surface(question_id) => {
+                let Some(decision) = keys::decision(key) else {
+                    self.keys = Some((reader, Asking::Surface(question_id)));
+                    return Ok(());
+                };
+                reader.stop().await;
+                let keep = decision == ApprovalDecision::Allow;
+                let step = view.surface_answered(question_id, keep, self.ctx.screen.size());
+                write(out, &step)?;
+                self.surface_respond(question_id, keep, out, view).await
+            }
             Asking::Input { call_id, kind, mut line } => {
                 let edit = line.key(key);
                 let shown = (kind.shown() && edit == Edit::Changed).then(|| line.text().to_owned());
@@ -551,6 +574,39 @@ impl Follower<'_> {
             Err(error) => Err(error.into()),
         }
     }
+
+    /// Sends the answer to the quarantine question `question_id`. A "yes" moves the git
+    /// change back; anything else leaves it in quarantine.
+    async fn surface_respond(
+        &self,
+        question_id: QuestionId,
+        keep: bool,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            question_id,
+            keep,
+        });
+        match self.client.call::<SandboxSurfaceRespondResult>(method).await {
+            Ok(_) => Ok(()),
+            // Answered elsewhere first, expired, or refused for this client: the events
+            // say which, and the change stays in quarantine unless one says otherwise.
+            Err(ClientError::Server { body })
+                if matches!(
+                    body.code,
+                    ErrorCode::NotFound | ErrorCode::Conflict | ErrorCode::Forbidden
+                ) =>
+            {
+                let line =
+                    format!("the answer was not taken: {}", crate::format::one_line(&body.message));
+                write(out, &view.note(&line, self.ctx.screen.size()))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 /// What the running `reader`, which read for `before` (`None` for a new reader), reads
@@ -597,6 +653,7 @@ fn take_over(
                 }
                 Ask::Discard(_) => Asking::Discard,
                 Ask::Retain(call_id) => Asking::Pending { call_id, line: AnswerLine::new() },
+                Ask::Surface(question_id) => Asking::Surface(question_id),
             };
             (reader, asking, None)
         }

@@ -196,6 +196,41 @@ async fn the_child_leads_a_session_whose_controlling_terminal_is_the_pty() {
 }
 
 #[tokio::test]
+async fn foreground_names_the_child_until_it_exits() {
+    let holder = LocalPtyHolder::new();
+    let handle = holder.spawn(sh(pty(1), "echo ready; read line")).await.unwrap();
+    let mut terminal = Terminal::new(handle.master);
+    terminal.expect("ready");
+
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), Some(handle.child_pid));
+
+    terminal.write("\n");
+    assert_eq!(holder.wait(pty(1)).await.unwrap(), ChildStatus::Exited { code: 0 });
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), None);
+}
+
+/// Starts an intermediate shell that leaves a `sleep` behind and exits, then prints
+/// whether the orphaned `sleep` now has the child as its parent.
+const ADOPTION: &str = r#"pid=$(sh -c 'sleep 30 >/dev/null 2>&1 & echo $!')
+ppid=$(cut -d' ' -f4 "/proc/$pid/stat")
+kill "$pid"
+if [ "$ppid" = "$$" ]; then echo adopted; else echo not-adopted; fi"#;
+
+#[tokio::test]
+async fn a_child_subreaper_adopts_the_orphans_of_its_descendants() {
+    let holder = LocalPtyHolder::new();
+    let handle = holder.spawn(sh(pty(1), ADOPTION).child_subreaper(true)).await.unwrap();
+    assert_eq!(Terminal::new(handle.master).finish(), "adopted\r\n");
+}
+
+#[tokio::test]
+async fn a_child_is_no_subreaper_unless_the_spec_asks() {
+    let holder = LocalPtyHolder::new();
+    let handle = holder.spawn(sh(pty(1), ADOPTION)).await.unwrap();
+    assert_eq!(Terminal::new(handle.master).finish(), "not-adopted\r\n");
+}
+
+#[tokio::test]
 async fn the_child_can_open_its_controlling_terminal() {
     let holder = LocalPtyHolder::new();
     let handle = holder.spawn(sh(pty(1), "echo via-tty >/dev/tty")).await.unwrap();
@@ -343,6 +378,7 @@ async fn after_release_every_method_answers_not_found() {
     assert_eq!(holder.list().await.unwrap(), []);
     assert_not_found(holder.resize(pty(1), SIZE).await, pty(1));
     assert_not_found(holder.signal(pty(1), Signal::Hangup, SignalTarget::Child).await, pty(1));
+    assert_not_found(holder.foreground(pty(1)).await, pty(1));
     assert_not_found(holder.wait(pty(1)).await, pty(1));
     assert_not_found(holder.release(pty(1)).await, pty(1));
 }

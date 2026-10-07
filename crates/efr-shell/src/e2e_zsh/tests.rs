@@ -822,19 +822,20 @@ async fn e2e_an_answer_while_a_later_precmd_hook_holds_the_terminal_never_runs()
     };
     let dir = zsh.dir("hook");
     let (holding, release, leak) = (dir.join("holding"), dir.join("release"), dir.join("leak"));
-    // A hook that the user's .zshrc adds after efr's, as a prompt plugin does. Once the
-    // command line arms it, it runs an external command, which takes the terminal in a
-    // process group of its own and in cooked mode, until the test lets it go.
-    let zshrc = format!(
-        "efr_test_hook() {{\n  (( ${{+efr_test_armed}} )) || return 0\n  unset efr_test_armed\n  \
-         sh -c ': > \"{}\"; until [ -e \"{}\" ]; do sleep 0.01; done'\n}}\n\
-         precmd_functions+=(efr_test_hook)\n",
+    // A hook after efr's. The hidden shell drops the hooks of the user's startup files
+    // and resets its hook list before every command, so the command line itself adds
+    // it, and it runs at that command's end. Armed by the line, it runs an external
+    // command, which takes the terminal in a process group of its own and in cooked
+    // mode, until the test lets it go.
+    let command = format!(
+        "efr_test_hook() {{ (( ${{+efr_test_armed}} )) || return 0; unset efr_test_armed; \
+         sh -c ': > \"{}\"; until [ -e \"{}\" ]; do sleep 0.01; done'; }}; \
+         precmd_functions+=(efr_test_hook); \
+         sh -c 'printf \"name? \"; IFS= read -r n; printf \"hi %s\\n\" \"$n\"'; efr_test_armed=1",
         holding.display(),
         release.display()
     );
-    std::fs::write(zsh.home().join(".zshrc"), zshrc).unwrap();
-    let command =
-        r#"sh -c 'printf "name? "; IFS= read -r n; printf "hi %s\n" "$n"'; efr_test_armed=1"#;
+    let command = command.as_str();
     let (run, mut heard) = zsh.run_waiting(command, true, "name? ").await;
     zsh.look_until(&mut heard, &[InputWait::Visible]).await;
 

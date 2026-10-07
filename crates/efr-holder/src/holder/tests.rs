@@ -86,6 +86,13 @@ impl PtyHolder for FakeHolder {
         Ok(self.ptys.lock().unwrap().values().copied().collect())
     }
 
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError> {
+        let ptys = self.ptys.lock().unwrap();
+        let info = ptys.get(&pty_id).ok_or(HolderError::NotFound { pty_id })?;
+        // The child is a session leader that nobody's job has displaced here.
+        Ok(info.status.is_running().then_some(info.child_pid))
+    }
+
     async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {
         let mut status = self
             .reaped
@@ -184,6 +191,16 @@ async fn an_exited_child_stays_listed_until_release() {
 }
 
 #[tokio::test]
+async fn foreground_names_the_child_until_it_exits() {
+    let fake = Arc::new(FakeHolder::default());
+    let holder: Arc<dyn PtyHolder> = fake.clone();
+    let handle = holder.spawn(spec(pty(1))).await.unwrap();
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), Some(handle.child_pid));
+    fake.exit(pty(1), 0);
+    assert_eq!(holder.foreground(pty(1)).await.unwrap(), None);
+}
+
+#[tokio::test]
 async fn wait_answers_at_once_for_a_child_that_was_reaped() {
     let fake = Arc::new(FakeHolder::default());
     let holder: Arc<dyn PtyHolder> = fake.clone();
@@ -239,6 +256,7 @@ async fn every_method_answers_not_found_after_release() {
     let results = [
         holder.resize(pty(1), size).await,
         holder.signal(pty(1), Signal::Hangup, SignalTarget::Child).await,
+        holder.foreground(pty(1)).await.map(drop),
         holder.wait(pty(1)).await.map(drop),
         holder.release(pty(1)).await,
     ];

@@ -13,10 +13,12 @@ state and never writes the daemon's database or credentials.
 | `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
-| `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices |
+| `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`) |
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the efforts of each; `--names` prints only the ids, for completion |
-| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error and the keys that wait for a restart |
-| `efr history [conversation] [--limit n] [--cursor c]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); each turn shows its mode, model and effort as a dim line after its prompt |
+| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network none)` or `unavailable: <reason>; auto runs as cautious` with its fix |
+| `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, quarantine questions and turn-end reports show as dim lines; `--verbose` adds the record of each exit (`exit_requested`: its line, targets, hosts, programs and counts, never a user message) and how it was judged |
+| `efr sandbox check` | `admin.sandbox_check` | the daemon runs its sandbox probe now; one line per check (`ok`, `warn`, `fail` with its fix, `skip`), the warnings, the launch cost, then `auto: ready` or `auto: unavailable: <reason>`; exit 1 when it is unavailable |
+| `efr sandbox explain PATH` | `sandbox.explain` (read scope) | whether a contained command can read and write PATH (relative to the current directory, which also picks the project), and why: `read yes`, `write no: a shell startup file (floor); a write is a persistence exit, user only` |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
 | `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
 | `efr config check [path]` | none | the file checked with the daemon's schema and the theme names; an error names its line, column and key; exit 0 or 1 |
@@ -27,7 +29,7 @@ state and never writes the daemon's database or credentials.
 | `efr project list` | `projects.list` | one line per registered project: its name (`-` for none) and its root; with none, the registry file and how to add one |
 | `efr project add [PATH] [--name NAME]` | `admin.project_add` | registers PATH (relative to the current directory; the daemon resolves links), or without PATH the git work tree that holds the current directory, else the directory, which may not be the home directory or `/`; the daemon writes `projects.toml` with its comments and reloads; a reload that fails is a warning on stderr, because the file is written |
 | `efr project remove PATH` | `admin.project_remove` | takes the project with that root out, the same way; a root that no project has exits 1 |
-| `efr paths [--json]` | `admin.status` when the daemon runs | each root with its source (`EFR_<ROOT>_DIR`, `EFR_HOME`, XDG, `/run/user`) and whether it exists, `config.toml`, the database, `secrets/` and the socket; then the daemon's roots, with a warning on stderr for each one that differs |
+| `efr paths [--json]` | `admin.status` when the daemon runs | each root with its source (`EFR_<ROOT>_DIR`, `EFR_HOME`, XDG, `/run/user`) and whether it exists, `config.toml`, the database, `secrets/` and the socket; then the daemon's roots, with a warning on stderr for each one that differs; a daemon with the sandbox adds the launcher's copy (with its source and whether its SHA-256 matches), bubblewrap and its version, and the sandbox's state and runtime directories |
 
 `efr project` goes through the daemon, because `efr-scope` owns `projects.toml` and the
 CLI may not depend on it; without a daemon it exits 3 like the other daemon commands.
@@ -89,6 +91,29 @@ Replies:
   `asks for: hostnamectl, systemctl --failed`. Only a last line of plain names counts
   as that line; anything else stays on the first line. `efr history` joins both with
   `; `, as the daemon's notices do.
+- The `auto` sandbox (`docs/sandbox.md`). The first call of a turn that runs in the
+  sandbox (`tool_call_started` with a contained `launch`) gets one dim line,
+  `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, and a failed
+  contained call ends `shell exited with N (sandbox)`. A call's `sandbox` summary adds
+  `network: blocked <host>:<port> (<reason>)` and the background jobs that stopped. A
+  turn whose `auto` fell back to `cautious` (`EffectiveSettings.fallback`) starts with
+  `auto is not available here; this turn runs as cautious: <reason>`.
+- An approval with `exit` (an action that leaves the sandbox) shows the whole line of
+  the call from its `exit_requested` record instead of the summary, then, in yellow,
+  what leaves and how the call runs after a "yes" (`leaves the sandbox: network; runs
+  in the sandbox with full network for this call`, or `runs outside the sandbox: sudo
+  (you may need to type your password)`). A line that runs outside the sandbox also
+  gets `the whole line runs with your full rights (files, secrets, network)` and
+  `programs:` with every program word and the path it resolves to; a program in a
+  write root or changed this turn gets `(untrusted: written in the sandbox)`, and the
+  line turns yellow. efr's own facts follow dim after `efr:`, then the model's reason
+  as `the model says: "..."`. Every part passes through `format::one_line`.
+- The quarantine question (`surface_question_requested`) is not an approval: it names
+  the git settings that the last call changed and the launcher moved to quarantine,
+  and asks `keep it? y = yes, n = no` with one key. The answer goes with
+  `sandbox.surface_respond` and the question's own `QuestionId`; nobody answering
+  leaves the change in quarantine. At the end of an `auto` turn, the files that run
+  code later outside the sandbox (`turn_surface_report`) show as three dim lines.
 - When stdout is not a terminal, the raw markdown is written, and notes and approval
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`
@@ -253,8 +278,9 @@ line), `signal-hook` (the default action of SIGQUIT once `efr`'s own handler is
 installed, without unsafe code).
 
 `NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`,
-and `VISUAL` and `EDITOR` in `context.rs`: they are terminal and POSIX conventions that
-`efr_stdx::env::Var` does not name.
+and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
+conventions that `efr_stdx::env::Var` does not name. `HOME` only shortens the paths of
+the sandbox's lines to `~/...`.
 
 ## Invariant
 

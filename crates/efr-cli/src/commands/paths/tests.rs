@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use efr_config::FileState;
-use efr_protocol::{AdminStatusResult, DaemonRoots, Method, RootDir, RootSource};
+use efr_protocol::{
+    AdminStatusResult, DaemonRoots, Method, RootDir, RootSource, SandboxPaths, SandboxStatus,
+};
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 
@@ -40,6 +42,8 @@ fn facts(daemon: Result<DaemonRoots, String>) -> Facts {
         socket: PathBuf::from("/run/user/1000/efr/daemon.sock"),
         socket_exists: false,
         daemon,
+        sandbox_paths: None,
+        sandbox: None,
     }
 }
 
@@ -49,21 +53,68 @@ fn each_root_shows_its_source_and_the_daemon_its_own() {
     assert_eq!(
         shown,
         "\
-config         /h/efr/config  (EFR_HOME, exists)
-data           /h/efr/data  (EFR_HOME, exists)
-state          /h/efr/state  (EFR_HOME, missing)
-runtime        /run/user/1000/efr  (XDG, exists)
-config.toml    /nonexistent/efr/config.toml  (absent)
-efr.sqlite     /h/efr/data/efr.sqlite  (exists)
-secrets/       /h/efr/data/secrets
-daemon.sock    /run/user/1000/efr/daemon.sock  (absent)
-daemon config  /h/efr/config  (EFR_HOME)
-daemon data    /h/efr/data  (EFR_HOME)
-daemon state   /h/efr/state  (EFR_HOME)
-daemon runtime /run/user/1000/efr  (XDG)
+config           /h/efr/config  (EFR_HOME, exists)
+data             /h/efr/data  (EFR_HOME, exists)
+state            /h/efr/state  (EFR_HOME, missing)
+runtime          /run/user/1000/efr  (XDG, exists)
+config.toml      /nonexistent/efr/config.toml  (absent)
+efr.sqlite       /h/efr/data/efr.sqlite  (exists)
+secrets/         /h/efr/data/secrets
+daemon.sock      /run/user/1000/efr/daemon.sock  (absent)
+daemon config    /h/efr/config  (EFR_HOME)
+daemon data      /h/efr/data  (EFR_HOME)
+daemon state     /h/efr/state  (EFR_HOME)
+daemon runtime   /run/user/1000/efr  (XDG)
 "
     );
     assert_eq!(differences(&facts(Ok(daemon_roots("/h/efr/data")))), Vec::<String>::new());
+}
+
+fn sandbox_paths() -> SandboxPaths {
+    SandboxPaths {
+        launcher: Some(PathBuf::from("/run/user/1000/efr/bin/efr-sbx")),
+        launcher_source: Some(PathBuf::from("/home/u/.local/lib/efr/efr-sbx")),
+        launcher_sha256_ok: Some(true),
+        state: PathBuf::from("/h/efr/state/sandbox"),
+        runtime: PathBuf::from("/run/user/1000/efr/sbx"),
+    }
+}
+
+fn sandbox_status() -> SandboxStatus {
+    SandboxStatus {
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        ..SandboxStatus::unavailable("not probed yet")
+    }
+}
+
+#[test]
+fn a_daemon_with_the_sandbox_names_its_launcher_bubblewrap_and_dirs() {
+    let facts = Facts {
+        sandbox_paths: Some(sandbox_paths()),
+        sandbox: Some(sandbox_status()),
+        ..facts(Ok(daemon_roots("/h/efr/data")))
+    };
+    let shown = text(&facts);
+    assert!(
+        shown.ends_with(
+            "\
+daemon runtime   /run/user/1000/efr  (XDG)
+sandbox launcher /run/user/1000/efr/bin/efr-sbx  (from /home/u/.local/lib/efr/efr-sbx, sha256 ok)
+bubblewrap       /usr/bin/bwrap  0.13.0
+sandbox state    /h/efr/state/sandbox
+sandbox runtime  /run/user/1000/efr/sbx
+"
+        ),
+        "{shown}"
+    );
+    let copied_wrong = Facts {
+        sandbox_paths: Some(SandboxPaths { launcher_sha256_ok: Some(false), ..sandbox_paths() }),
+        sandbox: Some(SandboxStatus { bwrap: None, ..sandbox_status() }),
+        ..facts
+    };
+    let shown = text(&copied_wrong);
+    assert!(shown.contains("efr-sbx, sha256 differs)\nbubblewrap       not found\n"), "{shown}");
 }
 
 #[test]
@@ -76,7 +127,9 @@ fn a_daemon_root_elsewhere_is_a_warning_with_the_fix() {
         ]
     );
     assert_eq!(differences(&facts(Err("not running".to_owned()))), Vec::<String>::new());
-    assert!(text(&facts(Err("not running".to_owned()))).ends_with("daemon         not running\n"));
+    assert!(
+        text(&facts(Err("not running".to_owned()))).ends_with("daemon           not running\n")
+    );
 }
 
 fn status(roots: DaemonRoots) -> AdminStatusResult {
@@ -92,6 +145,8 @@ fn status(roots: DaemonRoots) -> AdminStatusResult {
         providers: vec![],
         roots: Some(roots),
         config: None,
+        sandbox: None,
+        sandbox_paths: None,
     }
 }
 
@@ -125,6 +180,8 @@ async fn json_names_the_same_facts_and_the_warnings_go_to_stderr() {
     assert_eq!(json["daemon"]["roots"]["data"]["path"], "/elsewhere/data");
     assert_eq!(json["daemon"]["roots"]["data"]["source"], "EFR_HOME");
     assert_eq!(json["warnings"].as_array().unwrap().len(), 1);
+    // This daemon reports no sandbox.
+    assert_eq!(json["sandbox"], serde_json::Value::Null);
     let stderr = captured.stderr();
     assert!(
         stderr.starts_with("efr: warning: the daemon uses /elsewhere/data for the data root"),
@@ -142,11 +199,11 @@ async fn without_a_daemon_paths_still_shows_this_shells_roots() {
     let stdout = captured.stdout();
     assert!(
         stdout.starts_with(&format!(
-            "config         {}  (XDG, exists)\n",
+            "config           {}  (XDG, exists)\n",
             env.dirs.config().display()
         )),
         "{stdout}"
     );
-    assert!(stdout.ends_with("daemon         not running\n"), "{stdout}");
+    assert!(stdout.ends_with("daemon           not running\n"), "{stdout}");
     assert_eq!(captured.stderr(), "");
 }

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    AdminStatusResult, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, Method, Origin,
-    ProviderStatus,
+    AdminStatusResult, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, Method,
+    NetworkMode, Origin, ProviderStatus, SandboxStatus,
 };
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
@@ -30,6 +30,8 @@ fn result() -> AdminStatusResult {
         }],
         roots: None,
         config: None,
+        sandbox: None,
+        sandbox_paths: None,
     }
 }
 
@@ -121,6 +123,60 @@ restart needed screen, model.provider
 "
         ),
         "{stdout}"
+    );
+}
+
+#[tokio::test]
+async fn status_shows_sandbox_line() {
+    let ready = SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: CacheMode::Overlay,
+        network_mode: NetworkMode::None,
+        warnings: Vec::new(),
+    };
+    let down = SandboxStatus {
+        fix: Some("a newer kernel".to_owned()),
+        ..SandboxStatus::unavailable("Landlock ABI 6 found; auto needs 9 (Linux 7.1)")
+    };
+    let mut shown = Vec::new();
+    for sandbox in [Some(ready), Some(down), None] {
+        let env = TestEnv::new();
+        let daemon = env.listen();
+        let ctx = env.context();
+        let (mut out, captured) = capture();
+        let status = AdminStatusResult { sandbox, ..result() };
+        let script = async {
+            let mut conn = daemon.accept().await;
+            let (id, _) = conn.request().await;
+            conn.reply(id, &status).await;
+            conn.until_closed().await;
+        };
+        let line = command(&["status"]);
+        let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+        assert_eq!(exit, Exit::Success);
+        let stdout = captured.stdout();
+        shown.push(
+            stdout
+                .lines()
+                .filter(|line| line.starts_with("sandbox"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+    assert_eq!(
+        shown,
+        [
+            "sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)",
+            "sandbox        unavailable: Landlock ABI 6 found; auto needs 9 (Linux 7.1); auto runs as cautious\nsandbox fix    a newer kernel",
+            // A daemon from before the sandbox reports none.
+            "",
+        ]
     );
 }
 

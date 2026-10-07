@@ -86,6 +86,32 @@ Queues, approvals, streaming and terminals.
 | `update_interval_ms` | `200` | live | The shortest time between two streamed text updates, in milliseconds. |
 | `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line starts a new conversation instead of continuing the old one; 0 continues it forever. |
 
+## [sandbox]
+
+The kernel sandbox of the `auto` mode.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `false` makes the `auto` mode unavailable: its turns run as `cautious`. |
+| `bwrap` | unset | live | The bubblewrap program, an absolute path. Unset: the first `bwrap` on the daemon's `PATH`. A change runs the probe again. |
+| `write_projects` | `"named"` | live | Which registered projects a call may write: `turn` (the turn's project), `named` (also the registered projects that the command names) or `all`. |
+| `write_roots` | `[]` | live | More write roots for every call: absolute, or below the home directory as `~/...`. Floors still apply inside them. The home directory itself is refused. |
+| `caches` | `["~/.cargo", "~/.rustup", "~/.cache", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store", "~/.m2/repository", "~/.gradle/caches"]` | live | The tool caches that a call reads and writes through a private overlay: absolute, or `~/...`. A cache that does not exist is skipped. |
+| `cache_mode` | `"tmp"` | live | How the caches are mounted: `overlay` (a private upper layer per conversation), `tmp` (writes vanish after each call) or `readonly`. |
+| `cache_days` | `14` | live | Days without a call after which a conversation's cache layers are deleted, from 1 to 3650. |
+| `cache_max_gib` | `20` | live | The size of all cache layers together, in GiB, from 1 to 10000; the oldest conversation's layers go first. |
+| `mask` | `[]` | live | More paths that a call reads as empty: absolute, or `~/...`. In `auto`, a `read_file` of them asks. |
+| `mask_globs` | `[".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template"]` | live | Names masked inside each write root, to depth 3: `*` matches any text, and a leading `!` keeps a name readable. |
+| `protect` | `[]` | live | More paths that stay read-only even inside a write root: absolute, or `~/...`. |
+| `env_deny` | `[]` | live | More environment variables removed from every call: names, or patterns with `*`. |
+| `env_keep` | `[]` | live | Variables that the scrub of secret-like names keeps: names, or patterns with `*`. |
+| `promote_env` | `["RUST_LOG", "RUST_BACKTRACE", "NODE_ENV", "DEBUG", "CI", "NO_COLOR", "FORCE_COLOR", "TZ", "LANG", "LC_*"]` | live | The exported variables that return from a call to the hidden shell: names, or patterns with `*`. A name of the built-in never list never returns. |
+| `export_deny` | `[]` | live | More names that never return to the hidden shell: names, or patterns with `*`. |
+| `synced_dirs` | `["~/Dropbox", "~/Nextcloud", "~/Sync", "~/OneDrive", "~/MEGA"]` | live | Folders that a sync service copies off the machine: absolute, or `~/...`. A write to them is an exit that only you can approve. |
+| `surface_files` | `["Makefile", "build.rs", "package.json", ".envrc", "rust-toolchain.toml", "justfile", "*.mk", "CMakeLists.txt", "setup.py", "pyproject.toml", "conftest.py", ".vscode/tasks.json", ".nvim.lua", ".exrc", ".mise.toml", ".tool-versions", "flake.nix", ".pre-commit-config.yaml", ".cargo/config.toml", ".cargo/config", ".npmrc", ".yarnrc.yml", ".pnpmfile.cjs"]` | live | The files that run code later outside the sandbox: names or paths relative to a write root, with `*`. The end of an `auto` turn lists the ones it changed. |
+| `offline_hints` | `true` | live | Tell package managers to work offline while the sandbox has no network (`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`). |
+| `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
+
 ## [render]
 
 How `efr` shows replies.

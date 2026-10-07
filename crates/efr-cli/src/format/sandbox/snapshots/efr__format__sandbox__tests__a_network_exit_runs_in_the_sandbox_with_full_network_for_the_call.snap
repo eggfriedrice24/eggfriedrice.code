@@ -1,0 +1,6 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "question(&info, &record(\"npm ci\"))"
+---
+approval needed: shell: run "npm ci"
+leaves the sandbox: network; runs in the sandbox with full network for this call  (yellow)

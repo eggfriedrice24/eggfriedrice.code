@@ -7,7 +7,7 @@
 
 use std::fmt;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -97,6 +97,8 @@ pub(crate) struct Context {
     pub(crate) cwd: Option<PathBuf>,
     /// The terminal on stdin, for a prompt sent without the plugin's context.
     pub(crate) tty: Option<String>,
+    /// The home directory, which the sandbox's lines print as `~`.
+    pub(crate) home: Option<PathBuf>,
 }
 
 impl Context {
@@ -114,6 +116,11 @@ impl Context {
             .filter_map(std::env::var_os)
             .filter_map(|value| value.into_string().ok())
             .find(|value| !value.trim().is_empty());
+        // NOTE: HOME is a POSIX convention, not an efr setting; it only shortens the
+        // paths that the sandbox's lines print.
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute() && home != Path::new("/"));
         Ok(Context {
             dirs,
             sources,
@@ -129,6 +136,7 @@ impl Context {
             browser: Arc::new(XdgOpen),
             cwd: std::env::current_dir().ok(),
             tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },
+            home,
             term,
         })
     }

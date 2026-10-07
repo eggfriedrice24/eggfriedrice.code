@@ -94,3 +94,11 @@ fn create_dir_refuses_paths_that_leave_the_tree() {
     }
     assert!(!dirs.root().parent().unwrap().join("efr-escape").exists());
 }
+
+#[test]
+fn a_tree_can_live_below_another_directory() {
+    let base = tempfile::tempdir().unwrap();
+    let dirs = TestDirs::new_in(&base.path().join("deeper")).unwrap();
+    assert!(dirs.root().starts_with(base.path().canonicalize().unwrap()));
+    assert!(dirs.dirs().runtime().is_dir() && dirs.home().is_dir());
+}

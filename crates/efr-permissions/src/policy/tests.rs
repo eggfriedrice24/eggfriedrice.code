@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use efr_protocol::Mode;
 
 use super::{
-    Action, Check, CommandPattern, MatchContext, Part, Policy, Resource, Rule, Target, Under, auto,
+    Action, Check, CommandPattern, MatchContext, Part, Policy, Resource, Rule, Target, Under,
     defaults,
 };
 use crate::{Access, Effect, PathClass, PermissionsError};
@@ -20,6 +20,7 @@ fn cx() -> MatchContext<'static> {
         home_aliases: &[],
         project_root: Some(Path::new("/home/u/p/app")),
         scratch: None,
+        envelope: &[],
     }
 }
 
@@ -86,38 +87,8 @@ fn table(first: usize) -> String {
         .collect()
 }
 
-/// The rows of the `auto` table, with the rules each one becomes numbered from `first`,
-/// as `auto.md` holds them.
-fn auto_table(first: usize) -> String {
-    let mut next = first;
-    auto::rows()
-        .iter()
-        .map(|row| {
-            let count = row.rules().len();
-            let numbers = match count {
-                1 => next.to_string(),
-                _ => format!("{}-{}", next, next + count - 1),
-            };
-            next += count;
-            let place = match row.place {
-                auto::Place::Anywhere => "",
-                auto::Place::Workspace => "project, scratch",
-            };
-            let network = if row.network { "yes" } else { "" };
-            format!(
-                "| {numbers} | `{}` | {} | {place} | {network} |\n",
-                row.program,
-                cells(&row.pattern())
-            )
-        })
-        .collect()
-}
-
 const HEADER: &str = "| # | Program | Args | Forbid | Min | Max | Options | Check |\n\
                       |---|---|---|---|---|---|---|---|\n";
-
-const AUTO_HEADER: &str = "| # | Program | Args | Forbid | Min | Max | Options | Check | Where | \
-                           Network |\n|---|---|---|---|---|---|---|---|---|---|\n";
 
 #[test]
 fn the_documented_table_is_the_data() {
@@ -126,23 +97,11 @@ fn the_documented_table_is_the_data() {
 }
 
 #[test]
-fn the_documented_auto_table_is_the_data() {
-    let documented = include_str!("auto.md");
-    let first = Policy::defaults().rules().len();
-    assert_eq!(documented, auto_table(first), "regenerate src/policy/auto.md from the rows");
-}
-
-#[test]
 fn the_permissions_doc_holds_the_same_tables() {
     let doc = include_str!("../../../../docs/permissions.md");
     assert!(
         doc.contains(&format!("{HEADER}{}\n", table(8))),
         "copy src/policy/defaults.md under the read-only table of docs/permissions.md"
-    );
-    let first = Policy::defaults().rules().len();
-    assert!(
-        doc.contains(&format!("{AUTO_HEADER}{}\n", auto_table(first))),
-        "copy src/policy/auto.md under the auto table of docs/permissions.md"
     );
 }
 
@@ -307,6 +266,7 @@ fn project_matches_only_inside_the_widening_root() {
         home_aliases: &[],
         project_root: None,
         scratch: None,
+        envelope: &[],
     };
     assert!(policy.last_match(&inside, &no_project).is_none());
 }
@@ -325,6 +285,7 @@ fn under_and_project_rules_match_both_forms_of_a_linked_home() {
         home_aliases: &aliases,
         project_root: Some(Path::new("/home/u/p/app")),
         scratch: None,
+        envelope: &[],
     };
     let rule = |path: &'static str| policy.last_match(&write(path, PathClass::UserConfig), &cx);
     assert_eq!(rule("/home/u/.config/nvim/init.lua"), Some((0, Effect::Allow)));
@@ -468,6 +429,7 @@ fn under_limits_a_command_to_a_directory(#[case] dir: &'static str, #[case] expe
         home_aliases: &aliases,
         project_root: None,
         scratch: None,
+        envelope: &[],
     };
     let cargo_test = words("cargo test");
     let target = Target::Command(Part {
@@ -801,50 +763,73 @@ fn the_base_policy_of_each_mode() {
         ]
     );
     assert_eq!(Policy::base(Mode::Cautious), Policy::defaults());
-    let auto = Policy::base(Mode::Auto);
-    let defaults = Policy::defaults();
-    assert_eq!(&auto.rules()[..defaults.rules().len()], defaults.rules());
-    assert_eq!(auto.rules()[defaults.rules().len()..], auto::rules());
-    // Every built-in policy passes the checks a user's rules pass.
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    // The auto table: no command list, every line contained.
+    assert_eq!(
+        Policy::base(Mode::Auto).rules(),
+        [
+            Rule::new(Action::Any, Resource::Any, Effect::Ask),
+            Rule::new(Action::Read, Resource::Any, Effect::Allow),
+            Rule::new(Action::Write, Resource::Project, Effect::Allow),
+            Rule::new(Action::Write, Resource::Class(PathClass::Scratch), Effect::Allow),
+            Rule::new(Action::Write, Resource::Envelope, Effect::Allow),
+            Rule::new(Action::Any, Resource::Class(PathClass::Secrets), Effect::Deny),
+            Rule::new(Action::Execute, Resource::Any, Effect::Contain),
+        ]
+    );
+    // The built-in policies of manual and cautious pass the checks a user's rules pass.
+    for mode in [Mode::Manual, Mode::Cautious] {
         let base = Policy::base(mode);
         assert_eq!(Policy::new(base.rules().to_vec()), Ok(base), "{mode}");
     }
 }
 
 #[test]
-fn the_auto_table_adds_only_command_allows_and_network_only_for_fetching_rows() {
-    for row in auto::rows() {
-        for rule in row.rules() {
-            assert_eq!(rule.effect, Effect::Allow, "{rule:?}");
-            assert!(matches!(rule.resource, Resource::Command(_)), "{rule:?}");
-            let expected = if row.network {
-                vec![Action::Execute, Action::Network]
-            } else {
-                vec![Action::Execute]
-            };
-            assert!(expected.contains(&rule.action), "{rule:?}");
-        }
-    }
-    let networked: Vec<String> = auto::rows()
-        .iter()
-        .filter(|row| row.network)
-        .map(|row| format!("{} {}", row.program, row.args.join(" ")))
-        .collect();
+fn auto_policy_push_refuses_contain() {
+    let mut policy = Policy::empty();
+    let contain = Rule::new(Action::Execute, Resource::Any, Effect::Contain);
+    assert_eq!(policy.push(contain.clone()), Err(PermissionsError::RuleContain { index: 0 }));
     assert_eq!(
-        networked,
-        [
-            "cargo build|check|test|fetch|update",
-            "npm install|ci",
-            "pnpm install|ci",
-            "yarn install|ci",
-            "bun install|ci",
-            "go mod download",
-            "uv sync",
-            "git fetch",
-            "git pull",
-        ]
+        PermissionsError::RuleContain { index: 0 }.to_string(),
+        "rule 0 has the effect contain, which is decided by the auto mode"
     );
+    assert_eq!(Policy::new(vec![contain]), Err(PermissionsError::RuleContain { index: 0 }));
+    let envelope = Rule::new(Action::Write, Resource::Envelope, Effect::Allow);
+    assert_eq!(policy.push(envelope), Err(PermissionsError::RuleEnvelope { index: 0 }));
+    assert!(policy.rules().is_empty());
+    // The configuration refuses both too.
+    let contain = r#"rules = [{ action = "execute", resource = "any", effect = "contain" }]"#;
+    assert!(toml::from_str::<Config>(contain).is_err());
+    let envelope = r#"rules = [{ action = "write", resource = "envelope", effect = "allow" }]"#;
+    assert!(toml::from_str::<Config>(envelope).is_err());
+}
+
+#[test]
+fn the_json_schema_of_a_rule_leaves_out_contain_and_the_envelope() {
+    let schema = schemars::schema_for!(Rule).as_value().to_string();
+    assert!(!schema.contains("\"const\":\"contain\""), "{schema}");
+    assert!(!schema.contains("\"const\":\"envelope\""), "{schema}");
+}
+
+#[test]
+fn the_envelope_matches_only_below_its_roots() {
+    let policy = Policy::new(vec![Rule::new(Action::Any, Resource::Any, Effect::Ask)]).unwrap();
+    let mut rules = policy.rules().to_vec();
+    rules.push(Rule::new(Action::Write, Resource::Envelope, Effect::Allow));
+    let policy = Policy { rules };
+    let roots = [PathBuf::from("/tmp"), PathBuf::from("/home/u/.cargo")];
+    let shell = MatchContext { envelope: &roots, ..cx() };
+    let decide = |path: &'static str, cx: &MatchContext<'_>| {
+        policy.last_match(&write(path, PathClass::System), cx).map(|(_, effect)| effect)
+    };
+    assert_eq!(decide("/tmp/x", &shell), Some(Effect::Allow));
+    assert_eq!(decide("/home/u/.cargo/registry/x", &shell), Some(Effect::Allow));
+    assert_eq!(decide("/tmp", &shell), Some(Effect::Ask), "the root itself");
+    assert_eq!(decide("/var/tmp/x", &shell), Some(Effect::Ask));
+    // Without envelope roots, as for write_file, the rule matches nothing.
+    assert_eq!(decide("/tmp/x", &cx()), Some(Effect::Ask));
+    // It never matches a read or a command.
+    let read = read("/tmp/x", PathClass::System);
+    assert_eq!(policy.last_match(&read, &shell).map(|(index, _)| index), Some(0));
 }
 
 #[test]
@@ -959,8 +944,8 @@ fn an_unknown_place_or_check_is_refused(#[case] text: &str) {
 }
 
 #[test]
-fn the_auto_policy_round_trips_through_toml() {
-    let config = Config { rules: Policy::base(Mode::Auto) };
+fn the_cautious_policy_round_trips_through_toml() {
+    let config = Config { rules: Policy::base(Mode::Cautious) };
     let text = toml::to_string(&config).unwrap();
     assert_eq!(toml::from_str::<Config>(&text).unwrap(), config);
 }

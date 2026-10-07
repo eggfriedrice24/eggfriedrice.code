@@ -63,6 +63,10 @@ fn requests_have_a_kind_tag() {
             json!({"kind": "signal", "pty_id": PTY, "signal": "interrupt", "target": "foreground_group"}),
         ),
         (HolderRequest::List, json!({"kind": "list"})),
+        (
+            HolderRequest::Foreground { pty_id: pty_id() },
+            json!({"kind": "foreground", "pty_id": PTY}),
+        ),
         (HolderRequest::Wait { pty_id: pty_id() }, json!({"kind": "wait", "pty_id": PTY})),
         (HolderRequest::Release { pty_id: pty_id() }, json!({"kind": "release", "pty_id": PTY})),
     ];
@@ -92,6 +96,14 @@ fn responses_have_a_kind_tag() {
             }]}),
         ),
         (
+            HolderResponse::Foreground { pty_id: pty_id(), group: Some(4242) },
+            json!({"kind": "foreground", "pty_id": PTY, "group": 4242}),
+        ),
+        (
+            HolderResponse::Foreground { pty_id: pty_id(), group: None },
+            json!({"kind": "foreground", "pty_id": PTY}),
+        ),
+        (
             HolderResponse::Exited { pty_id: pty_id(), status: ChildStatus::Exited { code: 2 } },
             json!({"kind": "exited", "pty_id": PTY, "status": {"kind": "exited", "code": 2}}),
         ),
@@ -113,6 +125,21 @@ fn responses_have_a_kind_tag() {
     for (response, wire) in cases {
         assert_wire(&response, wire);
     }
+}
+
+#[test]
+fn a_spawn_request_carries_the_child_subreaper() {
+    let spec = SpawnSpec::new(pty_id(), "/usr/bin/zsh", "/home/user", size()).child_subreaper(true);
+    assert_wire(
+        &HolderRequest::Spawn { spec },
+        json!({"kind": "spawn", "spec": {
+            "pty_id": PTY,
+            "program": "/usr/bin/zsh",
+            "cwd": "/home/user",
+            "size": {"cols": 80, "rows": 24},
+            "child_subreaper": true,
+        }}),
+    );
 }
 
 #[test]
@@ -146,6 +173,7 @@ fn only_a_spawned_response_carries_a_descriptor() {
         (HolderResponse::Spawned { pty_id: pty_id(), child_pid: 1 }, 1),
         (HolderResponse::Done, 0),
         (HolderResponse::Listed { ptys: Vec::new() }, 0),
+        (HolderResponse::Foreground { pty_id: pty_id(), group: Some(1) }, 0),
         (HolderResponse::Exited { pty_id: pty_id(), status: ChildStatus::Exited { code: 0 } }, 0),
         (HolderResponse::Error(error), 0),
     ];
@@ -197,6 +225,7 @@ fn every_error_has_a_code() {
             HolderError::Signal { pty_id: pty_id(), signal: Signal::Kill, source: os() },
             HolderErrorCode::Os,
         ),
+        (HolderError::Foreground { pty_id: pty_id(), source: os() }, HolderErrorCode::Os),
         (HolderError::Release { pty_id: pty_id(), source: os() }, HolderErrorCode::Os),
         (HolderError::ProtocolMismatch { ours: 1, theirs: 2 }, HolderErrorCode::ProtocolMismatch),
         (

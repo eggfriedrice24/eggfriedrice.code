@@ -118,6 +118,8 @@ async fn a_rules_change_reaches_the_trusted_programs_and_a_shell_change_how_shel
     let shutdown = tokio_util::sync::CancellationToken::new();
     let served = tokio::spawn(daemon.serve(shutdown.clone()));
     assert!(!format!("{shells:?}").contains("\"frobnicate\""), "{shells:?}");
+    // The read-only commands of cautious are trusted from the start, in every mode.
+    assert!(format!("{shells:?}").contains("\"cat\""), "{shells:?}");
 
     let file = "[shell]\nprogram = \"/usr/bin/zsh-test\"\nlogin = false\n[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"frobnicate\" } }\neffect = \"allow\"\n";
     std::fs::write(config_file(&dirs), file).unwrap();
@@ -321,8 +323,9 @@ async fn a_reload_reaches_the_rules_of_every_mode_at_the_next_tool_call() {
         let engine = Arc::clone(&daemon.engine.borrow());
         Mode::ALL.map(|mode| decide(&engine, &dirs, mode, rm()))
     };
-    // Manual asks for everything; cautious asks for a writer program; auto runs it.
-    assert_eq!(effects(&daemon), [Effect::Ask, Effect::Ask, Effect::Allow]);
+    // Manual asks for everything; cautious asks for a writer program; auto runs it in
+    // its sandbox.
+    assert_eq!(effects(&daemon), [Effect::Ask, Effect::Ask, Effect::Contain]);
 
     let rule = "[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"rm\" } }\neffect = \"deny\"\n";
     std::fs::write(config_file(&dirs), rule).unwrap();
@@ -394,7 +397,13 @@ async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
     let reloaded = send(None).await.settings.unwrap();
     let own = send(Some(Mode::Manual)).await.settings.unwrap();
 
-    assert_eq!((reloaded.mode, reloaded.overridden.mode), (Mode::Auto, false));
+    // NOTE: the test daemon finds no sandbox launcher, so `auto` runs as `cautious` and
+    // the fallback keeps the mode that the reload set.
+    let asked = reloaded.fallback.as_ref().map(|fallback| fallback.asked);
+    assert_eq!(
+        (reloaded.mode, asked, reloaded.overridden.mode),
+        (Mode::Cautious, Some(Mode::Auto), false)
+    );
     assert_eq!((own.mode, own.overridden.mode), (Mode::Manual, true));
     drop(terminal);
     daemon.stop().await;

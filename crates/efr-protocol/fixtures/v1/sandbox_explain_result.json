@@ -1,0 +1,10 @@
+{
+  "path": "/home/me/.zshrc",
+  "project": "/home/me/p/app",
+  "mode": "auto",
+  "role": "floor",
+  "read": true,
+  "write": false,
+  "reason": "a shell startup file (floor)",
+  "write_exit": "persistence"
+}

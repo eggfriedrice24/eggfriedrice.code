@@ -8,12 +8,15 @@ crate are in `CONVENTIONS.md`.
 ## Shape
 
 eggfriedrice.code is a Cargo workspace of one crate per bounded context plus `xtask`.
-Two binaries ship at milestone 1:
+Three binaries ship:
 
 - `efrd`, the daemon, runs as a systemd user service (`systemd/efrd.service`). It owns
   the conversations, the model loop, the hidden shells, the screens and the database.
 - `efr`, the CLI, is a thin relay to the daemon. The zsh plugin
   (`shell/zsh/efr.plugin.zsh`) calls it for every `,` line.
+- `efr-sbx`, the sandbox launcher of the `auto` mode, is installed next to efrd in
+  `~/.local/lib/efr` and is never on the `PATH`. The hidden shell runs a copy of it for
+  each contained call.
 
 All clients speak one protocol, defined in `efr-protocol`, over a Unix socket at
 `$XDG_RUNTIME_DIR/efr/daemon.sock`. The phone client and the WebSocket listener come in
@@ -31,7 +34,7 @@ shipped binary.
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
-| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection and the Allow / Ask / Deny decision | `efr-protocol` |
+| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
 | `efr-holder` | lib | 1 | the `PtyHolder` trait and holder wire types; no IO, no unsafe | `efr-protocol`, `efr-stdx` |
 | `efr-http` | lib | 1 | the reqwest client, SSE parser, Unix-socket HTTP client, header redaction | `efr-stdx` |
@@ -39,19 +42,21 @@ shipped binary.
 | `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages | `efr-protocol`, `efr-stdx` |
 | `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider`, `Wait` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
 | `efr-render` | lib | 1 | markdown and render events to ANSI: committed and live zones, syntax colours, OSC 8 links; no IO, the CLI passes `RenderOptions` | none |
+| `efr-sandbox` | lib | 1 | the pure logic of the `auto` sandbox: `SandboxSpec`, `MountPlan` and the bwrap arguments, Landlock and seccomp as data, the environment and export filters, the records, the sandbox state, `result.json`, the surface guard, the worktree record, the probe's result types; file access only through `FsView`, no tokio, no unsafe | `efr-protocol` |
 | `efr-screen-vt100` | lib | 2 | `Screen` over vt100; the Zig-free default | `efr-screen` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
-| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-stdx` |
+| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
+| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
-| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
+| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer; in `auto` the launch of each shell call, exit questions and their records, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools` | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -70,7 +75,7 @@ and `efr-daemon -> (everything)`.
    `efr-tools -> efr-permissions`, `efr-provider-openai -> efr-oauth-openai`,
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
-   `efr-test-support -> efr-daemon`;
+   `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`;
 3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
    other than `efr-store` reaches `rusqlite`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
@@ -89,6 +94,9 @@ What each forbidden edge protects:
 - The engine does not know about transports, and the transport does not touch the
   database.
 - The protocol crate stays free of a runtime, so any client can compile it.
+- The sandbox logic and the launcher stay free of a runtime: the launcher is a small
+  process that runs as a foreground job of the hidden shell, and every rule it applies
+  is a pure function that tests run without a kernel.
 - Zig is a build requirement of one crate, and SQLite has one owner.
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
@@ -156,7 +164,9 @@ stops. `efrd` starts in this order (the roots come from `EFR_<ROOT>_DIR`, else
    resumable, record queued prompts as not run (`turn_cancelled`) with a notice to
    their terminal to send them again, cancel process-bound outbox rows. Nothing
    continues automatically.
-5. Start the store writer, providers, the tool registry and the shell sessions.
+5. Start the store writer, providers, the tool registry and the shell sessions; copy
+   the sandbox launcher to `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` and run the sandbox
+   probe, whose status decides whether `auto` turns run as `auto` or as `cautious`.
 6. Open the Unix socket (0600) and write `daemon.json` for discovery.
 7. Send `READY=1` to systemd.
 
@@ -176,8 +186,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - One file per protocol method in the daemon: `crates/efr-daemon/src/methods/`, with
   the exhaustive scope match in `methods.rs`.
 - The permission check point: `crates/efr-conversation/src/turn.rs`. The permission
-  modes, the built-in read-only commands, the `auto` table, config protection and how a
-  command line is read: `docs/permissions.md`.
+  modes, the built-in read-only commands, the `auto` sandbox and its exits, config
+  protection and how a command line is read: `docs/permissions.md`.
 - The settings tool, the model's only way to change `config.toml`, after an approval
   with the diff: `crates/efr-daemon/src/tools/settings_tool.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.

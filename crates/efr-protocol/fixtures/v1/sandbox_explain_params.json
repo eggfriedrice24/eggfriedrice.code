@@ -1,0 +1,7 @@
+{
+  "method": "sandbox.explain",
+  "params": {
+    "path": "../.zshrc",
+    "cwd": "/home/me/p/app"
+  }
+}

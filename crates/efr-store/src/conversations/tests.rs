@@ -23,6 +23,7 @@ fn approval_requested(turn: u64, call: u64) -> Event {
         summary: "write /etc/hosts".to_owned(),
         diff_preview: None,
         interactive: false,
+        exit: None,
     }
 }
 
@@ -300,6 +301,17 @@ async fn an_event_of_a_conversation_needs_its_id() {
         matches!(error, StoreError::MissingConversation { ref kind } if kind == "prompt_queued"),
         "{error:?}"
     );
+}
+
+#[tokio::test]
+async fn a_change_of_the_sandbox_probe_belongs_to_no_conversation() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+
+    let reason = "unprivileged user namespaces are off".to_owned();
+    let committed =
+        writer.append(Batch::new().global_event(Event::SandboxUnavailable { reason })).await;
+
+    assert!(committed.is_ok(), "{committed:?}");
 }
 
 #[tokio::test]

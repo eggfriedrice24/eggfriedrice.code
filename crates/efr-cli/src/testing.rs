@@ -17,9 +17,10 @@ use std::time::Duration;
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    CallId, Capabilities, ClientFrame, ConversationId, ConversationSubscribeItem, DaemonPaths,
-    ErrorBody, Event, EventEnvelope, Hello, HelloResult, Method, ModelInfo, ModelSource,
-    ModelsListResult, PROTOCOL_VERSION, RequestId, Seq, ServerFrame, TurnId,
+    ActionFacts, CallId, Capabilities, ClientFrame, ConversationId, ConversationSubscribeItem,
+    DaemonPaths, ErrorBody, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
+    ExitSource, Hello, HelloResult, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
+    PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
@@ -81,6 +82,48 @@ pub(crate) fn command(args: &[&str]) -> Command {
 /// An event of the conversation as a subscription item.
 pub(crate) fn item(seq: u64, event: Event) -> ConversationSubscribeItem {
     ConversationSubscribeItem::Event(envelope(seq, event))
+}
+
+/// The record of an exit of `shell` running `line` in `/home/user/project`, with the
+/// facts of `facts`.
+pub(crate) fn exit_record(line: &str, facts: ExitFacts) -> ExitRecord {
+    ExitRecord {
+        version: ExitRecord::VERSION,
+        user_messages: vec!["add the alias".to_owned()],
+        action: ActionFacts {
+            tool: "shell".to_owned(),
+            line: line.to_owned(),
+            cwd: PathBuf::from("/home/user/project"),
+            scope: Scope::Machine,
+            exits: Vec::new(),
+            grants: Vec::new(),
+            source: ExitSource::Predicted,
+        },
+        facts,
+    }
+}
+
+/// A program word of a line, resolved to `resolved`.
+pub(crate) fn program_fact(word: &str, resolved: &str) -> ProgramFact {
+    ProgramFact {
+        word: word.to_owned(),
+        resolved: Some(PathBuf::from(resolved)),
+        in_write_root: false,
+        changed_this_turn: false,
+    }
+}
+
+/// What a question shows about an exit of `kinds` that runs as `launch` after a yes.
+pub(crate) fn exit_info(kinds: &[ExitKind], launch: Launch) -> ExitInfo {
+    ExitInfo {
+        kinds: kinds.to_vec(),
+        grants: launch.grants().to_vec(),
+        launch,
+        facts: Vec::new(),
+        model_reason: None,
+        judged: None,
+        user_only: false,
+    }
 }
 
 pub(crate) fn envelope(seq: u64, event: Event) -> EventEnvelope {
@@ -484,6 +527,7 @@ impl TestEnv {
             browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),
             tty: None,
+            home: Some(PathBuf::from("/home/user")),
         }
     }
 }

@@ -1,0 +1,15 @@
+{
+  "kind": "exit_judged",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "judge": "classifier",
+  "verdict": "deny",
+  "model": "codex-auto-review",
+  "latency_ms": 1840,
+  "risk": "critical",
+  "user_authorization": "none",
+  "category": "data exfiltration",
+  "rationale": "no user message names the host",
+  "record_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "cached": true
+}

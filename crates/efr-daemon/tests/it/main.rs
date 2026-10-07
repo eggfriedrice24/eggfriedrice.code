@@ -17,6 +17,7 @@ mod prompt_send;
 mod pty_attach;
 mod receipts;
 mod reconcile;
+mod sandbox;
 mod shell_tool;
 mod subscribe;
 mod support;

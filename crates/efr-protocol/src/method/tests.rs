@@ -4,12 +4,12 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
-    ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
+    AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
     InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList, PromptSend, PtyAttach,
-    PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings,
-    TurnSteer,
+    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
+    SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -203,6 +203,32 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             ScopeName::Admin,
             false,
             true,
+        ),
+        (
+            Method::SandboxExplain(SandboxExplain { path: "/home/u/.zshrc".into(), cwd: None }),
+            "sandbox.explain",
+            ScopeName::Read,
+            false,
+            false,
+        ),
+        (
+            Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+                command_id: command(),
+                conversation_id: conversation(),
+                question_id: QuestionId::from_str(CALL).unwrap(),
+                keep: true,
+            }),
+            "sandbox.surface_respond",
+            ScopeName::Approve,
+            true,
+            false,
+        ),
+        (
+            Method::AdminSandboxCheck(AdminSandboxCheck {}),
+            "admin.sandbox_check",
+            ScopeName::Admin,
+            false,
+            false,
         ),
     ]
 }

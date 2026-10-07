@@ -3,7 +3,8 @@
 
 use efr_protocol::{
     ConversationStatus, ConversationsList, ConversationsListResult, EffectiveSettings, ErrorCode,
-    Event, Method, Mode, OverriddenSettings, PromptSend, PromptSendResult, Scope, TurnSettings,
+    Event, Method, Mode, ModeFallback, OverriddenSettings, PromptSend, PromptSendResult, Scope,
+    TurnSettings,
 };
 use efr_test_daemon::{ClientError, Replay, TTY, TestDaemon};
 use pretty_assertions::assert_eq;
@@ -260,11 +261,17 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
     .await
     .unwrap();
 
+    // NOTE: a test daemon finds no efr-sbx next to its binary, so the probe says the
+    // sandbox is unavailable, and `auto` runs as `cautious` and says why.
     let expected = EffectiveSettings {
-        mode: Mode::Auto,
+        mode: Mode::Cautious,
         model: "gpt-6-sol".to_owned(),
         effort: Some("low".to_owned()),
         overridden: OverriddenSettings { mode: true, model: true, effort: false },
+        fallback: Some(ModeFallback {
+            asked: Mode::Auto,
+            reason: "efr-sbx is not installed next to efrd".to_owned(),
+        }),
     };
     assert_eq!(sent.settings, Some(expected.clone()));
     let started = seen.iter().find_map(|envelope| match &envelope.event {

@@ -1,0 +1,19 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "format!(\"{floor}---\\n{root}---\\n{masked}---\\n{secret}\")"
+---
+~/.zshrc, from ~/p/eggfriedrice.code in auto:
+  read   yes
+  write  no: a shell startup file (floor); a write is a persistence exit, user only
+---
+~/p/eggfriedrice.code/src/main.rs, from ~/p/eggfriedrice.code in auto:
+  read   yes
+  write  yes: in the turn's project (write root)
+---
+~/p/app/.env, outside a project in auto:
+  read   no: a project .env file (mask)
+  write  no; a write is a masked read exit, user only
+---
+~/.ssh/id_ed25519, from ~/p/eggfriedrice.code in auto:
+  read   no: a secret (mask)
+  write  no; a write is denied (secret)

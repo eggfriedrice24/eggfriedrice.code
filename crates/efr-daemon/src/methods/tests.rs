@@ -1,15 +1,16 @@
 use efr_protocol::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
-    ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
+    AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
     InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
-    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, ScopeName, SecretText, Seq,
-    Size, TurnInterrupt, TurnSteer,
+    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer,
 };
 use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
 use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope};
+use crate::sandbox::peers::PeerSide;
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -85,13 +86,21 @@ fn every_method() -> Vec<Method> {
         Method::AdminStatus(AdminStatus::default()),
         Method::AdminConfigReload(AdminConfigReload::default()),
         Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
+        Method::SandboxExplain(SandboxExplain { path: "/home/u/.zshrc".into(), cwd: None }),
+        Method::SandboxSurfaceRespond(SandboxSurfaceRespond {
+            command_id,
+            conversation_id,
+            question_id: QuestionId::from_uuid(id(5)),
+            keep: false,
+        }),
+        Method::AdminSandboxCheck(AdminSandboxCheck::default()),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 20, "one request per method");
+    assert_eq!(methods.len(), 23, "one request per method");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -125,6 +134,9 @@ fn the_scope_table_is_the_designed_one() {
             ("admin.status", ScopeName::Admin),
             ("admin.config_reload", ScopeName::Admin),
             ("admin.login_openai", ScopeName::Admin),
+            ("sandbox.explain", ScopeName::Read),
+            ("sandbox.surface_respond", ScopeName::Approve),
+            ("admin.sandbox_check", ScopeName::Admin),
         ]
     );
 }
@@ -132,18 +144,25 @@ fn the_scope_table_is_the_designed_one() {
 #[test]
 fn local_surfaces_hold_every_scope() {
     for surface in [Origin::Shell, Origin::Cli, Origin::Proxy] {
-        assert_eq!(granted(surface), ScopeName::ALL, "{surface:?}");
+        assert_eq!(granted(surface, PeerSide::User), ScopeName::ALL, "{surface:?}");
         for method in every_method() {
-            assert!(authorize(surface, &method).is_ok(), "{surface:?} {}", method.name());
+            assert!(
+                authorize(surface, PeerSide::User, &method).is_ok(),
+                "{surface:?} {}",
+                method.name()
+            );
         }
     }
 }
 
 #[test]
 fn a_phone_may_read_operate_and_approve_but_never_administer_or_type() {
-    assert_eq!(granted(Origin::Phone), [ScopeName::Read, ScopeName::Operate, ScopeName::Approve]);
+    assert_eq!(
+        granted(Origin::Phone, PeerSide::User),
+        [ScopeName::Read, ScopeName::Operate, ScopeName::Approve]
+    );
     for method in every_method() {
-        let allowed = authorize(Origin::Phone, &method);
+        let allowed = authorize(Origin::Phone, PeerSide::User, &method);
         match scope(&method) {
             ScopeName::Admin | ScopeName::Terminal => assert!(
                 matches!(&allowed, Err(DaemonError::Forbidden { method: name, scope: needed })
@@ -262,4 +281,39 @@ mod subscribe {
         assert_eq!(snapshot.history_cursor, None);
         assert_eq!(snapshot.events.len(), 2);
     }
+}
+
+#[test]
+fn a_model_side_peer_or_a_gone_one_may_only_read() {
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        for surface in [Origin::Shell, Origin::Cli, Origin::Proxy] {
+            assert_eq!(granted(surface, peer), [ScopeName::Read]);
+            for method in every_method() {
+                let allowed = authorize(surface, peer, &method);
+                if scope(&method) == ScopeName::Read {
+                    assert!(allowed.is_ok(), "{}", method.name());
+                } else {
+                    assert!(
+                        matches!(&allowed, Err(DaemonError::ModelSidePeer { method: name }) if *name == method.name()),
+                        "{}: {allowed:?}",
+                        method.name()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sandbox_explain_needs_read_scope_only() {
+    let method =
+        every_method().into_iter().find(|method| method.name() == "sandbox.explain").unwrap();
+    assert_eq!(scope(&method), ScopeName::Read);
+    assert!(authorize(Origin::Shell, PeerSide::ModelSide, &method).is_ok());
+    assert!(authorize(Origin::Phone, PeerSide::User, &method).is_ok());
+    let respond = every_method()
+        .into_iter()
+        .find(|method| method.name() == "sandbox.surface_respond")
+        .unwrap();
+    assert!(authorize(Origin::Shell, PeerSide::ModelSide, &respond).is_err());
 }

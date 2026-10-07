@@ -28,7 +28,7 @@ use efr_daemon::{DaemonError, Deps, HostInfo, Provider, ProviderFactory, ScreenC
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
-    Origin, PromptSend, Seq, ShellContext, TurnSettings,
+    Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
 };
 use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript};
 use futures::StreamExt as _;
@@ -126,6 +126,10 @@ struct Launch {
     provider: ProviderChoice,
     persistent: bool,
     shell_env: Option<BTreeMap<String, String>>,
+    /// The `efr-sbx` the daemon copies as the sandbox's launcher.
+    sandbox_launcher: Option<PathBuf>,
+    /// The probe's result in place of the launcher's probe.
+    probe_override: Option<SandboxStatus>,
 }
 
 /// Builds a [`TestDaemon`].
@@ -154,6 +158,8 @@ impl Default for TestDaemonBuilder {
                 provider: ProviderChoice::Replay(Arc::new(empty_replay())),
                 persistent: false,
                 shell_env: None,
+                sandbox_launcher: None,
+                probe_override: None,
             },
         }
     }
@@ -257,6 +263,22 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Copies `launcher` as the sandbox's launcher, which an in-process daemon does not
+    /// find next to itself: the real `efr-sbx` (`EFR_TEST_SBX_BIN`) or a fake script.
+    #[must_use]
+    pub fn sandbox_launcher(mut self, launcher: impl Into<PathBuf>) -> Self {
+        self.settings.sandbox_launcher = Some(launcher.into());
+        self
+    }
+
+    /// Uses `status` as every probe's result, so the launcher's probe never runs and a
+    /// test decides whether `auto` can run.
+    #[must_use]
+    pub fn probe_override(mut self, status: SandboxStatus) -> Self {
+        self.settings.probe_override = Some(status);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -317,6 +339,12 @@ impl TestDaemon {
                 .with_time_zone(TimeZone::UTC);
         if !settings.persistent {
             deps = deps.with_in_memory_store();
+        }
+        if let Some(launcher) = &settings.sandbox_launcher {
+            deps = deps.with_sandbox_launcher(launcher.clone());
+        }
+        if let Some(status) = &settings.probe_override {
+            deps = deps.with_probe_override(status.clone());
         }
         match &settings.holder {
             HolderChoice::Fake(holder) => {

@@ -1,0 +1,6 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&step.out)
+---
+\e[?2026h\e[2mauto is not available here; this turn runs as cautious: Landlock ABI 6\e[0m
+\e[?2026l

@@ -70,6 +70,10 @@ fn operation_messages_name_the_pty() {
             format!("could not send SIGINT to the PTY {PTY}"),
         ),
         (
+            HolderError::Foreground { pty_id, source: io::Error::from(io::ErrorKind::Other) },
+            format!("could not read the foreground process group of the PTY {PTY}"),
+        ),
+        (
             HolderError::Release { pty_id, source: io::Error::from(io::ErrorKind::Other) },
             format!("could not release the PTY {PTY}"),
         ),

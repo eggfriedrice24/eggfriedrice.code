@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "write",
+    "path": "/home/me/notes"
+  },
+  {
+    "kind": "host",
+    "host": "registry.npmjs.org",
+    "port": 443
+  },
+  {
+    "kind": "open_network"
+  },
+  {
+    "kind": "socket",
+    "path": "/run/user/1000/app.sock"
+  },
+  {
+    "kind": "bus",
+    "bus": "session"
+  },
+  {
+    "kind": "bus",
+    "bus": "system"
+  },
+  {
+    "kind": "device",
+    "path": "/dev/nvme0n1"
+  },
+  {
+    "kind": "unmask",
+    "path": "/home/me/p/app/.env"
+  }
+]

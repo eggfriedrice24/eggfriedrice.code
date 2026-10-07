@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "report.join(\"\\n\")"
+---
+efr: this turn changed files that run code later outside the sandbox:
+  build.rs, package.json (scripts), .envrc, sub/.git/config (core.fsmonitor)
+  check them before you run the project yourself

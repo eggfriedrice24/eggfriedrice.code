@@ -1,10 +1,12 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, CallId, ClientFrame, ConversationHistoryResult,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ErrorBody, ErrorCode, Event, InputRespond, InputRespondResult, InputWait,
-    Method, Origin, RequestId, Seq, TurnId, TurnInterruptResult,
+    Method, Origin, QuestionId, RequestId, SandboxSurfaceRespondResult, Seq, SurfaceChange, TurnId,
+    TurnInterruptResult,
 };
 use efr_render::RenderOptions;
 use efr_test_support::Wait;
@@ -252,6 +254,7 @@ async fn a_key_answers_the_approval() {
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         // A key that answers nothing is ignored; `n` denies.
@@ -282,6 +285,94 @@ async fn a_key_answers_the_approval() {
 }
 
 #[tokio::test]
+async fn a_key_answers_the_quarantine_question_with_its_own_id() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let question: QuestionId = "019a9b1c-3d00-7a10-8b20-0000000000d1".parse().unwrap();
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        let request = Event::SurfaceQuestionRequested {
+            turn_id: turn(),
+            call_id: call(),
+            question_id: question,
+            changes: vec![SurfaceChange {
+                path: PathBuf::from("/p/app/.git/commondir"),
+                rule: "commondir_in_main_git_dir".to_owned(),
+                key: Some("core.fsmonitor".to_owned()),
+                quarantined: true,
+            }],
+        };
+        conn.item(sub, &item(11, request)).await;
+        // A key that answers nothing is ignored; `y` keeps the change.
+        presser.press(b'x').await;
+        presser.press(b'y').await;
+        let (id, method) = conn.request().await;
+        let Method::SandboxSurfaceRespond(params) = method else {
+            panic!("expected sandbox.surface_respond, got {}", method.name());
+        };
+        assert_eq!(params.conversation_id, conversation());
+        assert_eq!(params.question_id, question);
+        assert!(params.keep);
+        conn.reply(id, &SandboxSurfaceRespondResult { seq: Seq::new(12) }).await;
+        let answered = Event::SurfaceQuestionAnswered {
+            turn_id: turn(),
+            question_id: question,
+            keep: true,
+            origin: Some(Origin::Shell),
+        };
+        conn.item(sub, &item(12, answered)).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(keys.starts(), 1);
+    assert_eq!(
+        err,
+        "\
+question: the last command changed git settings that run programs
+  /p/app/.git/commondir (core.fsmonitor); moved to quarantine
+keep it? y = yes, n = no
+kept
+"
+    );
+}
+
+#[tokio::test]
+async fn a_quarantine_answer_the_daemon_refuses_is_a_note() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx = Context { keys: keys.clone(), ..env.context() };
+    let presser = Arc::clone(&keys);
+    let question: QuestionId = "019a9b1c-3d00-7a10-8b20-0000000000d1".parse().unwrap();
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        let request = Event::SurfaceQuestionRequested {
+            turn_id: turn(),
+            call_id: call(),
+            question_id: question,
+            changes: Vec::new(),
+        };
+        conn.item(sub, &item(11, request)).await;
+        presser.press(b'n').await;
+        let (id, _) = conn.request().await;
+        conn.fail(id, ErrorBody::new(ErrorCode::NotFound, "the question is not pending")).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(
+        err.ends_with(
+            "left in quarantine\nthe answer was not taken: the question is not pending\n"
+        ),
+        "{err}"
+    );
+}
+
+#[tokio::test]
 async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_for() {
     let env = TestEnv::new();
     let keys = Arc::new(ScriptedKeys::default());
@@ -306,6 +397,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             summary: summary.to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         let page = ConversationHistoryResult {
             events: vec![
@@ -343,7 +435,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
         conn.item(sub, &item(12, Event::TurnCompleted { turn_id: running, usage: None })).await;
         let started = Event::TurnStarted {
             turn_id: turn(),
-            cwd: std::path::PathBuf::from("/home/u"),
+            cwd: PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
             settings: None,
         };
@@ -375,6 +467,7 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
             summary: "edit /etc/hosts".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         keys.press(b'y').await;
@@ -455,6 +548,7 @@ fn shell_started(command: &str) -> Event {
         tool: "shell".to_owned(),
         input: serde_json::json!({ "command": command }),
         manual_input: true,
+        launch: None,
     }
 }
 
@@ -479,6 +573,7 @@ fn shell_completed(exit_code: i32) -> Event {
         truncated: false,
         is_error: exit_code != 0,
         exit_code: Some(exit_code),
+        sandbox: None,
     }
 }
 
@@ -569,6 +664,7 @@ async fn allow_interactive(conn: &mut Conn, sub: RequestId, presser: &ScriptedKe
         summary: "shell: sudo pacman -Syu".to_owned(),
         diff_preview: None,
         interactive: true,
+        exit: None,
     };
     conn.item(sub, &item(12, request)).await;
     presser.press(b'y').await;
@@ -708,6 +804,7 @@ async fn keys_typed_during_a_call_allowed_without_input_stay_for_the_shell() {
             summary: "shell: make clean".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(12, request)).await;
         presser.press(b'y').await;
@@ -916,6 +1013,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                         truncated: false,
                         is_error: false,
                         exit_code: Some(0),
+                        sandbox: None,
                     },
                 ),
                 envelope(6, output(sudo, "[sudo] password for egg: ")),
@@ -939,13 +1037,14 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             truncated: false,
             is_error: false,
             exit_code: Some(0),
+            sandbox: None,
         };
         conn.item(sub, &item(12, completed)).await;
         presser.stopped().await;
         conn.item(sub, &item(13, Event::TurnCompleted { turn_id: running, usage: None })).await;
         let started = Event::TurnStarted {
             turn_id: turn(),
-            cwd: std::path::PathBuf::from("/home/u"),
+            cwd: PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
             settings: None,
         };
@@ -1196,6 +1295,7 @@ async fn ctrl_backslash_during_an_approval_is_taken_and_does_nothing() {
             summary: "run rm -rf build".to_owned(),
             diff_preview: None,
             interactive: false,
+            exit: None,
         };
         conn.item(sub, &item(11, request)).await;
         started(&presser, 1).await;

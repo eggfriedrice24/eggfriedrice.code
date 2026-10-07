@@ -7,5 +7,14 @@
     "command": "du -sh /var/log/*",
     "timeout_secs": 30
   },
-  "manual_input": true
+  "manual_input": true,
+  "launch": {
+    "kind": "contained",
+    "grants": [
+      {
+        "kind": "write",
+        "path": "/home/me/Documents"
+      }
+    ]
+  }
 }
