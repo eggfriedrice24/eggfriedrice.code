@@ -9,12 +9,13 @@
 use std::fs;
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rustix::fs::{Mode, OFlags};
 use rustix::io::Errno;
 use serde::{Deserialize, Serialize};
 
@@ -131,12 +132,17 @@ fn run(name: &str, args: &SelfTestArgs) -> Option<(bool, String)> {
             let entries = fs::read_dir(args.masked.as_ref()?).map(Iterator::count);
             outcome(matches!(entries, Ok(0)), format!("{entries:?}"))
         }
-        "unix_socket" => {
-            let done = UnixStream::connect(args.socket.as_ref()?);
-            let refused =
-                done.as_ref().is_err_and(|error| errno(error) == Errno::ACCESS.raw_os_error());
-            outcome(refused, format!("{:?}", done.map(drop)))
-        }
+        "unix_socket" => match socket_path(args.socket.as_ref()?) {
+            // NOTE: a refusal here must not count as the refused connect.
+            Err(error) => outcome(false, format!("no path to the socket: {error:?}")),
+            Ok((dir, path)) => {
+                let done = UnixStream::connect(&path);
+                drop(dir);
+                let refused =
+                    done.as_ref().is_err_and(|error| errno(error) == Errno::ACCESS.raw_os_error());
+                outcome(refused, format!("{:?}", done.map(drop)))
+            }
+        },
         "abstract_socket" => {
             let name = args.abstract_name.as_ref()?;
             let done = std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes())
@@ -203,6 +209,25 @@ fn run(name: &str, args: &SelfTestArgs) -> Option<(bool, String)> {
         }
         _ => return None,
     })
+}
+
+/// The most bytes of a socket's path: `sun_path` holds 108 with the closing NUL.
+const MAX_SOCKET_PATH: usize = 107;
+
+/// A path to the socket `path` that fits in a socket address: `path` itself, or, when
+/// it is too long, `/proc/self/fd/<n>/<name>` through a descriptor of its directory,
+/// which the caller keeps open while it binds or connects. A deep state dir then still
+/// gets the socket check.
+pub(crate) fn socket_path(path: &Path) -> io::Result<(Option<OwnedFd>, PathBuf)> {
+    if path.as_os_str().len() <= MAX_SOCKET_PATH {
+        return Ok((None, path.to_path_buf()));
+    }
+    let invalid = || io::Error::from(io::ErrorKind::InvalidInput);
+    let (dir, name) = (path.parent().ok_or_else(invalid)?, path.file_name().ok_or_else(invalid)?);
+    let flags = OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let fd = rustix::fs::open(dir, flags, Mode::empty())?;
+    let short = PathBuf::from(format!("/proc/self/fd/{}", fd.as_raw_fd())).join(name);
+    Ok((Some(fd), short))
 }
 
 fn outcome(ok: bool, detail: String) -> (bool, String) {

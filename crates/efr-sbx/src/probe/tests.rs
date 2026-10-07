@@ -87,7 +87,7 @@ fn a_check_that_printed_no_line_fails_the_probe_by_name() {
 }
 
 #[test]
-fn the_fixture_says_why_it_could_not_make_a_socket() {
+fn a_fixture_in_a_deep_dir_still_makes_its_socket() {
     let temp = crate::testing::temp_dir();
     let root = temp.path().canonicalize().unwrap();
     // A sockaddr_un holds at most 108 bytes of path.
@@ -102,11 +102,15 @@ fn the_fixture_says_why_it_could_not_make_a_socket() {
     };
     let fixture = fixture::Fixture::make(&args, &programs).unwrap();
     let socket = fixture.unavailable().iter().find(|(check, _)| *check == "unix_socket");
-    assert!(
-        socket.is_some_and(|(_, reason)| reason.starts_with("no Unix socket at ")),
-        "{:?}",
-        fixture.unavailable()
-    );
-    assert!(!fixture.self_test_args().contains(&"--socket".into()));
+    assert_eq!(socket, None, "{:?}", fixture.unavailable());
+    let args = fixture.self_test_args();
+    let at = args.iter().position(|arg| arg == "--socket").unwrap();
+    let path = PathBuf::from(&args[at + 1]);
+    assert!(path.as_os_str().len() > 108, "{}", path.display());
+    // Outside a sandbox the connect works, through the same short path.
+    let (dir, short) = crate::self_test::socket_path(&path).unwrap();
+    assert!(dir.is_some() && short.starts_with("/proc/self/fd/"), "{}", short.display());
+    std::os::unix::net::UnixStream::connect(&short).unwrap();
+    drop(dir);
     fixture.remove();
 }

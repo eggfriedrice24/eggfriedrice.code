@@ -143,9 +143,10 @@ impl Fixture {
         private_dir(&cache_overlay.work)?;
         let mut unavailable = Vec::new();
         let socket = sockets.join("s");
-        // A path too long for a socket leaves out the socket check, and the probe fails
+        // A socket that cannot be made leaves out the socket check, and the probe fails
         // with this reason.
-        let listener = UnixListener::bind(&socket)
+        let listener = crate::self_test::socket_path(&socket)
+            .and_then(|(_dir, path)| UnixListener::bind(path))
             .map_err(|error| {
                 let reason = format!("no Unix socket at {}: {error}", socket.display());
                 unavailable.push(("unix_socket", reason));
