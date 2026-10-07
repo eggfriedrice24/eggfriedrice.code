@@ -62,6 +62,10 @@ pub enum Var {
     /// `EFR_PROMPT`: the prompt that the zsh plugin hands to `efr send` and `efr new`.
     /// Private: see [`Var::PRIVATE`].
     Prompt,
+    /// `EFR_TERMINAL_BG`: `dark` or `light`, the background of the terminal, for
+    /// `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads and
+    /// sets it; the user can set it by hand.
+    TerminalBg,
 }
 
 impl Var {
@@ -83,6 +87,7 @@ impl Var {
         Var::Context,
         Var::LastCommand,
         Var::Prompt,
+        Var::TerminalBg,
     ];
 
     /// The variables that carry what the user typed from the zsh plugin to `efr`.
@@ -118,6 +123,7 @@ impl Var {
             Var::Context => "EFR_CONTEXT",
             Var::LastCommand => "EFR_LAST_COMMAND",
             Var::Prompt => "EFR_PROMPT",
+            Var::TerminalBg => "EFR_TERMINAL_BG",
         }
     }
 }

@@ -86,6 +86,7 @@ table names the same set. An empty value counts as unset.
 | `EFR_CONTEXT` | Private. The shell context JSON that the zsh plugin hands to `efr send` and `efr new`. |
 | `EFR_LAST_COMMAND` | Private. The last command line of the user's shell, from the zsh plugin to `efr send` and `efr new`. |
 | `EFR_PROMPT` | Private. The prompt that the zsh plugin hands to `efr send` and `efr new`. |
+| `EFR_TERMINAL_BG` | `dark` or `light`: the background of the terminal, for `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads (OSC 11) and sets it; set it by hand to skip the question. |
 
 A flag accepts `1`, `true`, `yes` or `on` for on and `0`, `false`, `no` or `off` for
 off, in any letter case. Any other value is an error.
