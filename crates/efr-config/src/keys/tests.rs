@@ -3,33 +3,33 @@ use std::collections::BTreeSet;
 use pretty_assertions::assert_eq;
 use serde_json::Value as Json;
 
-use crate::{Kind, RESTART_KEYS, SCHEMA_URL, json_schema, keys, kind};
+use crate::{COLOR_ROLES, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema, keys, kind};
 
-/// Every dotted key the JSON schema describes: the top-level properties that are not
-/// tables, and the properties of each table.
+/// Every dotted key the JSON schema describes: the properties that are not tables, at
+/// the top level and in each table, however deep.
 fn schema_keys() -> BTreeSet<String> {
     let schema = json_schema();
     let mut found = BTreeSet::new();
-    let properties = schema["properties"].as_object().unwrap();
-    for (name, node) in properties {
-        let table = node
+    add_schema_keys(&schema, &schema, None, &mut found);
+    found
+}
+
+fn add_schema_keys(schema: &Json, node: &Json, prefix: Option<&str>, found: &mut BTreeSet<String>) {
+    for (name, property) in node["properties"].as_object().unwrap() {
+        let key = prefix.map_or_else(|| name.clone(), |prefix| format!("{prefix}.{name}"));
+        let table = property
             .get("$ref")
             .and_then(Json::as_str)
             .and_then(|reference| reference.strip_prefix("#/$defs/"))
             .and_then(|name| schema["$defs"].get(name))
             .filter(|definition| definition.get("properties").is_some());
         match table {
-            Some(definition) => {
-                for key in definition["properties"].as_object().unwrap().keys() {
-                    found.insert(format!("{name}.{key}"));
-                }
-            }
+            Some(definition) => add_schema_keys(schema, definition, Some(&key), found),
             None => {
-                found.insert(name.clone());
+                found.insert(key);
             }
         }
     }
-    found
 }
 
 #[test]
@@ -39,7 +39,20 @@ fn the_keys_start_with_the_top_level_ones_in_the_order_of_the_file() {
     assert_eq!(&keys[..4], ["log", "screen", "model.provider", "model.name"]);
     assert!(keys.contains(&"permissions.rules".to_owned()));
     assert!(keys.contains(&"shell.sudo_cache".to_owned()));
-    assert_eq!(keys.last().map(String::as_str), Some("render.theme"));
+    assert_eq!(keys.last().map(String::as_str), Some("render.colors.diff.hunk"));
+}
+
+#[test]
+fn the_render_keys_hold_one_colour_key_per_role() {
+    let render: Vec<String> = keys().into_iter().filter(|key| key.starts_with("render.")).collect();
+    let mut expected = vec!["render.theme".to_owned(), "render.palette".to_owned()];
+    expected.extend(COLOR_ROLES.iter().map(|role| format!("render.colors.{role}")));
+    assert_eq!(render, expected);
+    for role in COLOR_ROLES {
+        assert_eq!(kind(&format!("render.colors.{role}")), Some(Kind::String), "{role}");
+    }
+    assert_eq!(kind("render.colors"), None);
+    assert_eq!(kind("render.palette"), Some(Kind::String));
 }
 
 #[test]
@@ -65,19 +78,13 @@ fn every_table_of_the_schema_refuses_unknown_keys() {
 
 #[test]
 fn every_key_has_a_description_in_the_schema() {
-    let schema = json_schema();
     for key in keys() {
-        let (table, name) = key.split_once('.').map_or((None, key.as_str()), |(t, n)| (Some(t), n));
-        let node = match table {
-            None => &schema["properties"][name],
-            Some(table) => {
-                let reference = schema["properties"][table]["$ref"].as_str().unwrap();
-                let definition = reference.strip_prefix("#/$defs/").unwrap();
-                &schema["$defs"][definition]["properties"][name]
-            }
-        };
-        assert!(node.get("description").is_some(), "{key} has no description");
+        assert!(description(&key).is_some_and(|text| text.len() > 10), "{key} has no description");
     }
+    assert_eq!(
+        description("render.colors.diff.add").as_deref(),
+        Some("Added lines. Unset: slot 2 (green).")
+    );
 }
 
 #[test]

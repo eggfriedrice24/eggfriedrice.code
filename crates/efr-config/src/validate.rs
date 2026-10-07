@@ -4,7 +4,8 @@
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
-use crate::{PROVIDERS, SandboxSettings, Settings};
+use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
+use crate::{PROVIDERS, RenderColors, SandboxSettings, Settings};
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +115,29 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     if let Some(theme) = &render.theme {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
-    Ok(())
+    if let Some(palette) = &render.palette
+        && !palette.is_absolute()
+        && !palette.starts_with("~")
+    {
+        return Err(invalid(
+            "render.palette",
+            path_text(palette),
+            "an absolute path or a path that starts with ~/",
+        ));
+    }
+    colors(&render.colors, &CONFIG_COLOR_KEYS)
+}
+
+/// Every role of `colors` that is set holds a colour. `keys` names the roles in the
+/// order of `COLOR_ROLES`.
+pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 13]) -> Result<(), Invalid> {
+    match colors.first_invalid() {
+        Some((index, value)) => {
+            let key = keys.get(index).copied().unwrap_or("colors");
+            Err(invalid(key, value.as_toml(), COLOR_EXPECTED))
+        }
+        None => Ok(()),
+    }
 }
 
 /// The checks of `[sandbox]`, in the order of the table.

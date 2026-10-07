@@ -155,6 +155,20 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "sandbox.env_keep",
         "sandbox.export_deny",
         "render.theme",
+        "render.palette",
+        "render.colors.text",
+        "render.colors.muted",
+        "render.colors.accent",
+        "render.colors.heading",
+        "render.colors.link",
+        "render.colors.code",
+        "render.colors.success",
+        "render.colors.warning",
+        "render.colors.error",
+        "render.colors.quote",
+        "render.colors.diff.add",
+        "render.colors.diff.remove",
+        "render.colors.diff.hunk",
     ];
     assert_eq!(samples, expected);
 }

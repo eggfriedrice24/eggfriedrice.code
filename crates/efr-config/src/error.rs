@@ -182,6 +182,44 @@ pub enum ConfigError {
         #[source]
         source: toml_edit::ser::Error,
     },
+    /// The theme file that `render.palette` names could not be read.
+    #[error("could not read the theme file {}", .path.display())]
+    ThemeRead {
+        /// The theme file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+    /// The theme file is not valid TOML, or a key is unknown or holds a value of the
+    /// wrong type.
+    #[error("the theme file {} is not valid", .path.display())]
+    ThemeParse {
+        /// The theme file.
+        path: PathBuf,
+        /// Where the error is, when the parser says.
+        location: Option<Location>,
+        /// The dotted key that holds the error, when one does.
+        key: Option<String>,
+        /// The parser's error.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A value in the theme file is not what its key holds, such as a colour that is
+    /// not one.
+    #[error("the theme value {key} = {value} in {} is not {expected}", .path.display())]
+    ThemeInvalid {
+        /// The theme file.
+        path: PathBuf,
+        /// The dotted key, such as `colors.accent`.
+        key: &'static str,
+        /// The value, as TOML.
+        value: String,
+        /// What the value must be.
+        expected: &'static str,
+        /// Where the value is.
+        location: Option<Location>,
+    },
 }
 
 impl ConfigError {
@@ -191,7 +229,9 @@ impl ConfigError {
             ConfigError::Parse { location, .. }
             | ConfigError::ParseRule { location, .. }
             | ConfigError::InvalidRule { location, .. }
-            | ConfigError::Invalid { location, .. } => *location,
+            | ConfigError::Invalid { location, .. }
+            | ConfigError::ThemeParse { location, .. }
+            | ConfigError::ThemeInvalid { location, .. } => *location,
             _ => None,
         }
     }
@@ -200,13 +240,13 @@ impl ConfigError {
     /// `permissions.rules[2]`, when the error belongs to one key.
     pub fn key(&self) -> Option<String> {
         match self {
-            ConfigError::Parse { key, .. } => key.clone(),
+            ConfigError::Parse { key, .. } | ConfigError::ThemeParse { key, .. } => key.clone(),
             ConfigError::ParseRule { index, .. } | ConfigError::InvalidRule { index, .. } => {
                 Some(format!("permissions.rules[{index}]"))
             }
-            ConfigError::Invalid { key, .. } | ConfigError::NotATable { key } => {
-                Some((*key).to_owned())
-            }
+            ConfigError::Invalid { key, .. }
+            | ConfigError::ThemeInvalid { key, .. }
+            | ConfigError::NotATable { key } => Some((*key).to_owned()),
             ConfigError::NoRule { index, .. } => Some(format!("permissions.rules[{index}]")),
             ConfigError::InvalidOverride { key, .. }
             | ConfigError::InvalidValue { key, .. }
@@ -221,7 +261,9 @@ impl ConfigError {
         let message = match self {
             // NOTE: the parser's Display quotes the file with a caret under the error;
             // the place is in `line` and `column`, so only its message is kept.
-            ConfigError::Parse { source, .. } | ConfigError::ParseRule { source, .. } => {
+            ConfigError::Parse { source, .. }
+            | ConfigError::ParseRule { source, .. }
+            | ConfigError::ThemeParse { source, .. } => {
                 format!("{self}: {}", source.message())
             }
             _ => efr_stdx::with_causes(self),

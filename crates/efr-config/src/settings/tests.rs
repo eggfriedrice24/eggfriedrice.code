@@ -191,6 +191,13 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         ("[conversation]\nupdate_interval_ms = 60001\n", "conversation.update_interval_ms"),
         ("[conversation]\ntty_idle_hours = 9000\n", "conversation.tty_idle_hours"),
         ("[render]\ntheme = \"\"\n", "render.theme"),
+        ("[render]\npalette = \"themes/efr.toml\"\n", "render.palette"),
+        ("[render.colors]\naccent = \"gold\"\n", "render.colors.accent"),
+        ("[render.colors]\nmuted = 16\n", "render.colors.muted"),
+        ("[render.colors]\nlink = \"#12345\"\n", "render.colors.link"),
+        ("[render.colors]\ndiff.add = \"bright-teal\"\n", "render.colors.diff.add"),
+        ("[render.colors.diff]\nhunk = -2\n", "render.colors.diff.hunk"),
+        ("[render]\ncolors = { quote = \"none\" }\n", "render.colors.quote"),
     ];
     for (text, key) in cases {
         let error = parse(text).unwrap_err();
@@ -202,6 +209,40 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         let line = text.lines().count();
         assert_eq!(error.location().map(|at| at.line), Some(u32::try_from(line).unwrap()));
     }
+}
+
+#[test]
+fn colours_of_every_form_are_read_and_their_keys_come_from_the_file() {
+    let text = "[render]\npalette = \"~/theme.toml\"\n\n[render.colors]\ntext = \"#e8e2d4\"\n\
+                muted = 8\naccent = \"yellow\"\ndiff.add = \"bright-green\"\n\
+                diff.hunk = \"6\"\n";
+    let settings = parse(text).unwrap();
+    let colors = settings.render.colors.colors();
+    assert_eq!(colors.len(), 5);
+    assert_eq!(settings.render.palette.as_deref(), Some(Path::new("~/theme.toml")));
+    for key in [
+        "render.palette",
+        "render.colors.text",
+        "render.colors.muted",
+        "render.colors.accent",
+        "render.colors.diff.add",
+        "render.colors.diff.hunk",
+    ] {
+        assert_eq!(settings.source(key), Source::File, "{key}");
+    }
+    assert_eq!(settings.source("render.colors.code"), Source::Default);
+    assert_eq!(settings.source("render.colors"), Source::Default);
+}
+
+#[test]
+fn a_colour_can_be_set_by_an_override_and_is_checked_like_the_file() {
+    let mut settings = parse("").unwrap();
+    let from = Source::Flag("--test");
+    settings.apply_override("render.colors.diff.add", "#00ff00", from.clone()).unwrap();
+    assert_eq!(settings.source("render.colors.diff.add"), from);
+    assert_eq!(settings.render.colors.colors(), [("diff.add", crate::RoleColor::Rgb(0, 255, 0))]);
+    let error = settings.apply_override("render.colors.accent", "gold", from).unwrap_err();
+    assert!(matches!(error, ConfigError::InvalidOverride { .. }), "{error:?}");
 }
 
 #[test]

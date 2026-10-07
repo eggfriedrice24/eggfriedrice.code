@@ -10,9 +10,20 @@ fn the_reference_has_one_row_per_key_in_the_order_of_the_file() {
         .filter(|line| line.starts_with("| `"))
         .map(|line| line.split('`').nth(1).unwrap())
         .collect();
-    let names: Vec<String> =
-        keys().iter().map(|key| key.rsplit('.').next().unwrap().to_owned()).collect();
+    let names: Vec<String> = keys()
+        .iter()
+        .map(|key| key.split_once('.').map_or(key.as_str(), |(_, name)| name).to_owned())
+        .collect();
     assert_eq!(rows, names);
+}
+
+#[test]
+fn the_colour_keys_are_rows_of_the_render_table() {
+    let text = reference().unwrap();
+    let render = text.split("\n## [render]\n").nth(1).unwrap();
+    assert!(render.contains("| `palette` | unset | client |"), "{render}");
+    assert!(render.contains("| `colors.accent` | unset | client |"), "{render}");
+    assert!(render.contains("| `colors.diff.hunk` | unset | client |"), "{render}");
 }
 
 #[test]

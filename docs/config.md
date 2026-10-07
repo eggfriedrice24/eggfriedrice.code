@@ -118,4 +118,18 @@ How `efr` shows replies.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `theme` | unset | client | The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset: the terminal's own 16 colours. |
+| `theme` | unset | client | The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset: the terminal's own 16 colours. A `code_theme` in the palette file wins over it. |
+| `palette` | unset | client | A theme file with a colour for each role (its `[colors]` table) and, as `code_theme`, the path of a `.tmTheme` file for code: an absolute path or `~/...`. Unset: no theme file. |
+| `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |
+| `colors.muted` | unset | client | Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim. |
+| `colors.accent` | unset | client | The spinner and the colour of headings. Unset: slot 3 (yellow). |
+| `colors.heading` | unset | client | Headings of level 1 and 2. Unset: the accent colour. |
+| `colors.link` | unset | client | Links. Unset: slot 4 (blue). |
+| `colors.code` | unset | client | Inline code. Unset: slot 6 (cyan). |
+| `colors.success` | unset | client | Done task boxes and good news. Unset: slot 2 (green). |
+| `colors.warning` | unset | client | Questions and refusals, in bold. Unset: slot 3 (yellow). |
+| `colors.error` | unset | client | Failures. Unset: slot 1 (red). |
+| `colors.quote` | unset | client | The text of a quote, in italic. Unset: the terminal's foreground. |
+| `colors.diff.add` | unset | client | Added lines. Unset: slot 2 (green). |
+| `colors.diff.remove` | unset | client | Removed lines. Unset: slot 1 (red). |
+| `colors.diff.hunk` | unset | client | Hunk headers. Unset: slot 6 (cyan). |

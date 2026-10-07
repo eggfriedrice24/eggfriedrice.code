@@ -16,6 +16,19 @@ Modules:
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
   `validate` when it needs one, and its line in the example.
+- `tables/render`: `[render]` (`RenderSettings`): `theme`, `palette` (the path of a
+  theme file) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
+  `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
+  (`ColorValue`) is `"#rrggbb"`, an ANSI slot from 0 to 15 (a number or one or two
+  digits in a string), or a lowercase name of the 16 colours, also as
+  `bright-<name>`; `ColorValue::color` reads it as a `RoleColor`.
+  `RenderColors::over` lays one layer over another, and `RenderColors::colors` lists
+  the roles that are set.
+- `theme_file`: `ThemeFile`, the theme file that `render.palette` names: a `[colors]`
+  table with the keys of `[render.colors]` and an optional `code_theme`, the path of a
+  `.tmTheme` file (absolute, `~/...`, or relative to the theme file). `ThemeFile::load`
+  reads and checks it like the config file, with its own errors (`ThemeRead`,
+  `ThemeParse`, `ThemeInvalid`) that name the key and the place.
 - `tables/sandbox`: `[sandbox]`, the keys of the `auto` sandbox (phase 1): the write
   roots, caches, masks, floors, environment and export lists, synced folders and the
   surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;
@@ -77,7 +90,12 @@ user's rules. `model.name` and `model.effort` are checked here for their form on
 model list belongs to the provider, so the daemon checks them against it, with a
 warning at start and an `invalid` error for a turn that uses them.
 `render.theme` is checked for a non-empty name only: the theme list lives in
-`efr-render`, which this crate may not depend on, so `efr` checks the name.
+`efr-render`, which this crate may not depend on, so `efr` checks the name. For the
+same reason the role names of `[render.colors]` are listed here and in `efr-render`;
+`efr` turns a `RoleColor` into an `efr_render::Colour`. A role colour that is not a
+colour is an error that names its key, such as `render.colors.accent`. The colours
+apply in this order: `[render.colors]` over the theme file over the 16-colour
+defaults of `efr-render`; the theme file's `code_theme` wins over `render.theme`.
 
 ## Tier
 
@@ -114,4 +132,6 @@ The writer's tests run in temporary directories. Tests keep the example, the JSO
 schema, the key list and the dump equal: the example names every key once with a
 comment, marks exactly the restart keys, holds only defaults as shipped and is valid
 with every line uncommented; the schema covers every key with a description; the dump
-lists every key. No network, no zsh, no Zig.
+lists every key. The colour tests read every form of a role colour, refuse the rest
+with the key, lay the layers in order, and read a hex theme file with a relative
+`code_theme`. No network, no zsh, no Zig.

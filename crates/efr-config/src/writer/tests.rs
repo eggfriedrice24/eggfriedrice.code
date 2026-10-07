@@ -91,6 +91,33 @@ fn a_key_of_a_missing_table_adds_the_table_and_a_top_level_key_stays_on_top() {
 }
 
 #[test]
+fn a_colour_key_adds_its_tables_and_unset_removes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, ORIGINAL);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.set_text("render.colors.accent", "#f2c14e").unwrap();
+    edit.set_text("render.colors.diff.add", "10").unwrap();
+    edit.set_text("render.palette", "~/theme.toml").unwrap();
+    let settings = file.write(&edit).unwrap();
+
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.ends_with("\n[render]\npalette = \"~/theme.toml\"\n\n[render.colors]\naccent = \"#f2c14e\"\ndiff.add = \"10\"\n"), "{text}");
+    assert_eq!(settings.render.colors.colors().len(), 2);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    assert!(edit.unset("render.colors.diff.add").unwrap());
+    assert!(!edit.unset("render.colors.diff.hunk").unwrap());
+    let settings = file.write(&edit).unwrap();
+    assert_eq!(settings.render.colors.colors().len(), 1);
+    let error = file.edit().unwrap().set_text("render.colors", "red").unwrap_err();
+    assert!(matches!(error, ConfigError::UnknownKey { .. }), "{error:?}");
+}
+
+#[test]
 fn the_file_behind_a_symlink_is_written_and_the_link_stays() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("dotfiles").join("efr").join("config.toml");

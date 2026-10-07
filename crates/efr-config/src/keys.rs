@@ -12,8 +12,8 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    ConversationSettings, ModelSettings, OpenAiSettings, PermissionSettings, RenderSettings,
-    SandboxSettings, Settings, ShellSettings,
+    ConversationSettings, DiffColors, ModelSettings, OpenAiSettings, PermissionSettings,
+    RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -21,7 +21,7 @@ use crate::{
 pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json";
 
 /// The keys a change applies to only after the daemon restarts. Every other key of the
-/// daemon applies to the next turn, prompt or tool call; `render.theme` belongs to
+/// daemon applies to the next turn, prompt or tool call; the `render` keys belong to
 /// `efr`.
 pub const RESTART_KEYS: &[&str] = &[
     "screen",
@@ -72,15 +72,25 @@ impl fmt::Display for Kind {
 pub fn keys() -> Vec<String> {
     let mut keys = Vec::new();
     for field in fields::<Settings>() {
-        match table_fields(field) {
-            Some(names) => keys.extend(names.iter().map(|name| format!("{field}.{name}"))),
-            None => keys.push((*field).to_owned()),
-        }
+        add_keys((*field).to_owned(), &mut keys);
     }
     keys
 }
 
-/// The fields of the table named `table`, or `None` for a key outside a table.
+/// Adds `key`, or every key of the table that `key` names.
+fn add_keys(key: String, keys: &mut Vec<String>) {
+    match table_fields(&key) {
+        Some(names) => {
+            for name in names {
+                add_keys(format!("{key}.{name}"), keys);
+            }
+        }
+        None => keys.push(key),
+    }
+}
+
+/// The fields of the table named `table` (a dotted key), or `None` for a key that is
+/// not a table.
 fn table_fields(table: &str) -> Option<&'static [&'static str]> {
     Some(match table {
         "model" => fields::<ModelSettings>(),
@@ -90,8 +100,15 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "conversation" => fields::<ConversationSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
         "render" => fields::<RenderSettings>(),
+        "render.colors" => fields::<RenderColors>(),
+        "render.colors.diff" => fields::<DiffColors>(),
         _ => return None,
     })
+}
+
+/// True when the dotted `key` names a table of keys, such as `render.colors`.
+pub(crate) fn is_table(key: &str) -> bool {
+    table_fields(key).is_some()
 }
 
 /// The JSON schema of the file.

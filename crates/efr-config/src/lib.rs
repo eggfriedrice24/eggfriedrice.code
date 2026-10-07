@@ -3,7 +3,8 @@
 //!
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`SandboxSettings`], [`RenderSettings`]): every key with its default, read with
+//!   [`SandboxSettings`], [`RenderSettings`] with [`RenderColors`] and
+//!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
 //!   an environment variable or a flag over a key.
@@ -15,6 +16,10 @@
 //! - [`reference()`] and [`schema_text`]: `docs/config.md` and `docs/config.schema.json`.
 //! - [`Settings::reloaded`] and [`Reloaded`]: a file read again, laid over the running
 //!   settings, with the keys that need a restart.
+//! - [`RenderColors`], [`ColorValue`] and [`RoleColor`]: the colour of each role of
+//!   `efr` ([`COLOR_ROLES`]), from `[render.colors]` and from a theme file.
+//! - [`ThemeFile`]: the theme file that `render.palette` names: a `[colors]` table and
+//!   an optional `code_theme`, read and checked like the config file.
 //! - [`FileState`]: what is at the file's path, a file, nothing, or a symbolic link.
 //! - [`ConfigFile`] and [`Edit`]: the format-preserving writer, which keeps comments and
 //!   layout, writes the file behind a symlink, refuses a file that changed since it was
@@ -40,6 +45,7 @@ mod reference;
 mod reload;
 mod settings;
 mod tables;
+mod theme_file;
 mod validate;
 mod writer;
 
@@ -51,13 +57,17 @@ pub use keys::{Applies, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema
 pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
+pub use tables::render::{
+    COLOR_ROLES, ColorValue, DiffColors, RenderColors, RenderSettings, RoleColor,
+};
 pub use tables::sandbox::{
     DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
     DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, SandboxSettings, WriteProjects,
 };
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
-    ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings, RenderSettings, ScreenChoice,
-    ShellSettings, SudoCache,
+    ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings, ScreenChoice, ShellSettings,
+    SudoCache,
 };
+pub use theme_file::ThemeFile;
 pub use writer::{ConfigFile, Edit};

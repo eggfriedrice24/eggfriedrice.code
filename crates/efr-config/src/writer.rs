@@ -276,25 +276,30 @@ impl Edit {
     }
 
     /// The table that holds `key` and the key's last part. With `create`, a missing
-    /// table is added at the end of the file.
+    /// table is added at the end of the file; a table below a table below the root,
+    /// such as `diff` of `render.colors.diff.add`, is added as dotted keys.
     fn table_of<'a, 'k>(
         &'a mut self,
         key: &'k str,
         create: bool,
     ) -> Result<(Option<&'a mut dyn TableLike>, &'k str), ConfigError> {
         let unknown = || ConfigError::UnknownKey { key: key.to_owned() };
-        let Some((table, name)) = key.split_once('.') else {
+        let Some((path, name)) = key.rsplit_once('.') else {
             return Ok((Some(self.document.as_table_mut() as &mut dyn TableLike), key));
         };
-        let root = self.document.as_table_mut();
-        if !root.contains_key(table) {
-            if !create {
-                return Ok((None, name));
+        let mut table: &mut dyn TableLike = self.document.as_table_mut();
+        for (depth, part) in path.split('.').enumerate() {
+            if !table.contains_key(part) {
+                if !create {
+                    return Ok((None, name));
+                }
+                let mut new = Table::new();
+                new.set_dotted(depth >= 2);
+                table.insert(part, Item::Table(new));
             }
-            root.insert(table, Item::Table(Table::new()));
+            table = table.get_mut(part).and_then(Item::as_table_like_mut).ok_or_else(unknown)?;
         }
-        let found = root.get_mut(table).and_then(Item::as_table_like_mut).ok_or_else(unknown)?;
-        Ok((Some(found), name))
+        Ok((Some(table), name))
     }
 }
 

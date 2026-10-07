@@ -179,6 +179,46 @@
       },
       "type": "object"
     },
+    "DiffColors": {
+      "additionalProperties": false,
+      "description": "The colours of the lines of a diff: `diff.add`, `diff.remove` and `diff.hunk`.",
+      "properties": {
+        "add": {
+          "description": "Added lines. Unset: slot 2 (green).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "hunk": {
+          "description": "Hunk headers. Unset: slot 6 (cyan).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "remove": {
+          "description": "Removed lines. Unset: slot 1 (red).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Effect": {
       "description": "What happens to a tool call, ordered from the least to the most strict, so the\nstrictest of several effects is their maximum.\n\nThe enum is deliberately exhaustive: the check point in `efr-conversation` must\nhandle every effect, and a new one must not fall into a wildcard arm.",
       "oneOf": [
@@ -357,12 +397,148 @@
       },
       "type": "array"
     },
+    "RenderColors": {
+      "additionalProperties": false,
+      "description": "The colour of each role: `[render.colors]` in `config.toml`, `[colors]` in a theme\nfile. A role that is not set keeps the colour of the layer below it.",
+      "properties": {
+        "accent": {
+          "description": "The spinner and the colour of headings. Unset: slot 3 (yellow).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "code": {
+          "description": "Inline code. Unset: slot 6 (cyan).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "diff": {
+          "$ref": "#/$defs/DiffColors",
+          "default": {},
+          "description": "The lines of a diff."
+        },
+        "error": {
+          "description": "Failures. Unset: slot 1 (red).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "heading": {
+          "description": "Headings of level 1 and 2. Unset: the accent colour.",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "link": {
+          "description": "Links. Unset: slot 4 (blue).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "muted": {
+          "description": "Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim.",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "quote": {
+          "description": "The text of a quote, in italic. Unset: the terminal's foreground.",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "success": {
+          "description": "Done task boxes and good news. Unset: slot 2 (green).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "Prose and plain lines. Unset: the terminal's foreground.",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "warning": {
+          "description": "Questions and refusals, in bold. Unset: slot 3 (yellow).",
+          "maximum": 15,
+          "minimum": 0,
+          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RenderSettings": {
       "additionalProperties": false,
       "description": "`[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it\nso one file serves both.",
       "properties": {
+        "colors": {
+          "$ref": "#/$defs/RenderColors",
+          "default": {
+            "diff": {}
+          },
+          "description": "The colour of each role. A role set here wins over the palette file, and the\npalette file over the terminal's 16 colours."
+        },
+        "palette": {
+          "description": "A theme file with a colour for each role (its `[colors]` table) and, as\n`code_theme`, the path of a `.tmTheme` file for code: an absolute path or\n`~/...`. Unset: no theme file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "theme": {
-          "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours.",
+          "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours. A `code_theme` in the palette file wins over it.",
           "type": [
             "string",
             "null"
@@ -799,7 +975,11 @@
     },
     "render": {
       "$ref": "#/$defs/RenderSettings",
-      "default": {},
+      "default": {
+        "colors": {
+          "diff": {}
+        }
+      },
       "description": "How `efr` shows replies."
     },
     "sandbox": {

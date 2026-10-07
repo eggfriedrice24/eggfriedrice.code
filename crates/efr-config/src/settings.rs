@@ -264,21 +264,29 @@ fn rules(
 fn file_keys(document: &Document<String>) -> Vec<(String, Source)> {
     let mut found = Vec::new();
     for (name, item) in document.as_table().iter() {
-        match item {
-            Item::Table(table) => {
-                for (key, _) in table.iter() {
-                    found.push((format!("{name}.{key}"), Source::File));
-                }
-            }
-            Item::Value(toml_edit::Value::InlineTable(table)) => {
-                for (key, _) in table.iter() {
-                    found.push((format!("{name}.{key}"), Source::File));
-                }
-            }
-            _ => found.push((name.to_owned(), Source::File)),
-        }
+        add_file_keys(name.to_owned(), item, &mut found);
     }
     found
+}
+
+/// Adds `key` when it holds a value, or the keys below it when it is a table of keys
+/// (`[shell]`, `[render.colors]`). A key whose value is itself a table, such as the
+/// rules, counts as one key.
+fn add_file_keys(key: String, item: &Item, found: &mut Vec<(String, Source)>) {
+    let table_of_keys = keys::is_table(&key);
+    match item {
+        Item::Table(table) if table_of_keys => {
+            for (name, inner) in table.iter() {
+                add_file_keys(format!("{key}.{name}"), inner, found);
+            }
+        }
+        Item::Value(toml_edit::Value::InlineTable(table)) if table_of_keys => {
+            for (name, inner) in table.iter() {
+                add_file_keys(format!("{key}.{name}"), &Item::Value(inner.clone()), found);
+            }
+        }
+        _ => found.push((key, Source::File)),
+    }
 }
 
 #[cfg(test)]

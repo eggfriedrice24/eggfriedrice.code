@@ -12,6 +12,7 @@ use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub(crate) mod render;
 pub(crate) mod sandbox;
 
 /// The tracing filter when nothing sets one: lifecycle lines only, as a service.
@@ -247,18 +248,6 @@ impl Default for ConversationSettings {
             tty_idle_hours: 12,
         }
     }
-}
-
-/// `[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it
-/// so one file serves both.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
-pub struct RenderSettings {
-    /// The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:
-    /// the terminal's own 16 colours.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub theme: Option<String>,
 }
 
 /// Reads the rules as anything and keeps none of them: `Settings::parse` reads them

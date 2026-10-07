@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use toml_edit::{Document, Item, Table, Value};
+use toml_edit::{Document, Item, Table, TableLike, Value};
 
 use crate::Location;
 
@@ -35,14 +35,14 @@ pub(crate) fn key_at(document: &Document<String>, offset: usize) -> Option<Strin
 /// The span of the value of the dotted key `key`, such as `shell.login`, or of its table
 /// when the value has no span of its own.
 pub(crate) fn span_of(document: &Document<String>, key: &str) -> Option<Range<usize>> {
-    let mut table = document.as_table();
+    let mut table: &dyn TableLike = document.as_table();
     let mut parts = key.split('.').peekable();
     while let Some(part) = parts.next() {
         let item = table.get(part)?;
         if parts.peek().is_none() {
             return item.span().or_else(|| item.as_table().and_then(Table::span));
         }
-        table = item.as_table()?;
+        table = item.as_table_like()?;
     }
     None
 }

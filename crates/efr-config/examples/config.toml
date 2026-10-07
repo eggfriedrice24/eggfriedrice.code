@@ -187,5 +187,57 @@
 
 [render]
 # The colour theme of code blocks and diffs, such as catppuccin-mocha, gruvbox-dark or
-# nord. Unset: the terminal's own 16 colours. Only efr reads it.
+# nord. Unset: the terminal's own 16 colours. A code_theme in the palette file wins
+# over it. Only efr reads it.
 # theme = "catppuccin-mocha"
+
+# A theme file: a [colors] table with the keys of [render.colors] below and, as
+# code_theme, the path of a .tmTheme file for code (absolute, ~/... or relative to
+# the theme file). The path is absolute or ~/... Unset: no theme file.
+# palette = "~/.config/efr/theme.toml"
+
+[render.colors]
+# The colour of each role: "#rrggbb", an ANSI slot from 0 to 15, or one of the 16
+# names, such as "yellow" or "bright-blue". A role set here wins over the palette file,
+# and the palette file wins over the terminal's 16 colours. Without truecolor, "#rrggbb"
+# shows as the nearest of the 16 colours; with NO_COLOR, no colour shows.
+
+# Prose and plain lines. Unset: the terminal's own foreground.
+# text = "#e8e2d4"
+
+# Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim.
+# muted = 8
+
+# The spinner and the colour of headings. Unset: 3, the terminal's yellow.
+# accent = "yellow"
+
+# Headings of level 1 and 2. Unset: the accent colour.
+# heading = "bright-yellow"
+
+# Links, which are also underlined. Unset: 4, the terminal's blue.
+# link = "blue"
+
+# Inline code. Unset: 6, the terminal's cyan.
+# code = "cyan"
+
+# Done task boxes and good news. Unset: 2, the terminal's green.
+# success = "green"
+
+# Questions and refusals, which are also bold. Unset: 3, the terminal's yellow.
+# warning = "#e8a33d"
+
+# Failures, such as a failed exit code. Unset: 1, the terminal's red.
+# error = "red"
+
+# The text of a quote, which is also italic. Unset: the terminal's own foreground.
+# quote = 7
+
+[render.colors.diff]
+# Added lines of a diff. Unset: 2, the terminal's green.
+# add = "green"
+
+# Removed lines of a diff. Unset: 1, the terminal's red.
+# remove = "red"
+
+# Hunk headers of a diff. Unset: 6, the terminal's cyan.
+# hunk = "cyan"
