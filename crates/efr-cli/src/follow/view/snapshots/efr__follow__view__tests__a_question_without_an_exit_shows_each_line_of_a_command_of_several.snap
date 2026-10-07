@@ -2,7 +2,7 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-shell: cd src (and 3 more lines)
+$ cd src (and 3 more lines)
 approval needed: shell: run 4 lines:
   1  cd src
   2  export RUST_LOG=debug

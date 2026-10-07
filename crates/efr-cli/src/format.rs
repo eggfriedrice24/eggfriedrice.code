@@ -15,11 +15,11 @@ use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError,
     ConversationStatus, ConversationsListResult, EffectiveSettings, Origin, Usage,
 };
-use efr_render::{ColourMode, RenderOptions};
+use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
 use jiff::Timestamp;
 use serde_json::Value;
-use unicode_width::UnicodeWidthChar as _;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 pub(crate) mod sandbox;
 
@@ -27,23 +27,30 @@ pub(crate) mod sandbox;
 /// preference.
 const DETAIL_KEYS: &[&str] = &["command", "cmd", "path", "file", "url", "query"];
 
-/// How one of the CLI's own lines looks.
+/// How a piece of one of the CLI's own lines looks. Every tone but `Plain` and `Bold`
+/// is a colour role of `efr-render`, so the palette decides its colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tone {
-    /// Bold: the user's own prompt.
+    /// As it is: plain fact lines.
+    Plain,
+    /// Bold (SGR 1): the user's own prompt, the keys of a question.
     Bold,
-    /// Dim: notes about the turn.
+    /// The `muted` role: notes about the turn.
     Dim,
-    /// Bold yellow, or bold without colour: something waits for the user.
+    /// The `warning` role: something waits for the user, or needs their care.
     Attention,
+    /// The `error` role: a failure, such as a failed exit code.
+    Failure,
 }
 
 impl Tone {
-    fn sgr(self, colour: ColourMode) -> &'static str {
-        match (self, colour) {
-            (Tone::Bold, _) | (Tone::Attention, ColourMode::None) => "1",
-            (Tone::Dim, _) => "2",
-            (Tone::Attention, _) => "1;33",
+    /// The colour role of the tone, when it has one.
+    fn role(self) -> Option<Role> {
+        match self {
+            Tone::Plain | Tone::Bold => None,
+            Tone::Dim => Some(Role::Muted),
+            Tone::Attention => Some(Role::Warning),
+            Tone::Failure => Some(Role::Error),
         }
     }
 }
@@ -71,12 +78,18 @@ pub(crate) struct Spacing {
 impl Spacing {
     /// What to write before a block of `kind`.
     pub(crate) fn before(&mut self, kind: Block) -> &'static str {
-        let separator = match (self.last, kind) {
-            (None, _) | (Some(Block::Note), Block::Note) => "",
-            _ => "\n",
-        };
+        let separator = self.peek(kind);
         self.last = Some(kind);
         separator
+    }
+
+    /// What [`before`](Self::before) would write before a block of `kind`, for a block
+    /// that shows in the live zone before it is written.
+    pub(crate) fn peek(&self, kind: Block) -> &'static str {
+        match (self.last, kind) {
+            (None, _) | (Some(Block::Note), Block::Note) => "",
+            _ => "\n",
+        }
     }
 }
 
@@ -86,7 +99,33 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
     if !options.is_terminal() || text.is_empty() {
         return text.to_owned();
     }
-    format!("\x1b[{}m{text}\x1b[0m", tone.sgr(options.colour()))
+    match tone.role() {
+        Some(role) => options.paint(role, text),
+        None if tone == Tone::Bold => format!("\x1b[1m{text}\x1b[0m"),
+        None => text.to_owned(),
+    }
+}
+
+/// The line under a question that says which key does what, such as `allow? y = yes,
+/// n = no`: muted, with each key (a word of one character before `=`) in bold.
+pub(crate) fn keys(text: &str, options: &RenderOptions) -> String {
+    let words: Vec<&str> = text.split(' ').collect();
+    let mut out = String::new();
+    let mut muted = String::new();
+    for (at, word) in words.iter().enumerate() {
+        if at > 0 {
+            muted.push(' ');
+        }
+        let key = word.chars().count() == 1 && words.get(at + 1) == Some(&"=");
+        if key {
+            out.push_str(&paint(&std::mem::take(&mut muted), Tone::Dim, options));
+            out.push_str(&paint(word, Tone::Bold, options));
+        } else {
+            muted.push_str(word);
+        }
+    }
+    out.push_str(&paint(&muted, Tone::Dim, options));
+    out
 }
 
 /// `text` on one line and safe to print: newlines and tabs become spaces, other control
@@ -223,13 +262,48 @@ pub(crate) fn code_block(info: &str, body: &str) -> String {
     format!("{fence}{info}\n{body}{newline}{fence}\n")
 }
 
-/// A tool call in one line, such as `shell: ls -la` or `read_file: /etc/hosts`.
+/// A tool call in one line, such as `$ ls -la` or `read /etc/hosts`.
 ///
 /// A command of several lines shows its first line and how many lines follow, such as
-/// `shell: cd src (and 2 more lines)`: lines joined by spaces would look like one
-/// command with more arguments. With `columns`, the line is cut to fit that width, but
-/// never the count of the lines that follow.
-pub(crate) fn tool_call(tool: &str, input: &Value, columns: Option<usize>) -> String {
+/// `$ cd src (and 2 more lines)`: lines joined by spaces would look like one command
+/// with more arguments. With `columns` (and the terminal's way to count widths), the
+/// line is cut to fit that width, but never the count of the lines that follow.
+pub(crate) fn tool_call(
+    tool: &str,
+    input: &Value,
+    columns: Option<(usize, WidthMethod)>,
+) -> String {
+    call_line(tool, input).fit(columns, 0)
+}
+
+/// The width a line is cut to on a terminal, with the terminal's way to count widths;
+/// none when the output is not a terminal.
+pub(crate) fn columns(options: &RenderOptions) -> Option<(usize, WidthMethod)> {
+    options.is_terminal().then(|| (usize::from(options.width()), options.width_method()))
+}
+
+/// The words that name a call of `tool`: `$` for a shell call, `read` and `write` for
+/// the file tools, `settings` for the settings tool, else the tool's name and a colon.
+fn call_name(tool: &str) -> String {
+    match tool {
+        "shell" => "$".to_owned(),
+        "read_file" => "read".to_owned(),
+        "write_file" => "write".to_owned(),
+        "settings" => "settings".to_owned(),
+        other => format!("{}:", one_line(other)),
+    }
+}
+
+/// A tool call's line before it is cut to a width: the name and the first line of
+/// what it does, and how many lines of a command follow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CallLine {
+    head: String,
+    more: String,
+}
+
+/// The line of a call of `tool` with `input`, such as `$ cargo test -p app`.
+pub(crate) fn call_line(tool: &str, input: &Value) -> CallLine {
     let detail = match input {
         Value::Object(members) => DETAIL_KEYS
             .iter()
@@ -239,21 +313,36 @@ pub(crate) fn tool_call(tool: &str, input: &Value, columns: Option<usize>) -> St
         Value::Null => String::new(),
         other => other.to_string(),
     };
-    let tool = one_line(tool);
+    let name = call_name(tool);
     let lines = command_lines(&detail);
     let (first, more) = match lines.split_first() {
         Some((first, rest)) => (command_line(first), rest.len()),
         None => (String::new(), 0),
     };
-    let head = if first.is_empty() { tool } else { format!("{tool}: {first}") };
-    if more == 0 {
-        return head;
-    }
-    let unit = if more == 1 { "line" } else { "lines" };
-    let tail = format!(" (and {more} more {unit})");
-    match columns {
-        Some(columns) => format!("{}{tail}", cut(&head, columns.saturating_sub(width(&tail)))),
-        None => format!("{head}{tail}"),
+    let head = if first.is_empty() {
+        name.trim_end_matches(':').to_owned()
+    } else {
+        format!("{name} {first}")
+    };
+    let more = match more {
+        0 => String::new(),
+        1 => " (and 1 more line)".to_owned(),
+        more => format!(" (and {more} more lines)"),
+    };
+    CallLine { head, more }
+}
+
+impl CallLine {
+    /// The line, cut to `columns` less `reserve` columns that follow it on the same row;
+    /// whole without `columns`. The count of the lines that follow is never cut.
+    pub(crate) fn fit(&self, columns: Option<(usize, WidthMethod)>, reserve: usize) -> String {
+        match columns {
+            Some((columns, method)) => {
+                let room = columns.saturating_sub(reserve + text_width(&self.more, method));
+                format!("{}{}", cut(&self.head, room, method), self.more)
+            }
+            None => format!("{}{}", self.head, self.more),
+        }
     }
 }
 
@@ -316,28 +405,33 @@ pub(crate) fn run_heading(tool: &str, command: &str) -> Vec<String> {
     }
 }
 
-/// `text` cut to `columns` with `…` at the cut; whole when it fits.
-pub(crate) fn cut(text: &str, columns: usize) -> String {
-    if width(text) <= columns {
+/// `text` cut to `columns` with `…` at the cut, as a terminal that counts widths by
+/// `method` shows it; whole when it fits. A grapheme cluster is never cut in two.
+pub(crate) fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
+    if text_width(text, method) <= columns {
         return text.to_owned();
     }
     let mut out = String::new();
     let mut used = 0;
-    for c in text.chars() {
-        let w = c.width().unwrap_or(0);
+    for piece in pieces(text, method) {
+        let w = text_width(piece, method);
         if used + w + 1 > columns {
             break;
         }
-        out.push(c);
+        out.push_str(piece);
         used += w;
     }
     out.push('\u{2026}');
     out
 }
 
-/// How many columns `text` takes on a terminal.
-pub(crate) fn width(text: &str) -> usize {
-    text.chars().map(|c| c.width().unwrap_or(0)).sum()
+/// The pieces a terminal that counts by `method` gives a width each: code points, or
+/// grapheme clusters.
+fn pieces(text: &str, method: WidthMethod) -> Vec<&str> {
+    match method {
+        WidthMethod::Grapheme => text.graphemes(true).collect(),
+        _ => text.split_inclusive(|_| true).collect(),
+    }
 }
 
 /// The end of a tool call worth a line: a failure or a non-zero exit. `None` for a

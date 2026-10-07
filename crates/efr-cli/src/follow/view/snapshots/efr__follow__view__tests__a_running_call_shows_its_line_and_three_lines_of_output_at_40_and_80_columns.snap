@@ -1,0 +1,27 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: "frames.join(\"\\n---\\n\")"
+---
+\e[?25l\e[?2026h\e[33m⠋\e[0m \e[2m$ cargo test -p app --no-fail-fast\e[0m
+\e[2m  │ Running unittests src/lib.rs (targe…\e[0m
+\e[2m  │ test parse::tests::parse_empty ... …\e[0m
+\e[2m  │ test parse::tests::parse_one ... ok\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[4A\e[J\e[33m⠸\e[0m \e[2m$ cargo test -p app --no-fail-fa…\e[0m  \e[2m12s\e[0m
+\e[2m  │ Running unittests src/lib.rs (targe…\e[0m
+\e[2m  │ test parse::tests::parse_empty ... …\e[0m
+\e[2m  │ test parse::tests::parse_one ... ok\e[0m
+\e[?2026l
+---
+\e[?25l\e[?2026h\e[33m⠋\e[0m \e[2m$ cargo test -p app --no-fail-fast\e[0m
+\e[2m  │ Running unittests src/lib.rs (target/debug/deps/app-1234)\e[0m
+\e[2m  │ test parse::tests::parse_empty ... FAILED\e[0m
+\e[2m  │ test parse::tests::parse_one ... ok\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[4A\e[J\e[33m⠸\e[0m \e[2m$ cargo test -p app --no-fail-fast\e[0m  \e[2m12s\e[0m
+\e[2m  │ Running unittests src/lib.rs (target/debug/deps/app-1234)\e[0m
+\e[2m  │ test parse::tests::parse_empty ... FAILED\e[0m
+\e[2m  │ test parse::tests::parse_one ... ok\e[0m
+\e[?2026l

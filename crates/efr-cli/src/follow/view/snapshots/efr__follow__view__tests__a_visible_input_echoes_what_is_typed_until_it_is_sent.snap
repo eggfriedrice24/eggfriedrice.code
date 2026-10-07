@@ -2,7 +2,8 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&typed.out)
 ---
-\e[?2026h\r\e[4A\e[J\e[2m:: Proceed with installation? [Y/n]\e[0m
-\e[1;33mtype the answer and press Enter; the agent sees it if the program shows it\e[0m
+\e[?2026h\r\e[5A\e[J\e[33m•\e[0m \e[2m$ sudo pacman -Syu\e[0m
+\e[2m  │ \e[0m\e[1;33m:: Proceed with installation? [Y/n]\e[0m
+type the answer and press Enter; the agent sees it if the program shows it
 > y
 \e[?2026l

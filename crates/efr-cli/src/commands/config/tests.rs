@@ -116,6 +116,26 @@ fn overrides_name_where_they_come_from() {
 }
 
 #[test]
+fn an_auto_theme_says_which_background_chose_it() {
+    let env = TestEnv::new();
+    let file = "[render]\ntheme = \"auto\"\ntheme_light = \"github\"\n";
+    let shown = |background: Option<&str>| {
+        let settings = Settings::parse_on(Path::new(PATH), Some(file), background);
+        let ctx = Context { dirs: fixed_dirs(), settings, ..env.context() };
+        let text = effective(&ctx, &view(file, not_running()));
+        text.lines().find(|line| line.starts_with("theme = ")).unwrap().to_owned()
+    };
+    assert_eq!(
+        shown(Some("light")),
+        format!("theme = \"github\"  # {PATH}; auto, EFR_TERMINAL_BG is light")
+    );
+    assert_eq!(
+        shown(None),
+        format!("theme = \"catppuccin-mocha\"  # {PATH}; auto, the background is not known")
+    );
+}
+
+#[test]
 fn pipes_no_color_and_problems_are_explained() {
     let env = TestEnv::new();
     let settings = Settings::parse(Path::new(PATH), "[render]\ntheme = \"neon\"\n");
@@ -215,6 +235,30 @@ async fn check_says_ok_or_names_the_place_and_the_key_of_an_error() {
 }
 
 #[tokio::test]
+async fn check_names_a_bad_colour_a_bad_theme_file_and_accepts_auto() {
+    let env = TestEnv::new();
+    let ctx = env.context();
+    let path = env.dirs.config().join("config.toml");
+
+    std::fs::write(&path, "[render]\ntheme = \"auto\"\ntheme_light = \"github\"\n").unwrap();
+    let (exit, stdout, _) = efr(&ctx, &["config", "check"]).await;
+    assert_eq!(exit, Exit::Success, "{stdout}");
+
+    std::fs::write(&path, "[render.colors]\nwarning = \"#12345\"\n").unwrap();
+    let (exit, stdout, _) = efr(&ctx, &["config", "check"]).await;
+    assert_eq!(exit, Exit::Invalid);
+    assert!(stdout.contains("render.colors.warning"), "{stdout}");
+
+    let theme = env.dirs.data().join("theme.toml");
+    std::fs::write(&theme, "[colors]\nmuted = \"grey\"\n").unwrap();
+    std::fs::write(&path, format!("[render]\npalette = {:?}\n", theme.display().to_string()))
+        .unwrap();
+    let (exit, stdout, _) = efr(&ctx, &["config", "check"]).await;
+    assert_eq!(exit, Exit::Invalid);
+    assert!(stdout.contains("render.palette: ") && stdout.contains("colors.muted"), "{stdout}");
+}
+
+#[tokio::test]
 async fn schema_prints_the_json_schema() {
     let env = TestEnv::new();
     let (exit, stdout, _) = efr(&env.context(), &["config", "schema"]).await;
@@ -266,6 +310,9 @@ async fn a_value_the_daemon_would_refuse_is_never_written() {
         (&["config", "set", "conversation.max_queued", "0"][..], "conversation.max_queued"),
         (&["config", "set", "shell.colour", "red"][..], "shell.colour"),
         (&["config", "set", "render.theme", "neon"][..], "\"neon\" does not exist"),
+        (&["config", "set", "render.theme_dark", "auto"][..], "\"auto\" does not exist"),
+        (&["config", "set", "render.colors.accent", "purple"][..], "render.colors.accent"),
+        (&["config", "set", "render.colors.diff.add", "16"][..], "render.colors.diff.add"),
         (&["config", "unset", "permissions.rules"][..], "permissions.rules"),
     ] {
         let (exit, _, stderr) = efr(&ctx, args).await;
@@ -283,6 +330,8 @@ async fn set_writes_the_file_behind_a_link_and_creates_a_missing_one_from_the_ex
 
     let (exit, _, _) = efr(&ctx, &["config", "set", "shell.idle_minutes", "15"]).await;
     assert_eq!(exit, Exit::Success);
+    let (exit, _, stderr) = efr(&ctx, &["config", "set", "render.theme", "auto"]).await;
+    assert_eq!(exit, Exit::Success, "{stderr}");
     let created = std::fs::read_to_string(&path).unwrap();
     assert!(created.starts_with("#:schema "), "{created}");
     assert!(created.contains("idle_minutes = 15"), "{created}");

@@ -8,7 +8,9 @@ use std::fmt;
 use std::io::{self, IsTerminal as _};
 use std::os::fd::AsFd as _;
 
-use efr_render::{ColourMode, RenderOptions, Theme};
+use efr_render::{ColourMode, RenderOptions, WidthMethod};
+
+use crate::settings::Settings;
 
 /// The terminal facts that come from the environment and the standard streams.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -83,22 +85,59 @@ impl TermFacts {
         self.stdout_tty && self.term.as_deref() != Some("dumb")
     }
 
-    /// The options for rendering on a terminal `width` columns wide with `theme`.
-    pub(crate) fn render_options(&self, width: u16, theme: Theme) -> RenderOptions {
+    /// How the terminal counts the width of text: by grapheme cluster in Ghostty
+    /// (mode 2027 is on by default there), by code point everywhere else, also in
+    /// Ghostty behind tmux, which counts widths itself. No query decides it: a query
+    /// needs a reply on stdin, which would take the keys typed ahead for the shell.
+    pub(crate) fn width_method(&self) -> WidthMethod {
+        let ghostty =
+            self.term_program.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("ghostty"));
+        if ghostty && !self.tmux { WidthMethod::Grapheme } else { WidthMethod::CodePoint }
+    }
+
+    /// The options for rendering on a terminal `width` columns wide with the colours,
+    /// the palette and the themes of `settings`.
+    pub(crate) fn render_options(&self, width: u16, settings: &Settings) -> RenderOptions {
         RenderOptions::new(width)
             .with_colour(self.colour())
-            .with_theme(theme)
+            .with_palette(settings.palette.clone())
+            .with_theme(settings.theme)
+            .with_code_theme(settings.code_theme.clone())
+            .with_width_method(self.width_method())
             .with_terminal(self.formats_stdout())
     }
 }
 
 /// `options` for a terminal `width` columns wide; everything else stays.
 pub(crate) fn at_width(options: &RenderOptions, width: u16) -> RenderOptions {
-    RenderOptions::new(width)
-        .with_colour(options.colour())
-        .with_theme(options.theme())
-        .with_hyperlinks(options.hyperlinks())
-        .with_terminal(options.is_terminal())
+    options.clone().with_width(width)
+}
+
+/// The terminal's background, for `render.theme = "auto"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Background {
+    Dark,
+    Light,
+}
+
+impl Background {
+    /// The background that `EFR_TERMINAL_BG` names, `dark` or `light` in any letter
+    /// case; the value itself when it names neither.
+    pub(crate) fn from_name(value: &str) -> Result<Background, String> {
+        match value.trim() {
+            name if name.eq_ignore_ascii_case("dark") => Ok(Background::Dark),
+            name if name.eq_ignore_ascii_case("light") => Ok(Background::Light),
+            _ => Err(value.to_owned()),
+        }
+    }
+
+    /// The name, as `EFR_TERMINAL_BG` writes it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Background::Dark => "dark",
+            Background::Light => "light",
+        }
+    }
 }
 
 /// A terminal size in character cells. Zero means unknown.

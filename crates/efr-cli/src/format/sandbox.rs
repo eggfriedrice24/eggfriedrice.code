@@ -356,10 +356,10 @@ fn kind_part(
 }
 
 /// A program word with the path it resolves to, and the untrusted mark when the
-/// sandbox wrote it or may have.
-fn program(program: &ProgramFact, home: Option<&Path>) -> (String, bool) {
+/// sandbox wrote it or may have, such as ` in a write root (untrusted: ...)`.
+fn program(program: &ProgramFact, home: Option<&Path>) -> (String, Option<String>) {
     let word = one_line(&program.word);
-    let mut text = match &program.resolved {
+    let text = match &program.resolved {
         Some(resolved) if resolved.is_absolute() => format!("{word} {}", tilde(resolved, home)),
         // A builtin, a function or an alias of the user's shell.
         Some(resolved) => format!("{word} ({})", tilde(resolved, home)),
@@ -372,11 +372,8 @@ fn program(program: &ProgramFact, home: Option<&Path>) -> (String, bool) {
     if program.changed_this_turn {
         marks.push("changed this turn");
     }
-    let untrusted = !marks.is_empty();
-    if untrusted {
-        let _ = write!(text, " {} ({UNTRUSTED})", marks.join(", "));
-    }
-    (text, untrusted)
+    let mark = (!marks.is_empty()).then(|| format!(" {} ({UNTRUSTED})", marks.join(", ")));
+    (text, mark)
 }
 
 /// The heading of an exit's approval: the whole line from the record, so nothing of it
@@ -392,14 +389,16 @@ pub(crate) fn exit_heading(record: Option<&ExitRecord>) -> Option<Vec<String>> {
 }
 
 /// The lines that an approval question for an exit shows between its heading and the
-/// question, each with its tone: what leaves the sandbox and how the call runs after a
-/// "yes", the full-rights warning of an unsandboxed run, every program word of such a
-/// run, efr's own facts, and the model's reason, labelled as the model's.
+/// question, each as pieces with their tone: what leaves the sandbox and how the call
+/// runs after a "yes" (plain), the full-rights warning of an unsandboxed run (in the
+/// warning role), every program word of such a run (plain, with the untrusted mark in
+/// the warning role), efr's own facts, and the model's reason, labelled as the model's
+/// (muted). Only the facts that matter most stand out.
 pub(crate) fn exit_lines(
     info: &ExitInfo,
     record: Option<&ExitRecord>,
     home: Option<&Path>,
-) -> Vec<(String, Tone)> {
+) -> Vec<Vec<(String, Tone)>> {
     let mut parts: Vec<String> = Vec::new();
     for kind in &info.kinds {
         let part = kind_part(*kind, info, record, home);
@@ -416,17 +415,20 @@ pub(crate) fn exit_lines(
     } else {
         format!("leaves the sandbox: {}; {}", parts.join("; "), launch_words(info, home))
     };
-    let mut lines = vec![(first, Tone::Attention)];
+    let mut lines = vec![vec![(first, Tone::Plain)]];
     if unsandboxed {
-        lines.push((FULL_RIGHTS.to_owned(), Tone::Attention));
-        let programs: Vec<(String, bool)> = record
+        lines.push(vec![(FULL_RIGHTS.to_owned(), Tone::Attention)]);
+        let programs: Vec<(String, Option<String>)> = record
             .map(|record| record.facts.programs.iter().map(|p| program(p, home)).collect())
             .unwrap_or_default();
         if !programs.is_empty() {
-            let untrusted = programs.iter().any(|(_, untrusted)| *untrusted);
-            let text: Vec<&str> = programs.iter().map(|(text, _)| text.as_str()).collect();
-            let tone = if untrusted { Tone::Attention } else { Tone::Dim };
-            lines.push((format!("programs: {}", text.join("; ")), tone));
+            let mut line = vec![("programs: ".to_owned(), Tone::Plain)];
+            for (at, (text, mark)) in programs.into_iter().enumerate() {
+                let separator = if at == 0 { "" } else { "; " };
+                line.push((format!("{separator}{text}"), Tone::Plain));
+                line.extend(mark.map(|mark| (mark, Tone::Attention)));
+            }
+            lines.push(line);
         }
     }
     let mut facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
@@ -434,10 +436,10 @@ pub(crate) fn exit_lines(
         facts.push("only you can allow this".to_owned());
     }
     if !facts.is_empty() {
-        lines.push((format!("efr: {}", facts.join("; ")), Tone::Dim));
+        lines.push(vec![(format!("efr: {}", facts.join("; ")), Tone::Dim)]);
     }
     if let Some(reason) = &info.model_reason {
-        lines.push((format!("the model says: \"{}\"", one_line(reason)), Tone::Dim));
+        lines.push(vec![(format!("the model says: \"{}\"", one_line(reason)), Tone::Dim)]);
     }
     lines
 }
@@ -449,8 +451,10 @@ pub(crate) fn exit_summary(
     record: Option<&ExitRecord>,
     home: Option<&Path>,
 ) -> String {
-    let lines: Vec<String> =
-        exit_lines(info, record, home).into_iter().map(|(text, _)| text).collect();
+    let lines: Vec<String> = exit_lines(info, record, home)
+        .into_iter()
+        .map(|line| line.into_iter().map(|(text, _)| text).collect())
+        .collect();
     lines.join("; ")
 }
 

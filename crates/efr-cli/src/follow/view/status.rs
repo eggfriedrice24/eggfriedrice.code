@@ -172,15 +172,18 @@ impl Status {
     /// newline.
     pub(crate) fn row(&self, now: Timestamp, options: &RenderOptions) -> String {
         let ticks = self.shown.map_or(0, |shown| ticks(since_then(shown, now)));
-        let spinner = if self.motion { SPINNER[ticks % SPINNER.len()] } else { STILL };
+        let spinner = spinner(self.motion, ticks);
         let silence = self.data.map_or(Duration::ZERO, |data| since_then(data, now));
         let elapsed = self.elapsed(now);
         let suffix = (elapsed >= SHOW_ELAPSED).then(|| format::elapsed(elapsed));
         let columns = usize::from(options.width());
         // The spinner, a space, and the time after two spaces.
         let room = columns.saturating_sub(2 + suffix.as_ref().map_or(0, |time| time.len() + 2));
-        let words =
-            if room == 0 { String::new() } else { format::cut(&self.state.words(silence), room) };
+        let words = if room == 0 {
+            String::new()
+        } else {
+            format::cut(&self.state.words(silence), room, options.width_method())
+        };
         let mut row = options.paint(Role::Accent, &spinner.to_string());
         if !words.is_empty() {
             row.push(' ');
@@ -194,6 +197,19 @@ impl Status {
         row.push('\n');
         row
     }
+}
+
+impl Status {
+    /// The frame of the spinner at `now`, which a running call's line shows in place of
+    /// the row.
+    pub(crate) fn spinner(&self, now: Timestamp) -> char {
+        spinner(self.motion, self.shown.map_or(0, |shown| ticks(since_then(shown, now))))
+    }
+}
+
+/// The frame of the spinner at tick `ticks`, or the still dot without `motion`.
+pub(crate) fn spinner(motion: bool, ticks: usize) -> char {
+    if motion { SPINNER[ticks % SPINNER.len()] } else { STILL }
 }
 
 /// The time from `then` to `now`; zero when `now` is earlier.

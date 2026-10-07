@@ -2,15 +2,19 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: shown
 ---
-\e[?2026h\e[2mshell: sudo pacman -Syu\e[0m
+\e[?2026h\e[33m•\e[0m \e[2m$ sudo pacman -Syu\e[0m
 \e[?2026l
 ---
-\e[?2026h\e[2mcore is up to date\e[0m
+\e[?2026h\r\e[1A\e[J\e[33m•\e[0m \e[2m$ sudo pacman -Syu\e[0m
+\e[2m  │ :: Synchronizing package databases.…\e[0m
+\e[2m  │ core is up to date\e[0m
 \e[?2026l
 ---
 
 ---
-\e[?2026h\r\e[1A\e[J\e[2mパッケージを取得しています。お待ちくだ…\e[0m
+\e[?2026h\r\e[3A\e[J\e[33m•\e[0m \e[2m$ sudo pacman -Syu\e[0m
+\e[2m  │ パッケージを取得しています。お待ち…\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[?2026l
+\e[?2026h\r\e[2A\e[J\e[2m$ sudo pacman -Syu\e[0m
+\e[?2026l

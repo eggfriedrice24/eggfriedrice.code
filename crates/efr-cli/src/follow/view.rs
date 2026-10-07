@@ -5,8 +5,9 @@
 //!
 //! On a terminal, assistant messages stream through an `efr_render::Renderer`: its
 //! committed output is written once and its live zone is redrawn in place through a
-//! [`LiveZone`]. Notes (tool calls, answers, the end of the turn) are dim lines between
-//! the messages, and a pending approval question sits below the live zone. When stdout
+//! [`LiveZone`]. Notes (tool calls, answers, the end of the turn) are muted lines
+//! between the messages, and a pending approval question sits below the live zone. Every
+//! colour goes through a role of the palette in the render options. When stdout
 //! is not a terminal, the messages are written as raw markdown and everything else
 //! goes to stderr, so stdout holds the reply alone.
 //!
@@ -16,9 +17,12 @@
 //! answered. This client tells the daemon that a person here can answer, so it must
 //! ask for the running turn's input as well.
 //!
-//! While a tool call runs, the last line of its output with text in it sits dim in the
-//! live zone, cut to the width, and goes when the call completes; it is never
-//! committed. When the call's command waits for input and keys can be read, the view
+//! While a tool call of this turn runs on a terminal, its line (`call`) sits in the live
+//! zone with the spinner and its time, in place of the status row, and the last three
+//! lines of its output with text in them follow, muted and cut to the width. When the
+//! call ends, one line is written once in its place, with the exit code of a failure,
+//! and a failed call keeps its last lines of output. When the call's command waits for
+//! input and keys can be read, the view
 //! asks for an answer line below it: a hidden answer (a password) never reaches the
 //! view at all, and a visible one is echoed here as the user types it, unless its
 //! prompt looks like a password prompt behind another program (`looks_secret`).
@@ -72,6 +76,7 @@
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 
+mod call;
 mod message;
 mod status;
 
@@ -91,8 +96,9 @@ use crate::format::{self, Block, Spacing, Tone, sandbox};
 use crate::live::{LiveZone, Measured, effective_width};
 use crate::progress;
 use crate::terminal::{Size, at_width};
+use call::{Call, Outcome};
 use message::Message;
-use status::{State, Status};
+use status::{State, Status, spinner};
 
 pub(crate) use status::TICK;
 
@@ -267,6 +273,8 @@ struct Running {
     call_id: CallId,
     /// The last line of its output with text in it.
     tail: String,
+    /// The last lines of its output with text in them, at most `call::TAIL_LINES`.
+    lines: Vec<String>,
     /// What its command waits for, as the daemon said last.
     wait: InputWait,
     /// The answer the user is being asked for now, if any.
@@ -291,6 +299,7 @@ impl Running {
         Running {
             call_id,
             tail: String::new(),
+            lines: Vec::new(),
             wait: InputWait::None,
             asking: None,
             guarding: false,
@@ -359,6 +368,9 @@ pub(crate) struct TurnView {
     refused: HashSet<CallId>,
     /// The tool call that runs, once its output or an input wait arrived.
     running: Option<Running>,
+    /// The tool call of this turn from its start to its end, whose line shows in the
+    /// live zone while it runs, on a terminal.
+    call: Option<Call>,
     /// When stdout is not a terminal: stderr's last line is the echo of a visible answer
     /// (`> ` and what is typed), without its newline.
     echo_line: bool,
@@ -417,11 +429,11 @@ impl TurnView {
     pub(crate) fn new(turn: TurnId, options: RenderOptions) -> TurnView {
         TurnView {
             turn,
+            live: LiveZone::new(options.width_method()),
             options,
             message: None,
             next_index: 0,
             tools: HashMap::new(),
-            live: LiveZone::default(),
             spacing: Spacing::default(),
             raw_messages: 0,
             asking: None,
@@ -430,6 +442,7 @@ impl TurnView {
             blocking: HashSet::new(),
             refused: HashSet::new(),
             running: None,
+            call: None,
             echo_line: false,
             interactive: HashSet::new(),
             retained: None,
@@ -602,14 +615,21 @@ impl TurnView {
         }
         let committed = std::mem::take(&mut self.pending);
         self.dirty = false;
-        let (body, measured) = self.live_body(size);
+        let call_shown = self.call_shown();
+        if call_shown && let Some(call) = &mut self.call {
+            call.show(now);
+        }
         let asking = self.waits_for_user();
+        if let Some(status) = &mut self.status
+            && !self.ended
+        {
+            status.at(now, asking);
+        }
+        let (body, measured) = self.live_body(size, now);
         let options = self.options_at(size);
-        let row = match &mut self.status {
-            Some(status) if !self.ended => {
-                status.at(now, asking);
-                if asking { String::new() } else { status.row(now, &options) }
-            }
+        // A running call's line carries the spinner instead of the row.
+        let row = match &self.status {
+            Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
             _ => String::new(),
         };
         let hide = self.ticks() && !asking;
@@ -694,9 +714,13 @@ impl TurnView {
         at_width(&self.options, effective_width(size))
     }
 
-    /// The width a note is cut to, on a terminal; none otherwise.
-    fn columns(&self, size: Size) -> Option<usize> {
-        self.terminal().then(|| usize::from(self.options_at(size).width()))
+    /// True when the live zone shows the line of the running call of this turn: it
+    /// runs, no question about it or another waits, and the view did not end.
+    fn call_shown(&self) -> bool {
+        self.call.as_ref().is_some_and(|call| {
+            !call.awaiting && !self.refused.contains(&call.call_id) && !self.question_pending()
+        }) && self.terminal()
+            && !self.ended
     }
 
     /// Takes one event of the conversation. Events of other turns change nothing,
@@ -719,6 +743,7 @@ impl TurnView {
                 self.in_project = matches!(scope, Scope::Project(_));
                 // A call or a question of the turn ahead that is still shown or kept is
                 // over now.
+                self.call = None;
                 let retained = self.retained.take().is_some();
                 let surface = self.surface.take().is_some();
                 let mut step = match self.running.take() {
@@ -770,9 +795,16 @@ impl TurnView {
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                let columns = self.columns(size);
-                let line = format::tool_call(tool, input, columns);
-                let mut step = self.note_after(before, &line, size);
+                // On a terminal the call's line shows in the live zone while it runs and
+                // is written once when it ends; elsewhere a note says that it starts.
+                let mut step = if self.terminal() {
+                    let line = format::call_line(tool, input);
+                    self.call = Some(Call::new(*call_id, line, self.event_at));
+                    self.commit(before)
+                } else {
+                    let line = format::tool_call(tool, input, None);
+                    self.note_after(before, &line, size)
+                };
                 // One line per turn says that the sandbox is on, then nothing new.
                 if contained && !self.traced {
                     self.traced = true;
@@ -793,6 +825,7 @@ impl TurnView {
             }
             Event::ToolCallCompleted {
                 call_id,
+                output,
                 is_error,
                 exit_code,
                 sandbox: summary,
@@ -800,20 +833,51 @@ impl TurnView {
                 ..
             } => {
                 self.state(State::Model);
+                let lines = match &self.running {
+                    Some(running) if running.call_id == *call_id && !running.lines.is_empty() => {
+                        running.lines.clone()
+                    }
+                    _ => call::output_lines(output),
+                };
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.remove(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
-                // A setup failure has its own line; the call's status says nothing more.
-                // A refused call never ran, in the sandbox or out of it.
-                let line = match refusal {
-                    Some(reason) => Some(format::refused(tool, reason)),
-                    None => format::tool_result(tool, *is_error, *exit_code)
-                        .filter(|_| !self.refused.contains(call_id) && setup.is_none())
-                        .map(|line| if contained { format!("{line} (sandbox)") } else { line }),
-                };
-                let mut notes: Vec<String> = line.into_iter().collect();
+                let denied = self.refused.contains(call_id);
+                let mut notes: Vec<String> = Vec::new();
+                match self.call.take().filter(|call| call.call_id == *call_id) {
+                    // A denied call never ran: its question and the answer said it all.
+                    Some(_) if denied && refusal.is_none() => {}
+                    Some(call) => {
+                        let outcome = match (refusal, setup, *exit_code) {
+                            (Some(reason), _, _) => Outcome::Refused(reason),
+                            // A setup failure has its own line below.
+                            (None, Some(_), _) => Outcome::Ran,
+                            (None, None, Some(code)) if code != 0 => {
+                                Outcome::Exited { code, contained }
+                            }
+                            (None, None, None) if *is_error => Outcome::Failed { contained },
+                            _ => Outcome::Ran,
+                        };
+                        self.call_line(&call, outcome, &lines, size);
+                    }
+                    None => {
+                        // A setup failure has its own line; the call's status says
+                        // nothing more. A refused call never ran, in the sandbox or out
+                        // of it.
+                        let line =
+                            match refusal {
+                                Some(reason) => Some(format::refused(tool, reason)),
+                                None => format::tool_result(tool, *is_error, *exit_code)
+                                    .filter(|_| !denied && setup.is_none())
+                                    .map(|line| {
+                                        if contained { format!("{line} (sandbox)") } else { line }
+                                    }),
+                            };
+                        notes.extend(line);
+                    }
+                }
                 notes.extend(sandbox::setup_failed(setup));
                 if let Some(summary) = summary {
                     notes.extend(summary.blocked.iter().map(sandbox::blocked));
@@ -832,6 +896,9 @@ impl TurnView {
             } => {
                 if *interactive {
                     self.interactive.insert(*call_id);
+                }
+                if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
+                    call.awaiting = true;
                 }
                 if !can_ask {
                     self.state(State::Answer);
@@ -860,6 +927,9 @@ impl TurnView {
                 self.dim_block(&sandbox::surface_report(files), size)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. } => {
+                if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
+                    call.approved(self.event_at);
+                }
                 self.answer_came(*call_id);
                 self.resolved(*call_id, *decision, *origin, size)
             }
@@ -1026,8 +1096,7 @@ impl TurnView {
         let mut text = format::paint(sandbox::SURFACE_QUESTION, Tone::Attention, &options);
         text.push('\n');
         for change in changes {
-            let line = sandbox::surface_change(change, self.home.as_deref());
-            text.push_str(&format::paint(&line, Tone::Attention, &options));
+            text.push_str(&sandbox::surface_change(change, self.home.as_deref()));
             text.push('\n');
         }
         let mut step = Step { out: before, ..Step::default() };
@@ -1124,6 +1193,7 @@ impl TurnView {
     fn output(&mut self, call_id: CallId, tail: &str) -> Step {
         let (running, settled) = self.running(call_id);
         running.tail = last_line(tail);
+        running.lines = call::last_lines(tail);
         running.stirred();
         Step { settled, ..self.commit(String::new()) }
     }
@@ -1414,6 +1484,9 @@ impl TurnView {
         if decision == ApprovalDecision::Deny {
             self.refused.insert(call_id);
         }
+        if let Some(call) = self.call.as_mut().filter(|call| call.call_id == call_id) {
+            call.approved(None);
+        }
         let step = self.note(format::decision(decision), size);
         if decision == ApprovalDecision::Allow && self.interactive.contains(&call_id) {
             self.retained = Some(call_id);
@@ -1428,6 +1501,7 @@ impl TurnView {
         self.asking = None;
         self.surface = None;
         self.running = None;
+        self.call = None;
         self.retained = None;
         self.ended = true;
         self.end_progress.get_or_insert(progress::CLEAR);
@@ -1537,12 +1611,14 @@ impl TurnView {
             text.push('\n');
         }
         if let Some(asking) = asking {
-            text.push_str(&format::paint(&asking, Tone::Attention, &options));
+            text.push_str(&asking);
             text.push('\n');
         }
         if let Some(exit) = request.exit {
-            for (line, tone) in sandbox::exit_lines(exit, record, self.home.as_deref()) {
-                text.push_str(&format::paint(&line, tone, &options));
+            for line in sandbox::exit_lines(exit, record, self.home.as_deref()) {
+                for (piece, tone) in &line {
+                    text.push_str(&format::paint(piece, *tone, &options));
+                }
                 text.push('\n');
             }
         }
@@ -1635,10 +1711,22 @@ impl TurnView {
         self.dirty = true;
     }
 
-    /// The live zone above the status row: the current message's live text, the
-    /// running call's tail and the input it waits for, then the question when one is
-    /// pending.
-    fn live_body(&self, size: Size) -> (String, Option<Measured>) {
+    /// The line of call `call`, which ended as `outcome` at the time of the event
+    /// being taken, written once; a failed call keeps `lines`, the last of its output.
+    fn call_line(&mut self, call: &Call, outcome: Outcome<'_>, lines: &[String], size: Size) {
+        let options = self.options_at(size);
+        let mut committed = self.spacing.before(Block::Note).to_owned();
+        committed.push_str(&call.ended(self.event_at, outcome, &options));
+        if outcome.failed() {
+            committed.push_str(&call::tail(lines, false, &options));
+        }
+        self.stage(&committed);
+    }
+
+    /// The live zone above the status row at `now`: the current message's live text,
+    /// the running call's line, the last lines of its output and the input it waits
+    /// for, then the question when one is pending.
+    fn live_body(&self, size: Size, now: Timestamp) -> (String, Option<Measured>) {
         let (mut live, mut measured) = match &self.message {
             Some(message) => {
                 let (live, measured) = message.live();
@@ -1646,14 +1734,22 @@ impl TurnView {
             }
             None => (String::new(), None),
         };
+        let options = self.options_at(size);
+        let before = live.len();
+        if self.call_shown()
+            && let Some(call) = &self.call
+        {
+            live.push_str(self.spacing.peek(Block::Note));
+            let spinner = match &self.status {
+                Some(status) => status.spinner(now),
+                None => spinner(self.look.motion, 0),
+            };
+            live.push_str(&call.running(spinner, now, &options));
+        }
         if let Some(running) = &self.running {
-            let options = self.options_at(size);
-            let before = live.len();
-            if !running.tail.is_empty() {
-                live.push_str(&render_trace(&format::one_line(&running.tail), &options));
-            }
+            live.push_str(&call::tail(&running.lines, running.asking.is_some(), &options));
             if let Some(kind) = running.asking {
-                live.push_str(&format::paint(kind.line(), Tone::Attention, &options));
+                live.push_str(&format::paint(kind.line(), Tone::Plain, &options));
                 live.push('\n');
                 if kind.shown() {
                     live.push_str(ECHO_PREFIX);
@@ -1664,9 +1760,9 @@ impl TurnView {
                 live.push_str(&format::paint(SILENCE_HINT, Tone::Dim, &options));
                 live.push('\n');
             }
-            if live.len() != before {
-                measured = None;
-            }
+        }
+        if live.len() != before {
+            measured = None;
         }
         let question = if self.asking.is_some() {
             Some(QUESTION)
@@ -1676,8 +1772,7 @@ impl TurnView {
             None
         };
         if let Some(question) = question {
-            let options = self.options_at(size);
-            live.push_str(&format::paint(question, Tone::Dim, &options));
+            live.push_str(&format::keys(question, &options));
             live.push('\n');
             measured = None;
         }

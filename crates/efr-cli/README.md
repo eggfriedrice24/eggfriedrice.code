@@ -20,8 +20,8 @@ state and never writes the daemon's database or credentials.
 | `efr sandbox check` | `admin.sandbox_check` | the daemon runs its sandbox probe now; one line per check (`ok`, `warn`, `fail` with its fix, `skip`), the warnings, the launch cost, then `auto: ready` or `auto: unavailable: <reason>`; exit 1 when it is unavailable |
 | `efr sandbox explain PATH` | `sandbox.explain` (read scope) | whether a contained command can read and write PATH (relative to the current directory, which also picks the project), and why: `read yes`, `write no: a shell startup file (floor); a write is a persistence exit, user only` |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
-| `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
-| `efr config check [path]` | none | the file checked with the daemon's schema and the theme names; an error names its line, column and key; exit 0 or 1 |
+| `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (the theme, and for `auto` the background that chose it, the code theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
+| `efr config check [path]` | none | the file checked with the daemon's schema, the theme names, the theme file of `render.palette` and its code theme; an error names its line, column and key; exit 0 or 1 |
 | `efr config edit` | `admin.config_reload` | creates a missing file from the commented example (never through a link to nothing), runs `$VISUAL`, else `$EDITOR`, else `vi` (through `sh`, so an editor with arguments works) on the file behind a link when `config.toml` is one, so an editor that saves by replacing the file keeps the link, checks the file, offers to edit again on an error when stdin is a terminal, then asks the daemon to reload |
 | `efr config set <key> <value>`, `efr config unset <key>` | `admin.config_reload` | one scalar or list key through `efr-config`'s writer: comments and layout stay, a link stays and its target is written, a value the daemon would refuse is never written; then a reload |
 | `efr config schema` | none | the JSON schema of `config.toml` |
@@ -106,8 +106,9 @@ Replies:
   `1h 02m 05s`). The states: `waiting for the running turn` (a queued prompt),
   `waiting for the model`, `thinking` or `thinking: <title>` (a reasoning draft, with
   the newest bold title of the reasoning), `writing`, `preparing <tool>, 3.2 KB` (a
-  tool input draft, the newest call of the answer), `running <tool>` (a tool call),
-  `waiting for an answer` (an approval that another client must answer), and, after
+  tool input draft, the newest call of the answer), `running <tool>` (a call of the
+  running turn that a queued prompt waits behind), `waiting for an answer` (an approval
+  that another client must answer), and, after
   20 s without an event or a draft while it waits for the model or writes,
   `waiting for the model, no data for 25s`. A band of three characters at normal
   intensity (SGR 22) moves over the dim state one character per tick, then rests for a
@@ -133,14 +134,30 @@ Replies:
   (`TMUX`); other terminals read OSC 9 as a notification. `on` sends it whenever stdout
   is a terminal, `off` never. No query decides any of this: a query needs a reply on
   stdin, which would take the keys typed ahead for the shell.
-  Tool calls, answers and the end of a turn are dim notes, one line each. A command
-  of several lines never shows its lines joined: its note is the first line and how
-  many follow, such as `shell: cd src (and 3 more lines)`, and a cut to the width
-  keeps that count. A call that efr refused before it ran (`tool_call_completed` with
-  a `refusal`) ends `shell refused: efr's config (floor)` instead of `shell failed`. While a tool
-  call runs, the last line of its output with text in it (from `tool_call_output_updated`)
-  sits dim in the live zone, cut to the width; it goes when the call completes and is
-  never committed.
+- A tool call is named by what it does: `$ cargo test` for a shell call, `read
+  src/main.rs` and `write src/main.rs` for the file tools, `settings ...` for the
+  settings tool, `<tool>: <detail>` for any other. A command of several lines never
+  shows its lines joined: the line is its first line and how many follow, such as
+  `$ cd src (and 3 more lines)`, and a cut to the width keeps that count.
+- On a terminal, a call of the followed turn shows in the live zone while it runs: the
+  spinner (accent), the call (muted) and from 1 s on how long it has run, such as
+  `⠹ $ cargo test -p app  12s`, then the last three lines of its output with text in
+  them (from `tool_call_output_updated`), each after `  │ `, muted and cut to the
+  width. The status row hides meanwhile, because the call's line carries the spinner.
+  A call whose approval waits shows nothing until the answer, and its time counts
+  from the answer. When the call ends, one muted line is written once in place of the
+  live lines: `$ cargo test -p app  6.2s`, with `exit 101` (or `failed`) in the
+  `error` role when it failed, `(sandbox)` after the code of a failed contained call,
+  and `refused: efr's config (floor)` in the `warning` role when efr refused it before
+  it ran (`tool_call_completed` with a `refusal`). The time shows for a call of 1 s or
+  more. A failed call keeps the last three lines of its output below its line (from
+  the last `tool_call_output_updated`, else from the output that the model got, without
+  efr's own notes in brackets at its end); a call that went well keeps none. A call
+  that the user denied, or whose approval expired, writes no line of its own. Lines of
+  consecutive calls have no blank line between them. Answers and the end of a turn are
+  muted notes, one line each. When stdout is not a terminal, a call is one note on
+  stderr when it starts, such as `$ make`, and one more when it fails, such as `shell
+  exited with 2`.
 - An approval question shows the daemon's summary on one line and, when the daemon
   named the simple commands of a long line that ask, a second line
   `asks for: hostnamectl, systemctl --failed`. A shell call whose command has several
@@ -148,32 +165,38 @@ Replies:
   commands never look like one with more arguments; the whole command shows, and a
   terminal wraps a long line. This needs a summary that quotes exactly the command of
   the call's `tool_call_started` (what the summary says after it follows after
-  `also:`); any other summary shows as before. Only a last line of plain names counts
+  `also:`); any other summary shows as before. The heading is in the `warning` role,
+  the rest is plain. Only a last line of plain names counts
   as that line; anything else stays on the first line. `efr history` joins both with
   `; `, as the daemon's notices do.
 - The `auto` sandbox (`docs/sandbox.md`). The first call of a turn that runs in the
   sandbox (`tool_call_started` with a contained `launch`) gets one dim line,
   `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, and a failed
-  contained call ends `shell exited with N (sandbox)`. A call's `sandbox` summary adds
+  contained call ends `$ make  exit 2 (sandbox)` (`shell exited with 2 (sandbox)` when
+  stdout is not a terminal). A call's `sandbox` summary adds
   `network: blocked <host>:<port> (<reason>)` and the background jobs that stopped. A
   turn whose `auto` fell back to `cautious` (`EffectiveSettings.fallback`) starts with
   `auto is not available here; this turn runs as cautious: <reason>`.
 - An approval with `exit` (an action that leaves the sandbox) shows the whole line of
   the call from its `exit_requested` record instead of the summary (each line of a
-  command of several on its own, numbered), then, in yellow,
+  command of several on its own, numbered), then
   what leaves and how the call runs after a "yes" (`leaves the sandbox: network; runs
   in the sandbox with full network for this call`, or `runs outside the sandbox: sudo
   (you may need to type your password)`). A line that runs outside the sandbox also
   gets `the whole line runs with your full rights (files, secrets, network)` and
   `programs:` with every program word and the path it resolves to, or `(builtin)` for
   a word that the shell runs itself; a program in a
-  write root or changed this turn gets `(untrusted: written in the sandbox)`, and the
-  line turns yellow. efr's own facts follow dim after `efr:`, then the model's reason
-  as `the model says: "..."`. Every part passes through `format::one_line`, and each
-  line of a command through `format::command_line`.
+  write root or changed this turn gets `(untrusted: written in the sandbox)`. Only the
+  facts that matter most are in the `warning` role: the heading (`approval needed:`),
+  the full-rights line and the untrusted mark. The other fact lines are plain text.
+  efr's own facts follow muted after `efr:`, then the model's reason as `the model
+  says: "..."`, and the key line is muted with the keys in bold (`allow? y = yes, n =
+  no`). Every part passes through `format::one_line`, and each line of a command
+  through `format::command_line`.
 - The quarantine question (`surface_question_requested`) is not an approval: it names
   the git settings that the last call changed and the launcher moved to quarantine,
-  and asks `keep it? y = yes, n = no` with one key. The answer goes with
+  and asks `keep it? y = yes, n = no` with one key: the heading in the `warning` role,
+  the changes plain, the key line muted with bold keys. The answer goes with
   `sandbox.surface_respond` and the question's own `QuestionId`; nobody answering
   leaves the change in quarantine. At the end of an `auto` turn, the files that run
   code later outside the sandbox (`turn_surface_report`) show as three dim lines.
@@ -181,20 +204,48 @@ Replies:
   questions go to stderr, so stdout holds the reply alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`
   (no colour), `COLORTERM=truecolor` or `24bit` (24-bit colour, otherwise 16), `TERM`
-  and whether stdout is a terminal, and the theme from `config.toml`:
+  and whether stdout is a terminal, the way the terminal counts widths, and the theme
+  and the colours from `config.toml`:
 
   ```toml
   [render]
-  theme = "catppuccin-mocha"   # any name efr_render::Theme::from_name accepts
+  theme = "catppuccin-mocha"   # any name efr_render::Theme::from_name accepts, or auto
+  theme_dark = "catppuccin-mocha"   # what auto takes on a dark background
+  theme_light = "catppuccin-latte"  # what auto takes on a light background
+  palette = "~/.config/efr/theme.toml"   # a theme file: [colors] and code_theme
   motion = true                # the spinner and the band of the status row
   turn_summary = true          # the line at the end of each turn
   progress = "auto"            # the progress bar of the tab: auto, on or off
+
+  [render.colors]
+  accent = "#f2c14e"           # "#rrggbb", an ANSI slot 0 to 15, or a name
   ```
+
+  Every colour of a reply and of the CLI's own lines goes through a role of
+  `efr-render` (`text`, `muted`, `accent`, `heading`, `link`, `code`, `success`,
+  `warning`, `error`, `quote`, `diff.add`, `diff.remove`, `diff.hunk`; the list of
+  `efr_config::COLOR_ROLES` is the same, and a test keeps them equal). The CLI's tones
+  map onto roles: notes are `muted`, what needs the user's care is `warning`, a failed
+  exit code is `error`, and bold stays bold (SGR 1). A role takes its colour from
+  `[render.colors]`, else from the theme file that `render.palette` names (`[colors]`
+  with the same keys), else from the terminal's 16 colours (the accent is slot 3,
+  yellow). A `#rrggbb` colour takes the nearest of the 16 colours without truecolor,
+  and no colour under `NO_COLOR`. The theme file's `code_theme`, the path of a
+  `.tmTheme` file (absolute, `~/...` or relative to the theme file), wins over `theme`
+  for code blocks and diffs. `theme = "auto"` takes `theme_dark` or `theme_light` as
+  `EFR_TERMINAL_BG` says `dark` or `light`; the zsh plugin asks the terminal for its
+  background once when it loads and sets the variable. Without it, `auto` takes the
+  dark theme. `efr` itself sends no query. In Ghostty outside tmux (`TERM_PROGRAM` is
+  `ghostty` and `TMUX` is unset) widths count by grapheme cluster, as Ghostty counts
+  them with mode 2027; everywhere else by code point. The live zone's rows, the cut of
+  a line to the width and the status row use that count.
 
   `efr-config` reads and checks the whole file with the schema the daemon uses, unknown
   keys refused; the CLI uses `[render]`, and for `efr settings` `permissions.mode`,
-  `model.name` and `model.effort`, and warns, without failing, when the file
-  is not valid or names a theme `efr-render` does not have. The defaults apply then.
+  `model.name` and `model.effort`, and warns, without failing, when the file is not
+  valid, names a theme `efr-render` does not have, or names a theme file or a code
+  theme that cannot be read or used. The layers below apply then. `efr config check`
+  and `efr config edit` check the theme names, the theme file and the code theme too.
 
 Approvals show inline. When stdin is a terminal, `y` allows and `n` denies with one key:
 a named thread puts the terminal into non-canonical mode without echo, discards keys
@@ -340,15 +391,17 @@ moves it.
 
 Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (strings
 in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
-(row counting), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
+(column alignment of listings and the echo of an answer), `unicode-segmentation` (a cut
+to the width never splits a grapheme cluster), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
 line), `signal-hook` (the default action of SIGQUIT once `efr`'s own handler is
 installed, without unsafe code).
 
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX` and
 `WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
-conventions that `efr_stdx::env::Var` does not name. `HOME` only shortens the paths of
-the sandbox's lines to `~/...`.
+conventions that `efr_stdx::env::Var` does not name. `HOME` shortens the paths of the
+sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme file.
+`EFR_TERMINAL_BG` is read through `efr_stdx::env`.
 
 ## Invariant
 
@@ -397,7 +450,17 @@ and the end that never wait, a tick that writes only the status row, a resize th
 SIGWINCH stands for, the cursor and the progress bar on every way out, the allowlist
 of the progress bar, drafts that merge with persisted updates without a line twice
 (and without a log line), a dropped draft that heals, and a proptest that pacing keeps
-what `render` makes of the whole text. The end-to-end tests run whole commands against a fake
+what `render` makes of the whole text. The call tests cover the running line with its
+spinner, time and three lines of output at 40 and 80 columns, the one committed line
+of a call (with no time under 1 s, the exit code, the refusal and the failure's last
+lines), a call whose approval waits, and consecutive calls without blank lines. The
+colour tests run the status row, a call and a question in 16 colours, in truecolor and
+under `NO_COLOR` with a palette of the user's, and check that `COLOR_ROLES` equals the
+roles of `efr-render`; the settings tests lay `[render.colors]` over a theme file, read
+a code theme by a path relative to the theme file, warn about a theme file or a code
+theme that cannot be used, and pick the theme of `auto` by `EFR_TERMINAL_BG`. The
+width tests count the rows of ZWJ emoji, flags and variation selectors by code point
+and by grapheme cluster, and redraw a live zone of such text both ways. The end-to-end tests run whole commands against a fake
 daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
 Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
 byte written to the fake terminal holds a hidden answer. The silence tests use a clock

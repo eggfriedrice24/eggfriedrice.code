@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use efr_client::{Client, ConnectOptions, Discovered};
 use efr_protocol::{CommandId, Origin};
+use efr_render::RenderOptions;
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
@@ -106,6 +107,12 @@ impl Browser for XdgOpen {
     }
 }
 
+/// The directory that a leading `~` stands for: `home`, or without one `~` itself, so
+/// such a path stays as it is written and its error names it.
+fn tilde(home: &Option<PathBuf>) -> &Path {
+    home.as_deref().unwrap_or_else(|| Path::new("~"))
+}
+
 /// What every command runs with.
 #[derive(Debug)]
 pub(crate) struct Context {
@@ -140,7 +147,17 @@ impl Context {
     pub(crate) async fn from_process(term: TermFacts) -> Result<Context, CliError> {
         let (dirs, sources) =
             Dirs::resolve_with_sources().map_err(|source| CliError::Dirs { source })?;
-        let settings = Settings::load(dirs.config()).await;
+        let env = Env::process();
+        // NOTE: HOME is a POSIX convention, not an efr setting; it only shortens the
+        // paths that the sandbox's lines print and expands a leading ~ in the paths of
+        // the theme file.
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute() && home != Path::new("/"));
+        // NOTE: a variable that is not UTF-8 counts as unset, as for the other EFR_*
+        // variables that efr only reads.
+        let background = env.var(Var::TerminalBg).ok().flatten();
+        let settings = Settings::load(dirs.config(), background.as_deref(), tilde(&home)).await;
         let rng = SystemRng::new().map_err(|source| CliError::Random { source })?;
         let keys = TtyKeys { available: term.stdin_tty };
         // NOTE: VISUAL and EDITOR are POSIX conventions, not efr settings, so they are
@@ -150,15 +167,10 @@ impl Context {
             .filter_map(std::env::var_os)
             .filter_map(|value| value.into_string().ok())
             .find(|value| !value.trim().is_empty());
-        // NOTE: HOME is a POSIX convention, not an efr setting; it only shortens the
-        // paths that the sandbox's lines print.
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|home| home.is_absolute() && home != Path::new("/"));
         Ok(Context {
             dirs,
             sources,
-            env: Env::process(),
+            env,
             editor,
             settings,
             clock: Arc::new(SystemClock),
@@ -189,6 +201,17 @@ impl Context {
             options = options.with_tty(tty);
         }
         Ok(Client::connect(&socket, options).await?)
+    }
+
+    /// The options for rendering on a terminal `width` columns wide: the terminal's
+    /// facts with the colours and themes of the settings.
+    pub(crate) fn render_options(&self, width: u16) -> RenderOptions {
+        self.term.render_options(width, &self.settings)
+    }
+
+    /// The directory that a leading `~` of a path in the config stands for.
+    pub(crate) fn tilde_home(&self) -> &Path {
+        tilde(&self.home)
     }
 
     /// The socket that [`connect`](Self::connect) would use.

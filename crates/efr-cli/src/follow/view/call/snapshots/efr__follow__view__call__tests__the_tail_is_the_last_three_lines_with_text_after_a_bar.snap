@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/call/tests.rs
+expression: "readable(&tail(&lines, false, &options))"
+---
+\e[2m  │ Running tests\e[0m
+\e[2m  │ test a ... ok\e[0m
+\e[2m  │ test b ... FAIL…\e[0m

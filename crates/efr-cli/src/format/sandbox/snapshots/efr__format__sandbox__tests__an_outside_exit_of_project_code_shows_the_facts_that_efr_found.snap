@@ -3,8 +3,8 @@ source: crates/efr-cli/src/format/sandbox/tests.rs
 expression: "question(&info, &record)"
 ---
 approval needed: shell: run "make install"
-runs outside the sandbox: make  (yellow)
-the whole line runs with your full rights (files, secrets, network)  (yellow)
-programs: make /usr/bin/make  (dim)
-efr: this turn changed Makefile (untrusted: written in the sandbox)  (dim)
-the model says: "install needs ~/.local/bin"  (dim)
+runs outside the sandbox: make
+[warning: the whole line runs with your full rights (files, secrets, network)]
+programs: make /usr/bin/make
+[muted: efr: this turn changed Makefile (untrusted: written in the sandbox)]
+[muted: the model says: "install needs ~/.local/bin"]

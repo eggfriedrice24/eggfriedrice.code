@@ -3,4 +3,4 @@ source: crates/efr-cli/src/format/sandbox/tests.rs
 expression: "question(&info, &record)"
 ---
 approval needed: shell: run "cp report.pdf ~/Documents/"
-leaves the sandbox: write ~/Documents; the socket /run/user/1000/podman/podman.sock; the system bus; the device /dev/nvme0n1; read ~/p/app/.env; runs in the sandbox with ~/Documents writable, the socket /run/user/1000/podman/podman.sock, the system bus, the device /dev/nvme0n1, ~/p/app/.env readable for this call  (yellow)
+leaves the sandbox: write ~/Documents; the socket /run/user/1000/podman/podman.sock; the system bus; the device /dev/nvme0n1; read ~/p/app/.env; runs in the sandbox with ~/Documents writable, the socket /run/user/1000/podman/podman.sock, the system bus, the device /dev/nvme0n1, ~/p/app/.env readable for this call

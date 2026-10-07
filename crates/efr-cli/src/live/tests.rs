@@ -2,12 +2,17 @@ use efr_render::{RenderOptions, Renderer};
 use pretty_assertions::assert_eq;
 use proptest::prelude::{prop, proptest};
 
-use super::{LiveZone, Measured, display_width, rows_of};
+use efr_render::{WidthMethod, display_width};
+
+use super::{LiveZone, Measured, rows_of};
 use crate::terminal::Size;
 use crate::testing::readable;
 
 const BEGIN: &str = "\x1b[?2026h";
 const END: &str = "\x1b[?2026l";
+
+/// Widths by code point, as most terminals count.
+const CP: WidthMethod = WidthMethod::CodePoint;
 
 fn size(cols: u16, rows: u16) -> Size {
     Size { cols, rows }
@@ -15,38 +20,38 @@ fn size(cols: u16, rows: u16) -> Size {
 
 #[test]
 fn width_skips_colours_and_hyperlinks() {
-    assert_eq!(display_width("plain"), 5);
-    assert_eq!(display_width("\x1b[1;35mTitle\x1b[0m"), 5);
-    assert_eq!(display_width("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\"), 4);
-    assert_eq!(display_width("\x1b]8;;https://example.com\x07link\x1b]8;;\x07"), 4);
+    assert_eq!(display_width("plain", CP), 5);
+    assert_eq!(display_width("\x1b[1;35mTitle\x1b[0m", CP), 5);
+    assert_eq!(display_width("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", CP), 4);
+    assert_eq!(display_width("\x1b]8;;https://example.com\x07link\x1b]8;;\x07", CP), 4);
 }
 
 #[test]
 fn wide_characters_take_two_columns() {
-    assert_eq!(display_width("日本"), 4);
-    assert_eq!(display_width("a\u{301}"), 1);
+    assert_eq!(display_width("日本", CP), 4);
+    assert_eq!(display_width("a\u{301}", CP), 1);
 }
 
 #[test]
 fn a_line_that_fits_takes_one_row() {
-    assert_eq!(rows_of("", 10), 0);
-    assert_eq!(rows_of("abc\n", 10), 1);
-    assert_eq!(rows_of("\n", 10), 1);
-    assert_eq!(rows_of("0123456789\n", 10), 1);
+    assert_eq!(rows_of("", 10, CP), 0);
+    assert_eq!(rows_of("abc\n", 10, CP), 1);
+    assert_eq!(rows_of("\n", 10, CP), 1);
+    assert_eq!(rows_of("0123456789\n", 10, CP), 1);
 }
 
 #[test]
 fn a_long_line_wraps_onto_more_rows() {
-    assert_eq!(rows_of("01234567890\n", 10), 2);
-    assert_eq!(rows_of(&format!("{}\n", "x".repeat(25)), 10), 3);
-    assert_eq!(rows_of(&format!("{}\n{}\n", "x".repeat(25), "y".repeat(3)), 10), 4);
-    assert_eq!(rows_of("日本語日本\n", 4), 3);
+    assert_eq!(rows_of("01234567890\n", 10, CP), 2);
+    assert_eq!(rows_of(&format!("{}\n", "x".repeat(25)), 10, CP), 3);
+    assert_eq!(rows_of(&format!("{}\n{}\n", "x".repeat(25), "y".repeat(3)), 10, CP), 4);
+    assert_eq!(rows_of("日本語日本\n", 4, CP), 3);
 }
 
 #[test]
 fn colours_do_not_count_towards_wrapping() {
     let line = format!("\x1b[2m{}\x1b[0m\n", "x".repeat(10));
-    assert_eq!(rows_of(&line, 10), 1);
+    assert_eq!(rows_of(&line, 10, CP), 1);
 }
 
 #[test]
@@ -147,6 +152,40 @@ fn an_unknown_size_renders_at_80_columns_without_clipping() {
     assert_eq!(readable(&out), "\\e[?2026h\\r\\e[2A\\e[J\\e[?2026l");
 }
 
+/// A ZWJ emoji: three wide code points, one wide cluster.
+const FAMILY: &str = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+/// A flag: two regional indicators, one wide cluster.
+const FLAG: &str = "\u{1f1fa}\u{1f1f8}";
+/// A narrow heart made wide by variation selector 16.
+const HEART: &str = "\u{2764}\u{fe0f}";
+
+/// Widths by grapheme cluster, as Ghostty counts.
+const GR: WidthMethod = WidthMethod::Grapheme;
+
+#[test]
+fn zwj_emoji_flags_and_vs16_take_the_rows_that_the_terminal_gives_them() {
+    let families = format!("{}\n", FAMILY.repeat(4));
+    assert_eq!(rows_of(&families, 10, CP), 3);
+    assert_eq!(rows_of(&families, 10, GR), 1);
+    let flags = format!("{}\n", FLAG.repeat(6));
+    assert_eq!(rows_of(&flags, 10, CP), 2);
+    assert_eq!(rows_of(&flags, 10, GR), 2);
+    let hearts = format!("{}\n", HEART.repeat(8));
+    assert_eq!(rows_of(&hearts, 10, CP), 1);
+    assert_eq!(rows_of(&hearts, 10, GR), 2);
+}
+
+#[test]
+fn a_redraw_moves_up_over_the_rows_that_the_terminal_counted() {
+    let live = format!("{}\n{}\n", FAMILY.repeat(4), HEART.repeat(8));
+    for (method, up) in [(CP, 4), (GR, 3)] {
+        let mut zone = LiveZone::new(method);
+        zone.redraw("", &live, None, size(10, 20));
+        let out = zone.redraw("", "next\n", None, size(10, 20));
+        assert_eq!(readable(&out), format!("\\e[?2026h\\r\\e[{up}A\\e[Jnext\n\\e[?2026l"));
+    }
+}
+
 proptest! {
     /// The CLI's count of rows agrees with the renderer's for every live zone it
     /// produces, wrapped lines included, so moving up by either lands on the same row.
@@ -163,6 +202,6 @@ proptest! {
         }
         let mut renderer = Renderer::new(RenderOptions::new(width));
         let update = renderer.push(&text);
-        assert_eq!(rows_of(update.live(), width), update.live_rows(), "{:?}", update.live());
+        assert_eq!(rows_of(update.live(), width, CP), update.live_rows(), "{:?}", update.live());
     }
 }

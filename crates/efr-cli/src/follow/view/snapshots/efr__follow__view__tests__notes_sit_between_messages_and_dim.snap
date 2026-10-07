@@ -4,8 +4,10 @@ expression: readable(&out)
 ---
 \e[?2026hChecking.
 \e[?2026l\e[?2026h
-\e[2mshell: journalctl -u nginx --since today\e[0m
-\e[?2026l\e[?2026h\e[2mshell exited with 3\e[0m
+\e[33m•\e[0m \e[2m$ journalctl -u nginx --since today\e[0m
+\e[?2026l\e[?2026h\r\e[2A\e[J
+\e[2m$ journalctl -u nginx --since t…\e[0m  \e[31mexit 3\e[0m
+\e[2m  │ ...\e[0m
 \e[?2026l\e[?2026h
 It exited with 3.
 \e[?2026l

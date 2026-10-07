@@ -3,7 +3,7 @@ source: crates/efr-cli/src/format/sandbox/tests.rs
 expression: "question(&info, &record)"
 ---
 approval needed: shell: run "sudo pacman -Syu"
-runs outside the sandbox: sudo (you may need to type your password)  (yellow)
-the whole line runs with your full rights (files, secrets, network)  (yellow)
-programs: sudo /usr/bin/sudo; pacman /usr/bin/pacman  (dim)
-efr: only you can allow this  (dim)
+runs outside the sandbox: sudo (you may need to type your password)
+[warning: the whole line runs with your full rights (files, secrets, network)]
+programs: sudo /usr/bin/sudo; pacman /usr/bin/pacman
+[muted: efr: only you can allow this]

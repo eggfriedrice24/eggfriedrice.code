@@ -2,5 +2,5 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
-\e[?2026h\e[2mshell: systemctl --fa… (and 1 more line)\e[0m
+\e[?2026h\e[33m•\e[0m \e[2m$ systemctl --faile… (and 1 more line)\e[0m
 \e[?2026l

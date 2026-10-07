@@ -5,14 +5,14 @@ use efr_protocol::{
     AdminStatusResult, ConversationStatus, ConversationSummary, ConversationsListResult,
     PageCursor, ProviderStatus, Seq, Usage,
 };
-use efr_render::{ColourMode, RenderOptions};
+use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role, WidthMethod};
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations,
-    elapsed, lines, one_line, paint, run_heading, size, status, tokens, took, tool_call,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations, cut,
+    elapsed, keys, lines, one_line, paint, run_heading, size, status, tokens, took, tool_call,
     tool_result, turn_done, until,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
@@ -48,6 +48,52 @@ fn paint_styles_only_on_a_terminal() {
     assert_eq!(paint("wait", Tone::Attention, &no_colour), "\x1b[1mwait\x1b[0m");
     let pipe = RenderOptions::new(80).with_terminal(false);
     assert_eq!(paint("note", Tone::Dim, &pipe), "note");
+    assert_eq!(paint("fact", Tone::Plain, &terminal), "fact");
+    assert_eq!(paint("exit 2", Tone::Failure, &terminal), "\x1b[31mexit 2\x1b[0m");
+    assert_eq!(paint("exit 2", Tone::Failure, &no_colour), "\x1b[1mexit 2\x1b[0m");
+}
+
+#[test]
+fn tones_take_the_colours_of_their_roles_from_the_palette() {
+    let palette = Palette::new()
+        .with(Role::Warning, Colour::Rgb(0xf2, 0xc1, 0x4e))
+        .with(Role::Muted, Colour::Palette(8));
+    let truecolor =
+        RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(palette.clone());
+    assert_eq!(paint("wait", Tone::Attention, &truecolor), "\x1b[1;38;2;242;193;78mwait\x1b[0m");
+    // A muted role with its own colour is not dim.
+    assert_eq!(paint("note", Tone::Dim, &truecolor), "\x1b[90mnote\x1b[0m");
+    // In 16 colours a hex colour takes the nearest slot; without colour, plain bold.
+    let sixteen = RenderOptions::new(80).with_palette(palette.clone());
+    assert_eq!(paint("wait", Tone::Attention, &sixteen), "\x1b[1;33mwait\x1b[0m");
+    let none = RenderOptions::new(80).with_colour(ColourMode::None).with_palette(palette);
+    assert_eq!(paint("wait", Tone::Attention, &none), "\x1b[1mwait\x1b[0m");
+    assert_eq!(paint("note", Tone::Dim, &none), "\x1b[2mnote\x1b[0m");
+}
+
+#[test]
+fn the_keys_of_a_question_are_bold_in_a_muted_line() {
+    let terminal = RenderOptions::new(80);
+    assert_eq!(
+        keys("allow? y = yes, n = no", &terminal),
+        "\x1b[2mallow? \x1b[0m\x1b[1my\x1b[0m\x1b[2m = yes, \x1b[0m\x1b[1mn\x1b[0m\x1b[2m = no\x1b[0m"
+    );
+    let pipe = RenderOptions::new(80).with_terminal(false);
+    assert_eq!(keys("keep it? y = yes, n = no", &pipe), "keep it? y = yes, n = no");
+}
+
+#[test]
+fn a_cut_counts_widths_as_the_terminal_does() {
+    // A family emoji: three wide code points joined, one wide cluster in Ghostty.
+    let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+    let text = format!("{family} ok");
+    assert_eq!(cut(&text, 5, WidthMethod::Grapheme), text);
+    assert_eq!(cut(&text, 5, WidthMethod::CodePoint), "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{2026}");
+    // A cluster is never cut in two.
+    assert_eq!(
+        cut(&format!("{family}{family}"), 3, WidthMethod::Grapheme),
+        format!("{family}\u{2026}")
+    );
 }
 
 #[test]
@@ -74,8 +120,11 @@ fn a_code_block_fence_outgrows_the_backticks_inside() {
 #[test]
 fn a_tool_call_shows_its_most_telling_input() {
     let call = |tool, input| tool_call(tool, &input, None);
-    assert_eq!(call("shell", json!({"command": "ls -la", "timeout": 30})), "shell: ls -la");
-    assert_eq!(call("read_file", json!({"path": "/etc/hosts"})), "read_file: /etc/hosts");
+    assert_eq!(call("shell", json!({"command": "ls -la", "timeout": 30})), "$ ls -la");
+    assert_eq!(call("read_file", json!({"path": "/etc/hosts"})), "read /etc/hosts");
+    assert_eq!(call("write_file", json!({"path": "src/main.rs"})), "write src/main.rs");
+    assert_eq!(call("settings", json!({"key": "model.name"})), r#"settings {"key":"model.name"}"#);
+    assert_eq!(call("shell", json!({"command": ""})), "$");
     assert_eq!(call("fetch", json!({"url": "https://x"})), "fetch: https://x");
     assert_eq!(call("odd", json!({"n": 1})), r#"odd: {"n":1}"#);
     assert_eq!(call("echo", json!("hi")), "echo: hi");
@@ -85,15 +134,16 @@ fn a_tool_call_shows_its_most_telling_input() {
 #[test]
 fn a_tool_call_of_several_lines_shows_the_first_and_how_many_follow() {
     let call = |command: &str, columns| tool_call("shell", &json!({ "command": command }), columns);
-    assert_eq!(call(FROM_SRC, None), "shell: cd src (and 3 more lines)");
-    assert_eq!(call(FAILED_UNITS, None), "shell: systemctl --failed --no-pager (and 1 more line)");
+    assert_eq!(call(FROM_SRC, None), "$ cd src (and 3 more lines)");
+    assert_eq!(call(FAILED_UNITS, None), "$ systemctl --failed --no-pager (and 1 more line)");
     // A cut keeps the count: the reader must see that more lines follow.
-    assert_eq!(call(FAILED_UNITS, Some(32)), "shell: system\u{2026} (and 1 more line)");
+    let narrow = Some((32, WidthMethod::CodePoint));
+    assert_eq!(call(FAILED_UNITS, narrow), "$ systemctl -\u{2026} (and 1 more line)");
     // Blank lines at the start and the end run nothing.
-    assert_eq!(call("\n\nls -la\n\n", None), "shell: ls -la");
-    assert_eq!(call("ls\n\n  \nuptime\n", None), "shell: ls (and 3 more lines)");
+    assert_eq!(call("\n\nls -la\n\n", None), "$ ls -la");
+    assert_eq!(call("ls\n\n  \nuptime\n", None), "$ ls (and 3 more lines)");
     // Control characters stay visible, a carriage return too.
-    assert_eq!(call("a\rb\u{1b}[2J\nc", None), "shell: a\u{240d}b\u{241b}[2J (and 1 more line)");
+    assert_eq!(call("a\rb\u{1b}[2J\nc", None), "$ a\u{240d}b\u{241b}[2J (and 1 more line)");
 }
 
 #[test]

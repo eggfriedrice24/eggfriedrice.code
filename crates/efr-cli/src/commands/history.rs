@@ -57,7 +57,7 @@ pub(crate) async fn run(
     });
     let page: ConversationHistoryResult = client.call(method).await?;
     let size = ctx.screen.size();
-    let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
+    let options = ctx.render_options(effective_width(size));
     let shown = Shown { options: &options, verbose: args.verbose, home: ctx.home.as_deref() };
     let mut text = String::new();
     if let Some(picked) = picked {
@@ -259,8 +259,7 @@ impl<'a> Transcript<'a> {
                 if matches!(launch, Some(Launch::Contained { .. })) {
                     self.contained.insert(*call_id);
                 }
-                let columns = self.options.is_terminal().then(|| usize::from(self.options.width()));
-                self.note(&format::tool_call(tool, input, columns));
+                self.note(&format::tool_call(tool, input, format::columns(self.options)));
             }
             Event::ToolCallCompleted {
                 call_id,

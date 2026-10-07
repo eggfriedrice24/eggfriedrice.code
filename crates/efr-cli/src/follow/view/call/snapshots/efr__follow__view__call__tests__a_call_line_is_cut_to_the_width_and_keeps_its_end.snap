@@ -1,0 +1,6 @@
+---
+source: crates/efr-cli/src/follow/view/call/tests.rs
+expression: "[40_u16,\n80].map(|columns|\n{\n    let options = RenderOptions::new(columns);\n    readable(&call.ended(Some(at(6_200)), exited, &options))\n}).join(\"\")"
+---
+\e[2m$ cargo test xxxxxxxxxx…\e[0m  \e[31mexit 101\e[0m  \e[2m6.2s\e[0m
+\e[2m$ cargo test xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\e[0m  \e[31mexit 101\e[0m  \e[2m6.2s\e[0m

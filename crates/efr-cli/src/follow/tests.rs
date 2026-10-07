@@ -906,7 +906,7 @@ async fn without_keys_a_hidden_wait_is_a_note_and_nobody_answers() {
     result.unwrap();
     assert_eq!(
         err,
-        "shell: sudo true\n\
+        "$ sudo true\n\
          the command waits for hidden input, such as a password; efr cannot ask for it here\n\
          shell exited with 1\n"
     );
@@ -1542,7 +1542,7 @@ async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
             exit: None,
         };
         conn.item(sub, &item(12, request)).await;
-        shows(&seen, "allow? y = yes, n = no").await;
+        shows(&seen, "allow? \x1b[0m\x1b[1my").await;
         assert!(seen.stdout().contains("Writing to"), "the question brings what came before it");
         presser.press(b'y').await;
         let (id, _) = conn.request().await;

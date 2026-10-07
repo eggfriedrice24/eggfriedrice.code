@@ -120,7 +120,7 @@ fn raw_output_is_the_markdown_as_it_streams() {
         out,
         "It failed because **make** ran out of memory.\n\nAdd swap:\n\n```sh\nswapon -a\n```\n"
     );
-    assert_eq!(err, "shell: free -h\n");
+    assert_eq!(err, "$ free -h\n");
     assert_eq!(end, Some(TurnEnd::Completed));
 }
 
@@ -268,7 +268,7 @@ fn a_call_that_efr_refused_says_why() {
     let (_, err, _) = feed(&mut view, &[contained, refused], false);
     assert_eq!(
         err,
-        "shell: echo x >> ~/.config/efr/config.toml\n\
+        "$ echo x >> ~/.config/efr/config.toml\n\
          sandbox: writes in $SCRATCH, private /tmp; no network\n\
          shell refused: efr's config (floor)\n"
     );
@@ -281,7 +281,8 @@ fn an_allowed_call_that_fails_is_still_reported() {
     framed(view.event(&approval(None), SIZE, true), &mut view);
     framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view);
     let step = framed(view.event(&refused_call_completed(), SIZE, true), &mut view);
-    assert!(readable(&step.out).contains("shell failed"), "{}", readable(&step.out));
+    let out = readable(&step.out);
+    assert!(out.contains("$ touch /root/x\\e[0m  \\e[31mfailed"), "{out}");
 }
 
 #[test]
@@ -508,7 +509,7 @@ fn a_tool_call_completes_the_message_before_it() {
         false,
     );
     assert_eq!(out, "Let me check\n");
-    assert_eq!(err, "shell: df -h\n");
+    assert_eq!(err, "$ df -h\n");
 }
 
 #[test]
@@ -516,7 +517,11 @@ fn on_a_terminal_the_message_is_committed_above_the_tool_call() {
     let mut view = terminal_view();
     framed(view.event(&updated(0, "Let me check"), SIZE, false), &mut view);
     let out = readable(&framed(view.event(&tool_started("df -h"), SIZE, false), &mut view).out);
-    assert_eq!(out, "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[2mshell: df -h\\e[0m\n\\e[?2026l");
+    // The call's line shows live below a blank line, with the spinner.
+    assert_eq!(
+        out,
+        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[2m$ df -h\\e[0m\n\\e[?2026l"
+    );
 }
 
 #[test]
@@ -605,16 +610,81 @@ fn a_wide_tail_takes_one_row_at_most() {
     assert!(!out.contains(&line), "{}", readable(&out));
     assert!(out.contains('\u{2026}'), "{}", readable(&out));
     let live = out.rsplit('\n').nth(1).unwrap_or_default();
-    assert!(crate::live::display_width(live) <= 40, "{}", readable(live));
+    assert!(
+        efr_render::display_width(live, efr_render::WidthMethod::CodePoint) <= 40,
+        "{}",
+        readable(live)
+    );
 }
 
 #[test]
-fn a_failed_call_commits_its_note_and_drops_the_tail() {
+fn a_failed_call_commits_one_line_and_the_last_lines_of_its_output() {
     let mut view = terminal_view();
     framed(view.event(&tool_started("make"), SIZE, false), &mut view);
-    framed(view.event(&output("error: no rule\n"), SIZE, false), &mut view);
+    framed(view.event(&output("cc -c a.c\nerror: no rule\n"), SIZE, false), &mut view);
     let out = readable(&framed(view.event(&call_completed(2), SIZE, false), &mut view).out);
-    assert_eq!(out, "\\e[?2026h\\r\\e[1A\\e[J\\e[2mshell exited with 2\\e[0m\n\\e[?2026l");
+    assert_eq!(
+        out,
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[2m$ make\\e[0m  \\e[31mexit 2\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n\\e[?2026l"
+    );
+}
+
+#[test]
+fn a_call_that_went_well_commits_one_line_and_none_of_its_output() {
+    let mut view = terminal_view();
+    framed(view.envelope(&sent(11, 0, tool_started("cargo build")), SIZE, false), &mut view);
+    framed(view.event(&output("Compiling app\nFinished\n"), SIZE, false), &mut view);
+    let out = readable(
+        &framed(view.envelope(&sent(12, 6_200, call_completed(0)), SIZE, false), &mut view).out,
+    );
+    assert_eq!(
+        out,
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[2m$ cargo build\\e[0m  \\e[2m6.2s\\e[0m\n\\e[?2026l"
+    );
+    // A call under a second shows no time.
+    let mut view = terminal_view();
+    view.envelope(&sent(11, 0, tool_started("true")), SIZE, false);
+    let out = readable(
+        &framed(view.envelope(&sent(12, 900, call_completed(0)), SIZE, false), &mut view).out,
+    );
+    assert!(out.ends_with("\\e[2m$ true\\e[0m\n\\e[?2026l"), "{out}");
+}
+
+#[test]
+fn consecutive_call_lines_have_no_blank_line_between_them() {
+    let mut view = terminal_view();
+    let shown = writes(
+        &mut view,
+        &[
+            completed(0, "Checking."),
+            tool_started("uptime"),
+            call_completed(0),
+            tool_started("df -h"),
+            call_completed(1),
+            completed(1, "Done."),
+        ],
+        false,
+    );
+    insta::assert_snapshot!(shown);
+}
+
+#[test]
+fn a_running_call_shows_its_line_and_three_lines_of_output_at_40_and_80_columns() {
+    let mut frames = Vec::new();
+    for cols in [40, 80] {
+        let size = Size { cols, rows: 20 };
+        let mut view = started_view(Look { motion: true, ..Look::default() });
+        view.envelope(&sent(11, 0, turn_started()), size, false);
+        view.envelope(&sent(12, 0, tool_started("cargo test -p app --no-fail-fast")), size, false);
+        view.event(
+            &output("   Compiling app v0.1.0 (/home/me/p/app)\n     Running unittests src/lib.rs (target/debug/deps/app-1234)\ntest parse::tests::parse_empty ... FAILED\ntest parse::tests::parse_one ... ok\n"),
+            size,
+            false,
+        );
+        frames.push(readable(&view.frame(size, at(0))));
+        frames.push(readable(&view.tick(size, at(12_300))));
+    }
+    insta::assert_snapshot!(frames.join("\n---\n"));
 }
 
 #[test]
@@ -691,8 +761,9 @@ fn a_completed_call_settles_its_input_and_drops_the_question() {
     let step = framed(view.event(&call_completed(1), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
-    assert!(!out.contains("password") && !out.contains("type the answer"), "{out}");
-    assert!(out.contains("shell exited with 1"), "{out}");
+    // The question goes; the call's line and the last line of its output stay.
+    assert!(!out.contains("type the answer"), "{out}");
+    assert!(out.contains("$ sudo true\\e[0m  \\e[31mexit 1"), "{out}");
 }
 
 #[test]
@@ -1288,7 +1359,7 @@ fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
     let mut view = sandbox_view(false);
     let (_, err, _) =
         feed(&mut view, &[started_in(Scope::Machine, None), contained_started("ls")], true);
-    assert_eq!(err, "shell: ls\nsandbox: writes in $SCRATCH, private /tmp; no network\n");
+    assert_eq!(err, "$ ls\nsandbox: writes in $SCRATCH, private /tmp; no network\n");
 }
 
 #[test]
@@ -1410,7 +1481,7 @@ fn the_progress_line_of_a_command_of_several_lines_says_how_many_follow() {
 
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC)], false);
-    assert_eq!(err, "shell: cd src (and 3 more lines)\n");
+    assert_eq!(err, "$ cd src (and 3 more lines)\n");
 }
 
 #[test]
@@ -1768,7 +1839,14 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     let preparing = view.frame(SIZE, at(30));
     assert!(preparing.contains("preparing write_file, 3.2 KB"), "{}", readable(&preparing));
     view.envelope(&sent(12, 40, tool_started("ls")), SIZE, false);
-    assert!(view.frame(SIZE, at(40)).contains("running shell"));
+    // The call's line carries the spinner, so the status row hides while it runs.
+    let running = view.frame(SIZE, at(40));
+    assert!(running.contains("$ ls"), "{}", readable(&running));
+    assert!(
+        !running.contains("preparing") && !running.contains("waiting"),
+        "{}",
+        readable(&running)
+    );
     let done = Event::ToolCallCompleted {
         turn_id: turn(),
         call_id: call(),
@@ -1887,4 +1965,65 @@ fn piped_output_has_no_status_row_and_no_escape_sequences() {
     view.draft(&text_draft(12, 8, " is"), SIZE);
     assert_eq!(out, "The disk is full.\n");
     assert_eq!(view.restore(), "");
+}
+
+#[test]
+fn a_call_that_waits_for_its_approval_shows_no_line_and_its_time_counts_from_the_answer() {
+    let mut view = started_view(Look { motion: true, ..Look::default() });
+    view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+    view.envelope(&sent(12, 0, tool_started("make install")), SIZE, true);
+    view.envelope(&sent(13, 0, approval(None)), SIZE, true);
+    let asked = view.frame(SIZE, at(0));
+    assert!(!asked.contains("$ make install"), "{}", readable(&asked));
+    view.answered(call(), ApprovalDecision::Allow, SIZE);
+    view.envelope(&sent(14, 30_000, resolved(Origin::Shell)), SIZE, true);
+    let running = view.frame(SIZE, at(30_000));
+    assert!(running.contains("$ make install"), "{}", readable(&running));
+    assert!(!running.contains("waiting for"), "the call's line replaces the row");
+    let done = view.envelope(&sent(15, 32_500, call_completed(0)), SIZE, true);
+    let out = readable(&framed(done, &mut view).out);
+    assert!(out.contains("$ make install\\e[0m  \\e[2m2.5s"), "{out}");
+}
+
+#[test]
+fn a_denied_call_writes_no_line_of_its_own() {
+    let mut view = terminal_view();
+    framed(view.event(&tool_started("rm -rf build"), SIZE, true), &mut view);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    let denied = framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view);
+    assert!(!readable(&denied.out).contains("$ rm"), "{}", readable(&denied.out));
+    let out = framed(view.event(&refused_call_completed(), SIZE, true), &mut view).out;
+    assert!(!out.contains("$ rm"), "{}", readable(&out));
+}
+
+#[test]
+fn the_cli_lines_take_their_colours_from_the_palette() {
+    use efr_render::{Colour, Palette, Role};
+    let palette = Palette::new()
+        .with(Role::Accent, Colour::Rgb(0xf2, 0xc1, 0x4e))
+        .with(Role::Muted, Colour::Palette(8))
+        .with(Role::Warning, Colour::Palette(5))
+        .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75));
+    let mut shown = Vec::new();
+    for (name, colour, palette) in [
+        ("16 colours, default palette", ColourMode::Ansi16, Palette::new()),
+        ("16 colours, palette", ColourMode::Ansi16, palette.clone()),
+        ("truecolor, palette", ColourMode::TrueColor, palette.clone()),
+        ("NO_COLOR, palette", ColourMode::None, palette),
+    ] {
+        let options = RenderOptions::new(40).with_colour(colour).with_palette(palette);
+        let mut view =
+            TurnView::new(turn(), options).with_look(Look { motion: true, ..Look::default() });
+        view.start();
+        let mut frames = vec![view.frame(SIZE, at(0))];
+        view.envelope(&sent(11, 0, tool_started("make")), SIZE, true);
+        view.event(&output("error: no rule\n"), SIZE, true);
+        frames.push(view.frame(SIZE, at(1_000)));
+        view.envelope(&sent(12, 2_000, call_completed(2)), SIZE, true);
+        view.event(&approval(None), SIZE, true);
+        frames.push(view.frame(SIZE, at(2_000)));
+        let frames: Vec<String> = frames.iter().map(|frame| readable(frame)).collect();
+        shown.push(format!("{name}:\n{}", frames.join("\n---\n")));
+    }
+    insta::assert_snapshot!(shown.join("\n===\n"));
 }

@@ -1,0 +1,63 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: "shown.join(\"\\n===\\n\")"
+---
+16 colours, default palette:
+\e[?25l\e[?2026h\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[2m$ make\e[0m
+\e[2m  │ error: no rule\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J\e[2m$ make\e[0m  \e[31mexit 2\e[0m  \e[2m2.0s\e[0m
+\e[2m  │ error: no rule\e[0m
+
+\e[1;33mapproval needed:\e[0m write ~/.zshrc
+\e[2mallow? \e[0m\e[1my\e[0m\e[2m = yes, \e[0m\e[1mn\e[0m\e[2m = no\e[0m
+\e[?2026l\e[?25h
+===
+16 colours, palette:
+\e[?25l\e[?2026h\e[33m⠋\e[0m \e[90mwaiting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[90m$ make\e[0m
+\e[90m  │ error: no rule\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J\e[90m$ make\e[0m  \e[90mexit 2\e[0m  \e[90m2.0s\e[0m
+\e[90m  │ error: no rule\e[0m
+
+\e[1;35mapproval needed:\e[0m write ~/.zshrc
+\e[90mallow? \e[0m\e[1my\e[0m\e[90m = yes, \e[0m\e[1mn\e[0m\e[90m = no\e[0m
+\e[?2026l\e[?25h
+===
+truecolor, palette:
+\e[?25l\e[?2026h\e[38;2;242;193;78m⠋\e[0m \e[90mwaiting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[J\e[38;2;242;193;78m⠋\e[0m \e[90m$ make\e[0m
+\e[90m  │ error: no rule\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J\e[90m$ make\e[0m  \e[38;2;224;108;117mexit 2\e[0m  \e[90m2.0s\e[0m
+\e[90m  │ error: no rule\e[0m
+
+\e[1;35mapproval needed:\e[0m write ~/.zshrc
+\e[90mallow? \e[0m\e[1my\e[0m\e[90m = yes, \e[0m\e[1mn\e[0m\e[90m = no\e[0m
+\e[?2026l\e[?25h
+===
+NO_COLOR, palette:
+\e[?25l\e[?2026h\e[1m⠋\e[0m \e[2mwaiting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[J\e[1m⠋\e[0m \e[2m$ make\e[0m
+\e[2m  │ error: no rule\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[2A\e[J\e[2m$ make\e[0m  \e[1mexit 2\e[0m  \e[2m2.0s\e[0m
+\e[2m  │ error: no rule\e[0m
+
+\e[1mapproval needed:\e[0m write ~/.zshrc
+\e[2mallow? \e[0m\e[1my\e[0m\e[2m = yes, \e[0m\e[1mn\e[0m\e[2m = no\e[0m
+\e[?2026l\e[?25h

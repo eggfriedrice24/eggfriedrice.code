@@ -140,6 +140,10 @@ fn a_long_state_is_cut_so_the_row_fits_one_row() {
     status.set(State::Thinking(Some("x".repeat(100))));
     status.at(at(12_000), false);
     let row = status.row(at(12_000), &RenderOptions::new(30).with_colour(ColourMode::None));
-    assert_eq!(crate::live::display_width(row.trim_end()), 30, "{row:?}");
+    assert_eq!(
+        efr_render::display_width(row.trim_end(), efr_render::WidthMethod::CodePoint),
+        30,
+        "{row:?}"
+    );
     assert!(row.contains('\u{2026}'), "{row:?}");
 }

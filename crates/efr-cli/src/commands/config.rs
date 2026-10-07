@@ -22,7 +22,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use efr_client::{ClientError, Discovered};
-use efr_config::{CONFIG_FILE, ConfigError, ConfigFile, Edit, Entry, FileState};
+use efr_config::{AUTO_THEME, CONFIG_FILE, ConfigError, ConfigFile, Edit, Entry, FileState};
 use efr_protocol::{AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult};
 use efr_protocol::{Method, Origin};
 use efr_render::{ColourMode, Theme};
@@ -151,7 +151,17 @@ pub(crate) fn effective(ctx: &Context, view: &View) -> String {
         Source::Default => "default".to_owned(),
         Source::File(path) => path_text(path),
     };
+    let theme_source = match (ctx.settings.auto_theme(), ctx.settings.background) {
+        (true, Some(background)) => {
+            format!("{theme_source}; auto, EFR_TERMINAL_BG is {}", background.name())
+        }
+        (true, None) => format!("{theme_source}; auto, the background is not known"),
+        (false, _) => theme_source,
+    };
     lines.value("theme", &string(ctx.settings.theme.name()), &theme_source);
+    if let Some(path) = &ctx.settings.code_theme_path {
+        lines.value("code_theme", &string(&path_text(path)), "the theme file; wins over theme");
+    }
     let (colour, colour_source) = match ctx.term.colour() {
         ColourMode::None => ("none", "NO_COLOR is set"),
         ColourMode::TrueColor => ("truecolor", "COLORTERM"),
@@ -261,7 +271,7 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
             return Err(CliError::ConfigInvalid);
         }
     };
-    match settings::problem(&path, text.as_deref()) {
+    match settings::problem(&path, text.as_deref(), ctx.tilde_home()).await {
         None if text.is_none() => {
             out.out(&format!("{}: ok, absent; every value is its default\n", path.display()))
         }
@@ -288,7 +298,8 @@ async fn edit(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
         let text = read(&path).await.map_err(|source| CliError::ConfigFile {
             source: Box::new(ConfigError::Read { path: path.clone(), source }),
         })?;
-        let Some(problem) = settings::problem(&path, text.as_deref()) else {
+        let Some(problem) = settings::problem(&path, text.as_deref(), ctx.tilde_home()).await
+        else {
             break;
         };
         out.err(&format!("efr: {}: {problem}\n", path.display()));
@@ -364,11 +375,12 @@ async fn change(
     key: &str,
     value: Option<&str>,
 ) -> Result<(), CliError> {
-    if key == "render.theme"
-        && let Some(name) = value
+    let auto = key == "render.theme" && value == Some(AUTO_THEME);
+    if matches!(key, "render.theme" | "render.theme_dark" | "render.theme_light")
+        && let Some(name) = value.filter(|_| !auto)
         && Theme::from_name(name).is_err()
     {
-        out.err(&format!("efr: render.theme: the theme {name:?} does not exist\n"));
+        out.err(&format!("efr: {key}: the theme {name:?} does not exist\n"));
         return Err(CliError::ConfigInvalid);
     }
     let path = config_path(ctx);

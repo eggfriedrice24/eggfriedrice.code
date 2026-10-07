@@ -17,6 +17,10 @@
 //! no longer be reached by moving the cursor up, so they could never be erased. When
 //! it would be taller, only its last lines are shown.
 //!
+//! The rows are counted as the terminal counts columns: by code point, or by grapheme
+//! cluster in Ghostty ([`WidthMethod`]). A ZWJ emoji, a flag or a variation selector
+//! counted the other way would move the cursor up one row too many or too few.
+//!
 //! The last line of the live zone can be a status row, which changes on every tick of a
 //! running turn. When only that row changed, the redraw replaces that one row: a
 //! carriage return, the cursor up one row, erase the line, the new row. The rest of the
@@ -24,7 +28,7 @@
 
 use std::fmt::Write as _;
 
-use unicode_width::UnicodeWidthChar as _;
+use efr_render::{WidthMethod, display_width};
 
 use crate::terminal::Size;
 
@@ -48,6 +52,8 @@ pub(crate) struct Measured {
 /// The live zone as it stands on the screen.
 #[derive(Debug, Default)]
 pub(crate) struct LiveZone {
+    /// How the terminal counts the width of text.
+    method: WidthMethod,
     /// The text on the screen now, after clipping.
     shown: String,
     /// The status row at the end of `shown`, with its newline; empty without one.
@@ -59,6 +65,11 @@ pub(crate) struct LiveZone {
 }
 
 impl LiveZone {
+    /// An empty live zone on a terminal that counts widths by `method`.
+    pub(crate) fn new(method: WidthMethod) -> LiveZone {
+        LiveZone { method, ..LiveZone::default() }
+    }
+
     /// The bytes that erase the live zone, write `committed` once, and show `live` in
     /// its place. `measured` is the renderer's count of the rows `live` takes, used
     /// when it was counted at the current width. Empty when nothing would change.
@@ -87,15 +98,16 @@ impl LiveZone {
         size: Size,
     ) -> String {
         let width = effective_width(size);
+        let method = self.method;
+        let rows_of = |text: &str| rows_of(text, width, method);
         let live = format!("{body}{status}");
         let (shown, rows) = match measured {
             Some(measured)
-                if measured.width == width
-                    && fits(measured.rows + rows_of(status, width), size) =>
+                if measured.width == width && fits(measured.rows + rows_of(status), size) =>
             {
-                (live.as_str(), measured.rows + rows_of(status, width))
+                (live.as_str(), measured.rows + rows_of(status))
             }
-            _ => clip(&live, width, max_rows(size)),
+            _ => clip(&live, width, max_rows(size), method),
         };
         // An empty live zone looks the same at any width.
         if committed.is_empty() && shown == self.shown && (width == self.width || shown.is_empty())
@@ -110,14 +122,13 @@ impl LiveZone {
             && width == self.width
             && rows == self.rows
             && same_rest
-            && rows_of(status, width) == 1
-            && rows_of(&self.status, width) == 1
+            && rows_of(status) == 1
+            && rows_of(&self.status) == 1
         {
             out.push_str("\r\x1b[1A\x1b[2K");
             out.push_str(status);
         } else {
-            let old_rows =
-                if width == self.width { self.rows } else { rows_of(&self.shown, width) };
+            let old_rows = if width == self.width { self.rows } else { rows_of(&self.shown) };
             if old_rows > 0 {
                 let _ = write!(out, "\r\x1b[{old_rows}A\x1b[J");
             }
@@ -150,14 +161,14 @@ fn fits(rows: usize, size: Size) -> bool {
 
 /// The last whole lines of `live` that fit in `max_rows` rows at `width`, and the rows
 /// they take. Whole lines only: every live line opens and closes its own styles.
-fn clip(live: &str, width: u16, max_rows: Option<usize>) -> (&str, usize) {
+fn clip(live: &str, width: u16, max_rows: Option<usize>, method: WidthMethod) -> (&str, usize) {
     let Some(max_rows) = max_rows else {
-        return (live, rows_of(live, width));
+        return (live, rows_of(live, width, method));
     };
     let mut rows = 0;
     let mut start = live.len();
     for line in live.split_inclusive('\n').rev() {
-        let line_rows = line_rows(line, width);
+        let line_rows = line_rows(line, width, method);
         if rows + line_rows > max_rows {
             break;
         }
@@ -167,52 +178,15 @@ fn clip(live: &str, width: u16, max_rows: Option<usize>) -> (&str, usize) {
     (&live[start..], rows)
 }
 
-/// The rows `text` takes on a terminal `width` columns wide: each line at least one,
-/// and one more for every time it wraps.
-pub(crate) fn rows_of(text: &str, width: u16) -> usize {
-    text.split_inclusive('\n').map(|line| line_rows(line, width)).sum()
+/// The rows `text` takes on a terminal `width` columns wide that counts widths by
+/// `method`: each line at least one, and one more for every time it wraps.
+pub(crate) fn rows_of(text: &str, width: u16, method: WidthMethod) -> usize {
+    text.split_inclusive('\n').map(|line| line_rows(line, width, method)).sum()
 }
 
-fn line_rows(line: &str, width: u16) -> usize {
+fn line_rows(line: &str, width: u16, method: WidthMethod) -> usize {
     let line = line.strip_suffix('\n').unwrap_or(line);
-    display_width(line).div_ceil(usize::from(width.max(1))).max(1)
-}
-
-/// The columns that painted text takes, without its CSI sequences (colours) and OSC
-/// sequences (hyperlinks).
-pub(crate) fn display_width(painted: &str) -> usize {
-    let mut width = 0;
-    let mut chars = painted.chars();
-    while let Some(c) = chars.next() {
-        if c != '\x1b' {
-            width += c.width().unwrap_or(0);
-            continue;
-        }
-        match chars.next() {
-            // A CSI sequence ends with its final byte, 0x40 to 0x7e.
-            Some('[') => {
-                for c in chars.by_ref() {
-                    if ('\u{40}'..='\u{7e}').contains(&c) {
-                        break;
-                    }
-                }
-            }
-            // An OSC sequence ends with BEL or with ST (ESC \).
-            Some(']') => {
-                while let Some(c) = chars.next() {
-                    if c == '\x07' {
-                        break;
-                    }
-                    if c == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    width
+    display_width(line, method).div_ceil(usize::from(width.max(1))).max(1)
 }
 
 #[cfg(test)]

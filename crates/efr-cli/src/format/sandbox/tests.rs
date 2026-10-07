@@ -87,18 +87,41 @@ fn info(kinds: &[ExitKind], launch: Launch) -> ExitInfo {
     }
 }
 
-/// The lines of a question as text, each with its tone, the way a reviewer reads them.
+/// The tone of a piece in words, the way a reviewer reads it.
+fn tone_name(tone: Tone) -> &'static str {
+    match tone {
+        Tone::Plain => "plain",
+        Tone::Attention => "warning",
+        Tone::Dim => "muted",
+        Tone::Bold => "bold",
+        Tone::Failure => "error",
+    }
+}
+
+/// A line of pieces as text: each piece that is not plain in brackets after its tone.
+fn line_text(line: &[(String, Tone)]) -> String {
+    line.iter()
+        .map(|(text, tone)| match tone {
+            Tone::Plain => text.clone(),
+            tone => format!("[{}: {text}]", tone_name(*tone)),
+        })
+        .collect()
+}
+
+/// The lines of a question as text, each piece with its tone, the way a reviewer reads
+/// them.
 fn question(info: &ExitInfo, record: &ExitRecord) -> String {
     let mut out = format!("approval needed: {}\n", exit_heading(Some(record)).unwrap().join("\n"));
-    for (line, tone) in exit_lines(info, Some(record), home()) {
-        let tone = match tone {
-            Tone::Attention => "yellow",
-            Tone::Dim => "dim",
-            Tone::Bold => "bold",
-        };
-        out.push_str(&format!("{line}  ({tone})\n"));
+    for line in exit_lines(info, Some(record), home()) {
+        out.push_str(&line_text(&line));
+        out.push('\n');
     }
     out
+}
+
+/// The text of a line without its tones.
+fn plain(line: &[(String, Tone)]) -> String {
+    line.iter().map(|(text, _)| text.as_str()).collect()
 }
 
 #[test]
@@ -287,8 +310,8 @@ fn a_builtin_shows_as_a_builtin_not_as_a_program_that_is_missing() {
     let info = info(&[ExitKind::Outside], Launch::Unsandboxed);
     let lines = exit_lines(&info, Some(&record), home());
     assert_eq!(
-        lines[2],
-        ("programs: : (builtin); cd (builtin); ./missing.sh (not found)".to_owned(), Tone::Dim)
+        line_text(&lines[2]),
+        "programs: : (builtin); cd (builtin); ./missing.sh (not found)"
     );
 }
 
@@ -302,12 +325,10 @@ fn a_program_the_sandbox_wrote_is_marked_untrusted_in_yellow() {
     let info = ExitInfo { user_only: true, ..info(&[ExitKind::Privilege], Launch::Unsandboxed) };
     let lines = exit_lines(&info, Some(&record), home());
     assert_eq!(
-        lines[2],
-        (
-            "programs: sudo /usr/bin/sudo; ./scripts/setup.sh ~/p/eggfriedrice.code/scripts/setup.sh in a write root, changed this turn (untrusted: written in the sandbox)".to_owned(),
-            Tone::Attention
-        )
+        line_text(&lines[2]),
+        "programs: sudo /usr/bin/sudo; ./scripts/setup.sh ~/p/eggfriedrice.code/scripts/setup.sh[warning:  in a write root, changed this turn (untrusted: written in the sandbox)]"
     );
+    assert_eq!(line_text(&lines[1]), format!("[warning: {}]", super::FULL_RIGHTS));
     insta::assert_snapshot!(question(&info, &record));
 }
 
@@ -355,7 +376,7 @@ fn every_kind_has_words_and_a_line_never_breaks_out_of_its_row() {
     let mut lines = Vec::new();
     for kind in ExitKind::ALL {
         let info = info(&[kind], Launch::Unsandboxed);
-        lines.push(format!("{kind}: {}", exit_lines(&info, Some(&record), home())[0].0));
+        lines.push(format!("{kind}: {}", plain(&exit_lines(&info, Some(&record), home())[0])));
     }
     let heading = exit_heading(Some(&record)).unwrap();
     for line in &heading {
@@ -491,7 +512,7 @@ fn an_exit_of_a_file_tool_keeps_its_summary_and_says_where_it_runs() {
     let mut info = info(&[ExitKind::MaskedRead], Launch::Direct);
     info.user_only = true;
     let lines: Vec<String> =
-        exit_lines(&info, Some(&record), home()).into_iter().map(|(line, _)| line).collect();
+        exit_lines(&info, Some(&record), home()).iter().map(|line| plain(line)).collect();
     assert_eq!(
         lines,
         [

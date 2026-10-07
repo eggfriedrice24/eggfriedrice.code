@@ -116,7 +116,7 @@ pub(crate) async fn send(
     let client = ctx.connect(origin, prompt.context.tty.as_deref()).await?;
     let result = send_prompt(ctx, &client, prompt).await?;
     let size = ctx.screen.size();
-    let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
+    let options = ctx.render_options(effective_width(size));
     let render = &ctx.settings.render;
     let look = Look {
         motion: render.motion,
@@ -196,7 +196,7 @@ async fn steer(
     });
     let _: TurnSteerResult = client.call(method).await?;
     let size = ctx.screen.size();
-    let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
+    let options = ctx.render_options(effective_width(size));
     let line = render_trace("steered the running turn", &options);
     if options.is_terminal() {
         out.out(&line)
