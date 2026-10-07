@@ -208,7 +208,8 @@
 
 # A theme file: a [colors] table with the keys of [render.colors] below and, as
 # code_theme, the path of a .tmTheme file for code (absolute, ~/... or relative to
-# the theme file). The path is absolute or ~/... Unset: no theme file.
+# the theme file). palette must be an absolute path or start with ~/. Unset: no theme
+# file.
 # palette = "~/.config/efr/theme.toml"
 
 # Motion in the status row of a running turn: the spinner turns and a band in the text

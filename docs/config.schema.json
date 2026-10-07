@@ -563,7 +563,7 @@
           "type": "boolean"
         },
         "palette": {
-          "description": "A theme file with a colour for each role (its `[colors]` table) and, as\n`code_theme`, the path of a `.tmTheme` file for code: an absolute path or\n`~/...`. Unset: no theme file.",
+          "description": "A theme file: a `[colors]` table with a colour for each role and, as\n`code_theme`, the path of a `.tmTheme` file for code (absolute, `~/...` or\nrelative to the theme file). `palette` must be an absolute path or start with\n`~/`. Unset: no theme file.",
           "type": [
             "string",
             "null"

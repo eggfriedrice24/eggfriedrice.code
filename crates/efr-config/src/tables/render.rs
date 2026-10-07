@@ -126,9 +126,10 @@ pub struct RenderSettings {
     pub theme_dark: String,
     /// The theme that `theme = "auto"` takes on a light background.
     pub theme_light: String,
-    /// A theme file with a colour for each role (its `[colors]` table) and, as
-    /// `code_theme`, the path of a `.tmTheme` file for code: an absolute path or
-    /// `~/...`. Unset: no theme file.
+    /// A theme file: a `[colors]` table with a colour for each role and, as
+    /// `code_theme`, the path of a `.tmTheme` file for code (absolute, `~/...` or
+    /// relative to the theme file). `palette` must be an absolute path or start with
+    /// `~/`. Unset: no theme file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<PathBuf>,
     /// Motion in the status row of a running turn: the spinner turns and a band in
