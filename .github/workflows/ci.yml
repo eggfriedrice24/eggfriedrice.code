@@ -158,9 +158,9 @@ jobs:
           cargo nextest run "${args[@]}" --lib --tests --profile ci
 
   # The test binaries of every member except the ghostty screen, built once and shared
-  # with `test-full` and `shell` as a nextest archive. It holds the test binaries, efr
-  # and efrd (for CARGO_BIN_EXE_efr), the build script outputs and the metadata nextest
-  # needs; `just test-full` builds the same set.
+  # with `test-full`, `shell` and `sandbox` as a nextest archive. It holds the test
+  # binaries, efr and efrd (for CARGO_BIN_EXE_efr), the build script outputs and the
+  # metadata nextest needs; `just test-full` builds the same set.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -185,10 +185,11 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  # NOTE: the two jobs below run the archive of `build` and neither install Rust nor
-  # compile. The archive is unpacked into the checkout, so target/ sits at the same
-  # absolute path as in `build` (every runner checks out to the same directory) and the
-  # paths compiled into the tests (CARGO_MANIFEST_DIR, CARGO_BIN_EXE_efr) hold.
+  # NOTE: `test-full`, `shell` and `sandbox` run the archive of `build` and neither
+  # install Rust nor compile. The archive is unpacked into the checkout, so target/ sits
+  # at the same absolute path as in `build` (every runner checks out to the same
+  # directory) and the paths compiled into the tests (CARGO_MANIFEST_DIR,
+  # CARGO_BIN_EXE_efr) hold.
   # INSTA_WORKSPACE_ROOT spares insta the `cargo metadata` call it would make without a
   # toolchain to find the workspace; it names the same root.
   test-full:
@@ -237,6 +238,50 @@ jobs:
           -E 'package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)'
         env:
           EFR_TEST_ZSH: "1"
+
+  # The tests of `just test-sandbox` on real bwrap, Landlock ABI 9 and seccomp. The
+  # runner's kernel is older than 7.1 and its AppArmor blocks unprivileged user
+  # namespaces, so .github/sandbox-vm.sh boots the kernel that it pins with virtme-ng in
+  # QEMU and runs the tests of the build job's archive inside, where a skipped test
+  # fails. `just test-sandbox-vm` runs the same step in a container set up like this
+  # runner.
+  sandbox:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      # GitHub gives public repositories KVM on its standard Linux runners, but only the
+      # kvm group may open /dev/kvm (the udev rule of GitHub's changelog of 2024-04-02).
+      # Without KVM the job fails here: QEMU alone is too slow for the suite.
+      - name: open /dev/kvm to the runner user
+        run: |
+          if [[ ! -c /dev/kvm ]]; then
+            echo "::error::/dev/kvm does not exist on this runner; the sandbox VM needs KVM"
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - run: .github/sandbox-vm.sh tools
+      - run: .github/sandbox-vm.sh bwrap
+      - run: .github/sandbox-vm.sh kernel "$RUNNER_TEMP/kernel"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+      - uses: actions/download-artifact@v8
+        with:
+          name: nextest-archive
+          path: ${{ runner.temp }}
+      # Unpacked into the checkout, as in `test-full`; the step summary gets the
+      # kernel, the Landlock ABI and the launch cost table.
+      - run: >-
+          .github/sandbox-vm.sh run "$RUNNER_TEMP/kernel"
+          "$RUNNER_TEMP/nextest-archive.tar.zst" . .
 
   ghostty:
     runs-on: ubuntu-latest
