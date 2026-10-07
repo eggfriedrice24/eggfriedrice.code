@@ -32,7 +32,11 @@ the daemon and the daemon's answers back into frames:
   request has ended, so no item ever follows the end frame.
 - `subscriptions`: bounded per-subscriber queues of 64 items. An offer never waits;
   overflow closes that subscription, which then delivers what was queued and ends with
-  `overflow` carrying `last_seq`, so the client resubscribes without a gap.
+  `overflow` carrying `last_seq`, so the client resubscribes without a gap. A lossy
+  item, such as a draft of a running turn, has no sequence number and its own room of
+  16 items in the same queue, so the order of all items holds: a full room drops the
+  item, and a lossy item never takes the room of a sequenced one, so it never causes
+  an overflow.
 - `context`: `ConnectionContext { surface, uid, pid, conn_id }`, carried by every
   request. The uid and pid come from the kernel, the surface from hello.
 - `codec`: `ServerCodec`, the tokio codec over `efr_protocol::framing`. Because an

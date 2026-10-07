@@ -9,10 +9,18 @@
 //! received. [`Responder::forward`](crate::Responder::forward) turns that into the
 //! `overflow` error frame, and the client subscribes again after `last_seq` without a
 //! gap.
+//!
+//! A producer can also offer a lossy item, such as a draft of a running turn, with
+//! [`SubscriptionSender::offer_lossy`]. A lossy item has no sequence number. It goes in
+//! the same queue, so all items arrive in the order of their offers. Lossy items have
+//! their own room of [`LOSSY_QUEUE_FRAMES`] items next to the room of the sequenced
+//! ones. When that room is full, the lossy item is dropped and the subscription stays
+//! open. A lossy item never takes the room of a sequenced one, so it never causes an
+//! overflow.
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use efr_protocol::Seq;
 use tokio::sync::mpsc;
@@ -21,18 +29,42 @@ use tokio::sync::mpsc::error::TrySendError;
 /// How many items a subscriber may have queued before its subscription is closed.
 pub const SUBSCRIBER_QUEUE_FRAMES: usize = 64;
 
-/// A new subscription with a queue of [`SUBSCRIBER_QUEUE_FRAMES`] items.
+/// How many lossy items a subscriber may have queued; the next lossy item is dropped.
+pub const LOSSY_QUEUE_FRAMES: usize = 16;
+
+/// A new subscription with a queue of [`SUBSCRIBER_QUEUE_FRAMES`] items, plus room for
+/// [`LOSSY_QUEUE_FRAMES`] lossy items.
 pub fn subscription<T>() -> (SubscriptionSender<T>, SubscriptionReceiver<T>) {
-    bounded(SUBSCRIBER_QUEUE_FRAMES)
+    bounded(SUBSCRIBER_QUEUE_FRAMES, LOSSY_QUEUE_FRAMES)
 }
 
-fn bounded<T>(capacity: usize) -> (SubscriptionSender<T>, SubscriptionReceiver<T>) {
-    let (tx, rx) = mpsc::channel(capacity);
-    let overflowed = Arc::new(AtomicBool::new(false));
+fn bounded<T>(capacity: usize, lossy: usize) -> (SubscriptionSender<T>, SubscriptionReceiver<T>) {
+    let (tx, rx) = mpsc::channel(capacity + lossy);
+    let shared = Arc::new(Shared {
+        overflowed: AtomicBool::new(false),
+        queued: AtomicUsize::new(0),
+        queued_lossy: AtomicUsize::new(0),
+    });
     (
-        SubscriptionSender { tx: Some(tx), overflowed: Arc::clone(&overflowed) },
-        SubscriptionReceiver { rx, overflowed, last_seq: None, done: false },
+        SubscriptionSender { tx: Some(tx), shared: Arc::clone(&shared), capacity, lossy },
+        SubscriptionReceiver { rx, shared, last_seq: None, done: false },
     )
+}
+
+/// What the two sides of one subscription share.
+#[derive(Debug)]
+struct Shared {
+    overflowed: AtomicBool,
+    /// How many sequenced items wait in the queue.
+    queued: AtomicUsize,
+    /// How many lossy items wait in the queue.
+    queued_lossy: AtomicUsize,
+}
+
+/// One entry of the queue.
+enum Slot<T> {
+    Sequenced(Seq, T),
+    Lossy(T),
 }
 
 /// What became of one offered item.
@@ -49,6 +81,20 @@ pub enum Offer {
     Closed,
 }
 
+/// What became of one offered lossy item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "a producer drops a subscriber whose offer found it closed"]
+pub enum LossyOffer {
+    /// The item is queued for the subscriber.
+    Queued,
+    /// The room for lossy items was full: the item was dropped. The subscription stays
+    /// open.
+    Dropped,
+    /// The subscription was already closed, by an overflow or because the subscriber
+    /// went away.
+    Closed,
+}
+
 /// One step of a subscription, as its request reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Delivery<T> {
@@ -56,6 +102,11 @@ pub enum Delivery<T> {
     Item {
         /// The item's sequence number.
         seq: Seq,
+        /// The item.
+        item: T,
+    },
+    /// The next item, a lossy one without a sequence number.
+    Lossy {
         /// The item.
         item: T,
     },
@@ -68,8 +119,10 @@ pub enum Delivery<T> {
 
 /// The producer's side of one subscription. Offers never wait.
 pub struct SubscriptionSender<T> {
-    tx: Option<mpsc::Sender<(Seq, T)>>,
-    overflowed: Arc<AtomicBool>,
+    tx: Option<mpsc::Sender<Slot<T>>>,
+    shared: Arc<Shared>,
+    capacity: usize,
+    lossy: usize,
 }
 
 impl<T> SubscriptionSender<T> {
@@ -79,18 +132,51 @@ impl<T> SubscriptionSender<T> {
         let Some(tx) = &self.tx else {
             return Offer::Closed;
         };
-        match tx.try_send((seq, item)) {
+        if tx.is_closed() {
+            self.tx = None;
+            return Offer::Closed;
+        }
+        // NOTE: only this sender adds to the count, so the count cannot grow between the
+        // check and the send. The sender adds before it sends, so the receiver never
+        // takes away more than was added.
+        if self.shared.queued.load(Ordering::Acquire) >= self.capacity {
+            return self.overflow();
+        }
+        self.shared.queued.fetch_add(1, Ordering::AcqRel);
+        match tx.try_send(Slot::Sequenced(seq, item)) {
             Ok(()) => Offer::Queued,
             Err(TrySendError::Full(_)) => {
-                // NOTE: the flag is stored before the sender is dropped, so the receiver,
-                // which reads it after it sees the channel close, always finds it set.
-                self.overflowed.store(true, Ordering::Release);
-                self.tx = None;
-                Offer::Overflowed
+                self.shared.queued.fetch_sub(1, Ordering::AcqRel);
+                self.overflow()
             }
             Err(TrySendError::Closed(_)) => {
+                self.shared.queued.fetch_sub(1, Ordering::AcqRel);
                 self.tx = None;
                 Offer::Closed
+            }
+        }
+    }
+
+    /// Offers a lossy `item` without waiting. The item is dropped when the room for
+    /// lossy items is full; it never closes the subscription.
+    pub fn offer_lossy(&mut self, item: T) -> LossyOffer {
+        let Some(tx) = &self.tx else {
+            return LossyOffer::Closed;
+        };
+        if self.shared.queued_lossy.load(Ordering::Acquire) >= self.lossy {
+            return LossyOffer::Dropped;
+        }
+        self.shared.queued_lossy.fetch_add(1, Ordering::AcqRel);
+        match tx.try_send(Slot::Lossy(item)) {
+            Ok(()) => LossyOffer::Queued,
+            Err(TrySendError::Full(_)) => {
+                self.shared.queued_lossy.fetch_sub(1, Ordering::AcqRel);
+                LossyOffer::Dropped
+            }
+            Err(TrySendError::Closed(_)) => {
+                self.shared.queued_lossy.fetch_sub(1, Ordering::AcqRel);
+                self.tx = None;
+                LossyOffer::Closed
             }
         }
     }
@@ -99,6 +185,14 @@ impl<T> SubscriptionSender<T> {
     /// went away.
     pub fn is_closed(&self) -> bool {
         self.tx.as_ref().is_none_or(mpsc::Sender::is_closed)
+    }
+
+    fn overflow(&mut self) -> Offer {
+        // NOTE: the flag is stored before the sender is dropped, so the receiver, which
+        // reads it after it sees the channel close, always finds it set.
+        self.shared.overflowed.store(true, Ordering::Release);
+        self.tx = None;
+        Offer::Overflowed
     }
 }
 
@@ -110,8 +204,8 @@ impl<T> fmt::Debug for SubscriptionSender<T> {
 
 /// The subscriber's side of one subscription.
 pub struct SubscriptionReceiver<T> {
-    rx: mpsc::Receiver<(Seq, T)>,
-    overflowed: Arc<AtomicBool>,
+    rx: mpsc::Receiver<Slot<T>>,
+    shared: Arc<Shared>,
     last_seq: Option<Seq>,
     done: bool,
 }
@@ -137,13 +231,23 @@ impl<T> SubscriptionReceiver<T> {
             return None;
         }
         loop {
-            let Some((seq, item)) = self.rx.recv().await else {
+            let Some(slot) = self.rx.recv().await else {
                 self.done = true;
-                if self.overflowed.load(Ordering::Acquire) {
+                if self.shared.overflowed.load(Ordering::Acquire) {
                     let last_seq = self.last_seq.unwrap_or(Seq::ZERO);
                     return Some(Delivery::Overflowed { last_seq });
                 }
                 return None;
+            };
+            let (seq, item) = match slot {
+                Slot::Lossy(item) => {
+                    self.shared.queued_lossy.fetch_sub(1, Ordering::AcqRel);
+                    return Some(Delivery::Lossy { item });
+                }
+                Slot::Sequenced(seq, item) => {
+                    self.shared.queued.fetch_sub(1, Ordering::AcqRel);
+                    (seq, item)
+                }
             };
             if self.last_seq.is_some_and(|last| seq <= last) {
                 continue;

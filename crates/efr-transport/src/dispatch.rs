@@ -186,7 +186,7 @@ impl Responder {
         }
         while let Some(delivery) = subscription.recv().await {
             match delivery {
-                Delivery::Item { item, .. } => self.item(&item).await?,
+                Delivery::Item { item, .. } | Delivery::Lossy { item } => self.item(&item).await?,
                 Delivery::Overflowed { last_seq } => {
                     self.lock().overflow = Some(last_seq);
                     return Err(TransportError::Overflow { last_seq });

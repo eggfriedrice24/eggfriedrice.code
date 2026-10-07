@@ -11,7 +11,8 @@
 //!   [`Responder`].
 //! - [`subscription`]: bounded per-subscriber queues of [`SUBSCRIBER_QUEUE_FRAMES`]
 //!   items; overflow closes that subscription with `overflow` and `last_seq`, and never
-//!   slows the producer.
+//!   slows the producer. A lossy item, such as a draft, is dropped when its own room
+//!   of [`LOSSY_QUEUE_FRAMES`] is full, and never closes the subscription.
 //! - [`ServerCodec`]: the tokio codec over `efr_protocol::framing`.
 //! - [`ConnectionContext`]: `{ surface, uid, pid, conn_id }`, carried by every request.
 //!
@@ -36,7 +37,7 @@ pub use context::{ConnId, ConnectionContext, PeerCred};
 pub use dispatch::{Dispatcher, Request, Responder};
 pub use error::TransportError;
 pub use subscriptions::{
-    Delivery, Offer, SUBSCRIBER_QUEUE_FRAMES, SubscriptionReceiver, SubscriptionSender,
-    subscription,
+    Delivery, LOSSY_QUEUE_FRAMES, LossyOffer, Offer, SUBSCRIBER_QUEUE_FRAMES, SubscriptionReceiver,
+    SubscriptionSender, subscription,
 };
 pub use unix_listener::{Accepted, UnixListener};
