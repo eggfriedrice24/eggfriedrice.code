@@ -726,6 +726,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
  "unicode-width",
  "zeroize",
 ]
@@ -1105,6 +1106,7 @@ name = "efr-screen-ghostty"
 version = "0.0.1"
 dependencies = [
  "bytes",
+ "efr-render",
  "efr-screen",
  "libghostty-vt",
  "pretty_assertions",

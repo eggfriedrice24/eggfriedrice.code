@@ -6,3 +6,4 @@
 #![cfg(test)]
 
 mod conformance;
+mod widths;

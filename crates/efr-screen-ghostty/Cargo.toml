@@ -19,6 +19,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
+# The widths test checks efr-render's count of grapheme widths against the real screen.
+efr-render.workspace = true
 # The conformance feature turns on efr_screen::conformance for the test targets only.
 efr-screen = { workspace = true, features = ["conformance"] }
 pretty_assertions.workspace = true

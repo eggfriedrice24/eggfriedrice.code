@@ -49,8 +49,8 @@ Tier 2.
 
 Third-party crates: `libghostty-vt` at the pinned git rev with default features off
 (no kitty graphics), `thiserror` and `tracing` (the cross-check warnings and the
-factory error). Tests add `bytes`, `pretty_assertions` and `efr-screen` with its
-`conformance` feature.
+factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
+`conformance` feature, and `efr-render` (a dev-dependency only, for its width count).
 
 ## Invariant
 
@@ -81,6 +81,11 @@ escape sequence), the factories on a real `ScreenActor`, and the cross-check wit
 agreeing streams and with states libghostty-vt did not reach. `tests/it/conformance.rs`
 runs the efr-screen conformance suite with the `ghostty` backend name; its rendered
 screens are the `*__ghostty.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`.
+`tests/it/widths.rs` checks the width that `efr` counts in Ghostty
+(`efr_render::text_width` by grapheme cluster) against the cursor of a real screen with
+mode 2027 on: ZWJ emoji, flags, variation selectors, skin tones and wrapped lines. A
+wrong count would make `efr` erase one row too many or too few when it draws its live
+zone again.
 
 A dev build compiles ghostty in Zig's Debug mode (Cargo sets `DEBUG=true`), which
 takes in roughly 120 KB of plain text per second. The tests feed little, so they take
