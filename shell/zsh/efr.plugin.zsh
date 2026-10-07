@@ -88,6 +88,8 @@ typeset -gi _efr_new_pending
 # now, and 1 while it is waiting there.
 typeset -g _efr_stash
 typeset -gi _efr_stash_set
+# 1 after a line ran efr for a prompt, until the next precmd shows the cursor again.
+typeset -gi _efr_called
 # The user's own interactive_comments and bang_hist ("on" or "off") while a plugin
 # line runs with its own settings, or empty.
 typeset -ga _efr_saved_options
@@ -240,6 +242,7 @@ _efr_call() {
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   local context=$1 last_command=$2 text=$3
   shift 3
+  _efr_called=1
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
     efr "$@"
@@ -731,9 +734,19 @@ _efr_remember_command() {
   _efr_running=''
 }
 
+# Shows the cursor after a line that ran efr. efr hides it while a turn runs and shows
+# it on every way out that it controls; this covers the rest, such as a kill -9.
+_efr_show_cursor() {
+  (( _efr_called )) || return 0
+  _efr_called=0
+  [[ -t 1 ]] && print -rn -- $'\e[?25h'
+  return 0
+}
+
 _efr_precmd() {
   # Must be first: the status of the line that just finished.
   local exit_status=$?
+  _efr_show_cursor
   _efr_restore_options
   # A saved prompt that no command took (the line failed before it ran) must not
   # leak into the next one.

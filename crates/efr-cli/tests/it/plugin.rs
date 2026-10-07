@@ -513,6 +513,32 @@ fn e2e_a_prompt_line_leaves_the_users_own_options_as_they_were() {
 }
 
 #[test]
+fn e2e_precmd_shows_the_cursor_after_a_line_that_ran_efr_and_only_on_a_terminal() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // Not a terminal: precmd writes nothing, but it still forgets the call.
+    let home = Home::new();
+    let out = run_in(
+        &home,
+        r#"
+        , hello
+        print -r -- "called=$_efr_called"
+        _efr_precmd
+        print -r -- "called=$_efr_called"
+        true; _efr_precmd
+    "#,
+    );
+    assert_eq!(out, "called=1\ncalled=0\n");
+    // At a terminal, the line after a prompt gets the cursor back once.
+    let shown = |lines: &[&str]| {
+        let screen = type_lines(&Home::new(), lines);
+        screen.matches("\x1b[?25h").count()
+    };
+    assert_eq!(shown(&[", hello", "true"]), shown(&["true", "true"]) + 1);
+}
+
+#[test]
 fn e2e_a_prompt_over_several_lines_never_runs_its_later_lines() {
     if !zsh_tests_enabled() {
         return;
