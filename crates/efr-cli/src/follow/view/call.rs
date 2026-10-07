@@ -19,6 +19,7 @@ use efr_protocol::CallId;
 use efr_render::{RenderOptions, Role, text_width};
 use jiff::Timestamp;
 
+use crate::follow::since_then;
 use crate::format::{self, CallLine, Tone};
 
 /// The lines of output that a running call shows and a failed one keeps.
@@ -209,11 +210,6 @@ pub(crate) fn output_lines(output: &str) -> Vec<String> {
         lines.pop();
     }
     last_lines(&lines.join("\n"))
-}
-
-/// The time from `then` to `now`; zero when `now` is earlier.
-fn since_then(then: Timestamp, now: Timestamp) -> Duration {
-    Duration::try_from(now.duration_since(then)).unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ use efr_render::RenderOptions;
 use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
 
-use super::{AnswerKind, Ask, Asking, Look, Seed, Target, TurnView, follow, take_over};
+use super::{AnswerKind, Ask, Asking, Look, Seed, Target, TurnView, follow, since_then, take_over};
 use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
@@ -1451,6 +1451,13 @@ fn keeping_the_keys_again_keeps_the_queue() {
 }
 
 // --- frames, ticks, resizes and the ways out ----------------------------------------
+
+#[test]
+fn the_time_since_a_moment_is_never_negative() {
+    let later = now() + jiff::SignedDuration::from_millis(250);
+    assert_eq!(since_then(now(), later), std::time::Duration::from_millis(250));
+    assert_eq!(since_then(later, now()), std::time::Duration::ZERO);
+}
 
 /// A terminal view with every switch on, whose status row runs, as `efr send` makes it.
 fn started_view() -> TurnView {

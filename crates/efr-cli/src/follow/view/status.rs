@@ -13,6 +13,7 @@ use std::time::Duration;
 use efr_render::{RenderOptions, Role};
 use jiff::Timestamp;
 
+use crate::follow::since_then;
 use crate::format;
 
 /// The frames of the spinner, one per tick: one turn a second. Braille takes one column
@@ -212,11 +213,6 @@ impl Status {
 /// The frame of the spinner at tick `ticks`, or the still dot without `motion`.
 pub(crate) fn spinner(motion: bool, ticks: usize) -> char {
     if motion { SPINNER[ticks % SPINNER.len()] } else { STILL }
-}
-
-/// The time from `then` to `now`; zero when `now` is earlier.
-fn since_then(then: Timestamp, now: Timestamp) -> Duration {
-    Duration::try_from(now.duration_since(then)).unwrap_or_default()
 }
 
 /// The ticks in `time`.

@@ -91,6 +91,12 @@ pub(crate) const SILENCE: Duration = Duration::from_secs(10);
 /// The shortest time between two frames: at most 60 a second.
 pub(crate) const FRAME: Duration = Duration::from_millis(16);
 
+/// The time from `then` to `now`; zero when `now` is earlier. The view and its parts
+/// count their times with it too.
+pub(crate) fn since_then(then: Timestamp, now: Timestamp) -> Duration {
+    Duration::try_from(now.duration_since(then)).unwrap_or_default()
+}
+
 /// Where the turn to follow is.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Target {
@@ -337,9 +343,7 @@ impl Follower<'_> {
             return Ok(());
         }
         let now = self.ctx.clock.now();
-        let since = self
-            .last_frame
-            .map(|last| Duration::try_from(now.duration_since(last)).unwrap_or_default());
+        let since = self.last_frame.map(|last| since_then(last, now));
         match since {
             Some(since) if since < FRAME => {
                 self.frame = Some(self.ctx.clock.sleep(FRAME - since));
