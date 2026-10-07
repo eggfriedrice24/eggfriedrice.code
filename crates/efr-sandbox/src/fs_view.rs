@@ -1,6 +1,8 @@
 //! [`FsView`]: the only way this crate reads the file system, so every rule runs
 //! against a fake in tests and against `openat2` in `efr-sbx` and `efrd`.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io;
 use std::os::fd::OwnedFd;
@@ -56,6 +58,68 @@ pub trait FsView {
     /// A descriptor that reads as empty, such as `/dev/null` opened for reading: the
     /// data of one `--ro-bind-data`, which masks a file.
     fn open_empty(&self) -> io::Result<OwnedFd>;
+}
+
+/// An [`FsView`] that remembers what `lstat` and `read_link` found, for the length of
+/// one plan: the plan resolves a hundred paths that share their first dirs, and some
+/// of them more than once. A missing path is remembered too; any other error is not.
+pub(crate) struct Memo<'a> {
+    fs: &'a dyn FsView,
+    kinds: RefCell<HashMap<PathBuf, Option<FileKind>>>,
+    links: RefCell<HashMap<PathBuf, PathBuf>>,
+}
+
+impl<'a> Memo<'a> {
+    pub(crate) fn new(fs: &'a dyn FsView) -> Self {
+        Memo { fs, kinds: RefCell::default(), links: RefCell::default() }
+    }
+}
+
+impl FsView for Memo<'_> {
+    fn lstat(&self, path: &Path) -> io::Result<FileKind> {
+        if let Some(known) = self.kinds.borrow().get(path) {
+            return known.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound));
+        }
+        let found = self.fs.lstat(path);
+        let remembered = match &found {
+            Ok(kind) => Some(Some(*kind)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Some(None),
+            Err(_) => None,
+        };
+        if let Some(remembered) = remembered {
+            self.kinds.borrow_mut().insert(path.to_path_buf(), remembered);
+        }
+        found
+    }
+
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        if let Some(target) = self.links.borrow().get(path) {
+            return Ok(target.clone());
+        }
+        let target = self.fs.read_link(path)?;
+        self.links.borrow_mut().insert(path.to_path_buf(), target.clone());
+        Ok(target)
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>> {
+        self.fs.read_dir(path)
+    }
+
+    fn read_dir_kinds(&self, path: &Path) -> io::Result<Vec<(OsString, Option<FileKind>)>> {
+        self.fs.read_dir_kinds(path)
+    }
+
+    fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.fs.read_file(path, limit)
+    }
+
+    fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd> {
+        self.fs.open_no_symlinks(path)
+    }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        self.fs.open_empty()
+    }
 }
 
 /// The most symbolic links one resolution follows, as the kernel's `MAXSYMLINKS`.

@@ -589,3 +589,52 @@ fn a_registered_git_dir_reached_through_a_link_in_a_root_is_refused() {
     fs.dir("/home/u/p/app/real-git").link("/home/u/p/app/gd", "real-git");
     assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::SymlinkedPin { .. })));
 }
+
+/// A file system that counts how often each path is looked up.
+struct Lookups<'a> {
+    fs: &'a FakeFs,
+    lstats: std::cell::RefCell<std::collections::BTreeMap<PathBuf, usize>>,
+}
+
+impl crate::FsView for Lookups<'_> {
+    fn lstat(&self, path: &Path) -> std::io::Result<crate::FileKind> {
+        *self.lstats.borrow_mut().entry(path.to_path_buf()).or_default() += 1;
+        self.fs.lstat(path)
+    }
+    fn read_link(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.fs.read_link(path)
+    }
+    fn read_dir(&self, path: &Path) -> std::io::Result<Vec<std::ffi::OsString>> {
+        self.fs.read_dir(path)
+    }
+    fn read_file(&self, path: &Path, limit: usize) -> std::io::Result<Vec<u8>> {
+        self.fs.read_file(path, limit)
+    }
+    fn open_no_symlinks(&self, path: &Path) -> std::io::Result<std::os::fd::OwnedFd> {
+        self.fs.open_no_symlinks(path)
+    }
+    fn open_empty(&self) -> std::io::Result<std::os::fd::OwnedFd> {
+        self.fs.open_empty()
+    }
+}
+
+#[test]
+fn plan_looks_up_each_path_once() {
+    let mut spec = spec();
+    for n in 0..40 {
+        let path = PathBuf::from(format!("/home/u/.config/app{n}/secret"));
+        spec.masks.push(Mask { path, kind: MaskKind::SandboxMask });
+        let path = PathBuf::from(format!("/home/u/p/app/.tool{n}"));
+        spec.floors.push(Floor { path, kind: FloorKind::ProtectedName });
+    }
+    let mut fs = world();
+    fs.dir("/home/u/.config/app7").file("/home/u/.config/app7/secret", "token");
+    fs.link("/home/u/.config/app3", "/home/u/dotfiles/app3");
+    let lookups = Lookups { fs: &fs, lstats: std::cell::RefCell::default() };
+    let plan = MountPlan::build(&spec, &lookups).unwrap();
+    assert!(has_mount(&plan, &MountOp::DevNull { target: "/home/u/.config/app7/secret".into() }));
+    let lstats = lookups.lstats.borrow();
+    let twice: Vec<(&PathBuf, &usize)> = lstats.iter().filter(|(_, n)| **n > 1).collect();
+    assert!(twice.is_empty(), "looked up more than once: {twice:?}");
+    assert_eq!(lstats.get(Path::new("/home/u")), Some(&1));
+}

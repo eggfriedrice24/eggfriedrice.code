@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, CacheMode, Grant};
 
 use crate::SandboxError;
-use crate::fs_view::{FileKind, FsView, Resolved, resolve};
+use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
 use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
@@ -50,6 +50,10 @@ impl MountPlan {
     /// reading the file system only through `fs`.
     pub fn build(spec: &SandboxSpec, fs: &dyn FsView) -> Result<MountPlan, SandboxError> {
         spec.check()?;
+        // NOTE: one plan resolves each shared dir of its hundred paths once, not each
+        // time; the plan cost the launcher 2 ms per call before.
+        let memo = Memo::new(fs);
+        let fs: &dyn FsView = &memo;
         let path_dirs = path_entries(&spec.shell_path)?;
         let mut builder = Builder {
             spec,
