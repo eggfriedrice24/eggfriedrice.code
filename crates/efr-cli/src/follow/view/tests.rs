@@ -1814,6 +1814,25 @@ fn a_draft_of_another_turn_an_older_one_and_one_of_a_completed_message_change_no
 }
 
 #[test]
+fn drafts_after_a_steer_still_show() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    // The conversation records the steer, so the turn's drafts still come after 11.
+    let steered = Event::TurnSteered { turn_id: turn(), text: "also the docs".to_owned() };
+    view.envelope(&sent(12, 5, steered), SIZE, false);
+    view.frame(SIZE, at(5));
+    let thinking = DraftPart::Reasoning {
+        offset: 0,
+        delta: "x".to_owned(),
+        title: Some("Reading the docs".to_owned()),
+    };
+    view.draft(&draft(11, thinking), SIZE);
+    assert!(view.frame(SIZE, at(10)).contains("thinking: Reading the docs"));
+    view.draft(&text_draft(11, 0, "Hello"), SIZE);
+    assert!(view.frame(SIZE, at(20)).contains("Hello"));
+}
+
+#[test]
 fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     let mut view = started_view(Look::default());
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);

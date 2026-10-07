@@ -93,7 +93,10 @@ Replies:
   persisted update that repeats text that drafts showed changes nothing, a draft that
   starts past the text held (an earlier one was dropped) waits for the next persisted
   update, and `assistant_message_completed` stays the truth. A draft of another turn,
-  or one older than an event of the turn that the view took, changes nothing. An older
+  or one older than an event of the turn that ends what drafts show (the end of a
+  message, the start of a tool call, the end of the turn; the daemon's rule), changes
+  nothing. A steer or an interrupt request moves nothing: the conversation records
+  them, not the turn, so the drafts after them still name the turn's own last event. An older
   daemon sends no drafts, and the text then comes with the persisted updates.
 - Text goes into the renderer at the pace of the frames: a burst is shown over the time
   until the next one is due, at most 120 ms, so a 200 ms update reads as a stream. All

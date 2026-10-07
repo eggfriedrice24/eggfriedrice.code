@@ -419,9 +419,11 @@ pub(crate) struct TurnView {
     /// The daemon's time of the event that is being taken, and of the turn's start.
     event_at: Option<Timestamp>,
     started_at: Option<Timestamp>,
-    /// The sequence number of the newest event of this turn, which a draft must not be
-    /// older than.
-    turn_seq: Option<Seq>,
+    /// The sequence number of the newest event of this turn that ends what a draft
+    /// shows ([`ends_drafts`]); a draft made before it is old. Other events, such as a
+    /// steer that the conversation records and not the turn, move nothing: the drafts
+    /// after them still name the turn's own last event.
+    draft_boundary: Option<Seq>,
 }
 
 impl TurnView {
@@ -466,7 +468,7 @@ impl TurnView {
             last_frame: None,
             event_at: None,
             started_at: None,
-            turn_seq: None,
+            draft_boundary: None,
         }
     }
 
@@ -511,7 +513,9 @@ impl TurnView {
     /// daemon's clock, which time the turn for its end-of-turn line.
     pub(crate) fn envelope(&mut self, envelope: &EventEnvelope, size: Size, can_ask: bool) -> Step {
         if envelope.event.turn_id() == Some(self.turn) {
-            self.turn_seq = Some(envelope.seq);
+            if ends_drafts(&envelope.event) {
+                self.draft_boundary = Some(envelope.seq);
+            }
             self.event_at = Some(envelope.at);
         }
         let step = self.event(&envelope.event, size, can_ask);
@@ -522,11 +526,11 @@ impl TurnView {
     /// Takes a draft: the part of this turn that the daemon sends before it records it.
     /// Text merges with the persisted updates of its message; reasoning and the input of
     /// a tool call only change the status row. A draft of another turn, or one older
-    /// than an event of this turn that the view took, changes nothing.
+    /// than an event of this turn that ends what drafts show, changes nothing.
     pub(crate) fn draft(&mut self, draft: &Draft, size: Size) -> Step {
         if draft.turn_id != self.turn
             || self.ended
-            || self.turn_seq.is_some_and(|seq| draft.after_seq < seq)
+            || self.draft_boundary.is_some_and(|seq| draft.after_seq < seq)
         {
             return Step::default();
         }
@@ -1817,6 +1821,21 @@ struct Request<'a> {
     diff: Option<&'a str>,
     /// What the call would do outside the sandbox, for an exit.
     exit: Option<&'a ExitInfo>,
+}
+
+/// True for an event after which the drafts made before it show nothing new: the end
+/// of the text of a message, the start of a tool call (after the whole answer of the
+/// model), and the end of a turn. The daemon drops old drafts by the same rule.
+fn ends_drafts(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::AssistantMessageCompleted { .. }
+            | Event::ToolCallStarted { .. }
+            | Event::TurnCompleted { .. }
+            | Event::TurnFailed { .. }
+            | Event::TurnInterrupted { .. }
+            | Event::TurnCancelled { .. }
+    )
 }
 
 #[cfg(test)]
