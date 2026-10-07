@@ -58,7 +58,8 @@ pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
 pub use tables::render::{
-    COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings, RoleColor,
+    AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
+    RoleColor,
 };
 pub use tables::sandbox::{
     DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,

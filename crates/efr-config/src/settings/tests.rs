@@ -256,6 +256,22 @@ fn motion_the_turn_summary_and_the_progress_bar_are_on_or_auto_until_the_file_sa
 }
 
 #[test]
+fn auto_picks_from_a_dark_and_a_light_theme_that_have_defaults() {
+    let settings = parse("").unwrap();
+    assert_eq!(settings.render.theme, None);
+    assert_eq!(settings.render.theme_dark, "catppuccin-mocha");
+    assert_eq!(settings.render.theme_light, "catppuccin-latte");
+    let text = "[render]\ntheme = \"auto\"\ntheme_dark = \"nord\"\ntheme_light = \"github\"\n";
+    let settings = parse(text).unwrap();
+    assert_eq!(settings.render.theme.as_deref(), Some(crate::AUTO_THEME));
+    assert_eq!(settings.render.theme_dark, "nord");
+    assert_eq!(settings.render.theme_light, "github");
+    assert_eq!(settings.source("render.theme_light"), Source::File);
+    let error = parse("[render]\ntheme_light = \"\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("render.theme_light"));
+}
+
+#[test]
 fn a_colour_can_be_set_by_an_override_and_is_checked_like_the_file() {
     let mut settings = parse("").unwrap();
     let from = Source::Flag("--test");

@@ -70,6 +70,16 @@ pub(crate) const THEME_COLOR_KEYS: [&str; 13] = [
 pub(crate) const COLOR_EXPECTED: &str =
     "a colour: \"#rrggbb\", an ANSI slot from 0 to 15, or a name such as \"yellow\"";
 
+/// The value of `render.theme` that picks `theme_dark` or `theme_light` by the
+/// terminal's background.
+pub const AUTO_THEME: &str = "auto";
+
+/// The default of `render.theme_dark`.
+const DEFAULT_THEME_DARK: &str = "catppuccin-mocha";
+
+/// The default of `render.theme_light`.
+const DEFAULT_THEME_LIGHT: &str = "catppuccin-latte";
+
 /// The names of the 16 colours, in the order of their ANSI slots from 0.
 const NAMES: [&str; 8] = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
 
@@ -106,9 +116,16 @@ impl Progress {
 #[non_exhaustive]
 pub struct RenderSettings {
     /// The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:
-    /// the terminal's own 16 colours. A `code_theme` in the palette file wins over it.
+    /// the terminal's own 16 colours. `auto` takes `theme_dark` or `theme_light`, as
+    /// the terminal's background is dark or light (`EFR_TERMINAL_BG`). A `code_theme`
+    /// in the palette file wins over it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// The theme that `theme = "auto"` takes on a dark background, and when the
+    /// background is not known.
+    pub theme_dark: String,
+    /// The theme that `theme = "auto"` takes on a light background.
+    pub theme_light: String,
     /// A theme file with a colour for each role (its `[colors]` table) and, as
     /// `code_theme`, the path of a `.tmTheme` file for code: an absolute path or
     /// `~/...`. Unset: no theme file.
@@ -134,6 +151,8 @@ impl Default for RenderSettings {
     fn default() -> Self {
         RenderSettings {
             theme: None,
+            theme_dark: DEFAULT_THEME_DARK.to_owned(),
+            theme_light: DEFAULT_THEME_LIGHT.to_owned(),
             palette: None,
             motion: true,
             turn_summary: true,

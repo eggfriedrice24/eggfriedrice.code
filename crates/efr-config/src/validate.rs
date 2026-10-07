@@ -121,6 +121,8 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     if let Some(theme) = &render.theme {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
+    non_empty("render.theme_dark", &render.theme_dark, "a theme name such as catppuccin-mocha")?;
+    non_empty("render.theme_light", &render.theme_light, "a theme name such as catppuccin-latte")?;
     if let Some(palette) = &render.palette
         && !palette.is_absolute()
         && !palette.starts_with("~")

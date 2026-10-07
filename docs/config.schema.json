@@ -575,11 +575,21 @@
           "description": "The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`\n(only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never\ninside tmux), `on` or `off`."
         },
         "theme": {
-          "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours. A `code_theme` in the palette file wins over it.",
+          "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours. `auto` takes `theme_dark` or `theme_light`, as\nthe terminal's background is dark or light (`EFR_TERMINAL_BG`). A `code_theme`\nin the palette file wins over it.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "theme_dark": {
+          "default": "catppuccin-mocha",
+          "description": "The theme that `theme = \"auto\"` takes on a dark background, and when the\nbackground is not known.",
+          "type": "string"
+        },
+        "theme_light": {
+          "default": "catppuccin-latte",
+          "description": "The theme that `theme = \"auto\"` takes on a light background.",
+          "type": "string"
         },
         "turn_summary": {
           "default": true,
@@ -1024,6 +1034,8 @@
         },
         "motion": true,
         "progress": "auto",
+        "theme_dark": "catppuccin-mocha",
+        "theme_light": "catppuccin-latte",
         "turn_summary": true
       },
       "description": "How `efr` shows replies."

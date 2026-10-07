@@ -119,7 +119,9 @@ How `efr` shows replies.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `theme` | unset | client | The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset: the terminal's own 16 colours. A `code_theme` in the palette file wins over it. |
+| `theme` | unset | client | The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset: the terminal's own 16 colours. `auto` takes `theme_dark` or `theme_light`, as the terminal's background is dark or light (`EFR_TERMINAL_BG`). A `code_theme` in the palette file wins over it. |
+| `theme_dark` | `"catppuccin-mocha"` | client | The theme that `theme = "auto"` takes on a dark background, and when the background is not known. |
+| `theme_light` | `"catppuccin-latte"` | client | The theme that `theme = "auto"` takes on a light background. |
 | `palette` | unset | client | A theme file with a colour for each role (its `[colors]` table) and, as `code_theme`, the path of a `.tmTheme` file for code: an absolute path or `~/...`. Unset: no theme file. |
 | `motion` | `true` | client | Motion in the status row of a running turn: the spinner turns and a band of normal text moves over the dim state. `false` shows a still dot and no band; the time still counts. |
 | `turn_summary` | `true` | client | One muted line at the end of each turn: how long it took and the tokens it used, such as `done in 42s, 18.2k tokens in, 1.1k out`. |

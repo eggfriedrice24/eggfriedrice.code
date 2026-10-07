@@ -16,8 +16,10 @@ Modules:
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
   `validate` when it needs one, and its line in the example.
-- `tables/render`: `[render]` (`RenderSettings`): `theme`, `palette` (the path of a
-  theme file), `motion` (the spinner and the band over the state of the status row),
+- `tables/render`: `[render]` (`RenderSettings`): `theme` (`auto`, `AUTO_THEME`,
+  takes `theme_dark` or `theme_light` by the terminal's background), `theme_dark`
+  (default `catppuccin-mocha`), `theme_light` (default `catppuccin-latte`), `palette`
+  (the path of a theme file), `motion` (the spinner and the band over the state of the status row),
   `turn_summary` (the line at the end of each turn), `progress` (`Progress`: `auto`,
   `on` or `off`, for the progress bar of the terminal's tab) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
   `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
@@ -91,7 +93,8 @@ Modules:
 user's rules. `model.name` and `model.effort` are checked here for their form only: the
 model list belongs to the provider, so the daemon checks them against it, with a
 warning at start and an `invalid` error for a turn that uses them.
-`render.theme` is checked for a non-empty name only: the theme list lives in
+`render.theme`, `render.theme_dark` and `render.theme_light` are checked for a
+non-empty name only: the theme list lives in
 `efr-render`, which this crate may not depend on, so `efr` checks the name. For the
 same reason the role names of `[render.colors]` are listed here and in `efr-render`;
 `efr` turns a `RoleColor` into an `efr_render::Colour`. A role colour that is not a

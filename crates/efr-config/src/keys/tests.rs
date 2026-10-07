@@ -45,9 +45,10 @@ fn the_keys_start_with_the_top_level_ones_in_the_order_of_the_file() {
 #[test]
 fn the_render_keys_hold_one_colour_key_per_role() {
     let render: Vec<String> = keys().into_iter().filter(|key| key.starts_with("render.")).collect();
-    let mut expected: Vec<String> = ["theme", "palette", "motion", "turn_summary", "progress"]
-        .map(|key| format!("render.{key}"))
-        .into();
+    let mut expected: Vec<String> =
+        ["theme", "theme_dark", "theme_light", "palette", "motion", "turn_summary", "progress"]
+            .map(|key| format!("render.{key}"))
+            .into();
     expected.extend(COLOR_ROLES.iter().map(|role| format!("render.colors.{role}")));
     assert_eq!(render, expected);
     for role in COLOR_ROLES {

@@ -193,9 +193,18 @@
 
 [render]
 # The colour theme of code blocks and diffs, such as catppuccin-mocha, gruvbox-dark or
-# nord. Unset: the terminal's own 16 colours. A code_theme in the palette file wins
-# over it. Only efr reads it.
+# nord. Unset: the terminal's own 16 colours. "auto" takes theme_dark or theme_light,
+# as the terminal's background is dark or light: the zsh plugin asks the terminal once
+# when it loads and sets EFR_TERMINAL_BG to dark or light. A code_theme in the palette
+# file wins over it. Only efr reads it.
 # theme = "catppuccin-mocha"
+
+# The theme that theme = "auto" takes on a dark background, and when the background is
+# not known.
+# theme_dark = "catppuccin-mocha"
+
+# The theme that theme = "auto" takes on a light background.
+# theme_light = "catppuccin-latte"
 
 # A theme file: a [colors] table with the keys of [render.colors] below and, as
 # code_theme, the path of a .tmTheme file for code (absolute, ~/... or relative to
