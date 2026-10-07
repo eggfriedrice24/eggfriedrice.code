@@ -321,7 +321,9 @@ spec; `docs/sandbox.md` for the user's view):
 - Before the engine decides a shell call of an `auto` turn, the toolbox collects its
   facts (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
   directory through the hardened `git ls-files`, and where each program word leads
-  and whether it changed in the turn.
+  and whether it changed in the turn. A word that the shell runs itself
+  (`FactRequest::builtins`) leads to `builtin`, never to a file of its name on the
+  `PATH`.
 - After a call, the quarantine question's "keep" moves the changes back
   (`sandbox/quarantine.rs`), and at the end of the turn the report lists the files
   that run code later outside the sandbox (`sandbox/report.rs`, from the hardened

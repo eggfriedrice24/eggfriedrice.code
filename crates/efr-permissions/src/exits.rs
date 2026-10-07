@@ -313,6 +313,12 @@ pub struct FactRequest {
     /// The program words of the line, each once, also behind wrappers such as `env`
     /// and `sudo`; a word that only the shell can read is left out.
     pub programs: Vec<String>,
+    /// The words of [`programs`](Self::programs) that the shell runs itself in every
+    /// place of the line: a builtin or a reserved word of zsh, such as `:`, `cd` or
+    /// `printf`, where the shell finds the program. Such a word leads to no file, even
+    /// when the `PATH` has one of its name. Behind `env`, `sudo` or `find -exec` only a
+    /// file runs, so a word there is not here.
+    pub builtins: Vec<String>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
@@ -320,6 +326,8 @@ pub struct FactRequest {
 pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locations) -> FactRequest {
     let start = command_dir.and_then(normalize);
     let mut request = FactRequest::default();
+    // The program words in a place where only a file runs.
+    let mut files: Vec<String> = Vec::new();
     let add = |list: &mut Vec<PathBuf>, path: PathBuf| {
         if !list.contains(&path) {
             list.push(path);
@@ -333,12 +341,20 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 add(&mut request.targets, path);
             }
         }
-        for command in programs::commands(&segment.words) {
+        for (command, by_shell) in programs::placed_commands(&segment.words) {
             if let Some(program) = command.first()
                 && !program.contains([OPAQUE, '$'])
-                && !request.programs.contains(program)
             {
-                request.programs.push(program.clone());
+                if !request.programs.contains(program) {
+                    request.programs.push(program.clone());
+                }
+                if by_shell && programs::is_shell_word(program) {
+                    if !request.builtins.contains(program) {
+                        request.builtins.push(program.clone());
+                    }
+                } else if !files.contains(program) {
+                    files.push(program.clone());
+                }
             }
             let written = programs::made_paths(command)
                 .into_iter()
@@ -358,6 +374,9 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             }
         }
     }
+    // NOTE: a word that runs as a file in one place of the line resolves as a file, so
+    // the question shows that file and whether the sandbox wrote it.
+    request.builtins.retain(|word| !files.contains(word));
     request
 }
 

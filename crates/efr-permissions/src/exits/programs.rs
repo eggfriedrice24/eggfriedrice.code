@@ -95,20 +95,166 @@ pub(super) fn base_name(word: &str) -> &str {
 /// The commands that `words` runs: itself past its assignments, then the command each
 /// wrapper runs, and the commands of `find -exec`, outermost first.
 pub(super) fn commands(words: &[String]) -> Vec<&[String]> {
+    placed_commands(words).into_iter().map(|(command, _)| command).collect()
+}
+
+/// The precommand modifiers and reserved words of zsh after which the shell itself
+/// still finds the next program, so a builtin runs there: `time printf` runs the
+/// builtin `printf`. After `command`, `exec`, any program and `find -exec`, only a
+/// file runs.
+const SHELL_PREFIXES: &[&str] = &["builtin", "noglob", "nocorrect", "time"];
+
+/// The builtins of zsh: those of `zsh/main`, which every zsh has, and those of the
+/// modules that zsh loads when a word first needs them (`zsh/zle`, `zsh/rlimits`,
+/// `zsh/sched`, `zsh/zutil`). Where the shell finds a program, it runs one of these
+/// before a file of the same name on the `PATH`, as for `printf`, `echo` and `[`.
+const ZSH_BUILTINS: &[&str] = &[
+    "-",
+    ".",
+    ":",
+    "[",
+    "alias",
+    "autoload",
+    "bg",
+    "bindkey",
+    "break",
+    "builtin",
+    "bye",
+    "cd",
+    "chdir",
+    "command",
+    "continue",
+    "declare",
+    "dirs",
+    "disable",
+    "disown",
+    "echo",
+    "emulate",
+    "enable",
+    "eval",
+    "exec",
+    "exit",
+    "export",
+    "false",
+    "fc",
+    "fg",
+    "float",
+    "functions",
+    "getln",
+    "getopts",
+    "hash",
+    "history",
+    "integer",
+    "jobs",
+    "kill",
+    "let",
+    "limit",
+    "local",
+    "logout",
+    "noglob",
+    "popd",
+    "print",
+    "printf",
+    "pushd",
+    "pushln",
+    "pwd",
+    "r",
+    "read",
+    "readonly",
+    "rehash",
+    "return",
+    "sched",
+    "set",
+    "setopt",
+    "shift",
+    "source",
+    "suspend",
+    "test",
+    "times",
+    "trap",
+    "true",
+    "ttyctl",
+    "type",
+    "typeset",
+    "ulimit",
+    "umask",
+    "unalias",
+    "unfunction",
+    "unhash",
+    "unlimit",
+    "unset",
+    "unsetopt",
+    "vared",
+    "wait",
+    "whence",
+    "where",
+    "which",
+    "zcompile",
+    "zformat",
+    "zle",
+    "zmodload",
+    "zparseopts",
+    "zregexparse",
+    "zstyle",
+];
+
+/// The reserved words of zsh (`man zshmisc`), which the shell reads where a program
+/// would stand.
+const ZSH_RESERVED: &[&str] = &[
+    "do",
+    "done",
+    "esac",
+    "then",
+    "elif",
+    "else",
+    "fi",
+    "for",
+    "case",
+    "if",
+    "while",
+    "function",
+    "repeat",
+    "time",
+    "until",
+    "select",
+    "coproc",
+    "nocorrect",
+    "foreach",
+    "end",
+    "!",
+    "[[",
+    "{",
+    "}",
+];
+
+/// True when the shell runs `word` itself where it finds a program: a builtin or a
+/// reserved word of zsh.
+pub(super) fn is_shell_word(word: &str) -> bool {
+    ZSH_BUILTINS.contains(&word) || ZSH_RESERVED.contains(&word)
+}
+
+/// The commands of [`commands`], each with true when the shell itself finds its
+/// program, so a builtin can run there: the first one, and one after a word of
+/// [`SHELL_PREFIXES`] there. A program behind any other wrapper, or that `find -exec`
+/// runs, is a file.
+pub(super) fn placed_commands(words: &[String]) -> Vec<(&[String], bool)> {
     let mut found = Vec::new();
     let mut rest = skip_assignments(words);
+    let mut by_shell = true;
     while let Some(first) = rest.first() {
-        found.push(rest);
+        found.push((rest, by_shell));
         let program = base_name(first);
         if program == "find" {
             for inner in find_exec(&rest[1..]) {
-                found.extend(commands(inner));
+                found.extend(placed_commands(inner).into_iter().map(|(inner, _)| (inner, false)));
             }
             break;
         }
         let looks_up = program == "command" && rest.iter().any(|word| word == "-v" || word == "-V");
         match WRAPPERS.iter().find(|(name, _, _)| *name == program) {
             Some((_, values, positional)) if !looks_up => {
+                // NOTE: the word itself, not its base name: `/usr/bin/time` is a file.
+                by_shell = by_shell && SHELL_PREFIXES.contains(&first.as_str());
                 rest = past_wrapper(&rest[1..], values, *positional);
             }
             _ => break,

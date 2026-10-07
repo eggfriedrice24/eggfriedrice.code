@@ -148,7 +148,9 @@ pub struct HostFact {
 pub struct ProgramFact {
     /// The word as the line has it.
     pub word: String,
-    /// Where it resolves; absent when it does not.
+    /// Where it resolves: the absolute path of a file, or `builtin`, a relative path,
+    /// for a word that the shell runs itself, such as `cd` or `:`. Absent when it does
+    /// not resolve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved: Option<PathBuf>,
     /// True when the program lies in a write root.

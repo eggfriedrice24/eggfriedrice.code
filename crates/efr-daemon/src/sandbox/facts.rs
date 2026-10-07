@@ -1,8 +1,10 @@
 //! The facts about a shell line's files and programs that the engine reads in `auto`
 //! (efr's auto spec, section 7.2): whether each target exists and what it is, how many
 //! files git tracks below each `rm -r` directory, and where each program word leads and
-//! whether that file changed in this turn. `efr-permissions` reads no file, so efrd
-//! collects them before the engine decides.
+//! whether that file changed in this turn. A word that the shell runs itself, a zsh
+//! builtin or reserved word such as `:` or `cd` ([`FactRequest::builtins`]), leads to
+//! [`BUILTIN`], not to a file. `efr-permissions` reads no file, so efrd collects them
+//! before the engine decides.
 //!
 //! A fact that cannot be found is left out, and the engine assumes the stricter case:
 //! the target exists, the directory holds tracked files. So a lost fact asks, and never
@@ -29,6 +31,10 @@ pub(crate) const HARDENED: &[&str] = &[
     "core.untrackedCache=false",
 ];
 
+/// Where a program word leads that the shell runs itself, a builtin or a reserved
+/// word: a relative path, which names no file, as `ProgramFact::resolved` says.
+pub(crate) const BUILTIN: &str = "builtin";
+
 /// What the collection needs besides the line's request.
 pub(crate) struct FactInput<'a> {
     /// What the engine reads for the line.
@@ -53,6 +59,7 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     let targets: Vec<PathBuf> = input.request.targets.iter().chain(input.writes).cloned().collect();
     let shell_path = input.shell_path.to_owned();
     let programs = input.request.programs.clone();
+    let builtins = input.request.builtins.clone();
     let command_dir = input.command_dir.map(Path::to_path_buf);
     let turn_start = input.turn_start;
     let looked = tokio::task::spawn_blocking(move || {
@@ -67,6 +74,9 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
         let programs: Vec<(String, Option<PathBuf>, bool)> = programs
             .iter()
             .map(|word| {
+                if builtins.contains(word) {
+                    return (word.clone(), Some(PathBuf::from(BUILTIN)), false);
+                }
                 let resolved = resolve_program(word, command_dir.as_deref(), &shell_path);
                 let changed =
                     resolved.as_deref().is_some_and(|path| changed_since(path, turn_start));

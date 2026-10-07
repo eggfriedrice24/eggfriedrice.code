@@ -108,7 +108,10 @@ Modules:
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
   directories and program words of a line its `CallFacts` must describe, from the same
-  lenient split.
+  lenient split. Its `builtins` are the program words that the shell runs itself in
+  every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
+  `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
+  `exec` or `find -exec` only a file runs.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`).

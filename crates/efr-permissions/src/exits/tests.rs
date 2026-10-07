@@ -122,6 +122,40 @@ fn fact_requests_name_every_target_rm_dir_and_program_that_predict_reads() {
     );
     assert_eq!(request.tracked, paths(&["/p/build", "/home/u/old"]));
     assert_eq!(request.programs, ["sudo", "env", "make", "rm", "dd", "sed", "mkdir", "cd", "tee"]);
+    assert_eq!(request.builtins, ["cd"]);
+}
+
+#[test]
+fn fact_requests_name_the_words_that_the_shell_runs_itself() {
+    use std::path::Path;
+
+    let locations = crate::Locations::new("/home/u").unwrap();
+    let request = |line: &str| super::fact_requests(line, Some(Path::new("/p")), &locations);
+    // The user's test: `:` and the builtins of a script of several lines.
+    let line = "cd src\nexport RUST_LOG=debug\n: > out\nprintf '%s\\n' x\n[[ -f x ]] && echo y";
+    assert_eq!(request(line).builtins, ["cd", "export", ":", "printf", "[[", "echo"]);
+    // After a precommand modifier or a reserved word the shell still finds the program.
+    assert_eq!(
+        request("time printf x; noglob echo *; builtin pwd").builtins,
+        ["time", "printf", "noglob", "echo", "builtin", "pwd"]
+    );
+    // Behind a program, `command`, `exec` or `find -exec` only a file runs.
+    for line in [
+        "env printf x",
+        "sudo kill 1",
+        "command printf x",
+        "exec printf x",
+        "/usr/bin/time printf x",
+        "find . -exec printf x \\;",
+    ] {
+        let request = request(line);
+        assert!(!request.builtins.contains(&"printf".to_owned()), "{line}: {request:?}");
+        assert!(!request.builtins.contains(&"kill".to_owned()), "{line}: {request:?}");
+    }
+    // A word that runs as a file anywhere in the line resolves as a file.
+    assert_eq!(request("printf x; env printf y").builtins, Vec::<String>::new());
+    // Programs that are files are never builtins.
+    assert_eq!(request("ls -la && systemctl --failed").builtins, Vec::<String>::new());
 }
 
 #[test]

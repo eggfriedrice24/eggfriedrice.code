@@ -319,12 +319,16 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
         .map(|(word, resolved, changed)| ProgramFact {
             word: word.clone(),
             resolved: resolved.clone(),
-            in_write_root: resolved.as_deref().is_some_and(|resolved| {
-                action
-                    .engine
-                    .path_facts(resolved, action.scope, action.scratch)
-                    .is_some_and(|place| place.in_write_root)
-            }),
+            // NOTE: a relative path names no file: the shell runs the word itself.
+            in_write_root: resolved
+                .as_deref()
+                .filter(|resolved| resolved.is_absolute())
+                .is_some_and(|resolved| {
+                    action
+                        .engine
+                        .path_facts(resolved, action.scope, action.scratch)
+                        .is_some_and(|place| place.in_write_root)
+                }),
             changed_this_turn: *changed,
         })
         .collect();

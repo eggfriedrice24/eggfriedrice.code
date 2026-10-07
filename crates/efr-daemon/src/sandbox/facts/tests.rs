@@ -36,10 +36,13 @@ async fn targets_parents_tracked_counts_and_programs_are_collected() {
     let bin = home.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::write(bin.join("tool"), "").unwrap();
+    // A file of a builtin's name: where the shell finds the program, its builtin runs.
+    std::fs::write(bin.join("printf"), "").unwrap();
     let mut request = FactRequest::default();
     request.targets = vec![project.join("new/dir/file"), project.join("src")];
     request.tracked = vec![project.join("src"), project.join("build"), project.join("target")];
-    request.programs = vec!["tool".to_owned(), "./src/a.rs".to_owned(), "missing".to_owned()];
+    request.programs = ["tool", "./src/a.rs", "missing", ":", "printf"].map(str::to_owned).to_vec();
+    request.builtins = vec![":".to_owned(), "printf".to_owned()];
     let writes = [project.join("out.txt")];
     let rebuildable = vec!["target".to_owned()];
     let input = FactInput {
@@ -73,6 +76,8 @@ async fn targets_parents_tracked_counts_and_programs_are_collected() {
             ("tool".to_owned(), Some(bin.join("tool")), true),
             ("./src/a.rs".to_owned(), Some(project.join("src/a.rs")), true),
             ("missing".to_owned(), None, false),
+            (":".to_owned(), Some(PathBuf::from("builtin")), false),
+            ("printf".to_owned(), Some(PathBuf::from("builtin")), false),
         ]
     );
 }
