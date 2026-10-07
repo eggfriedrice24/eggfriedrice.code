@@ -1730,9 +1730,13 @@ fn a_question_writes_without_the_status_row_shows_the_cursor_and_stops_the_time(
     let back = view.frame(SIZE, at(65_000));
     assert!(back.contains("\x1b[?25l"), "{}", readable(&back));
     assert!(back.contains(progress::RUNNING), "{}", readable(&back));
-    // Five seconds before the question and none of the minute it waited.
-    assert!(back.contains("running shell") || back.contains("5s"), "{}", readable(&back));
-    assert!(readable(&view.tick(SIZE, at(66_000))).contains("6s"));
+    // Five seconds before the question and none of the minute it waited. The model
+    // could send nothing while the user was asked, so that is no stall either.
+    let back = readable(&back);
+    assert!(back.contains("for the model\\e[0m  \\e[2m5s\\e[0m\n"), "{back}");
+    let tick = readable(&view.tick(SIZE, at(66_000)));
+    assert!(tick.ends_with("model\\e[0m  \\e[2m6s\\e[0m\n\\e[?2026l\\e]9;4;3\\e\\"), "{tick}");
+    assert!(!back.contains("1m") && !tick.contains("1m"), "{back} {tick}");
 }
 
 #[test]

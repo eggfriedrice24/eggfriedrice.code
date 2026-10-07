@@ -153,6 +153,8 @@ impl Status {
             (false, Some(since)) => {
                 self.pause = None;
                 self.paused += since_then(since, now);
+                // The model sends nothing while the user is asked: no stall.
+                self.data = Some(now);
             }
             _ => {}
         }

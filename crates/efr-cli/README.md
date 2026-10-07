@@ -118,7 +118,7 @@ Replies:
   on the injected clock) that changes only the status row writes only that row:
   carriage return, cursor up one row, erase the line, the row. While the user is asked
   something here (an approval, the quarantine question, an answer line) the row goes
-  and its time stops. The cursor is hidden while the row shows and comes back for a
+  and its time stops; the 20 s of a stall count again from the answer. The cursor is hidden while the row shows and comes back for a
   question and on every way out: the end of the turn, Ctrl+C, an error, a panic (the
   hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
   shows it again after any line that ran `efr`, for a `kill -9`.
