@@ -772,13 +772,22 @@ impl TurnView {
                 step
             }
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
-                if *index >= self.next_index {
+                // NOTE: drafts showed most of this text before it was recorded; an update
+                // that adds nothing must not take the row back from a newer draft state.
+                if *index >= self.next_index && self.adds_text(*index, *offset, delta) {
                     self.state(State::Writing);
                 }
                 self.message_delta(*index, *offset, delta, size)
             }
             Event::AssistantMessageCompleted { index, text, .. } => {
-                self.state(State::Model);
+                // Reasoning or a call's input that drafts showed after the text is newer.
+                let drafted = matches!(
+                    self.status.as_ref().map(Status::state),
+                    Some(State::Thinking(_) | State::Preparing { .. })
+                );
+                if !drafted {
+                    self.state(State::Model);
+                }
                 self.message_text(*index, text, true, size)
             }
             Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } => {
@@ -1521,6 +1530,16 @@ impl TurnView {
     /// An update of message `index`: `delta` at byte `offset` of its text. An update
     /// that starts past what this view holds, because it joined in the middle of the
     /// message, is skipped; the completed message fills the gap.
+    /// True when the text of message `index` from `offset` on reaches past the text held.
+    fn adds_text(&self, index: u32, offset: u64, delta: &str) -> bool {
+        let held = self
+            .message
+            .as_ref()
+            .filter(|message| message.index == index)
+            .map_or(0, |message| message.received().len());
+        usize::try_from(offset).map_or(true, |offset| offset.saturating_add(delta.len()) > held)
+    }
+
     fn message_delta(&mut self, index: u32, offset: u64, delta: &str, size: Size) -> Step {
         let held = self
             .message

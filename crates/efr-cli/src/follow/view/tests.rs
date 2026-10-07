@@ -1883,6 +1883,30 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     assert!(view.frame(SIZE, at(50)).contains("waiting for the model"));
 }
 
+#[test]
+fn a_persisted_update_of_text_that_drafts_showed_keeps_the_newer_state() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.draft(&text_draft(11, 0, "I will run the build first."), SIZE);
+    assert!(view.frame(SIZE, at(10)).contains("writing"));
+    let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 48 };
+    view.draft(&draft(11, input), SIZE);
+    assert!(view.frame(SIZE, at(20)).contains("preparing shell, 48 B"));
+    // The persisted update and the completion come after the drafts of the call's input.
+    view.envelope(&sent(12, 200, updated(0, "I will run the build")), SIZE, false);
+    let kept = view.frame(SIZE, at(200));
+    assert!(!kept.contains("writing"), "{}", readable(&kept));
+    view.envelope(&sent(13, 210, completed(0, "I will run the build first.")), SIZE, false);
+    let kept = view.frame(SIZE, at(210));
+    assert!(!kept.contains("writing") && !kept.contains("waiting"), "{}", readable(&kept));
+    // An update with new text still says that the model writes.
+    let mut plain = started_view(Look::default());
+    plain.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    plain.frame(SIZE, at(0));
+    plain.envelope(&sent(12, 200, updated(0, "Hello")), SIZE, false);
+    assert!(plain.frame(SIZE, at(200)).contains("writing"));
+}
+
 /// The end of a turn on a terminal with `look`, `millis` after its start.
 fn ended(look: Look, end: Event, millis: i64) -> String {
     let mut view = started_view(look);
