@@ -160,5 +160,34 @@ fn timestamp_from(time: SystemTime) -> Timestamp {
     })
 }
 
+/// How long a phase of work took, for a debug line such as
+/// `phase="plan_lock" elapsed_ms=0.4`: its [`Display`](fmt::Display) is the time since
+/// [`Stopwatch::start`] in milliseconds, with one decimal.
+///
+/// NOTE: it reads the monotonic clock and schedules nothing, so it takes no [`Clock`];
+/// a test's manual clock does not move it, and no test reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct Stopwatch {
+    start: std::time::Instant,
+}
+
+impl Stopwatch {
+    /// Starts measuring now.
+    pub fn start() -> Stopwatch {
+        Stopwatch { start: std::time::Instant::now() }
+    }
+
+    /// The time since the start.
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+}
+
+impl fmt::Display for Stopwatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.1}", self.elapsed().as_secs_f64() * 1000.0)
+    }
+}
+
 #[cfg(test)]
 mod tests;

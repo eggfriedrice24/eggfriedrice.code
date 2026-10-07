@@ -40,6 +40,7 @@ mod self_test;
 mod signals;
 #[cfg(test)]
 mod testing;
+mod timings;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

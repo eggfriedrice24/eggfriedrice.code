@@ -28,6 +28,7 @@ use crate::guard::{self, Guard};
 use crate::launch::{self, Ending, Launch};
 use crate::layer_lock::{self, LAYER_LOCK_WAIT, Locked};
 use crate::real_fs::RealFs;
+use crate::timings::Timings;
 use crate::{exit_child, fds, signals};
 
 /// The number the records pipe has in every child shell.
@@ -101,6 +102,7 @@ pub(crate) fn shell_pwd() -> Result<PathBuf, SbxError> {
 }
 
 fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
+    let mut timings = Timings::start();
     let mut spec = call.spec.clone();
     if let NetworkPlan::Proxy { .. } = spec.network {
         return Err(SbxError::LaterPhase { what: "the network proxy" });
@@ -112,6 +114,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_default();
     prepare_sandbox_dir(&spec)?;
+    timings.lap("prepare_dirs");
     let fs = RealFs;
     let plan = match MountPlan::build(&spec, &fs) {
         Ok(plan) => plan,
@@ -119,11 +122,13 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
             return Ok(setup_failure(format!("the sandbox cannot run here: {error}")));
         }
     };
+    timings.lap("plan");
     let shell_dir = PrivateDir::open(&spec.runtime.shell_dir)?;
     let mut state = match shell_dir.read(STATE_JSON_FILE, MAX_STATE_BYTES)? {
         Some(bytes) => SandboxState::from_json(&bytes).unwrap_or_default(),
         None => SandboxState::default(),
     };
+    timings.lap("state_read");
     let pwd = shell_pwd()?;
     let start = plan.start_dir(&pwd, state.sandbox_cwd.as_ref(), &spec.runtime.scratch, &fs);
     let start_host = match &start {
@@ -131,6 +136,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         other => other.path().to_path_buf(),
     };
     let guard = Guard::before(&spec, &plan, &start_host);
+    timings.lap("guard_before");
     let (env, removed) = EnvFilter::new(&spec, &plan).apply(&env);
     let mut argv = plan.child_argv().to_vec();
     argv.push(spec.runtime.inside_dir().into_os_string());
@@ -148,8 +154,10 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
             )));
         }
     };
+    timings.lap("layer_lock");
     let outcome = launch::run(&launch, &mut || call.dir.touch(STARTED_FILE))?;
     drop(layers_lock);
+    timings.append(outcome.timings);
     let mut result = SandboxResult {
         started: true,
         env_removed: removed,
@@ -164,6 +172,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
     let code = match outcome.ending {
         Ending::SetupFailed { reason, .. } => {
             result.setup_error = Some(reason);
+            result.timings = timings.into_steps();
             return Ok(result);
         }
         Ending::Ran { code } => code,
@@ -175,6 +184,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
             if code == efr_sandbox::SETUP_FAILURE_STATUS {
                 result.setup_error = records.setup_error;
                 result.exit_code = None;
+                result.timings = timings.into_steps();
                 return Ok(result);
             }
             None
@@ -215,6 +225,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
             .and_then(|()| shell_dir.write_atomic(STATE_ZSH_FILE, state.render().as_bytes()))
             .is_ok();
     }
+    timings.lap("records_and_state");
     let mut changes = guard.after(&final_host);
     if guard::quarantine(&mut changes, &spec.runtime.quarantine(spec.call)).is_err() {
         for change in &mut changes {
@@ -222,6 +233,8 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         }
     }
     result.summary.surface_changes = changes;
+    timings.lap("guard_after");
+    result.timings = timings.into_steps();
     Ok(result)
 }
 

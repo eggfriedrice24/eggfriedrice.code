@@ -403,8 +403,12 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   launcher (`ShellConfig::sandbox_launcher`) as a foreground job, applies `$CALL/apply`
   (`cd` with `builtin cd -q`, so no `chpwd` hook runs, and allowed exports and unsets;
   it checks names and directories again and never evaluates text), clears the
-  directory report so the precmd hook reports `$PWD` again, and prints
+  directory report so the precmd hook reports `$PWD` again, writes the times of the
+  snapshot, the launcher and the apply to `$CALL/times`, and prints
   `OSC 133;efr-sbx;<nonce>`.
+- With the debug log on, the session writes the `phase` lines of a run
+  (docs/sandbox.md): `shell_typing`, `shell_command`, `shell_check`, `shell_total`,
+  the `wrapper_*` steps of `$CALL/times` and the `launcher_*` steps of `result.json`.
 - The precmd hook writes the shell's `PATH` to `$R/sbx/<conversation>/path` when it
   changed and the dir exists (from the first sandboxed call on). The user's startup
   files set it, and efrd resolves the program words of an exit question with it, so

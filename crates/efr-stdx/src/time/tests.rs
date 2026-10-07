@@ -161,3 +161,13 @@ fn system_times_out_of_range_clamp_to_the_ends() {
     assert_eq!(timestamp_from(future), Timestamp::MAX);
     assert_eq!(timestamp_from(past), Timestamp::MIN);
 }
+
+#[test]
+fn a_stopwatch_shows_milliseconds_with_one_decimal() {
+    let watch = super::Stopwatch::start();
+    let shown = watch.to_string();
+    let (whole, decimal) = shown.split_once('.').expect("one decimal");
+    assert!(whole.chars().all(|c| c.is_ascii_digit()) && !whole.is_empty(), "{shown}");
+    assert_eq!(decimal.len(), 1, "{shown}");
+    assert!(watch.elapsed() < Duration::from_secs(60));
+}

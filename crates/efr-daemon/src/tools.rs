@@ -33,7 +33,7 @@ use efr_protocol::{
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
 use efr_shell::ShellSessions;
-use efr_stdx::time::Clock;
+use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
     ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
@@ -234,8 +234,14 @@ impl DaemonToolbox {
         // also those of other conversations. A call that queues behind a command still
         // running in this shell (a dev server left at its timeout) waits here, before it
         // takes the lock, so it blocks nobody while it waits.
+        let watch = Stopwatch::start();
+        let free = match timeout {
+            Some(timeout) => self.shells.until_free(call.context.conversation_id, timeout).await,
+            None => Ok(()),
+        };
+        tracing::debug!(phase = "shell_free_wait", elapsed_ms = %watch, "phase");
         if let Some(timeout) = timeout
-            && self.shells.until_free(call.context.conversation_id, timeout).await.is_err()
+            && free.is_err()
         {
             return ToolOutcome::error(format!(
                 "The shell did not become free within {}s, so the command was not run: an \
@@ -244,7 +250,10 @@ impl DaemonToolbox {
             ));
         }
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
-        let prepared = match sandbox.prepare(&call.context, &input).await {
+        let watch = Stopwatch::start();
+        let prepared = sandbox.prepare(&call.context, &input).await;
+        tracing::debug!(phase = "sandbox_prepare", elapsed_ms = %watch, "phase");
+        let prepared = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
                 tracing::warn!(error = %error, call_id = %call.context.call_id, "a sandboxed call could not be prepared");
@@ -263,6 +272,7 @@ impl DaemonToolbox {
             }
         };
         let turn_id = call.context.turn_id;
+        let watch = Stopwatch::start();
         sandbox
             .turns()
             .before_call(
@@ -274,6 +284,7 @@ impl DaemonToolbox {
                 &self.home,
             )
             .await;
+        tracing::debug!(phase = "surface_before", elapsed_ms = %watch, "phase");
         let context = context.with_sandbox(Some(prepared.run.clone()));
         let started = prepared.started.clone();
         let notes = prepared.notes.clone();
@@ -283,7 +294,9 @@ impl DaemonToolbox {
             conversation_id: call.context.conversation_id,
         };
         let invoke = self.registry.invoke(&call.name, context, call.input, &mut sink);
+        let watch = Stopwatch::start();
         let result = lock::run_holding(prepared.guard, &started, &*self.clock, invoke).await;
+        tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase");
         let mut outcome = match result {
             Ok(result) => {
                 if result.sandbox_failed {
@@ -308,7 +321,9 @@ impl DaemonToolbox {
                 // NOTE: a call that ended has nothing left in its dir that anyone reads;
                 // one that runs on past its timeout still needs it.
                 if result.sandbox.is_some() || result.sandbox_failed {
+                    let watch = Stopwatch::start();
                     remove_call_dir(prepared.run.dir.clone()).await;
+                    tracing::debug!(phase = "call_dir_remove", elapsed_ms = %watch, "phase");
                 }
                 outcome(result)
             }
@@ -351,12 +366,19 @@ impl Toolbox for DaemonToolbox {
         // link is read from the disk here, on the blocking pool, so the engine judges
         // `cat notes`, where `notes` links into `~/.ssh`, as a read of the key too.
         let home = self.home.clone();
-        match tokio::task::spawn_blocking(move || declared.with_real_paths(&home)).await {
+        let watch = Stopwatch::start();
+        let resolved = tokio::task::spawn_blocking(move || declared.with_real_paths(&home)).await;
+        tracing::debug!(phase = "real_paths", elapsed_ms = %watch, "phase");
+        match resolved {
             Ok(declared) => {
                 // NOTE: only `auto` reads the facts, and collecting them runs git in
                 // directories that the model can write, so other modes skip it.
+                let watch = Stopwatch::start();
                 let facts =
                     if call.context.auto { self.facts(call, &declared).await } else { None };
+                if facts.is_some() {
+                    tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase");
+                }
                 let requirements = permission_requirements(declared);
                 Ok(match facts {
                     Some(facts) => requirements.with_facts(facts),

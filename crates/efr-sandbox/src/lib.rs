@@ -65,9 +65,9 @@ pub use probe::{
 };
 pub use records::{RECORDS_HEADER, Records, encode_apply, encode_records, parse_records};
 pub use result::{
-    APPLY_FILE, LINE_FILE, MAX_RESULT_BYTES, NONCE_FILE, RESULT_FILE, SETUP_FAILURE_STATUS,
-    SNAPSHOT_FILE, SPEC_FILE, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SandboxResult,
-    nonce_hex, parse_nonce_hex,
+    APPLY_FILE, LINE_FILE, LaunchTiming, MAX_RESULT_BYTES, NONCE_FILE, RESULT_FILE,
+    SETUP_FAILURE_STATUS, SNAPSHOT_FILE, SPEC_FILE, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE,
+    SandboxResult, TIMES_FILE, nonce_hex, parse_nonce_hex,
 };
 pub use seccomp::{
     AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, CLONE_NEW_MASK, EAFNOSUPPORT, ENOSYS, EPERM,

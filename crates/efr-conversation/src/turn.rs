@@ -40,6 +40,7 @@ use efr_protocol::{
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
+use efr_stdx::time::Stopwatch;
 use efr_store::turn_messages::NewTurnMessages;
 use efr_store::{Batch, Committed};
 use serde_json::Value;
@@ -561,6 +562,9 @@ impl Turn {
         let call_id = CallId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
         let span = tracing::info_span!("tool_call", tool = %call.name, call_id = %call_id);
         async move {
+            // NOTE: the `phase` lines of a call (docs/sandbox.md): each says how long one
+            // step took, so `EFR_LOG=debug` shows where the time of a call goes.
+            let call_watch = Stopwatch::start();
             let manual_input = self.shared.deps.toolbox.takes_manual_input(&call.name, &call.input);
             // NOTE: asked for every call, because the call before may have moved the
             // hidden shell, and a command's relative paths run from where it is now.
@@ -588,6 +592,7 @@ impl Turn {
                 Some(Judged::Ruled(ruling)) => ruling.planned_launch(),
                 _ => None,
             };
+            let watch = Stopwatch::start();
             self.record(vec![Event::ToolCallStarted {
                 turn_id,
                 call_id,
@@ -597,6 +602,7 @@ impl Turn {
                 launch,
             }])
             .await?;
+            tracing::debug!(phase = "record_started", elapsed_ms = %watch, "phase");
             let mut refused = None;
             let (mut outcome, mut interrupted) = match judged {
                 None => (ToolOutcome::error(NOT_RUN), true),
@@ -605,7 +611,10 @@ impl Turn {
                         tool_call.context.approved_interactive = approved_interactive;
                         tool_call.context.launch = launch;
                         tool_call.context.exits = exits;
-                        match self.invoke(tool_call.clone()).await? {
+                        let watch = Stopwatch::start();
+                        let invoked = self.invoke(tool_call.clone()).await?;
+                        tracing::debug!(phase = "tool_run", elapsed_ms = %watch, "phase");
+                        match invoked {
                             Some(outcome) => (outcome, false),
                             None => (ToolOutcome::error(STOPPED), true),
                         }
@@ -622,6 +631,7 @@ impl Turn {
                     (Authorization::Expired, _) => (ToolOutcome::error(EXPIRED), false),
                 },
             };
+            let watch = Stopwatch::start();
             let mut events = vec![Event::ToolCallCompleted {
                 turn_id,
                 call_id,
@@ -646,6 +656,7 @@ impl Turn {
                 }
             }
             self.record(events).await?;
+            tracing::debug!(phase = "record_completed", elapsed_ms = %watch, "phase");
             if !quarantined.is_empty() {
                 // NOTE: asked before any other call of the turn, so nothing runs with a
                 // git setting that the sandbox planted until the user has seen it.
@@ -658,6 +669,7 @@ impl Turn {
                 output: outcome.output,
                 is_error: outcome.is_error,
             };
+            tracing::debug!(phase = "tool_call", elapsed_ms = %call_watch, "phase");
             Ok((result, interrupted))
         }
         .instrument(span)
@@ -668,10 +680,12 @@ impl Turn {
     /// with the turn's scope, origin, mode and the conversation's policy. Pure: nothing
     /// is recorded and nothing runs.
     async fn judge(&self, call: &ToolCall) -> Judged {
+        let watch = Stopwatch::start();
         let requirements = match self.shared.deps.toolbox.requirements(call).await {
             Ok(requirements) => requirements,
             Err(message) => return Judged::Refused(message),
         };
+        tracing::debug!(phase = "requirements", elapsed_ms = %watch, "phase");
         let input = DecisionInput {
             requirements,
             scope: call.context.scope.clone(),
@@ -683,8 +697,11 @@ impl Turn {
         // NOTE: the engine is cloned out so the watch's read lock is not held while
         // the turn records events or waits for an answer.
         let engine = Arc::clone(&self.shared.deps.engine.borrow());
+        let watch = Stopwatch::start();
         let decision = engine.decide(&input);
         tracing::debug!(effect = %decision.effect(), "the permission engine decided");
+        tracing::debug!(phase = "engine", elapsed_ms = %watch, "phase");
+        let watch = Stopwatch::start();
         let requirements = input.requirements;
         // NOTE: only a shell call of a local `auto` turn runs in the sandbox; the file
         // tools run in the daemon, and a remote turn never runs as `auto`.
@@ -697,6 +714,7 @@ impl Turn {
             }
             _ => None,
         };
+        tracing::debug!(phase = "exit_prediction", elapsed_ms = %watch, "phase");
         Judged::Ruled(Box::new(Ruling { requirements, decision, launch, problem, engine }))
     }
 
@@ -832,6 +850,7 @@ impl Turn {
         call: &ToolCall,
         ruling: &Ruling,
     ) -> Result<Authorization, ConversationError> {
+        let watch = Stopwatch::start();
         let turn_id = self.turn_id();
         let call_id = call.context.call_id;
         let interactive = ruling.requirements.interactive;
@@ -868,17 +887,20 @@ impl Turn {
             self.shared.approvals.withdraw(call_id);
             return Err(error);
         }
+        tracing::debug!(phase = "approval_request", elapsed_ms = %watch, "phase");
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
         // NOTE: read at each call, not at turn start, so a reload reaches the next
         // approval of a running turn.
         let timeout = self.shared.config.current().approval_timeout;
+        let watch = Stopwatch::start();
         let waited = tokio::select! {
             biased;
             () = interrupt.raised() => Waited::Interrupted,
             answer = answer => Waited::Answer(answer.ok()),
             () = sleep_or_pending(&*clock, timeout) => Waited::TimedOut,
         };
+        tracing::debug!(phase = "approval_wait", elapsed_ms = %watch, "phase");
         let authorization = match waited {
             Waited::Answer(Some(ApprovalDecision::Allow)) => Authorization::Allowed {
                 approved_interactive: interactive,

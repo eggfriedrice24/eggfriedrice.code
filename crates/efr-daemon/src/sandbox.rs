@@ -32,7 +32,7 @@ use efr_scope::{Git, Home};
 use efr_shell::SandboxRun;
 use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
-use efr_stdx::time::Clock;
+use efr_stdx::time::{Clock, Stopwatch};
 use efr_store::{Batch, WriterHandle};
 use tokio::sync::{Semaphore, watch};
 
@@ -489,10 +489,14 @@ impl SandboxService {
         };
         let roots: Vec<PathBuf> =
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();
+        let watch = Stopwatch::start();
         let guard = self.inner.locks.lock(&roots).await;
+        tracing::debug!(phase = "plan_lock", elapsed_ms = %watch, "phase");
         // NOTE: the plan reads records, links and project dirs: a few small reads, done
         // here under the plan lock.
+        let watch = Stopwatch::start();
         let planned = plan::build(&plan_input);
+        tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase");
         let spec = planned.spec;
         make_targets(&call.exits).await?;
         let call_dir = spec.runtime.call_dir.clone();
@@ -508,6 +512,7 @@ impl SandboxService {
         let hex = nonce_hex(&nonce);
         let dir = call_dir.clone();
         let stamp = spec.runtime.sandbox_dir.join(gc::LAST_CALL_FILE);
+        let watch = Stopwatch::start();
         tokio::task::spawn_blocking(move || {
             write_call_dir(&dirs, &dir, &bytes, hex.as_bytes())?;
             // The cache collector counts a conversation's idle days from this file.
@@ -515,6 +520,7 @@ impl SandboxService {
         })
         .await
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
+        tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase");
         self.running().entry(call.conversation_id).and_modify(|count| *count += 1).or_insert(1);
         let launch = match spec.launch {
             SpecLaunch::Unsandboxed => SpecLaunch::Unsandboxed,

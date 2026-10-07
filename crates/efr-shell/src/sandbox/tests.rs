@@ -501,3 +501,16 @@ async fn ctrl_z_never_reaches_a_sandboxed_call() {
     write.await.unwrap();
     assert_eq!(terminal.typed_line().await, b"\x1a\r");
 }
+
+#[test]
+fn the_wrapper_times_read_as_steps_until_a_word_that_is_not_one() {
+    let text = "snapshot 0.0012 launcher 0.25 apply 1e-05\n";
+    assert_eq!(
+        super::wrapper_times(text),
+        [("snapshot", 0.0012), ("launcher", 0.25), ("apply", 0.000_01)]
+    );
+    assert_eq!(super::wrapper_times("snapshot 0.1 evil 3 apply 0.2"), [("snapshot", 0.1)]);
+    assert_eq!(super::wrapper_times("launcher -1 apply 0.2"), []);
+    assert_eq!(super::wrapper_times("launcher NaN"), []);
+    assert_eq!(super::wrapper_times(""), []);
+}

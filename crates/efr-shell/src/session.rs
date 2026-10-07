@@ -16,7 +16,7 @@ use bytes::Bytes;
 use efr_holder::{ChildStatus, PtyHolder, Size};
 use efr_protocol::{CallId, ConversationId, PtyId, SecretText, Seq};
 use efr_screen::{ScreenHandle, ShellMark, ShellMarkKind, ShellMarkScanner};
-use efr_stdx::time::{Clock, Sleep};
+use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -182,6 +182,9 @@ struct Active {
     /// the command ran; `None` before the first such look and while the shell itself
     /// held the terminal then. A manual answer reaches only that job.
     looked: Option<u32>,
+    /// Since the line was typed, and since the command started, for the `phase` lines.
+    typed: Stopwatch,
+    ran: Option<Stopwatch>,
 }
 
 impl Active {
@@ -190,6 +193,8 @@ impl Active {
         if !self.started && self.machine.running() {
             self.started = true;
             self.progress.send_modify(|progress| progress.started = true);
+            tracing::debug!(call_id = ?self.call, phase = "shell_typing", elapsed_ms = %self.typed, "phase");
+            self.ran = Some(Stopwatch::start());
         }
     }
 }
@@ -575,6 +580,8 @@ impl SessionCore {
                     waiting: None,
                     offer: Offer::of(order.mode, &order.command),
                     looked: None,
+                    typed: Stopwatch::start(),
+                    ran: None,
                 });
                 vec![line]
             }
@@ -768,6 +775,18 @@ impl SessionCore {
         let Some(active) = self.active.take() else {
             return;
         };
+        // NOTE: the `phase` lines of the run (docs/sandbox.md): the command from its
+        // start to its end, the launcher's own steps from `result.json`, and the whole
+        // run from the typed line.
+        let call_id = active.call;
+        if let Some(ran) = &active.ran {
+            tracing::debug!(call_id = ?call_id, phase = "shell_command", elapsed_ms = %ran, "phase");
+        }
+        for step in output.sandbox.iter().flat_map(|result| &result.timings) {
+            let elapsed_ms = format!("{:.1}", step.us as f64 / 1000.0);
+            tracing::debug!(call_id = ?call_id, phase = %format!("launcher_{}", step.phase), %elapsed_ms, "phase");
+        }
+        tracing::debug!(call_id = ?call_id, phase = "shell_total", elapsed_ms = %active.typed, "phase");
         let delimiter = active.machine.delimiter();
         // Without the integration the sentinel's `$PWD` is the shell's own directory.
         // In a nested shell it is the nested one's, which says nothing about the
@@ -844,7 +863,9 @@ impl SessionActor {
                     // and the run stays active, so nothing is typed meanwhile.
                     while let Some(order) = self.core.take_check() {
                         let (pty_id, shell) = (self.core.pty_id(), self.core.state().pid);
+                        let watch = Stopwatch::start();
                         let facts = sandbox::facts(&*self.holder, pty_id, shell, &order.dir).await;
+                        tracing::debug!(phase = "shell_check", elapsed_ms = %watch, "phase");
                         let writes = self.core.checked(&order, &facts);
                         write_all(&self.writer, writes).await;
                     }

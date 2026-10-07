@@ -1046,6 +1046,66 @@ fn big_rc() -> String {
     rc
 }
 
+/// What a routine call in `auto` may cost more than in `cautious`, in a release build.
+const AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(40);
+
+/// The debug lines of efr's crates in this process, for the bench's `phase` lines.
+fn debug_log() -> Arc<std::sync::Mutex<Vec<u8>>> {
+    static LOG: std::sync::OnceLock<Arc<std::sync::Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
+    Arc::clone(LOG.get_or_init(|| {
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&log);
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new("efr_=debug"))
+            .with_ansi(false)
+            .with_writer(move || LogSink(Arc::clone(&sink)))
+            .finish();
+        // NOTE: nextest runs each test in a process of its own.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        log
+    }))
+}
+
+struct LogSink(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The log so far, which then starts empty.
+fn take_log() -> String {
+    String::from_utf8_lossy(&std::mem::take(&mut *debug_log().lock().unwrap())).into_owned()
+}
+
+/// The total of each `phase` line of `log` in milliseconds, in the order in which each
+/// phase first shows.
+fn phase_totals(log: &str) -> Vec<(String, f64)> {
+    let field = |line: &str, name: &str| {
+        let start = line.find(&format!(" {name}="))? + name.len() + 2;
+        let value = line.get(start..)?.split(' ').next()?;
+        Some(value.trim_matches('"').to_owned())
+    };
+    let mut totals: Vec<(String, f64)> = Vec::new();
+    for line in log.lines() {
+        let (Some(phase), Some(ms)) = (field(line, "phase"), field(line, "elapsed_ms")) else {
+            continue;
+        };
+        let Ok(ms) = ms.parse::<f64>() else { continue };
+        match totals.iter_mut().find(|(known, _)| *known == phase) {
+            Some((_, total)) => *total += ms,
+            None => totals.push((phase, ms)),
+        }
+    }
+    totals
+}
+
 /// One turn of `calls` calls from `cwd` in `mode`, answered with yes: the time per call.
 async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: u32) -> Duration {
     let client = daemon.client_for_tty(TTY).await.unwrap();
@@ -1095,9 +1155,11 @@ async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: 
     start.elapsed() / calls
 }
 
-/// Not a gate on time: it prints what a routine call costs in `auto` against
-/// `cautious`, from a project and from the home dir, with a big rc and every default
-/// cache. It fails only when a call costs more than a quarter of a second.
+/// What a routine call costs in `auto` against `cautious`, from a project and from the
+/// home dir, with a big rc and every default cache: it prints the cost of each. A
+/// release build fails when a call in `auto` costs 40 ms more than one in `cautious`;
+/// a debug build only when a call costs more than a quarter of a second. Run the
+/// release gate with `cargo nextest run --release`, as docs/sandbox.md says.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     let test = "shell_routine_calls_in_auto_cost_close_to_cautious";
@@ -1161,10 +1223,15 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     });
     let _: AdminProjectAddResult = client.call(add).await.unwrap();
     // The first turn starts the hidden shell and writes the snapshot; it does not count.
+    debug_log();
     turn_cost(&daemon, 1, &project, Mode::Auto, calls).await;
+    take_log();
     let auto = turn_cost(&daemon, 2, &project, Mode::Auto, calls).await;
+    let auto_phases = phase_totals(&take_log());
     let home = turn_cost(&daemon, 3, dirs.home(), Mode::Auto, calls).await;
+    take_log();
     let cautious = turn_cost(&daemon, 4, &project, Mode::Cautious, calls).await;
+    let cautious_phases = phase_totals(&take_log());
     let ms = |cost: Duration| cost.as_secs_f64() * 1000.0;
     #[expect(clippy::print_stdout, reason = "the bench prints its numbers")]
     {
@@ -1175,9 +1242,82 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
             ms(home),
             ms(cautious)
         );
+        // The `phase` lines of efrd (docs/sandbox.md), per call: where the time goes.
+        println!("{:<28} {:>9} {:>9}", "phase (ms per call)", "auto", "cautious");
+        let per_call = |phases: &[(String, f64)], name: &str| {
+            phases
+                .iter()
+                .find(|(known, _)| known == name)
+                .map(|(_, total)| total / f64::from(calls))
+        };
+        let shown =
+            |cost: Option<f64>| cost.map_or_else(|| "-".to_owned(), |ms| format!("{ms:.2}"));
+        for (name, _) in &auto_phases {
+            let cautious = per_call(&cautious_phases, name);
+            println!(
+                "{name:<28} {:>9} {:>9}",
+                shown(per_call(&auto_phases, name)),
+                shown(cautious)
+            );
+        }
+    }
+    // Every step of a contained call has its line (docs/sandbox.md).
+    for phase in [
+        "model_open",
+        "model_first_event",
+        "model_first_tool_call",
+        "model_answer",
+        "requirements",
+        "real_paths",
+        "facts",
+        "engine",
+        "exit_prediction",
+        "record_started",
+        "shell_free_wait",
+        "plan_lock",
+        "plan_build",
+        "call_dir_write",
+        "sandbox_prepare",
+        "surface_before",
+        "shell_typing",
+        "wrapper_snapshot",
+        "launcher_plan",
+        "launcher_guard_before",
+        "launcher_bwrap_setup",
+        "launcher_layers",
+        "launcher_child",
+        "launcher_guard_after",
+        "wrapper_launcher",
+        "wrapper_apply",
+        "shell_command",
+        "shell_check",
+        "shell_total",
+        "sandboxed_run",
+        "call_dir_remove",
+        "tool_run",
+        "record_completed",
+        "tool_call",
+    ] {
+        assert!(
+            auto_phases.iter().any(|(known, _)| known == phase),
+            "no {phase} line in auto: {auto_phases:?}"
+        );
     }
     for cost in [auto, home, cautious] {
         assert!(cost < Duration::from_millis(250), "a call cost {:.1} ms", ms(cost));
+    }
+    // NOTE: a debug build runs the launcher and the daemon several times slower, so
+    // only a release build holds the bound of what auto may add to a call.
+    if !cfg!(debug_assertions) {
+        for cost in [auto, home] {
+            let added = cost.saturating_sub(cautious);
+            assert!(
+                added < AUTO_ADDS_AT_MOST,
+                "a call in auto cost {:.1} ms more than in cautious; at most {:.1} ms",
+                ms(added),
+                ms(AUTO_ADDS_AT_MOST)
+            );
+        }
     }
     drop(client);
     daemon.stop().await.unwrap();

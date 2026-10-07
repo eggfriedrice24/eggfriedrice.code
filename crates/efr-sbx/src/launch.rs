@@ -27,7 +27,8 @@ use std::process::Stdio;
 use std::thread::JoinHandle;
 
 use efr_sandbox::{
-    CacheLayers, FdTable, InnerPolicy, LaunchFds, LayersSync, MountPlan, SandboxSpec, encode_args,
+    CacheLayers, FdTable, InnerPolicy, LaunchFds, LaunchTiming, LayersSync, MountPlan, SandboxSpec,
+    encode_args,
 };
 use rustix::fs::{MemfdFlags, Mode, OFlags};
 use rustix::io::FdFlags;
@@ -36,6 +37,7 @@ use rustix::pipe::PipeFlags;
 pub(crate) use self::status::{BwrapExit, Ending, ending, parse_status};
 use crate::error::SbxError;
 use crate::real_fs::RealFs;
+use crate::timings::Timings;
 use crate::{fds, os};
 
 /// The most bytes of bwrap's stderr and of its status stream that the launcher keeps.
@@ -71,6 +73,8 @@ pub(crate) struct Outcome {
     pub(crate) ending: Ending,
     /// The records stream, or `None` when it passed the size limit.
     pub(crate) records: Option<Vec<u8>>,
+    /// How long each step of the launch took.
+    pub(crate) timings: Vec<LaunchTiming>,
 }
 
 /// Runs the launch. `opened` runs once every bind source is open and before bwrap
@@ -79,6 +83,7 @@ pub(crate) fn run(
     launch: &Launch<'_>,
     opened: &mut dyn FnMut() -> Result<(), SbxError>,
 ) -> Result<Outcome, SbxError> {
+    let mut timings = Timings::start();
     let fs = RealFs;
     let mut table = FdTable::new(&fs);
     let (status_read, status_write) = pipe("make the status pipe")?;
@@ -126,6 +131,7 @@ pub(crate) fn run(
             .map_err(|error| SbxError::os("pass a bind source to bwrap", error))?;
     }
     drop(passed);
+    timings.lap("launch_open");
     let mut command = os::command(&launch.spec.runtime.bwrap);
     command
         .arg("--args")
@@ -158,11 +164,16 @@ pub(crate) fn run(
     let statuses = reader("efr-sbx-status", status_read, MAX_SIDE_BYTES)?;
     let mut mounts = None;
     let layers_failed = helper.and_then(|(layers, ready, go)| {
-        let pid = read_line(ready)?;
+        let pid = read_line(ready);
+        timings.lap("bwrap_setup");
+        let pid = pid?;
         mounts = mount_namespace(&pid);
-        mount_layers(launch, layers, &pid, go)
+        let failed = mount_layers(launch, layers, &pid, go);
+        timings.lap("layers");
+        failed
     });
     let exit = child.wait().map_err(|error| SbxError::os("wait for bwrap", error))?;
+    timings.lap("child");
     // NOTE: the last reference to the call's mount namespace goes here, in a process
     // that is not exiting, so the kernel tears the overlays down before this returns.
     // When the last process inside drops it, the kernel does so a few milliseconds
@@ -174,6 +185,7 @@ pub(crate) fn run(
         None => Vec::new(),
     };
     let statuses = join(statuses)?.unwrap_or_default();
+    timings.lap("teardown");
     let bwrap = match (exit.code(), exit.signal()) {
         (Some(code), _) => BwrapExit::Code(code),
         (None, signal) => BwrapExit::Signal(signal.unwrap_or_default()),
@@ -185,7 +197,7 @@ pub(crate) fn run(
         },
         None => ending(parse_status(&statuses), &String::from_utf8_lossy(&errors), bwrap),
     };
-    Ok(Outcome { ending, records })
+    Ok(Outcome { ending, records, timings: timings.into_steps() })
 }
 
 /// The layer helper's handshake of one launch.

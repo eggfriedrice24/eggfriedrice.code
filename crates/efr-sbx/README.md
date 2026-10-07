@@ -34,6 +34,7 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | `src/call_dir.rs` | the call dir and shell dir checks; atomic writes |
 | `src/launch.rs`, `src/launch/status.rs` | one bwrap launch: argument and policy memfds, the pipes, the status stream, the handshake with the layer helper |
 | `src/layers.rs` | the layer helper: the cache overlays, and the plan's mounts inside each cache moved onto it |
+| `src/timings.rs` | the time of each step of a contained launch, for `result.json` and efrd's `phase` debug lines |
 | `src/layer_lock.rs` | in the `overlay` mode, the exclusive `flock` on the conversation's layer dir that each launch holds until its overlays are gone |
 | `src/inner.rs` | the inner stage |
 | `src/landlock.rs`, `src/seccomp.rs` | the policy of `efr-sandbox` applied with the `landlock` and `seccompiler` crates |

@@ -395,6 +395,57 @@ that descends from a hidden shell, or that shares a hidden shell's session, only
 `read` scope: it cannot send a prompt, approve, answer input, change the config or
 register a project.
 
+## Where the time of a call goes
+
+Each step of a call writes a debug line to the log of efrd. The line has the name of
+the step (`phase`) and its time in milliseconds (`elapsed_ms`). To see the lines of
+one prompt:
+
+1. Set the log filter: `efr config set log 'info,efr_=debug'`. efrd applies it at
+   once, with no restart.
+2. Send the prompt.
+3. Read the lines: `journalctl --user -u efrd --since -5min | grep phase=`. Under
+   `just run`, efrd writes them to stderr.
+4. Set the filter back: `efr config unset log`.
+
+The steps, in the order of a call:
+
+| Phase | What takes the time |
+|---|---|
+| `model_open`, `model_first_event`, `model_first_tool_call`, `model_answer` | the model: from the request to the open stream, to the first event, to the first tool call and to the end of the answer; each request has these lines |
+| `requirements` | what the call needs: `real_paths` (the links of its paths) and, in `auto`, `facts` (the programs, the files and git of the line) |
+| `engine`, `exit_prediction` | the permission engine, and the narrowest launch for the exits of the line |
+| `record_started` | the event log records the start of the call |
+| `approval_request`, `approval_wait` | the question, and the time until you answer it; only when efr asks |
+| `tool_run` | the whole run of the tool, with the steps below |
+| `shell_free_wait` | efr waits until the hidden shell is free |
+| `sandbox_prepare` | the call's dir: `plan_lock`, `plan_build` and `call_dir_write` |
+| `surface_before` | the record of the git settings and the files that run code, before the call |
+| `sandboxed_run` | the run in the hidden shell, from the typed line to the end |
+| `shell_typing` | zsh reads the typed line and starts it |
+| `shell_command` | the wrapper in the hidden shell: `wrapper_snapshot` (the snapshot of your functions, aliases and options, when it is old), `wrapper_launcher` and `wrapper_apply` (the `cd` and the exports that come back) |
+| `launcher_*` | the steps of the launcher: `prepare_dirs`, `plan`, `state_read`, `guard_before`, `layer_lock`, `launch_open`, `bwrap_setup`, `layers` (the cache overlays), `child` (the command), `teardown`, `records_and_state` and `guard_after` |
+| `shell_check`, `shell_total` | efr reads the facts of the end of the run; the run from the typed line to its end |
+| `call_dir_remove` | efr removes the call's dir |
+| `record_completed` | the event log records the result |
+| `tool_call` | the whole call, from the model's tool call to its result |
+
+Then the next request to the model starts, with its own `model_*` lines.
+
+The bench `shell_routine_calls_in_auto_cost_close_to_cautious` of efrd's tests runs
+ten `true` calls in `auto` and in `cautious` with a model that answers at once. It
+prints the time of each call and the time of each step per call. Run it in a release
+build:
+
+```sh
+cargo build --release -p efr-sbx
+EFR_TEST_SBX_BIN=$PWD/target/release/efr-sbx EFR_TEST_ZSH=1 cargo nextest run --release \
+    -p efr-daemon --success-output immediate -E 'test(shell_routine_calls_in_auto)'
+```
+
+In a release build, it fails when a call in `auto` costs 40 ms more than a call in
+`cautious`.
+
 ## Settings
 
 The `[sandbox]` table of `config.toml` holds every key; [`docs/config.md`](config.md)

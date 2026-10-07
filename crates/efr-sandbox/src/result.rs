@@ -24,6 +24,10 @@ pub const STARTED_FILE: &str = "started";
 pub const APPLY_FILE: &str = "apply";
 /// `$CALL/result.json`: the [`SandboxResult`], written last.
 pub const RESULT_FILE: &str = "result.json";
+/// `$CALL/times`: how long the trusted shell's wrapper took for the snapshot, the
+/// launcher and the apply file, in seconds, as `snapshot 0.001 launcher 0.012 apply
+/// 0.0001`; only for efrd's debug log.
+pub const TIMES_FILE: &str = "times";
 /// `$R/sbx/<conversation>/state.json`: the [`SandboxState`](crate::SandboxState).
 pub const STATE_JSON_FILE: &str = "state.json";
 /// `$R/sbx/<conversation>/state.zsh`: the state for the child shell.
@@ -65,6 +69,18 @@ pub struct SandboxResult {
     /// False when the records were dropped: "the shell state of this call was not
     /// kept".
     pub state_kept: bool,
+    /// How long each step of the launcher took, in order, for efrd's debug log.
+    pub timings: Vec<LaunchTiming>,
+}
+
+/// How long one step of the launcher took, such as `plan` or `bwrap_setup`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaunchTiming {
+    /// The step.
+    pub phase: String,
+    /// Its time in microseconds.
+    pub us: u64,
 }
 
 impl SandboxResult {

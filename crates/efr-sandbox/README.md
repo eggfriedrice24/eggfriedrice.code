@@ -23,7 +23,7 @@ tested without a kernel.
 | `src/export_filter.rs` | `ExportFilter`: which exports return to the trusted shell; `OVERLAY_DENY` |
 | `src/records.rs` | the records of fd 3 and the `apply` file of the trusted shell |
 | `src/state.rs` | `SandboxState` and `state.zsh`: what later contained calls inherit |
-| `src/result.rs` | the files of a call dir and `SandboxResult`, the launcher's `result.json` |
+| `src/result.rs` | the files of a call dir and `SandboxResult`, the launcher's `result.json`, with the time of each launcher step (`LaunchTiming`) |
 | `src/surface.rs` | the surface guard: `SurfaceManifest`, `check_surface`, the scan for nested git dirs, the turn-end report entry |
 | `src/git_config.rs` | the git and cargo config keys that run a program, and a small git config reader |
 | `src/worktree.rs` | `WorktreeRecord`: the git dirs of a worktree project, read once at registration |

@@ -17,7 +17,8 @@ Modules, in the order of the milestone 1 file map:
   `Dirs::checked_socket_path` refuses a socket path longer than the 107 bytes a Unix
   socket holds.
 - `time`: the `Clock` trait (`now`, `sleep`, `timeout`) and `SystemClock`, the only
-  caller of `SystemTime::now` and `tokio::time::sleep`.
+  caller of `SystemTime::now` and `tokio::time::sleep`; `Stopwatch`, the time of one
+  phase in milliseconds for the `phase` debug lines of a call.
 - `rng`: the `Rng` trait and `SystemRng`, a ChaCha12 generator seeded once from the
   operating system.
 - `process`: `command(program, cwd)`, the only constructor of a child process. It

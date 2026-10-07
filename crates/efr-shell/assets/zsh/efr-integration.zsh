@@ -40,8 +40,10 @@ builtin unset _EFR_HS_TRUSTED_PROGRAMS
 # sourced, and nowhere later.
 builtin typeset -g _efr_hs_editor=${${(%):-%x}:A:h}/efr-editor
 
-# $functions and $options, which the sandbox's wrapper reads.
+# $functions and $options, which the sandbox's wrapper reads, and $EPOCHREALTIME, with
+# which it times its steps.
 builtin zmodload zsh/parameter
+builtin zmodload -F zsh/datetime p:EPOCHREALTIME 2>/dev/null
 
 # The sandbox of the auto mode: the conversation's sandbox dir ($R/sbx/<conversation>)
 # and the launcher copy ($R/bin/efr-sbx), from the daemon. Read once, read-only, and
@@ -274,7 +276,10 @@ _efr_hs_sbx() {
   builtin local dir=$_efr_hs_sbx_dir/$1
   [[ $_efr_hs_sbx_dir == /* && -d $dir && ! -L $dir && $_efr_hs_sbx_bin == /* && -x $_efr_hs_sbx_bin ]] ||
     { builtin print -ru2 -- 'efr: the sandbox is missing'; return 125 }
+  # The times of the steps, in seconds, for efrd's debug log ($CALL/times).
+  builtin local -F t0=${EPOCHREALTIME:-0} t1 t2 t3
   _efr_hs_sbx_snapshot
+  t1=${EPOCHREALTIME:-0}
   builtin local -i rc=125
   # NOTE: a SIGINT that reaches this shell (efr's interrupt, while the shell holds the
   # terminal again) makes an interactive zsh abort the rest of the function. Without
@@ -285,8 +290,12 @@ _efr_hs_sbx() {
     builtin command $_efr_hs_sbx_bin run --call-dir $dir
     rc=$?
   } always {
+    t2=${EPOCHREALTIME:-0}
     builtin trap '' INT QUIT
     _efr_hs_sbx_apply $dir/apply
+    t3=${EPOCHREALTIME:-0}
+    builtin print -r -- "snapshot $(( t1 - t0 )) launcher $(( t2 - t1 )) apply $(( t3 - t2 ))" \
+      2>/dev/null >| $dir/times
     # The precmd hook reports the real $PWD again before D, also when it did not change.
     _efr_hs_pwd=
     builtin print -rn -- $'\e]133;efr-sbx;'"$(<$dir/nonce)"$'\a'
