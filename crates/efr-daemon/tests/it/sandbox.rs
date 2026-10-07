@@ -994,3 +994,191 @@ async fn shell_a_survivor_of_an_exit_closes_the_hidden_shell() {
     assert!(started[0] < exited && exited < second_call && second_call < started[1], "{kinds:?}");
     daemon.stop().await.unwrap();
 }
+
+/// A model that calls `shell` with `line` `calls` times in each turn, then says `done`.
+#[derive(Debug)]
+struct RepeatModel {
+    id: ProviderId,
+    line: String,
+    calls: usize,
+    asked: AtomicUsize,
+}
+
+#[async_trait]
+impl Provider for RepeatModel {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+        let n = self.asked.fetch_add(1, Ordering::SeqCst);
+        let events = if n % (self.calls + 1) < self.calls {
+            let call_id = format!("call_{n}");
+            let input = json!({ "command": self.line });
+            vec![
+                ProviderEvent::ToolCallStart { call_id: call_id.clone(), name: "shell".to_owned() },
+                ProviderEvent::ToolCallEnd { call_id, arguments: input.to_string() },
+                ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None },
+            ]
+        } else {
+            vec![
+                ProviderEvent::TextDelta { text: "done".to_owned() },
+                ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None },
+            ]
+        };
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+/// An rc like a big one of a person: functions, aliases, options and compinit.
+fn big_rc() -> String {
+    let mut rc = String::from("setopt extended_glob hist_ignore_dups no_beep\n");
+    for n in 0..96 {
+        rc.push_str(&format!(
+            "userfn_{n}() {{\n  local a=$1 b=${{2:-x}}\n  if [[ -n $a ]]; then print -r -- \"$a\" | \
+             sed -e 's/x/y/g'; fi\n  for f in *(N); do [[ -d $f ]] && print -r -- $f; done\n}}\n"
+        ));
+    }
+    for n in 0..350 {
+        rc.push_str(&format!("alias al{n}='ls -la --color=auto /srv/{n}'\n"));
+    }
+    rc.push_str("autoload -Uz compinit && compinit -u\n");
+    rc
+}
+
+/// One turn of `calls` calls from `cwd` in `mode`, answered with yes: the time per call.
+async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: u32) -> Duration {
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(n, "go", TTY) else { unreachable!() };
+    let mut context = efr_protocol::ShellContext::new(cwd);
+    context.tty = Some(TTY.to_owned());
+    params.context = Some(context);
+    params.settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
+    let start = std::time::Instant::now();
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    // From this turn's prompt on: the log holds the earlier turns too.
+    let params = efr_protocol::ConversationSubscribe {
+        conversation_id: sent.conversation_id,
+        after_seq: Some(sent.seq),
+        answers_input: false,
+    };
+    let mut follow = client.stream(Method::ConversationSubscribe(params)).await.unwrap();
+    let mut answers = n * 100;
+    loop {
+        let events = events_until(&mut follow, |event| {
+            matches!(
+                event,
+                Event::ApprovalRequested { .. }
+                    | Event::TurnCompleted { .. }
+                    | Event::TurnFailed { .. }
+                    | Event::TurnInterrupted { .. }
+            )
+        })
+        .await
+        .unwrap();
+        let last = events.last().unwrap().event.clone();
+        let Event::ApprovalRequested { call_id, .. } = last else {
+            assert!(matches!(last, Event::TurnCompleted { .. }), "{last:?}");
+            let outputs = completed(&events);
+            assert!(outputs.iter().all(|(_, code)| *code == Some(0)), "{outputs:?}");
+            break;
+        };
+        answers += 1;
+        let answer = Method::ApprovalRespond(ApprovalRespond {
+            command_id: command_id(answers),
+            conversation_id: sent.conversation_id,
+            call_id,
+            decision: ApprovalDecision::Allow,
+        });
+        let _: ApprovalRespondResult = client.call(answer).await.unwrap();
+    }
+    start.elapsed() / calls
+}
+
+/// Not a gate on time: it prints what a routine call costs in `auto` against
+/// `cautious`, from a project and from the home dir, with a big rc and every default
+/// cache. It fails only when a call costs more than a quarter of a second.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
+    let test = "shell_routine_calls_in_auto_cost_close_to_cautious";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    std::fs::write(dirs.home().join(".zshrc"), big_rc()).unwrap();
+    for cache in [
+        ".cargo/registry",
+        ".rustup/toolchains",
+        ".cache/go-build",
+        "go/pkg/mod",
+        ".npm/_cacache",
+        ".bun/install/cache",
+        ".local/share/pnpm/store",
+        ".m2/repository",
+        ".gradle/caches",
+    ] {
+        dirs.create_dir(format!("home/{cache}")).unwrap();
+    }
+    for n in 0..200 {
+        std::fs::write(project.join(format!("file{n}.rs")), "fn main() {}\n").unwrap();
+    }
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+    ]);
+    let calls = 10;
+    let model = Arc::new(RepeatModel {
+        id: ProviderId::new("test").unwrap(),
+        line: "true".to_owned(),
+        calls: calls as usize,
+        asked: AtomicUsize::new(0),
+    });
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
+        return;
+    }
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    // The first turn starts the hidden shell and writes the snapshot; it does not count.
+    turn_cost(&daemon, 1, &project, Mode::Auto, calls).await;
+    let auto = turn_cost(&daemon, 2, &project, Mode::Auto, calls).await;
+    let home = turn_cost(&daemon, 3, dirs.home(), Mode::Auto, calls).await;
+    let cautious = turn_cost(&daemon, 4, &project, Mode::Cautious, calls).await;
+    let ms = |cost: Duration| cost.as_secs_f64() * 1000.0;
+    #[expect(clippy::print_stdout, reason = "the bench prints its numbers")]
+    {
+        println!(
+            "a routine call ({calls} per turn, a model that answers at once): auto from the \
+             project {:.1} ms, auto from the home dir {:.1} ms, cautious {:.1} ms",
+            ms(auto),
+            ms(home),
+            ms(cautious)
+        );
+    }
+    for cost in [auto, home, cautious] {
+        assert!(cost < Duration::from_millis(250), "a call cost {:.1} ms", ms(cost));
+    }
+    drop(client);
+    daemon.stop().await.unwrap();
+}
