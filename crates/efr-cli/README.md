@@ -184,9 +184,12 @@ Replies:
   that went well keeps none. A call that the user denied, or whose approval expired,
   never ran: its rows follow the line of the answer at once, with no result, so the
   scrollback keeps what did not run. Notes and the end of a turn are muted lines.
-- When stdout is not a terminal, the blocks go to stderr in plain text: the first rows
-  of a call when it starts, and its result (with the last lines of a failure's output)
-  when it ends. Nothing wraps there, because no screen sets a width.
+- When stdout is not a terminal, the blocks go to stderr in plain text, in the order
+  that a terminal keeps them: the question of a call and the line of its answer, then
+  the first rows of the call, then its result (with the last lines of a failure's
+  output) when it ends. The first rows of a call wait for its question until another
+  event of the turn comes, such as its output, so the command shows once. Nothing
+  wraps there, because no screen sets a width.
 - A question is a card in the live zone, below the rest:
 
   ```text
@@ -223,7 +226,8 @@ Replies:
   zone must stay smaller than the screen, or rows that scroll off the top could never
   be erased) is written to the scrollback whole instead, with its keys left in the
   live zone; the line of the answer then follows it. When stdout is not a terminal,
-  the card goes to stderr whole, and the line of the answer after it.
+  the card goes to stderr whole, then the line of the answer, then the rows of the
+  call.
 - The `auto` sandbox (`docs/sandbox.md`). A turn in which a call ran in the sandbox
   (`tool_call_started` with a contained `launch`, not refused) ends with one muted
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before

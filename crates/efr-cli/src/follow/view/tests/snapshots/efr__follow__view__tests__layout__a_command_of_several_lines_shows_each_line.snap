@@ -66,10 +66,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
 [running]
 stdout:
 stderr:
-· $ cd src
-    export RUST_LOG=debug
-    cargo test -p efr-cli
-    unset RUST_LOG
 
 [end]
 stdout:

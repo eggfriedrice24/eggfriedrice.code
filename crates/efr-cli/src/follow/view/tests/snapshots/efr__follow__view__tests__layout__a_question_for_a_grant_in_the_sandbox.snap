@@ -82,8 +82,6 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 [asked]
 stdout:
 stderr:
-· $ cp report.pdf ~/Documents/
-
 ? allow ~/Documents writable for this call
 │ cp report.pdf ~/Documents/
 │ why: write ~/Documents
@@ -93,24 +91,22 @@ stderr:
 [allowed]
 stdout:
 stderr:
-· $ cp report.pdf ~/Documents/
-
 ? allow ~/Documents writable for this call
 │ cp report.pdf ~/Documents/
 │ why: write ~/Documents
 │ the model says: "you asked for the report in Documents"
 │ y allow · n deny
 ✓ allowed
+· $ cp report.pdf ~/Documents/
 
 [end]
 stdout:
 stderr:
-· $ cp report.pdf ~/Documents/
-
 ? allow ~/Documents writable for this call
 │ cp report.pdf ~/Documents/
 │ why: write ~/Documents
 │ the model says: "you asked for the report in Documents"
 │ y allow · n deny
 ✓ allowed
+· $ cp report.pdf ~/Documents/
   ✓

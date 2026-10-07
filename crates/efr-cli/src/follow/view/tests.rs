@@ -693,10 +693,47 @@ fn a_running_call_shows_its_line_and_three_lines_of_output_at_40_and_80_columns(
 #[test]
 fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
     let mut view = raw_view();
-    framed(view.event(&tool_started("make"), SIZE, false), &mut view);
-    assert_eq!(framed(view.event(&output("building\n"), SIZE, false), &mut view), Step::default());
+    // The call's first rows wait for a question that may come.
+    assert_eq!(framed(view.event(&tool_started("make"), SIZE, false), &mut view), Step::default());
+    // Its output says that it runs, so its first rows come, but not the output.
+    let step = framed(view.event(&output("building\n"), SIZE, false), &mut view);
+    assert_eq!((step.out.as_str(), step.err.as_str()), ("", "\u{b7} $ make\n"));
     let step = framed(view.event(&call_completed(0), SIZE, false), &mut view);
     assert_eq!((step.out.as_str(), step.err.as_str()), ("", "  \u{2713}\n"));
+}
+
+#[test]
+fn a_raw_question_comes_before_the_rows_of_its_call_as_on_a_terminal() {
+    // Allowed: the question, its answer, the call once, then its result.
+    let mut view = raw_view();
+    let (_, mut err, _) = feed(&mut view, &[tool_started("touch note.txt"), approval(None)], true);
+    err.push_str(&framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view).err);
+    let (_, rest, _) = feed(&mut view, &[call_completed(0)], true);
+    err.push_str(&rest);
+    assert_eq!(
+        err,
+        "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} y allow \u{b7} n deny\n\
+         \u{2713} allowed\n\u{b7} $ touch note.txt\n  \u{2713}\n"
+    );
+
+    // Denied elsewhere: the call shows once under the answer, with no result.
+    let mut view = raw_view();
+    let denied = Event::ApprovalResolved {
+        turn_id: turn(),
+        call_id: call(),
+        decision: ApprovalDecision::Deny,
+        origin: Origin::Phone,
+    };
+    let (_, err, _) = feed(
+        &mut view,
+        &[tool_started("touch note.txt"), approval(None), denied, refused_call_completed()],
+        false,
+    );
+    assert_eq!(
+        err,
+        "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} waiting for another client to \
+         answer\n\u{2717} denied from the phone\n\u{b7} $ touch note.txt\n"
+    );
 }
 
 #[test]
@@ -1352,10 +1389,11 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
     framed(view.event(&contained_started("ssh-add"), WIDE, true), &mut view);
     let step = framed(view.event(&input(InputWait::Hidden), WIDE, true), &mut view);
     assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
+    // The call's first rows come first: nothing showed it before.
     assert_eq!(
         step.err,
-        "\nsandbox: the command asked for a password; efr does not type secrets into the \
-         sandbox\n"
+        "\u{b7} $ ssh-add\n\nsandbox: the command asked for a password; efr does not type \
+         secrets into the sandbox\n"
     );
 }
 
@@ -1499,10 +1537,10 @@ fn a_call_of_a_command_of_several_lines_shows_each_line() {
     insta::assert_snapshot!(readable(&step.out));
 
     let mut view = raw_view();
-    let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC)], false);
+    let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC), call_completed(0)], false);
     assert_eq!(
         err,
-        "\u{b7} $ cd src\n    export RUST_LOG=debug\n    cargo test -p efr-cli\n    unset RUST_LOG\n"
+        "\u{b7} $ cd src\n    export RUST_LOG=debug\n    cargo test -p efr-cli\n    unset RUST_LOG\n  \u{2713}\n"
     );
 }
 

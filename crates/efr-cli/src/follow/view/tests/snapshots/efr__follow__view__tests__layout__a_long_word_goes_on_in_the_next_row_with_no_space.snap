@@ -76,8 +76,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 [asked]
 stdout:
 stderr:
-· $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
-
 ? allow this command
 │ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
 │ y allow · n deny
@@ -85,10 +83,9 @@ stderr:
 [end]
 stdout:
 stderr:
-· $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
-
 ? allow this command
 │ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
 │ y allow · n deny
 ✓ allowed
+· $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
   ✓

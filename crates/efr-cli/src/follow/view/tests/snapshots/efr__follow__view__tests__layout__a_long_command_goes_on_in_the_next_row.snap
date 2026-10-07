@@ -50,7 +50,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 [running]
 stdout:
 stderr:
-· $ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -type f | awk -F/ '{print $4}' | sort -u
 
 [end]
 stdout:

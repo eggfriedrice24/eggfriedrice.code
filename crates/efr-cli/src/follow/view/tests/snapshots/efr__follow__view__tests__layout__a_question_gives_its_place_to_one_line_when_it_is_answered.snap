@@ -74,32 +74,28 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
 [end]
 stdout:
 stderr:
-· $ make install
-
 ? allow this command
 │ make install
 │ y allow · n deny
 ✓ allowed
+· $ make install
   ✓ 1.5s
-
-· $ rm -rf build
 
 ? allow this command
 │ rm -rf build
 │ y allow · n deny
 ✗ denied
-
-· $ git push
+· $ rm -rf build
 
 ? allow this command
 │ git push
 │ y allow · n deny
 ✓ allowed from the phone
+· $ git push
   ✓
-
-· $ systemctl --user restart app
 
 ? allow this command
 │ systemctl --user restart app
 │ y allow · n deny
 ✗ the approval expired
+· $ systemctl --user restart app

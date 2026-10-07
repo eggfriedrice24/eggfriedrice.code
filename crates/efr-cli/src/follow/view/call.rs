@@ -130,12 +130,15 @@ pub(crate) struct Call {
     shown: Option<Timestamp>,
     /// Its approval waits for an answer, so it does not run yet.
     pub(crate) awaiting: bool,
+    /// Its first rows are not written yet: when stdout is not a terminal, they wait for
+    /// its question and the answer.
+    pub(crate) header_due: bool,
 }
 
 impl Call {
     /// Call `call_id`, which does `text`, started at `since` on the daemon's clock.
     pub(crate) fn new(call_id: CallId, text: CallText, since: Option<Timestamp>) -> Call {
-        Call { call_id, text, since, shown: None, awaiting: false }
+        Call { call_id, text, since, shown: None, awaiting: false, header_due: false }
     }
 
     /// Its approval was answered at `at`: the call runs from then.

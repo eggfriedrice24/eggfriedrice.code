@@ -94,8 +94,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 [asked]
 stdout:
 stderr:
-· $ sudo ./scripts/setup.sh
-
 ? allow outside the sandbox
 │ sudo ./scripts/setup.sh
 │ runs with your full rights: files, secrets, network
@@ -107,8 +105,6 @@ stderr:
 [denied]
 stdout:
 stderr:
-· $ sudo ./scripts/setup.sh
-
 ? allow outside the sandbox
 │ sudo ./scripts/setup.sh
 │ runs with your full rights: files, secrets, network
@@ -117,12 +113,11 @@ stderr:
 │ efr: only you can allow this
 │ y allow · n deny
 ✗ denied
+· $ sudo ./scripts/setup.sh
 
 [end]
 stdout:
 stderr:
-· $ sudo ./scripts/setup.sh
-
 ? allow outside the sandbox
 │ sudo ./scripts/setup.sh
 │ runs with your full rights: files, secrets, network
@@ -131,3 +126,4 @@ stderr:
 │ efr: only you can allow this
 │ y allow · n deny
 ✗ denied
+· $ sudo ./scripts/setup.sh

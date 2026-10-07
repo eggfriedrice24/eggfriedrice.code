@@ -12,7 +12,8 @@
 //! than the screen is written to the scrollback instead, and its keys stay live. Every
 //! colour goes through a role of the palette in the render options. When stdout is not
 //! a terminal, the messages are written as raw markdown and everything else goes to
-//! stderr in the same blocks, so stdout holds the reply alone.
+//! stderr in the same blocks and in the same order as a terminal keeps them: a
+//! question and its answer before the rows of its call. stdout holds the reply alone.
 //!
 //! While the turn waits behind another one, the other turn's approvals show too, and so
 //! do its running call's last output line and the input it waits for: that turn may be
@@ -828,6 +829,44 @@ impl TurnView {
         if let Some(status) = &mut self.status {
             status.stir();
         }
+        // NOTE: the question of the call and its answer come before its first rows, as
+        // on a terminal; anything else of the turn shows the call first.
+        let question = match event {
+            Event::ExitRequested { call_id, .. }
+            | Event::ApprovalRequested { call_id, .. }
+            | Event::ApprovalResolved { call_id, .. }
+            | Event::ApprovalExpired { call_id, .. } => {
+                self.call.as_ref().is_some_and(|call| call.call_id == *call_id)
+            }
+            _ => false,
+        };
+        let header = if question { String::new() } else { self.due_header(size) };
+        let step = self.turn_event(event, size, can_ask);
+        Step { err: format!("{header}{}", step.err), ..step }
+    }
+
+    /// The first rows of the call of this turn, for stderr, when stdout is not a
+    /// terminal and they wait; empty otherwise. They wait from the call's start until
+    /// its question is answered or anything else of the turn comes, so a question shows
+    /// what runs once, and its answer comes before the call, as on a terminal.
+    fn due_header(&mut self, size: Size) -> String {
+        if self.terminal() {
+            return String::new();
+        }
+        let options = self.options_at(size);
+        // NOTE: the question about the call shows what runs while it waits.
+        let Some(call) = self.call.as_mut().filter(|call| call.header_due && !call.awaiting) else {
+            return String::new();
+        };
+        call.header_due = false;
+        let header = call.header(&options);
+        let mut err = self.err_spacing.before(Block::Call).to_owned();
+        err.push_str(&header);
+        self.raw_err(err)
+    }
+
+    /// One event of this turn.
+    fn turn_event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         match event {
             Event::TurnStarted { scope, settings, .. } => {
                 self.queued = false;
@@ -901,20 +940,14 @@ impl TurnView {
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                let call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
+                let mut call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
                 // On a terminal the call's block shows in the live zone while it runs
                 // and is written once when it ends; elsewhere its first rows go to
-                // stderr now, and its result when it ends.
-                let step = if self.terminal() {
-                    self.call = Some(call);
-                    self.commit(before)
-                } else {
-                    let mut err = self.err_spacing.before(Block::Call).to_owned();
-                    err.push_str(&call.header(&self.options_at(size)));
-                    self.call = Some(call);
-                    Step { out: before, err: self.raw_err(err), ..Step::default() }
-                };
-                Step { settled, ..step }
+                // stderr after its question and its answer, if it has one
+                // (`due_header`), and its result when it ends.
+                call.header_due = !self.terminal();
+                self.call = Some(call);
+                Step { settled, ..self.commit(before) }
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
@@ -1036,6 +1069,9 @@ impl TurnView {
                 self.resolved(*call_id, *decision, *origin, size)
             }
             Event::ApprovalExpired { call_id, .. } => {
+                if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
+                    call.awaiting = false;
+                }
                 self.answer_came(*call_id);
                 self.expired(*call_id, size)
             }
@@ -1164,14 +1200,20 @@ impl TurnView {
         let (mark, tone) = if good { (YES, Tone::Success) } else { (NO, Tone::Failure) };
         let mut text = format::paint(&format!("{mark}{}", format::one_line(line)), tone, &options);
         text.push('\n');
-        if !self.terminal() {
-            // NOTE: the call's first rows went to stderr before its question.
-            let mut err = self.err_spacing.before(Block::Answer).to_owned();
-            err.push_str(&text);
-            return Step { err: self.raw_err(err), ..Step::default() };
-        }
         let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
         let block = if ours { Block::Settled } else { Block::Answer };
+        if !self.terminal() {
+            // NOTE: the call's first rows wait for its answer and follow it at once.
+            let mut err = self.err_spacing.before(block).to_owned();
+            err.push_str(&text);
+            let mut err = self.raw_err(err);
+            if let About::Approval(call) = about
+                && self.call.as_ref().is_some_and(|shown| shown.call_id == call)
+            {
+                err.push_str(&self.due_header(size));
+            }
+            return Step { err, ..Step::default() };
+        }
         let mut committed = self.spacing.before(block).to_owned();
         committed.push_str(&text);
         self.stage(&committed);
@@ -1360,7 +1402,12 @@ impl TurnView {
         if let Some(running) = &mut self.running {
             running.hinted = true;
         }
-        if self.terminal() { self.commit(String::new()) } else { self.note(SILENCE_HINT, size) }
+        if self.terminal() {
+            return self.commit(String::new());
+        }
+        let header = self.due_header(size);
+        let step = self.note(SILENCE_HINT, size);
+        Step { err: format!("{header}{}", step.err), ..step }
     }
 
     /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
@@ -1635,6 +1682,8 @@ impl TurnView {
     /// Ends the view early: commits what the current message has so far and clears the
     /// live zone, before an error or an interrupt is reported.
     pub(crate) fn close(&mut self) -> Step {
+        // The rows of a call that still wait show what ran.
+        let header = self.due_header(self.size);
         self.asking = None;
         self.surface = None;
         self.running = None;
@@ -1644,7 +1693,8 @@ impl TurnView {
         self.end_progress.get_or_insert(progress::CLEAR);
         let committed = self.finish_message();
         // An echo line left open would carry what is written after the view.
-        let err = self.raw_err(String::new());
+        let mut err = header;
+        err.push_str(&self.raw_err(String::new()));
         let mut step = Step { err, ..self.commit(committed) };
         // A question that nobody answered stays in the scrollback.
         self.commit_question();
@@ -1843,7 +1893,7 @@ impl TurnView {
     /// The block of call `call`, which ended as `outcome` at the time of the event being
     /// taken, written once, with `notes` under its result; a failed call keeps `lines`,
     /// the last of its output. When stdout is not a terminal, its first rows went to
-    /// stderr when it started, and the rest follows now.
+    /// stderr before this event (`due_header`), and the rest follows now.
     fn call_block(
         &mut self,
         call: &Call,
@@ -1873,7 +1923,7 @@ impl TurnView {
     /// under them. It never ran, so it has no result. On a terminal its card gave its
     /// place to the answer line, so these rows follow that line and the scrollback
     /// keeps what did not run. When stdout is not a terminal, the rows went to stderr
-    /// before the question.
+    /// after the answer line, as on a terminal.
     fn denied_block(&mut self, call: &Call, notes: &[String], size: Size) -> Step {
         if !self.terminal() {
             return self.notes(notes, size);

@@ -146,8 +146,6 @@ stderr:
 · $ ls target/debug/build | grep ghostty
   ✓
 
-· $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
-
 ? allow this command
 │ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
 │ why: write ~/lib (user data)
@@ -164,13 +162,12 @@ stderr:
 · $ ls target/debug/build | grep ghostty
   ✓
 
-· $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
-
 ? allow this command
 │ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
 │ why: write ~/lib (user data)
 │ y allow · n deny
 ✓ allowed
+· $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
   ✓
 
 sandbox: writes in the project, $SCRATCH, private /tmp; no network
