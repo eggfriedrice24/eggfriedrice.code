@@ -377,15 +377,26 @@ bump-ghostty rev:
     fi
     zon="https://raw.githubusercontent.com/ghostty-org/ghostty/$ghostty/build.zig.zon"
     zig="$(curl -fsSL "$zon" | sed -nE 's/.*minimum_zig_version = "([^"]+)".*/\1/p')"
+    # The source package downloads the ghostty archive of the commit; its sum is the
+    # second of b2sums in the PKGBUILD.
+    pkgbuild=packaging/efr-code/PKGBUILD
+    old_b2="$(sed -n '/^b2sums=/,/)/p' "$pkgbuild" | sed -n 2p | tr -d " '()")"
+    archive="https://github.com/ghostty-org/ghostty/archive/$ghostty.tar.gz"
+    new_b2="$(curl -fsSL "$archive" | b2sum | cut -d ' ' -f 1)"
+    if [[ ! "$old_b2" =~ ^[0-9a-f]{128}$ || ! "$new_b2" =~ ^[0-9a-f]{128}$ ]]; then
+        echo "bump-ghostty: no ghostty b2sum in $pkgbuild, or no archive at $archive" >&2
+        exit 1
+    fi
     # The full commits go first, because the short forms are their prefixes.
     sed -i "s/$old/$rev/g; s/$old_ghostty/$ghostty/g; s/${old_ghostty:0:8}/${ghostty:0:8}/g" \
-        Cargo.toml docs/ghostty-pin.md
+        Cargo.toml docs/ghostty-pin.md "$pkgbuild"
+    sed -i "s/$old_b2/$new_b2/" "$pkgbuild"
     # Resolving again moves Cargo.lock to the new rev without building anything.
     cargo fetch --quiet
     echo "libghostty-rs $rev builds ghostty $ghostty, which needs Zig ${zig:-(not found)}"
     echo "local zig: $(zig version 2>/dev/null || echo 'not on PATH')"
-    echo "rewritten: the rev and the ghostty commit in Cargo.toml, Cargo.lock and docs/ghostty-pin.md"
-    echo "left to do: the Zig version and the dates in docs/ghostty-pin.md, the Zig version in ci.yml, then just test-ghostty"
+    echo "rewritten: the rev and the ghostty commit in Cargo.toml, Cargo.lock, docs/ghostty-pin.md and $pkgbuild, and the b2sum of the ghostty archive in $pkgbuild"
+    echo "left to do: the Zig version and the dates in docs/ghostty-pin.md, the Zig version in ci.yml, release.yml and $pkgbuild (with its b2sum), then just test-ghostty"
 
 # Move the pinned toolchain and the MSRV together.
 bump-toolchain version:

@@ -25,6 +25,19 @@ Pre-alpha. The first milestone runs: the daemon with its event log, one model pr
 
 ## Install
 
+On Arch Linux, install a package from the AUR. `efr-code` builds from source (it downloads Zig 0.16.0 for the build), and `efr-code-bin` installs the release build. Then do the three steps as your own user:
+
+```sh
+yay -S efr-code                       # or: yay -S efr-code-bin
+echo "source /usr/share/zsh/plugins/efr/efr.plugin.zsh" >> ~/.zshrc
+systemctl --user enable --now efrd    # start the daemon now and at every login
+efr login openai                      # log in to your ChatGPT plan in a browser
+```
+
+The packages install `efrd` and `efr` in `/usr/bin`, `efr-sbx` in `/usr/lib/efr/` and the user unit in `/usr/lib/systemd/user/`. Install `bubblewrap` for the `auto` mode. After an upgrade, run `systemctl --user restart efrd`.
+
+From a clone of this repository:
+
 ```sh
 just install                          # efrd and efr to ~/.local/bin, efr-sbx to ~/.local/lib/efr, the user unit to ~/.config/systemd/user
 systemctl --user enable --now efrd    # start the daemon now and at every login
@@ -93,6 +106,7 @@ Where efr keeps its files: each root is its own variable (`EFR_CONFIG_DIR`, `EFR
 | `crates/` | The Rust workspace, one crate for each bounded context |
 | `shell/zsh/` | The zsh plugin |
 | `systemd/` | The user unit for the daemon |
+| `packaging/` | The AUR packages `efr-code` and `efr-code-bin`; `docs/releasing.md` tells how a release reaches them |
 
 ## Building
 

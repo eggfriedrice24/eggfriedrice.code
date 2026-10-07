@@ -1,0 +1,342 @@
+# Publishes packaging/efr-code and packaging/efr-code-bin to the AUR packages
+# "efr-code" (built from the GitHub tag tarball) and "efr-code-bin" (the
+# prebuilt efr-code-<version>-x86_64-linux.tar.gz release asset).
+#
+# Required repository secret:
+#   AUR_SSH_PRIVATE_KEY  An SSH private key in OpenSSH format without a
+#                        passphrase. Its public key must be registered on the
+#                        AUR account "eggfriedrice" (My Account -> SSH Public
+#                        Key on https://aur.archlinux.org/). docs/releasing.md
+#                        has the setup.
+#
+# Triggers:
+#   - release published: stable releases whose tag starts with "v".
+#     Prereleases are ignored.
+#   - workflow_dispatch with the tag to publish. release.yml uses this path,
+#     because a release created with GITHUB_TOKEN does not fire the release
+#     event for other workflows.
+#
+# This workflow never writes to this repository: main takes changes only
+# through pull requests. The release commit sets pkgver in packaging/ before
+# the tag (docs/releasing.md); this workflow only checks it. In an
+# archlinux:base-devel container and in a single job, it
+#   1. clones each AUR repository and compares its pkgver with the tag; a
+#      package that already carries the version is skipped,
+#   2. checks that packaging/<pkgname>/PKGBUILD of the tag has the tag's
+#      version as pkgver,
+#   3. for each remaining package copies packaging/<pkgname>/ to a build
+#      directory, runs updpkgsums and regenerates .SRCINFO there, then checks
+#      the checksums against upstream: for efr the BLAKE2 sum of a separate
+#      download of the tag tarball, plus the pinned sums of the ghostty and Zig
+#      sources, which must not change; for efr-code-bin the SHA-256 published
+#      in efr-code-<version>-x86_64-linux.tar.gz.sha256 next to the release
+#      asset,
+#   4. test builds each package with makepkg (checksums verified, check() run)
+#      and runs namcap,
+#   5. pushes the files of packaging/<pkgname>/, with PKGBUILD and .SRCINFO
+#      from the build directory, to ssh://aur@aur.archlinux.org/<pkgname>.git
+#      with the commit "upgpkg: <version>-<pkgrel>".
+# Nothing is pushed before every package has been updated and built, so a
+# failure leaves the AUR untouched. A release published by hand fires the
+# release event before release.yml has uploaded the assets; the job then waits
+# up to ten minutes for the .sha256 file to appear.
+
+name: aur
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example v0.0.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to AUR
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v'))
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    env:
+      # AUR package names, in publish order. Each has its PKGBUILD, packaging
+      # LICENSE and install file in packaging/<pkgname>/ here and its repository
+      # at $AUR_SSH/<pkgname>.git. The steps below clone that repository to
+      # $HOME/aur-<pkgname> and build the package in /home/builder/<pkgname>.
+      PACKAGES: efr-code efr-code-bin
+      AUR_SSH: ssh://aur@aur.archlinux.org
+      UPSTREAM: https://github.com/eggfriedrice24/eggfriedrice.code
+    steps:
+      - name: Install tooling
+        # git before checkout so the action produces a real git checkout.
+        # pacman-contrib provides updpkgsums. rust is installed here, so that
+        # makepkg -s finds cargo and does not pick rustup for it. The image's
+        # keyring may predate a packager key, so it is refreshed before the
+        # upgrade.
+        run: |
+          pacman -Sy --noconfirm --needed archlinux-keyring
+          pacman -Su --noconfirm --needed git namcap openssh pacman-contrib rust sudo
+
+      - name: Resolve tag and version
+        id: version
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '${TAG}' is not a stable release tag of the form vX.Y.Z"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "publishing ${TAG} as pkgver ${TAG#v}"
+
+      - name: Checkout the tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+
+      - name: Set up SSH for aur.archlinux.org
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo "::error::secret AUR_SSH_PRIVATE_KEY is not set"
+            exit 1
+          fi
+          ssh_dir="$HOME/.ssh"
+          install -d -m 700 "$ssh_dir"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$ssh_dir/aur"
+          chmod 600 "$ssh_dir/aur"
+          # Fails early with a clear message if the secret is not a valid key.
+          ssh-keygen -y -f "$ssh_dir/aur" > /dev/null
+
+          # Pinned host keys for aur.archlinux.org, taken on 2026-10-01 from
+          # docs/ssh-known_hosts.txt in the archlinux/infrastructure repository
+          # on gitlab.archlinux.org and from a live ssh-keyscan, which agreed.
+          # Their fingerprints match the "SSH Fingerprints" box on
+          # https://aur.archlinux.org/:
+          #   Ed25519  SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4
+          #   ECDSA    SHA256:uTa/0PndEgPZTf76e1DFqXKJEXKsn7m9ivhLQtzGOCI
+          #   RSA      SHA256:5s5cIyReIfNNVGRFdDbe3hdYiI5OelHGpw2rOUud3Q8
+          # If the AUR rotates its keys, update these lines from that page.
+          cat > "$ssh_dir/aur_known_hosts" <<'KNOWN_HOSTS'
+          aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+          aur.archlinux.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLMiLrP8pVi5BFX2i3vepSUnpedeiewE5XptnUnau+ZoeUOPkpoCgZZuYfpaIQfhhJJI5qgnjJmr4hyJbe/zxow=
+          aur.archlinux.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDKF9vAFWdgm9Bi8uc+tYRBmXASBb5cB5iZsB7LOWWFeBrLp3r14w0/9S2vozjgqY5sJLDPONWoTTaVTbhe3vwO8CBKZTEt1AcWxuXNlRnk9FliR1/eNB9uz/7y1R0+c1Md+P98AJJSJWKN12nqIDIhjl2S1vOUvm7FNY43fU2knIhEbHybhwWeg+0wxpKwcAd/JeL5i92Uv03MYftOToUijd1pqyVFdJvQFhqD4v3M157jxS5FTOBrccAEjT+zYmFyD8WvKUa9vUclRddNllmBJdy4NyLB8SvVZULUPrP3QOlmzemeKracTlVOUG1wsDbxknF1BwSCU7CmU6UFP90kpWIyz66bP0bl67QAvlIc52Yix7pKJPbw85+zykvnfl2mdROsaT8p8R9nwCdFsBc9IiD0NhPEHcyHRwB8fokXTajk2QnGhL+zP5KnkmXnyQYOCUYo3EKMXIlVOVbPDgRYYT/XqvBuzq5S9rrU70KoI/S5lDnFfx/+lPLdtcnnEPk=
+          KNOWN_HOSTS
+          chmod 600 "$ssh_dir/aur_known_hosts"
+
+          # Explicit paths rather than ~/.ssh defaults: inside the container
+          # $HOME differs from root's passwd entry, which is what ssh uses.
+          echo "GIT_SSH_COMMAND=ssh -i ${ssh_dir}/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=${ssh_dir}/aur_known_hosts -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+
+      - name: Clone AUR repositories and compare pkgver
+        id: aur
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          read -ra pkgs <<<"$PACKAGES"
+          publish=()
+          for pkg in "${pkgs[@]}"; do
+            # The release commit sets pkgver before the tag; this workflow never
+            # changes packaging/ (docs/releasing.md).
+            pkgver=$(sed -n 's/^pkgver=//p' "packaging/$pkg/PKGBUILD")
+            if [[ "$pkgver" != "$VERSION" ]]; then
+              echo "::error::packaging/$pkg/PKGBUILD has pkgver '$pkgver' at this tag, expected '$VERSION'; see docs/releasing.md"
+              exit 1
+            fi
+            aur_dir="$HOME/aur-$pkg"
+            # A package that does not exist yet clones as an empty repository.
+            git clone "$AUR_SSH/$pkg.git" "$aur_dir"
+            current=""
+            if [[ -f "$aur_dir/.SRCINFO" ]]; then
+              current=$(sed -n 's/^\tpkgver = //p' "$aur_dir/.SRCINFO")
+            fi
+            echo "$pkg: AUR currently has pkgver '${current:-none}', releasing '$VERSION'"
+            if [[ "$current" == "$VERSION" ]]; then
+              echo "$pkg: AUR already has $VERSION; nothing to do"
+            else
+              publish+=("$pkg")
+            fi
+          done
+          # Space-separated names of the packages still to publish. Empty when
+          # the AUR is up to date, which skips every step below.
+          echo "publish=${publish[*]}" >> "$GITHUB_OUTPUT"
+          echo "publishing: ${publish[*]:-nothing}"
+
+      - name: Create non-root build user
+        if: steps.aur.outputs.publish != ''
+        # makepkg and updpkgsums refuse to run as root. makepkg -s installs the
+        # dependencies of a PKGBUILD through pacman, so the user may run it.
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/builder
+
+      - name: Update checksums and .SRCINFOs
+        if: steps.aur.outputs.publish != ''
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISH: ${{ steps.aur.outputs.publish }}
+        run: |
+          set -euo pipefail
+          read -ra pkgs <<<"$PUBLISH"
+          for pkg in "${pkgs[@]}"; do
+            echo "::group::$pkg: update checksums and .SRCINFO"
+            build="/home/builder/$pkg"
+            install -d -o builder -g builder "$build"
+            # install copies the target of a link: efr-code-bin links
+            # efr-code.install from packaging/efr-code.
+            for file in "packaging/$pkg"/*; do
+              install -o builder -g builder -m 644 "$file" "$build/"
+            done
+
+            # The checksum that the release changes, taken from upstream
+            # independently of the download that updpkgsums makes below.
+            case "$pkg" in
+              efr-code)
+                # GitHub publishes no checksum for its tag tarballs, so the
+                # reference is the BLAKE2 sum of a separate download.
+                sums=b2sums
+                url="$UPSTREAM/archive/refs/tags/$TAG.tar.gz"
+                expected=$(curl -fsSL --retry 3 "$url" | b2sum | cut -d ' ' -f 1)
+                ;;
+              efr-code-bin)
+                # release.yml publishes the SHA-256 of the release tarball
+                # next to it, in sha256sum format: "<hash>  <file name>".
+                sums=sha256sums_x86_64
+                asset="efr-code-$VERSION-x86_64-linux.tar.gz"
+                url="$UPSTREAM/releases/download/$TAG/$asset.sha256"
+                # A release published by hand fires this workflow before
+                # release.yml has uploaded the assets, so wait for the file
+                # for a bounded time instead of failing at once.
+                line=""
+                for attempt in $(seq 1 20); do
+                  if line=$(curl -fsSL --retry 3 "$url"); then
+                    break
+                  fi
+                  if (( attempt == 20 )); then
+                    echo "::error::$pkg: $url is still missing after ten minutes; make sure the release has its assets, then re-run this workflow"
+                    exit 1
+                  fi
+                  echo "$pkg: $url not available yet (attempt $attempt of 20); waiting 30s"
+                  sleep 30
+                done
+                read -r expected name <<<"$line"
+                if [[ ! "$expected" =~ ^[0-9a-f]{64}$ || "$name" != "$asset" ]]; then
+                  echo "::error::$pkg: unexpected content in $url: '$line'"
+                  exit 1
+                fi
+                ;;
+              *)
+                echo "::error::no checksum rule for package $pkg"
+                exit 1
+                ;;
+            esac
+            echo "$pkg: upstream $sums for $url: $expected"
+
+            # The first source is the release; the others are pinned (the
+            # ghostty commit and Zig of efr) and keep the sums of packaging/.
+            pinned=$(su - builder -c "cd '$build' && makepkg --printsrcinfo" \
+              | sed -n "s/^\t$sums = //p" | tail -n +2)
+            expected=$(printf '%s\n%s' "$expected" "$pinned" | sed '/^$/d')
+
+            # updpkgsums downloads the sources named in the PKGBUILD and
+            # rewrites the checksum arrays in place, architecture-specific
+            # ones included. The downloads stay next to the PKGBUILD, so the
+            # test build below does not fetch them again.
+            su - builder -c "cd '$build' && updpkgsums"
+            su - builder -c "cd '$build' && makepkg --printsrcinfo > .SRCINFO"
+            actual=$(sed -n "s/^\t$sums = //p" "$build/.SRCINFO")
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::$pkg: $sums after updpkgsums are not the expected ones; check the source lines and the pinned sums"
+              diff <(echo "$expected") <(echo "$actual") || true
+              exit 1
+            fi
+            echo "::endgroup::"
+
+            echo "::group::$pkg: PKGBUILD changes"
+            diff -u "packaging/$pkg/PKGBUILD" "$build/PKGBUILD" || true
+            echo "::endgroup::"
+          done
+
+      - name: Test build and namcap
+        if: steps.aur.outputs.publish != ''
+        env:
+          PUBLISH: ${{ steps.aur.outputs.publish }}
+        run: |
+          set -euo pipefail
+          read -ra pkgs <<<"$PUBLISH"
+          log=$(mktemp)
+          for pkg in "${pkgs[@]}"; do
+            build="/home/builder/$pkg"
+            su - builder -c "cd '$build' && makepkg -sf --noconfirm"
+            # The glob matches the main package and not a -debug split, if
+            # one was built (efr-code-bin has none).
+            for target in "$build/PKGBUILD" "$build/$pkg"-[0-9]*.pkg.tar.zst; do
+              if [[ ! -f "$target" ]]; then
+                echo "::error::$pkg: $target does not exist"
+                exit 1
+              fi
+              echo "::group::namcap $target"
+              namcap "$target" | tee -a "$log"
+              echo "::endgroup::"
+            done
+            echo "::group::$pkg: files"
+            pacman -Qlp "$build/$pkg"-[0-9]*.pkg.tar.zst
+            echo "::endgroup::"
+          done
+          # namcap prints findings as "<name> E: ..." and its own failures to
+          # read a target as "Error: ...", always exiting 0; both must fail.
+          if grep -E '^([^ ]+( \([^)]*\))? E: |Error: )' "$log"; then
+            echo "::error::namcap reported errors or could not analyse a target (warnings above are informational)"
+            exit 1
+          fi
+          echo "namcap reported no errors"
+
+      - name: Push to AUR
+        if: steps.aur.outputs.publish != ''
+        env:
+          PUBLISH: ${{ steps.aur.outputs.publish }}
+        run: |
+          set -euo pipefail
+          read -ra pkgs <<<"$PUBLISH"
+          for pkg in "${pkgs[@]}"; do
+            build="/home/builder/$pkg"
+            aur_dir="$HOME/aur-$pkg"
+            files=(.SRCINFO)
+            for file in "packaging/$pkg"/*; do
+              files+=("${file##*/}")
+            done
+            # The build directory holds the files of packaging/ with the
+            # updated PKGBUILD, and the generated .SRCINFO.
+            for file in "${files[@]}"; do
+              cp "$build/$file" "$aur_dir/"
+            done
+            release=$(sed -n 's/^\tpkgver = //p; s/^\tpkgrel = //p' "$build/.SRCINFO" | paste -sd -)
+            git -C "$aur_dir" config user.name "eggfriedrice"
+            git -C "$aur_dir" config user.email "eggfriedricew.g.o@gmail.com"
+            git -C "$aur_dir" add -- "${files[@]}"
+            if git -C "$aur_dir" diff --cached --quiet; then
+              echo "$pkg: AUR repository already matches; nothing to push"
+              continue
+            fi
+            git -C "$aur_dir" commit -m "upgpkg: $release"
+            git -C "$aur_dir" push origin HEAD:master
+          done

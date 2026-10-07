@@ -1,5 +1,6 @@
-# User unit for the eggfriedrice.code daemon. Installed by `just install` to
-# ~/.config/systemd/user/efrd.service. Run `loginctl enable-linger` once so the
+# User unit for the eggfriedrice.code daemon. `just install` installs it to
+# ~/.config/systemd/user/efrd.service. The AUR packages install it to
+# /usr/lib/systemd/user/efrd.service. Run `loginctl enable-linger` once so the
 # daemon keeps running without an open login session.
 [Unit]
 Description=eggfriedrice.code daemon (efrd)
@@ -9,6 +10,8 @@ StartLimitBurst=10
 [Service]
 # efrd sends READY=1 only after migrations finish and the socket is open.
 Type=notify
+# NOTE: the AUR packages replace this exact line with ExecStart=/usr/bin/efrd
+# (packaging/efr-code/PKGBUILD and .github/workflows/release.yml); keep it on one line.
 ExecStart=%h/.local/bin/efrd
 # `systemctl --user reload efrd` reads config.toml again without a restart.
 ExecReload=kill -HUP $MAINPID

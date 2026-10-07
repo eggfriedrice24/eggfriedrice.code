@@ -1,0 +1,146 @@
+# Release build for efr, triggered by pushing a tag v<version>.
+#
+# Builds efrd, efr and efr-sbx as `just build-release` does (the ghostty screen
+# backend with Zig 0.16.0), packs efr-code-<version>-x86_64-linux.tar.gz in
+# the layout that packaging/efr-code-bin/PKGBUILD installs from, writes a .sha256 next
+# to it, and creates the GitHub release with generated notes. The version is
+# taken from the tag (leading v stripped). It must equal the workspace version
+# in Cargo.toml and the pkgver of every PKGBUILD in packaging/: the release
+# commit sets all of them before the tag (docs/releasing.md).
+#
+# A release created with GITHUB_TOKEN does not fire the "release" event for
+# other workflows, so the AUR publish (aur.yml) is dispatched explicitly as
+# the last step. That needs actions: write.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain of rust-toolchain.toml.
+      - run: rustup toolchain install
+
+      # Zig 0.16.0 exactly: the pin triple in docs/ghostty-pin.md.
+      # NOTE: every release of setup-zig up to v2.2.1 still declares node20; GitHub
+      # runs it on Node 24 and warns, as in ci.yml.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
+
+      - name: Derive version from tag and check Cargo.toml and packaging
+        id: version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          for package in efr-daemon efr-cli efr-sbx; do
+            cargo_version=$(cargo metadata --no-deps --format-version 1 \
+              | jq -r --arg name "$package" '.packages[] | select(.name == $name) | .version')
+            if [[ "$version" != "$cargo_version" ]]; then
+              echo "::error::tag ${GITHUB_REF_NAME} does not match the version ${cargo_version} of ${package} in Cargo.toml"
+              exit 1
+            fi
+          done
+          for pkgbuild in packaging/*/PKGBUILD; do
+            pkgver=$(sed -n 's/^pkgver=//p' "$pkgbuild")
+            if [[ "$version" != "$pkgver" ]]; then
+              echo "::error::${pkgbuild} has pkgver '${pkgver}', expected ${version}; see docs/releasing.md"
+              exit 1
+            fi
+          done
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "releasing efr ${version}"
+
+      - name: Build release binaries
+        env:
+          # Binaries for older CPUs too; the default of the sys crate, set on purpose.
+          LIBGHOSTTY_VT_SYS_CPU: baseline
+        run: |
+          set -euo pipefail
+          just build-release
+          # A build with the sandbox's test seams lets a test replace the launcher
+          # and the probe; it must never ship.
+          if [[ "$(target/release/efrd --test-seams)" != off ]]; then
+            echo "::error::target/release/efrd has the test-sandbox-fake feature"
+            exit 1
+          fi
+
+      - name: Assemble tarball
+        id: tarball
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="efr-code-${VERSION}-x86_64-linux"
+          stage="dist/${name}"
+          # efrd also finds efr-sbx next to itself, so the unpacked directory runs
+          # as it is.
+          install -Dm755 -t "${stage}" target/release/efr target/release/efrd target/release/efr-sbx
+          install -Dm644 -t "${stage}" LICENSE README.md
+          install -Dm644 -t "${stage}/shell/zsh" shell/zsh/efr.plugin.zsh
+          install -Dm644 -t "${stage}/docs" docs/config.md docs/permissions.md docs/sandbox.md
+          install -Dm644 -t "${stage}/examples" crates/efr-config/examples/config.toml
+          # The unit of `just install` with the daemon in /usr/bin, as the packages
+          # install it; packaging/efr-code/PKGBUILD makes the same change.
+          install -d "${stage}/systemd"
+          sed 's|^ExecStart=%h/\.local/bin/efrd$|ExecStart=/usr/bin/efrd|' systemd/efrd.service \
+            > "${stage}/systemd/efrd.service"
+          grep -qx 'ExecStart=/usr/bin/efrd' "${stage}/systemd/efrd.service"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          cat "dist/${name}.tar.gz.sha256"
+          tar -tzvf "dist/${name}.tar.gz"
+          echo "tarball=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TARBALL: ${{ steps.tarball.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$VERSION" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Created by hand first (which also pushed the tag): just attach.
+            echo "release ${GITHUB_REF_NAME} already exists; uploading assets"
+            gh release upload "$GITHUB_REF_NAME" --clobber "$TARBALL" "${TARBALL}.sha256"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "efr ${VERSION}" \
+              --generate-notes \
+              "${args[@]}" \
+              "$TARBALL" "${TARBALL}.sha256"
+          fi
+
+      - name: Trigger AUR publish
+        # Stable releases only; prerelease tags contain a hyphen.
+        if: ${{ !contains(steps.version.outputs.version, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run aur.yml --ref main -f "tag=${GITHUB_REF_NAME}"

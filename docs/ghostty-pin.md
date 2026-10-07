@@ -16,8 +16,11 @@ libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "8953a7
 ```
 
 `deny.toml` allows this one git source. CI installs Zig with `mlugg/setup-zig` at
-`version: 0.16.0` in the `ghostty` job. This file, `Cargo.toml` and `ci.yml` are the
-only places the triple is written.
+`version: 0.16.0` in the `ghostty` job of `ci.yml` and in `release.yml`. The AUR
+source package (`packaging/efr-code/PKGBUILD`) downloads the ghostty archive of the pinned
+commit and the official Zig 0.16.0 tarball, each with a pinned sum, because the Zig of
+Arch does not stay at 0.16.0. This file, `Cargo.toml`, `ci.yml`, `release.yml` and
+that PKGBUILD are the only places the triple is written.
 
 ## Isolation
 
@@ -99,16 +102,21 @@ A bump is one commit that changes:
 1. the `rev` in the workspace `Cargo.toml`;
 2. this file: the libghostty-rs rev, the ghostty commit its `build.rs` names, and the
    Zig version from that commit's `build.zig.zon`;
-3. the Zig version in `.github/workflows/ci.yml` (and the release setup step);
-4. the conformance fixtures under `crates/efr-screen/fixtures/`, if rendering changed.
+3. the Zig version in `.github/workflows/ci.yml` and `.github/workflows/release.yml`;
+4. in `packaging/efr-code/PKGBUILD`: `_ghostty` and the b2sum of its archive, `_zig` and
+   the b2sum of its tarball, and the `zig build` options in `prepare()` when the
+   `build.rs` of the new rev passes other options;
+5. the conformance fixtures under `crates/efr-screen/fixtures/`, if rendering changed.
 
 `just bump-ghostty <rev>` takes a full 40-character commit. It reads the new
 `GHOSTTY_COMMIT` from that rev's `build.rs` and the Zig version from that commit's
 `build.zig.zon` before it writes anything, then does step 1, rewrites the rev and the
-ghostty commit (full and short) in `Cargo.toml` and this file, moves `Cargo.lock` to
-the new rev, and prints the Zig version next to the local `zig version`. The Zig
-version and the dates in this file and the Zig version in `ci.yml` are left to the
-person bumping. Then run `just test-ghostty`.
+ghostty commit (full and short) in `Cargo.toml`, this file and the PKGBUILD, puts the
+b2sum of the new ghostty archive in the PKGBUILD, moves `Cargo.lock` to the new rev,
+and prints the Zig version next to the local `zig version`. The Zig version and the
+dates in this file, and the Zig version in `ci.yml`, `release.yml` and the PKGBUILD,
+are left to the person bumping. Then run `just test-ghostty`. A test build of the
+source package in a container (`docs/releasing.md`) checks the PKGBUILD.
 libghostty-vt is pre-1.0 with no C API compatibility promise, so a bump can need code
 changes, and they must stay inside `efr-screen-ghostty`.
 

@@ -15,7 +15,7 @@ Three binaries ship:
 - `efr`, the CLI, is a thin relay to the daemon. The zsh plugin
   (`shell/zsh/efr.plugin.zsh`) calls it for every `,` line.
 - `efr-sbx`, the sandbox launcher of the `auto` mode, is installed next to efrd in
-  `~/.local/lib/efr` and is never on the `PATH`. The hidden shell runs a copy of it for
+  `~/.local/lib/efr` (`/usr/lib/efr` from the AUR packages) and is never on the `PATH`. The hidden shell runs a copy of it for
   each contained call.
 
 All clients speak one protocol, defined in `efr-protocol`, over a Unix socket at
