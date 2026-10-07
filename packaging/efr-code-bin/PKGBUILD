@@ -5,7 +5,7 @@
 # They link only libc.so.6, libm.so.6 and libgcc_s.so.1 (no RPATH); any current
 # Arch glibc satisfies them. The efr-code package builds the same version from source.
 pkgname=efr-code-bin
-pkgver=0.0.1
+pkgver=0.0.2
 pkgrel=1
 pkgdesc='Terminal-first AI agent harness that lives in zsh, with a daemon that owns the state'
 arch=('x86_64')
