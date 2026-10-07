@@ -678,7 +678,8 @@ async fn shell_a_contained_call_runs_in_the_real_sandbox() {
     let [(output, _)] = completed(&events).try_into().unwrap();
     assert!(output.contains("private"), "{output}");
     assert!(output.contains("Read-only file system"), "{output}");
-    assert!(output.contains("status=1"), "{output}");
+    // A failed redirection ends bash's `sh` with 1 and dash's (Debian, Ubuntu) with 2.
+    assert!(output.contains("status=1") || output.contains("status=2"), "{output}");
     assert!(project.join("inside.txt").is_file(), "the project is a write root");
     assert!(!dirs.home().join("outside.txt").exists(), "the home dir is not");
     drop(client);
