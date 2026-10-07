@@ -23,6 +23,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
+\e[33m·\e[0m \e[36m$ sudo ./scripts/setup.sh\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 40 columns, NO_COLOR
@@ -46,6 +47,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[1m✗ denied\e[0m
+\e[1m·\e[0m $ sudo ./scripts/setup.sh
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 80 columns, colour
@@ -65,6 +67,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
+\e[33m·\e[0m \e[36m$ sudo ./scripts/setup.sh\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 80 columns, NO_COLOR
@@ -84,6 +87,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[1m✗ denied\e[0m
+\e[1m·\e[0m $ sudo ./scripts/setup.sh
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === not a terminal

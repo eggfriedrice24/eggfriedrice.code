@@ -269,7 +269,7 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   its own row. A line wider than the screen goes on in the next row after a `\`,
   indented, so nothing of what runs is cut.
 - When you answer, the question gives its place to one line, `✓ allowed` or `✗
-  denied`, and the call shows once, in its own block.
+  denied`, and the call shows once, in its own block, also when you denied it.
 - Only the facts that matter most stand out in the `warning` colour: the title, the
   full-rights line and the `untrusted` mark. What runs is in the `code` colour. The
   other facts are dim.

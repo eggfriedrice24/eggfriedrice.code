@@ -9,12 +9,14 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   \e[32m✓ 1.5s\e[0m
 
 \e[31m✗ denied\e[0m
+\e[33m·\e[0m \e[36m$ rm -rf build\e[0m
 
 \e[32m✓ allowed from the phone\e[0m
 \e[33m·\e[0m \e[36m$ git push\e[0m
   \e[32m✓\e[0m
 
 \e[31m✗ the approval expired\e[0m
+\e[33m·\e[0m \e[36m$ systemctl --user restart app\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 40 columns, NO_COLOR
@@ -24,12 +26,14 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   ✓ 1.5s
 
 \e[1m✗ denied\e[0m
+\e[1m·\e[0m $ rm -rf build
 
 ✓ allowed from the phone
 \e[1m·\e[0m $ git push
   ✓
 
 \e[1m✗ the approval expired\e[0m
+\e[1m·\e[0m $ systemctl --user restart app
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 80 columns, colour
@@ -39,12 +43,14 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   \e[32m✓ 1.5s\e[0m
 
 \e[31m✗ denied\e[0m
+\e[33m·\e[0m \e[36m$ rm -rf build\e[0m
 
 \e[32m✓ allowed from the phone\e[0m
 \e[33m·\e[0m \e[36m$ git push\e[0m
   \e[32m✓\e[0m
 
 \e[31m✗ the approval expired\e[0m
+\e[33m·\e[0m \e[36m$ systemctl --user restart app\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 80 columns, NO_COLOR
@@ -54,12 +60,14 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   ✓ 1.5s
 
 \e[1m✗ denied\e[0m
+\e[1m·\e[0m $ rm -rf build
 
 ✓ allowed from the phone
 \e[1m·\e[0m $ git push
   ✓
 
 \e[1m✗ the approval expired\e[0m
+\e[1m·\e[0m $ systemctl --user restart app
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === not a terminal

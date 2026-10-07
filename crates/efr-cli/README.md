@@ -180,8 +180,8 @@ Replies:
   output above its result (from the last `tool_call_output_updated`, else from the
   output that the model got, without efr's own notes in brackets at its end); a call
   that went well keeps none. A call that the user denied, or whose approval expired,
-  writes no block: the line of the answer says it. Notes and the end of a turn are
-  muted lines.
+  never ran: its rows follow the line of the answer at once, with no result, so the
+  scrollback keeps what did not run. Notes and the end of a turn are muted lines.
 - When stdout is not a terminal, the blocks go to stderr in plain text: the first rows
   of a call when it starts, and its result (with the last lines of a failure's output)
   when it ends. Nothing wraps there, because no screen sets a width.
@@ -217,7 +217,7 @@ Replies:
 - When the question is answered, its card gives its place to one line: `✓ allowed` in
   the `success` role, `✗ denied` in the `error` role, `✓ allowed from the phone` for
   an answer from another client, `✗ the approval expired`. The command is written
-  once, in the block of the call that follows. A card taller than the screen (the live
+  once, in the block of the call that follows, also when the call did not run. A card taller than the screen (the live
   zone must stay smaller than the screen, or rows that scroll off the top could never
   be erased) is written to the scrollback whole instead, with its keys left in the
   live zone; the line of the answer then follows it. When stdout is not a terminal,

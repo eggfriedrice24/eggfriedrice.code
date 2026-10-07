@@ -105,7 +105,7 @@ fn blocks_are_separated_by_blank_lines_and_notes_stay_together() {
         spacing.before(Block::Note),
         spacing.before(Block::Note),
         spacing.before(Block::Question),
-        spacing.before(Block::Allowed),
+        spacing.before(Block::Settled),
         spacing.before(Block::Call),
         spacing.before(Block::Call),
         spacing.before(Block::Question),
@@ -113,7 +113,7 @@ fn blocks_are_separated_by_blank_lines_and_notes_stay_together() {
         spacing.before(Block::Call),
         spacing.before(Block::Message),
     ];
-    // An answer follows its question, and the call it allowed follows the answer.
+    // An answer follows its question, and the call it settled follows the answer.
     assert_eq!(separators, ["", "\n", "\n", "", "\n", "", "", "\n", "\n", "", "\n", "\n"]);
 }
 

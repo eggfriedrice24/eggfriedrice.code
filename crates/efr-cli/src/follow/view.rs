@@ -952,8 +952,9 @@ impl TurnView {
                     notes.extend(sandbox::survivors(&summary.survivors));
                 }
                 let step = match self.call.take().filter(|call| call.call_id == *call_id) {
-                    // A denied call never ran: its question and the answer said it all.
-                    Some(_) if denied && refusal.is_none() => self.notes(&notes, size),
+                    Some(call) if denied && refusal.is_none() => {
+                        self.denied_block(&call, &notes, size)
+                    }
                     Some(call) => {
                         let outcome = match (refusal, setup, *exit_code) {
                             (Some(reason), _, _) => Outcome::Refused(reason),
@@ -1152,8 +1153,8 @@ impl TurnView {
     }
 
     /// The question about `about` is settled: on a terminal its card gives its place to
-    /// one line, such as `✓ allowed` (`good`) or `✗ denied`. An allowed call of this
-    /// turn follows the line at once; anything else comes after a blank line.
+    /// one line, such as `✓ allowed` (`good`) or `✗ denied`. A call of this turn follows
+    /// the line at once; anything else comes after a blank line.
     fn answer_line(&mut self, about: About, good: bool, line: &str, size: Size) -> Step {
         if self.question.as_ref().is_some_and(|shown| shown.about == about) {
             self.question = None;
@@ -1170,7 +1171,7 @@ impl TurnView {
             return Step { err: self.raw_err(err), ..Step::default() };
         }
         let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
-        let block = if good && ours { Block::Allowed } else { Block::Answer };
+        let block = if ours { Block::Settled } else { Block::Answer };
         let mut committed = self.spacing.before(block).to_owned();
         committed.push_str(&text);
         self.stage(&committed);
@@ -1864,6 +1865,23 @@ impl TurnView {
         let mut committed = self.spacing.before(Block::Call).to_owned();
         committed.push_str(&call.header(&options));
         committed.push_str(&block);
+        self.stage(&committed);
+        Step::default()
+    }
+
+    /// The rows of call `call`, whose approval was denied or expired, with `notes`
+    /// under them. It never ran, so it has no result. On a terminal its card gave its
+    /// place to the answer line, so these rows follow that line and the scrollback
+    /// keeps what did not run. When stdout is not a terminal, the rows went to stderr
+    /// before the question.
+    fn denied_block(&mut self, call: &Call, notes: &[String], size: Size) -> Step {
+        if !self.terminal() {
+            return self.notes(notes, size);
+        }
+        let options = self.options_at(size);
+        let mut committed = self.spacing.before(Block::Call).to_owned();
+        committed.push_str(&call.header(&options));
+        committed.push_str(&call::notes(notes, &options));
         self.stage(&committed);
         Step::default()
     }

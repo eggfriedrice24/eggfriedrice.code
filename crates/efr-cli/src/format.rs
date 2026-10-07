@@ -78,16 +78,16 @@ pub(crate) enum Block {
     Call,
     /// A question: an approval or the quarantine question.
     Question,
-    /// The answer that takes a question's place: "allowed", which the call it allowed
-    /// follows at once.
-    Allowed,
+    /// The answer that takes the place of a question about a call of this turn, such as
+    /// "allowed" or "denied": the rows of the call follow it at once.
+    Settled,
     /// Any other answer that takes a question's place.
     Answer,
 }
 
 /// Separates blocks by a blank line, except consecutive notes, which read as one
 /// group, the answer right after the question it answers, and the call right after the
-/// answer that allowed it.
+/// answer that settled it.
 #[derive(Debug, Default)]
 pub(crate) struct Spacing {
     last: Option<Block>,
@@ -107,8 +107,8 @@ impl Spacing {
         match (self.last, kind) {
             (None, _)
             | (Some(Block::Note), Block::Note)
-            | (Some(Block::Question), Block::Allowed | Block::Answer)
-            | (Some(Block::Allowed), Block::Call) => "",
+            | (Some(Block::Question), Block::Settled | Block::Answer)
+            | (Some(Block::Settled), Block::Call) => "",
             _ => "\n",
         }
     }

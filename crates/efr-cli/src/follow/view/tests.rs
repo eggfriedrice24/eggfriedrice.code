@@ -204,14 +204,18 @@ fn refused_call_completed() -> Event {
 
 #[test]
 fn a_denied_call_is_not_reported_as_failed_too() {
+    // The end of a call that never ran writes its command once, with no result.
+    let only_the_command = |step: Step| {
+        let out = readable(&step.out);
+        assert_eq!(out.matches("$ touch note.txt").count(), 1, "{out}");
+        assert!(!out.contains('\u{2717}') && !out.contains("refused"), "{out}");
+        assert!(step.err.is_empty(), "{}", step.err);
+    };
     let mut view = terminal_view();
     framed(view.event(&tool_started("touch note.txt"), SIZE, true), &mut view);
     framed(view.event(&approval(None), SIZE, true), &mut view);
     framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view);
-    assert_eq!(
-        framed(view.event(&refused_call_completed(), SIZE, true), &mut view),
-        Step::default()
-    );
+    only_the_command(framed(view.event(&refused_call_completed(), SIZE, true), &mut view));
 
     let mut view = terminal_view();
     framed(view.event(&tool_started("touch note.txt"), SIZE, false), &mut view);
@@ -226,10 +230,7 @@ fn a_denied_call_is_not_reported_as_failed_too() {
         readable(&framed(view.event(&denied, SIZE, false), &mut view).out)
             .contains("denied from the phone")
     );
-    assert_eq!(
-        framed(view.event(&refused_call_completed(), SIZE, false), &mut view),
-        Step::default()
-    );
+    only_the_command(framed(view.event(&refused_call_completed(), SIZE, false), &mut view));
 
     let mut view = terminal_view();
     framed(view.event(&tool_started("touch note.txt"), SIZE, true), &mut view);
@@ -238,10 +239,7 @@ fn a_denied_call_is_not_reported_as_failed_too() {
         view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true),
         &mut view,
     );
-    assert_eq!(
-        framed(view.event(&refused_call_completed(), SIZE, true), &mut view),
-        Step::default()
-    );
+    only_the_command(framed(view.event(&refused_call_completed(), SIZE, true), &mut view));
 }
 
 #[test]
@@ -2070,14 +2068,19 @@ fn a_call_that_waits_for_its_approval_shows_no_line_and_its_time_counts_from_the
 }
 
 #[test]
-fn a_denied_call_writes_no_line_of_its_own() {
+fn a_denied_call_keeps_its_command_under_the_answer() {
+    // The card gave its place to the answer, so the scrollback keeps the command that
+    // did not run: once, after the answer, with no result. The layout tests show that
+    // it follows the answer with no blank line.
     let mut view = terminal_view();
     framed(view.event(&tool_started("rm -rf build"), SIZE, true), &mut view);
     framed(view.event(&approval(None), SIZE, true), &mut view);
-    let denied = framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view);
-    assert!(!readable(&denied.out).contains("$ rm"), "{}", readable(&denied.out));
-    let out = framed(view.event(&refused_call_completed(), SIZE, true), &mut view).out;
-    assert!(!out.contains("$ rm"), "{}", readable(&out));
+    let denied = framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view).out;
+    assert!(!readable(&denied).contains("$ rm"), "{}", readable(&denied));
+    let ended = framed(view.event(&refused_call_completed(), SIZE, true), &mut view).out;
+    let ended = readable(&ended);
+    assert_eq!(ended.matches("$ rm -rf build").count(), 1, "{ended}");
+    assert!(!ended.contains('\u{2717}'), "{ended}");
 }
 
 #[test]
