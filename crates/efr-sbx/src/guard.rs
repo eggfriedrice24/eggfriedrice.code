@@ -9,8 +9,8 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::io::{self, Read};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -168,6 +168,12 @@ fn now() -> (i64, u32) {
     (i64::try_from(now.as_secs()).unwrap_or(i64::MAX).saturating_sub(1), now.subsec_nanos())
 }
 
+/// The most bytes that the quarantine of one call copies when an entry lies on another
+/// file system than the quarantine dir. A flagged entry is a git config, a hook or a
+/// protected file, which is small; the cap keeps a planted giant file from filling the
+/// disk.
+const MAX_QUARANTINE_COPY: u64 = 64 * 1024 * 1024;
+
 /// One entry of [`QUARANTINE_INDEX`].
 #[derive(Debug, Serialize)]
 struct Entry<'a> {
@@ -175,10 +181,21 @@ struct Entry<'a> {
     from: &'a Path,
     /// Its name in the quarantine dir.
     to: String,
+    /// The files of the entry, where they were, whose copy keeps only their first
+    /// bytes: the copy reached [`MAX_QUARANTINE_COPY`]. efrd does not move such an
+    /// entry back.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    truncated: Vec<PathBuf>,
 }
 
 /// Moves every quarantined change into `dir` and writes the index; a change that cannot
 /// move is reported with `quarantined = false`.
+///
+/// A rename moves an entry whole. Across file systems the entry is copied and then
+/// removed, and the copies of one call share [`MAX_QUARANTINE_COPY`] bytes. A file that
+/// does not fit is copied in part, its path goes in the index's `truncated`, and the
+/// original is removed all the same: a flagged entry must leave the sandbox's reach,
+/// even when part of it is lost.
 pub(crate) fn quarantine(changes: &mut [SurfaceChange], dir: &Path) -> Result<(), SbxError> {
     if !changes.iter().any(|change| change.quarantined) {
         return Ok(());
@@ -191,11 +208,13 @@ pub(crate) fn quarantine(changes: &mut [SurfaceChange], dir: &Path) -> Result<()
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
         .map_err(|error| SbxError::io("protect", dir, error))?;
     let mut entries = Vec::new();
+    let mut budget = MAX_QUARANTINE_COPY;
     for (at, change) in changes.iter_mut().enumerate().filter(|(_, change)| change.quarantined) {
         let name = change.path.file_name().map(OsString::from).unwrap_or_default();
         let to = format!("{at}-{}", name.to_string_lossy());
-        if move_entry(&change.path, &dir.join(&to)).is_ok() {
-            entries.push(Entry { from: &change.path, to });
+        let mut truncated = Vec::new();
+        if move_entry(&change.path, &dir.join(&to), &mut budget, &mut truncated).is_ok() {
+            entries.push(Entry { from: &change.path, to, truncated });
         } else {
             change.quarantined = false;
         }
@@ -206,8 +225,13 @@ pub(crate) fn quarantine(changes: &mut [SurfaceChange], dir: &Path) -> Result<()
 }
 
 /// Moves `from`, which must not be reached through a link, to `to`; across file
-/// systems by a copy that keeps links as links, then a removal.
-fn move_entry(from: &Path, to: &Path) -> io::Result<()> {
+/// systems by [`move_by_copy`].
+fn move_entry(
+    from: &Path,
+    to: &Path,
+    budget: &mut u64,
+    truncated: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     let parent = from.parent().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let name = from.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let parent_fd =
@@ -218,35 +242,70 @@ fn move_entry(from: &Path, to: &Path) -> io::Result<()> {
     let target_name = to.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     match rustix::fs::renameat(&parent_fd, name, &target_fd, target_name) {
         Ok(()) => Ok(()),
-        Err(rustix::io::Errno::XDEV) => {
-            copy_tree(from, to)?;
-            if RealFs.lstat(from)? == FileKind::Dir {
-                fs::remove_dir_all(from)
-            } else {
-                fs::remove_file(from)
-            }
-        }
+        Err(rustix::io::Errno::XDEV) => move_by_copy(from, to, budget, truncated),
         Err(error) => Err(error.into()),
     }
 }
 
-fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+/// Copies `from` to `to` with at most `budget` bytes of file content, keeping links as
+/// links, then removes `from`. Each file cut short goes in `truncated`.
+fn move_by_copy(
+    from: &Path,
+    to: &Path,
+    budget: &mut u64,
+    truncated: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    copy_tree(from, to, budget, truncated)?;
+    if RealFs.lstat(from)? == FileKind::Dir {
+        fs::remove_dir_all(from)
+    } else {
+        fs::remove_file(from)
+    }
+}
+
+fn copy_tree(
+    from: &Path,
+    to: &Path,
+    budget: &mut u64,
+    truncated: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     match RealFs.lstat(from)? {
         FileKind::Dir => {
             fs::DirBuilder::new().mode(0o700).create(to)?;
-            for name in RealFs.read_dir(from)? {
-                copy_tree(&from.join(&name), &to.join(&name))?;
+            // Sorted, so the budget runs out at the same file every time.
+            let mut names = RealFs.read_dir(from)?;
+            names.sort();
+            for name in names {
+                copy_tree(&from.join(&name), &to.join(&name), budget, truncated)?;
             }
             Ok(())
         }
         FileKind::Symlink => std::os::unix::fs::symlink(fs::read_link(from)?, to),
         FileKind::File => {
-            let bytes = RealFs.read_file(from, usize::MAX >> 1)?;
-            fs::write(to, bytes)?;
-            fs::set_permissions(to, fs::Permissions::from_mode(0o600))
+            if !copy_file(from, to, budget)? {
+                truncated.push(from.to_path_buf());
+            }
+            Ok(())
         }
         _ => Ok(()),
     }
+}
+
+/// Streams the regular file `from`, opened with no link on the way, to the new file
+/// `to` (mode 0600), with at most `budget` bytes, and takes the bytes copied from
+/// `budget`. False when the file had more bytes than that.
+fn copy_file(from: &Path, to: &Path, budget: &mut u64) -> io::Result<bool> {
+    let source = RealFs::open(from, rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NONBLOCK)?;
+    let kind = rustix::fs::FileType::from_raw_mode(rustix::fs::fstat(&source)?.st_mode);
+    if kind != rustix::fs::FileType::RegularFile {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    let mut target = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(to)?;
+    let mut limited = fs::File::from(source).take(*budget);
+    let copied = io::copy(&mut limited, &mut target)?;
+    *budget = budget.saturating_sub(copied);
+    let mut more = [0_u8; 1];
+    Ok(limited.into_inner().read(&mut more)? == 0)
 }
 
 #[cfg(test)]

@@ -48,3 +48,24 @@ fn a_change_without_an_entry_or_a_quarantine_stays() {
     let unknown = restore(dir.path(), &[change("/p/.git/x".into(), true)]).unwrap_err();
     assert!(unknown.contains("is not in the quarantine"), "{unknown}");
 }
+
+#[test]
+fn a_change_whose_copy_was_cut_short_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let git = root.join("p/.git");
+    std::fs::create_dir_all(&git).unwrap();
+    let quarantine = root.join("quarantine/call");
+    std::fs::create_dir_all(quarantine.join("0-hooks")).unwrap();
+    std::fs::write(quarantine.join("0-hooks/pre-commit"), "#!/bin/").unwrap();
+    let index = serde_json::json!([{
+        "from": git.join("hooks"),
+        "to": "0-hooks",
+        "truncated": [git.join("hooks/pre-commit")],
+    }]);
+    std::fs::write(quarantine.join(INDEX), index.to_string()).unwrap();
+    let error = restore(&quarantine, &[change(git.join("hooks"), true)]).unwrap_err();
+    assert!(error.contains("kept only the first bytes of"), "{error}");
+    assert!(!git.join("hooks").exists());
+    assert!(quarantine.join("0-hooks/pre-commit").exists());
+}

@@ -48,7 +48,7 @@ What the launcher writes, in order:
 |---|---|
 | `$CALL/started` | once every bind source is open and the git surface is recorded, before bwrap or the exit child starts; efrd releases the plan lock then |
 | `$CALL/exit-child/` | the exit child only: copies of `snapshot.zsh` (and `.zwc`) and `line` |
-| `$SBX/quarantine/<call>/<n>-<name>` and `entries.json` | each entry the surface guard moved away; `entries.json` lists `{ "from", "to" }` so efrd can move an entry back when the user keeps it |
+| `$SBX/quarantine/<call>/<n>-<name>` and `entries.json` | each entry the surface guard moved away; `entries.json` lists `{ "from", "to" }` so efrd can move an entry back when the user keeps it. Across file systems the launcher copies at most 64 MiB per call and removes the original all the same; a file cut short is listed in the entry's `truncated`, and efrd does not move that entry back |
 | `$CALL/apply` | the filtered `cd`, exports and unsets for `_efr_hs_sbx_apply` |
 | `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
 | `$CALL/result.json` | last, by a rename, after every process of the call is gone |

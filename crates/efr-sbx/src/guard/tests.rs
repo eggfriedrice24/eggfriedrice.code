@@ -72,3 +72,35 @@ fn an_entry_that_cannot_move_is_reported_as_not_quarantined() {
     quarantine(&mut changes, &temp.path().join("q")).unwrap();
     assert!(!changes[0].quarantined);
 }
+
+#[test]
+fn a_copy_across_file_systems_streams_within_its_budget_and_still_removes_the_entry() {
+    let temp = temp_dir();
+    let hooks = temp.path().join("repo/.git/hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    fs::write(hooks.join("a-small"), b"1234").unwrap();
+    fs::write(hooks.join("b-large"), vec![b'x'; 64 * 1024]).unwrap();
+    std::os::unix::fs::symlink("/nonexistent", hooks.join("c-link")).unwrap();
+    let quarantined = temp.path().join("q");
+    fs::create_dir(&quarantined).unwrap();
+    let to = quarantined.join("0-hooks");
+    let mut budget = 1000;
+    let mut truncated = Vec::new();
+    move_by_copy(&hooks, &to, &mut budget, &mut truncated).unwrap();
+    // Every part left the sandbox's reach, the large file cut to the budget.
+    assert!(!hooks.exists());
+    assert_eq!(fs::read(to.join("a-small")).unwrap(), b"1234");
+    assert_eq!(fs::read(to.join("b-large")).unwrap().len(), 996);
+    assert_eq!(fs::read_link(to.join("c-link")).unwrap(), Path::new("/nonexistent"));
+    assert_eq!(fs::metadata(to.join("b-large")).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(truncated, [hooks.join("b-large")]);
+    assert_eq!(budget, 0);
+    // With the budget spent, the next file keeps nothing, and still moves.
+    let config = temp.path().join("repo/.git/config");
+    fs::write(&config, b"[core]\n").unwrap();
+    let mut truncated = Vec::new();
+    move_by_copy(&config, &quarantined.join("1-config"), &mut budget, &mut truncated).unwrap();
+    assert!(!config.exists());
+    assert_eq!(fs::read(quarantined.join("1-config")).unwrap(), b"");
+    assert_eq!(truncated, [config]);
+}

@@ -2,7 +2,9 @@
 //! launcher moved each git change that runs programs to `$SBX/quarantine/<call>/`, with
 //! an index `entries.json` of `{from, to}`. When the user answers "yes, keep it",
 //! efrd moves the named entries back, through descriptors opened with no link on the
-//! way, and never over something that is there now.
+//! way, and never over something that is there now. An entry whose copy across file
+//! systems was cut short (`truncated` in the index) stays: moving it back would put a
+//! part of a file where the whole one was.
 
 use std::fs;
 use std::io;
@@ -27,6 +29,9 @@ struct Entry {
     from: PathBuf,
     /// Its name in the quarantine dir.
     to: String,
+    /// Its files whose copy across file systems keeps only their first bytes.
+    #[serde(default)]
+    truncated: Vec<PathBuf>,
 }
 
 /// Moves each quarantined change of `changes` back from `dir`. Fails with the reason
@@ -44,6 +49,15 @@ pub(crate) fn restore(dir: &Path, changes: &[SurfaceChange]) -> Result<(), Strin
         };
         if entry.to.contains('/') || entry.to.starts_with('.') {
             failed.push(format!("{} has a bad quarantine name", change.path.display()));
+            continue;
+        }
+        if let Some(cut) = entry.truncated.first() {
+            failed.push(format!(
+                "{} stays in {}: the quarantine kept only the first bytes of {}",
+                change.path.display(),
+                dir.display(),
+                cut.display()
+            ));
             continue;
         }
         if let Err(error) = move_back(&dir.join(&entry.to), &entry.from) {
