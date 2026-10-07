@@ -166,7 +166,8 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
     return "$status"
 }
 
-# Inside the VM, as root: the writable tmpfs, then the tests as the user.
+# Inside the VM, as root: the writable tmpfs, then the tests as the user, then the
+# check of the kernel log.
 cmd_guest() {
     local user="$1" nextest="$2" workspace="$3" target="$4" tmpdir="$5"
     # The guest's console is not a terminal, and stderr may take another way out.
@@ -202,8 +203,20 @@ cmd_guest() {
             chown "$user:$(id -gn "$user")" "$dir"
         fi
     done
-    exec runuser -u "$user" -- "$self" tests "$nextest" "$workspace" "$target" "$tmpdir" \
-        </dev/null
+    local status=0
+    runuser -u "$user" -- "$self" tests "$nextest" "$workspace" "$target" "$tmpdir" \
+        </dev/null || status=$?
+    # The layer helper mounts each overlay with index=off and xino=off, so the kernel
+    # must log no fallback and no upper dir in use. Only root reads the kernel log.
+    local lines
+    lines="$(dmesg | grep -E 'overlayfs: .*(falling back|in-use|undefined behavior)' || true)"
+    if [[ -n "$lines" ]]; then
+        say "the kernel logged $(wc -l <<<"$lines") overlayfs lines, the first ones:"
+        head -n 5 <<<"$lines"
+        fail "the cache overlays made the kernel fall back or share an upper dir"
+    fi
+    say "kernel log: no overlayfs fallback and no upper dir in use"
+    return "$status"
 }
 
 # Inside the VM, as the user: what `just test-sandbox` runs, on a machine that must be
