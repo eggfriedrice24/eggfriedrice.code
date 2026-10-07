@@ -383,31 +383,71 @@ pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
     CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines }
 }
 
-/// What ends a row of a command that goes on in the next row. A shell reads a
-/// backslash before a line break as no break at all, so the rows read as the line.
+/// What ends a row of a command that is cut after a space. The rows after it are
+/// indented: the cut falls between two words, so the indent reads as the space that is
+/// there. The mark is muted and is not part of the command.
 pub(crate) const WRAP_MARK: &str = "\\";
 
-/// The rows of `line`, one line of a command that is safe to print, at `first` columns
-/// for the first row and `rest` for each row after it, as a terminal that counts
-/// widths by `method` shows them. Each row but the last is cut after a space where one
-/// is near the end, and is marked to go on: its text and [`WRAP_MARK`] fit the row.
-/// Nothing of the line is left out.
+/// What ends a row of a command that is cut inside a word, because no space fits in
+/// the row. The next row goes on at the same column as this one, so no space shows
+/// where the command has none. The mark is muted, is not part of the command, and is
+/// no shell syntax.
+pub(crate) const WORD_MARK: &str = "\u{21a9}";
+
+/// How a row of a command ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowEnd {
+    /// The line ends in this row.
+    Last,
+    /// The row is cut after a space, and [`WRAP_MARK`] follows.
+    Space,
+    /// The row is cut inside a word, and [`WORD_MARK`] follows.
+    Word,
+}
+
+/// One row of a line of a command, as [`wrap_command`] cuts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CommandRow {
+    pub(crate) text: String,
+    /// The row comes after a cut at a space, so it is indented.
+    pub(crate) indented: bool,
+    pub(crate) end: RowEnd,
+}
+
+impl CommandRow {
+    /// The mark after the row, if any.
+    pub(crate) fn mark(&self) -> Option<&'static str> {
+        match self.end {
+            RowEnd::Last => None,
+            RowEnd::Space => Some(WRAP_MARK),
+            RowEnd::Word => Some(WORD_MARK),
+        }
+    }
+}
+
+/// The rows of `line`, one line of a command that is safe to print, as a terminal that
+/// counts widths by `method` shows them. A row has `room` columns, less `indent` from
+/// the first cut at a space on, because the rows from there are indented. A row is cut
+/// after the last space that fits, and inside a word only when no space fits; its text
+/// and its mark fit the row. Nothing of the line is left out.
 pub(crate) fn wrap_command(
     line: &str,
-    first: usize,
-    rest: usize,
+    room: usize,
+    indent: usize,
     method: WidthMethod,
-) -> Vec<(String, bool)> {
+) -> Vec<CommandRow> {
+    let mark = text_width(WRAP_MARK, method).max(text_width(WORD_MARK, method));
     let mut rows = Vec::new();
     let mut left = line;
-    let mut room = first;
+    let mut indented = false;
     loop {
-        if text_width(left, method) <= room {
-            rows.push((left.to_owned(), false));
+        let here = if indented { room.saturating_sub(indent) } else { room }.max(1);
+        if text_width(left, method) <= here {
+            rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
             return rows;
         }
-        let budget = room.saturating_sub(text_width(WRAP_MARK, method));
-        let (mut end, mut used, mut after_space) = (0, 0, None);
+        let budget = here.saturating_sub(mark);
+        let (mut end, mut used, mut after_space, mut word) = (0, 0, None, false);
         for piece in pieces(left, method) {
             let width = text_width(piece, method);
             // One piece at least, so every row takes something.
@@ -417,22 +457,27 @@ pub(crate) fn wrap_command(
             end += piece.len();
             used += width;
             if piece == " " {
-                after_space = Some((end, used));
+                // NOTE: only a space after a word cuts: a row of spaces alone says
+                // nothing.
+                if word {
+                    after_space = Some(end);
+                }
+            } else {
+                word = true;
             }
         }
-        // A cut after a space in the first half of the row would waste the rest of it.
-        let cut = match after_space {
-            Some((at, width)) if width * 2 >= budget => at,
-            _ => end,
+        let (cut, kind) = match after_space {
+            Some(at) => (at, RowEnd::Space),
+            None => (end, RowEnd::Word),
         };
         if cut >= left.len() {
-            rows.push((left.to_owned(), false));
+            rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
             return rows;
         }
         let (row, after) = left.split_at(cut);
-        rows.push((row.to_owned(), true));
+        rows.push(CommandRow { text: row.to_owned(), indented, end: kind });
         left = after;
-        room = rest;
+        indented |= kind == RowEnd::Space;
     }
 }
 

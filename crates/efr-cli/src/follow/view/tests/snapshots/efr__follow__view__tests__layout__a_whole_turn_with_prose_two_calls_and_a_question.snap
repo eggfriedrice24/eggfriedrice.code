@@ -12,8 +12,9 @@ I will look for the \e[1mlibghostty\e[0m build first.
 It is there. Now I copy it out of the sandbox.
 
 \e[1;33m? allow this command\e[0m
-\e[2m│ \e[0m\e[36mcp target/debug/build/libghostty-vt-1\e[0m\e[2m\\e[0m
-\e[2m│ \e[0m    \e[36ma2b3c/out/libghostty.so ~/lib/\e[0m
+\e[2m│ \e[0m\e[36mcp \e[0m\e[2m\\e[0m
+\e[2m│ \e[0m    \e[36mtarget/debug/build/libghostty-vt-\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m    \e[36m1a2b3c/out/libghostty.so ~/lib/\e[0m
 \e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -26,8 +27,10 @@ I will look for the \e[1mlibghostty\e[0m build first.
 It is there. Now I copy it out of the sandbox.
 
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36m$ cp target/debug/build/libghostty-vt\e[0m\e[2m\\e[0m
-        \e[36m-1a2b3c/out/libghostty.so ~/lib/\e[0m
+\e[33m·\e[0m \e[36m$ cp \e[0m\e[2m\\e[0m
+        \e[36mtarget/debug/build/libghostty-v\e[0m\e[2m↩\e[0m
+        \e[36mt-1a2b3c/out/libghostty.so \e[0m\e[2m\\e[0m
+        \e[36m~/lib/\e[0m
   \e[32m✓\e[0m
 
 Done: \e[36m~/lib/libghostty.so\e[0m is in place.
@@ -45,8 +48,9 @@ I will look for the \e[1mlibghostty\e[0m build first.
 It is there. Now I copy it out of the sandbox.
 
 \e[1m? allow this command\e[0m
-\e[2m│ \e[0mcp target/debug/build/libghostty-vt-1\e[2m\\e[0m
-\e[2m│ \e[0m    a2b3c/out/libghostty.so ~/lib/
+\e[2m│ \e[0mcp \e[2m\\e[0m
+\e[2m│ \e[0m    target/debug/build/libghostty-vt-\e[2m↩\e[0m
+\e[2m│ \e[0m    1a2b3c/out/libghostty.so ~/lib/
 \e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -59,8 +63,10 @@ I will look for the \e[1mlibghostty\e[0m build first.
 It is there. Now I copy it out of the sandbox.
 
 ✓ allowed
-\e[1m·\e[0m $ cp target/debug/build/libghostty-vt\e[2m\\e[0m
-        -1a2b3c/out/libghostty.so ~/lib/
+\e[1m·\e[0m $ cp \e[2m\\e[0m
+        target/debug/build/libghostty-v\e[2m↩\e[0m
+        t-1a2b3c/out/libghostty.so \e[2m\\e[0m
+        ~/lib/
   ✓
 
 Done: `~/lib/libghostty.so` is in place.

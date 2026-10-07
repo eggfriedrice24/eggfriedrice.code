@@ -266,8 +266,9 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 ```
 
 - The title says what a "yes" allows. A command of several lines shows each line on
-  its own row. A line wider than the screen goes on in the next row after a `\`,
-  indented, so nothing of what runs is cut.
+  its own row. A line wider than the screen goes on in the next row, so nothing of
+  what runs is cut: after a space the row ends in a `\` and the next row is indented;
+  inside a word the row ends in a `↩` and the word goes on at the same column.
 - When you answer, the question gives its place to one line, `✓ allowed` or `✗
   denied`, and the call shows once, in its own block, also when you denied it.
 - Only the facts that matter most stand out in the `warning` colour: the title, the

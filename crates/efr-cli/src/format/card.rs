@@ -11,14 +11,18 @@
 //!
 //! The title and what needs the user's care are in the `warning` role, the bar and the
 //! secondary facts are muted, and what runs is in the `code` role. Every line of a
-//! command shows, each on its own; a line wider than the screen goes on in the next
-//! row after a backslash, indented, so nothing of what runs is cut. Text rows go on in
-//! the next row, indented. When the output is not a terminal, nothing wraps and nothing
-//! is painted.
+//! command shows, each on its own, and nothing of what runs is cut: a line wider than
+//! the screen goes on in the next row. A cut after a space ends in a muted `\` and the
+//! rows from there are indented; a word is cut only when no space fits in the row,
+//! with a muted `↩`, and goes on in the next row at the same column, so the rows show
+//! no space that the command does not have. Text rows go on in the next row, indented. When the output is not a terminal,
+//! nothing wraps and nothing is painted.
 
 use efr_render::{RenderOptions, render};
 
-use super::{Tone, WRAP_MARK, code_block, columns, lines, paint, wrap_command, wrap_spans};
+use super::{
+    CommandRow, RowEnd, Tone, code_block, columns, lines, paint, wrap_command, wrap_spans,
+};
 
 /// The mark before a question's title.
 const MARK: &str = "? ";
@@ -26,7 +30,7 @@ const MARK: &str = "? ";
 /// What starts each row of a card.
 pub(crate) const BAR: &str = "\u{2502} ";
 
-/// How far a row of a command that goes on is indented after the bar.
+/// How far a row of a command that goes on after a space is indented after the bar.
 const COMMAND_INDENT: &str = "    ";
 
 /// How far a row of text that goes on is indented after the bar.
@@ -120,20 +124,21 @@ fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
         Row::Command(line) => {
             let rows = match columns {
                 Some((width, method)) => {
-                    let first = width.saturating_sub(bar_width).max(1);
-                    let rest = first.saturating_sub(COMMAND_INDENT.len()).max(1);
-                    wrap_command(line, first, rest, method)
+                    let room = width.saturating_sub(bar_width).max(1);
+                    wrap_command(line, room, COMMAND_INDENT.len(), method)
                 }
-                None => vec![(line.clone(), false)],
+                None => {
+                    vec![CommandRow { text: line.clone(), indented: false, end: RowEnd::Last }]
+                }
             };
-            for (at, (text, goes_on)) in rows.iter().enumerate() {
+            for row in &rows {
                 out.push_str(&bar);
-                if at > 0 {
+                if row.indented {
                     out.push_str(COMMAND_INDENT);
                 }
-                out.push_str(&paint(text, Tone::Code, options));
-                if *goes_on {
-                    out.push_str(&paint(WRAP_MARK, Tone::Dim, options));
+                out.push_str(&paint(&row.text, Tone::Code, options));
+                if let Some(mark) = row.mark() {
+                    out.push_str(&paint(mark, Tone::Dim, options));
                 }
                 out.push('\n');
             }

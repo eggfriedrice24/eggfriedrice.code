@@ -20,7 +20,9 @@
 //!
 //! When the call ends, its block is written once in place of the live rows: `·` in the
 //! `accent` role and what the call does in the `code` role, every line of a command on
-//! its own, a long line going on in the next row after a `\`, indented; then for a
+//! its own, a long line going on in the next row: indented from a cut at a space on,
+//! which ends in a muted `\`, and at the same column after a cut inside a word, which
+//! ends in a muted `↩`; then for a
 //! failed call the last lines of its output; then the result on its own row: `✓` in
 //! the `success` role, or `✗ exit 101`, `✗ failed` or `✗ refused: <why>` in the
 //! `error` role. The time follows for a call that ran 1 s or more. A result or a note
@@ -33,7 +35,7 @@ use efr_render::{RenderOptions, text_width};
 use jiff::Timestamp;
 
 use crate::follow::since_then;
-use crate::format::{self, CallText, Tone, WRAP_MARK};
+use crate::format::{self, CallText, CommandRow, RowEnd, Tone};
 
 /// The lines of output that a running call shows and a failed one keeps.
 pub(crate) const TAIL_LINES: usize = 3;
@@ -50,7 +52,8 @@ const MARK: &str = "\u{b7}";
 /// What starts the result of a call and its notes, under its mark.
 const INDENT: &str = "  ";
 
-/// How much further a row that goes on is indented than the line it goes on from.
+/// How much further a row that goes on after a space is indented than the line it goes
+/// on from.
 const GOES_ON: usize = 4;
 
 /// How much further a row of text that goes on, such as a long reason of a refusal, is
@@ -217,23 +220,24 @@ impl Call {
         for (at, line) in self.text.lines.iter().enumerate() {
             let rows = match columns {
                 Some((width, method)) => {
-                    let first = width.saturating_sub(column).max(1);
-                    let rest = width.saturating_sub(column + GOES_ON).max(1);
-                    format::wrap_command(line, first, rest, method)
+                    let room = width.saturating_sub(column).max(1);
+                    format::wrap_command(line, room, GOES_ON, method)
                 }
-                None => vec![(line.clone(), false)],
+                None => {
+                    vec![CommandRow { text: line.clone(), indented: false, end: RowEnd::Last }]
+                }
             };
-            for (row, (text, goes_on)) in rows.iter().enumerate() {
-                if at == 0 && row == 0 {
-                    let first = format!("{} {text}", self.text.name);
+            for (at_row, row) in rows.iter().enumerate() {
+                if at == 0 && at_row == 0 {
+                    let first = format!("{} {}", self.text.name, row.text);
                     out.push_str(&format::paint(&first, Tone::Code, options));
                 } else {
-                    let indent = if row > 0 { column + GOES_ON } else { column };
+                    let indent = if row.indented { column + GOES_ON } else { column };
                     out.push_str(&" ".repeat(indent));
-                    out.push_str(&format::paint(text, Tone::Code, options));
+                    out.push_str(&format::paint(&row.text, Tone::Code, options));
                 }
-                if *goes_on {
-                    out.push_str(&format::paint(WRAP_MARK, Tone::Dim, options));
+                if let Some(mark) = row.mark() {
+                    out.push_str(&format::paint(mark, Tone::Dim, options));
                 }
                 out.push('\n');
             }

@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/format/card/tests.rs
+expression: bare(&shown)
+---
+? allow this command
+│ echo "built \
+│     $HOME/p/eggfriedrice.code/target/↩
+│     debug/build/libghostty-vt-1a2b3c4↩
+│     d5e6f/out/lib/libghostty-vt.so"
+│ y allow · n deny

@@ -345,6 +345,21 @@ fn a_long_command_goes_on_in_the_next_row() {
 }
 
 #[test]
+fn a_long_word_goes_on_in_the_next_row_with_no_space() {
+    // The path is wider than a row at 40 columns: it is cut inside it, and its rows
+    // show no space that the command does not have.
+    let command = "echo \"built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so\"";
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, command)),
+        Sent(20, asked(1, &format!("shell: run {command:?}"), None)),
+        Shot("asked"),
+        Key(1, ApprovalDecision::Allow),
+        Sent(900, ended(1, Some(0), None)),
+    ]));
+}
+
+#[test]
 fn a_file_tool_names_what_it_reads_and_writes() {
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

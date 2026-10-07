@@ -93,8 +93,11 @@ fn a_long_command_goes_on_in_the_next_row_and_is_never_cut() {
         let joined: String = plain
             .lines()
             .map(|row| {
+                // NOTE: the leading spaces are the indent of a row that goes on; a cut
+                // inside a word adds none to the command.
                 let row = row.trim_start_matches("· $ ").trim_start();
-                row.strip_suffix('\\').unwrap_or(row).to_owned()
+                let row = row.strip_suffix('\\').unwrap_or(row);
+                row.strip_suffix('\u{21a9}').unwrap_or(row).to_owned()
             })
             .collect();
         assert_eq!(joined, long);
