@@ -14,6 +14,10 @@
 //!   what the screen shows. [`RunProgress`] hears the output as it grows. Shells
 //!   without the integration are driven with random-token sentinels ([`RunMode`],
 //!   [`Delimiter`]).
+//! - [`SandboxRun`] on a [`RunRequest`]: the auto mode's call. The command goes to the
+//!   call's `line` file, the shell gets a fixed wrapper line, and the run ends only on
+//!   facts that sandboxed code cannot make; [`CommandResult::sandbox`] holds the
+//!   launcher's result.
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`RecordingSink`]
 //!   receives every byte for the PTY recording; [`ShellObserver`] hears
 //!   [`ShellNotice`]s.
@@ -22,7 +26,8 @@
 //!   `include_str!` and written to [`ShellConfig::integration_dir`], next to the
 //!   editor stub (`assets/efr-editor`) that every hidden shell gets as its editor.
 //!
-//! Allowed dependencies: `efr-holder`, `efr-screen`, `efr-protocol` and `efr-stdx`.
+//! Allowed dependencies: `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox` and
+//! `efr-stdx`.
 //! What does not belong here: opening PTYs (`efr-pty`), terminal emulation
 //! (`efr-screen-vt100`, `efr-screen-ghostty`), storing the recording and turning
 //! notices into events (`efr-daemon`), and anything about tools or permissions
@@ -43,6 +48,7 @@ mod reader;
 mod recording_sink;
 mod replay;
 mod run;
+mod sandbox;
 mod screens;
 mod sentinel;
 mod session;
@@ -61,6 +67,7 @@ pub use run::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,
     RunRequest,
 };
+pub use sandbox::SandboxRun;
 pub use screens::ScreenFactory;
 pub use sessions::{CommandRunner, ShellInfo, ShellSessions};
 pub use state::{Phase, ShellState};

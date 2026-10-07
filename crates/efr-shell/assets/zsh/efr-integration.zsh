@@ -10,6 +10,7 @@
 #   ESC ] 133 ; D ; <status> BEL     the command line has finished      (precmd)
 #   ESC ] 133 ; D BEL                a prompt ended without running anything (precmd)
 #   ESC ] 7 ; kitty-shell-cwd://<host><path> BEL   the working directory
+#   ESC ] 133 ; efr-sbx ; <nonce> BEL  a sandboxed call has ended   (_efr_hs_sbx)
 #
 # efr cuts a command's output from the recording between the end of C and the start
 # of D, so nothing else may print between them: the precmd hook runs first and the
@@ -39,9 +40,24 @@ builtin unset _EFR_HS_TRUSTED_PROGRAMS
 # sourced, and nowhere later.
 builtin typeset -g _efr_hs_editor=${${(%):-%x}:A:h}/efr-editor
 
+# $functions and $options, which the sandbox's wrapper reads.
+builtin zmodload zsh/parameter
+
+# The sandbox of the auto mode: the conversation's sandbox dir ($R/sbx/<conversation>)
+# and the launcher copy ($R/bin/efr-sbx), from the daemon. Read once, read-only, and
+# kept out of every child's environment, like the trusted programs above.
+builtin typeset -gr _efr_hs_sbx_dir=${_EFR_HS_SBX_DIR-}
+builtin typeset -gr _efr_hs_sbx_bin=${_EFR_HS_SBX_BIN-}
+builtin unset _EFR_HS_SBX_DIR _EFR_HS_SBX_BIN
+# 1 while snapshot.zsh may be older than this shell's functions, aliases and options:
+# from the start, and after every line that efr did not type for a sandboxed call.
+builtin typeset -gi _efr_hs_sbx_stale=1
+
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
 builtin typeset -gi _efr_hs_state=0
 builtin typeset -g _efr_hs_pwd=
+# The PATH that _efr_hs_report_path wrote last.
+builtin typeset -g _efr_hs_path=
 # 1 when the user's options asked for zsh's PROMPT_SP mark; see _efr_hs_precmd.
 builtin typeset -gi _efr_hs_prompt_sp=0
 
@@ -54,6 +70,17 @@ _efr_hs_report_pwd() {
   builtin print -rn -- $'\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'
 }
 
+# Writes this shell's PATH to $_efr_hs_sbx_dir/path when it changed. The user's
+# startup files set it, and efrd resolves the program words of an exit question with
+# it, so the question names the program that this shell runs. The dir exists from the
+# first sandboxed call on; until then nothing is written.
+_efr_hs_report_path() {
+  builtin emulate -L zsh
+  [[ -n $_efr_hs_sbx_dir && $PATH != "$_efr_hs_path" && -d $_efr_hs_sbx_dir ]] || return 0
+  builtin print -r -- $PATH 2>/dev/null >| $_efr_hs_sbx_dir/path && _efr_hs_path=$PATH
+  return 0
+}
+
 _efr_hs_precmd() {
   builtin local -i st=$?
   builtin emulate -L zsh
@@ -61,6 +88,7 @@ _efr_hs_precmd() {
   # printed then would land in the middle of the line editor's display.
   builtin zle && return 0
   _efr_hs_report_pwd
+  _efr_hs_report_path
   if (( _efr_hs_state == 2 )); then
     _efr_hs_drain
     builtin print -rn -- $'\e]133;D;'"${st}"$'\a'
@@ -75,9 +103,25 @@ _efr_hs_precmd() {
   fi
   builtin print -rn -- $'\e]133;A;cl=line\a'
   _efr_hs_state=1
-  # Hooks that plugins add later go to the end; this hook must stay last so that no
-  # other hook's output counts as the next command's.
-  preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)
+  _efr_hs_no_user_hooks
+}
+
+# The hidden shell runs no hook and no prompt code of the user, in every mode. It cd's
+# into directories that a model chose and draws a prompt after every call, so a prompt
+# theme (starship, powerlevel10k, vcs_info) or a chpwd hook (direnv, nvm, a venv
+# switcher) would run git or source files that a sandboxed call just wrote, outside the
+# sandbox. _efr_hs_install removes them once the startup files have run, and every
+# prompt removes those that a plugin or a command line added since. The user's
+# functions, aliases and exported variables stay; the sandbox's child shell replays
+# them. Only this hook stays in precmd; preexec resets that list, because zsh walks it
+# here.
+_efr_hs_no_user_hooks() {
+  preexec_functions=(_efr_hs_preexec)
+  chpwd_functions=(_efr_hs_report_pwd)
+  periodic_functions=()
+  zshaddhistory_functions=()
+  PS1='%# '
+  RPS1=
 }
 
 # Throws away input that reached the terminal while a command ran and that the
@@ -99,9 +143,13 @@ _efr_hs_drain() {
 }
 
 _efr_hs_preexec() {
-  builtin emulate -L zsh
-  # The precmd array is reordered here and not in precmd, where zsh walks it.
-  precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})
+  builtin emulate -L zsh -o extended_glob
+  # The precmd array is reset here and not in precmd, where zsh walks it.
+  precmd_functions=(_efr_hs_precmd)
+  # A line that efr typed for a sandboxed call changes nothing here but the directory
+  # and filtered exports, so the snapshot of functions, aliases and options stays
+  # fresh; any other line may change them.
+  [[ ${3:-$1} == *' && \_efr_hs_sbx '[0-9a-f-](#c36) ]] || _efr_hs_sbx_stale=1
   builtin print -rn -- $'\e]133;C\a'
   _efr_hs_state=2
 }
@@ -121,11 +169,22 @@ _efr_hs_install() {
   # zsh loads the line editor when it first starts it, which is after this first
   # precmd, and add-zle-hook-widget gives up when the module is not loaded yet.
   builtin zmodload zsh/zle
+  # The user's hooks go (see _efr_hs_no_user_hooks): the hook arrays, the functions
+  # that zsh calls by name, and the line editor's hook widgets with the lists that
+  # add-zle-hook-widget keeps for them.
+  builtin local name
+  for name in precmd preexec chpwd periodic zshaddhistory; do
+    (( ${+functions[$name]} )) && builtin unfunction -- $name
+  done
+  for name in isearch-exit isearch-update line-pre-redraw line-init line-finish \
+      history-line-set keymap-select; do
+    builtin zstyle -d zle-$name widgets
+    builtin zle -D zle-$name 2>/dev/null
+  done
   builtin autoload -Uz add-zle-hook-widget
   add-zle-hook-widget line-init _efr_hs_line_init
-  chpwd_functions=(${chpwd_functions:#_efr_hs_report_pwd} _efr_hs_report_pwd)
-  preexec_functions=(${preexec_functions:#_efr_hs_preexec} _efr_hs_preexec)
-  precmd_functions=(_efr_hs_precmd ${precmd_functions:#_efr_hs_precmd})
+  _efr_hs_no_user_hooks
+  precmd_functions=(_efr_hs_precmd)
 
   # efr types each command as a key that empties the line, one bracketed paste and
   # Enter. Text that someone typed at the attached screen and did not send would
@@ -175,12 +234,17 @@ _efr_hs_forget_credentials() {
 # alias (`alias -g L='| less'`, as oh-my-zsh's common-aliases defines) expands any
 # word of a line into pipes or other programs, and a suffix alias (`alias -s txt=vim`)
 # runs a program for a word that only names a file, so the hidden shell keeps neither,
-# nor an alias or a function named like a program that a rule trusts.
+# nor an alias or a function named like a program that a rule trusts. zsh also
+# expands an ordinary alias named `[[` in command position, and the fixed line of a
+# sandboxed call starts with `[[`, so that alias goes too, and the reserved word is
+# enabled again if a line disabled it.
 _efr_hs_plain_words() {
   builtin emulate -L zsh
   builtin zmodload zsh/parameter
   (( ${#galiases} )) && builtin unalias -- ${(k)galiases}
   (( ${#saliases} )) && builtin unalias -s -- ${(k)saliases}
+  builtin unalias -- '[[' 2>/dev/null
+  builtin enable -r -- '[[' 2>/dev/null
   builtin local name
   for name in $_efr_hs_trusted; do
     (( ${+aliases[$name]} )) && builtin unalias -- $name
@@ -188,6 +252,114 @@ _efr_hs_plain_words() {
   done
   return 0
 }
+
+# The auto mode never types a model's line into this shell. efr writes the line to the
+# call's dir ($R/sbx/<conversation>/<call>/line) and types one fixed line that checks
+# these three functions and then runs `\_efr_hs_sbx <call id>`:
+#
+#   [[ "${functions[_efr_hs_sbx]-}${functions[_efr_hs_sbx_apply]-}${functions[_efr_hs_sbx_snapshot]-}" == "$_efr_hs_sbx_src" && -z ${functions[builtin]-}${functions[command]-} ]] && \_efr_hs_sbx <call id>
+#
+# A line that ran here in another mode and redefined one of them, or a function named
+# builtin or command, makes the check fail, and nothing runs. Without this file zsh
+# says `command not found`, and nothing runs either. The wrapper runs the launcher, which
+# starts the call in the sandbox (or the approved exit child) and writes $CALL/apply,
+# applies that file, and prints the end mark with the call's nonce. Only efrd and this
+# shell know the nonce, so sandboxed code cannot print an end mark that efr accepts.
+_efr_hs_sbx() {
+  # The user's options, read before emulate -L sets its own, for a stale snapshot.
+  builtin local -A _efr_hs_sbx_opts
+  (( _efr_hs_sbx_stale )) && _efr_hs_sbx_opts=("${(@kv)options}")
+  builtin emulate -L zsh -o extended_glob
+  [[ $1 == [0-9a-f-](#c36) ]] || { builtin print -ru2 -- 'efr: bad call id'; return 125 }
+  builtin local dir=$_efr_hs_sbx_dir/$1
+  [[ $_efr_hs_sbx_dir == /* && -d $dir && ! -L $dir && $_efr_hs_sbx_bin == /* && -x $_efr_hs_sbx_bin ]] ||
+    { builtin print -ru2 -- 'efr: the sandbox is missing'; return 125 }
+  _efr_hs_sbx_snapshot
+  builtin local -i rc=125
+  # NOTE: a SIGINT that reaches this shell (efr's interrupt, while the shell holds the
+  # terminal again) makes an interactive zsh abort the rest of the function. Without
+  # the end mark efr would wait for this call until its timeout and hold every later
+  # line, so the mark goes out in an always block. INT and QUIT are ignored only once
+  # the launcher returned: bwrap and the child would keep an ignored signal.
+  {
+    builtin command $_efr_hs_sbx_bin run --call-dir $dir
+    rc=$?
+  } always {
+    builtin trap '' INT QUIT
+    _efr_hs_sbx_apply $dir/apply
+    # The precmd hook reports the real $PWD again before D, also when it did not change.
+    _efr_hs_pwd=
+    builtin print -rn -- $'\e]133;efr-sbx;'"$(<$dir/nonce)"$'\a'
+  }
+  return $rc
+}
+
+# Applies $CALL/apply: NUL-separated `cd <dir>`, `export <name> <value>` and
+# `unset <name>` records that the launcher filtered already. This repeats a small part
+# of that filter and never evaluates text; the first record it does not know ends it.
+_efr_hs_sbx_apply() {
+  builtin emulate -L zsh -o extended_glob
+  [[ -f $1 && ! -L $1 ]] || return 0
+  builtin local -a f
+  f=("${(@0)"$(<$1)"}")
+  builtin local -i i=1
+  while (( i <= $#f )); do
+    case $f[i] in
+      (cd)
+        [[ $f[i+1] == /* && $f[i+1] != /(var/|)tmp(/*|) && -d $f[i+1] ]] && builtin cd -q -- "$f[i+1]"
+        (( i += 2 )) ;;
+      (export)
+        [[ $f[i+1] == [A-Za-z_][A-Za-z0-9_](#c0,127) && $f[i+1] != (PATH|LD_*|*_PRELOAD|ZDOTDIR|FPATH|HOME|GIT_*) ]] &&
+          builtin export -- "$f[i+1]=$f[i+2]"
+        (( i += 3 )) ;;
+      (unset)
+        [[ $f[i+1] == [A-Za-z_][A-Za-z0-9_](#c0,127) && $f[i+1] != (PATH|HOME|ZDOTDIR) ]] &&
+          builtin unset -- "$f[i+1]"
+        (( i += 2 )) ;;
+      (*) return 0 ;;
+    esac
+  done
+  return 0
+}
+
+# Writes $_efr_hs_sbx_dir/snapshot.zsh when it is stale: this shell's functions (not
+# efr's), its aliases, and its options, for the child shell of each call to replay. A
+# snapshot above 64 KiB is compiled with zcompile, which the child's `source` reads
+# instead. The options come from _efr_hs_sbx, which reads them before emulate -L.
+_efr_hs_sbx_snapshot() {
+  builtin emulate -L zsh -o extended_glob
+  builtin local file=$_efr_hs_sbx_dir/snapshot.zsh
+  (( _efr_hs_sbx_stale )) || [[ ! -f $file ]] || return 0
+  builtin local -a names on off
+  # Not efr's own functions, of this file or of the user's efr plugin.
+  names=(${(k)functions:#(_efr?*|compinit)})
+  builtin local name
+  for name in ${(k)_efr_hs_sbx_opts}; do
+    # Options that only an interactive shell, its startup or its job control have.
+    [[ $name == (interactive|login|monitor|zle|shinstdin|singlecommand|privileged|restricted) ]] && continue
+    if [[ $_efr_hs_sbx_opts[$name] == on ]]; then on+=($name); else off+=($name); fi
+  done
+  builtin local snapshot
+  # The child starts with zsh's own aliases (run-help=man): a function of the same
+  # name would not parse, so the snapshot drops them all and replays only this shell's.
+  snapshot="$(
+    builtin print -r -- "builtin unalias -m '*' 2>/dev/null; builtin unalias -s -m '*' 2>/dev/null"
+    (( $#names )) && builtin typeset -f -- $names
+    builtin alias -L
+    (( $#on )) && builtin print -r -- "builtin setopt ${(j: :)${(@o)on}} 2>/dev/null"
+    (( $#off )) && builtin print -r -- "builtin unsetopt ${(j: :)${(@o)off}} 2>/dev/null"
+  )"
+  builtin print -r -- $snapshot >| $file || return 0
+  builtin zmodload -F zsh/files b:zf_rm
+  zf_rm -f -- $file.zwc
+  (( $#snapshot > 65536 )) && builtin zcompile -U -- $file
+  _efr_hs_sbx_stale=0
+  return 0
+}
+
+# The three functions as zsh holds them now, for the check of the fixed line. It is
+# read-only, so nothing can unset or change it.
+builtin typeset -gr _efr_hs_sbx_src="$functions[_efr_hs_sbx]$functions[_efr_hs_sbx_apply]$functions[_efr_hs_sbx_snapshot]"
 
 # No `emulate -L` here: it would make the option changes below local to this function.
 _efr_hs_init() {
@@ -204,6 +376,14 @@ _efr_hs_init() {
   # history file must not fill up with them. efr keeps its own recording.
   builtin setopt no_bang_hist no_correct no_correct_all no_prompt_sp
   builtin unset HISTFILE
+
+  # The prompt is plain text (see _efr_hs_no_user_hooks), and no prompt expands a
+  # parameter or runs a command substitution.
+  builtin setopt no_prompt_subst
+
+  # The terminal settings are frozen: a program that leaves the terminal raw or with
+  # echo off cannot change how this shell reads the next line.
+  builtin ttyctl -f
 
   # The permission engine counts a pattern such as `x*` as at least one word. With
   # NULL_GLOB or CSH_NULL_GLOB a pattern that matches nothing would vanish, and

@@ -337,9 +337,21 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   continuation prompt and `OSC 133;B` where the input starts (zle-line-init),
   `OSC 133;C` from preexec, `OSC 133;D;<status>` from precmd, a bare `OSC 133;D` after
   a prompt whose line ran nothing, and `OSC 7;kitty-shell-cwd://<host><path>` on every
-  change of directory. Its precmd hook runs first and its preexec hook last, so no
-  other hook's output lands between `C` and `D`; the directory report goes out before
-  `D`. It is an original script: ghostty's is GPLv3 and is never copied.
+  change of directory. The directory report goes out before `D`. It is an original
+  script: ghostty's is GPLv3 and is never copied.
+- The hidden shell runs no hook and no prompt code of the user, in every mode (efr's
+  auto spec, 5.7). It cd's into directories that a model chose and draws a prompt after
+  every call, so a prompt theme or a `chpwd` hook (direnv, nvm, a venv switcher) would
+  run git or source files that a sandboxed call wrote, outside the sandbox. After the
+  startup files, the integration removes the functions `precmd`, `preexec`, `chpwd`,
+  `periodic` and `zshaddhistory` and the line editor's hook widgets, and every prompt
+  sets `precmd_functions`, `preexec_functions`, `chpwd_functions`,
+  `periodic_functions` and `zshaddhistory_functions` back to efr's own hooks or none,
+  with the prompt `%# `, no right prompt and no `PROMPT_SUBST`. The terminal settings
+  are frozen (`ttyctl -f`), so a program that leaves the terminal raw cannot change how
+  the shell reads the next line. The user's functions, aliases and exported variables
+  stay. One gap is left: zsh runs the user's own `precmd` function, and the hooks after
+  efr's in `precmd_functions`, at the very first prompt, before the integration can act.
 - The integration changes a few options in the hidden shell only: no `!` history
   expansion, no spelling correction prompts, no history file (`HISTFILE` is unset;
   efr keeps its own recording), no pager and no editor (the pager and editor
@@ -371,16 +383,72 @@ The zsh integration (`assets/zsh/`, embedded with `include_str!`, written to
   typed into a nested shell that just ended was meant for that shell and is rightly
   dropped, and its run waits for its timeout without an end marker.
 
+The auto mode's sandbox (efr's auto spec, sections 3.8 to 3.16 and 6.4). The daemon
+puts a `SandboxRun` (the call's dir `$R/sbx/<conversation>/<call>`, the call id, the
+nonce and whether the call is contained or the exit child of an approved exit) on the
+`RunRequest`, and the run changes like this:
+
+- The model's line goes to `$CALL/line` (mode 0600, a new file only). The shell gets one
+  fixed line as a bracketed paste: a check that the three wrapper functions are the
+  integration's own (compared with the read-only `_efr_hs_sbx_src`) and that no
+  function is named `builtin` or `command`, then `\_efr_hs_sbx <call id>`. A redefined
+  wrapper or a missing integration runs nothing. A sandboxed run needs a shell with the
+  integration's marks: a shell without them, or a sentinel run, ends at once as
+  `Completion::SandboxFailed` and nothing is typed.
+- `_efr_hs_sbx` checks the call id and the dir, writes `snapshot.zsh` when it is stale
+  (the shell's functions except efr's, its aliases and its options, after a line that
+  drops zsh's own aliases such as `run-help`, so a function of that name parses;
+  `zcompile` above 64 KiB; stale after any line that efr did not type for a sandboxed call), runs the
+  launcher (`ShellConfig::sandbox_launcher`) as a foreground job, applies `$CALL/apply`
+  (`cd` with `builtin cd -q`, so no `chpwd` hook runs, and allowed exports and unsets;
+  it checks names and directories again and never evaluates text), clears the
+  directory report so the precmd hook reports `$PWD` again, and prints
+  `OSC 133;efr-sbx;<nonce>`.
+- The precmd hook writes the shell's `PATH` to `$R/sbx/<conversation>/path` when it
+  changed and the dir exists (from the first sandboxed call on). The user's startup
+  files set it, and efrd resolves the program words of an exit question with it, so
+  the question names the program that this shell runs.
+- `efr-child.zsh` is the launcher's child shell: `zsh -f efr-child.zsh DIR` replays
+  `DIR/snapshot.zsh` and the sandbox state `DIR/state.zsh` (the exit child's dir has
+  none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of
+  `efr_sandbox::parse_records` on descriptor 3: the cwd, changed and removed exports,
+  functions and aliases, and the status.
+- The run ends only on facts that sandboxed code cannot make: the end mark with the
+  call's nonce, a `D` after it, the shell's own process group in the terminal's
+  foreground (`PtyHolder::foreground`), and the launcher's `started` and `result.json`.
+  With all of them the run is `Finished` (or `SandboxFailed` when `result.json` names a
+  setup error) and `CommandResult::sandbox` holds `result.json`; without `result.json`
+  it is `SandboxFailed`. A `D` with no end mark while the shell holds the terminal and
+  no `started` file exists ends the run at once as `SandboxFailed`: the wrapper never
+  ran the launcher. Anything else waits for the timeout. The facts are read after the
+  chunk that carried the `D`, by the session's actor, with no other message between.
+- The marks between the run's `C` and its end mark are not applied to the shell's
+  state: a fake `D`, `A` and `B` cannot make the shell look ready, and a fake OSC 7
+  cannot move its directory. The state takes the held marks after all only when the
+  run ends because the launcher never started. `cwd_after` is the cwd of
+  `result.json`; when that lies in the sandbox's private tmp, `ShellState::sandbox_cwd`
+  keeps it until the shell's own directory changes.
+- A contained call never takes hidden input: a hidden wait stops it at once as
+  `Completion::Unanswered`, and a hidden answer is refused. The exit child takes hidden
+  input as any command does.
+- Every hidden shell is a child subreaper (`SpawnSpec::child_subreaper`), so a process
+  that a command leaves behind stays in the shell's process tree.
+- `_EFR_HS_SBX_DIR` (`<ShellConfig::sandbox_dir>/<conversation>`) and `_EFR_HS_SBX_BIN`
+  reach a zsh with the integration when the config names both; the integration reads
+  them once and removes them from the environment.
+
 ## Tier
 
 Tier 2.
 
 ## Allowed dependencies
 
-`efr-holder` (the `PtyHolder` trait, spawn specs, child status), `efr-screen` (the
-screen handle, the mark scanner, `row_text`), `efr-protocol` (ids, `Seq`, the screen
-snapshot types) and `efr-stdx` (`Clock`, `Rng`, UUIDv7 ids, atomic writes, the
-scrubbed variable list). `xtask/src/deps.rs` holds the allowlist.
+`efr-holder` (the `PtyHolder` trait, spawn specs, child status, the foreground query),
+`efr-screen` (the screen handle, the mark scanner, `row_text`), `efr-protocol` (ids,
+`Seq`, the screen snapshot types), `efr-sandbox` (the call dir's file names,
+`SpecLaunch`, `SandboxResult` from `result.json`) and `efr-stdx` (`Clock`, `Rng`,
+UUIDv7 ids, atomic writes, the scrubbed variable list). `xtask/src/deps.rs` holds the
+allowlist.
 
 Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fcntl` for
 `O_NONBLOCK`, `tcgetattr` and `tcgetpgrp` for the input modes and the foreground group,
@@ -416,6 +484,8 @@ clock and the seeded generator.
   manual answer. The stop of an
   unanswered hidden wait signals only while that job holds the terminal, as read right
   before the signal.
+- A sandboxed run never types the model's line into the shell, never ends on a mark
+  that sandboxed code can print, and never lets such a mark change the shell's state.
 
 ## Tests
 
@@ -448,3 +518,15 @@ holds the terminal and `D` has not reached the session. The `e2e_` tests (module
 screen, in a throwaway home with empty startup files; they skip with a message unless
 `EFR_TEST_ZSH=1`, and nextest runs them one at a time in the `shell` test group. No
 test uses the network, the user's home or the user's zsh configuration.
+
+The sandbox's run end is tested over the fake holder (`sandbox/tests.rs`): the test
+plays the trusted shell and the sandboxed command, scripts the holder's foreground
+answer and writes the launcher's files. `e2e_zsh::sandbox` runs the wrapper, its check,
+the apply file, the snapshot, the hooks, `ttyctl` and `efr-child.zsh` in a real zsh
+with a fake launcher that records its arguments and runs the child script directly, as
+the fake bwrap of the spec's section 16.1 does; these run wherever zsh does,
+`just test-shell-ubuntu` included. Their trees lie below `target/tmp/efr-shell`, because
+the wrapper keeps the shell out of `/tmp`. `e2e_zsh::launcher` drives the real
+`efr-sbx` that `EFR_TEST_SBX_BIN` names (`just test-sandbox` sets it); its tests print
+`skipped: <reason>` and pass when the variable is unset or the launcher's probe says
+the machine cannot run the sandbox.

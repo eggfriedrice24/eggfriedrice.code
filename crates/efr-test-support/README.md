@@ -21,7 +21,9 @@ directories, a store and provider traffic from one place and never from the mach
   `efr_stdx::env::Env` that names them through `EFR_*_DIR`, and `create_dir` makes a
   working directory for a test and refuses a path that could leave the tree. The root is
   the real path of the temporary directory, so code that canonicalizes a path gets back
-  the path the test holds.
+  the path the test holds. `TestDirs::new_in` puts the tree below another directory,
+  such as cargo's target temp dir, for a test of the `auto` sandbox, which replaces the
+  host's `/tmp` with a private one.
 - `ndjson`: `Transcript`, the reader and validator of NDJSON transcripts, one `Record`
   per line, each `Entry` with its line number. The kinds are those of the structure
   document: `expect_outbound` `provider_request` and `event`, `emit_inbound`

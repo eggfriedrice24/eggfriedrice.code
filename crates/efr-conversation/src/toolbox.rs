@@ -13,8 +13,11 @@ use std::fmt;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use efr_permissions::Requirements;
-use efr_protocol::{CallId, ConversationId, InputWait, Origin, Scope, TurnId};
+use efr_permissions::{ExitNeed, Requirements};
+use efr_protocol::{
+    CallId, ConversationId, InputWait, Launch, Origin, ReportedFile, SandboxSummary, Scope,
+    SurfaceChange, TurnId,
+};
 use efr_provider::ToolDefinition;
 use serde_json::Value;
 
@@ -65,6 +68,30 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     /// dropped because the user interrupted it, such as a command still running in the
     /// hidden shell. The default does nothing.
     async fn cancel(&self, _call: &CallContext) {}
+
+    /// Moves `changes` of the contained call `call` back from quarantine, after the
+    /// user chose to keep them. Only a change that the launcher quarantined is moved.
+    /// `Err` is the text the model reads when they stay in quarantine. The default
+    /// keeps no quarantine, so it moves nothing.
+    async fn restore_quarantine(
+        &self,
+        _call: &CallContext,
+        _changes: &[SurfaceChange],
+    ) -> Result<(), String> {
+        Err("this toolbox keeps no quarantine".to_owned())
+    }
+
+    /// The files that the turn `turn_id` changed through the sandbox's launcher and
+    /// that run code later outside the sandbox, such as `build.rs` or a git setting,
+    /// for the report at the end of the turn. The turn records them as
+    /// `turn_surface_report` before its terminal event. The default reports none.
+    async fn turn_report(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Vec<ReportedFile> {
+        Vec::new()
+    }
 }
 
 /// One tool call, as the turn hands it to the [`Toolbox`].
@@ -126,6 +153,20 @@ pub struct CallContext {
     /// timeout while someone who can answer follows it. Set by the check point once the
     /// approval came; false while the call is judged.
     pub approved_interactive: bool,
+    /// How a `shell` call runs: [`Launch::Direct`] (typed into the hidden shell) in
+    /// `manual` and `cautious` and for the other tools, [`Launch::Contained`] with its
+    /// grants in the `auto` sandbox, [`Launch::Unsandboxed`] in the exit child. Set by
+    /// the check point once the call may run; `Direct` while the call is judged.
+    pub launch: Launch,
+    /// The exits of the call that the user approved, in the order the engine found
+    /// them; empty for a call without one. The toolbox reads how a write grant binds
+    /// its target ([`ExitNeed::bind`]): a target that efrd makes first is made before
+    /// the launch.
+    pub exits: Vec<ExitNeed>,
+    /// True when the turn runs in `auto` (its effective mode, after a fallback and the
+    /// cap of its origin). Only `auto` reads the facts of a shell call, so the toolbox
+    /// collects them only then.
+    pub auto: bool,
 }
 
 impl CallContext {
@@ -149,7 +190,17 @@ impl CallContext {
             scope: Scope::Machine,
             origin: Origin::Shell,
             approved_interactive: false,
+            launch: Launch::Direct,
+            exits: Vec::new(),
+            auto: false,
         }
+    }
+
+    /// Sets whether the turn runs in `auto`.
+    #[must_use]
+    pub fn with_auto(mut self, auto: bool) -> Self {
+        self.auto = auto;
+        self
     }
 
     /// Sets whether the user approved the call as one that may wait for input at the
@@ -157,6 +208,20 @@ impl CallContext {
     #[must_use]
     pub fn with_approved_interactive(mut self, approved: bool) -> Self {
         self.approved_interactive = approved;
+        self
+    }
+
+    /// Sets how the call runs.
+    #[must_use]
+    pub fn with_launch(mut self, launch: Launch) -> Self {
+        self.launch = launch;
+        self
+    }
+
+    /// Sets the exits of the call that the user approved.
+    #[must_use]
+    pub fn with_exits(mut self, exits: Vec<ExitNeed>) -> Self {
+        self.exits = exits;
         self
     }
 
@@ -195,12 +260,22 @@ pub struct ToolOutcome {
     pub is_error: bool,
     /// The exit status, for a tool that runs a command.
     pub exit_code: Option<i32>,
+    /// What a call through the sandbox's launcher did to the state around it: names
+    /// only, never values. The turn records it with the call's completion, and asks the
+    /// user about each change that the launcher moved to quarantine.
+    pub sandbox: Option<SandboxSummary>,
 }
 
 impl ToolOutcome {
     /// A successful outcome.
     pub fn ok(output: impl Into<String>) -> Self {
-        ToolOutcome { output: output.into(), truncated: false, is_error: false, exit_code: None }
+        ToolOutcome {
+            output: output.into(),
+            truncated: false,
+            is_error: false,
+            exit_code: None,
+            sandbox: None,
+        }
     }
 
     /// A failed outcome: the model reads `output` and decides what to do next.
@@ -219,6 +294,13 @@ impl ToolOutcome {
     #[must_use]
     pub fn with_exit_code(mut self, exit_code: Option<i32>) -> Self {
         self.exit_code = exit_code;
+        self
+    }
+
+    /// Sets what a call through the sandbox's launcher reported.
+    #[must_use]
+    pub fn with_sandbox(mut self, sandbox: Option<SandboxSummary>) -> Self {
+        self.sandbox = sandbox;
         self
     }
 }

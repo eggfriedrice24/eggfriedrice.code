@@ -4,6 +4,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use efr_protocol::ConversationId;
+
 use crate::ShellConfig;
 
 /// Variables removed by name, on top of `efr_stdx::process::SCRUBBED_ENV` (the
@@ -109,6 +111,35 @@ pub(crate) fn shell_env(
         env.insert((*name).to_owned(), editor.clone().into_owned());
     }
     env
+}
+
+/// The conversation's sandbox dir, for a zsh with the integration. The integration
+/// reads it once, right after the user's `.zshenv`, and removes it from the
+/// environment, as it does [`TRUSTED_PROGRAMS`].
+pub(crate) const SANDBOX_DIR: &str = "_EFR_HS_SBX_DIR";
+
+/// The launcher of sandboxed calls, read the same way.
+pub(crate) const SANDBOX_LAUNCHER: &str = "_EFR_HS_SBX_BIN";
+
+/// The variables of the auto mode's wrapper for the shell of `conversation`: its
+/// sandbox dir and the launcher, when the config names both and the shell is a zsh with
+/// the integration; nothing otherwise, and the wrapper then refuses every call.
+pub(crate) fn sandbox_env(
+    config: &ShellConfig,
+    conversation: ConversationId,
+    integration: bool,
+) -> Vec<(String, String)> {
+    let (Some(root), Some(launcher)) = (&config.sandbox_dir, &config.sandbox_launcher) else {
+        return Vec::new();
+    };
+    if !integration {
+        return Vec::new();
+    }
+    let dir = crate::sandbox::conversation_dir(root, conversation);
+    vec![
+        (SANDBOX_DIR.to_owned(), dir.to_string_lossy().into_owned()),
+        (SANDBOX_LAUNCHER.to_owned(), launcher.to_string_lossy().into_owned()),
+    ]
 }
 
 fn is_scrubbed(name: &str) -> bool {

@@ -1,0 +1,39 @@
+[package]
+name = "efr-sbx"
+description = "The launcher of the auto sandbox: runs one contained call in bwrap with Landlock and seccomp, or one approved exit child, and checks what comes back"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "efr-sbx"
+path = "src/main.rs"
+doctest = false
+
+[dependencies]
+clap.workspace = true
+efr-protocol.workspace = true
+efr-sandbox.workspace = true
+landlock.workspace = true
+# Only in src/fds.rs: close_range, dup3 onto a fixed number, and the two raw system
+# calls of the probe's self-test (ADR 0007).
+libc.workspace = true
+# `pipe` for the launch pipes, `stdio` for dup2 onto stderr in the inner stage, `net`
+# for the self-test's vsock socket, `thread` for its unshare.
+rustix = { workspace = true, features = ["pipe", "stdio", "net", "thread"] }
+seccompiler.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+signal-hook.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

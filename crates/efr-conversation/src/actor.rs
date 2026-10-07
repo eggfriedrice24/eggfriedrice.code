@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex};
 
 use efr_protocol::{
     ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, ErrorBody,
-    ErrorCode, Event, Origin, PromptSend, PromptSendResult, Seq, TurnId, TurnInterrupt,
+    ErrorCode, Event, Mode, Origin, PromptSend, PromptSendResult, QuestionId,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 use efr_stdx::id::uuid_v7;
@@ -32,8 +33,9 @@ use tracing::Instrument as _;
 
 use crate::approvals::Approvals;
 use crate::history::CachedTurn;
+use crate::questions::Questions;
 use crate::scratch::Scratch;
-use crate::settings;
+use crate::settings::{self, Place};
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
 use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart};
 
@@ -44,6 +46,7 @@ const PROMPT_SEND: &str = "prompt.send";
 const TURN_STEER: &str = "turn.steer";
 const TURN_INTERRUPT: &str = "turn.interrupt";
 const APPROVAL_RESPOND: &str = "approval.respond";
+const SURFACE_RESPOND: &str = "sandbox.surface_respond";
 
 /// The actor of one conversation. It runs in its own task; the
 /// [`ConversationHandle`] that [`spawn`](Self::spawn) returns is the only way to reach
@@ -78,6 +81,8 @@ pub struct ConversationState {
     pub queued: Vec<TurnId>,
     /// The tool calls that wait for the user's approval.
     pub pending_approvals: Vec<CallId>,
+    /// The quarantine questions that wait for the user's answer.
+    pub pending_questions: Vec<QuestionId>,
 }
 
 #[derive(Debug)]
@@ -99,11 +104,33 @@ type Reply<T> = oneshot::Sender<Result<T, ConversationError>>;
 #[derive(Debug)]
 enum Request {
     // NOTE: boxed so the other requests stay small; a prompt's params are the largest.
-    Prompt { params: Box<PromptSend>, origin: Origin, reply: Reply<PromptSendResult> },
-    Steer { params: TurnSteer, reply: Reply<TurnSteerResult> },
-    Interrupt { params: TurnInterrupt, origin: Origin, reply: Reply<TurnInterruptResult> },
-    Approval { params: ApprovalRespond, origin: Origin, reply: Reply<ApprovalRespondResult> },
-    State { reply: oneshot::Sender<ConversationState> },
+    Prompt {
+        params: Box<PromptSend>,
+        origin: Origin,
+        reply: Reply<PromptSendResult>,
+    },
+    Steer {
+        params: TurnSteer,
+        reply: Reply<TurnSteerResult>,
+    },
+    Interrupt {
+        params: TurnInterrupt,
+        origin: Origin,
+        reply: Reply<TurnInterruptResult>,
+    },
+    Approval {
+        params: ApprovalRespond,
+        origin: Origin,
+        reply: Reply<ApprovalRespondResult>,
+    },
+    Surface {
+        params: SandboxSurfaceRespond,
+        origin: Origin,
+        reply: Reply<SandboxSurfaceRespondResult>,
+    },
+    State {
+        reply: oneshot::Sender<ConversationState>,
+    },
 }
 
 impl ConversationActor {
@@ -127,6 +154,7 @@ impl ConversationActor {
             deps,
             scratch,
             approvals: Approvals::default(),
+            questions: Questions::default(),
         });
         let actor = ConversationActor {
             shared,
@@ -186,6 +214,9 @@ impl ConversationActor {
             Request::Approval { params, origin, reply } => {
                 let _ = reply.send(self.respond(params, origin).await);
             }
+            Request::Surface { params, origin, reply } => {
+                let _ = reply.send(self.respond_surface(params, origin).await);
+            }
             Request::State { reply } => {
                 let _ = reply.send(self.state());
             }
@@ -211,8 +242,13 @@ impl ConversationActor {
             });
         }
         // NOTE: checked here so a value that cannot work fails before anything is
-        // recorded; the turn checks again when it starts, against the settings of then.
-        let effective = settings::resolve(&params.settings, &config, origin)?;
+        // recorded; the turn checks again when it starts, against the settings of then,
+        // when it also knows its project.
+        let sandbox = self.shared.deps.sandbox.borrow().clone();
+        let engine = Arc::clone(&self.shared.deps.engine.borrow());
+        let place =
+            Place { sandbox: &sandbox, project_root: None, home: engine.locations().home() };
+        let effective = settings::resolve(&params.settings, &config, origin, place)?;
         let turn_id = TurnId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
         let queued = self.running.is_some() || !self.queue.is_empty();
         let mut events = Vec::with_capacity(2);
@@ -301,11 +337,47 @@ impl ConversationActor {
         Ok(ApprovalRespondResult { seq: committed.last_seq() })
     }
 
+    /// Answers a quarantine question. The question is taken out before the answer is
+    /// recorded, so a turn that expires at the same moment waits for this answer and
+    /// records none of its own.
+    async fn respond_surface(
+        &mut self,
+        params: SandboxSurfaceRespond,
+        origin: Origin,
+    ) -> Result<SandboxSurfaceRespondResult, ConversationError> {
+        self.check_conversation(Some(params.conversation_id))?;
+        // NOTE: a phone may not take a planted git setting out of quarantine; the
+        // question stays open for the user's own terminal.
+        if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto {
+            return Err(ConversationError::RemoteSurfaceAnswer { origin });
+        }
+        let question_id = params.question_id;
+        let Some(taken) = self.shared.questions.take(question_id) else {
+            return Err(ConversationError::QuestionNotPending { question_id });
+        };
+        let event = Event::SurfaceQuestionAnswered {
+            turn_id: taken.turn_id,
+            question_id,
+            keep: params.keep,
+            origin: Some(origin),
+        };
+        let result = SandboxSurfaceRespondResult { seq: Seq::ZERO };
+        // NOTE: when the answer cannot be recorded, `taken` drops unanswered and the
+        // turn keeps the changes in quarantine.
+        let receipt = receipt(params.command_id, SURFACE_RESPOND, &result)?;
+        let committed = self.append(vec![event], receipt).await?;
+        if !taken.answer(params.keep) {
+            tracing::warn!(question_id = %question_id, "a quarantine answer was recorded after its turn stopped waiting");
+        }
+        Ok(SandboxSurfaceRespondResult { seq: committed.last_seq() })
+    }
+
     fn state(&self) -> ConversationState {
         ConversationState {
             running: self.running.as_ref().map(|running| running.turn_id),
             queued: self.queue.iter().map(|spec| spec.turn_id).collect(),
             pending_approvals: self.shared.approvals.parked(),
+            pending_questions: self.shared.questions.parked(),
         }
     }
 
@@ -488,6 +560,17 @@ impl ConversationHandle {
         origin: Origin,
     ) -> Result<ApprovalRespondResult, ConversationError> {
         self.request(|reply| Request::Approval { params, origin, reply }).await
+    }
+
+    /// Answers the quarantine question of a parked turn: `keep` moves the changes back.
+    /// Only the user's own machine answers; a phone gets an error and the question
+    /// stays open.
+    pub async fn respond_surface(
+        &self,
+        params: SandboxSurfaceRespond,
+        origin: Origin,
+    ) -> Result<SandboxSurfaceRespondResult, ConversationError> {
+        self.request(|reply| Request::Surface { params, origin, reply }).await
     }
 
     /// What the conversation is doing.

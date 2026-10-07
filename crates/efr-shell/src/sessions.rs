@@ -25,17 +25,20 @@ use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, screen_tail, timed_out};
 use crate::session::{
-    Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
+    Activity, Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
     SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, ShellConfig, ShellDeps,
-    ShellError, ShellNotice, ShellState, env, integration, sentinel,
+    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, SandboxRun, ShellConfig,
+    ShellDeps, ShellError, ShellNotice, ShellState, env, integration, sandbox, sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
 const DEFAULT_PROGRAM: &str = "zsh";
+
+/// Ctrl+Z, the terminal's suspend character.
+const SUSPEND: u8 = 0x1a;
 
 /// One long-lived hidden zsh per conversation.
 ///
@@ -296,13 +299,25 @@ impl ShellSessions {
     }
 
     /// Writes raw input to the conversation's shell, as `pty.write` does for an
-    /// attached client.
+    /// attached client. While a call through the sandbox's launcher runs, Ctrl+Z is
+    /// left out: it would stop bwrap and the command but not the launcher, which waits
+    /// for them, and the shell would never get its terminal back (efr's auto spec,
+    /// 3.13).
     pub async fn write(
         &self,
         conversation: ConversationId,
         bytes: Bytes,
     ) -> Result<(), ShellError> {
-        self.existing(conversation)?.write(bytes).await
+        let session = self.existing(conversation)?;
+        let bytes = if session.activity.borrow().sandboxed && bytes.contains(&SUSPEND) {
+            Bytes::from(bytes.iter().copied().filter(|byte| *byte != SUSPEND).collect::<Vec<u8>>())
+        } else {
+            bytes
+        };
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        session.write(bytes).await
     }
 
     /// Changes the terminal size of the conversation's shell and its screen.
@@ -333,6 +348,34 @@ impl ShellSessions {
             .signal(session.pty_id, Signal::Interrupt, SignalTarget::ForegroundGroup)
             .await
             .map_err(|source| ShellError::Holder { conversation, source })
+    }
+
+    /// Waits until the conversation's shell has no run: none active, none waiting to be
+    /// typed and none left running past its timeout. A conversation without a shell is
+    /// free. Fails with [`ShellError::NotReady`] when `timeout` passes first.
+    ///
+    /// The auto mode plans a sandboxed call under a lock of its projects, which it holds
+    /// until the launcher starts; it waits here first, so a call queued behind a
+    /// command that still runs (a dev server) holds no lock while it waits.
+    pub async fn until_free(
+        &self,
+        conversation: ConversationId,
+        timeout: Duration,
+    ) -> Result<(), ShellError> {
+        let Ok(session) = self.existing(conversation) else {
+            return Ok(());
+        };
+        let mut activity = session.activity.clone();
+        // A shell that ends while this waits is free: the next run starts a new one.
+        let wait = async move {
+            let _ = activity.wait_for(|activity| activity.free).await;
+        };
+        self.inner
+            .deps
+            .clock
+            .timeout(timeout, wait)
+            .await
+            .map_err(|_| ShellError::NotReady { conversation })
     }
 
     /// The screen of the conversation's shell, for attach snapshots.
@@ -433,9 +476,14 @@ impl ShellSessions {
         config.login = start.login;
         config.trusted_programs = start.trusted_programs.to_vec();
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
+        // NOTE: the shell is a child subreaper, so a process that a command leaves
+        // behind after a double fork or `setsid` stays in the shell's process tree,
+        // where the daemon's peer check finds it (efr's auto spec, 2.2 and 13.5).
         let spec = SpawnSpec::new(pty_id, &start.program, start_dir, config.size)
             .args(integration::args(start.login))
-            .vars(env::shell_env(&config, start_dir, start.integration));
+            .vars(env::shell_env(&config, start_dir, start.integration))
+            .vars(env::sandbox_env(&config, conversation, start.integration))
+            .child_subreaper(true);
         let PtyHandle { master, child_pid, .. } = inner
             .deps
             .holder
@@ -487,6 +535,7 @@ impl ShellSessions {
         let (writer, writes) = mpsc::channel(WRITE_CAPACITY);
         let (inbox, messages) = mpsc::channel(INBOX_CAPACITY);
         let (life, lives) = watch::channel(Life::Running);
+        let (activity, activities) = watch::channel(Activity::default());
         let targets = ReaderTargets {
             pty_id,
             recording: Arc::clone(&deps.recording),
@@ -515,6 +564,7 @@ impl ShellSessions {
             screen: screen.clone(),
             tasks,
             life,
+            activity,
             startup: integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
@@ -527,6 +577,7 @@ impl ShellSessions {
             writer,
             terminal,
             life: lives,
+            activity: activities,
             size: Arc::new(Mutex::new(inner.config.size)),
             trusted,
         })
@@ -539,6 +590,14 @@ impl ShellSessions {
         progress: &mut dyn RunProgress,
     ) -> Result<CommandResult, ShellError> {
         let deps = &self.inner.deps;
+        if let Some(run) = &request.sandbox {
+            let root = self.inner.config.sandbox_dir.as_deref();
+            sandbox::check(root, session.conversation, run, &request.command)?;
+            // The command never reaches the shell's line editor: the launcher reads it
+            // from this file.
+            sandbox::write_line(&run.dir, &request.command).await?;
+        }
+        let contained = request.sandbox.as_ref().is_some_and(SandboxRun::contained);
         let id = self.inner.next_run.fetch_add(1, Ordering::Relaxed);
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
@@ -553,6 +612,7 @@ impl ShellSessions {
             call: request.call,
             forget_credentials: request.forget_credentials,
             token: sentinel::token(&*deps.rng),
+            sandbox: request.sandbox,
             reply,
             progress: publish,
         };
@@ -619,7 +679,9 @@ impl ShellSessions {
                     }
                 }
                 () = until(&mut look) => {
-                    let looked = self.look_for_input(session, id, offer, &mut watch, progress).await;
+                    let looked = self
+                        .look_for_input(session, id, offer, contained, &mut watch, progress)
+                        .await;
                     let stop = match looked {
                         Ok(stop) => stop,
                         // The actor went away while the run's reply was still open; a wait
@@ -670,6 +732,7 @@ impl ShellSessions {
                     cwd_after: cwd,
                     screen_tail: Some(screen_tail(&capture.snapshot)),
                     delimiter,
+                    sandbox: None,
                 })
             }
         }
@@ -689,12 +752,15 @@ impl ShellSessions {
     }
 
     /// One look at whether run `id` waits for input; each change goes to `progress`.
-    /// Returns true when the command waits for hidden input that nobody can answer.
+    /// Returns true when the command waits for hidden input that nobody can answer,
+    /// which is always so for a `contained` sandboxed command: efr never types a secret
+    /// into one (efr's auto spec, 3.12).
     async fn look_for_input(
         &self,
         session: &SessionHandle,
         id: u64,
         offer: Offer,
+        contained: bool,
         watch: &mut InputWatch,
         progress: &mut dyn RunProgress,
     ) -> Result<bool, ShellError> {
@@ -737,7 +803,7 @@ impl ShellSessions {
             progress.input_changed(changed, watch.looks_secret());
             told?;
         }
-        Ok(watch.current() == InputWait::Hidden && !progress.can_answer_hidden())
+        Ok(watch.current() == InputWait::Hidden && (contained || !progress.can_answer_hidden()))
     }
 
     /// How much longer a run that reached its deadline waits for its command, when it
@@ -814,6 +880,7 @@ impl ShellSessions {
                     cwd_after: cwd,
                     screen_tail: None,
                     delimiter,
+                    sandbox: None,
                 })
             }
             // The command ended between the look and the detach; it needs no stop.
@@ -846,6 +913,7 @@ impl ShellSessions {
             cwd_after: cwd,
             screen_tail: None,
             delimiter,
+            sandbox: output.sandbox.map(|result| *result),
         })
     }
 

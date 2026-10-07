@@ -44,6 +44,44 @@ turns.
   another character outside letters, digits and `._/:@%+,-`, and with the value of
   `--option=value` left out, so a token on the line is not repeated there. Every other
   line break of the summary is escaped, so a path cannot pass for that line.
+- The `auto` mode (`exit.rs`, `questions.rs`, `judge.rs`). The check point runs a shell
+  call that the engine contains (`Effect::Contain`) at once with `Launch::Contained`
+  in `CallContext::launch`, and `tool_call_started` names the launch. An exit asks the
+  user: `exit_requested` with its `ExitRecord` (user messages, the action and efr's own
+  facts, never tool output or the model's reason) comes in the same batch before
+  `approval_requested`, whose `exit` shows the kinds, the launch, what a "yes" opens,
+  efr's facts, the model's reason and whether only the user may approve it. A "yes"
+  runs the call with the narrowest launch (`exit::grant`): the plain sandbox for a
+  question of a user's `ask` rule or a `destructive` exit, the sandbox plus the union of
+  the exits' grants (a write bind, the open network, a socket, a bus, a device, an
+  unmask), or `Launch::Unsandboxed` (the exit child) when an exit cannot run in the
+  sandbox. `CallContext::exits` carries the approved exits, so the toolbox can make a
+  write target first. The answer is recorded as `exit_judged` (judge `user`). Before it
+  asks about a launch in the exit child, the check point applies the one-command rule
+  (`efr_permissions::exits::unsandboxed_line_problem`): a line that carries more than
+  one command gets that text as a tool error with no question, and it is no refusal. A
+  floor (`secret`, `config`) refuses the exit before any question and records
+  `exit_judged` (judge `floor`); three such refusals in a row without a person's answer
+  end the turn with `turn_failed` (`forbidden`, "auto stopped this turn: 3 actions
+  were refused in a row. Read the answers, then send a new prompt."). The count lives in the turn, so the model cannot reset it.
+- After a call whose `ToolOutcome::sandbox` reports changes to git settings that run
+  programs, the turn records them in `sandbox_surface_changed` with the call's
+  `tool_call_completed`, and, for the changes that the launcher moved to quarantine,
+  asks the user before any other call: `surface_question_requested` with its own
+  `QuestionId`. `respond_surface` (`sandbox.surface_respond`) records
+  `surface_question_answered` and hands the answer to the turn; only a "keep" from the
+  user's own machine moves the changes back, through `Toolbox::restore_quarantine`. A
+  phone gets `RemoteSurfaceAnswer`. The approval timeout and an interrupt record the
+  answer `keep: false` with no origin and leave the changes in quarantine; the model
+  reads what happened after the call's output.
+- `auto` needs the sandbox. `settings::resolve` reads the probe's latest
+  `SandboxStatus` (`ConversationDeps::sandbox`) and the root of the turn's registered
+  project: without an available sandbox, or in a project at the home directory or above
+  it, the turn runs as `cautious` and records `EffectiveSettings::fallback` with the
+  reason, and the preamble says so. A prompt does not know its project yet, so only the
+  turn applies the home rule.
+- `ExitJudge` (`ConversationDeps::judge`) is the seam of the classifier of phase 3. In
+  phase 1 it is `None` and the user answers every exit.
 - `respond_approval` records `approval_resolved` and hands the decision to the parked
   turn. The store refuses an answer to a call that is not pending, so of two racing
   answers only one commits. A parked call that can no longer be answered (the turn was
@@ -133,7 +171,14 @@ by field:
 - `invoke`: `ToolRegistry::invoke` with the `OutputSink` passed through as the
   `ToolOutputSink` (output and input waits; the daemon itself answers whether a person
   can answer hidden input), and `ToolResult` copied into `ToolOutcome`; a `ToolError`
-  becomes an error outcome;
+  becomes an error outcome. A call whose `CallContext::launch` uses the launcher runs
+  only through it, never typed into the hidden shell; its `result.json` summary goes to
+  `ToolOutcome::sandbox`;
+- `restore_quarantine`: moves the quarantined changes of a call back when the user
+  keeps them; the default keeps no quarantine and moves nothing;
+- `turn_report`: the files that the turn changed through the launcher and that run
+  code later outside the sandbox; the turn records them as `turn_surface_report` right
+  before its terminal event; the default reports none;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
   interrupted command does not keep running in the hidden shell;
 - `preview`: the diff of a `write_file` call, once the tools offer one;
@@ -197,9 +242,13 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
   permission engine, and nothing reaches `Toolbox::invoke` without passing it. A
   toolbox declares, `efr_permissions::Engine::decide` decides with the turn's scope,
   origin, permission mode (`ConversationConfig::mode`, read when the turn starts) and
-  the conversation's policy, and the turn enforces: `Allow` runs, `Deny`
-  gives the model an error that names each refused path with its class, `Ask` parks
-  the turn on a `oneshot` until the user answers.
+  the conversation's policy, and the turn enforces: `Allow` runs, `Contain` runs in
+  the sandbox, `Deny` gives the model an error that names each refused path with its
+  class, `Ask` parks the turn on a `oneshot` until the user answers.
+- In `auto` nothing runs outside the sandbox without a person: a contained call has
+  `Launch::Contained`, and only a "yes" gives `Launch::Unsandboxed`, to a line of one
+  command. A turn without a working sandbox runs as `cautious`, never as `auto` with
+  less.
 - The scope is derived again on every turn; it is never cached.
 - The last command of a prompt never enters an event or a log field; `Debug` of the
   types that hold it leaves it out.
@@ -223,6 +272,12 @@ of each turn deciding a write, an interrupt mid-stream, during an approval and d
 a tool call, an approval that times out, a provider 401, a cwd move between turns,
 provider items passed back to the same provider, also after a restart, and dropped
 for another provider, steering, coalesced updates, a queued second prompt, receipts and
-the refusals. The preamble is covered by insta snapshots. The scratch and resolver
+the refusals. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
+network, write and privilege exit with their launches, a denied exit, the one-command
+rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
+`cautious` (no sandbox, a project at home) and the quarantine question (answered,
+expired, refused for a phone, interrupted). `exit/tests.rs` checks `grant`, the question
+facts and the record against the real engine. The preamble is covered by insta
+snapshots. The scratch and resolver
 tests use temporary directories; the resolver tests run git, isolated from the user's
 configuration. No test uses the network, a real model, real time or the user's home.

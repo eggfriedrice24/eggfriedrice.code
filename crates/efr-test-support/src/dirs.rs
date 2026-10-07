@@ -41,6 +41,23 @@ impl TestDirs {
             .prefix("efr-test-")
             .tempdir()
             .map_err(|source| TestSupportError::CreateTempDir { source })?;
+        TestDirs::in_temp(temp)
+    }
+
+    /// Creates the tree below `base` instead, such as cargo's target temp dir: the
+    /// `auto` sandbox replaces the host's `/tmp` with a private one, so a test that
+    /// runs the real sandbox keeps its project and efr's roots elsewhere. Keep `base`
+    /// short; a socket path holds at most 107 bytes.
+    pub fn new_in(base: &Path) -> Result<Self, TestSupportError> {
+        create_dir(base)?;
+        let temp = tempfile::Builder::new()
+            .prefix("t")
+            .tempdir_in(base)
+            .map_err(|source| TestSupportError::CreateTempDir { source })?;
+        TestDirs::in_temp(temp)
+    }
+
+    fn in_temp(temp: TempDir) -> Result<Self, TestSupportError> {
         let root = temp.path().canonicalize().map_err(|source| {
             TestSupportError::ResolveTempDir { path: temp.path().to_path_buf(), source }
         })?;

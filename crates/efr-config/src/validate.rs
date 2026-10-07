@@ -2,9 +2,9 @@
 //! paths and URLs.
 
 use std::ops::RangeInclusive;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::{PROVIDERS, Settings};
+use crate::{PROVIDERS, SandboxSettings, Settings};
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +18,8 @@ pub(crate) struct Invalid {
 /// The first value of `settings` that is outside its allowed set or range, in the
 /// order of the file.
 pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
-    let Settings { log, model, openai, permissions, shell, conversation, render, .. } = settings;
+    let Settings { log, model, openai, permissions, shell, conversation, sandbox, render, .. } =
+        settings;
     non_empty("log", log, "a tracing filter such as info")?;
 
     if !PROVIDERS.contains(&model.provider.as_str()) {
@@ -108,10 +109,102 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         "between 0 and 8760 (a year)",
     )?;
 
+    check_sandbox(sandbox)?;
+
     if let Some(theme) = &render.theme {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
     Ok(())
+}
+
+/// The checks of `[sandbox]`, in the order of the table.
+fn check_sandbox(sandbox: &SandboxSettings) -> Result<(), Invalid> {
+    const HOME_OR_ABSOLUTE: &str = "absolute paths or paths that start with ~/";
+    if let Some(bwrap) = &sandbox.bwrap
+        && !bwrap.is_absolute()
+    {
+        return Err(invalid("sandbox.bwrap", path_text(bwrap), "an absolute path"));
+    }
+    home_or_absolute("sandbox.write_roots", &sandbox.write_roots, HOME_OR_ABSOLUTE)?;
+    if let Some(root) = sandbox
+        .write_roots
+        .iter()
+        .find(|root| root.as_path() == Path::new("~") || root.parent().is_none())
+    {
+        return Err(invalid(
+            "sandbox.write_roots",
+            path_text(root),
+            "directories below ~/ or absolute paths, never ~ or / itself",
+        ));
+    }
+    home_or_absolute("sandbox.caches", &sandbox.caches, HOME_OR_ABSOLUTE)?;
+    within("sandbox.cache_days", u64::from(sandbox.cache_days), 1..=3_650, "between 1 and 3650")?;
+    within(
+        "sandbox.cache_max_gib",
+        u64::from(sandbox.cache_max_gib),
+        1..=10_000,
+        "between 1 and 10000",
+    )?;
+    home_or_absolute("sandbox.mask", &sandbox.mask, HOME_OR_ABSOLUTE)?;
+    patterns("sandbox.mask_globs", &sandbox.mask_globs)?;
+    home_or_absolute("sandbox.protect", &sandbox.protect, HOME_OR_ABSOLUTE)?;
+    variables("sandbox.env_deny", &sandbox.env_deny)?;
+    variables("sandbox.env_keep", &sandbox.env_keep)?;
+    variables("sandbox.promote_env", &sandbox.promote_env)?;
+    variables("sandbox.export_deny", &sandbox.export_deny)?;
+    home_or_absolute("sandbox.synced_dirs", &sandbox.synced_dirs, HOME_OR_ABSOLUTE)?;
+    patterns("sandbox.surface_files", &sandbox.surface_files)?;
+    if let Some(name) = sandbox
+        .rebuildable
+        .iter()
+        .find(|name| name.is_empty() || name.contains(['/', '\0']) || *name == "." || *name == "..")
+    {
+        return Err(invalid("sandbox.rebuildable", text(name), "directory names such as target"));
+    }
+    Ok(())
+}
+
+/// Every path is absolute or starts with the `~` component.
+fn home_or_absolute(
+    key: &'static str,
+    paths: &[PathBuf],
+    expected: &'static str,
+) -> Result<(), Invalid> {
+    match paths.iter().find(|path| !path.is_absolute() && !path.starts_with("~")) {
+        Some(path) => Err(invalid(key, path_text(path), expected)),
+        None => Ok(()),
+    }
+}
+
+/// Every entry is a variable name, or a pattern of one with `*`.
+fn variables(key: &'static str, names: &[String]) -> Result<(), Invalid> {
+    let bad = |name: &String| {
+        let mut bytes = name.bytes();
+        let first_ok =
+            bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b == b'*');
+        !first_ok || !bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'*')
+    };
+    match names.iter().find(|name| bad(name)) {
+        Some(name) => Err(invalid(key, text(name), "variable names, or patterns of them with *")),
+        None => Ok(()),
+    }
+}
+
+/// Every entry is a name or a relative path, with `*`, optionally behind a `!`.
+fn patterns(key: &'static str, list: &[String]) -> Result<(), Invalid> {
+    let bad = |pattern: &String| {
+        let body = pattern.strip_prefix('!').unwrap_or(pattern);
+        body.is_empty()
+            || body.starts_with('/')
+            || body.contains('\0')
+            || body.split('/').any(|part| part.is_empty() || part == "..")
+    };
+    match list.iter().find(|pattern| bad(pattern)) {
+        Some(pattern) => {
+            Err(invalid(key, text(pattern), "names or relative paths, with * and an optional !"))
+        }
+        None => Ok(()),
+    }
 }
 
 fn non_empty(key: &'static str, value: &str, expected: &'static str) -> Result<(), Invalid> {

@@ -1,6 +1,6 @@
 //! What a hidden shell is doing, as its OSC 133 and OSC 7 marks say.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use efr_protocol::PtyId;
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMarkKind};
@@ -47,6 +47,11 @@ pub struct ShellState {
     pub last_exit: Option<i32>,
     /// True once an integration mark has arrived.
     pub integration: bool,
+    /// Where the last sandboxed call ended when that is not [`cwd`](Self::cwd): a
+    /// directory of the sandbox's private tmp, which the shell itself cannot enter.
+    /// Relative paths of the next call resolve against it. It goes when the shell's own
+    /// directory changes, and with the next sandboxed call's end.
+    pub sandbox_cwd: Option<PathBuf>,
 }
 
 impl ShellState {
@@ -59,7 +64,14 @@ impl ShellState {
             host: None,
             last_exit: None,
             integration: false,
+            sandbox_cwd: None,
         }
+    }
+
+    /// The directory that the conversation's next command starts from: the sandbox's
+    /// own directory while it applies, else the shell's.
+    pub fn effective_cwd(&self) -> &Path {
+        self.sandbox_cwd.as_deref().unwrap_or(&self.cwd)
     }
 
     /// True when a command can be typed now and delimited by marks or sentinels.
@@ -86,6 +98,8 @@ impl ShellState {
                     return false;
                 }
                 self.cwd.clone_from(path);
+                // The shell moved on its own, as when the user typed `cd`.
+                self.sandbox_cwd = None;
                 true
             }
             _ => false,

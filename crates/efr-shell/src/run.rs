@@ -5,17 +5,21 @@
 //! (`OutputStart`), keeps the bytes after it, and ends at `D` (`CommandEnd`); the
 //! output is `recording[C.end .. D.start]`. The sentinel run for shells without the
 //! integration is in `sentinel.rs`.
+//!
+//! A sandboxed run (the auto mode) types a fixed wrapper line instead of the command,
+//! and its end does not trust the marks of its output: see [`SandboxWatch`].
 
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bytes::Bytes;
 use efr_protocol::{CallId, InputWait, ScreenSnapshot, Seq};
+use efr_sandbox::SandboxResult;
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, row_text};
 
-use crate::ShellError;
 use crate::capture::{Capture, Kept};
+use crate::{SandboxRun, ShellError};
 
 /// One command line for a conversation's hidden shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +50,10 @@ pub struct RunRequest {
     /// follows it: for a command that the user approved because it may wait for input.
     /// `None` keeps the timeout.
     pub interactive_limit: Option<Duration>,
+    /// Runs the command through the auto mode's launcher instead of in the shell: the
+    /// command goes to the call's `line` file, and the shell gets only a fixed wrapper
+    /// line with the call's id. `None` runs it in the shell, as every other mode does.
+    pub sandbox: Option<SandboxRun>,
 }
 
 impl RunRequest {
@@ -65,7 +73,16 @@ impl RunRequest {
             call: None,
             forget_credentials: false,
             interactive_limit: None,
+            sandbox: None,
         }
+    }
+
+    /// Runs the command through the auto mode's launcher with `run`, or in the shell
+    /// with `None`.
+    #[must_use]
+    pub fn with_sandbox(mut self, run: Option<SandboxRun>) -> Self {
+        self.sandbox = run;
+        self
     }
 
     /// Sets the timeout.
@@ -163,8 +180,17 @@ pub enum Completion {
     /// sent `SIGINT` to the terminal's foreground process group and returned at once.
     /// When the command had ended by then and the shell held the terminal again, no
     /// signal was sent. The command may still be ending; the next run waits for its
-    /// prompt.
+    /// prompt. A sandboxed call that waits for hidden input always ends this way: efr
+    /// never types a secret into a sandboxed command.
     Unanswered,
+    /// A sandboxed run whose sandbox did not start or did not report: the wrapper check
+    /// failed or the integration is missing (nothing ran), the sandbox's setup failed
+    /// ([`SandboxResult::setup_error`](efr_sandbox::SandboxResult::setup_error)), or the
+    /// launcher failed after it started the command, which may have run
+    /// ([`SandboxResult::launch_error`](efr_sandbox::SandboxResult::launch_error), also
+    /// when the launcher died before its result). The command never ran outside the
+    /// sandbox.
+    SandboxFailed,
 }
 
 /// The result of [`ShellSessions::run_command`](crate::ShellSessions::run_command).
@@ -188,12 +214,16 @@ pub struct CommandResult {
     /// Where the output lies in the PTY recording, when its start is known; the full
     /// output can be read back from there.
     pub output_range: Option<Range<Seq>>,
-    /// The shell's working directory at the end of the run.
+    /// The shell's working directory at the end of the run. For a sandboxed run it is
+    /// the directory from the launcher's `result.json`, which may lie in the sandbox's
+    /// private tmp (see [`ShellState::sandbox_cwd`](crate::ShellState::sandbox_cwd)).
     pub cwd_after: PathBuf,
     /// The last lines of the screen, for a command that still runs.
     pub screen_tail: Option<String>,
     /// What delimited the output.
     pub delimiter: Delimiter,
+    /// The launcher's `result.json`, for a sandboxed run that ended with one.
+    pub sandbox: Option<SandboxResult>,
 }
 
 impl CommandResult {
@@ -217,7 +247,15 @@ impl CommandResult {
             cwd_after: cwd_after.into(),
             screen_tail: None,
             delimiter: Delimiter::Marks,
+            sandbox: None,
         }
+    }
+
+    /// Sets the launcher's result of a sandboxed run.
+    #[must_use]
+    pub fn with_sandbox(mut self, result: SandboxResult) -> Self {
+        self.sandbox = Some(result);
+        self
     }
 
     /// Sets how the run ended.
@@ -392,8 +430,95 @@ pub(crate) fn marked_line(command: &str) -> Result<Bytes, ShellError> {
     Ok(Bytes::from(line))
 }
 
+/// The fixed line of a sandboxed call, up to the call id. It runs the wrapper only
+/// when the three functions of the wrapper are the ones the integration defined and no
+/// function shadows `builtin` or `command`. The backslash stops alias expansion of the
+/// wrapper's name. zsh expands an alias named `[[` even though `[[` is a reserved word,
+/// so the clear key that comes right before this line removes that alias with the
+/// global and suffix aliases (`_efr_hs_plain_words`). Without the integration zsh
+/// answers `command not found`. Either way nothing runs and no end mark comes.
+pub(crate) const WRAPPER_CHECK: &str = r#"[[ "${functions[_efr_hs_sbx]-}${functions[_efr_hs_sbx_apply]-}${functions[_efr_hs_sbx_snapshot]-}" == "$_efr_hs_sbx_src" && -z ${functions[builtin]-}${functions[command]-} ]] && \_efr_hs_sbx "#;
+
+/// The bytes that type the fixed line of a sandboxed call: the clear key, one
+/// bracketed paste with [`WRAPPER_CHECK`] and the call id, then Enter. The model's line
+/// is never typed; it goes to the call's `line` file.
+pub(crate) fn wrapped_line(call: CallId) -> Result<Bytes, ShellError> {
+    marked_line(&format!("{WRAPPER_CHECK}{call}"))
+}
+
 /// How much of what comes before `C` a marked run keeps.
 const BEFORE_LIMIT: usize = 8 * 1024;
+
+/// The launch error of a sandboxed run whose launcher wrote `started` but no result.
+const LAUNCHER_LOST: &str = "the launcher ended after the command started, without its result";
+
+/// What a sandboxed run watches for its end (efr's auto spec, section 3.15).
+///
+/// The sandboxed command shares the terminal, so it can print any mark, a fake `D`
+/// included. The run therefore ends only on facts that sandboxed code cannot make:
+/// the end mark with the call's nonce, which only the trusted wrapper prints after the
+/// launcher returned; a `D` after it; the shell's own process group in the terminal's
+/// foreground; and the launcher's `started` and `result.json` files. The marks between
+/// `C` and the end mark are not applied to the shell's state.
+#[derive(Debug, Clone)]
+pub(crate) struct SandboxWatch {
+    nonce: [u8; 16],
+    /// The call's dir, where the launcher writes its files.
+    dir: PathBuf,
+    /// True for a contained call, false for the exit child of an approved exit.
+    contained: bool,
+    /// The start of the call's end mark, once it came after `C`.
+    end_mark: Option<Seq>,
+    /// How many captured bytes the output keeps when the run ends at the pending check.
+    keep: Option<u64>,
+}
+
+impl SandboxWatch {
+    pub(crate) fn new(run: &SandboxRun) -> Self {
+        SandboxWatch {
+            nonce: run.nonce,
+            dir: run.dir.clone(),
+            contained: run.contained(),
+            end_mark: None,
+            keep: None,
+        }
+    }
+}
+
+/// A `D` of a sandboxed run, which ends the run only when the facts agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Check {
+    /// A `D` before the end mark. The run ends at once as
+    /// [`Completion::SandboxFailed`] when the shell holds the terminal and the launcher
+    /// never started: the wrapper check failed or the integration is missing, so no
+    /// sandboxed code ran. Otherwise the `D` may be sandboxed code's, and the run goes
+    /// on.
+    Early {
+        /// The status that the `D` carries.
+        exit_code: Option<i32>,
+        /// Where the `D` starts.
+        at: Seq,
+    },
+    /// A `D` after the end mark: the run ends when the shell holds the terminal, as a
+    /// finished run with `result.json`, or as [`Completion::SandboxFailed`] without it.
+    Final {
+        /// The status that the `D` carries: the wrapper's, which is the launcher's.
+        exit_code: Option<i32>,
+        /// Where the end mark starts, which ends the output.
+        at: Seq,
+    },
+}
+
+/// What the session's actor read for a [`Check`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Facts {
+    /// The shell's own process group holds the terminal.
+    pub(crate) shell_holds_terminal: bool,
+    /// `$CALL/started` exists.
+    pub(crate) started: bool,
+    /// `$CALL/result.json`, when it exists and reads.
+    pub(crate) result: Option<SandboxResult>,
+}
 
 /// What a marked run does after a mark.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,6 +531,9 @@ pub(crate) enum MarkStep {
     Cancel,
     /// The line ended.
     Ended(RunOutput),
+    /// A sandboxed run saw a `D`: the actor reads the facts, then the run ends or goes
+    /// on ([`MarkRun::checked`]).
+    Check(Check),
 }
 
 /// The output of a run that ended.
@@ -417,8 +545,26 @@ pub(crate) struct RunOutput {
     /// output that moves the cursor is replayed on a screen first.
     pub(crate) kept: Kept,
     pub(crate) range: Option<Range<Seq>>,
-    /// The directory from the sentinel's end line; marks report it through the state.
+    /// The directory from the sentinel's end line, or from a sandboxed run's
+    /// `result.json`; marks report it through the state.
     pub(crate) cwd: Option<PathBuf>,
+    /// The launcher's result of a sandboxed run.
+    pub(crate) sandbox: Option<Box<SandboxResult>>,
+}
+
+impl RunOutput {
+    /// A sandboxed run that never reached its shell: the shell has no marks, so the
+    /// wrapper line cannot be typed and checked.
+    pub(crate) fn sandbox_refused() -> Self {
+        RunOutput {
+            completion: Completion::SandboxFailed,
+            exit_code: None,
+            kept: Capture::new(0).finish(),
+            range: None,
+            cwd: None,
+            sandbox: None,
+        }
+    }
 }
 
 /// A run delimited by the integration's marks.
@@ -440,6 +586,8 @@ pub(crate) struct MarkRun {
     cancelled: bool,
     /// Type [`FORGET_CREDENTIALS`] when the run ends.
     forget_credentials: bool,
+    /// Set for a sandboxed run, whose end does not trust its output's marks.
+    sandbox: Option<SandboxWatch>,
 }
 
 impl MarkRun {
@@ -453,7 +601,32 @@ impl MarkRun {
             unfinished: false,
             cancelled: false,
             forget_credentials: false,
+            sandbox: None,
         }
+    }
+
+    /// The same run, for a sandboxed call that `watch` describes.
+    pub(crate) fn sandboxed(mut self, watch: SandboxWatch) -> Self {
+        self.sandbox = Some(watch);
+        self
+    }
+
+    /// True while the marks of the stream may come from sandboxed code: between the
+    /// `C` of a sandboxed run and its end mark. The shell's state ignores them then.
+    pub(crate) fn shields(&self) -> bool {
+        self.output_start.is_some()
+            && self.sandbox.as_ref().is_some_and(|watch| watch.end_mark.is_none())
+    }
+
+    /// The call's dir of a sandboxed run.
+    pub(crate) fn sandbox_dir(&self) -> Option<&Path> {
+        self.sandbox.as_ref().map(|watch| watch.dir.as_path())
+    }
+
+    /// True for a sandboxed run whose command runs in the sandbox, not in the exit
+    /// child of an approved exit.
+    pub(crate) fn contained(&self) -> bool {
+        self.sandbox.as_ref().is_some_and(|watch| watch.contained)
     }
 
     /// The same run, typing [`FORGET_CREDENTIALS`] when it ends when `forget` is set.
@@ -473,7 +646,8 @@ impl MarkRun {
             self.before.push(bytes);
             return false;
         }
-        if bytes.is_empty() {
+        // After a sandboxed call's end mark only the wrapper and the prompt print.
+        if bytes.is_empty() || self.sandbox.as_ref().is_some_and(|watch| watch.end_mark.is_some()) {
             return false;
         }
         self.capture.push(bytes);
@@ -484,6 +658,13 @@ impl MarkRun {
     pub(crate) fn on_mark(&mut self, mark: &ShellMark) -> MarkStep {
         if mark.start < self.typed_at {
             return MarkStep::Continue;
+        }
+        // Before `C` only the trusted shell prints, so a sandboxed run reads those marks
+        // as any run does.
+        if self.output_start.is_some()
+            && let Some(watch) = &self.sandbox
+        {
+            return self.on_sandboxed_mark(mark, watch.end_mark, watch.nonce);
         }
         let ShellMarkKind::SemanticPrompt(event) = &mark.kind else {
             return MarkStep::Continue;
@@ -514,6 +695,98 @@ impl MarkRun {
         }
     }
 
+    /// A mark after the `C` of a sandboxed run. Only the call's own end mark and a `D`
+    /// count; every other mark may be sandboxed code's.
+    fn on_sandboxed_mark(
+        &mut self,
+        mark: &ShellMark,
+        end_mark: Option<Seq>,
+        nonce: [u8; 16],
+    ) -> MarkStep {
+        match &mark.kind {
+            ShellMarkKind::SandboxEnd { nonce: seen } if end_mark.is_none() && *seen == nonce => {
+                let keep = self.keep_before(mark.start);
+                if let Some(watch) = &mut self.sandbox {
+                    watch.end_mark = Some(mark.start);
+                    watch.keep = Some(keep);
+                }
+                MarkStep::Continue
+            }
+            ShellMarkKind::SemanticPrompt(SemanticPromptEvent::CommandEnd {
+                exit_code, ..
+            }) => {
+                let exit_code = *exit_code;
+                match end_mark {
+                    Some(at) => MarkStep::Check(Check::Final { exit_code, at }),
+                    None => {
+                        let keep = self.keep_before(mark.start);
+                        if let Some(watch) = &mut self.sandbox {
+                            watch.keep = Some(keep);
+                        }
+                        MarkStep::Check(Check::Early { exit_code, at: mark.start })
+                    }
+                }
+            }
+            _ => MarkStep::Continue,
+        }
+    }
+
+    /// How many captured bytes lie before the mark that starts at `at`. Its first bytes
+    /// may sit in the capture already, read before the scanner could tell it was a mark.
+    fn keep_before(&self, at: Seq) -> u64 {
+        let overshoot = self.captured_end.get().saturating_sub(at.get());
+        self.capture.total().saturating_sub(overshoot)
+    }
+
+    /// Ends a sandboxed run at `check` when `facts` agree (efr's auto spec, section
+    /// 3.15); `None` means the run goes on until its timeout, as any other run whose
+    /// end is not known.
+    pub(crate) fn checked(&mut self, check: Check, facts: &Facts) -> Option<RunOutput> {
+        let start = self.output_start?;
+        if !facts.shell_holds_terminal {
+            return None;
+        }
+        let (exit_code, at, completion, sandbox) = match check {
+            Check::Early { exit_code, at } => {
+                if facts.started {
+                    return None;
+                }
+                (exit_code, at, Completion::SandboxFailed, None)
+            }
+            Check::Final { exit_code, at } => match &facts.result {
+                Some(result) if result.setup_error.is_none() && result.launch_error.is_none() => {
+                    (exit_code, at, Completion::Finished, Some(Box::new(result.clone())))
+                }
+                Some(result) => {
+                    (exit_code, at, Completion::SandboxFailed, Some(Box::new(result.clone())))
+                }
+                // NOTE: a launcher that died after `started` (OOM, SIGKILL) may have run
+                // the command, and the model must not read that it did not.
+                None if facts.started => {
+                    let lost = SandboxResult {
+                        started: true,
+                        launch_error: Some(LAUNCHER_LOST.to_owned()),
+                        ..SandboxResult::default()
+                    };
+                    (exit_code, at, Completion::SandboxFailed, Some(Box::new(lost)))
+                }
+                None => (exit_code, at, Completion::SandboxFailed, None),
+            },
+        };
+        let keep = self.sandbox.as_ref().and_then(|watch| watch.keep).unwrap_or(u64::MAX);
+        let extra = self.capture.total().saturating_sub(keep);
+        self.capture.trim_end(usize::try_from(extra).unwrap_or(usize::MAX));
+        let cwd = sandbox.as_ref().and_then(|result| result.cwd.clone());
+        Some(RunOutput {
+            completion,
+            exit_code,
+            kept: self.capture.finish(),
+            range: Some(start..at.max(start)),
+            cwd,
+            sandbox,
+        })
+    }
+
     pub(crate) fn capture(&self) -> &Capture {
         &self.capture
     }
@@ -537,6 +810,7 @@ impl MarkRun {
                 kept: self.before.finish(),
                 range: None,
                 cwd: None,
+                sandbox: None,
             };
         };
         // The start of `D` may already sit in the capture, read before the scanner
@@ -549,6 +823,7 @@ impl MarkRun {
             kept: self.capture.finish(),
             range: Some(start..end.max(start)),
             cwd: None,
+            sandbox: None,
         }
     }
 }

@@ -7,6 +7,7 @@
 //! byte strings; [`SessionActor`] wraps it with the channels, the startup timer and
 //! the shutdown.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -14,7 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use bytes::Bytes;
 use efr_holder::{ChildStatus, PtyHolder, Size};
 use efr_protocol::{CallId, ConversationId, PtyId, SecretText, Seq};
-use efr_screen::{ScreenHandle, ShellMark, ShellMarkScanner};
+use efr_screen::{ScreenHandle, ShellMark, ShellMarkKind, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -24,10 +25,17 @@ use crate::capture::Kept;
 use crate::input::{self, Offer, Probe, Waiting};
 use crate::modes::{Job, Terminal};
 use crate::run::{
-    Delimiter, FORGET_CREDENTIALS, MarkRun, MarkStep, Progress, RunMode, RunOutput, marked_line,
+    Check, Delimiter, FORGET_CREDENTIALS, Facts, MarkRun, MarkStep, Progress, RunMode, RunOutput,
+    SandboxWatch, marked_line, wrapped_line,
 };
 use crate::sentinel::{SentinelRun, sentinel_line};
-use crate::{Phase, ShellError, ShellNotice, ShellObserver, ShellState};
+use crate::{Phase, SandboxRun, ShellError, ShellNotice, ShellObserver, ShellState, sandbox};
+
+/// The most marks of a sandboxed run that the state holds back between its `C` and its
+/// end mark. The trusted shell prints a handful there when the wrapper never ran, which
+/// the state then takes after all; only sandboxed code prints more, and then the state
+/// takes none of them.
+const HELD_MARKS: usize = 16;
 
 /// How many messages may wait for a session's actor.
 pub(crate) const INBOX_CAPACITY: usize = 64;
@@ -79,6 +87,8 @@ pub(crate) struct RunOrder {
     pub(crate) forget_credentials: bool,
     /// The sentinel token, drawn by the caller from the injected generator.
     pub(crate) token: String,
+    /// The auto mode's call, whose command is in its `line` file already.
+    pub(crate) sandbox: Option<SandboxRun>,
     pub(crate) reply: oneshot::Sender<Result<RunEnd, ShellError>>,
     pub(crate) progress: watch::Sender<Progress>,
 }
@@ -125,6 +135,24 @@ pub(crate) struct Answerable {
     /// The process group in the terminal's foreground at the last look while the
     /// command ran.
     pub(crate) looked: Option<u32>,
+    /// The command runs in the auto mode's sandbox, which no hidden answer reaches.
+    pub(crate) contained: bool,
+}
+
+/// Which run a [`Check`] belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Active(u64),
+    Orphan,
+}
+
+/// A check of a sandboxed run's end that the actor runs after the chunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CheckOrder {
+    target: Target,
+    check: Check,
+    /// The call's dir.
+    pub(crate) dir: PathBuf,
 }
 
 /// Where [`SessionCore::submit`] puts a run.
@@ -186,6 +214,36 @@ impl Machine {
             Machine::Sentinel(run) => run.running(),
         }
     }
+
+    /// True while the stream's marks may be sandboxed code's.
+    fn shields(&self) -> bool {
+        matches!(self, Machine::Marks(run) if run.shields())
+    }
+
+    /// True for a sandboxed run that is contained, not an exit child.
+    fn contained(&self) -> bool {
+        matches!(self, Machine::Marks(run) if run.contained())
+    }
+
+    /// True for a run of a call through the sandbox's launcher.
+    fn sandboxed(&self) -> bool {
+        matches!(self, Machine::Marks(run) if run.sandbox_dir().is_some())
+    }
+}
+
+/// What a session's runs do, as its actor publishes it after each message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Activity {
+    /// No run is active, waits or was left running.
+    pub(crate) free: bool,
+    /// A run of a call through the sandbox's launcher is active or was left running.
+    pub(crate) sandboxed: bool,
+}
+
+impl Default for Activity {
+    fn default() -> Self {
+        Activity { free: true, sandboxed: false }
+    }
 }
 
 /// The state and runs of one shell, without IO. Each method returns the bytes to
@@ -210,6 +268,10 @@ pub(crate) struct SessionCore {
     forget_pending: bool,
     /// The warning that this shell cannot forget credentials was logged.
     forget_warned: bool,
+    /// A sandboxed run's end to check once the current chunk is read.
+    check: Option<CheckOrder>,
+    /// The marks that a sandboxed run held back from the state, newest last.
+    held: VecDeque<ShellMarkKind>,
     observer: Arc<dyn ShellObserver>,
 }
 
@@ -230,6 +292,8 @@ impl SessionCore {
             orphan: None,
             forget_pending: false,
             forget_warned: false,
+            check: None,
+            held: VecDeque::new(),
             observer,
         }
     }
@@ -242,6 +306,21 @@ impl SessionCore {
         self.state.pty_id
     }
 
+    /// True when no run is active, waits or was left running: a run submitted now
+    /// waits for nothing but the prompt.
+    pub(crate) fn is_free(&self) -> bool {
+        self.active.is_none() && self.queued.is_none() && self.orphan.is_none()
+    }
+
+    /// What the runs do now.
+    pub(crate) fn activity(&self) -> Activity {
+        Activity {
+            free: self.is_free(),
+            sandboxed: self.active.as_ref().is_some_and(|active| active.machine.sandboxed())
+                || self.orphan.as_ref().is_some_and(Machine::sandboxed),
+        }
+    }
+
     /// Takes a run: types it now, keeps it until the shell is free, or refuses it when
     /// another run is under way or an unfinished line waits for input. A run whose
     /// caller has stopped waiting is dropped, never typed: the turn that asked for it
@@ -252,6 +331,20 @@ impl SessionCore {
         }
         if self.active.is_some() || self.queued.is_some() {
             self.refuse(order);
+            return Vec::new();
+        }
+        // A sandboxed call needs the integration's wrapper and its marks: a shell
+        // without them, or a line typed into whatever runs in the foreground, could run
+        // the wrapper line nowhere it can be checked. Nothing is typed.
+        if order.sandbox.is_some()
+            && (order.mode == RunMode::Sentinel || self.state.phase == Phase::Unmarked)
+        {
+            let end = RunEnd {
+                output: RunOutput::sandbox_refused(),
+                cwd: self.state.cwd.clone(),
+                delimiter: Delimiter::Marks,
+            };
+            let _ = order.reply.send(Ok(end));
             return Vec::new();
         }
         match self.placement(order.mode) {
@@ -366,7 +459,12 @@ impl SessionCore {
                 reason: "the command does not run now",
             });
         }
-        Ok(Answerable { waiting: active.waiting, offer: active.offer, looked: active.looked })
+        Ok(Answerable {
+            waiting: active.waiting,
+            offer: active.offer,
+            looked: active.looked,
+            contained: active.machine.contained(),
+        })
     }
 
     /// An answer was typed for the active run.
@@ -438,15 +536,24 @@ impl SessionCore {
                 "this hidden shell has no efr integration, so it keeps sudo's cached credentials although shell.sudo_cache is per_call"
             );
         }
-        let (line, machine) = match delimiter {
-            Delimiter::Marks => (
+        let (line, machine) = match (delimiter, &order.sandbox) {
+            (Delimiter::Marks, Some(run)) => (
+                wrapped_line(run.call),
+                Machine::Marks(
+                    MarkRun::new(self.next(), order.output_limit)
+                        .forgetting(order.forget_credentials)
+                        .sandboxed(SandboxWatch::new(run)),
+                ),
+            ),
+            (Delimiter::Marks, None) => (
                 marked_line(&order.command),
                 Machine::Marks(
                     MarkRun::new(self.next(), order.output_limit)
                         .forgetting(order.forget_credentials),
                 ),
             ),
-            Delimiter::Sentinel => (
+            // NOTE: submit never places a sandboxed run here.
+            (Delimiter::Sentinel, _) => (
                 sentinel_line(&order.command, &order.token),
                 Machine::Sentinel(
                     SentinelRun::new(&order.token, order.output_limit)
@@ -456,6 +563,7 @@ impl SessionCore {
         };
         match line {
             Ok(line) => {
+                self.held.clear();
                 self.active = Some(Active {
                     id: order.id,
                     call: order.call,
@@ -528,8 +636,24 @@ impl SessionCore {
         }
     }
 
+    /// True while a sandboxed run, active or orphaned, is between its `C` and its end
+    /// mark, where any mark may be sandboxed code's.
+    fn shielded(&self) -> bool {
+        self.active.as_ref().is_some_and(|active| active.machine.shields())
+            || self.orphan.as_ref().is_some_and(Machine::shields)
+    }
+
     fn mark(&mut self, mark: &ShellMark, writes: &mut Vec<Bytes>) {
-        if self.state.apply(&mark.kind) {
+        if self.shielded() {
+            // NOTE: a fake `D`, `A` and `B` would make the shell look ready, and the
+            // next line would be typed while sandboxed code still reads the terminal; a
+            // fake OSC 7 would move the directory that the engine resolves paths
+            // against. These marks are held back instead (efr's auto spec, 3.11).
+            if self.held.len() == HELD_MARKS {
+                self.held.pop_front();
+            }
+            self.held.push_back(mark.kind.clone());
+        } else if self.state.apply(&mark.kind) {
             self.notice_cwd();
         }
         // NOTE: the forget key waits for the next prompt's `B`: before the line editor
@@ -550,6 +674,12 @@ impl SessionCore {
                     self.forget_pending |= orphan.forgets_credentials();
                     self.orphan = None;
                 }
+                MarkStep::Check(check) => {
+                    if let Some(dir) = orphan.sandbox_dir() {
+                        let dir = dir.to_path_buf();
+                        self.check = Some(CheckOrder { target: Target::Orphan, check, dir });
+                    }
+                }
             }
         }
         let Some(active) = &mut self.active else {
@@ -560,6 +690,7 @@ impl SessionCore {
         };
         let step = run.on_mark(mark);
         let forget = run.forgets_credentials();
+        let dir = run.sandbox_dir().map(PathBuf::from);
         active.note_start();
         match step {
             MarkStep::Continue => {}
@@ -568,7 +699,69 @@ impl SessionCore {
                 self.forget_pending |= forget;
                 self.finish(output);
             }
+            MarkStep::Check(check) => {
+                if let Some(dir) = dir {
+                    self.check = Some(CheckOrder { target: Target::Active(active.id), check, dir });
+                }
+            }
         }
+    }
+
+    /// The check of a sandboxed run's end that the last chunk asked for, if any. The
+    /// actor reads its facts and answers with [`checked`](Self::checked).
+    pub(crate) fn take_check(&mut self) -> Option<CheckOrder> {
+        self.check.take()
+    }
+
+    /// Ends the sandboxed run of `order` when `facts` agree, and returns what to type
+    /// then. A run that does not end goes on until its timeout.
+    pub(crate) fn checked(&mut self, order: &CheckOrder, facts: &Facts) -> Vec<Bytes> {
+        let early = matches!(order.check, Check::Early { .. });
+        let output = match order.target {
+            Target::Orphan => match &mut self.orphan {
+                Some(Machine::Marks(orphan)) => {
+                    let output = orphan.checked(order.check, facts);
+                    if output.is_some() {
+                        self.forget_pending |= orphan.forgets_credentials();
+                        self.orphan = None;
+                    }
+                    output.map(|output| (output, false))
+                }
+                _ => None,
+            },
+            Target::Active(id) => match self.active.as_mut().filter(|active| active.id == id) {
+                Some(Active { machine: Machine::Marks(run), .. }) => {
+                    let forget = run.forgets_credentials();
+                    run.checked(order.check, facts).map(|output| (output, forget))
+                }
+                _ => None,
+            },
+        };
+        let Some((output, forget)) = output else {
+            return Vec::new();
+        };
+        let held = std::mem::take(&mut self.held);
+        if early {
+            // NOTE: the launcher never started, so only the trusted shell printed the
+            // marks that the run held back; the state takes them after all.
+            for kind in &held {
+                if self.state.apply(kind) {
+                    self.notice_cwd();
+                }
+            }
+        }
+        if matches!(order.target, Target::Active(_)) {
+            self.forget_pending |= forget;
+            self.finish(output);
+        }
+        let mut writes = Vec::new();
+        // The prompt may be ready already: no later mark would send the key.
+        if self.forget_pending && self.state.phase == Phase::Ready {
+            self.forget_pending = false;
+            writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+        }
+        writes.extend(self.start_queued());
+        writes
     }
 
     fn finish(&mut self, output: RunOutput) {
@@ -585,6 +778,11 @@ impl SessionCore {
         {
             self.state.cwd.clone_from(cwd);
             self.notice_cwd();
+        }
+        if let Some(result) = &output.sandbox {
+            // The call may have ended in the sandbox's private tmp, which the shell
+            // cannot enter; the next call's paths resolve against it.
+            self.state.sandbox_cwd = result.cwd.clone().filter(|cwd| *cwd != self.state.cwd);
         }
         let cwd = output.cwd.clone().unwrap_or_else(|| self.state.cwd.clone());
         let _ = active.reply.send(Ok(RunEnd { output, cwd, delimiter }));
@@ -612,6 +810,8 @@ pub(crate) struct SessionActor {
     /// The reader, writer and reply tasks, stopped when the shell ends.
     pub(crate) tasks: Vec<JoinHandle<()>>,
     pub(crate) life: watch::Sender<Life>,
+    /// The core's [activity](SessionCore::activity), after each message.
+    pub(crate) activity: watch::Sender<Activity>,
     /// The deadline for the first marked prompt; `None` once it passed or is moot.
     pub(crate) startup: Option<Sleep>,
 }
@@ -625,6 +825,7 @@ impl SessionActor {
                     self.startup = None;
                     let writes = self.core.startup_expired();
                     write_all(&self.writer, writes).await;
+                    self.publish_activity();
                     continue;
                 }
                 msg = inbox.recv() => msg,
@@ -638,6 +839,15 @@ impl SessionActor {
                 Msg::Chunk { start, bytes } => {
                     let writes = self.core.chunk(start, &bytes, self.clock.now());
                     write_all(&self.writer, writes).await;
+                    // NOTE: the facts are read after the whole chunk, with no other
+                    // message in between; the chunk's later marks were taken already,
+                    // and the run stays active, so nothing is typed meanwhile.
+                    while let Some(order) = self.core.take_check() {
+                        let (pty_id, shell) = (self.core.pty_id(), self.core.state().pid);
+                        let facts = sandbox::facts(&*self.holder, pty_id, shell, &order.dir).await;
+                        let writes = self.core.checked(&order, &facts);
+                        write_all(&self.writer, writes).await;
+                    }
                 }
                 Msg::Run(order) => {
                     let writes = self.core.submit(order);
@@ -660,6 +870,7 @@ impl SessionActor {
                 }
                 Msg::Exited(status) => break status,
             }
+            self.publish_activity();
         };
         // Published first, so a caller whose message is never read learns why.
         self.life.send_replace(Life::Ended(status));
@@ -671,6 +882,13 @@ impl SessionActor {
         // The holder's copy of the master goes; the shell is gone or gets SIGHUP.
         let _ = self.holder.release(self.core.pty_id()).await;
         drop(inbox);
+    }
+}
+
+impl SessionActor {
+    fn publish_activity(&self) {
+        let now = self.core.activity();
+        self.activity.send_if_modified(|published| std::mem::replace(published, now) != now);
     }
 }
 
@@ -722,6 +940,13 @@ fn answer(
     let run = core.answerable(call)?;
     let conversation = core.conversation;
     let refused = |reason| ShellError::NotWaiting { conversation, reason };
+    // NOTE: sandboxed code can fake a password prompt to collect a password that the
+    // user would type for a later approved exit, so no hidden input reaches it (efr's
+    // auto spec, 3.12). The exit child of an approved exit is not sandboxed and takes
+    // it.
+    if hidden && run.contained {
+        return Err(refused("efr types no secret into a sandboxed command"));
+    }
     if manual {
         input::check_manual(run.offer).map_err(refused)?;
     }
@@ -778,6 +1003,8 @@ pub(crate) struct SessionHandle {
     /// The master and who holds it, read right before a stop sends `SIGINT`.
     pub(crate) terminal: Terminal,
     pub(crate) life: watch::Receiver<Life>,
+    /// What the shell's runs do, as the actor last published it.
+    pub(crate) activity: watch::Receiver<Activity>,
     /// The terminal size the shell's programs see, shared by every clone; a finished
     /// command's output is replayed at this width.
     pub(crate) size: Arc<Mutex<Size>>,

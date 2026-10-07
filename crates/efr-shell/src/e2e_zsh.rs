@@ -40,10 +40,35 @@ impl Zsh {
     /// The harness with `configure` applied to the shell config, or `None` with a
     /// message when `EFR_TEST_ZSH` is off.
     pub(crate) fn start_with(test: &str, configure: impl FnOnce(&mut ShellConfig)) -> Option<Self> {
+        Self::start_in(test, |config, _| configure(config))
+    }
+
+    /// The harness with `configure` applied to the shell config, which also gets the
+    /// throwaway tree's root, or `None` with a message when `EFR_TEST_ZSH` is off.
+    pub(crate) fn start_in(
+        test: &str,
+        configure: impl FnOnce(&mut ShellConfig, &Path),
+    ) -> Option<Self> {
+        Self::start_at(test, None, configure)
+    }
+
+    /// [`start_in`](Self::start_in) with the throwaway tree below `parent` instead of
+    /// the system's temporary directory.
+    pub(crate) fn start_at(
+        test: &str,
+        parent: Option<&Path>,
+        configure: impl FnOnce(&mut ShellConfig, &Path),
+    ) -> Option<Self> {
         if !enabled(test) {
             return None;
         }
-        let root = tempfile::tempdir().unwrap();
+        let root = match parent {
+            Some(parent) => {
+                std::fs::create_dir_all(parent).unwrap();
+                tempfile::tempdir_in(parent).unwrap()
+            }
+            None => tempfile::tempdir().unwrap(),
+        };
         let home = root.path().join("home");
         std::fs::create_dir(&home).unwrap();
         // Empty startup files: a home without any would make some zsh builds offer
@@ -61,7 +86,7 @@ impl Zsh {
         // A login shell would also run the system's /etc/profile, which is not under
         // test here.
         config.login = false;
-        configure(&mut config);
+        configure(&mut config, root.path());
         let clock = TestClock::new();
         let notices = Notices::new();
         let recorded = Arc::new(Recorded::default());
@@ -104,5 +129,7 @@ fn enabled(test: &str) -> bool {
     on
 }
 
+mod launcher;
+mod sandbox;
 #[cfg(test)]
 mod tests;
