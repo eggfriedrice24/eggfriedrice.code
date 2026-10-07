@@ -89,7 +89,7 @@ const NAMES: [&str; 8] = ["black", "red", "green", "yellow", "blue", "magenta", 
 #[non_exhaustive]
 pub enum Progress {
     /// Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47
-    /// or later, Windows Terminal. Never inside tmux.
+    /// or later, Windows Terminal. Never inside tmux, GNU screen or zellij.
     #[default]
     Auto,
     /// Always, when stdout is a terminal.
@@ -140,7 +140,7 @@ pub struct RenderSettings {
     pub turn_summary: bool,
     /// The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
-    /// inside tmux), `on` or `off`.
+    /// inside tmux, GNU screen or zellij), `on` or `off`.
     pub progress: Progress,
     /// The colour of each role. A role set here wins over the palette file, and the
     /// palette file over the terminal's 16 colours.

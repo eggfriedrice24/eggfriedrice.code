@@ -31,8 +31,9 @@ pub(crate) struct TermFacts {
     pub(crate) term_program: Option<String>,
     /// `TERM_PROGRAM_VERSION`, when set and not empty, such as `1.3.1`.
     pub(crate) term_program_version: Option<String>,
-    /// `TMUX` is set: the output goes through tmux.
-    pub(crate) tmux: bool,
+    /// The output goes through a terminal multiplexer ([`multiplexed`]), which counts
+    /// widths itself and may pass a sequence on to any terminal.
+    pub(crate) multiplexer: bool,
     /// `WT_SESSION` is set: the terminal is Windows Terminal.
     pub(crate) wt_session: bool,
 }
@@ -57,7 +58,7 @@ impl TermFacts {
             stdin_tty: io::stdin().is_terminal(),
             term_program: text("TERM_PROGRAM"),
             term_program_version: text("TERM_PROGRAM_VERSION"),
-            tmux: std::env::var_os("TMUX").is_some(),
+            multiplexer: multiplexed(|name| std::env::var_os(name).is_some(), text("TERM")),
             wt_session: std::env::var_os("WT_SESSION").is_some(),
         }
     }
@@ -87,12 +88,13 @@ impl TermFacts {
 
     /// How the terminal counts the width of text: by grapheme cluster in Ghostty
     /// (mode 2027 is on by default there), by code point everywhere else, also in
-    /// Ghostty behind tmux, which counts widths itself. No query decides it: a query
+    /// Ghostty behind a multiplexer, which counts widths itself and keeps the outer
+    /// `TERM_PROGRAM`. No query decides it: a query
     /// needs a reply on stdin, which would take the keys typed ahead for the shell.
     pub(crate) fn width_method(&self) -> WidthMethod {
         let ghostty =
             self.term_program.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("ghostty"));
-        if ghostty && !self.tmux { WidthMethod::Grapheme } else { WidthMethod::CodePoint }
+        if ghostty && !self.multiplexer { WidthMethod::Grapheme } else { WidthMethod::CodePoint }
     }
 
     /// The options for rendering on a terminal `width` columns wide with the colours,
@@ -106,6 +108,14 @@ impl TermFacts {
             .with_width_method(self.width_method())
             .with_terminal(self.formats_stdout())
     }
+}
+
+/// True when the output goes through a terminal multiplexer: tmux (`TMUX`), GNU screen
+/// (`STY`) or zellij (`ZELLIJ`) is set (`set` says whether a variable is set), or
+/// `term`, the value of `TERM`, starts with `screen` or `tmux`.
+pub(crate) fn multiplexed(set: impl Fn(&str) -> bool, term: Option<String>) -> bool {
+    ["TMUX", "STY", "ZELLIJ"].into_iter().any(set)
+        || term.is_some_and(|term| term.starts_with("screen") || term.starts_with("tmux"))
 }
 
 /// `options` for a terminal `width` columns wide; everything else stays.

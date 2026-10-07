@@ -1,7 +1,7 @@
 use efr_render::{Colour, ColourMode, Palette, Role, Theme, WidthMethod};
 use pretty_assertions::assert_eq;
 
-use super::{Background, TermFacts, at_width};
+use super::{Background, TermFacts, at_width, multiplexed};
 use crate::settings::Settings;
 use crate::testing::terminal_facts;
 
@@ -64,10 +64,10 @@ fn render_options_carry_every_fact() {
 }
 
 #[test]
-fn ghostty_outside_tmux_counts_widths_by_grapheme_cluster() {
-    let facts = |program: Option<&str>, tmux: bool| TermFacts {
+fn ghostty_outside_a_multiplexer_counts_widths_by_grapheme_cluster() {
+    let facts = |program: Option<&str>, multiplexer: bool| TermFacts {
         term_program: program.map(str::to_owned),
-        tmux,
+        multiplexer,
         ..terminal_facts()
     };
     let table = [
@@ -78,10 +78,31 @@ fn ghostty_outside_tmux_counts_widths_by_grapheme_cluster() {
         (Some("kitty"), false, WidthMethod::CodePoint),
         (None, false, WidthMethod::CodePoint),
     ];
-    for (program, tmux, method) in table {
-        assert_eq!(facts(program, tmux).width_method(), method, "{program:?} tmux={tmux}");
-        let options = facts(program, tmux).render_options(80, &Settings::default());
+    for (program, multiplexer, method) in table {
+        let facts = facts(program, multiplexer);
+        assert_eq!(facts.width_method(), method, "{facts:?}");
+        let options = facts.render_options(80, &Settings::default());
         assert_eq!(options.width_method(), method);
+    }
+}
+
+#[test]
+fn tmux_screen_and_zellij_are_multiplexers_by_their_variables_or_term() {
+    let table: [(&[&str], Option<&str>, bool); 9] = [
+        (&["TMUX"], Some("xterm-ghostty"), true),
+        (&["STY"], Some("xterm-ghostty"), true),
+        (&["ZELLIJ"], Some("xterm-ghostty"), true),
+        // Through ssh the variables stay behind, and TERM still tells.
+        (&[], Some("screen-256color"), true),
+        (&[], Some("tmux-256color"), true),
+        (&[], Some("xterm-ghostty"), false),
+        (&[], None, false),
+        (&["WT_SESSION"], Some("xterm-256color"), false),
+        (&["ZELLIJ_SESSION_NAME"], Some("xterm-256color"), false),
+    ];
+    for (set, term, expected) in table {
+        let multiplexed = multiplexed(|name| set.contains(&name), term.map(str::to_owned));
+        assert_eq!(multiplexed, expected, "{set:?} {term:?}");
     }
 }
 

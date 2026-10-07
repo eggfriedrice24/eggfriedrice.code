@@ -3,7 +3,8 @@
 //! Ghostty 1.2 and later, kitty 0.47 and later and Windows Terminal draw it. Other
 //! terminals read OSC 9 as a desktop notification, so `9;4;3` would pop up a note that
 //! reads "4;3". `render.progress = "auto"` therefore sends it only to the terminals
-//! that are known to draw it, and never through tmux, which may pass it on to anything.
+//! that are known to draw it, and never through a terminal multiplexer (tmux, GNU screen,
+//! zellij), which may pass it on to anything.
 //! No query decides it: a query needs a reply on stdin, which would take the keys that
 //! the user typed ahead for the shell.
 //!
@@ -34,14 +35,15 @@ const GHOSTTY: [u64; 3] = [1, 2, 0];
 const KITTY: [u64; 3] = [0, 47, 0];
 
 /// True when the bar goes out: `on` and `auto` only when replies are formatted (stdout
-/// is a terminal), `auto` only in a terminal that is known to draw it and not in tmux.
+/// is a terminal), `auto` only in a terminal that is known to draw it and not through a
+/// multiplexer.
 pub(crate) fn wanted(setting: Progress, facts: &TermFacts) -> bool {
     if !facts.formats_stdout() {
         return false;
     }
     match setting {
         Progress::On => true,
-        Progress::Auto => !facts.tmux && draws_it(facts),
+        Progress::Auto => !facts.multiplexer && draws_it(facts),
         _ => false,
     }
 }

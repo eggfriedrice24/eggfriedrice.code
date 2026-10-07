@@ -134,8 +134,8 @@ Replies:
   is asked something, `9;4;0` on every way out, and `9;4;2;100` when the turn failed.
   `render.progress = "auto"` sends it only to Ghostty 1.2 or later
   (`TERM_PROGRAM=ghostty` and `TERM_PROGRAM_VERSION`), kitty 0.47 or later
-  (`TERM_PROGRAM=kitty`) and Windows Terminal (`WT_SESSION`), never inside tmux
-  (`TMUX`); other terminals read OSC 9 as a notification. `on` sends it whenever stdout
+  (`TERM_PROGRAM=kitty`) and Windows Terminal (`WT_SESSION`), never through a
+  terminal multiplexer (below); other terminals read OSC 9 as a notification. `on` sends it whenever stdout
   is a terminal, `off` never. No query decides any of this: a query needs a reply on
   stdin, which would take the keys typed ahead for the shell.
 - A tool call is named by what it does: `$ cargo test` for a shell call, `read
@@ -239,9 +239,11 @@ Replies:
   for code blocks and diffs. `theme = "auto"` takes `theme_dark` or `theme_light` as
   `EFR_TERMINAL_BG` says `dark` or `light`; the zsh plugin asks the terminal for its
   background once when it loads and sets the variable. Without it, `auto` takes the
-  dark theme. `efr` itself sends no query. In Ghostty outside tmux (`TERM_PROGRAM` is
-  `ghostty` and `TMUX` is unset) widths count by grapheme cluster, as Ghostty counts
-  them with mode 2027; everywhere else by code point. The live zone's rows, the cut of
+  dark theme. `efr` itself sends no query. In Ghostty outside a terminal multiplexer
+  (`TERM_PROGRAM` is `ghostty`) widths count by grapheme cluster, as Ghostty counts
+  them with mode 2027; everywhere else by code point. A multiplexer counts widths
+  itself and keeps the outer `TERM_PROGRAM`: efr sees one when `TMUX` (tmux), `STY`
+  (GNU screen) or `ZELLIJ` (zellij) is set, or `TERM` starts with `screen` or `tmux`. The live zone's rows, the cut of
   a line to the width and the status row use that count.
 
   `efr-config` reads and checks the whole file with the schema the daemon uses, unknown
@@ -406,8 +408,8 @@ to the width never splits a grapheme cluster), `tracing`, `tracing-subscriber`, 
 line), `signal-hook` (the default action of SIGQUIT, SIGTERM and SIGHUP once `efr`'s own
 handler is installed, without unsafe code).
 
-`NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX` and
-`WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
+`NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX`, `STY`,
+`ZELLIJ` and `WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `HOME` shortens the paths of the
 sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme file.

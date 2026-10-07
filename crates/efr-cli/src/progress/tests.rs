@@ -5,19 +5,20 @@ use super::{version, wanted};
 use crate::terminal::TermFacts;
 use crate::testing::terminal_facts;
 
-/// A terminal with these `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX` and `WT_SESSION`.
-fn facts(program: Option<&str>, version: Option<&str>, tmux: bool, wt: bool) -> TermFacts {
+/// A terminal with these `TERM_PROGRAM` and `TERM_PROGRAM_VERSION`, behind a multiplexer
+/// or not, and with `WT_SESSION` or not.
+fn facts(program: Option<&str>, version: Option<&str>, multiplexer: bool, wt: bool) -> TermFacts {
     TermFacts {
         term_program: program.map(str::to_owned),
         term_program_version: version.map(str::to_owned),
-        tmux,
+        multiplexer,
         wt_session: wt,
         ..terminal_facts()
     }
 }
 
 #[test]
-fn auto_sends_the_bar_only_to_terminals_known_to_draw_it_and_never_through_tmux() {
+fn auto_sends_the_bar_only_to_terminals_known_to_draw_it_and_never_through_a_multiplexer() {
     let cases = [
         (Some("ghostty"), Some("1.3.1"), false, false, true),
         (Some("ghostty"), Some("1.2.0"), false, false, true),
@@ -29,13 +30,16 @@ fn auto_sends_the_bar_only_to_terminals_known_to_draw_it_and_never_through_tmux(
         (Some("kitty"), Some("0.46.2"), false, false, false),
         (Some("WezTerm"), Some("20240203"), false, false, false),
         (Some("tmux"), Some("3.5a"), true, false, false),
+        // GNU screen and zellij keep the outer TERM_PROGRAM.
+        (Some("ghostty"), Some("1.3.1"), true, false, false),
+        (Some("kitty"), Some("0.47.0"), true, false, false),
         (None, None, false, true, true),
         (None, None, true, true, false),
         (Some("vscode"), Some("1.99.0"), false, false, false),
         (None, None, false, false, false),
     ];
-    for (program, version, tmux, wt, expected) in cases {
-        let facts = facts(program, version, tmux, wt);
+    for (program, version, multiplexer, wt, expected) in cases {
+        let facts = facts(program, version, multiplexer, wt);
         assert_eq!(wanted(Progress::Auto, &facts), expected, "{facts:?}");
         assert!(wanted(Progress::On, &facts), "on sends it everywhere: {facts:?}");
         assert!(!wanted(Progress::Off, &facts), "off never sends it: {facts:?}");

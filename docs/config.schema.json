@@ -409,7 +409,7 @@
       "oneOf": [
         {
           "const": "auto",
-          "description": "Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47\nor later, Windows Terminal. Never inside tmux.",
+          "description": "Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47\nor later, Windows Terminal. Never inside tmux, GNU screen or zellij.",
           "type": "string"
         },
         {
@@ -572,7 +572,7 @@
         "progress": {
           "$ref": "#/$defs/Progress",
           "default": "auto",
-          "description": "The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`\n(only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never\ninside tmux), `on` or `off`."
+          "description": "The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`\n(only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never\ninside tmux, GNU screen or zellij), `on` or `off`."
         },
         "theme": {
           "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours. `auto` takes `theme_dark` or `theme_light`, as\nthe terminal's background is dark or light (`EFR_TERMINAL_BG`). A `code_theme`\nin the palette file wins over it.",

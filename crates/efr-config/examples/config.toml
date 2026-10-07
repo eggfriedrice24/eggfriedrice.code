@@ -221,8 +221,8 @@
 # turn_summary = true
 
 # The progress bar of the terminal's tab (OSC 9;4) while a turn runs: auto (only in
-# Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux),
-# on or off.
+# Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux,
+# GNU screen or zellij), on or off.
 # progress = "auto"
 
 [render.colors]
