@@ -46,6 +46,10 @@
 # /proc/<pid>/environ is readable only by this user. The terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
 #
+# When it loads at a terminal, the plugin asks the terminal once for its background
+# colour (OSC 11) and exports EFR_TERMINAL_BG, dark or light, for render.theme = "auto"
+# in efr's config. efr itself never asks the terminal anything.
+#
 # Written from scratch for this project (MIT); it is not derived from any terminal's
 # shell integration.
 
@@ -757,6 +761,58 @@ _efr_precmd() {
   _efr_register_completion
 }
 
+# --- terminal background ----------------------------------------------------------
+
+# Sets EFR_TERMINAL_BG to dark or light, for render.theme = "auto" in efr's config. It
+# asks the terminal once, when the plugin loads: OSC 11 (the background colour), then
+# DA1, which every terminal answers, so its reply marks the end. A background whose
+# luminance (0.299 R + 0.587 G + 0.114 B) is over one half is light. No reply in 200 ms,
+# or none to OSC 11, means dark.
+#
+# efr never asks itself: a reply comes in on stdin, and efr would take the keys that the
+# user typed ahead for the shell. Here no key is lost: there is no question when keys
+# wait already (their reply would come after them), and keys typed while the reply is
+# on its way go back to the line editor. A value set by hand, a re-source, a terminal
+# that is not one or a dumb one ask nothing.
+_efr_probe_background() {
+  emulate -L zsh
+  setopt extended_glob
+  [[ -z ${EFR_TERMINAL_BG-} && -t 0 && -t 1 && ${TERM:-dumb} != dumb ]] || return 0
+  zmodload zsh/zselect 2>/dev/null || return 0
+  zmodload -F zsh/datetime p:EPOCHREALTIME 2>/dev/null || return 0
+  # zselect -t counts hundredths of a second; 0 only looks. It writes what it found to
+  # an array of its own, so it never touches REPLY or reply.
+  local -a ready
+  zselect -a ready -t 0 -r 0 && return 0
+  local saved
+  saved=$(command stty -g 2>/dev/null) || return 0
+  command stty -icanon -echo min 1 time 0 2>/dev/null || return 0
+  print -rn -- $'\e]11;?\e\\\e[c'
+  local answer='' key=''
+  local -F deadline=$(( EPOCHREALTIME + 0.2 )) left
+  local -i hundredths
+  while (( (left = deadline - EPOCHREALTIME) > 0 )); do
+    (( hundredths = left * 100 + 1 ))
+    zselect -a ready -t $hundredths -r 0 || continue
+    read -r -s -k 1 -u 0 key || break
+    answer+=$key
+    [[ $answer == *$'\e['\?[0-9\;]#c ]] && break
+  done
+  command stty $saved 2>/dev/null
+  # What came before the first reply was typed: it goes back to the line editor.
+  local typed=${answer%%$'\e'*}
+  [[ -n $typed ]] && print -rz -- $typed
+  local background=dark
+  if [[ $answer == (#b)*$'\e]11;rgb:'([[:xdigit:]]##)/([[:xdigit:]]##)/([[:xdigit:]]##)* ]]; then
+    local -F red=$(( 16#$match[1] / (16.0 ** $#match[1] - 1) ))
+    local -F green=$(( 16#$match[2] / (16.0 ** $#match[2] - 1) ))
+    local -F blue=$(( 16#$match[3] / (16.0 ** $#match[3] - 1) ))
+    (( 0.299 * red + 0.587 * green + 0.114 * blue > 0.5 )) && background=light
+  fi
+  typeset -gx EFR_TERMINAL_BG=$background
+  return 0
+}
+
 # --- completion -------------------------------------------------------------------
 
 # The arguments of `,mode`, `,model` and `,effort`: `default` and the names that efr
@@ -843,5 +899,6 @@ bindkey -M viins '^@' _efr_toggle_sticky
 add-zsh-hook precmd _efr_precmd
 add-zsh-hook preexec _efr_preexec
 _efr_register_completion
+_efr_probe_background
 
 _efr_available || print -u2 -- "efr.plugin.zsh: efr is not on PATH; the , commands stay inactive until it is installed"

@@ -1535,3 +1535,106 @@ fn e2e_efr_paths_and_the_plugin_find_the_same_runtime_root() {
     let relative = runtime_roots(&home, &[("EFR_RUNTIME_DIR", "named")], &[]);
     assert_eq!(relative, [None, None], "a relative EFR_RUNTIME_DIR gives no root");
 }
+
+/// Drives an interactive zsh on a pseudo-terminal as [`DRIVER`] does, and plays the
+/// terminal's part in the question about the background: after `source` it waits for
+/// the OSC 11 query, types `$EFR_TYPED` (keys typed while the reply is on its way) and
+/// `$EFR_ANSWER` (the terminal's reply; nothing when it is empty), waits for the next
+/// prompt, and prints the variable that the plugin set.
+const PROBE_DRIVER: &str = r#"
+zmodload zsh/zpty || exit 90
+zpty user "TERM=xterm zsh -f -i"
+zpty -r user screen $'*\e\\[\\?2004h*' || exit 91
+print -rn -- "$screen"
+zpty -w -n user "source $EFR_PLUGIN"$'\r'
+zpty -r user screen $'*\e\\]11;\\?*' || exit 92
+print -rn -- "$screen"
+zpty -w -n user "$EFR_TYPED$EFR_ANSWER"
+zpty -r user screen $'*\e\\[\\?2004h*' || exit 93
+print -rn -- "$screen"
+zpty -w -n user $'print -r -- "bg=${EFR_TERMINAL_BG-unset}"\rexit\r'
+while zpty -r user chunk; do print -rn -- "$chunk"; done
+"#;
+
+/// What the terminal showed when it answered the question about the background with
+/// `answer`, after the keys `typed`.
+fn probe(typed: &str, answer: &str) -> String {
+    let home = Home::new();
+    let output = home
+        .zsh()
+        .env("EFR_PLUGIN", plugin())
+        .env("EFR_TYPED", typed)
+        .env("EFR_ANSWER", answer)
+        .args(["-f", "-c", PROBE_DRIVER])
+        .output()
+        .unwrap();
+    let screen = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "the driver failed: {stderr}\n{screen}");
+    screen
+}
+
+/// The value of `EFR_TERMINAL_BG` that a screen printed.
+fn background(screen: &str) -> &str {
+    screen
+        .lines()
+        .find_map(|line| line.trim_end_matches('\r').strip_prefix("bg="))
+        .unwrap_or_else(|| panic!("no bg= line in {screen:?}"))
+}
+
+/// The OSC 11 query of the background colour.
+const QUERY: &str = "\x1b]11;?\x1b\\";
+
+#[test]
+fn e2e_the_terminals_answer_sets_a_dark_or_a_light_background() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let da1 = "\x1b[?62;22c";
+    let light = probe("", &format!("\x1b]11;rgb:ffff/fafa/f0f0\x1b\\{da1}"));
+    assert_eq!(background(&light), "light");
+    assert_eq!(light.matches(QUERY).count(), 1, "one question: {light:?}");
+    // A reply that ends with BEL and two digits a colour counts the same.
+    assert_eq!(background(&probe("", &format!("\x1b]11;rgb:1e/1e/2e\x07{da1}"))), "dark");
+    assert_eq!(background(&probe("", &format!("\x1b]11;rgb:c0c0/c0c0/c0c0\x07{da1}"))), "light");
+    // A terminal that does not know OSC 11 answers only DA1.
+    assert_eq!(background(&probe("", da1)), "dark");
+}
+
+#[test]
+fn e2e_without_a_reply_the_background_is_dark_after_a_short_wait() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    assert_eq!(background(&probe("", "")), "dark");
+}
+
+#[test]
+fn e2e_keys_typed_while_the_reply_is_on_its_way_stay_for_the_shell() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let answer = "\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b[?62;22c";
+    let screen = probe("echo typed-", answer);
+    // The typed keys start the next line, and what follows joins them.
+    assert!(screen.contains("typed-print -r -- bg=light"), "{screen:?}");
+}
+
+#[test]
+fn e2e_no_question_without_a_terminal_with_keys_waiting_or_with_a_value_set() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let out = run_in(&home, r#"print -r -- "bg=${EFR_TERMINAL_BG-unset}""#);
+    assert_eq!(out, "bg=unset\n");
+    // Keys typed ahead wait in the input, so the plugin asks nothing.
+    let screen = type_lines(&Home::new(), &[r#"print -r -- "bg=${EFR_TERMINAL_BG-unset}""#]);
+    assert!(!screen.contains(QUERY), "{screen:?}");
+    assert_eq!(background(&screen), "unset");
+    let set = [("EFR_TERMINAL_BG", "light")];
+    let screen =
+        type_lines_with(&Home::new(), &set, &[r#"print -r -- "bg=${EFR_TERMINAL_BG-unset}""#]);
+    assert!(!screen.contains(QUERY), "{screen:?}");
+    assert_eq!(background(&screen), "light");
+}
