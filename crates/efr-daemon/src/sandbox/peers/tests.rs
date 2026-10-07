@@ -1,6 +1,7 @@
 //! The model-side peer check on real processes: a child tree stands in for a hidden
-//! zsh, its descendants and its session.
+//! zsh, its descendants and its session. The ends of the walk run over a table.
 
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -125,4 +126,45 @@ fn gone_pid_gets_read_only() {
     // pid_max is at most 2^22, so this pid never exists.
     assert_eq!(side(Some(4_194_305), &[], own), PeerSide::Unknown);
     assert_eq!(side(None, &[], own), PeerSide::Unknown);
+}
+
+/// A process table: pid to `(parent, session)`.
+struct Table(HashMap<u32, (u32, u32)>);
+
+impl super::Processes for Table {
+    fn parent(&self, pid: u32) -> Option<u32> {
+        self.0.get(&pid).map(|(parent, _)| *parent)
+    }
+
+    fn session(&self, pid: u32) -> Option<u32> {
+        self.0.get(&pid).map(|(_, session)| *session)
+    }
+}
+
+/// efrd is 50, below 1; a hidden shell is 60, below efrd. The peer is the bottom of a
+/// line of `len` processes from 1000 up, whose top has `top` as its parent. Every
+/// process is in session 7, so only the walk decides.
+fn table(len: u32, top: u32) -> Table {
+    let mut procs = HashMap::from([(1, (0, 1)), (50, (1, 7)), (60, (50, 7))]);
+    for pid in 1000..1000 + len {
+        let parent = if pid == 1000 + len - 1 { top } else { pid + 1 };
+        procs.insert(pid, (parent, 7));
+    }
+    Table(procs)
+}
+
+#[test]
+fn the_walk_clears_a_peer_only_at_the_top_or_efrds_own_chain() {
+    let peer = Some(1000);
+    let side = |table: &Table| super::side_in(table, peer, &[60], 50);
+    // The top of the tree, a parent outside efrd's pid namespace and efrd's own chain.
+    assert_eq!(side(&table(3, 1)), PeerSide::User);
+    assert_eq!(side(&table(3, 0)), PeerSide::User);
+    assert_eq!(side(&table(3, 50)), PeerSide::User);
+    assert_eq!(side(&table(3, 60)), PeerSide::ModelSide);
+    // A parent that is gone, and a line longer than the walk follows, are unclear.
+    assert_eq!(side(&table(3, 999)), PeerSide::Unknown);
+    let deep = u32::try_from(super::MAX_DEPTH).unwrap() + 10;
+    assert_eq!(side(&table(deep, 1)), PeerSide::Unknown);
+    assert_eq!(side(&table(deep, 60)), PeerSide::Unknown);
 }
