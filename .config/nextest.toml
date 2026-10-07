@@ -11,8 +11,11 @@ final-status-level = "slow"
 # The launch cost gate of efr-sbx runs 2100 sandbox launches one after the other with
 # EFR_TEST_SBX_GATE=1. In the VM of CI's sandbox job, a launch costs about 30 ms, so
 # the test needs more than the default minute. Each call has its own limit of 120 s.
+# The corpus run of efr-sbx compares about 40 routine lines in the sandbox with the same
+# lines outside it, cargo builds among them. Under nested virtualization in the same VM
+# it takes more than a minute too.
 [[profile.default.overrides]]
-filter = 'binary_id(efr-sbx::it) & test(/^cost::/)'
+filter = 'binary_id(efr-sbx::it) & test(/^(cost|corpus)::/)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
 [test-groups]
