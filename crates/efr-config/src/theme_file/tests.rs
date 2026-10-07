@@ -27,6 +27,58 @@ diff.remove = "#e05d4f"
 diff.hunk = "#7fb4ca"
 "##;
 
+/// The exact shape of the file that the eggfriedrice.nvim extra generates
+/// (`extras/efr/eggfriedrice.toml`): comments, a relative code theme, and the diff roles
+/// as bare dotted keys. A change on either side must keep this test green.
+const GENERATED: &str = r##"# eggfriedrice for efr
+# generated from lua/eggfriedrice/colors.lua by `make extras`; do not edit by hand
+# install: set `palette = "/path/to/eggfriedrice.toml"` under [render] in ~/.config/efr/config.toml
+
+# Code and diffs use the bat theme of this repository. efr reads a relative path
+# from the directory of this file; in a copy, use an absolute path.
+code_theme = "../bat/eggfriedrice.tmTheme"
+
+[colors]
+text = "#d8d3c3"
+muted = "#a8a396"
+accent = "#ffc940"
+heading = "#ffc940"
+link = "#c084fc"
+code = "#78e2d6"
+success = "#60e654"
+warning = "#ffc940"
+error = "#e06c75"
+quote = "#8695b7"
+diff.add = "#60e654"
+diff.remove = "#e06c75"
+diff.hunk = "#78e2d6"
+"##;
+
+#[test]
+fn the_generated_design_system_file_reads_with_every_role_and_its_code_theme() {
+    let path = "/home/u/eggfriedrice.nvim/extras/efr/eggfriedrice.toml";
+    let file = ThemeFile::parse(Path::new(path), GENERATED).unwrap();
+    let colors = file.colors.colors();
+    assert_eq!(colors.len(), 13);
+    assert_eq!(colors[1], ("muted", RoleColor::Rgb(0xa8, 0xa3, 0x96)));
+    assert_eq!(colors[10], ("diff.add", RoleColor::Rgb(0x60, 0xe6, 0x54)));
+    assert_eq!(colors[11], ("diff.remove", RoleColor::Rgb(0xe0, 0x6c, 0x75)));
+    assert_eq!(colors[12], ("diff.hunk", RoleColor::Rgb(0x78, 0xe2, 0xd6)));
+    assert_eq!(
+        file.code_theme_path(Path::new("/home/u")),
+        Some(PathBuf::from("/home/u/eggfriedrice.nvim/extras/efr/../bat/eggfriedrice.tmTheme"))
+    );
+}
+
+#[test]
+fn a_quoted_dotted_role_is_one_unknown_key() {
+    let text = "[colors]\n\"diff.add\" = \"#60e654\"\n";
+    let error = ThemeFile::parse(Path::new(PATH), text).unwrap_err();
+    assert!(matches!(error, ConfigError::ThemeParse { .. }), "{error:?}");
+    let message = error.file_error().message;
+    assert!(message.contains("unknown field `diff.add`"), "{message}");
+}
+
 #[test]
 fn a_hex_theme_file_sets_every_role() {
     let file = ThemeFile::parse(Path::new(PATH), HEX).unwrap();
