@@ -414,8 +414,6 @@ pub(crate) struct TurnView {
     progress_sent: Option<&'static str>,
     /// The cursor is hidden.
     cursor_hidden: bool,
-    /// The time of the last frame.
-    last_frame: Option<Timestamp>,
     /// The daemon's time of the event that is being taken, and of the turn's start.
     event_at: Option<Timestamp>,
     started_at: Option<Timestamp>,
@@ -465,7 +463,6 @@ impl TurnView {
             end_progress: None,
             progress_sent: None,
             cursor_hidden: false,
-            last_frame: None,
             event_at: None,
             started_at: None,
             draft_boundary: None,
@@ -609,13 +606,9 @@ impl TurnView {
         if !self.terminal() {
             return String::new();
         }
-        let since_frame = self
-            .last_frame
-            .map(|last| Duration::try_from(now.duration_since(last)).unwrap_or_default());
-        self.last_frame = Some(now);
         if let Some(message) = &mut self.message {
-            let revealed = message.reveal(now, since_frame);
-            self.pending.push_str(&revealed);
+            let committed = message.push_all();
+            self.pending.push_str(&committed);
         }
         let committed = std::mem::take(&mut self.pending);
         self.dirty = false;

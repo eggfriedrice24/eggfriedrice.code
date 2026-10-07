@@ -98,11 +98,9 @@ Replies:
   nothing. A steer or an interrupt request moves nothing: the conversation records
   them, not the turn, so the drafts after them still name the turn's own last event. An older
   daemon sends no drafts, and the text then comes with the persisted updates.
-- Text goes into the renderer at the pace of the frames: a burst is shown over the time
-  until the next one is due, at most 120 ms, so a 200 ms update reads as a stream. All
-  of it shows at once when 8 lines or more wait, when the oldest text waited 120 ms, and
-  when the message ends. What streams is still what `efr_render::render` makes of the
-  whole text.
+- All text that arrived goes into the renderer at the next frame, so it shows within
+  one frame of its arrival; nothing holds it back to pace it. What streams is what
+  `efr_render::render` makes of the whole text.
 - While a turn runs on a terminal, the last row of the live zone is the status row:
   a braille spinner (one frame each 100 ms) in the `accent` role, the state in the
   `muted` role, and from 1 s on the time since `turn_started` (`12s`, `1m 05s`,

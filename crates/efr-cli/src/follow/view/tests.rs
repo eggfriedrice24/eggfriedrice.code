@@ -1787,9 +1787,8 @@ fn a_dropped_draft_heals_at_the_next_persisted_update() {
     let gap = view.frame(SIZE, at(32));
     assert!(!gap.contains("three"), "{}", readable(&gap));
     view.envelope(&sent(12, 200, updated(0, "one two three ")), SIZE, false);
-    // The update shows over the time until the next one is due, at most 120 ms.
-    let mut healed = view.frame(SIZE, at(200));
-    healed.push_str(&view.frame(SIZE, at(320)));
+    // The update shows whole in the next frame.
+    let healed = view.frame(SIZE, at(200));
     assert!(
         healed
             .ends_with("one two three\n\x1b[33m\u{2022}\x1b[0m \x1b[2mwriting\x1b[0m\n\x1b[?2026l"),
