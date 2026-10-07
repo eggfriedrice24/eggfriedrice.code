@@ -15,14 +15,20 @@ Modules:
   environment and inherits nothing from the holder process. `SpawnSpec::validate`
   checks all of that, and holders call it before they open anything, because a spec
   that arrives over a socket bypasses the constructor. `Debug` shows environment names
-  without their values.
-- `holder`: the `PtyHolder` trait (`spawn`, `resize`, `signal`, `list`, `wait`,
-  `release`), dyn-compatible through `async-trait`, and `PtyHandle { master: OwnedFd,
-  child_pid, pty_id }`. The holder owns and reaps the child; the caller owns the master
-  and closes it by dropping the handle. `wait` answers once the holder has reaped the
-  child, with how it ended, so the caller gets the exit status after the master read
-  ends without polling `list` on a clock. The master is an `OwnedFd` from the first line, so no raw
-  descriptor number crosses a crate boundary.
+  without their values. `child_subreaper` (default false, left out of the wire when
+  false) asks the holder to make the child a child subreaper before it starts the
+  program, so that orphans of the child's descendants stay in its process tree. The
+  hidden zsh asks for it for the `auto` sandbox.
+- `holder`: the `PtyHolder` trait (`spawn`, `resize`, `signal`, `list`, `foreground`,
+  `wait`, `release`), dyn-compatible through `async-trait`, and `PtyHandle { master:
+  OwnedFd, child_pid, pty_id }`. The holder owns and reaps the child; the caller owns
+  the master and closes it by dropping the handle. `wait` answers once the holder has
+  reaped the child, with how it ended, so the caller gets the exit status after the
+  master read ends without polling `list` on a clock. `foreground` gives the PTY's
+  foreground process group (`tcgetpgrp` on the master), or `None` when there is none:
+  `efr-shell` ends a sandboxed run only when its shell holds the terminal again. The
+  master is an `OwnedFd` from the first line, so no raw descriptor number crosses a
+  crate boundary.
 - `signal`: `Signal` (hangup, interrupt, quit, terminate, kill) and `SignalTarget`
   (the child, or the PTY's foreground process group). The holder maps them to the
   platform's numbers.

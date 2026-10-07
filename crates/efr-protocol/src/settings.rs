@@ -10,7 +10,7 @@ use std::str::FromStr;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::ProtocolError;
+use crate::{ModeFallback, ProtocolError};
 
 /// The permission mode of a turn: the base policy, which the user's own rules follow and
 /// win over where they match.
@@ -44,8 +44,12 @@ pub enum Mode {
     /// default.
     #[default]
     Cautious,
-    /// `cautious` plus a curated list: writes in the project and `$SCRATCH`, the
-    /// project's builds and tests, and local git. General network access still asks.
+    /// Shell commands run at once in a kernel sandbox (bubblewrap, Landlock and
+    /// seccomp): they can write only in the turn's project, the registered projects
+    /// that the command names, `$SCRATCH`, a private `/tmp` and private tool caches, and
+    /// they have no network. An action that leaves the sandbox is an exit, and the user
+    /// answers it. When the sandbox is not available, a turn runs as `cautious` and
+    /// [`EffectiveSettings::fallback`] says why.
     Auto,
 }
 
@@ -125,6 +129,11 @@ pub struct EffectiveSettings {
     /// did.
     #[serde(default, skip_serializing_if = "OverriddenSettings::is_empty")]
     pub overridden: OverriddenSettings,
+    /// Why the turn runs with a stricter mode than it asked for, such as `auto` without
+    /// a working sandbox; `mode` is the mode it runs with. Absent when it runs with the
+    /// mode it asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<ModeFallback>,
 }
 
 /// Which of a turn's [`EffectiveSettings`] the prompt set; the others are the config's.

@@ -16,10 +16,15 @@ Where things are:
 | File | Holds |
 |---|---|
 | `src/version.rs` | `PROTOCOL_VERSION` |
-| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
+| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
 | `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state |
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
+| `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `CacheMode`, `NetworkMode`, `ModeFallback` |
+| `src/sandbox/exit.rs` | `ExitKind`, `ExitSource`, `Needs` (the shell tool's `needs` input and its schema), `ExitInfo` |
+| `src/sandbox/record.rs` | the classifier's `ExitRecord` and its facts, `PathClassName`, `Judgement`, `Verdict`, `Risk`, `UserAuthorization`, `JudgeKind` |
+| `src/sandbox/status.rs` | the probe's `SandboxStatus`, `SandboxCheck`, `CheckOutcome`, `SandboxPaths` |
+| `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary`, `Blocked`, `BlockReason`, `SurfaceChange`, `ReportedFile` |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |

@@ -57,11 +57,11 @@ pub enum Origin {
 ///
 /// | Scope | Allows | Phone default |
 /// |---|---|---|
-/// | `read` | `hello`, list, subscribe, history, `lease.report`, `models.list` | yes |
+/// | `read` | `hello`, list, subscribe, history, `lease.report`, `models.list`, `sandbox.explain` | yes |
 /// | `operate` | send prompts, interrupt, steer | yes |
-/// | `approve` | answer approvals | yes |
+/// | `approve` | answer approvals and quarantine questions | yes |
 /// | `terminal` | attach to, write to and resize a PTY | no, an explicit opt-in |
-/// | `admin` | status, login, config reload, the project registry, and later enrollment and settings | never; Unix socket only |
+/// | `admin` | status, login, config reload, the project registry, the sandbox check, and later enrollment and settings | never; Unix socket only |
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]

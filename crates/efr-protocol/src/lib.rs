@@ -1,8 +1,9 @@
 //! The efr wire contract: everything that the daemon and its clients exchange.
 //!
 //! Frames, the `Method` enum with one params type per method, results and stream items,
-//! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, screen
-//! snapshots, wire errors, the pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
+//! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
+//! sandbox's launches, grants, exits and reports, screen snapshots, wire errors, the
+//! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
 //! reads `docs/protocol.md` and the frozen fixtures in `fixtures/v1/`.
 //!
@@ -25,6 +26,7 @@ pub mod framing;
 mod ids;
 mod method;
 mod methods;
+mod sandbox;
 #[cfg(feature = "schema")]
 pub mod schema;
 mod scope;
@@ -39,13 +41,15 @@ pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, Usage};
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
-    CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, RequestId, Seq, TurnId,
+    CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId, RequestId, Seq,
+    TurnId,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
 pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
 pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
+pub use methods::admin_sandbox_check::{AdminSandboxCheck, AdminSandboxCheckResult};
 pub use methods::admin_status::{
     AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
 };
@@ -68,9 +72,19 @@ pub use methods::prompt_send::{PromptSend, PromptSendResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
+pub use methods::sandbox_explain::{SandboxExplain, SandboxExplainResult, SandboxPathRole};
+pub use methods::sandbox_surface_respond::{SandboxSurfaceRespond, SandboxSurfaceRespondResult};
 pub use methods::turn_interrupt::{TurnInterrupt, TurnInterruptResult};
 pub use methods::turn_steer::{TurnSteer, TurnSteerResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
+pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
+pub use sandbox::record::{
+    ActionFacts, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement, PathClassName,
+    ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
+};
+pub use sandbox::status::{CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
+pub use sandbox::summary::{BlockReason, Blocked, ReportedFile, SandboxSummary, SurfaceChange};
+pub use sandbox::{BusKind, CacheMode, Grant, Launch, ModeFallback, NetworkMode};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_text::SecretText;

@@ -9,8 +9,12 @@ The tools the model calls, and the registry that offers them.
   `requirements(ctx, input)`, `preview(ctx, input)` (what a call would change, for
   its approval; none by default) and `invoke(ctx, input, out)`.
 - `ToolRequirements`: every path a call touches with its `AccessMode` (read, read with
-  everything below, or write), the command line it runs, and whether it talks to the
-  network or may wait for input at the terminal. `requirements` is pure: paths are
+  everything below, or write), the command line it runs, whether it talks to the
+  network or may wait for input at the terminal, and, for the shell tool, the model's
+  `needs` (`efr_protocol::Needs`) and whether the line goes to a nested shell
+  (`nested`), which the engine reads in the `auto` mode. The daemon adds the facts
+  about the line's files and programs (`efr_permissions::CallFacts`) when it copies
+  them into the engine's requirements, because this crate cannot name that type. `requirements` is pure: paths are
   resolved lexically (`~` and `~/` under the home directory, relative paths under the
   user's working directory, or the hidden shell's for a command, `.` and `..` folded),
   so the conversation can ask before anything runs. Its `Debug` shows the command's
@@ -33,9 +37,12 @@ The tools the model calls, and the registry that offers them.
   forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`), and
   `interactive_limit`, set for a call that the user approved because it may wait for
   input (`shell.interactive_timeout_minutes`), which the shell tool passes on as
-  `RunRequest::interactive_limit`.
-- `ToolResult`: the output the model sees, the truncation flag, the error flag and the
-  exit code; `ToolOutputSink` hears a call's output while it runs, each change of
+  `RunRequest::interactive_limit`, and `sandbox` (`efr_shell::SandboxRun`), set for
+  a shell call of the `auto` mode that the daemon prepared for the sandbox's launcher,
+  which the shell tool passes on as `RunRequest::sandbox`.
+- `ToolResult`: the output the model sees, the truncation flag, the error flag, the
+  exit code, and for a call through the sandbox's launcher its summary (names only)
+  and whether the sandbox could not start, so the daemon checks the sandbox again; `ToolOutputSink` hears a call's output while it runs, each change of
   whether its command waits for input with whether a visible prompt looks like a
   password prompt behind a relay (`input_changed`, ignored by default), and is asked
   whether a person can answer hidden input now (`can_answer_hidden`, true by default)
@@ -49,8 +56,18 @@ The tools:
 
 - `ShellTool` (`shell`) runs a command line in the conversation's hidden zsh through
   `efr_shell::CommandRunner` (the daemon passes its `ShellSessions`). Input:
-  `command`, `timeout_seconds` (default 30, at most 600) and `nested_shell` (sentinel
-  mode, for a `sudo -i`, `bash` or `ssh` started inside the hidden shell). A new shell
+  `command`, `timeout_seconds` (default 30, at most 600), `nested_shell` (sentinel
+  mode, for a `sudo -i`, `bash` or `ssh` started inside the hidden shell; the `auto`
+  mode refuses it) and `needs` (what a command needs beyond the `auto` sandbox, with
+  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`). After
+  a run through the sandbox's launcher, the answer names what `result.json` reports:
+  the sandbox note after a contained command that failed, the exports that stay in the
+  sandbox or were dropped, the background jobs that stopped, the hosts that the proxy
+  refused, the git settings that the launcher moved away, a shell directory that the
+  sandbox hides and a state that was not kept. A sandbox that could not start says
+  why (`Completion::SandboxFailed`, from `setup_error` only), and a contained command
+  that asked for a secret is told to ask with `needs.outside`. Names only, never values;
+  efr never reads the output for a denial, because the command wrote it. A new shell
   starts in the user's working directory. It declares the command line, `interactive`
   when a program of the line may wait for input (`sudo`, `ssh`, an editor, a pager) or
   the call targets a nested shell, and `network` when a program usually reaches the
@@ -168,3 +185,12 @@ with symbolic links made where a test needs one); the shell tool runs against a 
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
 shell, uses the network or touches the user's home.
+
+One test reads a file of another crate on purpose:
+`src/shell_tool/tests/corpus.rs` compiles in `efr-permissions`'
+`tests/fixtures/auto-corpus.toml`, the `auto` corpus, and checks that the shell tool
+declares for each line what that fixture says it declares. The engine's corpus test
+then judges what the daemon really passes it. The test reads only the keys of the
+declaration, so a change to the engine's other keys does not break it. The code of
+this crate still does not depend on `efr-permissions`; the test needs that crate's
+directory in the checkout.

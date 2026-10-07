@@ -4,11 +4,13 @@
 //! stream offset: libghostty-vt keeps only per-row prompt state, and vt100 handles
 //! only OSC 0, 1, 2 and 52. So the actor runs a [`ShellMarkScanner`] over every chunk
 //! before the backend sees it, and every backend gets the same marks with the same
-//! recording offsets. Three small parts: `osc_frames` finds complete OSC sequences,
-//! `semantic_prompt` reads OSC 133 and `cwd_report` reads OSC 7.
+//! recording offsets. Four small parts: `osc_frames` finds complete OSC sequences,
+//! `semantic_prompt` reads OSC 133, `sandbox_end` reads efr's own OSC 133 end mark of a
+//! sandboxed call, and `cwd_report` reads OSC 7.
 
 mod cwd_report;
 mod osc_frames;
+mod sandbox_end;
 mod semantic_prompt;
 
 use std::path::PathBuf;
@@ -42,6 +44,14 @@ pub enum ShellMarkKind {
         host: Option<String>,
         /// The absolute path, decoded from the URL.
         path: PathBuf,
+    },
+    /// efr's end mark of a sandboxed call, `ESC ] 133 ; efr-sbx ; <nonce> BEL`, with
+    /// the nonce as 32 lowercase hex digits. Only the trusted wrapper in the hidden
+    /// shell prints it, after the call's launcher returned; the scanner only reads it,
+    /// and `efr-shell` compares the nonce with the call's own.
+    SandboxEnd {
+        /// The nonce: 128 bits.
+        nonce: [u8; 16],
     },
 }
 
@@ -92,6 +102,9 @@ fn classify(body: &[u8]) -> Option<ShellMarkKind> {
     let (number, rest) = body.split_at(separator);
     let data = &rest[1..];
     match number {
+        b"133" if data.starts_with(sandbox_end::PREFIX) => {
+            sandbox_end::parse(data).map(|nonce| ShellMarkKind::SandboxEnd { nonce })
+        }
         b"133" => semantic_prompt::parse(data).map(ShellMarkKind::SemanticPrompt),
         b"7" => cwd_report::parse(data)
             .map(|report| ShellMarkKind::CwdChanged { host: report.host, path: report.path }),

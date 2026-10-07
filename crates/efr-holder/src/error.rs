@@ -115,6 +115,16 @@ pub enum HolderError {
         source: io::Error,
     },
 
+    /// Reading the foreground process group of a PTY failed.
+    #[error("could not read the foreground process group of the PTY {pty_id}")]
+    Foreground {
+        /// The PTY.
+        pty_id: PtyId,
+        /// The error from the operating system.
+        #[source]
+        source: io::Error,
+    },
+
     /// Releasing a PTY failed.
     #[error("could not release the PTY {pty_id}")]
     Release {
@@ -163,6 +173,7 @@ impl HolderError {
             HolderError::Spawn { .. } => HolderErrorCode::SpawnFailed,
             HolderError::Resize { .. }
             | HolderError::Signal { .. }
+            | HolderError::Foreground { .. }
             | HolderError::Release { .. } => HolderErrorCode::Os,
             HolderError::ProtocolMismatch { .. } => HolderErrorCode::ProtocolMismatch,
             HolderError::Remote { code, .. } => *code,

@@ -47,6 +47,17 @@ pub trait PtyHolder: Send + Sync + fmt::Debug {
     /// has exited but which nobody has released.
     async fn list(&self) -> Result<Vec<PtyInfo>, HolderError>;
 
+    /// The process group in the foreground of the PTY (`tcgetpgrp` on the master), in
+    /// the holder's process id namespace. The child is a session leader, so the group
+    /// is the child's pid while the child itself holds the terminal, and another
+    /// number while a job of the child does.
+    ///
+    /// `efr-shell` ends a sandboxed run only when its shell holds the terminal again,
+    /// a fact that sandboxed code cannot fake. `None` when the terminal has no
+    /// foreground group, also after the child has exited. Fails with
+    /// [`HolderError::NotFound`] when no PTY with the id is held.
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError>;
+
     /// Waits until the holder has reaped the child of a PTY and returns how it ended,
     /// at once when it was reaped already. It never returns [`ChildStatus::Running`].
     ///

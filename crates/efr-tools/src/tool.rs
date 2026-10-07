@@ -2,9 +2,10 @@
 
 use std::fmt;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::InputWait;
+use efr_protocol::{InputWait, Needs, SandboxSummary};
 use efr_scope::Home;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -140,6 +141,15 @@ pub struct ToolRequirements {
     /// True when the call may wait for input at the terminal, such as a `sudo`
     /// password.
     pub interactive: bool,
+    /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
+    /// Only the `auto` mode reads it.
+    pub needs: Option<Needs>,
+    /// True when the call types its line into a shell that runs inside the hidden one
+    /// (the shell tool's `nested_shell`), which the `auto` mode refuses.
+    pub nested: bool,
+    /// How long the call may wait for its command, for a tool that runs one. The daemon
+    /// waits no longer than this for the hidden shell before it plans a sandboxed call.
+    pub timeout: Option<Duration>,
 }
 
 impl ToolRequirements {
@@ -223,6 +233,27 @@ impl ToolRequirements {
         self.interactive = interactive;
         self
     }
+
+    /// Sets what the model asks for beyond the `auto` sandbox.
+    #[must_use]
+    pub fn with_needs(mut self, needs: Option<Needs>) -> Self {
+        self.needs = needs;
+        self
+    }
+
+    /// Sets whether the call types its line into a nested shell.
+    #[must_use]
+    pub fn with_nested(mut self, nested: bool) -> Self {
+        self.nested = nested;
+        self
+    }
+
+    /// Sets how long the call may wait for its command.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
 }
 
 impl fmt::Debug for ToolRequirements {
@@ -233,6 +264,9 @@ impl fmt::Debug for ToolRequirements {
             .field("command_dir", &self.command_dir)
             .field("network", &self.network)
             .field("interactive", &self.interactive)
+            .field("needs", &self.needs)
+            .field("nested", &self.nested)
+            .field("timeout", &self.timeout)
             .finish()
     }
 }
@@ -258,12 +292,31 @@ pub struct ToolResult {
     pub is_error: bool,
     /// The exit status, for a tool that runs a command.
     pub exit_code: Option<i32>,
+    /// What a call through the `auto` sandbox's launcher reported: names only, never
+    /// values. `None` for a call that did not run through the launcher, or whose
+    /// launcher wrote no result.
+    pub sandbox: Option<SandboxSummary>,
+    /// True when a call through the launcher could not start: the sandbox failed, not
+    /// the command, so the daemon checks the sandbox again.
+    pub sandbox_failed: bool,
+    /// True when a process of the call may still hold the hidden shell's terminal: a
+    /// launcher lost after it started the command, or a survivor of an approved exit.
+    /// The daemon closes that shell, and the next call starts a new one.
+    pub shell_tainted: bool,
 }
 
 impl ToolResult {
     /// A successful result.
     pub fn ok(output: impl Into<String>) -> Self {
-        ToolResult { output: output.into(), truncated: false, is_error: false, exit_code: None }
+        ToolResult {
+            output: output.into(),
+            truncated: false,
+            is_error: false,
+            exit_code: None,
+            sandbox: None,
+            sandbox_failed: false,
+            shell_tainted: false,
+        }
     }
 
     /// A failed result: the model reads `output` and decides what to do next.
@@ -289,6 +342,27 @@ impl ToolResult {
     #[must_use]
     pub fn with_exit_code(mut self, exit_code: Option<i32>) -> Self {
         self.exit_code = exit_code;
+        self
+    }
+
+    /// Sets what the sandbox's launcher reported.
+    #[must_use]
+    pub fn with_sandbox(mut self, sandbox: Option<SandboxSummary>) -> Self {
+        self.sandbox = sandbox;
+        self
+    }
+
+    /// Marks the call as one whose sandbox could not start.
+    #[must_use]
+    pub fn with_sandbox_failed(mut self, failed: bool) -> Self {
+        self.sandbox_failed = failed;
+        self
+    }
+
+    /// Marks the hidden shell as one that a process of the call may still hold.
+    #[must_use]
+    pub fn with_shell_tainted(mut self, tainted: bool) -> Self {
+        self.shell_tainted = tainted;
         self
     }
 }

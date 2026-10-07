@@ -46,6 +46,14 @@ pub enum ToolError {
         source: serde_json::Error,
     },
 
+    /// The shell call's `needs` asks for more than its limits allow.
+    #[error("the needs of the shell call ask for more than the tool allows")]
+    InvalidNeeds {
+        /// Which limit.
+        #[source]
+        source: efr_protocol::ProtocolError,
+    },
+
     /// The call named an empty path.
     #[error("the path is empty")]
     EmptyPath,

@@ -4,10 +4,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminStatus,
-    ApprovalRespond, CommandId, ConversationHistory, ConversationSubscribe, ConversationsList,
-    Hello, InputRespond, LeaseReport, ModelsList, ProjectsList, PromptSend, PtyAttach, PtyResize,
-    PtyWrite, ScopeName, TurnInterrupt, TurnSteer,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
+    AdminStatus, ApprovalRespond, CommandId, ConversationHistory, ConversationSubscribe,
+    ConversationsList, Hello, InputRespond, LeaseReport, ModelsList, ProjectsList, PromptSend,
+    PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName,
+    TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -84,6 +85,15 @@ pub enum Method {
     /// only).
     #[serde(rename = "admin.login_openai")]
     AdminLoginOpenAi(AdminLoginOpenAi),
+    /// `sandbox.explain`: what the `auto` sandbox does with one path.
+    #[serde(rename = "sandbox.explain")]
+    SandboxExplain(SandboxExplain),
+    /// `sandbox.surface_respond`: answer the question about a quarantined git setting.
+    #[serde(rename = "sandbox.surface_respond")]
+    SandboxSurfaceRespond(SandboxSurfaceRespond),
+    /// `admin.sandbox_check`: run the sandbox probe now (Unix socket only).
+    #[serde(rename = "admin.sandbox_check")]
+    AdminSandboxCheck(AdminSandboxCheck),
 }
 
 impl Method {
@@ -111,6 +121,9 @@ impl Method {
             Method::AdminStatus(_) => "admin.status",
             Method::AdminConfigReload(_) => "admin.config_reload",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
+            Method::SandboxExplain(_) => "sandbox.explain",
+            Method::SandboxSurfaceRespond(_) => "sandbox.surface_respond",
+            Method::AdminSandboxCheck(_) => "admin.sandbox_check",
         }
     }
 
@@ -123,6 +136,7 @@ impl Method {
             Method::TurnInterrupt(params) => Some(params.command_id),
             Method::TurnSteer(params) => Some(params.command_id),
             Method::ApprovalRespond(params) => Some(params.command_id),
+            Method::SandboxSurfaceRespond(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -138,7 +152,9 @@ impl Method {
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
-            | Method::AdminLoginOpenAi(_) => None,
+            | Method::AdminLoginOpenAi(_)
+            | Method::SandboxExplain(_)
+            | Method::AdminSandboxCheck(_) => None,
         }
     }
 
@@ -165,7 +181,10 @@ impl Method {
             | Method::AdminProjectAdd(_)
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
-            | Method::AdminConfigReload(_) => false,
+            | Method::AdminConfigReload(_)
+            | Method::SandboxExplain(_)
+            | Method::SandboxSurfaceRespond(_)
+            | Method::AdminSandboxCheck(_) => false,
         }
     }
 }
@@ -173,8 +192,8 @@ impl Method {
 impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
-    /// `hello`, `lease.report`, `models.list` and `projects.list` need only `read`,
-    /// which every connection holds. Adding or removing a project changes what the
+    /// `hello`, `lease.report`, `models.list`, `projects.list` and `sandbox.explain` need
+    /// only `read`, which every connection holds. Adding or removing a project changes what the
     /// `auto` mode trusts, so it needs `admin`, which a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
@@ -184,11 +203,13 @@ impl ScopeName {
             | Method::ConversationHistory(_)
             | Method::LeaseReport(_)
             | Method::ModelsList(_)
-            | Method::ProjectsList(_) => ScopeName::Read,
+            | Method::ProjectsList(_)
+            | Method::SandboxExplain(_) => ScopeName::Read,
             Method::PromptSend(_) | Method::TurnInterrupt(_) | Method::TurnSteer(_) => {
                 ScopeName::Operate
             }
-            Method::ApprovalRespond(_) => ScopeName::Approve,
+            // A quarantine question is answered like an approval, by the user.
+            Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.
             Method::PtyAttach(_)
             | Method::PtyWrite(_)
@@ -198,7 +219,8 @@ impl ScopeName {
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
-            | Method::AdminLoginOpenAi(_) => ScopeName::Admin,
+            | Method::AdminLoginOpenAi(_)
+            | Method::AdminSandboxCheck(_) => ScopeName::Admin,
         }
     }
 }

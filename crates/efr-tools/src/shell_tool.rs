@@ -6,16 +6,17 @@ mod reads;
 mod words;
 mod writes;
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::InputWait;
+use efr_protocol::{InputWait, Needs, SandboxSummary};
 use efr_shell::{
     CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunProgress, RunRequest,
     ShellError,
 };
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -35,9 +36,38 @@ struct ShellInput {
     #[serde(default)]
     timeout_seconds: Option<u64>,
     /// True to type the command into a shell that runs inside the hidden one (one you
-    /// started with `sudo -i`, `bash` or `ssh`), which has no efr integration.
+    /// started with `sudo -i`, `bash` or `ssh`), which has no efr integration. The auto
+    /// mode refuses it.
     #[serde(default)]
     nested_shell: bool,
+    /// Only in the auto mode, after a command failed in the sandbox because it needs
+    /// more: the paths to write, hosts, Unix sockets, a message bus, a device and
+    /// masked paths to read, or outside to run outside the sandbox, with a reason that
+    /// the user sees. The user decides; other modes ignore it.
+    #[serde(default)]
+    #[schemars(with = "NeedsInput")]
+    needs: Option<Needs>,
+}
+
+/// The schema of `needs` as the model sees it: [`Needs`] with the limits that
+/// `Needs::check` holds.
+struct NeedsInput;
+
+impl JsonSchema for NeedsInput {
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("Needs")
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        match Needs::input_schema() {
+            Value::Object(map) => Schema::from(map),
+            _ => Schema::default(),
+        }
+    }
 }
 
 /// How a call's line is typed: into a nested shell with sentinels, or into the hidden
@@ -106,8 +136,66 @@ impl ShellTool {
         self
     }
 
-    /// The model's answer for `result`, after the command ran for `waited`.
-    fn render(&self, result: &CommandResult, waited: Duration) -> ToolResult {
+    /// How long a call with `input` waits for its command.
+    fn timeout(&self, input: &ShellInput) -> Duration {
+        input
+            .timeout_seconds
+            .map_or(self.default_timeout, Duration::from_secs)
+            .min(self.max_timeout)
+    }
+
+    /// The model's answer for `result`, after the command ran for `waited`, with what
+    /// the sandbox reports after it. `contained` is true for a call that ran in the
+    /// auto sandbox, not in the exit child.
+    fn render(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
+        let mut summary = result.sandbox.as_ref().map(|sandbox| sandbox.summary.clone());
+        let mut tainted = summary.as_ref().is_some_and(|summary| !summary.survivors.is_empty());
+        if result.completion == Completion::SandboxFailed {
+            match sandbox_failure(result) {
+                // The client shows why on its own line (efr's auto spec, section 14.7).
+                SandboxFailure::NotStarted(reason) => {
+                    summary.get_or_insert_default().setup_error = Some(reason);
+                }
+                // NOTE: a launcher lost after the start may leave the call's processes
+                // stopped or running on the shell's terminal (efr's auto spec, 3.13).
+                SandboxFailure::Lost(_) => tainted = true,
+            }
+        }
+        let rendered = self
+            .render_run(result, waited, contained)
+            .with_sandbox(summary)
+            .with_sandbox_failed(result.completion == Completion::SandboxFailed)
+            .with_shell_tainted(tainted);
+        match &result.sandbox {
+            Some(sandbox) if result.completion != Completion::SandboxFailed => {
+                let failed =
+                    result.completion == Completion::Finished && result.exit_code != Some(0);
+                let mut notes = Vec::new();
+                if let Some(hidden) = &sandbox.hidden_cwd {
+                    notes.push(format!(
+                        "[efr: the shell is in {}, which the sandbox hides; this call started \
+                         in $SCRATCH.]",
+                        hidden.display()
+                    ));
+                }
+                if sandbox.started && !sandbox.state_kept {
+                    notes.push("[efr: the shell state of this call was not kept.]".to_owned());
+                }
+                notes.push(sandbox_notes(&sandbox.summary, failed));
+                notes.retain(|note| !note.is_empty());
+                let notes = notes.join("\n");
+                if notes.is_empty() {
+                    rendered
+                } else {
+                    ToolResult { output: format!("{}\n{notes}", rendered.output), ..rendered }
+                }
+            }
+            _ => rendered,
+        }
+    }
+
+    /// The model's answer for the run of `result`, after the command ran for `waited`.
+    fn render_run(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
         let cut = truncate_middle(&result.output, self.output_limit);
         let mut text = cut.text;
         if !text.is_empty() && !text.ends_with('\n') {
@@ -152,6 +240,29 @@ impl ShellTool {
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
             }
+            // NOTE: sandboxed code can fake a password prompt, so efr never types a
+            // secret into a contained call; only an approved exit runs outside.
+            Completion::Unanswered if contained => {
+                text.push_str(&format!(
+                    "[stopped: the command asked for a secret inside the sandbox; efr does \
+                     not type secrets into sandboxed commands; ask with needs.outside if it \
+                     needs one. cwd {cwd}]"
+                ));
+                true
+            }
+            Completion::SandboxFailed => {
+                match sandbox_failure(result) {
+                    SandboxFailure::NotStarted(reason) => text.push_str(&format!(
+                        "[the sandbox could not start: {reason}. The command did not run. cwd \
+                         {cwd}]"
+                    )),
+                    SandboxFailure::Lost(reason) => text.push_str(&format!(
+                        "[the sandbox's launcher failed: {reason}. The command may have run; \
+                         check what it did before you run it again. cwd {cwd}]"
+                    )),
+                }
+                true
+            }
             Completion::Unanswered => {
                 text.push_str(&format!(
                     "[stopped: the command asked for hidden input, such as a password, and no \
@@ -189,7 +300,12 @@ impl Tool for ShellTool {
              and nobody can use a full-screen program in it: no editor works there, and \
              a command that opens one (git commit without -m, crontab -e) fails at once \
              with a message that says so. Give a command its text yourself (git commit \
-             -m) or use write_file. The \
+             -m) or use write_file. In the auto permission mode each command runs at once \
+             in a sandbox; when one fails there because it needs more access, call shell \
+             again with needs and a reason, and the user decides. An approved command that \
+             runs outside the sandbox does not see exports or functions that sandboxed \
+             commands made, and its background processes stop when it ends. In auto, \
+             nested_shell is refused. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout keeps running, and the next call waits \
              for it to end. When a command waits for input (a sudo password, a [Y/n] \
@@ -225,12 +341,19 @@ impl Tool for ShellTool {
             interactive |= coarse.iter().any(|program| INTERACTIVE.contains(program));
             network |= coarse.iter().any(|program| NETWORK.contains(program));
         }
+        if let Some(needs) = &input.needs {
+            needs.check().map_err(|source| ToolError::InvalidNeeds { source })?;
+        }
         let declared = declare::declared(&line, ctx.command_dir(), ctx.home.path());
+        let timeout = self.timeout(&input);
         let mut requirements = ToolRequirements::none()
             .with_command(input.command)
             .with_command_dir(ctx.command_dir())
             .with_interactive(interactive)
-            .with_network(network);
+            .with_network(network)
+            .with_needs(input.needs)
+            .with_nested(input.nested_shell)
+            .with_timeout(timeout);
         for path in declared.reads {
             requirements = requirements.with_read(path);
         }
@@ -259,17 +382,15 @@ impl Tool for ShellTool {
         out: &mut dyn ToolOutputSink,
     ) -> Result<ToolResult, ToolError> {
         let input: ShellInput = parse_input(Self::NAME, &input)?;
-        let timeout = input
-            .timeout_seconds
-            .map_or(self.default_timeout, Duration::from_secs)
-            .min(self.max_timeout);
+        let timeout = self.timeout(&input);
         let mode = mode(&input);
         let request = RunRequest::new(input.command, ctx.cwd.clone())
             .with_timeout(timeout)
             .with_mode(mode)
             .with_call(ctx.ids.call_id)
             .with_forget_credentials(ctx.forget_credentials)
-            .with_interactive_limit(ctx.interactive_limit);
+            .with_interactive_limit(ctx.interactive_limit)
+            .with_sandbox(ctx.sandbox.clone());
         let mut progress = Relay { out };
         let started = ctx.clock.now();
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {
@@ -278,7 +399,8 @@ impl Tool for ShellTool {
                 // the model must learn how long it really waited.
                 let ran =
                     Duration::try_from(ctx.clock.now().duration_since(started)).unwrap_or_default();
-                Ok(self.render(&result, timeout.max(ran)))
+                let contained = ctx.sandbox.as_ref().is_some_and(efr_shell::SandboxRun::contained);
+                Ok(self.render(&result, timeout.max(ran), contained))
             }
             // NOTE: nothing clears a busy shell from here: an interrupt reaches the shell
             // only for a call in flight, and this one never started.
@@ -304,6 +426,99 @@ impl Tool for ShellTool {
             Err(source) => Err(ToolError::Shell { source }),
         }
     }
+}
+
+/// The line after the output of a contained call that failed. efr never
+/// reads the output for a denial, because the command wrote it: injected text must
+/// not steer the model toward a grant.
+const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox: it can write only in the \
+                            turn's project, registered projects that the command names, \
+                            $SCRATCH, /tmp (private) and the tool caches (private), has no \
+                            network, and cannot use sudo, D-Bus or other sockets; secrets \
+                            read as empty. If it failed for that reason, call shell again \
+                            with needs.]";
+
+/// How a sandboxed run failed, with the launcher's reason.
+enum SandboxFailure {
+    /// The command did not run: the setup failed, or the launcher never started it.
+    NotStarted(String),
+    /// The launcher failed after it started the command, which may have run.
+    Lost(String),
+}
+
+/// Why a sandboxed run failed. The output is never read for a reason, because
+/// sandboxed code may have written it.
+fn sandbox_failure(result: &CommandResult) -> SandboxFailure {
+    let Some(sandbox) = result.sandbox.as_ref() else {
+        return SandboxFailure::NotStarted("the launcher ended before it started".to_owned());
+    };
+    match (&sandbox.setup_error, &sandbox.launch_error) {
+        (Some(reason), _) => SandboxFailure::NotStarted(reason.trim().to_owned()),
+        (None, Some(reason)) => SandboxFailure::Lost(reason.trim().to_owned()),
+        (None, None) => SandboxFailure::Lost("the launcher ended without its result".to_owned()),
+    }
+}
+
+/// What the launcher reported about a call, for the model: names only, never values.
+fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {
+    let mut notes: Vec<String> = Vec::new();
+    if summary.confined && failed {
+        notes.push(SANDBOX_NOTE.to_owned());
+    }
+    if !summary.kept_out.is_empty() {
+        notes.push(format!(
+            "[efr: these exports stay in the sandbox: {}. Later contained calls see them; \
+             the hidden shell and a command that runs outside the sandbox do not.]",
+            summary.kept_out.join(", ")
+        ));
+    }
+    if !summary.dropped.is_empty() {
+        notes.push(format!(
+            "[efr: these exports were dropped, and no later call sees them: {}.]",
+            summary.dropped.join(", ")
+        ));
+    }
+    if !summary.background_stopped.is_empty() {
+        notes.push(format!(
+            "[efr: these background jobs stopped when the command ended: {}. Start a \
+             server and its test in one command.]",
+            summary.background_stopped.join(", ")
+        ));
+    }
+    if !summary.survivors.is_empty() {
+        notes.push(format!(
+            "[efr: these processes of the command could not be ended: {}. They may still \
+             read the terminal, so the next call starts in a new hidden shell, in the \
+             user's working directory, without the variables of this one.]",
+            summary.survivors.join(", ")
+        ));
+    }
+    if !summary.blocked.is_empty() {
+        let hosts: Vec<String> = summary
+            .blocked
+            .iter()
+            .map(|blocked| format!("{}:{}", blocked.host, blocked.port))
+            .collect();
+        notes.push(format!(
+            "[efr: the network proxy refused: {}. To reach a host, call shell again with \
+             needs.hosts.]",
+            hosts.join(", ")
+        ));
+    }
+    let quarantined: Vec<String> = summary
+        .surface_changes
+        .iter()
+        .filter(|change| change.quarantined)
+        .map(|change| change.path.display().to_string())
+        .collect();
+    if !quarantined.is_empty() {
+        notes.push(format!(
+            "[efr: the command changed git settings that run code; efr moved them out of \
+             the way, and the user decides whether to keep them: {}.]",
+            quarantined.join(", ")
+        ));
+    }
+    notes.join("\n")
 }
 
 /// Passes what a run hears on to the call's output sink.

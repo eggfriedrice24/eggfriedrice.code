@@ -11,13 +11,15 @@ use serde_json::{Value, json};
 use crate::{
     AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
-    AdminStatus, AdminStatusResult, ApprovalRespond, ApprovalRespondResult, ConversationHistory,
-    ConversationHistoryResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
-    ConversationsListResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
-    InputRespond, InputRespondResult, LeaseReport, LeaseReportResult, ModelsList, ModelsListResult,
-    PROTOCOL_VERSION, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PtyAttach,
-    PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, ScopeName,
-    TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
+    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalRespond,
+    ApprovalRespondResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
+    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
+    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, ProjectsList,
+    ProjectsListResult, PromptSend, PromptSendResult, PtyAttach, PtyAttachItem, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -87,6 +89,21 @@ pub fn document() -> Value {
         stream::<AdminLoginOpenAi, AdminLoginOpenAiItem>(
             &mut generator,
             "admin.login_openai",
+            ScopeName::Admin,
+        ),
+        unary::<SandboxExplain, SandboxExplainResult>(
+            &mut generator,
+            "sandbox.explain",
+            ScopeName::Read,
+        ),
+        unary::<SandboxSurfaceRespond, SandboxSurfaceRespondResult>(
+            &mut generator,
+            "sandbox.surface_respond",
+            ScopeName::Approve,
+        ),
+        unary::<AdminSandboxCheck, AdminSandboxCheckResult>(
+            &mut generator,
+            "admin.sandbox_check",
             ScopeName::Admin,
         ),
     ];

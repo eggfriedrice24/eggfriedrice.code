@@ -17,10 +17,14 @@ Modules:
   controlling terminal), sets the window size and `IUTF8`, and moves the slave off
   descriptors 0 to 2. The child is started with `efr_stdx::process::command`; its
   `pre_exec` closure runs `setsid`, `TIOCSCTTY`, `dup2` of the slave onto 0, 1 and 2,
-  resets every standard signal to its default action with none blocked, and marks every
-  other descriptor close-on-exec (`close_range`, with an `fcntl` walk on kernels before
-  5.11). The holder keeps a copy of each master for resizes and the foreground-group
-  query until `release`, and hands the original to the caller.
+  `PR_SET_CHILD_SUBREAPER` when the spec asks for it (`SpawnSpec::child_subreaper`; the
+  flag survives `execve`), resets every standard signal to its default action with none
+  blocked, and marks every other descriptor close-on-exec (`close_range`, with an
+  `fcntl` walk on kernels before 5.11). The holder keeps a copy of each master for
+  resizes and the foreground-group query until `release`, and hands the original to
+  the caller. `foreground` answers with `tcgetpgrp` on that copy: the child's pid while
+  the child holds its terminal, another group while one of its jobs does, and `None`
+  once the child has exited or the terminal has no foreground group.
 - `child`: one child process. A task on the caller's tokio runtime owns the tokio child
   and reaps it the moment it exits; the result goes into a `watch` channel that `list`
   reads and `wait` subscribes to. Signals to the child go through a pidfd opened before
@@ -92,7 +96,8 @@ The tests open real PTYs and run `/bin/sh` children with an environment of only
 `PATH`, in `/` or a temp directory. They read `echo ok` back from the master, check the
 starting size and a resize with `stty size`, signal the child and the foreground
 group, check the exit status from `wait` against `list`, check the session and the
-controlling terminal, that no other descriptor reaches the child, that the environment
-is exactly the spec's, and every release rule. They need `/bin/sh`, `stty` and `tr`,
+controlling terminal, the foreground group, that a child subreaper adopts the orphan of
+an intermediate shell and a plain child does not, that no other descriptor reaches the
+child, that the environment is exactly the spec's, and every release rule. They need `/bin/sh`, `stty` and `tr`,
 use no network and no zsh, and never wait on a clock: a test reads the master until the
 output it expects appears or the slave closes.

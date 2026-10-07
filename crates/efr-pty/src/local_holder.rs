@@ -46,7 +46,9 @@ use efr_holder::{
     SpawnSpec,
 };
 use rustix::fs::{Mode, OFlags};
-use rustix::process::{Resource, getrlimit, ioctl_tiocsctty, kill_process_group, setsid};
+use rustix::process::{
+    Pid, Resource, getrlimit, ioctl_tiocsctty, kill_process_group, set_child_subreaper, setsid,
+};
 use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 use tokio::runtime::Handle;
 
@@ -241,6 +243,21 @@ impl PtyHolder for LocalPtyHolder {
         Ok(infos)
     }
 
+    async fn foreground(&self, pty_id: PtyId) -> Result<Option<u32>, HolderError> {
+        let ptys = self.lock();
+        let held = held(&ptys, pty_id)?;
+        if !held.child.status().is_running() {
+            return Ok(None);
+        }
+        match termios::foreground_group(&held.master) {
+            // A Pid is positive, so the conversion is exact.
+            Ok(group) => Ok(Some(group.as_raw_pid().unsigned_abs())),
+            // The terminal has no foreground group: no session holds it any more.
+            Err(rustix::io::Errno::OPNOTSUPP | rustix::io::Errno::NOTTY) => Ok(None),
+            Err(errno) => Err(HolderError::Foreground { pty_id, source: errno.into() }),
+        }
+    }
+
     async fn wait(&self, pty_id: PtyId) -> Result<ChildStatus, HolderError> {
         let mut status = held(&self.lock(), pty_id)?.child.subscribe();
         // `wait_for` looks at the current value first, so a child reaped already answers
@@ -282,16 +299,18 @@ fn start(spec: &SpawnSpec, runtime: &Handle) -> io::Result<(Held, PtyHandle)> {
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
+    let subreaper = spec.child_subreaper;
     // SAFETY: the closure runs in the child after `fork`, a copy of a process that may
     // run other threads, so it may call only async-signal-safe functions. `child_setup`
     // allocates nothing, takes no lock and touches no shared state: it makes the system
-    // calls setsid, ioctl(TIOCSCTTY), dup2, signal, sigprocmask, close_range and fcntl,
-    // through rustix (raw system calls on Linux) and libc, on the slave descriptor, on
-    // descriptor and signal numbers and on a sigset_t on its own stack. The slave is
-    // moved into the closure, so it is open whenever the closure runs; `fd_limit` is a
-    // plain integer computed in the holder before the fork.
+    // calls setsid, ioctl(TIOCSCTTY), dup2, prctl(PR_SET_CHILD_SUBREAPER), signal,
+    // sigprocmask, close_range and fcntl, through rustix (raw system calls on Linux) and
+    // libc, on the slave descriptor, on descriptor and signal numbers and on a sigset_t
+    // on its own stack. The slave is moved into the closure, so it is open whenever the
+    // closure runs; `fd_limit` and `subreaper` are plain values computed in the holder
+    // before the fork.
     unsafe {
-        command.pre_exec(move || child_setup(slave.as_fd(), fd_limit));
+        command.pre_exec(move || child_setup(slave.as_fd(), fd_limit, subreaper));
     }
     let spawned = command.spawn()?;
     // The closure owns the holder's slave; dropping the command closes it.
@@ -339,7 +358,7 @@ fn fd_limit() -> RawFd {
 
 /// The child's side of the spawn; see the module doc, step 2. Runs between `fork` and
 /// `execve`, so everything in it must be async-signal-safe.
-fn child_setup(slave: BorrowedFd<'_>, fd_limit: RawFd) -> io::Result<()> {
+fn child_setup(slave: BorrowedFd<'_>, fd_limit: RawFd, subreaper: bool) -> io::Result<()> {
     // A new session without a controlling terminal, with the child as its leader and
     // the leader of a new process group.
     setsid()?;
@@ -349,6 +368,11 @@ fn child_setup(slave: BorrowedFd<'_>, fd_limit: RawFd) -> io::Result<()> {
     rustix::stdio::dup2_stdin(slave)?;
     rustix::stdio::dup2_stdout(slave)?;
     rustix::stdio::dup2_stderr(slave)?;
+    // The flag survives `execve`, so the program itself is the subreaper: an orphan of
+    // its descendants is reparented to it, and it stays in the shell's process tree.
+    if subreaper {
+        set_child_subreaper(Some(Pid::INIT))?;
+    }
     reset_signals()?;
     close_other_fds_on_exec(fd_limit);
     Ok(())

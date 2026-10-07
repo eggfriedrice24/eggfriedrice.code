@@ -7,7 +7,7 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{ConfigFileError, DaemonId};
+use crate::{ConfigFileError, DaemonId, SandboxPaths, SandboxStatus};
 
 /// The params of `admin.status`, an admin method (Unix socket only). It takes none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -43,6 +43,14 @@ pub struct AdminStatusResult {
     /// when the daemon does not report it, as before live reload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<ConfigStatus>,
+    /// The sandbox of the `auto` mode, as the last probe found it. Absent when the
+    /// daemon does not report it, as before the sandbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<SandboxStatus>,
+    /// Where the sandbox keeps its launcher and its files, for `efr paths`. Absent when
+    /// the daemon does not report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_paths: Option<SandboxPaths>,
 }
 
 /// The state of one model provider.
