@@ -267,6 +267,11 @@ allow? y = yes, n = no
 - Lines that start with `efr:` are facts that efr found itself.
 - `the model says:` is the model's reason from `needs`. It is the model's text; treat
   it as a claim, not as a fact.
+- When the model asks to run outside the sandbox, but each other exit that efr finds
+  in the line can run in the sandbox with a grant, a fact says so, for example `efr: a
+  grant of the system bus covers what the line shows; the model asked for outside`.
+  The question still asks about what the model asked for. efr reads only the line, so
+  a script or a build can need more than the line shows.
 - A refused exit does not run. The model reads that you denied it.
 - A floor refuses a call with no question, and the call's line says why, such as
   `shell refused: efr's config (floor)`.

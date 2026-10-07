@@ -14,9 +14,9 @@ use efr_permissions::{
     Cause, Decision, Engine, ExitNeed, PathClass, Requirements, TargetKind, WriteBind,
 };
 use efr_protocol::{
-    ActionFacts, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource,
-    Grant, HostFact, Launch, PathClassName, ProgramFact, SandboxSummary, Scope, TargetFact, TurnId,
-    Verdict,
+    ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
+    ExitSource, Grant, HostFact, Launch, PathClassName, ProgramFact, SandboxSummary, Scope,
+    TargetFact, TurnId, Verdict,
 };
 
 /// How many refusals in a row without a person stop a turn. Not configurable: the model
@@ -144,7 +144,62 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
             _ => {}
         }
     }
+    if let Some(fact) = narrower_than_outside(decision, home) {
+        push(fact);
+    }
     facts
+}
+
+/// A fact for a question where the model asked to run outside the sandbox, but every
+/// other exit that efr finds can run in the sandbox with a grant: the user reads that a
+/// narrower grant covers what the line shows. The launch stays what the model asked
+/// for; the user decides. efr reads only the line, so a script or a build can still
+/// need more, and the fact says what efr found, not what the command does.
+fn narrower_than_outside(decision: &Decision, home: &Path) -> Option<String> {
+    let asked =
+        |need: &ExitNeed| need.kind == ExitKind::Outside && need.source == ExitSource::Needs;
+    if !decision.exits().any(asked) {
+        return None;
+    }
+    let mut grants: Vec<String> = Vec::new();
+    for need in decision.exits().filter(|need| !asked(need)) {
+        // NOTE: a destructive exit runs in the same sandbox and opens nothing. Any
+        // other exit without a grant, such as a desktop's socket that the daemon finds,
+        // has no words here, so efr says nothing rather than too little.
+        let unnamed = need.grants.is_empty() && need.kind != ExitKind::Destructive;
+        if need.kind.is_floor() || need.runs_unsandboxed() || unnamed {
+            return None;
+        }
+        for grant in &need.grants {
+            let words = grant_words(grant, home)?;
+            if !grants.contains(&words) {
+                grants.push(words);
+            }
+        }
+    }
+    Some(if grants.is_empty() {
+        "the line shows nothing that needs more than the sandbox; the model asked for \
+         outside"
+            .to_owned()
+    } else {
+        let grants = grants.join(", ");
+        format!("a grant of {grants} covers what the line shows; the model asked for outside")
+    })
+}
+
+/// What `grant` opens, in a few words, or `None` for a grant this build cannot name.
+fn grant_words(grant: &Grant, home: &Path) -> Option<String> {
+    Some(match grant {
+        Grant::Write { path } => format!("{} writable", tilde(path, home)),
+        Grant::Host { host, port } => format!("{host}:{port}"),
+        Grant::OpenNetwork => "the network".to_owned(),
+        Grant::Socket { path } => format!("the socket {}", tilde(path, home)),
+        Grant::Bus { bus: BusKind::System } => "the system bus".to_owned(),
+        Grant::Bus { bus: BusKind::Session } => "the session bus".to_owned(),
+        Grant::Device { path } => format!("the device {}", tilde(path, home)),
+        Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
+        _ => return None,
+    })
 }
 
 /// What a turn knows about its own exits and calls, for the record of the next exit and

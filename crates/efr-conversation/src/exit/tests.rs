@@ -391,3 +391,96 @@ fn a_write_in_a_shared_directory_says_how_it_binds() {
         ]
     );
 }
+
+/// The question of `line` with `needs.outside`, with `facts` from the daemon.
+fn outside_question(line: &str, facts: CallFacts) -> efr_protocol::ExitInfo {
+    let needs = Needs { outside: true, ..Needs::default() };
+    let requirements = shell(line).with_needs(needs).with_facts(facts);
+    let decision = decide(&engine(), requirements.clone());
+    let launch = grant(&decision);
+    info(&decision, &requirements, &launch, Path::new(HOME))
+}
+
+#[test]
+fn outside_with_only_a_bus_exit_says_that_the_bus_covers_the_line() {
+    let info = outside_question("systemctl --failed --no-pager", CallFacts::default());
+    // The model's request stands: the user decides, and the line runs outside on a yes.
+    assert_eq!(info.kinds, vec![ExitKind::Bus, ExitKind::Outside]);
+    assert_eq!(info.launch, Launch::Unsandboxed);
+    assert_eq!(
+        info.facts,
+        vec![
+            "a grant of the system bus covers what the line shows; the model asked for outside"
+                .to_owned()
+        ]
+    );
+}
+
+#[test]
+fn outside_with_only_a_write_exit_names_the_one_path() {
+    let facts = CallFacts {
+        targets: vec![
+            ("/home/u/efr-note.txt".into(), None),
+            ("/home/u".into(), Some(TargetKind::Dir)),
+        ],
+        ..CallFacts::default()
+    };
+    let info = outside_question("echo hi > ~/efr-note.txt", facts);
+    assert_eq!(info.launch, Launch::Unsandboxed);
+    assert_eq!(
+        info.facts.last().map(String::as_str),
+        Some(
+            "a grant of ~/efr-note.txt writable covers what the line shows; the model asked \
+             for outside"
+        ),
+        "{:?}",
+        info.facts
+    );
+}
+
+#[test]
+fn outside_for_a_line_without_exits_says_that_the_line_shows_none() {
+    let info = outside_question("journalctl -b -n 20 --no-pager", CallFacts::default());
+    assert_eq!(info.kinds, vec![ExitKind::Outside]);
+    assert_eq!(
+        info.facts,
+        vec![
+            "the line shows nothing that needs more than the sandbox; the model asked for \
+             outside"
+                .to_owned()
+        ]
+    );
+}
+
+#[test]
+fn outside_with_an_exit_that_runs_outside_gets_no_narrower_fact() {
+    let zshrc = CallFacts {
+        targets: vec![("/home/u/.zshrc".into(), Some(TargetKind::File))],
+        ..CallFacts::default()
+    };
+    for (line, facts) in [
+        ("sudo pacman -Syu", CallFacts::default()),
+        ("echo 'alias k=kubectl' >> ~/.zshrc", zshrc),
+        ("git push", CallFacts::default()),
+    ] {
+        let info = outside_question(line, facts);
+        assert!(
+            !info.facts.iter().any(|fact| fact.contains("the model asked for outside")),
+            "{line}: {:?}",
+            info.facts
+        );
+    }
+}
+
+#[test]
+fn a_bus_exit_without_outside_gets_no_narrower_fact() {
+    let requirements = shell("systemctl --failed");
+    let decision = decide(&engine(), requirements.clone());
+    let launch = grant(&decision);
+    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    assert_eq!(
+        info.launch,
+        Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::System }] }
+    );
+    assert!(info.facts.is_empty(), "{:?}", info.facts);
+}
