@@ -851,6 +851,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 surface_changes: vec![surface_change()],
                 setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
             }),
+            refusal: Some("efr's config (floor)".into()),
         },
         Event::ApprovalRequested {
             turn_id: turn_id(),

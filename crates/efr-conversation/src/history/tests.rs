@@ -58,6 +58,7 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
         is_error: false,
         exit_code: None,
         sandbox: None,
+        refusal: None,
     }
 }
 

@@ -367,6 +367,7 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             is_error: false,
             exit_code: None,
             sandbox: None,
+            refusal: None,
         }
     );
     h.finish();
@@ -409,8 +410,46 @@ async fn a_denied_tool_call_never_runs_and_the_model_reads_the_path_class() {
     let events = h.events().await;
     assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
     let completed = find(&events, |e| matches!(e, Event::ToolCallCompleted { .. }));
-    assert!(matches!(completed, Event::ToolCallCompleted { is_error: true, .. }));
+    let Event::ToolCallCompleted { is_error: true, refusal: Some(refusal), .. } = completed else {
+        panic!("a refused call fails and says why: {completed:?}");
+    };
+    assert_eq!(refusal, approvals::refusal(&decision));
+    assert!(refusal.starts_with(&format!("read {} (secrets): ", key.display())), "{refusal}");
     h.finish();
+}
+
+#[test]
+fn a_refusal_names_the_floor_or_the_rule_in_a_few_words() {
+    let setup = Setup::new();
+    let config_dir = setup.home().join(".config/efr");
+    let locations = Locations::new(setup.home())
+        .and_then(|locations| locations.with_write_sealed_root(&config_dir))
+        .expect("home");
+    let engine = Engine::with_defaults(locations);
+    let decide = |requirements: Requirements, mode| {
+        engine.decide(&DecisionInput {
+            requirements,
+            scope: Scope::Machine,
+            origin: Origin::Shell,
+            mode,
+            conversation_policy: ConversationPolicy::new(setup.scratch("refusals")),
+        })
+    };
+    let config = setup.home().join(".config/efr/config.toml");
+    let line = format!("echo x >> {}", config.display());
+    let decision = decide(Requirements::none().with_command(&line).with_write(&config), Mode::Auto);
+    assert_eq!(decision.effect(), Effect::Deny);
+    assert_eq!(approvals::refusal(&decision), "efr's config (floor)");
+    let decision = decide(Requirements::none().with_write(&config), Mode::Cautious);
+    assert_eq!(decision.effect(), Effect::Deny);
+    assert_eq!(
+        approvals::refusal(&decision),
+        format!("write {} (user config): efr's config", config.display())
+    );
+    assert_eq!(
+        approvals::brief(efr_permissions::exits::ONE_COMMAND),
+        "an approved command outside the sandbox must run alone"
+    );
 }
 
 #[tokio::test]
@@ -669,6 +708,7 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
             is_error: true,
             exit_code: None,
             sandbox: None,
+            refusal: None,
         }
     );
     h.finish();
@@ -1319,6 +1359,7 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
                 is_error: false,
                 exit_code: Some(0),
                 sandbox: None,
+                refusal: None,
             },
         ]
     );

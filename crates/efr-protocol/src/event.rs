@@ -208,6 +208,11 @@ pub enum Event {
         /// only, never values. Absent for a call that did not use the launcher.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sandbox: Option<SandboxSummary>,
+        /// Why efr refused the call before it ran, in a few words for a person, such as
+        /// `efr's config (floor)`. Absent for a call that ran, and for one that the user
+        /// denied or that no answer reached.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        refusal: Option<String>,
     },
 
     /// A tool call needs the user's approval before it runs.

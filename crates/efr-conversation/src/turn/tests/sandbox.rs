@@ -338,6 +338,15 @@ async fn floor_refusals_stop_turn_at_three() {
     assert!(h.toolbox.invoked().is_empty());
     assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny); 3]);
     let events = h.events().await;
+    // The person who follows the turn reads why, in a few words.
+    let refusals: Vec<Option<String>> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::ToolCallCompleted { refusal, .. } => Some(refusal.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refusals, vec![Some("a secret (floor)".to_owned()); 3]);
     let Event::ExitRequested { record, .. } = events
         .iter()
         .rev()

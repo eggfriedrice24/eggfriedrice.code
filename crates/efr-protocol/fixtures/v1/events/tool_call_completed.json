@@ -40,5 +40,6 @@
       }
     ],
     "setup_error": "bwrap: Can't mount proc on /newroot/proc"
-  }
+  },
+  "refusal": "efr's config (floor)"
 }

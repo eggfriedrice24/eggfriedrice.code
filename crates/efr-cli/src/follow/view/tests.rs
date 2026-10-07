@@ -146,6 +146,7 @@ fn notes_sit_between_messages_and_dim() {
                 is_error: false,
                 exit_code: Some(3),
                 sandbox: None,
+                refusal: None,
             },
             completed(1, "It exited with 3."),
         ],
@@ -187,6 +188,7 @@ fn refused_call_completed() -> Event {
         is_error: true,
         exit_code: None,
         sandbox: None,
+        refusal: None,
     }
 }
 
@@ -488,6 +490,7 @@ fn call_completed(exit_code: i32) -> Event {
         is_error: false,
         exit_code: Some(exit_code),
         sandbox: None,
+        refusal: None,
     }
 }
 
@@ -1133,6 +1136,7 @@ fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event
         is_error: false,
         exit_code: Some(exit_code),
         sandbox,
+        refusal: None,
     }
 }
 

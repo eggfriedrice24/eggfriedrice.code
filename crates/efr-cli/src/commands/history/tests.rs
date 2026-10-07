@@ -399,6 +399,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
                 }],
                 ..SandboxSummary::default()
             }),
+            refusal: None,
         },
         Event::ExitRequested {
             turn_id: turn(),

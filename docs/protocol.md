@@ -141,3 +141,8 @@ No protocol version has shipped yet.
   sandbox could not start, such as bubblewrap's setup message. The command did not run,
   and the daemon checks the sandbox again. A client shows it on its own line. The
   `events/tool_call_completed.json` fixture now sets it.
+- Before version 1 ships: the `tool_call_completed` event gains an optional `refusal`:
+  why efr refused the call before it ran, in a few words, such as `efr's config
+  (floor)`. It is absent for a call that ran and for one that the user denied. A client
+  shows it in place of a plain "failed". The `events/tool_call_completed.json` fixture
+  now sets it.

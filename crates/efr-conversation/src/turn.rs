@@ -187,10 +187,13 @@ enum Authorization {
     /// `approved_interactive` when the user approved a call that may wait for input at
     /// the terminal, and `launch` how it runs.
     Allowed { approved_interactive: bool, launch: Launch },
-    /// The engine refused the call, or the user denied it; the model reads `message`.
-    Denied { message: String },
-    /// The call could not be judged, such as an unknown tool; the model reads `message`.
-    Refused { message: String },
+    /// The engine refused the call, or the user denied it; the model reads `message`,
+    /// and the user `refusal` when the engine refused it.
+    Denied { message: String, refusal: Option<String> },
+    /// The call could not be judged, such as an unknown tool, or a rule refused it
+    /// before any question; the model reads `message`, and the user `refusal` for a
+    /// rule's refusal.
+    Refused { message: String, refusal: Option<String> },
     /// The user interrupted the turn while the call waited for approval.
     Interrupted,
     /// The approval request expired unanswered.
@@ -594,6 +597,7 @@ impl Turn {
                 launch,
             }])
             .await?;
+            let mut refused = None;
             let (mut outcome, mut interrupted) = match judged {
                 None => (ToolOutcome::error(NOT_RUN), true),
                 Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
@@ -606,7 +610,12 @@ impl Turn {
                             None => (ToolOutcome::error(STOPPED), true),
                         }
                     }
-                    (Authorization::Denied { message } | Authorization::Refused { message }, _) => {
+                    (
+                        Authorization::Denied { message, refusal }
+                        | Authorization::Refused { message, refusal },
+                        _,
+                    ) => {
+                        refused = refusal;
                         (ToolOutcome::error(message), false)
                     }
                     (Authorization::Interrupted, _) => (ToolOutcome::error(NOT_RUN), true),
@@ -621,6 +630,7 @@ impl Turn {
                 is_error: outcome.is_error,
                 exit_code: outcome.exit_code,
                 sandbox: outcome.sandbox.clone(),
+                refusal: refused,
             }];
             let mut quarantined = Vec::new();
             if let Some(summary) = &outcome.sandbox {
@@ -706,7 +716,7 @@ impl Turn {
     ) -> Result<(Authorization, Vec<efr_permissions::ExitNeed>), ConversationError> {
         let ruling = match judged {
             Judged::Refused(message) => {
-                return Ok((Authorization::Refused { message }, Vec::new()));
+                return Ok((Authorization::Refused { message, refusal: None }, Vec::new()));
             }
             Judged::Ruled(ruling) => ruling,
         };
@@ -725,11 +735,17 @@ impl Turn {
             },
             Effect::Deny => {
                 self.refuse_floor(call, &ruling).await?;
-                Authorization::Denied { message: approvals::denial(&call.name, &ruling.decision) }
+                Authorization::Denied {
+                    message: approvals::denial(&call.name, &ruling.decision),
+                    refusal: Some(approvals::refusal(&ruling.decision)),
+                }
             }
             Effect::Contain | Effect::Ask => match &ruling.problem {
                 // NOTE: no question and no refusal: the model splits the line.
-                Some(problem) => Authorization::Refused { message: problem.clone() },
+                Some(problem) => Authorization::Refused {
+                    message: problem.clone(),
+                    refusal: Some(approvals::brief(problem)),
+                },
                 None => self.ask(call, &ruling).await?,
             },
         };
@@ -871,10 +887,11 @@ impl Turn {
             // NOTE: a decision added to the protocol later denies, so a newer client
             // can never run a call that this build would not.
             Waited::Answer(Some(_)) if !kinds.is_empty() => {
-                Authorization::Denied { message: exit::EXIT_DENIED.to_owned() }
+                Authorization::Denied { message: exit::EXIT_DENIED.to_owned(), refusal: None }
             }
             Waited::Answer(Some(_)) => Authorization::Denied {
                 message: format!("The user denied the {} call; it did not run.", call.name),
+                refusal: None,
             },
             Waited::Answer(None) => return Ok(Authorization::Expired),
             Waited::Interrupted => {

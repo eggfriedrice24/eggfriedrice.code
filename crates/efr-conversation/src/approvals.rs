@@ -11,8 +11,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use efr_permissions::{Decision, Effect, Subject};
-use efr_protocol::{ApprovalDecision, CallId, TurnId};
+use efr_permissions::{Cause, Decision, Effect, Reason, Subject};
+use efr_protocol::{ApprovalDecision, CallId, ExitKind, TurnId};
 use tokio::sync::oneshot;
 
 /// The calls of one conversation that wait for an answer. Cheap to clone; clones share
@@ -183,6 +183,59 @@ fn part_name(words: &[String]) -> String {
 /// A character that a named part shows: a letter, a digit or one of `._/:@%+,-`.
 fn plain(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '@' | '%' | '+' | ',' | '-')
+}
+
+/// Why the engine refused a call, in a few words for the person who follows the turn,
+/// such as `efr's config (floor)` or `read /etc/shadow (system): a deny rule`.
+///
+/// NOTE: a path shows, the words of a command line do not: the line shows above it
+/// already, and an argument may be a token.
+pub(crate) fn refusal(decision: &Decision) -> String {
+    let floor = |reason: &&Reason| matches!(reason.cause, Cause::Exit { kind } if kind.is_floor());
+    // NOTE: a floor says it all: the rule that refuses the same path says less.
+    let floors = decision.deciding().any(|reason| floor(&reason));
+    let mut parts: Vec<String> = Vec::new();
+    for reason in decision.deciding().filter(|reason| !floors || floor(reason)) {
+        let part = refusal_part(reason);
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    parts.join("; ")
+}
+
+/// One reason of [`refusal`].
+fn refusal_part(reason: &Reason) -> String {
+    if let Cause::Exit { kind } = reason.cause {
+        let what = match kind {
+            ExitKind::Config => "efr's config".to_owned(),
+            ExitKind::Secret => "a secret".to_owned(),
+            other => other.as_str().replace('_', " "),
+        };
+        return if kind.is_floor() { format!("{what} (floor)") } else { what };
+    }
+    let what = match &reason.subject {
+        Subject::Command { .. } => "the command".to_owned(),
+        other => other.to_string(),
+    };
+    let why = match &reason.cause {
+        Cause::Sealed => "efr's credentials",
+        Cause::WriteSealed => "efr's config",
+        Cause::Rule { .. } | Cause::Part { .. } | Cause::Opaque { .. } => "a deny rule",
+        Cause::NoRule => "no rule allows it",
+        Cause::NestedShell => "auto runs no nested shell",
+        Cause::RemoteSettings { .. } => "a remote turn cannot change settings",
+        _ => return what,
+    };
+    format!("{what}: {why}")
+}
+
+/// The first part of a message for the model, up to its first `;` or sentence end, for
+/// a person who needs only the reason.
+pub(crate) fn brief(message: &str) -> String {
+    let end = [message.find("; "), message.find(". ")].into_iter().flatten().min();
+    let first = end.map_or(message, |end| &message[..end]);
+    first.trim_end_matches('.').to_owned()
 }
 
 /// What the model reads when the engine refuses a call: every reason that refused it,
