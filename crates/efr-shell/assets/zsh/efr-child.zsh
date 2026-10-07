@@ -48,9 +48,9 @@ _efr_child_exports() {
   done
 }
 
-# What the line starts with. A function, so that the user's options from the snapshot
-# (KSH_ARRAYS, say) do not change how the lists are read.
-builtin typeset -gA _efr_child_env0 _efr_child_fn0 _efr_child_al0
+# What the line starts with, as name value lists. A function, so that the user's
+# options from the snapshot (KSH_ARRAYS, say) do not change how the lists are read.
+builtin typeset -ga _efr_child_env0 _efr_child_fn0 _efr_child_al0
 _efr_child_start() {
   builtin emulate -L zsh
   _efr_child_exports
@@ -64,33 +64,49 @@ _efr_child_start
 _efr_child_records() {
   builtin local -i st=$1
   builtin emulate -L zsh -o extended_glob
-  builtin local -A now
-  builtin local -a out
+  builtin local -A was now
+  builtin local -a out list
   builtin local name
   out=(efr-records v1 cwd "$PWD")
+  # NOTE: each list is first compared whole, which costs one pass; only a list that
+  # changed is compared name by name. A line seldom changes one, and a big rc has
+  # hundreds of functions and aliases.
   _efr_child_exports
-  now=("${(@)reply}")
-  for name in ${(k)now}; do
-    [[ ${+_efr_child_env0[$name]} == 1 && $_efr_child_env0[$name] == "$now[$name]" ]] ||
-      out+=(export "$name" "$now[$name]")
-  done
-  for name in ${(k)_efr_child_env0}; do
-    (( ${+now[$name]} )) || out+=(unset "$name")
-  done
-  for name in ${(k)functions:#_efr_*}; do
-    [[ ${+_efr_child_fn0[$name]} == 1 && $_efr_child_fn0[$name] == "$functions[$name]" ]] ||
-      out+=(func "$name" "$functions[$name]")
-  done
-  for name in ${(k)_efr_child_fn0:#_efr_*}; do
-    (( ${+functions[$name]} )) || out+=(unfunc "$name")
-  done
-  for name in ${(k)aliases}; do
-    [[ ${+_efr_child_al0[$name]} == 1 && $_efr_child_al0[$name] == "$aliases[$name]" ]] ||
-      out+=(alias "$name" "$aliases[$name]")
-  done
-  for name in ${(k)_efr_child_al0}; do
-    (( ${+aliases[$name]} )) || out+=(unalias "$name")
-  done
+  if [[ ${(pj:\0:)reply} != ${(pj:\0:)_efr_child_env0} ]]; then
+    was=("${(@)_efr_child_env0}")
+    now=("${(@)reply}")
+    for name in ${(k)now}; do
+      [[ ${+was[$name]} == 1 && $was[$name] == "$now[$name]" ]] ||
+        out+=(export "$name" "$now[$name]")
+    done
+    for name in ${(k)was}; do
+      (( ${+now[$name]} )) || out+=(unset "$name")
+    done
+  fi
+  list=("${(@kv)functions}")
+  if [[ ${(pj:\0:)list} != ${(pj:\0:)_efr_child_fn0} ]]; then
+    was=("${(@)_efr_child_fn0}")
+    now=("${(@)list}")
+    for name in ${(k)now:#_efr_*}; do
+      [[ ${+was[$name]} == 1 && $was[$name] == "$now[$name]" ]] ||
+        out+=(func "$name" "$now[$name]")
+    done
+    for name in ${(k)was:#_efr_*}; do
+      (( ${+now[$name]} )) || out+=(unfunc "$name")
+    done
+  fi
+  list=("${(@kv)aliases}")
+  if [[ ${(pj:\0:)list} != ${(pj:\0:)_efr_child_al0} ]]; then
+    was=("${(@)_efr_child_al0}")
+    now=("${(@)list}")
+    for name in ${(k)now}; do
+      [[ ${+was[$name]} == 1 && $was[$name] == "$now[$name]" ]] ||
+        out+=(alias "$name" "$now[$name]")
+    done
+    for name in ${(k)was}; do
+      (( ${+now[$name]} )) || out+=(unalias "$name")
+    done
+  fi
   out+=(end "$st")
   { builtin print -rN -- "${(@)out}" } 2>/dev/null >&3
   return 0

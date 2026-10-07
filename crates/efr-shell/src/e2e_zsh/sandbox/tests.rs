@@ -359,6 +359,9 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
         "greet() { print -r -- \"hi $1\" }; alias ll='print -r -- listed'; setopt extended_glob",
     )
     .await;
+    // A completion function that zsh has not loaded yet stays out; a loaded `_*` helper
+    // and another function that is not loaded yet stay in.
+    zsh.run_plain("autoload -Uz _mine_stub zmv; _mine_helper() { print -r -- helped }").await;
     let first = zsh.prepare(1);
     let result = zsh
         .run_sandboxed(&first, "greet you; ll; [[ abc == a(#c1)bc ]] && print -r -- globbed")
@@ -367,6 +370,8 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
     let snapshot = zsh.sandbox_dir().join("snapshot.zsh");
     let text = std::fs::read_to_string(&snapshot).unwrap();
     assert!(!text.contains("_efr_hs_"), "efr's own functions are in the snapshot");
+    assert!(!text.contains("_mine_stub"), "{text}");
+    assert!(text.contains("_mine_helper") && text.contains("zmv"), "{text}");
 
     // No other line ran since: the snapshot is not written again.
     std::fs::write(&snapshot, format!("{text}\n# kept\n")).unwrap();
@@ -374,13 +379,13 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
     zsh.run_sandboxed(&second, "true").await;
     assert!(std::fs::read_to_string(&snapshot).unwrap().ends_with("# kept\n"));
 
-    // Another line ran: it is written again, and compiled once it is large.
-    zsh.run_plain("eval \"big() { : '$(printf %070000d 0)' }\"").await;
+    // Another line ran: it is written again, and compiled once it is above 4 KiB.
+    zsh.run_plain("eval \"big() { : '$(printf %05000d 0)' }\"").await;
     let third = zsh.prepare(3);
-    zsh.run_sandboxed(&third, "true").await;
+    zsh.run_sandboxed(&third, "_mine_helper; true").await;
     let text = std::fs::read_to_string(&snapshot).unwrap();
     assert!(!text.contains("# kept"));
-    assert!(text.len() > 65_536);
+    assert!(text.len() > 4096);
     assert!(zsh.sandbox_dir().join("snapshot.zsh.zwc").exists());
 }
 
@@ -449,6 +454,18 @@ async fn the_child_reports_the_state_its_line_leaves() {
     assert_eq!(records.aliases, [("newal".to_owned(), "ls -l".to_owned())]);
     assert_eq!(records.removed_aliases, ["gone"]);
     assert_eq!(records.status, Some(3));
+
+    // A line that changes nothing reports nothing but its directory and status.
+    std::fs::write(dir.join("line"), "greet >/dev/null; true").unwrap();
+    let output = run_child(&child, &dir).await;
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let records = std::fs::read(dir.join("records")).unwrap();
+    let records = parse_records(&records, &RecordLimits::default()).unwrap();
+    assert_eq!(
+        (records.exports, records.unsets, records.functions, records.removed_functions),
+        (vec![], vec![], vec![], vec![])
+    );
+    assert_eq!((records.aliases, records.removed_aliases), (vec![], vec![]));
 
     // The exit child gets no state.
     std::fs::write(dir.join("line"), "fromstate").unwrap();

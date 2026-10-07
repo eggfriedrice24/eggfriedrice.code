@@ -396,9 +396,10 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   integration's marks: a shell without them, or a sentinel run, ends at once as
   `Completion::SandboxFailed` and nothing is typed.
 - `_efr_hs_sbx` checks the call id and the dir, writes `snapshot.zsh` when it is stale
-  (the shell's functions except efr's, its aliases and its options, after a line that
-  drops zsh's own aliases such as `run-help`, so a function of that name parses;
-  `zcompile` above 64 KiB; stale after any line that efr did not type for a sandboxed call), runs the
+  (the shell's functions except efr's and the `_*` completion functions that zsh has
+  not loaded yet, its aliases and its options, after a line that drops zsh's own
+  aliases such as `run-help`, so a function of that name parses; `zcompile` above
+  4 KiB; stale after any line that efr did not type for a sandboxed call), runs the
   launcher (`ShellConfig::sandbox_launcher`) as a foreground job, applies `$CALL/apply`
   (`cd` with `builtin cd -q`, so no `chpwd` hook runs, and allowed exports and unsets;
   it checks names and directories again and never evaluates text), clears the

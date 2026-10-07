@@ -324,15 +324,20 @@ _efr_hs_sbx_apply() {
 
 # Writes $_efr_hs_sbx_dir/snapshot.zsh when it is stale: this shell's functions (not
 # efr's), its aliases, and its options, for the child shell of each call to replay. A
-# snapshot above 64 KiB is compiled with zcompile, which the child's `source` reads
+# snapshot above 4 KiB is compiled with zcompile, which the child's `source` reads
 # instead. The options come from _efr_hs_sbx, which reads them before emulate -L.
 _efr_hs_sbx_snapshot() {
   builtin emulate -L zsh -o extended_glob
   builtin local file=$_efr_hs_sbx_dir/snapshot.zsh
   (( _efr_hs_sbx_stale )) || [[ ! -f $file ]] || return 0
-  builtin local -a names on off
+  builtin local -a names stubs on off
   # Not efr's own functions, of this file or of the user's efr plugin.
   names=(${(k)functions:#(_efr?*|compinit)})
+  # Not the functions named _* that zsh has not loaded yet: compinit marks about 900
+  # completion functions so, a child shell has no completion, and the child of every
+  # call spent milliseconds to replay them and to compare them after the line.
+  stubs=(${(M)${(k)functions[(R)builtin autoload -X*]}:#_*})
+  names=(${names:|stubs})
   builtin local name
   for name in ${(k)_efr_hs_sbx_opts}; do
     # Options that only an interactive shell, its startup or its job control have.
@@ -352,7 +357,7 @@ _efr_hs_sbx_snapshot() {
   builtin print -r -- $snapshot >| $file || return 0
   builtin zmodload -F zsh/files b:zf_rm
   zf_rm -f -- $file.zwc
-  (( $#snapshot > 65536 )) && builtin zcompile -U -- $file
+  (( $#snapshot > 4096 )) && builtin zcompile -U -- $file
   _efr_hs_sbx_stale=0
   return 0
 }
