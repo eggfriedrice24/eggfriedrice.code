@@ -31,6 +31,9 @@ Modules, in the order of the milestone 1 file map:
   it did not change since it was read.
 - `env`: typed access to the `EFR_*` variables below; the only reader of the process
   environment.
+- `text`: `is_format`, true for a Unicode format character (category `Cf`), which
+  draws nothing or turns the text around it; efr shows a stand-in for it in each
+  command, path and model text on the user's screen.
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
 - `id`: `uuid_v7(clock, rng)`, a version 7 UUID whose time and random bits both come
   from the injected `Clock` and `Rng`.

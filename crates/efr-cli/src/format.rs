@@ -15,6 +15,7 @@ use efr_protocol::{
     ConversationStatus, ConversationsListResult, EffectiveSettings, Origin,
 };
 use efr_render::{ColourMode, RenderOptions};
+use efr_stdx::text::is_format;
 use jiff::Timestamp;
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar as _;
@@ -178,9 +179,9 @@ pub(crate) fn command_of(input: &Value) -> Option<&str> {
 }
 
 /// `text` safe to print as lines: newlines stay, tabs become a space, other control
-/// characters visible stand-ins.
+/// characters and format characters visible stand-ins.
 pub(crate) fn lines(text: &str) -> Cow<'_, str> {
-    if !text.chars().any(|c| c.is_control() && c != '\n') {
+    if !text.chars().any(|c| (c.is_control() && c != '\n') || is_format(c)) {
         return Cow::Borrowed(text);
     }
     Cow::Owned(
@@ -194,12 +195,15 @@ pub(crate) fn lines(text: &str) -> Cow<'_, str> {
     )
 }
 
-/// A control character's visible stand-in, the same mapping `efr-render` uses.
+/// A control character's visible stand-in, the same mapping `efr-render` uses, and
+/// `U+FFFD` for a format character, which draws nothing or turns the text around it.
+/// A model's reply in markdown keeps format characters, for the scripts that need
+/// them.
 fn visible(c: char) -> char {
     match c {
         '\u{0}'..='\u{1f}' => char::from_u32(0x2400 + u32::from(c)).unwrap_or('\u{fffd}'),
         '\u{7f}' => '\u{2421}',
-        c if c.is_control() => '\u{fffd}',
+        c if c.is_control() || is_format(c) => '\u{fffd}',
         c => c,
     }
 }

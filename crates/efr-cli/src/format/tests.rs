@@ -287,3 +287,27 @@ fn an_approval_summary_keeps_a_line_that_is_not_a_list_of_names() {
         assert_eq!(first, one_line(summary));
     }
 }
+
+#[test]
+fn format_characters_show_as_a_stand_in_in_every_line() {
+    let line = "ls \u{202e}gpj.exe\u{202c} \u{2067}x\u{2069}\u{200d}\u{feff}";
+    for shown in [
+        one_line(line),
+        lines(&format!("{line}\nnext")).into_owned(),
+        tool_call("shell", &json!({ "command": line }), None),
+        run_heading("shell", &format!("{line}\nls")).join("\n"),
+        approval_summary(&format!("shell: write /home/u/{line}")).0,
+    ] {
+        assert!(
+            !shown.chars().any(|c| matches!(
+                c,
+                '\u{202c}' | '\u{202e}' | '\u{2067}' | '\u{2069}' | '\u{200d}' | '\u{feff}'
+            )),
+            "{shown:?}"
+        );
+        assert!(shown.contains("\u{fffd}gpj.exe\u{fffd}"), "{shown:?}");
+    }
+    // Text without one stays as it is.
+    assert!(matches!(lines("plain\ntext"), std::borrow::Cow::Borrowed(_)));
+    assert_eq!(one_line("naïve 日本 \u{1f600}"), "naïve 日本 \u{1f600}");
+}

@@ -24,6 +24,7 @@ pub mod id;
 pub mod paths;
 pub mod process;
 pub mod rng;
+pub mod text;
 pub mod thread;
 pub mod time;
 

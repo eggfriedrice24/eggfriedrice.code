@@ -157,3 +157,21 @@ fn a_prompt_that_did_not_run_is_named_by_its_conversation_and_never_quoted() {
     );
     assert!(not_run(conversation, 3).starts_with("efr restarted; 3 queued prompts did not run;"));
 }
+
+#[test]
+fn a_notice_shows_a_stand_in_for_each_format_character() {
+    // The approval's summary names a path whose name turns around on the screen.
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
+        summary: "write /home/u/\u{202e}fdp.sh\u{200b}".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+    };
+
+    let text = line(&approval, Some("title\u{2066}")).unwrap();
+
+    assert!(!text.contains(['\u{202e}', '\u{200b}', '\u{2066}']), "{text:?}");
+    assert!(text.ends_with("write /home/u/\u{fffd}fdp.sh\u{fffd}"), "{text:?}");
+}

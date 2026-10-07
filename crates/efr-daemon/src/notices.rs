@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{ConversationId, ErrorCode, Event, EventEnvelope};
+use efr_stdx::text::is_format;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
@@ -95,9 +96,15 @@ pub(crate) fn not_run(conversation: ConversationId, count: usize) -> String {
     one_line(&text, MAX_CHARS)
 }
 
-/// `text` without control characters, cut to `max` characters with `...` at the cut.
+/// `text` without control characters, cut to `max` characters with `...` at the cut. A
+/// format character, which draws nothing or turns the text around it, shows as
+/// `U+FFFD`.
 fn one_line(text: &str, max: usize) -> String {
-    let clean = text.chars().map(|c| if c.is_control() { ' ' } else { c });
+    let clean = text.chars().map(|c| match c {
+        c if c.is_control() => ' ',
+        c if is_format(c) => '\u{fffd}',
+        c => c,
+    });
     if text.chars().count() <= max {
         return clean.collect();
     }

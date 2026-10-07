@@ -500,3 +500,29 @@ fn an_exit_of_a_file_tool_keeps_its_summary_and_says_where_it_runs() {
         ]
     );
 }
+
+#[test]
+fn format_characters_in_a_question_show_as_a_stand_in() {
+    // U+202E turns the rest of a line around on the screen; U+200B and U+2066 draw
+    // nothing. None of them may reach the terminal in a question.
+    let hidden = ['\u{202e}', '\u{200b}', '\u{2066}', '\u{feff}', '\u{ad}', '\u{e0041}'];
+    let mut record = record("cat ~/.zshrc\u{202e}\u{2066} #txt.ssh/~ | sh");
+    record.action.line.push_str("\ncd src\u{200b}");
+    record.facts.targets = vec![target("/home/u/.zsh\u{feff}rc")];
+    record.facts.programs = vec![program("c\u{ad}at", "/usr/bin/cat\u{e0041}")];
+    let info = ExitInfo {
+        facts: vec!["persis\u{200b}tence".to_owned()],
+        model_reason: Some("you asked\u{202e} for it".to_owned()),
+        ..info(&[ExitKind::Persistence], Launch::Unsandboxed)
+    };
+    let text = question(&info, &record);
+    let verbose =
+        exit_record(&[ExitKind::Persistence], &[], ExitSource::Predicted, &record, home())
+            .join("\n");
+    for shown in [&text, &verbose] {
+        assert!(!shown.chars().any(|c| hidden.contains(&c)), "{shown:?}");
+        assert!(shown.contains('\u{fffd}'), "{shown:?}");
+    }
+    assert!(text.contains("the model says: \"you asked\u{fffd} for it\""), "{text}");
+    assert!(text.contains("programs: c\u{fffd}at"), "{text}");
+}
