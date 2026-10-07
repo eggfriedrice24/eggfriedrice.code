@@ -133,6 +133,20 @@ fn an_approval_of_a_command_of_several_lines_shows_each_line() {
     assert_eq!(heading.last().unwrap(), "also: read /home/u/.ssh/id (secrets)");
     assert_eq!(asking.as_deref(), Some("asks for: systemctl --failed"));
 
+    // An older daemon put a path before the command line.
+    let summary = format!(
+        "shell: read all under /home/u (user data); run {FAILED_UNITS:?}; input at the terminal"
+    );
+    let (heading, _) = approval_heading(&summary, Some(("shell", FAILED_UNITS)));
+    assert_eq!(heading[0], "shell: run 2 lines:");
+    assert_eq!(
+        heading.last().unwrap(),
+        "also: read all under /home/u (user data); input at the terminal"
+    );
+    // The quote must be a whole part, not the end of a path's name.
+    let summary = format!("shell: write /x run {FAILED_UNITS:?}");
+    assert_eq!(approval_heading(&summary, Some(("shell", FAILED_UNITS))).0.len(), 1);
+
     // A summary that does not quote the call's command shows as before.
     let (heading, _) = approval_heading("write_file: write /x", Some(("shell", FAILED_UNITS)));
     assert_eq!(heading, ["write_file: write /x"]);

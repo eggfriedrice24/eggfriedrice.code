@@ -102,13 +102,20 @@ const LEFT_OUT: &str = "...";
 /// second line names them, such as `asks for: hostnamectl, systemctl --failed`, so the
 /// user need not look for them in a long line.
 pub(crate) fn summary(tool: &str, decision: &Decision) -> String {
-    let mut subjects: Vec<String> =
-        decision.deciding().map(|reason| reason.subject.to_string()).collect();
-    let command = decision.reasons().iter().find(|reason| {
-        matches!(reason.subject, Subject::Command { .. }) && reason.effect != decision.effect()
-    });
-    if let Some(command) = command {
-        subjects.insert(0, command.subject.to_string());
+    // NOTE: the command line comes first whatever the order of the reasons: a client
+    // shows each line of a command of several lines only when the summary starts with
+    // it.
+    let command = decision
+        .reasons()
+        .iter()
+        .find(|reason| matches!(reason.subject, Subject::Command { .. }))
+        .map(|reason| reason.subject.to_string());
+    let mut subjects: Vec<String> = command.iter().cloned().collect();
+    for reason in decision.deciding() {
+        let subject = reason.subject.to_string();
+        if command.as_ref() != Some(&subject) {
+            subjects.push(subject);
+        }
     }
     let mut text = if subjects.is_empty() {
         tool.to_owned()

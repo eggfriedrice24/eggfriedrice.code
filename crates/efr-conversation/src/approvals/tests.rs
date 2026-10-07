@@ -163,3 +163,15 @@ fn a_summary_names_the_parts_that_ask_of_a_line_that_may_wait_for_input() {
         )
     );
 }
+
+#[test]
+fn a_summary_leads_with_the_command_line_when_a_path_asks_too() {
+    // The client shows each line of a command of several lines only when the summary
+    // starts with the quoted command.
+    let line = "cd src\nrm -rf build";
+    let decision = decide(Requirements::none().with_command(line).with_read_tree("/home/u"));
+    let text = summary("shell", &decision);
+    assert!(text.starts_with(&format!("shell: run {line:?}; ")), "{text:?}");
+    assert_eq!(text.matches("run ").count(), 1, "{text:?}");
+    assert!(text.contains("read all under /home/u (user data)"), "{text:?}");
+}

@@ -133,9 +133,10 @@ fn split_summary(summary: &str) -> (&str, Option<String>) {
 /// tool and the command of the call, from its `tool_call_started`.
 ///
 /// NOTE: the daemon writes the line as a quoted Rust string (`run "cd src\nls"`). Only
-/// a summary that starts with exactly that quote of the call's command gets its lines;
-/// what the summary says after the quote follows on a line of its own after `also:`.
-/// Any other summary shows as before.
+/// a summary with exactly that quote of the call's command as one of its parts gets
+/// its lines; what the summary says besides the quote follows on a line of its own
+/// after `also:`. The daemon puts the quote first, but an older one put a path first,
+/// and `efr history` shows its summaries too. Any other summary shows as before.
 pub(crate) fn approval_heading(
     summary: &str,
     call: Option<(&str, &str)>,
@@ -143,16 +144,32 @@ pub(crate) fn approval_heading(
     let (first, asking) = split_summary(summary);
     if let Some((tool, command)) = call
         && command_lines(command).len() > 1
-        && let Some(rest) = first.strip_prefix(&format!("{tool}: run {command:?}"))
+        && let Some(subjects) = first.strip_prefix(&format!("{tool}: "))
+        && let Some((before, after)) = around_quote(subjects, &format!("run {command:?}"))
     {
         let mut lines = run_heading(tool, command);
-        let rest = rest.trim_start_matches(';').trim();
+        let rest: Vec<&str> = [before.trim_end_matches("; ").trim(), after.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect();
         if !rest.is_empty() {
-            lines.push(format!("also: {}", one_line(rest)));
+            lines.push(format!("also: {}", one_line(&rest.join("; "))));
         }
         return (lines, asking);
     }
     (vec![one_line(first)], asking)
+}
+
+/// What `subjects` says before and after `quote`, when `quote` is one of its parts:
+/// at the start or after `; `, and at the end or before `;`.
+fn around_quote<'a>(subjects: &'a str, quote: &str) -> Option<(&'a str, &'a str)> {
+    subjects.match_indices(quote).find_map(|(at, _)| {
+        let before = subjects.get(..at)?;
+        let after = subjects.get(at + quote.len()..)?;
+        let starts = before.is_empty() || before.ends_with("; ");
+        let ends = after.is_empty() || after.starts_with(';');
+        (starts && ends).then(|| (before, after.trim_start_matches(';')))
+    })
 }
 
 /// The command of a shell call's input, if it has one.
