@@ -34,17 +34,23 @@ pub(crate) enum Exit {
     NotRunning,
     /// 130: the user pressed Ctrl+C, the shell convention for an interrupt.
     Interrupted,
+    /// 128 and the signal's number: SIGTERM or SIGHUP ended a followed turn. `main`
+    /// first lets the signal take its default action, so the shell sees the signal.
+    Signal(i32),
 }
 
 impl Exit {
     /// The process exit code.
-    pub(crate) const fn code(self) -> u8 {
+    pub(crate) fn code(self) -> u8 {
         match self {
             Exit::Success => 0,
             Exit::DaemonError | Exit::Invalid => 1,
             Exit::Usage => 2,
             Exit::NotRunning => 3,
             Exit::Interrupted => 130,
+            Exit::Signal(signal) => {
+                u8::try_from(signal).ok().and_then(|signal| 128_u8.checked_add(signal)).unwrap_or(1)
+            }
         }
     }
 }
@@ -168,6 +174,11 @@ pub(crate) enum CliError {
     #[error("interrupted")]
     Interrupted,
 
+    /// A signal that asks the process to end (SIGTERM, SIGHUP) came while a turn was
+    /// followed.
+    #[error("ended by signal {signal}")]
+    Ended { signal: i32 },
+
     /// Writing to stdout failed, usually because the reader of a pipe went away.
     #[error("the output could not be written")]
     Output {
@@ -230,6 +241,7 @@ impl CliError {
             | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted => Exit::Interrupted,
+            CliError::Ended { signal } => Exit::Signal(*signal),
             CliError::ConfigInvalid | CliError::SandboxUnavailable => Exit::Invalid,
             _ => Exit::DaemonError,
         }
@@ -283,7 +295,10 @@ impl CliError {
     pub(crate) fn is_silent(&self) -> bool {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
-            CliError::Interrupted | CliError::ConfigInvalid | CliError::SandboxUnavailable => true,
+            CliError::Interrupted
+            | CliError::Ended { .. }
+            | CliError::ConfigInvalid
+            | CliError::SandboxUnavailable => true,
             _ => false,
         }
     }

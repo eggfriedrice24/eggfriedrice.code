@@ -22,6 +22,15 @@ fn exit_codes_are_the_documented_numbers() {
 }
 
 #[test]
+fn a_signal_that_ends_a_turn_exits_with_128_and_its_number_and_no_message() {
+    let error = CliError::Ended { signal: 15 };
+    assert_eq!(error.exit(), Exit::Signal(15));
+    assert_eq!(error.exit().code(), 143);
+    assert_eq!(Exit::Signal(1).code(), 129);
+    assert!(error.is_silent());
+}
+
+#[test]
 fn a_missing_daemon_exits_with_three_and_a_hint() {
     let error = not_running();
     assert_eq!(error.exit(), Exit::NotRunning);

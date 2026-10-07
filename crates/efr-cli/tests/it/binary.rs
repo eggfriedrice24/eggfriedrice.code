@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
 
@@ -49,7 +50,12 @@ impl Roots {
 
     /// `efr` with only the variables a test gives it.
     fn efr(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_efr"));
+        Command::from_std(self.std_efr())
+    }
+
+    /// [`Roots::efr`] as a standard command, which a test can start and signal.
+    fn std_efr(&self) -> std::process::Command {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_efr"));
         command
             .env_clear()
             .current_dir(self.dir.path())
@@ -429,6 +435,57 @@ fn a_failed_turn_exits_one_with_the_reason() {
     daemon.join().unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(stderr_of(&output), "efr: the turn failed with internal: the provider is down\n");
+}
+
+#[test]
+fn sigterm_while_a_turn_runs_ends_efr_by_the_signal() {
+    let roots = Roots::new();
+    let (subscribed, waits) = std::sync::mpsc::channel();
+    let daemon = roots.serve(move |conn| {
+        let (id, _) = conn.request();
+        let turn_id = TURN.parse().unwrap();
+        conn.reply(
+            id,
+            &PromptSendResult {
+                conversation_id: CONVERSATION.parse().unwrap(),
+                turn_id,
+                seq: Seq::new(3),
+                queued: false,
+                settings: None,
+            },
+        );
+        let (sub, _) = conn.request();
+        conn.item(
+            sub,
+            &event(
+                4,
+                Event::TurnStarted {
+                    turn_id,
+                    cwd: PathBuf::from("/srv"),
+                    scope: efr_protocol::Scope::Machine,
+                    settings: None,
+                },
+            ),
+        );
+        subscribed.send(()).unwrap();
+        conn.drain();
+    });
+    let child = roots
+        .std_efr()
+        .args(["send", "--", "why", "so", "slow?"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    waits.recv().unwrap();
+    let pid = rustix::process::Pid::from_child(&child);
+    rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
+    let output = child.wait_with_output().unwrap();
+    daemon.join().unwrap();
+    // The follow loop took the signal, wrote its last frame, and then let the signal
+    // take its default action, so the shell sees SIGTERM and no message.
+    assert_eq!(output.status.signal(), Some(15), "{:?}", output.status);
+    assert_eq!(stderr_of(&output), "");
 }
 
 #[test]

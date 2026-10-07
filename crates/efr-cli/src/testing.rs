@@ -34,7 +34,9 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Notify, mpsc, watch};
 
 use crate::cli::{Cli, Command};
-use crate::context::{Browser, Context, Interrupt, Resize, Resume, Signals, Stop};
+use crate::context::{
+    Browser, Context, Ending, Interrupt, Resize, Resume, Signals, Stop, Terminate,
+};
 use crate::error::CliError;
 use crate::keys::{KeyReader, Keys};
 use crate::output::Output;
@@ -353,6 +355,29 @@ impl Resize for TestResize {
     }
 }
 
+/// A SIGTERM that the test triggers. A trigger before anyone waits is kept.
+#[derive(Debug, Default)]
+pub(crate) struct TestTerminate(Arc<Notify>);
+
+impl TestTerminate {
+    /// The number of SIGTERM.
+    pub(crate) const SIGTERM: i32 = 15;
+
+    pub(crate) fn trigger(&self) {
+        self.0.notify_one();
+    }
+}
+
+impl Terminate for TestTerminate {
+    fn wait(&self) -> Ending {
+        let notify = Arc::clone(&self.0);
+        Box::pin(async move {
+            notify.notified().await;
+            TestTerminate::SIGTERM
+        })
+    }
+}
+
 /// Returns from a stop that the test triggers. A trigger before anyone waits is kept.
 #[derive(Debug, Default)]
 pub(crate) struct TestResume(Arc<Notify>);
@@ -596,6 +621,7 @@ impl TestEnv {
             interrupt: Arc::new(TestInterrupt::default()),
             resize: Arc::new(TestResize::default()),
             resume: Arc::new(TestResume::default()),
+            terminate: Arc::new(TestTerminate::default()),
             quit: Arc::new(TestQuit::default()),
             browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),

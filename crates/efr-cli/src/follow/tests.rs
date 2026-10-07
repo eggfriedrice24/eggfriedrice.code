@@ -21,7 +21,8 @@ use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
     Captured, Conn, GateClock, ResizableScreen, ScriptedKeys, TestEnv, TestInterrupt, TestQuit,
-    TestResize, TestResume, call, capture, conversation, envelope, item, now, readable, turn,
+    TestResize, TestResume, TestTerminate, call, capture, conversation, envelope, item, now,
+    readable, turn,
 };
 
 fn target() -> Target {
@@ -1637,11 +1638,14 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
         Failed,
         CtrlC,
         Ended,
+        Sigterm,
     }
-    for way in [Out::Completed, Out::Failed, Out::CtrlC, Out::Ended] {
+    for way in [Out::Completed, Out::Failed, Out::CtrlC, Out::Ended, Out::Sigterm] {
         let env = TestEnv::new();
         let interrupt = Arc::new(TestInterrupt::default());
-        let ctx = Context { interrupt: interrupt.clone(), ..env.context() };
+        let terminate = Arc::new(TestTerminate::default());
+        let ctx =
+            Context { interrupt: interrupt.clone(), terminate: terminate.clone(), ..env.context() };
         let (result, out, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
             let sub = subscribed(&mut conn, 10).await;
             conn.item(sub, &item(11, updated("Partial answer"))).await;
@@ -1659,11 +1663,15 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
                         .await;
                 }
                 Out::Ended => conn.end(sub).await,
+                Out::Sigterm => terminate.trigger(),
             }
             conn.until_closed().await;
         })
         .await;
         assert_eq!(result.is_ok(), matches!(way, Out::Completed), "{way:?}: {result:?}");
+        if matches!(way, Out::Sigterm) {
+            assert!(matches!(result, Err(CliError::Ended { signal: 15 })), "{result:?}");
+        }
         assert!(out.starts_with("\x1b[?25l"), "{way:?}: {}", readable(&out));
         let bar = if matches!(way, Out::Failed) { progress::FAILED } else { progress::CLEAR };
         let shown = out.rfind("\x1b[?25h").unwrap_or_else(|| panic!("{way:?}: {}", readable(&out)));

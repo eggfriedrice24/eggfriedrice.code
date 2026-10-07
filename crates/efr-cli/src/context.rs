@@ -59,6 +59,51 @@ impl Interrupt for CtrlC {
     }
 }
 
+/// A future that resolves with the number of a signal that asks the process to end.
+pub(crate) type Ending = Pin<Box<dyn Future<Output = i32> + Send>>;
+
+/// Where the requests to end the process come from.
+pub(crate) trait Terminate: Send + Sync + fmt::Debug {
+    /// Resolves with the signal of the next request to end the process.
+    fn wait(&self) -> Ending;
+}
+
+/// SIGTERM (`kill`, `timeout`) and SIGHUP (the terminal closes).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TermOrHangup;
+
+impl Terminate for TermOrHangup {
+    fn wait(&self) -> Ending {
+        // NOTE: the handlers are installed here, when a command starts to follow a
+        // turn, so only such a command stops the default action, and `main` takes that
+        // action itself after the last frame. Each signal whose handler cannot be
+        // installed keeps its default action.
+        let terminate = next_signal(SignalKind::terminate());
+        let hangup = next_signal(SignalKind::hangup());
+        Box::pin(async {
+            tokio::select! {
+                signal = terminate => signal,
+                signal = hangup => signal,
+            }
+        })
+    }
+}
+
+/// Installs the handler of `kind` now; the future resolves with its number when it
+/// next comes, and never when the handler cannot be installed.
+fn next_signal(kind: SignalKind) -> impl Future<Output = i32> + Send {
+    let signals = signal(kind)
+        .inspect_err(|error| tracing::debug!(%error, "a signal handler could not be installed"));
+    async move {
+        if let Ok(mut signals) = signals
+            && signals.recv().await.is_some()
+        {
+            return kind.as_raw_value();
+        }
+        std::future::pending().await
+    }
+}
+
 /// A signal that may come again and again, one item each time it comes.
 pub(crate) type Signals = Pin<Box<dyn Stream<Item = ()> + Send>>;
 
@@ -158,6 +203,8 @@ pub(crate) struct Context {
     /// The process runs again after a stop: the live zone starts again below the
     /// shell's lines.
     pub(crate) resume: Arc<dyn Resume>,
+    /// SIGTERM and SIGHUP, which end a followed turn with a last frame.
+    pub(crate) terminate: Arc<dyn Terminate>,
     /// `Ctrl+\`, which asks to type an input for a command that prints nothing.
     pub(crate) quit: Arc<dyn Quit>,
     pub(crate) browser: Arc<dyn Browser>,
@@ -207,6 +254,7 @@ impl Context {
             interrupt: Arc::new(CtrlC),
             resize: Arc::new(Sigwinch),
             resume: Arc::new(Sigcont),
+            terminate: Arc::new(TermOrHangup),
             quit: Arc::new(CtrlBackslash::new()),
             browser: Arc::new(XdgOpen),
             cwd: std::env::current_dir().ok(),

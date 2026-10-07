@@ -74,6 +74,14 @@ fn main() -> ExitCode {
     // NOTE: nothing that matters can still be running here; shutting down in the
     // background means a blocked read of stdin cannot hold up the exit.
     runtime.shutdown_background();
+    if let Exit::Signal(signal) = exit {
+        // NOTE: the follow loop took the signal and wrote its last frame. The default
+        // action ends the process here, so the shell sees the signal, as it would
+        // without the handler; the exit code is only the fallback.
+        if let Err(error) = signal_hook::low_level::emulate_default_handler(signal) {
+            tracing::warn!(%error, signal, "the signal could not take its default action");
+        }
+    }
     ExitCode::from(exit.code())
 }
 

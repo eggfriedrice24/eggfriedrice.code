@@ -32,7 +32,9 @@
 //! After a stop (Ctrl+Z, then `fg`, SIGCONT) the live zone starts again below the
 //! shell's lines, and the cursor hides again.
 //! Every way out writes a last frame, which shows the cursor again and clears the
-//! progress bar; a panic and the default action of SIGQUIT write what
+//! progress bar. SIGTERM and SIGHUP are ways out too: the command ends with that last
+//! frame, and `main` then lets the signal take its default action. A panic and the
+//! default action of SIGQUIT write what
 //! [`TurnView::restore`] last said instead (`crate::output::set_restore`).
 //!
 //! The subscription asks for drafts: the text, the reasoning and the tool input of the
@@ -366,6 +368,7 @@ impl Follower<'_> {
         let mut interrupt = self.ctx.interrupt.wait();
         let mut resizes = self.ctx.resize.resizes();
         let mut resumes = self.ctx.resume.resumes();
+        let mut ending = self.ctx.terminate.wait();
         let mut resubscribes = 0;
         loop {
             let mut stream = self.subscribe().await?;
@@ -375,6 +378,9 @@ impl Follower<'_> {
                 tokio::select! {
                     () = &mut interrupt => {
                         return Err(CliError::Interrupted);
+                    }
+                    signal = &mut ending => {
+                        return Err(CliError::Ended { signal });
                     }
                     key = next_key(&mut self.keys) => {
                         self.key(key, out, view).await?;

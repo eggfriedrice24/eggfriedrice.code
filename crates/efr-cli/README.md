@@ -121,8 +121,8 @@ Replies:
   carriage return, cursor up one row, erase the line, the row. While the user is asked
   something here (an approval, the quarantine question, an answer line) the row goes
   and its time stops; the 20 s of a stall count again from the answer. The cursor is hidden while the row shows and comes back for a
-  question and on every way out: the end of the turn, Ctrl+C, an error, a panic (the
-  hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
+  question and on every way out: the end of the turn, Ctrl+C, SIGTERM and SIGHUP, an
+  error, a panic (the hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
   shows it again after any line that ran `efr`, for a `kill -9`.
 - A completed turn ends with one muted line after a blank line, such as `done in 42s,
   18.2k tokens in, 1.1k out`: the time from the `at` of `turn_started` to the `at` of
@@ -359,10 +359,16 @@ Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (e
 behind another turn cannot be taken back yet, and the CLI says so. During a login,
 Ctrl+C closes the connection. What arrived stays on the screen.
 
+SIGTERM (`kill`, `timeout`) and SIGHUP (the terminal closes) while a turn is followed
+end the command with a last frame, which shows the cursor again and clears the
+progress bar. Then the signal takes its default action, so the shell sees the signal.
+The turn goes on in its conversation.
+
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
 interrupted elsewhere, the connection broke, or a config file has an error; 2 a usage
 error; 3 no daemon listens, also because the socket path is longer than a socket
-address holds; 130 Ctrl+C.
+address holds; 130 Ctrl+C; the signal itself (128 and its number in the shell) for
+SIGTERM and SIGHUP during a turn.
 
 A failure that a first run meets gets a second line with the command that fixes it:
 no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
@@ -397,8 +403,8 @@ Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (s
 in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
 (column alignment of listings and the echo of an answer), `unicode-segmentation` (a cut
 to the width never splits a grapheme cluster), `tracing`, `tracing-subscriber`, `thiserror`, `zeroize` (the answer
-line), `signal-hook` (the default action of SIGQUIT once `efr`'s own handler is
-installed, without unsafe code).
+line), `signal-hook` (the default action of SIGQUIT, SIGTERM and SIGHUP once `efr`'s own
+handler is installed, without unsafe code).
 
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX` and
 `WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
