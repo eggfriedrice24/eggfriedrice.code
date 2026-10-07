@@ -18,6 +18,8 @@ pass. Local gates must equal CI.
 - `just test-shell-ubuntu` (the CI shell job in the Ubuntu container; needs Docker)
 - `just test-sandbox` (the sandbox suite on real bwrap; it fails when the tests skip on
   a ready machine)
+- `just test-sandbox-vm` (the CI sandbox job: the same suite in a VM with a 7.1 kernel;
+  needs Docker and `/dev/kvm`)
 - `just test-ghostty` when `zig` is on `PATH`
 
 ## Safety

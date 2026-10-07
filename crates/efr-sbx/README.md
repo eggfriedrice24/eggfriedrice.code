@@ -110,3 +110,8 @@ machine. Every test call runs efr-shell's own `assets/zsh/efr-child.zsh` and
 `assets/efr-editor`, the files that efrd installs. Every fixture lives in the target
 dir's temp dir with a fake home; no test reads or writes the user's real efr dirs, and
 no test uses the network.
+
+CI's `sandbox` job runs the same tests in a VM, because the kernel of GitHub's runner is
+older than 7.1. `.github/sandbox-vm.sh` boots a pinned 7.1 kernel with virtme-ng and
+runs the tests of the build job's archive inside; `just test-sandbox-vm` does the same
+in a container that is set up like the runner.
