@@ -118,6 +118,39 @@ fn overlay_back_to_back_calls_mount_every_time() {
 }
 
 #[test]
+fn a_cache_inside_another_cache_runs_in_either_order() {
+    // The inner cache came first and got an overlay of its own, and the helper failed to
+    // move it onto the outer overlay (EINVAL): every call failed at setup.
+    let ready = sandbox_or_skip!();
+    for mode in [CacheMode::Overlay, CacheMode::Tmp] {
+        let mut fixture = Fixture::new(&ready);
+        fixture.spec.cache_mode = mode;
+        let outer = fixture.home.join(".cache");
+        let inner = outer.join("pip");
+        write(&inner.join("index"), "one\n");
+        // ~/.cargo is a link into ~/.cache, and its pins still hold.
+        let cargo = outer.join("cargo");
+        write(&cargo.join("config.toml"), "[build]\n");
+        let link = fixture.home.join(".cargo");
+        std::os::unix::fs::symlink(&cargo, &link).unwrap();
+        fixture.cache(&link);
+        fixture.cache(&inner);
+        fixture.cache(&outer);
+        let run = fixture.run(&format!(
+            "print two >> {0}/index && cat {0}/index; print x >> {1}/config.toml; print $?",
+            q(&inner),
+            q(&link),
+        ));
+        run.expect_status(0);
+        assert_eq!(run.result().setup_error, None, "{mode:?}: {run:#?}");
+        assert!(run.stdout.starts_with("one\ntwo\n"), "{mode:?}: {run:#?}");
+        assert!(run.stdout.ends_with("1\n"), "{mode:?}: the pin did not hold: {run:#?}");
+        assert_eq!(fs::read_to_string(inner.join("index")).unwrap(), "one\n");
+        assert_eq!(fs::read_to_string(cargo.join("config.toml")).unwrap(), "[build]\n");
+    }
+}
+
+#[test]
 fn tmp_cache_writes_go_away_after_the_call() {
     let ready = sandbox_or_skip!();
     let mut fixture = Fixture::new(&ready);

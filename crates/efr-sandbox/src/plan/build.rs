@@ -262,8 +262,23 @@ impl Builder<'_> {
         if self.spec.cache_mode == CacheMode::Readonly {
             return Ok(());
         }
+        // NOTE: the outermost cache comes first, whatever the order of the list or the
+        // links on the way: a cache inside another one gets no overlay of its own, or
+        // the helper would have to move an overlay that it has not mounted yet.
+        let mut caches = Vec::with_capacity(self.spec.caches.len());
         for cache in &self.spec.caches {
-            let resolved = self.resolve(&cache.target)?;
+            caches.push((self.resolve(&cache.target)?, cache));
+        }
+        caches.sort_by_key(|(resolved, _)| depth(&resolved.path));
+        for (resolved, cache) in caches {
+            if self.caches.iter().any(|known| is_within(&resolved.path, known)) {
+                // Its pins still lie in a writable place: the outer overlay.
+                self.notes.push(PlanNote::CacheSkipped(cache.target.clone()));
+                for pin in &cache.pins {
+                    self.floor(pin, FloorKind::ToolConfig)?;
+                }
+                continue;
+            }
             let in_root = self.writable(&resolved.path);
             // NOTE: the helper finds the lower layer inside the sandbox, where these
             // dirs are private ones, not the host's.
@@ -678,7 +693,9 @@ fn cache_layers(spec: &SandboxSpec, mounts: &[Mount]) -> (Option<CacheLayers>, V
             }
             None => (dir.join("upper"), dir.join("work")),
         };
-        let moved = moved_mounts(target, mounts.iter().map(|mount| mount.op.target()));
+        // A cache's own overlay is never a mount that bwrap made, so it never moves.
+        let inside = mounts.iter().filter(|mount| mount.origin != MountOrigin::Cache);
+        let moved = moved_mounts(target, inside.map(|mount| mount.op.target()));
         layers.push(CacheLayer { target: target.clone(), dir, upper, work, moved });
     }
     if layers.is_empty() {

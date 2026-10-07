@@ -89,7 +89,10 @@ the cache overlays, a call cost more than 10 ms at p95. The kernel writes an
 `overlay` layer to the disk at the end of each call, and that costs time. efrd
 deletes the layers of a conversation after `sandbox.cache_days` days without a call,
 and the oldest layers first when all layers pass `sandbox.cache_max_gib`. Bin
-directories on your `PATH` are never an overlay; they stay read-only.
+directories on your `PATH` are never an overlay; they stay read-only. A cache inside
+another cache (`~/.cache/pip` and `~/.cache`, or `~/.cargo` as a link into `~/.cache`)
+gets no overlay of its own: the outer overlay holds it, and its read-only paths still
+apply. The order of `sandbox.caches` does not change this.
 
 efr mounts the cache overlays itself, not bubblewrap, because bubblewrap cannot set
 the options of an overlay:

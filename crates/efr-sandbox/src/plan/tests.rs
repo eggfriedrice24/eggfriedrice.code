@@ -660,3 +660,64 @@ fn plan_skips_a_cache_in_a_private_dir_of_the_sandbox() {
     assert!(plan.notes().contains(&PlanNote::CacheSkipped("/tmp/cache".into())));
     assert!(plan.notes().contains(&PlanNote::CacheSkipped("/var/tmp/cache".into())));
 }
+
+/// The cache targets of the helper's plan.
+fn overlay_targets(plan: &MountPlan) -> Vec<PathBuf> {
+    plan.cache_layers()
+        .map(|layers| layers.layers.iter().map(|layer| layer.target.clone()).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn plan_overlays_only_the_outer_cache_when_the_inner_one_comes_first() {
+    let mut spec = spec();
+    let runtime = spec.runtime.clone();
+    let cache = |target: &str| {
+        crate::CacheOverlay::new(Path::new(target), &runtime.sandbox_dir, &runtime.home)
+    };
+    spec.caches = vec![cache("/home/u/.cache/pip"), cache("/home/u/.cache")];
+    let mut fs = world();
+    fs.dir("/home/u/.cache/pip");
+    for overlay in &spec.caches {
+        fs.dir(&overlay.upper.to_string_lossy()).dir(&overlay.work.to_string_lossy());
+    }
+    let plan = plan(&spec, &fs);
+    assert_eq!(overlay_targets(&plan), [PathBuf::from("/home/u/.cache")]);
+    assert!(plan.notes().contains(&PlanNote::CacheSkipped("/home/u/.cache/pip".into())));
+    let layers = plan.cache_layers().unwrap();
+    assert!(layers.layers[0].moved.is_empty(), "{layers:#?}");
+}
+
+#[test]
+fn plan_keeps_the_pins_of_a_cache_that_links_into_another_cache() {
+    let mut spec = spec();
+    let runtime = spec.runtime.clone();
+    let cache = |target: &str| {
+        crate::CacheOverlay::new(Path::new(target), &runtime.sandbox_dir, &runtime.home)
+    };
+    // ~/.cargo is a link into ~/.cache, and comes first in the list.
+    spec.caches = vec![cache("/home/u/.cargo"), cache("/home/u/.cache")];
+    let mut fs = world();
+    fs.link("/home/u/.cargo", "/home/u/.cache/cargo")
+        .dir("/home/u/.cache/cargo/bin")
+        .file("/home/u/.cache/cargo/config.toml", "");
+    for overlay in &spec.caches {
+        fs.dir(&overlay.upper.to_string_lossy()).dir(&overlay.work.to_string_lossy());
+    }
+    let plan = plan(&spec, &fs);
+    assert_eq!(overlay_targets(&plan), [PathBuf::from("/home/u/.cache")]);
+    assert!(plan.notes().contains(&PlanNote::CacheSkipped("/home/u/.cargo".into())));
+    // The pins of ~/.cargo still win over the overlay of ~/.cache, and move onto it.
+    assert!(has_mount(&plan, &ro("/home/u/.cache/cargo/bin")));
+    assert!(has_mount(&plan, &ro("/home/u/.cache/cargo/config.toml")));
+    let layers = plan.cache_layers().unwrap();
+    let mut moved = layers.layers[0].moved.clone();
+    moved.sort();
+    assert_eq!(
+        moved,
+        [
+            PathBuf::from("/home/u/.cache/cargo/bin"),
+            PathBuf::from("/home/u/.cache/cargo/config.toml"),
+        ]
+    );
+}
