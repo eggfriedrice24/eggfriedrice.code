@@ -4,7 +4,8 @@
 //! string), or the name of one of the 16 colours: `black`, `red`, `green`, `yellow`,
 //! `blue`, `magenta`, `cyan`, `white`, each also as `bright-<name>`. The roles are the
 //! ones of `efr-render` (`efr_render::Role`): this crate may not depend on it, so the
-//! names are listed here as well, and a test of `efr` keeps the two lists equal.
+//! names are listed here as well, and `efr`, which depends on both, must keep the two
+//! lists equal.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
