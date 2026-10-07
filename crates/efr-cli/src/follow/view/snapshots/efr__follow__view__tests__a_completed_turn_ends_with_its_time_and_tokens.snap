@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: "ended(ALL, end, 42_000)"
+---
+\e[?2026h\r\e[1A\e[J
+\e[2mdone in 42s, 18.2k tokens in, 1.1k out\e[0m
+\e[?2026l\e[?25h\e]9;4;0\e\

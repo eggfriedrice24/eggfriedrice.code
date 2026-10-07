@@ -18,9 +18,10 @@ use efr_stdx::env::Var;
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
 use crate::error::CliError;
-use crate::follow::{self, Target, TurnView};
+use crate::follow::{self, Look, Target, TurnView};
 use crate::live::effective_width;
 use crate::output::Output;
+use crate::progress;
 use crate::turn_settings::Asked;
 
 /// Conversations asked for per page while looking for the terminal's active one.
@@ -116,9 +117,16 @@ pub(crate) async fn send(
     let result = send_prompt(ctx, &client, prompt).await?;
     let size = ctx.screen.size();
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
-    let mut view = TurnView::new(result.turn_id, options).with_home(ctx.home.clone());
+    let render = &ctx.settings.render;
+    let look = Look {
+        motion: render.motion,
+        summary: render.turn_summary,
+        progress: progress::wanted(render.progress, &ctx.term),
+    };
+    let mut view =
+        TurnView::new(result.turn_id, options).with_home(ctx.home.clone()).with_look(look);
     // NOTE: the note comes from the prompt.send result, so it is the reply's first line
-    // even before the first event arrives.
+    // even before the first event arrives; the follow loop writes it in its first frame.
     if let Some(note) = result.settings.as_ref().and_then(overrides) {
         let step = view.note(&note, size);
         out.err(&step.err);
@@ -130,6 +138,7 @@ pub(crate) async fn send(
         out.err(&step.err);
         out.out(&step.out)?;
     }
+    view.start();
     let target =
         Target { conversation: result.conversation_id, turn: result.turn_id, after: result.seq };
     follow::follow(ctx, &client, out, &mut view, target).await

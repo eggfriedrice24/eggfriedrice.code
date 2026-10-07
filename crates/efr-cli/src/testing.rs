@@ -34,7 +34,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Notify, mpsc, watch};
 
 use crate::cli::{Cli, Command};
-use crate::context::{Browser, Context, Interrupt, Stop};
+use crate::context::{Browser, Context, Interrupt, Resize, Resizes, Stop};
 use crate::error::CliError;
 use crate::keys::{KeyReader, Keys};
 use crate::output::Output;
@@ -172,7 +172,8 @@ pub(crate) fn models() -> ModelsListResult {
     }
 }
 
-/// A clock whose sleeps never finish, so no timeout fires.
+/// A clock whose sleeps never finish, so no timeout fires and no tick comes. A sleep of
+/// one frame or less finishes at once, so a frame that waits for its time goes out.
 #[derive(Debug)]
 pub(crate) struct StoppedClock;
 
@@ -181,7 +182,10 @@ impl Clock for StoppedClock {
         now()
     }
 
-    fn sleep(&self, _duration: Duration) -> Sleep {
+    fn sleep(&self, duration: Duration) -> Sleep {
+        if duration <= crate::follow::FRAME {
+            return Box::pin(ready(()));
+        }
         Box::pin(pending())
     }
 }
@@ -219,6 +223,22 @@ pub(crate) struct FixedScreen(pub(crate) Size);
 impl Screen for FixedScreen {
     fn size(&self) -> Size {
         self.0
+    }
+}
+
+/// A screen whose size the test changes.
+#[derive(Debug)]
+pub(crate) struct ResizableScreen(pub(crate) Mutex<Size>);
+
+impl ResizableScreen {
+    pub(crate) fn set(&self, size: Size) {
+        *self.0.lock().unwrap() = size;
+    }
+}
+
+impl Screen for ResizableScreen {
+    fn size(&self) -> Size {
+        *self.0.lock().unwrap()
     }
 }
 
@@ -314,6 +334,26 @@ impl Interrupt for TestInterrupt {
     fn wait(&self) -> Stop {
         let notify = Arc::clone(&self.0);
         Box::pin(async move { notify.notified().await })
+    }
+}
+
+/// Window resizes that the test triggers. A trigger before anyone waits is kept.
+#[derive(Debug, Default)]
+pub(crate) struct TestResize(Arc<Notify>);
+
+impl TestResize {
+    pub(crate) fn trigger(&self) {
+        self.0.notify_one();
+    }
+}
+
+impl Resize for TestResize {
+    fn resizes(&self) -> Resizes {
+        let notify = Arc::clone(&self.0);
+        Box::pin(futures::stream::unfold(notify, |notify| async move {
+            notify.notified().await;
+            Some(((), notify))
+        }))
     }
 }
 
@@ -482,6 +522,7 @@ pub(crate) fn terminal_facts() -> TermFacts {
         stdout_tty: true,
         stderr_tty: true,
         stdin_tty: true,
+        ..TermFacts::default()
     }
 }
 
@@ -533,6 +574,7 @@ impl TestEnv {
             screen: Arc::new(FixedScreen(Size::default())),
             keys: Arc::new(NoKeys),
             interrupt: Arc::new(TestInterrupt::default()),
+            resize: Arc::new(TestResize::default()),
             quit: Arc::new(TestQuit::default()),
             browser: Arc::new(RecordingBrowser::default()),
             cwd: Some(PathBuf::from("/home/user/project")),

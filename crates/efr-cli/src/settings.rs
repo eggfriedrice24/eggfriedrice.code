@@ -28,6 +28,9 @@ pub(crate) struct Settings {
     pub(crate) theme: Theme,
     /// Where `theme` came from.
     pub(crate) theme_source: Source,
+    /// The whole `[render]` table: motion, the end-of-turn line and the progress bar.
+    /// The defaults when the file cannot be used.
+    pub(crate) render: efr_config::RenderSettings,
     /// The turn defaults that the file sets.
     pub(crate) turn: TurnDefaults,
     /// What went wrong while reading the file.
@@ -159,6 +162,7 @@ impl Settings {
             model: file.model.name.clone(),
             effort: file.model.effort.clone(),
         };
+        settings.render = file.render.clone();
         if let Some(name) = file.render.theme {
             match Theme::from_name(&name) {
                 Ok(theme) => {

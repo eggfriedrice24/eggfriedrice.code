@@ -7,6 +7,7 @@ use efr_protocol::{
     PageCursor, PromptSendResult, Seq, TurnSettings, TurnSteerResult,
 };
 use efr_stdx::env::{Env, Var};
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
 use super::overrides;
@@ -260,6 +261,7 @@ async fn on_a_terminal_the_reply_is_rendered() {
         ..env.context()
     };
     let (mut out, captured) = capture();
+    let seen = captured.clone();
     let line = command(&["send", "--", "plan?"]);
     let script = async {
         let mut conn = daemon.accept().await;
@@ -277,6 +279,12 @@ async fn on_a_terminal_the_reply_is_rendered() {
             };
             offset = text.len();
             conn.item(sub, &item(seq, event)).await;
+            // Each update gets a frame of its own before the next one comes.
+            let frames = usize::try_from(seq - 9).unwrap();
+            Wait::new(&format!("frame {frames}"))
+                .until(|| seen.stdout().matches("\x1b[?2026h").count() == frames)
+                .await
+                .unwrap();
         }
         let done = Event::AssistantMessageCompleted {
             turn_id: turn(),
@@ -284,6 +292,10 @@ async fn on_a_terminal_the_reply_is_rendered() {
             text: format!("{}\n", updates[1]),
         };
         conn.item(sub, &item(13, done)).await;
+        Wait::new("frame 4")
+            .until(|| seen.stdout().matches("\x1b[?2026h").count() == 4)
+            .await
+            .unwrap();
         conn.item(sub, &item(14, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
         conn.until_closed().await;
     };
@@ -652,6 +664,7 @@ async fn on_a_terminal_the_settings_note_is_dim() {
         ..env.context()
     };
     let (mut out, captured) = capture();
+    let seen = captured.clone();
     let line = command(&["send", "--effort", "high", "--", "plan?"]);
     let overridden = OverriddenSettings { effort: true, ..OverriddenSettings::default() };
     let result = PromptSendResult { settings: Some(effective(overridden)), ..sent(false) };
@@ -666,6 +679,7 @@ async fn on_a_terminal_the_settings_note_is_dim() {
             text: "Restart nginx.".to_owned(),
         };
         conn.item(sub, &item(11, done)).await;
+        Wait::new("the message").until(|| seen.stdout().contains("Restart")).await.unwrap();
         conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None })).await;
         conn.until_closed().await;
     };

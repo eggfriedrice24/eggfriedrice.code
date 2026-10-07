@@ -16,6 +16,11 @@
 //! The live zone is kept smaller than the screen: rows that scrolled off the top can
 //! no longer be reached by moving the cursor up, so they could never be erased. When
 //! it would be taller, only its last lines are shown.
+//!
+//! The last line of the live zone can be a status row, which changes on every tick of a
+//! running turn. When only that row changed, the redraw replaces that one row: a
+//! carriage return, the cursor up one row, erase the line, the new row. The rest of the
+//! live zone stays on the screen as it is.
 
 use std::fmt::Write as _;
 
@@ -45,6 +50,8 @@ pub(crate) struct Measured {
 pub(crate) struct LiveZone {
     /// The text on the screen now, after clipping.
     shown: String,
+    /// The status row at the end of `shown`, with its newline; empty without one.
+    status: String,
     /// The rows it took when it was written.
     rows: usize,
     /// The width it was written at.
@@ -55,6 +62,7 @@ impl LiveZone {
     /// The bytes that erase the live zone, write `committed` once, and show `live` in
     /// its place. `measured` is the renderer's count of the rows `live` takes, used
     /// when it was counted at the current width. Empty when nothing would change.
+    #[cfg(test)]
     pub(crate) fn redraw(
         &mut self,
         committed: &str,
@@ -62,25 +70,63 @@ impl LiveZone {
         measured: Option<Measured>,
         size: Size,
     ) -> String {
+        self.draw(committed, live, measured, "", size)
+    }
+
+    /// The bytes that erase the live zone, write `committed` once, and show `body` and
+    /// then the status row `status` (one line with its newline, or empty) in its place.
+    /// `measured` is the renderer's count of the rows `body` takes, used when it was
+    /// counted at the current width. When only the status row changed, only that row is
+    /// written again. Empty when nothing would change.
+    pub(crate) fn draw(
+        &mut self,
+        committed: &str,
+        body: &str,
+        measured: Option<Measured>,
+        status: &str,
+        size: Size,
+    ) -> String {
         let width = effective_width(size);
+        let live = format!("{body}{status}");
         let (shown, rows) = match measured {
-            Some(measured) if measured.width == width && fits(measured.rows, size) => {
-                (live, measured.rows)
+            Some(measured)
+                if measured.width == width
+                    && fits(measured.rows + rows_of(status, width), size) =>
+            {
+                (live.as_str(), measured.rows + rows_of(status, width))
             }
-            _ => clip(live, width, max_rows(size)),
+            _ => clip(&live, width, max_rows(size)),
         };
-        if committed.is_empty() && shown == self.shown && width == self.width {
+        // An empty live zone looks the same at any width.
+        if committed.is_empty() && shown == self.shown && (width == self.width || shown.is_empty())
+        {
             return String::new();
         }
-        let old_rows = if width == self.width { self.rows } else { rows_of(&self.shown, width) };
+        // The status row stays one row when the rest stays as it is: only it changes.
+        let status = if status.is_empty() || !shown.ends_with(status) { "" } else { status };
+        let same_rest = shown.strip_suffix(status) == self.shown.strip_suffix(&*self.status);
         let mut out = String::from(BEGIN_SYNC);
-        if old_rows > 0 {
-            let _ = write!(out, "\r\x1b[{old_rows}A\x1b[J");
+        if committed.is_empty()
+            && width == self.width
+            && rows == self.rows
+            && same_rest
+            && rows_of(status, width) == 1
+            && rows_of(&self.status, width) == 1
+        {
+            out.push_str("\r\x1b[1A\x1b[2K");
+            out.push_str(status);
+        } else {
+            let old_rows =
+                if width == self.width { self.rows } else { rows_of(&self.shown, width) };
+            if old_rows > 0 {
+                let _ = write!(out, "\r\x1b[{old_rows}A\x1b[J");
+            }
+            out.push_str(committed);
+            out.push_str(shown);
         }
-        out.push_str(committed);
-        out.push_str(shown);
         out.push_str(END_SYNC);
-        self.shown = shown.to_owned();
+        shown.clone_into(&mut self.shown);
+        status.clone_into(&mut self.status);
         self.rows = rows;
         self.width = width;
         out

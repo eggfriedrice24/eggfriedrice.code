@@ -82,6 +82,57 @@ Replies:
   again at the current width when the terminal was resized), erase to the end of the
   screen, then the new committed output and live zone, all inside synchronized output
   (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen.
+- Events change the view; they write nothing themselves. The follow loop writes frames:
+  a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
+  so the screen gets at most 60 frames a second. A question, an answer, a key, the end
+  of the turn and an error show at once. A resize of the window (SIGWINCH) draws the
+  live zone again at the new width. The times come from the injected clock.
+- The subscription asks for drafts (`drafts: true`): the text, the reasoning and the
+  tool input of the running turn before the daemon records them, about every 16 ms.
+  Draft text merges with the persisted updates of its message by byte offset: a
+  persisted update that repeats text that drafts showed changes nothing, a draft that
+  starts past the text held (an earlier one was dropped) waits for the next persisted
+  update, and `assistant_message_completed` stays the truth. A draft of another turn,
+  or one older than an event of the turn that the view took, changes nothing. An older
+  daemon sends no drafts, and the text then comes with the persisted updates.
+- Text goes into the renderer at the pace of the frames: a burst is shown over the time
+  until the next one is due, at most 120 ms, so a 200 ms update reads as a stream. All
+  of it shows at once when 8 lines or more wait, when the oldest text waited 120 ms, and
+  when the message ends. What streams is still what `efr_render::render` makes of the
+  whole text.
+- While a turn runs on a terminal, the last row of the live zone is the status row:
+  a braille spinner (one frame each 100 ms) in the `accent` role, the state in the
+  `muted` role, and from 1 s on the time since `turn_started` (`12s`, `1m 05s`,
+  `1h 02m 05s`). The states: `waiting for the running turn` (a queued prompt),
+  `waiting for the model`, `thinking` or `thinking: <title>` (a reasoning draft, with
+  the newest bold title of the reasoning), `writing`, `preparing <tool>, 3.2 KB` (a
+  tool input draft, the newest call of the answer), `running <tool>` (a tool call),
+  `waiting for an answer` (an approval that another client must answer), and, after
+  20 s without an event or a draft while it waits for the model or writes,
+  `waiting for the model, no data for 25s`. A band of three characters at normal
+  intensity (SGR 22) moves over the dim state one character per tick, then rests for a
+  second. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
+  on the injected clock) that changes only the status row writes only that row:
+  carriage return, cursor up one row, erase the line, the row. While the user is asked
+  something here (an approval, the quarantine question, an answer line) the row goes
+  and its time stops. The cursor is hidden while the row shows and comes back for a
+  question and on every way out: the end of the turn, Ctrl+C, an error, a panic (the
+  hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
+  shows it again after any line that ran `efr`, for a `kill -9`.
+- A completed turn ends with one muted line after a blank line, such as `done in 42s,
+  18.2k tokens in, 1.1k out`: the time from the `at` of `turn_started` to the `at` of
+  `turn_completed`, and `turn_completed.usage`. An interrupted turn ends with
+  `interrupted after 12s`; a failed one has no such line. `render.turn_summary = false`
+  leaves the line out. Piped output keeps its notes as they were.
+- The progress bar of the terminal's tab (OSC 9;4): an indeterminate bar (`9;4;3`)
+  while the turn runs, sent again on every tick, a paused one (`9;4;4`) while the user
+  is asked something, `9;4;0` on every way out, and `9;4;2;100` when the turn failed.
+  `render.progress = "auto"` sends it only to Ghostty 1.2 or later
+  (`TERM_PROGRAM=ghostty` and `TERM_PROGRAM_VERSION`), kitty 0.47 or later
+  (`TERM_PROGRAM=kitty`) and Windows Terminal (`WT_SESSION`), never inside tmux
+  (`TMUX`); other terminals read OSC 9 as a notification. `on` sends it whenever stdout
+  is a terminal, `off` never. No query decides any of this: a query needs a reply on
+  stdin, which would take the keys typed ahead for the shell.
   Tool calls, answers and the end of a turn are dim notes, one line each. A command
   of several lines never shows its lines joined: its note is the first line and how
   many follow, such as `shell: cd src (and 3 more lines)`, and a cut to the width
@@ -135,6 +186,9 @@ Replies:
   ```toml
   [render]
   theme = "catppuccin-mocha"   # any name efr_render::Theme::from_name accepts
+  motion = true                # the spinner and the band of the status row
+  turn_summary = true          # the line at the end of each turn
+  progress = "auto"            # the progress bar of the tab: auto, on or off
   ```
 
   `efr-config` reads and checks the whole file with the schema the daemon uses, unknown
@@ -281,7 +335,8 @@ threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 `efr-transport`, not even in tests: the fake daemon of the tests speaks
 `efr_protocol::framing` directly. Tests also use `efr-test-support` (a dev-dependency)
 for `Wait`, which waits for a key thread, a view or the daemon's notice with a real
-time limit.
+time limit, and for `TestClock`, which moves the frames and the ticks only when a test
+moves it.
 
 Third-party crates: `clap`, `tokio`, `futures`, `serde`, `serde_json`, `toml` (strings
 in the output of `efr config show`), `jiff`, `rustix` (window size, termios, ttyname), `unicode-width`
@@ -289,7 +344,8 @@ in the output of `efr config show`), `jiff`, `rustix` (window size, termios, tty
 line), `signal-hook` (the default action of SIGQUIT once `efr`'s own handler is
 installed, without unsafe code).
 
-`NO_COLOR`, `TERM` and `COLORTERM` are read in `terminal.rs` with `std::env::var_os`,
+`NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX` and
+`WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `HOME` only shortens the paths of
 the sandbox's lines to `~/...`.
@@ -300,6 +356,12 @@ the sandbox's lines to `~/...`.
   replies into text. It never writes the daemon's database or credentials, and the
   login runs in the daemon.
 - `output.rs` is the only module that writes to stdout or stderr.
+- efr is not a TUI: no alternate screen, no full-screen view, no footer that stays,
+  and committed output is written once and never redrawn. Only the live zone changes,
+  and the status row goes before the prompt comes back. No terminal query is sent, and
+  no key is read for the status row or a frame.
+- The cursor is never left hidden on a way out that efr controls, and `output.rs`
+  keeps the bytes that undo the view's changes for a panic and SIGQUIT.
 - The terminal is never left in non-canonical mode: every path out of a turn stops the
   key thread, which restores the settings before it reports done.
 - Text from the daemon or the model cannot drive the terminal: markdown goes through
@@ -328,7 +390,14 @@ Unit tests cover argument parsing (with `efr --help` snapshots), output formatti
 (insta snapshots of status, listings, transcripts, config and rendered turns), the
 live-zone redraw arithmetic for wrapped lines (including a proptest that the CLI's row
 count agrees with the renderer's), the key thread on a real pseudo-terminal, and the
-editing of an answer line. The end-to-end tests run whole commands against a fake
+editing of an answer line. The frame tests drive the view and the follow loop with
+`efr-test-support`'s `TestClock`: snapshots of the frames and the status row at its
+ticks, a burst of 50 events inside one frame time that gives one frame, a question
+and the end that never wait, a tick that writes only the status row, a resize that
+SIGWINCH stands for, the cursor and the progress bar on every way out, the allowlist
+of the progress bar, drafts that merge with persisted updates without a line twice
+(and without a log line), a dropped draft that heals, and a proptest that pacing keeps
+what `render` makes of the whole text. The end-to-end tests run whole commands against a fake
 daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
 Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
 byte written to the fake terminal holds a hidden answer. The silence tests use a clock

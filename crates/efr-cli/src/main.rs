@@ -3,8 +3,9 @@
 //!
 //! - `cli`: the command line (clap).
 //! - `run`: dispatch, exit codes and error messages; `commands/*`: one file per command.
-//! - `follow`: following a turn's events, with `follow/view` deciding what they look
-//!   like and `live` redrawing the live zone of a streaming reply.
+//! - `follow`: following a turn's events and drafts in frames, with `follow/view`
+//!   deciding what they look like (and its status row) and `live` redrawing the live
+//!   zone of a streaming reply; `progress`: the progress bar of the terminal's tab.
 //! - `keys`: the key thread, for one-key answers to approvals and for answer lines;
 //!   `answer`: the line typed for a command that waits for input; `quit`: `Ctrl+\`,
 //!   which opens such a line for a silent command; `terminal`: the terminal facts and
@@ -33,6 +34,7 @@ mod format;
 mod keys;
 mod live;
 mod output;
+mod progress;
 mod quit;
 mod run;
 mod settings;
@@ -60,6 +62,7 @@ fn main() -> ExitCode {
     };
     let term = TermFacts::from_process();
     telemetry(&term);
+    output::install_panic_hook();
     let runtime = match run::runtime() {
         Ok(runtime) => runtime,
         Err(error) => {

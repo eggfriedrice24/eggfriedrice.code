@@ -9,10 +9,11 @@
 use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::time::Duration;
 
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError,
-    ConversationStatus, ConversationsListResult, EffectiveSettings, Origin,
+    ConversationStatus, ConversationsListResult, EffectiveSettings, Origin, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
 use efr_stdx::text::is_format;
@@ -316,7 +317,7 @@ pub(crate) fn run_heading(tool: &str, command: &str) -> Vec<String> {
 }
 
 /// `text` cut to `columns` with `…` at the cut; whole when it fits.
-fn cut(text: &str, columns: usize) -> String {
+pub(crate) fn cut(text: &str, columns: usize) -> String {
     if width(text) <= columns {
         return text.to_owned();
     }
@@ -335,7 +336,7 @@ fn cut(text: &str, columns: usize) -> String {
 }
 
 /// How many columns `text` takes on a terminal.
-fn width(text: &str) -> usize {
+pub(crate) fn width(text: &str) -> usize {
     text.chars().map(|c| c.width().unwrap_or(0)).sum()
 }
 
@@ -428,6 +429,66 @@ fn span(seconds: u64) -> String {
         (0, _, _) => format!("{hours}h {minutes}m"),
         _ => format!("{days}d {hours}h"),
     }
+}
+
+/// A running time in whole seconds, as the status row counts it: `0s` to `59s`, then
+/// `1m 00s`, then `1h 00m 00s`.
+pub(crate) fn elapsed(time: Duration) -> String {
+    let seconds = time.as_secs();
+    let (hours, minutes, secs) = (seconds / 3_600, seconds / 60 % 60, seconds % 60);
+    match (hours, minutes) {
+        (0, 0) => format!("{secs}s"),
+        (0, _) => format!("{minutes}m {secs:02}s"),
+        _ => format!("{hours}h {minutes:02}m {secs:02}s"),
+    }
+}
+
+/// How long a turn took: tenths of a second under 10 s, such as `4.2s`, else as
+/// [`elapsed`] counts.
+pub(crate) fn took(time: Duration) -> String {
+    if time < Duration::from_secs(10) {
+        let tenths = time.as_millis() / 100;
+        return format!("{}.{}s", tenths / 10, tenths % 10);
+    }
+    elapsed(time)
+}
+
+/// A count of tokens: as it is under 1000, then `1.2k`, `18.2k`, `120k`, `1.2M`. The
+/// digits are cut, never rounded up, so `999999` is `999k`, not `1000k`.
+pub(crate) fn tokens(count: u64) -> String {
+    match count {
+        0..1_000 => count.to_string(),
+        1_000..100_000 => format!("{}.{}k", count / 1_000, count / 100 % 10),
+        100_000..1_000_000 => format!("{}k", count / 1_000),
+        _ => format!("{}.{}M", count / 1_000_000, count / 100_000 % 10),
+    }
+}
+
+/// A size in bytes: `512 B`, `3.2 KB`, `1.4 MB`, counted in thousands.
+pub(crate) fn size(bytes: u64) -> String {
+    match bytes {
+        0..1_000 => format!("{bytes} B"),
+        1_000..1_000_000 => format!("{}.{} KB", bytes / 1_000, bytes / 100 % 10),
+        _ => format!("{}.{} MB", bytes / 1_000_000, bytes / 100_000 % 10),
+    }
+}
+
+/// The end-of-turn line of a completed turn, such as `done in 42s, 18.2k tokens in,
+/// 1.1k out`. The time and the tokens are left out when they are not known.
+pub(crate) fn turn_done(took: Option<Duration>, usage: Option<&Usage>) -> String {
+    let mut line = match took {
+        Some(time) => format!("done in {}", self::took(time)),
+        None => "done".to_owned(),
+    };
+    if let Some(usage) = usage {
+        let _ = write!(
+            line,
+            ", {} tokens in, {} out",
+            tokens(usage.input_tokens),
+            tokens(usage.output_tokens)
+        );
+    }
+    line
 }
 
 /// `efr status`: the daemon's identity and health, one fact per line.

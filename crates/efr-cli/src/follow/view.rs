@@ -47,6 +47,21 @@
 //! thrown away as before. Keys typed outside such a call stay typeahead for the user's
 //! shell.
 //!
+//! Events change the view and collect committed output; they write no escape sequence.
+//! [`TurnView::frame`] turns what changed into one write: the committed output since the
+//! last frame, then the live zone, inside synchronized output. The follow loop decides
+//! when a frame goes out (at most one per 16 ms, a question and the end at once), and
+//! [`TurnView::tick`] draws the status row again ten times a second. A message's text
+//! goes into its renderer at the pace of the frames (`message`), and the status row
+//! (`status`) says what the turn does: waiting for the model, thinking, writing,
+//! preparing a tool call or running one. Drafts ([`TurnView::draft`]), the part of a
+//! running turn that the daemon sends before it records it, merge with the persisted
+//! updates: a persisted update that repeats text the drafts showed changes nothing. On
+//! a terminal the cursor hides while the status row shows, and comes back for a
+//! question and at the end. A completed turn ends with one muted line of its time and
+//! tokens, and a progress bar in the terminal's tab (OSC 9;4) runs while the turn does,
+//! when the terminal draws one.
+//!
 //! In `auto`, the first call of a turn that runs in the sandbox gets one dim line that
 //! says where it can write, and a failed contained call ends with `(sandbox)`. An
 //! approval for an exit shows the whole line of the call, what leaves the sandbox and
@@ -57,19 +72,35 @@
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 
+mod message;
+mod status;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use efr_protocol::{
-    ApprovalDecision, CallId, ErrorBody, Event, ExitInfo, ExitRecord, InputWait, Launch, Origin,
-    QuestionId, Scope, SurfaceChange, TurnId,
+    ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
+    ExitRecord, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange, TurnId,
 };
-use efr_render::{RenderOptions, Renderer, render, render_trace};
+use efr_render::{RenderOptions, render, render_trace};
+use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::{self, Block, Spacing, Tone, sandbox};
 use crate::live::{LiveZone, Measured, effective_width};
+use crate::progress;
 use crate::terminal::{Size, at_width};
+use message::Message;
+use status::{State, Status};
+
+pub(crate) use status::TICK;
+
+/// Hides the cursor while the status row shows.
+const HIDE_CURSOR: &str = "\x1b[?25l";
+
+/// Shows the cursor again.
+const SHOW_CURSOR: &str = "\x1b[?25h";
 
 /// The question under a pending approval.
 const QUESTION: &str = "allow? y = yes, n = no";
@@ -145,7 +176,8 @@ pub(crate) enum TurnEnd {
 /// What one input to the view produced.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Step {
-    /// Text for stdout.
+    /// Text for stdout when it is not a terminal; on a terminal, [`TurnView::frame`]
+    /// writes it.
     pub(crate) out: String,
     /// Text for stderr.
     pub(crate) err: String,
@@ -288,16 +320,16 @@ impl Running {
     }
 }
 
-/// The assistant message that is streaming now.
-#[derive(Debug)]
-struct Message {
-    index: u32,
-    renderer: Renderer,
-    /// The text pushed into the renderer so far.
-    pushed: String,
-    /// The renderer's live zone after the last push, and its height.
-    live: String,
-    measured: Option<Measured>,
+/// What `config.toml` switches in the look of a turn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Look {
+    /// The spinner turns and a band moves over the state (`render.motion`).
+    pub(crate) motion: bool,
+    /// A muted line ends each completed turn (`render.turn_summary`).
+    pub(crate) summary: bool,
+    /// The progress bar of the terminal's tab shows while the turn runs
+    /// (`render.progress`, already checked against the terminal).
+    pub(crate) progress: bool,
 }
 
 /// The state of one followed turn on the screen.
@@ -354,6 +386,30 @@ pub(crate) struct TurnView {
     surface_answered: Option<QuestionId>,
     /// Every quarantine question shown, of this turn or of the turn it waits behind.
     surfaces: HashSet<QuestionId>,
+    /// What `config.toml` switches.
+    look: Look,
+    /// On a terminal: the committed output since the last frame.
+    pending: String,
+    /// Something changed since the last frame.
+    dirty: bool,
+    /// The status row, once the follow loop started the view on a terminal.
+    status: Option<Status>,
+    /// The turn ended or the view was closed: the live zone and the status row are gone.
+    ended: bool,
+    /// The progress bar's sequence for the end: cleared, or failed.
+    end_progress: Option<&'static str>,
+    /// The progress bar's sequence sent last.
+    progress_sent: Option<&'static str>,
+    /// The cursor is hidden.
+    cursor_hidden: bool,
+    /// The time of the last frame.
+    last_frame: Option<Timestamp>,
+    /// The daemon's time of the event that is being taken, and of the turn's start.
+    event_at: Option<Timestamp>,
+    started_at: Option<Timestamp>,
+    /// The sequence number of the newest event of this turn, which a draft must not be
+    /// older than.
+    turn_seq: Option<Seq>,
 }
 
 impl TurnView {
@@ -386,6 +442,37 @@ impl TurnView {
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
+            look: Look::default(),
+            pending: String::new(),
+            dirty: false,
+            status: None,
+            ended: false,
+            end_progress: None,
+            progress_sent: None,
+            cursor_hidden: false,
+            last_frame: None,
+            event_at: None,
+            started_at: None,
+            turn_seq: None,
+        }
+    }
+
+    /// The same view with `look`.
+    pub(crate) fn with_look(mut self, look: Look) -> TurnView {
+        self.look = look;
+        self
+    }
+
+    /// Starts the status row, on a terminal: the prompt's line was just sent, and the
+    /// row shows from the next frame until the turn ends.
+    pub(crate) fn start(&mut self) {
+        if self.terminal() && self.status.is_none() {
+            let mut status = Status::new(self.look.motion);
+            if self.queued {
+                status.set(State::Queued);
+            }
+            self.status = Some(status);
+            self.dirty = true;
         }
     }
 
@@ -404,6 +491,194 @@ impl TurnView {
     /// approvals show and can be answered here.
     pub(crate) fn queue(&mut self) {
         self.queued = true;
+        self.state(State::Queued);
+    }
+
+    /// Takes one event of the conversation with its sequence number and its time on the
+    /// daemon's clock, which time the turn for its end-of-turn line.
+    pub(crate) fn envelope(&mut self, envelope: &EventEnvelope, size: Size, can_ask: bool) -> Step {
+        if envelope.event.turn_id() == Some(self.turn) {
+            self.turn_seq = Some(envelope.seq);
+            self.event_at = Some(envelope.at);
+        }
+        let step = self.event(&envelope.event, size, can_ask);
+        self.event_at = None;
+        step
+    }
+
+    /// Takes a draft: the part of this turn that the daemon sends before it records it.
+    /// Text merges with the persisted updates of its message; reasoning and the input of
+    /// a tool call only change the status row. A draft of another turn, or one older
+    /// than an event of this turn that the view took, changes nothing.
+    pub(crate) fn draft(&mut self, draft: &Draft, size: Size) -> Step {
+        if draft.turn_id != self.turn
+            || self.ended
+            || self.turn_seq.is_some_and(|seq| draft.after_seq < seq)
+        {
+            return Step::default();
+        }
+        if let Some(status) = &mut self.status {
+            status.stir();
+        }
+        match &draft.draft {
+            DraftPart::Text { index, offset, delta } => {
+                if *index < self.next_index {
+                    return Step::default();
+                }
+                self.state(State::Writing);
+                self.message_delta(*index, *offset, delta, size)
+            }
+            DraftPart::Reasoning { title, .. } => {
+                let title = title.as_deref().map(format::one_line);
+                self.state(State::Thinking(title.filter(|title| !title.trim().is_empty())));
+                Step::default()
+            }
+            DraftPart::ToolInput { call, tool, bytes } => {
+                // The calls of one answer come one after another: the newest one shows.
+                let newer = match self.status.as_ref().map(Status::state) {
+                    Some(State::Preparing { call: shown, .. }) => call >= shown,
+                    _ => true,
+                };
+                if newer {
+                    let tool = format::one_line(tool);
+                    self.state(State::Preparing { call: *call, tool, bytes: *bytes });
+                }
+                Step::default()
+            }
+            _ => Step::default(),
+        }
+    }
+
+    /// One write that brings the screen up to date at `now`: the committed output since
+    /// the last frame, then the live zone with the status row, inside synchronized
+    /// output, and the cursor and the progress bar as they must be now. Empty when
+    /// nothing changed, and always empty when stdout is not a terminal.
+    pub(crate) fn frame(&mut self, size: Size, now: Timestamp) -> String {
+        self.draw(size, now, false)
+    }
+
+    /// The frame of a tick: the status row moves on, and the progress bar is sent again,
+    /// because a terminal hides a bar that is not sent again.
+    pub(crate) fn tick(&mut self, size: Size, now: Timestamp) -> String {
+        self.draw(size, now, true)
+    }
+
+    /// True while a frame would write something new: a change, or text that waits to
+    /// show.
+    pub(crate) fn wants_frame(&self) -> bool {
+        self.dirty || self.message.as_ref().is_some_and(Message::waiting)
+    }
+
+    /// True while the status row runs and needs a tick.
+    pub(crate) fn ticks(&self) -> bool {
+        self.status.is_some() && !self.ended
+    }
+
+    /// What a sudden way out must write to leave the terminal as it was: the cursor
+    /// back, and no progress bar.
+    pub(crate) fn restore(&self) -> String {
+        let mut text = String::new();
+        if self.cursor_hidden {
+            text.push_str(SHOW_CURSOR);
+        }
+        if matches!(self.progress_sent, Some(sent) if sent == progress::RUNNING || sent == progress::PAUSED)
+        {
+            text.push_str(progress::CLEAR);
+        }
+        text
+    }
+
+    fn draw(&mut self, size: Size, now: Timestamp, tick: bool) -> String {
+        if !self.terminal() {
+            return String::new();
+        }
+        let since_frame = self
+            .last_frame
+            .map(|last| Duration::try_from(now.duration_since(last)).unwrap_or_default());
+        self.last_frame = Some(now);
+        if let Some(message) = &mut self.message {
+            let revealed = message.reveal(now, since_frame);
+            self.pending.push_str(&revealed);
+        }
+        let committed = std::mem::take(&mut self.pending);
+        self.dirty = false;
+        let (body, measured) = self.live_body(size);
+        let asking = self.waits_for_user();
+        let options = self.options_at(size);
+        let row = match &mut self.status {
+            Some(status) if !self.ended => {
+                status.at(now, asking);
+                if asking { String::new() } else { status.row(now, &options) }
+            }
+            _ => String::new(),
+        };
+        let hide = self.ticks() && !asking;
+        let mut out = String::new();
+        if hide && !self.cursor_hidden {
+            out.push_str(HIDE_CURSOR);
+            self.cursor_hidden = true;
+        }
+        out.push_str(&self.live.draw(&committed, &body, measured, &row, size));
+        if !hide && self.cursor_hidden {
+            out.push_str(SHOW_CURSOR);
+            self.cursor_hidden = false;
+        }
+        if let Some(sequence) = self.progress_now(asking)
+            && (Some(sequence) != self.progress_sent || (tick && !self.ended))
+        {
+            out.push_str(sequence);
+            self.progress_sent = Some(sequence);
+        }
+        out
+    }
+
+    /// The progress bar's sequence for now, when the bar is on.
+    fn progress_now(&self, asking: bool) -> Option<&'static str> {
+        if !self.look.progress || self.status.is_none() {
+            return None;
+        }
+        if self.ended {
+            return Some(self.end_progress.unwrap_or(progress::CLEAR));
+        }
+        Some(if asking { progress::PAUSED } else { progress::RUNNING })
+    }
+
+    /// True while the user is asked something here: an approval, the quarantine
+    /// question or an answer line.
+    fn waits_for_user(&self) -> bool {
+        self.question_pending()
+            || self.running.as_ref().is_some_and(|running| running.asking.is_some())
+    }
+
+    /// True when a turn ends with a line of its time and tokens: on a terminal, where
+    /// it closes the turn in the scrollback. Piped output keeps its notes as they were.
+    fn summary(&self) -> bool {
+        self.look.summary && self.terminal()
+    }
+
+    /// How long the turn took on the daemon's clock, from its start to the event being
+    /// taken; `None` when one of the two times is not known.
+    fn took(&self) -> Option<Duration> {
+        let (start, end) = (self.started_at?, self.event_at?);
+        Duration::try_from(end.duration_since(start)).ok()
+    }
+
+    /// The approval of call `call_id` was answered or expired: an answer that came from
+    /// elsewhere lets the call go on.
+    fn answer_came(&mut self, call_id: CallId) {
+        if self.status.as_ref().is_some_and(|status| *status.state() == State::Answer) {
+            let tool =
+                self.tools.get(&call_id).map_or_else(String::new, |tool| format::one_line(tool));
+            self.state(State::Tool(tool));
+        }
+    }
+
+    /// The status row says `state` now.
+    fn state(&mut self, state: State) {
+        if let Some(status) = &mut self.status {
+            status.set(state);
+            self.dirty = true;
+        }
     }
 
     /// True while the turn waits behind another one.
@@ -431,9 +706,16 @@ impl TurnView {
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
         }
+        if let Some(status) = &mut self.status {
+            status.stir();
+        }
         match event {
             Event::TurnStarted { scope, settings, .. } => {
                 self.queued = false;
+                self.started_at = self.event_at;
+                if let Some(status) = &mut self.status {
+                    status.turn_started();
+                }
                 self.in_project = matches!(scope, Scope::Project(_));
                 // A call or a question of the turn ahead that is still shown or kept is
                 // over now.
@@ -442,7 +724,7 @@ impl TurnView {
                 let mut step = match self.running.take() {
                     Some(running) => Step {
                         settled: running.reads_keys() || retained || surface,
-                        ..self.commit(String::new(), size)
+                        ..self.commit(String::new())
                     },
                     None => Step { settled: retained || surface, ..Step::default() },
                 };
@@ -458,12 +740,17 @@ impl TurnView {
                 step
             }
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
+                if *index >= self.next_index {
+                    self.state(State::Writing);
+                }
                 self.message_delta(*index, *offset, delta, size)
             }
             Event::AssistantMessageCompleted { index, text, .. } => {
+                self.state(State::Model);
                 self.message_text(*index, text, true, size)
             }
             Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } => {
+                self.state(State::Tool(format::one_line(tool)));
                 self.tools.insert(*call_id, tool.clone());
                 if let Some(command) = format::command_of(input) {
                     self.commands.insert(*call_id, command.to_owned());
@@ -500,7 +787,7 @@ impl TurnView {
                 }
                 Step { settled, ..step }
             }
-            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
+            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
@@ -512,6 +799,7 @@ impl TurnView {
                 refusal,
                 ..
             } => {
+                self.state(State::Model);
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.remove(call_id)
@@ -545,6 +833,9 @@ impl TurnView {
                 if *interactive {
                     self.interactive.insert(*call_id);
                 }
+                if !can_ask {
+                    self.state(State::Answer);
+                }
                 let request = Request {
                     heading: APPROVAL,
                     summary,
@@ -569,19 +860,30 @@ impl TurnView {
                 self.dim_block(&sandbox::surface_report(files), size)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. } => {
+                self.answer_came(*call_id);
                 self.resolved(*call_id, *decision, *origin, size)
             }
-            Event::ApprovalExpired { call_id, .. } => self.expired(*call_id, size),
+            Event::ApprovalExpired { call_id, .. } => {
+                self.answer_came(*call_id);
+                self.expired(*call_id, size)
+            }
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)), size)
             }
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
             }
-            Event::TurnCompleted { .. } => self.end(TurnEnd::Completed, None, size),
+            Event::TurnCompleted { usage, .. } => {
+                let line = self.summary().then(|| format::turn_done(self.took(), usage.as_ref()));
+                self.end(TurnEnd::Completed, line, size)
+            }
             Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), None, size),
             Event::TurnInterrupted { .. } => {
-                self.end(TurnEnd::Interrupted, Some("interrupted"), size)
+                let line = match self.took().filter(|_| self.summary()) {
+                    Some(took) => format!("interrupted after {}", format::took(took)),
+                    None => "interrupted".to_owned(),
+                };
+                self.end(TurnEnd::Interrupted, Some(line), size)
             }
             Event::TurnCancelled { .. } => self.end(TurnEnd::Cancelled, None, size),
             _ => Step::default(),
@@ -637,7 +939,7 @@ impl TurnView {
             Event::ApprovalExpired { call_id, .. } if self.blocking.contains(call_id) => {
                 self.expired(*call_id, size)
             }
-            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail, size),
+            Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
@@ -646,7 +948,7 @@ impl TurnView {
                     || self.retained == Some(*call_id) =>
             {
                 let settled = self.call_ended(*call_id);
-                Step { settled, ..self.commit(String::new(), size) }
+                Step { settled, ..self.commit(String::new()) }
             }
             _ => Step::default(),
         }
@@ -680,7 +982,7 @@ impl TurnView {
     fn notes(&mut self, lines: &[String], size: Size) -> Step {
         let mut step = Step::default();
         if lines.is_empty() {
-            return self.commit(String::new(), size);
+            return self.commit(String::new());
         }
         for line in lines {
             let noted = self.note(line, size);
@@ -704,7 +1006,8 @@ impl TurnView {
         }
         let mut committed = self.spacing.before(Block::Note).to_owned();
         committed.push_str(&text);
-        Step { out: self.redraw(&committed, size), ..Step::default() }
+        self.stage(&committed);
+        Step::default()
     }
 
     /// The quarantine question `question_id` about `changes`: a git setting that runs
@@ -746,7 +1049,7 @@ impl TurnView {
         } else {
             text.push_str(&render_trace("waiting for another client to answer", &options));
         }
-        self.show_question(step, &text, size)
+        self.show_question(step, &text)
     }
 
     /// The user answered the quarantine question `question_id` with a key here.
@@ -786,12 +1089,12 @@ impl TurnView {
 
     /// Writes the question `text` after `step`'s output: below the live zone on a
     /// terminal, on stderr otherwise.
-    fn show_question(&mut self, mut step: Step, text: &str, size: Size) -> Step {
+    fn show_question(&mut self, mut step: Step, text: &str) -> Step {
         if self.terminal() {
             let mut committed = std::mem::take(&mut step.out);
             committed.push_str(self.spacing.before(Block::Approval));
             committed.push_str(text);
-            step.out = self.redraw(&committed, size);
+            self.stage(&committed);
         } else {
             step.err = self.raw_err(text.to_owned());
         }
@@ -813,15 +1116,16 @@ impl TurnView {
         let mut committed = before;
         committed.push_str(self.spacing.before(Block::Note));
         committed.push_str(&render_trace(text, &options));
-        Step { out: self.redraw(&committed, size), ..Step::default() }
+        self.stage(&committed);
+        Step::default()
     }
 
     /// The output of call `call_id` grew and now ends in `tail`.
-    fn output(&mut self, call_id: CallId, tail: &str, size: Size) -> Step {
+    fn output(&mut self, call_id: CallId, tail: &str) -> Step {
         let (running, settled) = self.running(call_id);
         running.tail = last_line(tail);
         running.stirred();
-        Step { settled, ..self.commit(String::new(), size) }
+        Step { settled, ..self.commit(String::new()) }
     }
 
     /// The call that may offer `Ctrl+\` once it has been silent long enough, with its
@@ -851,11 +1155,7 @@ impl TurnView {
         if let Some(running) = &mut self.running {
             running.hinted = true;
         }
-        if self.terminal() {
-            self.commit(String::new(), size)
-        } else {
-            self.note(SILENCE_HINT, size)
-        }
+        if self.terminal() { self.commit(String::new()) } else { self.note(SILENCE_HINT, size) }
     }
 
     /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
@@ -940,15 +1240,15 @@ impl TurnView {
             // No wait, or one this build does not know: nothing to ask, but a call that
             // asked for a password keeps the keys quiet until it completes.
             _ if running.guarding => {
-                let mut step = self.commit(String::new(), size);
+                let mut step = self.commit(String::new());
                 step.ask = Some(Ask::Discard(call_id));
                 return step;
             }
             _ if settled && !replaced => {
-                let step = self.commit(String::new(), size);
+                let step = self.commit(String::new());
                 return self.keys_free(Some(call_id), step);
             }
-            _ => return Step { settled, ..self.commit(String::new(), size) },
+            _ => return Step { settled, ..self.commit(String::new()) },
         };
         if kind.hidden() && self.contained.contains(&call_id) {
             return Step { settled, ..self.note(HIDDEN_INPUT_SANDBOXED, size) };
@@ -975,7 +1275,7 @@ impl TurnView {
         running.asking = Some(kind);
         let prompt = format::one_line(&running.tail);
         let mut step = if self.terminal() {
-            self.commit(String::new(), size)
+            self.commit(String::new())
         } else {
             let options = self.options_at(size);
             let mut err = String::new();
@@ -1031,7 +1331,7 @@ impl TurnView {
     /// live zone on a terminal, otherwise on stderr after `> `, where a removed
     /// character is erased with Backspace. An answer that is not shown is never passed
     /// here, and text passed while no shown answer is asked for is dropped.
-    pub(crate) fn typed(&mut self, text: &str, size: Size) -> Step {
+    pub(crate) fn typed(&mut self, text: &str) -> Step {
         let terminal = self.terminal();
         let echo_line = self.echo_line;
         let Some(running) = &mut self.running else {
@@ -1042,7 +1342,7 @@ impl TurnView {
         }
         if terminal {
             text.clone_into(&mut running.typed);
-            return self.commit(String::new(), size);
+            return self.commit(String::new());
         }
         // A note since the last key ended the echo line; a new one starts empty.
         let (mut err, shown) = if echo_line {
@@ -1124,15 +1424,17 @@ impl TurnView {
 
     /// Ends the view early: commits what the current message has so far and clears the
     /// live zone, before an error or an interrupt is reported.
-    pub(crate) fn close(&mut self, size: Size) -> Step {
+    pub(crate) fn close(&mut self) -> Step {
         self.asking = None;
         self.surface = None;
         self.running = None;
         self.retained = None;
+        self.ended = true;
+        self.end_progress.get_or_insert(progress::CLEAR);
         let committed = self.finish_message();
         // An echo line left open would carry what is written after the view.
         let err = self.raw_err(String::new());
-        Step { err, ..self.commit(committed, size) }
+        Step { err, ..self.commit(committed) }
     }
 
     /// An update of message `index`: `delta` at byte `offset` of its text. An update
@@ -1143,7 +1445,7 @@ impl TurnView {
             .message
             .as_ref()
             .filter(|message| message.index == index)
-            .map_or("", |message| message.pushed.as_str());
+            .map_or("", Message::received);
         let Some(before) = usize::try_from(offset).ok().and_then(|offset| held.get(..offset))
         else {
             return Step::default();
@@ -1166,35 +1468,27 @@ impl TurnView {
             } else if self.raw_messages > 0 {
                 committed.push('\n');
             }
-            let options = self.options_at(size);
-            self.message = Some(Message {
-                index,
-                renderer: Renderer::new(options),
-                pushed: String::new(),
-                live: String::new(),
-                measured: None,
-            });
+            self.message = Some(Message::new(index, self.options_at(size)));
         }
+        let terminal = self.terminal();
         if let Some(message) = &mut self.message {
-            match text.strip_prefix(message.pushed.as_str()) {
-                Some("") => {}
-                Some(delta) => {
-                    let update = message.renderer.push(delta);
-                    committed.push_str(update.committed());
-                    message.live = update.live().to_owned();
-                    let width = message.renderer.options().width();
-                    message.measured = Some(Measured { rows: update.live_rows(), width });
-                    message.pushed.push_str(delta);
-                }
-                // Committed output cannot be taken back, so a message that rewrites text
-                // it already sent keeps what is on the screen.
-                None => tracing::debug!(index, "an assistant message rewrote sent text"),
+            message.receive(text);
+            // On a terminal the text goes into the renderer at the pace of the frames.
+            if !terminal {
+                committed.push_str(&message.push_all());
             }
         }
         if complete {
             committed.push_str(&self.finish_message());
         }
-        self.commit(committed, size)
+        if !terminal {
+            return Step { out: committed, ..Step::default() };
+        }
+        // NOTE: not `stage`, which would push the waiting text of this message before
+        // the output that comes ahead of it.
+        self.pending.push_str(&committed);
+        self.dirty = true;
+        Step::default()
     }
 
     /// Finishes the current message and returns the rest of its output.
@@ -1203,10 +1497,12 @@ impl TurnView {
             return String::new();
         };
         self.next_index = message.index.saturating_add(1);
-        let mut rest = message.renderer.finish();
+        let text = message.received();
+        let open_line = !text.is_empty() && !text.ends_with('\n');
+        let mut rest = message.finish();
         if !self.terminal() {
             self.raw_messages += 1;
-            if !message.pushed.is_empty() && !message.pushed.ends_with('\n') {
+            if open_line {
                 rest.push('\n');
             }
         }
@@ -1280,7 +1576,7 @@ impl TurnView {
         } else {
             text.push_str(&render_trace("waiting for another client to answer", &options));
         }
-        self.show_question(step, &text, size)
+        self.show_question(step, &text)
     }
 
     /// Clears the question when it was about `call_id`; true when it was.
@@ -1292,15 +1588,17 @@ impl TurnView {
         settled
     }
 
-    fn end(&mut self, end: TurnEnd, note: Option<&str>, size: Size) -> Step {
+    fn end(&mut self, end: TurnEnd, note: Option<String>, size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
             || input
             || self.retained.is_some();
-        let mut step = self.close(size);
+        let failed = matches!(end, TurnEnd::Failed(_));
+        self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
+        let mut step = self.close();
         if let Some(note) = note {
-            let noted = self.note(note, size);
+            let noted = self.note(&note, size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
         }
@@ -1315,20 +1613,37 @@ impl TurnView {
 
     /// Writes `committed` once: through the live zone on a terminal, as it is
     /// otherwise.
-    fn commit(&mut self, committed: String, size: Size) -> Step {
+    fn commit(&mut self, committed: String) -> Step {
         if self.terminal() {
-            Step { out: self.redraw(&committed, size), ..Step::default() }
+            self.stage(&committed);
+            Step::default()
         } else {
             Step { out: committed, ..Step::default() }
         }
     }
 
-    /// Redraws the live zone with `committed` written above it: the current message's
-    /// live text, the running call's tail and the input it waits for, then the
-    /// question when one is pending.
-    fn redraw(&mut self, committed: &str, size: Size) -> String {
+    /// Keeps `committed` for the next frame, after the text that the current message
+    /// still holds back, and marks the live zone for that frame.
+    fn stage(&mut self, committed: &str) {
+        if !committed.is_empty()
+            && let Some(message) = &mut self.message
+        {
+            let held = message.push_all();
+            self.pending.push_str(&held);
+        }
+        self.pending.push_str(committed);
+        self.dirty = true;
+    }
+
+    /// The live zone above the status row: the current message's live text, the
+    /// running call's tail and the input it waits for, then the question when one is
+    /// pending.
+    fn live_body(&self, size: Size) -> (String, Option<Measured>) {
         let (mut live, mut measured) = match &self.message {
-            Some(message) => (message.live.clone(), message.measured),
+            Some(message) => {
+                let (live, measured) = message.live();
+                (live.to_owned(), measured)
+            }
             None => (String::new(), None),
         };
         if let Some(running) = &self.running {
@@ -1366,7 +1681,7 @@ impl TurnView {
             live.push('\n');
             measured = None;
         }
-        self.live.redraw(committed, &live, measured, size)
+        (live, measured)
     }
 }
 

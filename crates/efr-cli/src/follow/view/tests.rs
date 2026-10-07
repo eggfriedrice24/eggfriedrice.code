@@ -1,19 +1,21 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, BlockReason, Blocked, CallId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait, Launch, Mode, ModeFallback,
-    Origin, OverriddenSettings, PathClassName, QuestionId, ReportedFile, SandboxSummary, Scope,
-    SurfaceChange, TargetFact, TurnId,
+    ApprovalDecision, BlockReason, Blocked, CallId, Draft, DraftPart, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait,
+    Launch, Mode, ModeFallback, Origin, OverriddenSettings, PathClassName, QuestionId,
+    ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange, TargetFact, TurnId, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
+use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{AnswerKind, Ask, ECHO_PREFIX, Step, TurnEnd, TurnView, last_line};
+use super::{AnswerKind, Ask, ECHO_PREFIX, Look, Step, TurnEnd, TurnView, last_line};
+use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
-    FAILED_UNITS, FROM_SRC, call, exit_info, exit_record, program_fact, readable, turn,
+    FAILED_UNITS, FROM_SRC, call, exit_info, exit_record, now, program_fact, readable, turn,
 };
 
 const SIZE: Size = Size { cols: 40, rows: 20 };
@@ -80,11 +82,17 @@ fn turn_completed() -> Event {
     Event::TurnCompleted { turn_id: turn(), usage: None }
 }
 
+/// `step` with the frame that shows it, at a time that never moves, in its `out`.
+fn framed(mut step: Step, view: &mut TurnView) -> Step {
+    step.out.push_str(&view.frame(SIZE, now()));
+    step
+}
+
 /// Feeds events and joins what they wrote, with the end of the turn.
 fn feed(view: &mut TurnView, events: &[Event], can_ask: bool) -> (String, String, Option<TurnEnd>) {
     let (mut out, mut err, mut end) = (String::new(), String::new(), None);
     for event in events {
-        let step = view.event(event, SIZE, can_ask);
+        let step = framed(view.event(event, SIZE, can_ask), view);
         out.push_str(&step.out);
         err.push_str(&step.err);
         end = end.or(step.end);
@@ -127,7 +135,7 @@ fn a_terminal_reply_commits_complete_blocks_and_redraws_the_live_zone() {
         completed(0, "# Plan\n\nFirst we check the logs.\n\n- one\n- two\n"),
         turn_completed(),
     ] {
-        writes.push(readable(&view.event(&event, SIZE, false).out));
+        writes.push(readable(&framed(view.event(&event, SIZE, false), &mut view).out));
     }
     insta::assert_snapshot!(writes.join("\n---\n"));
 }
@@ -161,22 +169,22 @@ fn notes_sit_between_messages_and_dim() {
 #[test]
 fn a_long_trace_is_cut_to_the_screen_width() {
     let mut view = terminal_view();
-    let step = view.event(&tool_started(&"x".repeat(100)), SIZE, false);
+    let step = framed(view.event(&tool_started(&"x".repeat(100)), SIZE, false), &mut view);
     assert!(step.out.contains('\u{2026}'), "{}", readable(&step.out));
 }
 
 #[test]
 fn an_approval_asks_below_the_live_zone_when_keys_can_be_read() {
     let mut view = terminal_view();
-    let step = view.event(&approval(Some("-a\n+b\n")), SIZE, true);
+    let step = framed(view.event(&approval(Some("-a\n+b\n")), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Approval(call())));
     insta::assert_snapshot!(readable(&step.out));
 
-    let step = view.answered(call(), ApprovalDecision::Deny, SIZE);
+    let step = framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view);
     insta::assert_snapshot!("answered", readable(&step.out));
 
     // The daemon's event for this client's own answer adds nothing.
-    let step = view.event(&resolved(Origin::Shell), SIZE, true);
+    let step = framed(view.event(&resolved(Origin::Shell), SIZE, true), &mut view);
     assert_eq!(step, Step::default());
 }
 
@@ -197,28 +205,43 @@ fn refused_call_completed() -> Event {
 #[test]
 fn a_denied_call_is_not_reported_as_failed_too() {
     let mut view = terminal_view();
-    view.event(&tool_started("touch note.txt"), SIZE, true);
-    view.event(&approval(None), SIZE, true);
-    view.answered(call(), ApprovalDecision::Deny, SIZE);
-    assert_eq!(view.event(&refused_call_completed(), SIZE, true), Step::default());
+    framed(view.event(&tool_started("touch note.txt"), SIZE, true), &mut view);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view);
+    assert_eq!(
+        framed(view.event(&refused_call_completed(), SIZE, true), &mut view),
+        Step::default()
+    );
 
     let mut view = terminal_view();
-    view.event(&tool_started("touch note.txt"), SIZE, false);
-    view.event(&approval(None), SIZE, false);
+    framed(view.event(&tool_started("touch note.txt"), SIZE, false), &mut view);
+    framed(view.event(&approval(None), SIZE, false), &mut view);
     let denied = Event::ApprovalResolved {
         turn_id: turn(),
         call_id: call(),
         decision: ApprovalDecision::Deny,
         origin: Origin::Phone,
     };
-    assert!(readable(&view.event(&denied, SIZE, false).out).contains("denied from the phone"));
-    assert_eq!(view.event(&refused_call_completed(), SIZE, false), Step::default());
+    assert!(
+        readable(&framed(view.event(&denied, SIZE, false), &mut view).out)
+            .contains("denied from the phone")
+    );
+    assert_eq!(
+        framed(view.event(&refused_call_completed(), SIZE, false), &mut view),
+        Step::default()
+    );
 
     let mut view = terminal_view();
-    view.event(&tool_started("touch note.txt"), SIZE, true);
-    view.event(&approval(None), SIZE, true);
-    view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true);
-    assert_eq!(view.event(&refused_call_completed(), SIZE, true), Step::default());
+    framed(view.event(&tool_started("touch note.txt"), SIZE, true), &mut view);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    framed(
+        view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true),
+        &mut view,
+    );
+    assert_eq!(
+        framed(view.event(&refused_call_completed(), SIZE, true), &mut view),
+        Step::default()
+    );
 }
 
 #[test]
@@ -254,20 +277,20 @@ fn a_call_that_efr_refused_says_why() {
 #[test]
 fn an_allowed_call_that_fails_is_still_reported() {
     let mut view = terminal_view();
-    view.event(&tool_started("touch /root/x"), SIZE, true);
-    view.event(&approval(None), SIZE, true);
-    view.answered(call(), ApprovalDecision::Allow, SIZE);
-    let step = view.event(&refused_call_completed(), SIZE, true);
+    framed(view.event(&tool_started("touch /root/x"), SIZE, true), &mut view);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view);
+    let step = framed(view.event(&refused_call_completed(), SIZE, true), &mut view);
     assert!(readable(&step.out).contains("shell failed"), "{}", readable(&step.out));
 }
 
 #[test]
 fn without_keys_an_approval_waits_for_another_client() {
     let mut view = terminal_view();
-    let step = view.event(&approval(None), SIZE, false);
+    let step = framed(view.event(&approval(None), SIZE, false), &mut view);
     assert_eq!(step.ask, None);
     assert!(readable(&step.out).contains("waiting for another client to answer"));
-    let step = view.event(&resolved(Origin::Phone), SIZE, false);
+    let step = framed(view.event(&resolved(Origin::Phone), SIZE, false), &mut view);
     assert!(!step.settled);
     assert!(readable(&step.out).contains("allowed from the phone"));
 }
@@ -275,8 +298,8 @@ fn without_keys_an_approval_waits_for_another_client() {
 #[test]
 fn an_answer_from_elsewhere_settles_the_question() {
     let mut view = terminal_view();
-    view.event(&approval(None), SIZE, true);
-    let step = view.event(&resolved(Origin::Phone), SIZE, true);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    let step = framed(view.event(&resolved(Origin::Phone), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
     assert!(out.contains("allowed from the phone"), "{out}");
@@ -286,8 +309,11 @@ fn an_answer_from_elsewhere_settles_the_question() {
 #[test]
 fn an_expired_approval_settles_the_question() {
     let mut view = terminal_view();
-    view.event(&approval(None), SIZE, true);
-    let step = view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    let step = framed(
+        view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true),
+        &mut view,
+    );
     assert!(step.settled);
     assert!(readable(&step.out).contains("the approval expired"));
 }
@@ -295,7 +321,7 @@ fn an_expired_approval_settles_the_question() {
 #[test]
 fn a_raw_approval_goes_to_stderr_with_the_question() {
     let mut view = raw_view();
-    let step = view.event(&approval(Some("-a\n+b")), SIZE, true);
+    let step = framed(view.event(&approval(Some("-a\n+b")), SIZE, true), &mut view);
     assert_eq!(step.out, "");
     assert_eq!(step.err, "approval needed: write ~/.zshrc\n-a\n+b\nallow? y = yes, n = no\n");
     assert_eq!(step.ask, Some(Ask::Approval(call())));
@@ -318,14 +344,14 @@ fn approval_of_parts() -> Event {
 #[test]
 fn an_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
     let mut view = terminal_view();
-    let step = view.event(&approval_of_parts(), SIZE, true);
+    let step = framed(view.event(&approval_of_parts(), SIZE, true), &mut view);
     insta::assert_snapshot!(readable(&step.out));
 }
 
 #[test]
 fn a_raw_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
     let mut view = raw_view();
-    let step = view.event(&approval_of_parts(), SIZE, true);
+    let step = framed(view.event(&approval_of_parts(), SIZE, true), &mut view);
     assert_eq!(
         step.err,
         "approval needed: shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
@@ -344,7 +370,7 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
         interactive: false,
         exit: None,
     };
-    let step = view.event(&event, SIZE, true);
+    let step = framed(view.event(&event, SIZE, true), &mut view);
     assert_eq!(
         step.err,
         "approval needed: write_file: write /home/u/a asks for: ls (user data)\n\
@@ -363,7 +389,7 @@ fn approval_summaries_cannot_drive_the_terminal() {
         interactive: false,
         exit: None,
     };
-    let out = view.event(&event, SIZE, false).out;
+    let out = framed(view.event(&event, SIZE, false), &mut view).out;
     assert!(!out.contains("\u{1b}]52"), "{}", readable(&out));
 }
 
@@ -377,23 +403,25 @@ fn events_of_other_turns_change_nothing() {
         offset: 0,
         delta: "x".to_owned(),
     };
-    assert_eq!(view.event(&event, SIZE, true), Step::default());
+    assert_eq!(framed(view.event(&event, SIZE, true), &mut view), Step::default());
     let started = Event::TurnStarted {
         turn_id: turn(),
         cwd: PathBuf::from("/etc"),
         scope: Scope::Machine,
         settings: None,
     };
-    assert_eq!(view.event(&started, SIZE, true), Step::default());
+    assert_eq!(framed(view.event(&started, SIZE, true), &mut view), Step::default());
 }
 
 #[test]
 fn a_failed_turn_commits_what_arrived_and_ends() {
     let mut view = terminal_view();
-    view.event(&updated(0, "Half a line"), SIZE, false);
+    framed(view.event(&updated(0, "Half a line"), SIZE, false), &mut view);
     let error = ErrorBody::new(ErrorCode::Internal, "the provider is down");
-    let step =
-        view.event(&Event::TurnFailed { turn_id: turn(), error: error.clone() }, SIZE, false);
+    let step = framed(
+        view.event(&Event::TurnFailed { turn_id: turn(), error: error.clone() }, SIZE, false),
+        &mut view,
+    );
     assert_eq!(step.end, Some(TurnEnd::Failed(error)));
     assert_eq!(readable(&step.out), "\\e[?2026h\\r\\e[1A\\e[JHalf a line\n\\e[?2026l");
 }
@@ -401,7 +429,8 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
 #[test]
 fn an_interrupted_turn_says_so() {
     let mut view = raw_view();
-    let step = view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, false);
+    let step =
+        framed(view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, false), &mut view);
     assert_eq!(step.end, Some(TurnEnd::Interrupted));
     assert_eq!(step.err, "interrupted\n");
 }
@@ -410,7 +439,10 @@ fn an_interrupted_turn_says_so() {
 fn a_late_update_of_a_completed_message_is_ignored() {
     let mut view = raw_view();
     feed(&mut view, &[completed(0, "done")], false);
-    assert_eq!(view.event(&updated(0, "done and more"), SIZE, false), Step::default());
+    assert_eq!(
+        framed(view.event(&updated(0, "done and more"), SIZE, false), &mut view),
+        Step::default()
+    );
 }
 
 #[test]
@@ -434,10 +466,10 @@ fn a_new_index_finishes_the_previous_message() {
 #[test]
 fn close_commits_the_live_text() {
     let mut view = terminal_view();
-    view.event(&updated(0, "partial"), SIZE, false);
-    let step = view.close(SIZE);
+    framed(view.event(&updated(0, "partial"), SIZE, false), &mut view);
+    let step = framed(view.close(), &mut view);
     assert_eq!(readable(&step.out), "\\e[?2026h\\r\\e[1A\\e[Jpartial\n\\e[?2026l");
-    assert_eq!(view.close(SIZE), Step::default());
+    assert_eq!(framed(view.close(), &mut view), Step::default());
 }
 
 #[test]
@@ -482,8 +514,8 @@ fn a_tool_call_completes_the_message_before_it() {
 #[test]
 fn on_a_terminal_the_message_is_committed_above_the_tool_call() {
     let mut view = terminal_view();
-    view.event(&updated(0, "Let me check"), SIZE, false);
-    let out = readable(&view.event(&tool_started("df -h"), SIZE, false).out);
+    framed(view.event(&updated(0, "Let me check"), SIZE, false), &mut view);
+    let out = readable(&framed(view.event(&tool_started("df -h"), SIZE, false), &mut view).out);
     assert_eq!(out, "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[2mshell: df -h\\e[0m\n\\e[?2026l");
 }
 
@@ -528,8 +560,10 @@ fn call_completed(exit_code: i32) -> Event {
 
 /// Feeds events to a terminal view and joins the bytes of each write.
 fn writes(view: &mut TurnView, events: &[Event], can_ask: bool) -> String {
-    let writes: Vec<String> =
-        events.iter().map(|event| readable(&view.event(event, SIZE, can_ask).out)).collect();
+    let writes: Vec<String> = events
+        .iter()
+        .map(|event| readable(&framed(view.event(event, SIZE, can_ask), view).out))
+        .collect();
     writes.join("\n---\n")
 }
 
@@ -565,9 +599,9 @@ fn the_running_call_shows_its_last_line_live_until_it_completes() {
 #[test]
 fn a_wide_tail_takes_one_row_at_most() {
     let mut view = terminal_view();
-    view.event(&tool_started("make"), SIZE, false);
+    framed(view.event(&tool_started("make"), SIZE, false), &mut view);
     let line = "\u{6f22}".repeat(30);
-    let out = view.event(&output(&line), SIZE, false).out;
+    let out = framed(view.event(&output(&line), SIZE, false), &mut view).out;
     assert!(!out.contains(&line), "{}", readable(&out));
     assert!(out.contains('\u{2026}'), "{}", readable(&out));
     let live = out.rsplit('\n').nth(1).unwrap_or_default();
@@ -577,48 +611,48 @@ fn a_wide_tail_takes_one_row_at_most() {
 #[test]
 fn a_failed_call_commits_its_note_and_drops_the_tail() {
     let mut view = terminal_view();
-    view.event(&tool_started("make"), SIZE, false);
-    view.event(&output("error: no rule\n"), SIZE, false);
-    let out = readable(&view.event(&call_completed(2), SIZE, false).out);
+    framed(view.event(&tool_started("make"), SIZE, false), &mut view);
+    framed(view.event(&output("error: no rule\n"), SIZE, false), &mut view);
+    let out = readable(&framed(view.event(&call_completed(2), SIZE, false), &mut view).out);
     assert_eq!(out, "\\e[?2026h\\r\\e[1A\\e[J\\e[2mshell exited with 2\\e[0m\n\\e[?2026l");
 }
 
 #[test]
 fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
     let mut view = raw_view();
-    view.event(&tool_started("make"), SIZE, false);
-    assert_eq!(view.event(&output("building\n"), SIZE, false), Step::default());
-    assert_eq!(view.event(&call_completed(0), SIZE, false), Step::default());
+    framed(view.event(&tool_started("make"), SIZE, false), &mut view);
+    assert_eq!(framed(view.event(&output("building\n"), SIZE, false), &mut view), Step::default());
+    assert_eq!(framed(view.event(&call_completed(0), SIZE, false), &mut view), Step::default());
 }
 
 #[test]
 fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
     let mut view = terminal_view();
-    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
-    view.event(&output("[sudo] password for egg: "), SIZE, true);
-    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    framed(view.event(&tool_started("sudo pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&output("[sudo] password for egg: "), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     insta::assert_snapshot!(readable(&step.out));
     // Text passed for a hidden answer would never be shown.
-    assert_eq!(view.typed("hunter2", SIZE), Step::default());
+    assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
 
-    let out = readable(&view.answer_sent(SIZE).out);
+    let out = readable(&framed(view.answer_sent(SIZE), &mut view).out);
     assert!(out.contains("answer sent"), "{out}");
     assert!(out.contains("it is not shown"), "the question stays for the next line: {out}");
 
     // sudo may ask again after a wrong password, so keys stay quiet until the call
     // completes.
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert!(!step.settled);
     assert_eq!(step.ask, Some(Ask::Discard(call())));
     let out = readable(&step.out);
     assert!(!out.contains("type the answer"), "the question is gone: {out}");
     assert!(out.contains("[sudo] password for egg:"), "the tail stays: {out}");
 
-    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
-    view.event(&input(InputWait::None), SIZE, true);
-    let step = view.event(&call_completed(0), SIZE, true);
+    framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
+    let step = framed(view.event(&call_completed(0), SIZE, true), &mut view);
     assert!(step.settled, "the keys stop with the call");
     assert_eq!(step.ask, None);
 }
@@ -626,9 +660,9 @@ fn a_hidden_input_asks_below_the_prompt_and_never_echoes() {
 #[test]
 fn a_visible_input_that_ends_settles_at_once() {
     let mut view = terminal_view();
-    view.event(&tool_started("pacman -Syu"), SIZE, true);
-    view.event(&input(InputWait::Visible), SIZE, true);
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    framed(view.event(&tool_started("pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert!(step.settled);
     assert_eq!(step.ask, None);
 }
@@ -636,14 +670,14 @@ fn a_visible_input_that_ends_settles_at_once() {
 #[test]
 fn a_visible_input_echoes_what_is_typed_until_it_is_sent() {
     let mut view = terminal_view();
-    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
-    view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true);
-    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    framed(view.event(&tool_started("sudo pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
-    let typed = view.typed("y", SIZE);
+    let typed = framed(view.typed("y"), &mut view);
     insta::assert_snapshot!(readable(&typed.out));
 
-    let sent = readable(&view.answer_sent(SIZE).out);
+    let sent = readable(&framed(view.answer_sent(SIZE), &mut view).out);
     assert!(sent.contains("answer sent"), "{sent}");
     assert!(!sent.contains("> y"), "the echo goes with the send: {sent}");
 }
@@ -651,10 +685,10 @@ fn a_visible_input_echoes_what_is_typed_until_it_is_sent() {
 #[test]
 fn a_completed_call_settles_its_input_and_drops_the_question() {
     let mut view = terminal_view();
-    view.event(&tool_started("sudo true"), SIZE, true);
-    view.event(&output("[sudo] password for egg: "), SIZE, true);
-    view.event(&input(InputWait::Hidden), SIZE, true);
-    let step = view.event(&call_completed(1), SIZE, true);
+    framed(view.event(&tool_started("sudo true"), SIZE, true), &mut view);
+    framed(view.event(&output("[sudo] password for egg: "), SIZE, true), &mut view);
+    framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
+    let step = framed(view.event(&call_completed(1), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
     assert!(!out.contains("password") && !out.contains("type the answer"), "{out}");
@@ -664,10 +698,10 @@ fn a_completed_call_settles_its_input_and_drops_the_question() {
 #[test]
 fn a_refused_answer_is_a_note() {
     let mut view = terminal_view();
-    view.event(&input(InputWait::Hidden), SIZE, true);
-    let out = readable(&view.answer_refused(SIZE).out);
+    framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
+    let out = readable(&framed(view.answer_refused(SIZE), &mut view).out);
     assert!(out.contains("the command no longer waits"), "{out}");
-    let out = readable(&view.answer_failed("boom \u{1b}[2J", SIZE).out);
+    let out = readable(&framed(view.answer_failed("boom \u{1b}[2J", SIZE), &mut view).out);
     assert!(out.contains("the answer was not sent: boom"), "{out}");
     assert!(!out.contains("\\e[2J"), "{out}");
 }
@@ -675,23 +709,23 @@ fn a_refused_answer_is_a_note() {
 #[test]
 fn without_keys_a_wait_is_one_note() {
     let mut view = raw_view();
-    let step = view.event(&input(InputWait::Hidden), SIZE, false);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, false), &mut view);
     assert_eq!(step.ask, None);
     assert_eq!(
         step.err,
         "the command waits for hidden input, such as a password; efr cannot ask for it here\n"
     );
-    let step = view.event(&input(InputWait::None), SIZE, false);
+    let step = framed(view.event(&input(InputWait::None), SIZE, false), &mut view);
     assert_eq!(step, Step::default());
-    let step = view.event(&input(InputWait::Visible), SIZE, false);
+    let step = framed(view.event(&input(InputWait::Visible), SIZE, false), &mut view);
     assert_eq!(step.err, "the command waits for input; efr cannot ask for it here\n");
 }
 
 #[test]
 fn a_raw_view_asks_on_stderr() {
     let mut view = raw_view();
-    view.event(&output("Password: "), SIZE, true);
-    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    framed(view.event(&output("Password: "), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     assert_eq!(step.out, "");
     assert_eq!(
@@ -699,14 +733,14 @@ fn a_raw_view_asks_on_stderr() {
         "Password:\ntype the answer and press Enter; it is not shown, and the agent sees it only if the \
          program prints it\n"
     );
-    assert_eq!(view.typed("visible?", SIZE), Step::default());
+    assert_eq!(framed(view.typed("visible?"), &mut view), Step::default());
 }
 
 #[test]
 fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     let mut view = raw_view();
-    view.event(&output("Proceed? [Y/n] "), SIZE, true);
-    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    framed(view.event(&output("Proceed? [Y/n] "), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
     assert_eq!(step.out, "");
     assert_eq!(
@@ -714,26 +748,26 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
         "Proceed? [Y/n]\ntype the answer and press Enter; the agent sees it if the program shows \
          it\n> "
     );
-    assert_eq!(view.typed("y", SIZE).err, "y");
-    assert_eq!(view.typed("ye", SIZE).err, "e");
-    assert_eq!(view.typed("y", SIZE).err, "\u{8} \u{8}");
+    assert_eq!(framed(view.typed("y"), &mut view).err, "y");
+    assert_eq!(framed(view.typed("ye"), &mut view).err, "e");
+    assert_eq!(framed(view.typed("y"), &mut view).err, "\u{8} \u{8}");
     // A wide character takes two columns, and Ctrl+U erases every column.
-    assert_eq!(view.typed("y\u{6f22}", SIZE).err, "\u{6f22}");
-    assert_eq!(view.typed("", SIZE).err, "\u{8} \u{8}".repeat(3));
-    view.typed("n", SIZE);
-    let sent = view.answer_sent(SIZE);
+    assert_eq!(framed(view.typed("y\u{6f22}"), &mut view).err, "\u{6f22}");
+    assert_eq!(framed(view.typed(""), &mut view).err, "\u{8} \u{8}".repeat(3));
+    framed(view.typed("n"), &mut view);
+    let sent = framed(view.answer_sent(SIZE), &mut view);
     assert_eq!((sent.out.as_str(), sent.err.as_str()), ("", "\nanswer sent\n"));
     // Another answer to the same question starts a line of its own.
-    assert_eq!(view.typed("y", SIZE).err, "> y");
+    assert_eq!(framed(view.typed("y"), &mut view).err, "> y");
     // And a line left unsent ends before anything that comes after the view.
-    assert_eq!(view.event(&turn_completed(), SIZE, true).err, "\n");
+    assert_eq!(framed(view.event(&turn_completed(), SIZE, true), &mut view).err, "\n");
 }
 
 #[test]
 fn an_input_does_not_ask_over_a_pending_approval() {
     let mut view = terminal_view();
-    view.event(&approval(None), SIZE, true);
-    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    framed(view.event(&approval(None), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
     assert_eq!(step.ask, None);
     assert!(!step.settled, "the approval keeps its keys");
 }
@@ -741,8 +775,9 @@ fn an_input_does_not_ask_over_a_pending_approval() {
 #[test]
 fn the_end_of_the_turn_settles_an_input() {
     let mut view = terminal_view();
-    view.event(&input(InputWait::Visible), SIZE, true);
-    let step = view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, true);
+    framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
+    let step =
+        framed(view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, true), &mut view);
     assert!(step.settled);
     assert!(!readable(&step.out).contains("type the answer"));
 }
@@ -759,7 +794,7 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
         input: InputWait::Hidden,
         looks_secret: false,
     };
-    let step = view.event(&wait, SIZE, true);
+    let step = framed(view.event(&wait, SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: other, kind: AnswerKind::Hidden }));
 
     let started = Event::TurnStarted {
@@ -768,12 +803,12 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
         scope: Scope::Machine,
         settings: None,
     };
-    let step = view.event(&started, SIZE, true);
+    let step = framed(view.event(&started, SIZE, true), &mut view);
     assert!(step.settled, "the question of the turn ahead goes once this one runs");
     assert!(!readable(&step.out).contains("type the answer"));
 
     // From now on another turn's waits are not this view's.
-    assert_eq!(view.event(&wait, SIZE, true), Step::default());
+    assert_eq!(framed(view.event(&wait, SIZE, true), &mut view), Step::default());
 }
 
 fn secret_input() -> Event {
@@ -791,19 +826,19 @@ const SECRET_NOTE: &str = "this looks like a password prompt behind another prog
 fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
     let mut view = TurnView::new(turn(), RenderOptions::new(400));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&tool_started("sudo -u build passwd"), size, true);
-    view.event(&output("Current password: "), size, true);
-    let step = view.event(&secret_input(), size, true);
+    framed(view.event(&tool_started("sudo -u build passwd"), size, true), &mut view);
+    framed(view.event(&output("Current password: "), size, true), &mut view);
+    let step = framed(view.event(&secret_input(), size, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
     let shown = readable(&step.out);
     assert!(shown.contains("Current password:"), "{shown}");
     assert!(shown.contains(SECRET_NOTE), "{shown}");
     assert!(!shown.contains("> "), "no echo line: {shown}");
     // Text handed to the view by mistake is dropped, never drawn.
-    assert_eq!(view.typed("hunter2", size), Step::default());
+    assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
 
     // Asked again later, keys typed in between are thrown away, as for a hidden wait.
-    let step = view.event(&input(InputWait::None), size, true);
+    let step = framed(view.event(&input(InputWait::None), size, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Discard(call())));
 }
 
@@ -811,8 +846,8 @@ fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
 fn a_raw_view_of_a_secret_looking_wait_opens_no_echo_line() {
     let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&output("Enter PIN: "), size, true);
-    let step = view.event(&secret_input(), size, true);
+    framed(view.event(&output("Enter PIN: "), size, true), &mut view);
+    let step = framed(view.event(&secret_input(), size, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
     assert!(step.err.contains(SECRET_NOTE), "{:?}", step.err);
     assert!(!step.err.contains("> "), "{:?}", step.err);
@@ -843,7 +878,7 @@ fn shell_started() -> Event {
 fn silent_shell() -> (TurnView, Size) {
     let mut view = TurnView::new(turn(), RenderOptions::new(400));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&shell_started(), size, true);
+    framed(view.event(&shell_started(), size, true), &mut view);
     (view, size)
 }
 
@@ -853,11 +888,11 @@ fn a_running_shell_call_of_the_turn_is_silent_until_it_shows_a_sign_of_life() {
     let (silent, first) = view.silence().unwrap();
     assert_eq!(silent, call());
     assert_eq!(view.manual_offer(), None, "nothing is offered before the time is up");
-    view.event(&output("deploying"), size, true);
+    framed(view.event(&output("deploying"), size, true), &mut view);
     let (_, second) = view.silence().unwrap();
     assert_ne!(first, second, "output starts the silence again");
     // A reported wait asks for itself, so the call is not silent.
-    view.event(&input(InputWait::Visible), size, true);
+    framed(view.event(&input(InputWait::Visible), size, true), &mut view);
     assert_eq!(view.silence(), None);
 }
 
@@ -872,9 +907,9 @@ fn only_calls_of_the_followed_turn_that_take_a_manual_input_can_be_silent() {
         manual_input: false,
         launch: None,
     };
-    view.event(&read, SIZE, true);
+    framed(view.event(&read, SIZE, true), &mut view);
     assert_eq!(view.silence(), None);
-    view.event(&output("127.0.0.1 localhost"), SIZE, true);
+    framed(view.event(&output("127.0.0.1 localhost"), SIZE, true), &mut view);
     assert_eq!(view.silence(), None, "output alone does not make a call take a manual input");
 }
 
@@ -890,7 +925,7 @@ fn a_shell_call_into_a_shell_that_reads_command_lines_is_never_silent() {
         manual_input: false,
         launch: None,
     };
-    view.event(&nested, SIZE, true);
+    framed(view.event(&nested, SIZE, true), &mut view);
     assert_eq!(view.silence(), None);
     assert_eq!(view.manual_offer(), None);
 }
@@ -898,13 +933,13 @@ fn a_shell_call_into_a_shell_that_reads_command_lines_is_never_silent() {
 #[test]
 fn a_silent_call_offers_ctrl_backslash_on_one_dim_line_until_it_prints() {
     let (mut view, size) = silent_shell();
-    let step = view.silent(call(), size);
+    let step = framed(view.silent(call(), size), &mut view);
     assert_eq!(step.ask, None, "no key is read for the hint");
     assert!(readable(&step.out).contains(HINT), "{}", readable(&step.out));
     assert_eq!(view.manual_offer(), Some(call()));
     assert_eq!(view.silence(), None, "the hint shows once");
 
-    let step = view.event(&output("deploying"), size, true);
+    let step = framed(view.event(&output("deploying"), size, true), &mut view);
     assert!(!readable(&step.out).contains(HINT), "{}", readable(&step.out));
     assert_eq!(view.manual_offer(), None);
     assert!(view.silence().is_some(), "a new silence starts");
@@ -913,17 +948,17 @@ fn a_silent_call_offers_ctrl_backslash_on_one_dim_line_until_it_prints() {
 #[test]
 fn ctrl_backslash_asks_for_a_manual_line_that_is_not_shown_and_one_answer_ends_it() {
     let (mut view, size) = silent_shell();
-    view.silent(call(), size);
-    let step = view.manual(call(), size);
+    framed(view.silent(call(), size), &mut view);
+    let step = framed(view.manual(call(), size), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
     let shown = readable(&step.out);
     assert!(shown.contains("your typing is not shown here"), "{shown}");
     assert!(!shown.contains(HINT), "{shown}");
     assert!(!shown.contains(ECHO_PREFIX), "{shown}");
-    assert_eq!(view.typed("yes", size), Step::default(), "nothing typed is shown");
+    assert_eq!(framed(view.typed("yes"), &mut view), Step::default(), "nothing typed is shown");
     assert_eq!(view.manual_offer(), None);
 
-    let step = view.answer_sent(size);
+    let step = framed(view.answer_sent(size), &mut view);
     assert!(step.settled, "the keys stop after a manual answer");
     assert!(view.silence().is_some(), "the silence starts again");
 }
@@ -934,26 +969,26 @@ fn a_manual_line_under_a_password_prompt_echoes_nothing() {
     // line can answer it; the password must not show.
     let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&shell_started(), size, true);
-    view.event(&output("[sudo] password for u:"), size, true);
-    view.silent(call(), size);
-    let step = view.manual(call(), size);
+    framed(view.event(&shell_started(), size, true), &mut view);
+    framed(view.event(&output("[sudo] password for u:"), size, true), &mut view);
+    framed(view.silent(call(), size), &mut view);
+    let step = framed(view.manual(call(), size), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
     assert!(!step.err.contains(ECHO_PREFIX), "{:?}", step.err);
     assert!(!AnswerKind::Manual.shown());
-    assert_eq!(view.typed("hunter2", size), Step::default());
-    let sent = view.answer_sent(size);
+    assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
+    let sent = framed(view.answer_sent(size), &mut view);
     assert!(!sent.err.contains("hunter2"), "{:?}", sent.err);
 }
 
 #[test]
 fn ctrl_backslash_again_closes_the_manual_line_and_offers_it_again() {
     let (mut view, size) = silent_shell();
-    assert_eq!(view.manual_cancelled(size), Step::default(), "no line is open");
-    view.silent(call(), size);
-    view.manual(call(), size);
+    assert_eq!(framed(view.manual_cancelled(size), &mut view), Step::default(), "no line is open");
+    framed(view.silent(call(), size), &mut view);
+    framed(view.manual(call(), size), &mut view);
     assert!(view.manual_open());
-    let step = view.manual_cancelled(size);
+    let step = framed(view.manual_cancelled(size), &mut view);
     assert!(step.settled, "the keys stop");
     assert_eq!(step.ask, None);
     let shown = readable(&step.out);
@@ -966,19 +1001,27 @@ fn ctrl_backslash_again_closes_the_manual_line_and_offers_it_again() {
 #[test]
 fn ctrl_backslash_for_a_call_that_no_longer_offers_it_does_nothing() {
     let (mut view, size) = silent_shell();
-    assert_eq!(view.manual(call(), size), Step::default(), "the hint was not shown");
-    view.silent(call(), size);
-    view.event(&output("deploying"), size, true);
-    assert_eq!(view.manual(call(), size), Step::default(), "the call printed since");
+    assert_eq!(
+        framed(view.manual(call(), size), &mut view),
+        Step::default(),
+        "the hint was not shown"
+    );
+    framed(view.silent(call(), size), &mut view);
+    framed(view.event(&output("deploying"), size, true), &mut view);
+    assert_eq!(
+        framed(view.manual(call(), size), &mut view),
+        Step::default(),
+        "the call printed since"
+    );
     let other: CallId = "0192f0c1-7a00-7000-8000-0000000000ff".parse().unwrap();
-    assert_eq!(view.silent(other, size), Step::default());
+    assert_eq!(framed(view.silent(other, size), &mut view), Step::default());
 }
 
 #[test]
 fn an_approval_hides_the_offer() {
     let (mut view, size) = silent_shell();
-    view.silent(call(), size);
-    view.event(&approval(None), size, true);
+    framed(view.silent(call(), size), &mut view);
+    framed(view.event(&approval(None), size, true), &mut view);
     assert_eq!(view.manual_offer(), None);
     assert_eq!(view.silence(), None);
 }
@@ -987,8 +1030,8 @@ fn an_approval_hides_the_offer() {
 fn without_a_terminal_the_offer_is_a_note_on_stderr() {
     let mut view = TurnView::new(turn(), RenderOptions::new(400).with_terminal(false));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&shell_started(), size, true);
-    let step = view.silent(call(), size);
+    framed(view.event(&shell_started(), size, true), &mut view);
+    let step = framed(view.silent(call(), size), &mut view);
     assert!(step.err.contains(HINT), "{:?}", step.err);
     assert_eq!(step.out, "");
 }
@@ -1014,9 +1057,9 @@ fn shell_approval(interactive: bool) -> Event {
 /// A terminal view of a shell call whose interactive approval the user allowed here.
 fn kept_shell() -> TurnView {
     let mut view = terminal_view();
-    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
-    view.event(&shell_approval(true), SIZE, true);
-    let step = view.answered(call(), ApprovalDecision::Allow, SIZE);
+    framed(view.event(&tool_started("sudo pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&shell_approval(true), SIZE, true), &mut view);
+    let step = framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view);
     assert_eq!(step.ask, Some(Ask::Retain(call())), "the keys go on for the call");
     assert!(!step.settled);
     view
@@ -1026,11 +1069,11 @@ fn kept_shell() -> TurnView {
 fn allowing_a_call_that_may_wait_for_input_keeps_the_keys_until_it_completes() {
     let mut view = kept_shell();
     // The approval resolved by this view changes nothing, and neither does output.
-    let step = view.event(&resolved(Origin::Shell), SIZE, true);
+    let step = framed(view.event(&resolved(Origin::Shell), SIZE, true), &mut view);
     assert_eq!((step.ask, step.settled), (None, false));
-    let step = view.event(&output("resolving dependencies..."), SIZE, true);
+    let step = framed(view.event(&output("resolving dependencies..."), SIZE, true), &mut view);
     assert_eq!((step.ask, step.settled), (None, false));
-    let step = view.event(&call_completed(0), SIZE, true);
+    let step = framed(view.event(&call_completed(0), SIZE, true), &mut view);
     assert!(step.settled, "the call's end stops the keys");
     assert_eq!(step.ask, None);
 }
@@ -1038,11 +1081,11 @@ fn allowing_a_call_that_may_wait_for_input_keeps_the_keys_until_it_completes() {
 #[test]
 fn a_visible_wait_of_a_kept_call_asks_and_its_end_keeps_the_keys_again() {
     let mut view = kept_shell();
-    view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true);
-    let step = view.event(&input(InputWait::Visible), SIZE, true);
+    framed(view.event(&output(":: Proceed with installation? [Y/n] "), SIZE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
-    view.answer_sent(SIZE);
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    framed(view.answer_sent(SIZE), &mut view);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Retain(call())), "the next prompt of the call gets them too");
     assert!(!step.settled);
 }
@@ -1050,10 +1093,10 @@ fn a_visible_wait_of_a_kept_call_asks_and_its_end_keeps_the_keys_again() {
 #[test]
 fn after_a_password_wait_a_kept_call_throws_its_keys_away() {
     let mut view = kept_shell();
-    let step = view.event(&input(InputWait::Hidden), SIZE, true);
+    let step = framed(view.event(&input(InputWait::Hidden), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Hidden }));
     // A password typed again meanwhile must never start a shown answer line.
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Discard(call())));
 }
 
@@ -1061,22 +1104,22 @@ fn after_a_password_wait_a_kept_call_throws_its_keys_away() {
 fn only_an_interactive_approval_allowed_here_keeps_the_keys() {
     // Allowed, but the call waits for nothing.
     let mut view = terminal_view();
-    view.event(&tool_started("make clean"), SIZE, true);
-    view.event(&shell_approval(false), SIZE, true);
-    assert_eq!(view.answered(call(), ApprovalDecision::Allow, SIZE).ask, None);
+    framed(view.event(&tool_started("make clean"), SIZE, true), &mut view);
+    framed(view.event(&shell_approval(false), SIZE, true), &mut view);
+    assert_eq!(framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view).ask, None);
     // Denied.
     let mut view = terminal_view();
-    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
-    view.event(&shell_approval(true), SIZE, true);
-    assert_eq!(view.answered(call(), ApprovalDecision::Deny, SIZE).ask, None);
+    framed(view.event(&tool_started("sudo pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&shell_approval(true), SIZE, true), &mut view);
+    assert_eq!(framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view).ask, None);
     // Allowed elsewhere: the keys belong to the user's shell here.
     let mut view = terminal_view();
-    view.event(&tool_started("sudo pacman -Syu"), SIZE, true);
-    view.event(&shell_approval(true), SIZE, true);
-    let step = view.event(&resolved(Origin::Phone), SIZE, true);
+    framed(view.event(&tool_started("sudo pacman -Syu"), SIZE, true), &mut view);
+    framed(view.event(&shell_approval(true), SIZE, true), &mut view);
+    let step = framed(view.event(&resolved(Origin::Phone), SIZE, true), &mut view);
     assert_eq!(step.ask, None);
     assert!(step.settled, "the question here is settled");
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert_eq!(step.ask, None);
 }
 
@@ -1084,29 +1127,29 @@ fn only_an_interactive_approval_allowed_here_keeps_the_keys() {
 fn a_manual_line_of_a_kept_call_throws_the_keys_after_it_away() {
     let mut view = TurnView::new(turn(), RenderOptions::new(400));
     let size = Size { cols: 400, rows: 20 };
-    view.event(&shell_started(), size, true);
-    view.event(&shell_approval(true), size, true);
-    view.answered(call(), ApprovalDecision::Allow, size);
+    framed(view.event(&shell_started(), size, true), &mut view);
+    framed(view.event(&shell_approval(true), size, true), &mut view);
+    framed(view.answered(call(), ApprovalDecision::Allow, size), &mut view);
     // A kept call still offers `Ctrl+\` when it is silent.
-    view.silent(call(), size);
+    framed(view.silent(call(), size), &mut view);
     assert_eq!(view.manual_offer(), Some(call()));
-    view.manual(call(), size);
-    let step = view.manual_cancelled(size);
+    framed(view.manual(call(), size), &mut view);
+    let step = framed(view.manual_cancelled(size), &mut view);
     assert_eq!((step.ask, step.settled), (Some(Ask::Discard(call())), false));
     // The line may have held a password, so the keys are not kept for the call, but
     // `Ctrl+\` still opens the next one.
     assert_eq!(view.manual_offer(), Some(call()));
-    view.manual(call(), size);
-    let step = view.answer_sent(size);
+    framed(view.manual(call(), size), &mut view);
+    let step = framed(view.answer_sent(size), &mut view);
     assert_eq!((step.ask, step.settled), (Some(Ask::Discard(call())), false));
-    view.silent(call(), size);
+    framed(view.silent(call(), size), &mut view);
     assert_eq!(view.manual_offer(), Some(call()));
 }
 
 #[test]
 fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
     let mut view = kept_shell();
-    let step = view.event(&turn_completed(), SIZE, true);
+    let step = framed(view.event(&turn_completed(), SIZE, true), &mut view);
     assert!(step.settled);
     let mut view = kept_shell();
     let next: CallId = "0192f0c1-7a00-7000-8000-0000000000fe".parse().unwrap();
@@ -1118,10 +1161,10 @@ fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
         interactive: false,
         exit: None,
     };
-    assert_eq!(view.event(&approval, SIZE, true).ask, Some(Ask::Approval(next)));
+    assert_eq!(framed(view.event(&approval, SIZE, true), &mut view).ask, Some(Ask::Approval(next)));
     // The call that kept keys is over; a late wait of it asks nothing more of the keys.
-    view.answered(next, ApprovalDecision::Allow, SIZE);
-    let step = view.event(&input(InputWait::None), SIZE, true);
+    framed(view.answered(next, ApprovalDecision::Allow, SIZE), &mut view);
+    let step = framed(view.event(&input(InputWait::None), SIZE, true), &mut view);
     assert_eq!(step.ask, None);
 }
 
@@ -1229,9 +1272,9 @@ fn a_setup_failure_says_why_on_its_own_line() {
 fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
     let mut view = sandbox_view(false);
     let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
-    view.event(&started_in(project, None), WIDE, true);
-    view.event(&contained_started("ssh-add"), WIDE, true);
-    let step = view.event(&input(InputWait::Hidden), WIDE, true);
+    framed(view.event(&started_in(project, None), WIDE, true), &mut view);
+    framed(view.event(&contained_started("ssh-add"), WIDE, true), &mut view);
+    let step = framed(view.event(&input(InputWait::Hidden), WIDE, true), &mut view);
     assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
     assert_eq!(
         step.err,
@@ -1252,7 +1295,8 @@ fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
 fn a_fallback_says_so_at_the_start_of_the_turn() {
     let mut view = sandbox_view(true);
     let fallback = ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() };
-    let step = view.event(&started_in(Scope::Machine, Some(fallback)), WIDE, true);
+    let step =
+        framed(view.event(&started_in(Scope::Machine, Some(fallback)), WIDE, true), &mut view);
     insta::assert_snapshot!(readable(&step.out));
 }
 
@@ -1318,8 +1362,8 @@ fn an_exit_question_on_a_terminal_paints_the_untrusted_program_yellow() {
     };
     let mut view = sandbox_view(true);
     let [record, approval] = exit_events("sudo ./scripts/setup.sh", facts, info);
-    assert_eq!(view.event(&record, WIDE, true), Step::default());
-    let step = view.event(&approval, WIDE, true);
+    assert_eq!(framed(view.event(&record, WIDE, true), &mut view), Step::default());
+    let step = framed(view.event(&approval, WIDE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Approval(call())));
     insta::assert_snapshot!(readable(&step.out));
 }
@@ -1361,7 +1405,7 @@ fn an_exit_without_its_record_keeps_the_summary() {
 #[test]
 fn the_progress_line_of_a_command_of_several_lines_says_how_many_follow() {
     let mut view = terminal_view();
-    let step = view.event(&tool_started(FAILED_UNITS), SIZE, false);
+    let step = framed(view.event(&tool_started(FAILED_UNITS), SIZE, false), &mut view);
     insta::assert_snapshot!(readable(&step.out));
 
     let mut view = raw_view();
@@ -1380,10 +1424,10 @@ fn an_exit_question_shows_each_line_of_a_command_of_several() {
 
     let mut view = sandbox_view(true);
     let [record, approval] = exit_events(FAILED_UNITS, ExitFacts::default(), info);
-    view.event(&record, WIDE, true);
+    framed(view.event(&record, WIDE, true), &mut view);
     insta::assert_snapshot!(
         "several_lines_on_a_terminal",
-        readable(&view.event(&approval, WIDE, true).out)
+        readable(&framed(view.event(&approval, WIDE, true), &mut view).out)
     );
 }
 
@@ -1433,15 +1477,15 @@ fn surface_answered(keep: bool, origin: Option<Origin>) -> Event {
 #[test]
 fn the_quarantine_question_asks_for_one_key_below_the_live_zone() {
     let mut view = sandbox_view(true);
-    let step = view.event(&surface_requested(), WIDE, true);
+    let step = framed(view.event(&surface_requested(), WIDE, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Surface(question_id())));
     insta::assert_snapshot!(readable(&step.out));
 
-    let step = view.surface_answered(question_id(), false, WIDE);
+    let step = framed(view.surface_answered(question_id(), false, WIDE), &mut view);
     insta::assert_snapshot!("surface_answered", readable(&step.out));
     // The daemon's event for this client's own answer adds nothing.
     assert_eq!(
-        view.event(&surface_answered(false, Some(Origin::Shell)), WIDE, true),
+        framed(view.event(&surface_answered(false, Some(Origin::Shell)), WIDE, true), &mut view),
         Step::default()
     );
 }
@@ -1458,29 +1502,30 @@ question: the last command changed git settings that run programs
 keep it? y = yes, n = no
 "
     );
-    let step = view.event(&surface_answered(true, Some(Origin::Phone)), WIDE, true);
+    let step =
+        framed(view.event(&surface_answered(true, Some(Origin::Phone)), WIDE, true), &mut view);
     assert!(step.settled);
     assert_eq!(step.err, "the git change was kept, from the phone\n");
 
     let mut view = sandbox_view(false);
-    view.event(&surface_requested(), WIDE, true);
-    let step = view.event(&surface_answered(false, None), WIDE, true);
+    framed(view.event(&surface_requested(), WIDE, true), &mut view);
+    let step = framed(view.event(&surface_answered(false, None), WIDE, true), &mut view);
     assert!(step.settled);
     assert_eq!(step.err, "no answer; the git change stays in quarantine\n");
 
     // Without keys nobody here answers, and the end of the turn needs no keys stopped.
     let mut view = sandbox_view(false);
-    let step = view.event(&surface_requested(), WIDE, false);
+    let step = framed(view.event(&surface_requested(), WIDE, false), &mut view);
     assert_eq!(step.ask, None);
     assert!(step.err.ends_with("waiting for another client to answer\n"), "{}", step.err);
-    assert!(!view.event(&turn_completed(), WIDE, false).settled);
+    assert!(!framed(view.event(&turn_completed(), WIDE, false), &mut view).settled);
 }
 
 #[test]
 fn the_end_of_the_turn_stops_the_keys_of_a_quarantine_question() {
     let mut view = sandbox_view(false);
-    view.event(&surface_requested(), WIDE, true);
-    assert!(view.event(&turn_completed(), WIDE, true).settled);
+    framed(view.event(&surface_requested(), WIDE, true), &mut view);
+    assert!(framed(view.event(&turn_completed(), WIDE, true), &mut view).settled);
 }
 
 #[test]
@@ -1505,4 +1550,341 @@ efr: this turn changed files that run code later outside the sandbox:
   check them before you run the project yourself
 "
     );
+}
+
+// --- frames, the status row, drafts and the end of a turn ---------------------------
+
+/// The time `millis` after the prompt was sent.
+fn at(millis: i64) -> Timestamp {
+    now() + SignedDuration::from_millis(millis)
+}
+
+/// Every switch of `config.toml` on.
+const ALL: Look = Look { motion: true, summary: true, progress: true };
+
+/// A terminal view with `look` whose status row runs.
+fn started_view(look: Look) -> TurnView {
+    let mut view = TurnView::new(turn(), RenderOptions::new(40)).with_look(look);
+    view.start();
+    view
+}
+
+fn turn_started() -> Event {
+    Event::TurnStarted {
+        turn_id: turn(),
+        cwd: PathBuf::from("/home/user/project"),
+        scope: Scope::Machine,
+        settings: None,
+    }
+}
+
+/// `event` as the daemon sends it: number `seq`, recorded `millis` after the prompt.
+fn sent(seq: u64, millis: i64, event: Event) -> EventEnvelope {
+    EventEnvelope { seq: Seq::new(seq), conversation_id: None, at: at(millis), event }
+}
+
+/// A draft made after event `after` of the turn.
+fn draft(after: u64, part: DraftPart) -> Draft {
+    Draft { turn_id: turn(), after_seq: Seq::new(after), draft: part }
+}
+
+fn text_draft(after: u64, offset: usize, delta: &str) -> Draft {
+    let part = DraftPart::Text { index: 0, offset: offset as u64, delta: delta.to_owned() };
+    draft(after, part)
+}
+
+#[test]
+fn the_status_row_shows_from_the_first_frame_and_hides_the_cursor() {
+    let mut view = started_view(Look { motion: true, ..Look::default() });
+    let first = view.frame(SIZE, at(0));
+    assert_eq!(
+        readable(&first),
+        "\\e[?25l\\e[?2026h\\e[33m\u{280b}\\e[0m \\e[2mwaiting for the model\\e[0m\n\\e[?2026l"
+    );
+    assert!(view.ticks());
+}
+
+#[test]
+fn a_tick_that_changes_only_the_status_row_writes_only_that_row() {
+    let mut view = started_view(Look { motion: true, ..Look::default() });
+    view.event(&turn_started(), SIZE, false);
+    view.event(&updated(0, "I will run the test first"), SIZE, false);
+    view.frame(SIZE, at(0));
+    let tick = view.tick(SIZE, at(100));
+    assert_eq!(
+        readable(&tick),
+        "\\e[?2026h\\r\\e[1A\\e[2K\\e[33m\u{2819}\\e[0m \\e[2m\\e[22mw\\e[2mriting\\e[0m\n\\e[?2026l"
+    );
+    // A row that does not change writes nothing.
+    let mut still = started_view(Look::default());
+    still.frame(SIZE, at(0));
+    assert_eq!(still.tick(SIZE, at(100)), "");
+}
+
+#[test]
+fn the_frames_of_a_turn_at_its_ticks() {
+    let mut view = started_view(Look { motion: true, ..Look::default() });
+    let mut frames = vec![view.frame(SIZE, at(0))];
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    frames.push(view.frame(SIZE, at(10)));
+    frames.push(view.tick(SIZE, at(110)));
+    view.envelope(&sent(12, 1_500, updated(0, "Reading the logs.\n\nThe disk")), SIZE, false);
+    frames.push(view.frame(SIZE, at(1_510)));
+    frames.push(view.tick(SIZE, at(1_610)));
+    view.envelope(
+        &sent(13, 2_000, completed(0, "Reading the logs.\n\nThe disk is full.\n")),
+        SIZE,
+        false,
+    );
+    frames.push(view.frame(SIZE, at(2_010)));
+    frames.push(view.tick(SIZE, at(2_110)));
+    let frames: Vec<String> = frames.iter().map(|frame| readable(frame)).collect();
+    insta::assert_snapshot!(frames.join("\n---\n"));
+}
+
+#[test]
+fn a_question_writes_without_the_status_row_shows_the_cursor_and_stops_the_time() {
+    let mut view = started_view(ALL);
+    view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+    view.frame(SIZE, at(0));
+    view.tick(SIZE, at(5_000));
+    let step = view.envelope(&sent(12, 5_000, approval(None)), SIZE, true);
+    assert_eq!(step.ask, Some(Ask::Approval(call())));
+    let asked = view.frame(SIZE, at(5_000));
+    assert!(!asked.contains("waiting for"), "{}", readable(&asked));
+    assert!(asked.contains("\x1b[?25h"), "the user types here: {}", readable(&asked));
+    assert!(asked.contains(progress::PAUSED), "{}", readable(&asked));
+    assert!(!view.tick(SIZE, at(60_000)).contains("waiting for"));
+    view.answered(call(), ApprovalDecision::Allow, SIZE);
+    let back = view.frame(SIZE, at(65_000));
+    assert!(back.contains("\x1b[?25l"), "{}", readable(&back));
+    assert!(back.contains(progress::RUNNING), "{}", readable(&back));
+    // Five seconds before the question and none of the minute it waited.
+    assert!(back.contains("running shell") || back.contains("5s"), "{}", readable(&back));
+    assert!(readable(&view.tick(SIZE, at(66_000))).contains("6s"));
+}
+
+#[test]
+fn twenty_seconds_without_data_says_so() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    let wide = Size { cols: 80, rows: 20 };
+    view.frame(wide, at(0));
+    let stalled = view.tick(wide, at(41_000));
+    assert!(
+        readable(&stalled).contains("waiting for the model, no data for 41s"),
+        "{}",
+        readable(&stalled)
+    );
+}
+
+#[test]
+fn drafts_then_an_overlapping_update_show_no_text_twice() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    let mut out = view.frame(SIZE, at(0));
+    for (millis, (offset, delta)) in
+        [(0, "The disk "), (9, "is full"), (18, ".\n\nFree")].into_iter().enumerate()
+    {
+        let _ = millis;
+        view.draft(&text_draft(11, offset, delta), SIZE);
+        out.push_str(&view.frame(SIZE, at(16 * (millis as i64 + 1))));
+    }
+    // The persisted update every 200 ms ends inside what the drafts showed.
+    let step = view.envelope(&sent(12, 200, updated(0, "The disk is full")), SIZE, false);
+    assert_eq!(step, Step::default());
+    out.push_str(&view.frame(SIZE, at(200)));
+    view.envelope(
+        &sent(13, 300, completed(0, "The disk is full.\n\nFree some space.\n")),
+        SIZE,
+        false,
+    );
+    out.push_str(&view.frame(SIZE, at(300)));
+    let shown = out.matches("The disk is full.").count();
+    assert_eq!(shown, 1, "{}", readable(&out));
+    assert!(out.contains("Free some space."), "{}", readable(&out));
+}
+
+#[test]
+fn a_dropped_draft_heals_at_the_next_persisted_update() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.draft(&text_draft(11, 0, "one "), SIZE);
+    view.frame(SIZE, at(16));
+    // The draft of "two " was dropped: the next one starts past the text held.
+    view.draft(&text_draft(11, 8, "three "), SIZE);
+    let gap = view.frame(SIZE, at(32));
+    assert!(!gap.contains("three"), "{}", readable(&gap));
+    view.envelope(&sent(12, 200, updated(0, "one two three ")), SIZE, false);
+    // The update shows over the time until the next one is due, at most 120 ms.
+    let mut healed = view.frame(SIZE, at(200));
+    healed.push_str(&view.frame(SIZE, at(320)));
+    assert!(
+        healed
+            .ends_with("one two three\n\x1b[33m\u{2022}\x1b[0m \x1b[2mwriting\x1b[0m\n\x1b[?2026l"),
+        "{}",
+        readable(&healed)
+    );
+}
+
+#[test]
+fn a_draft_of_another_turn_an_older_one_and_one_of_a_completed_message_change_nothing() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.envelope(&sent(12, 10, completed(0, "Done.")), SIZE, false);
+    view.frame(SIZE, at(10));
+    let other: TurnId = "019a9b1c-3d00-7a10-8b20-0000000000ff".parse().unwrap();
+    let foreign = Draft { turn_id: other, ..text_draft(12, 0, "x") };
+    assert_eq!(view.draft(&foreign, SIZE), Step::default());
+    assert_eq!(view.draft(&text_draft(12, 0, "Done. Again"), SIZE), Step::default());
+    let thinking = DraftPart::Reasoning { offset: 0, delta: "x".to_owned(), title: None };
+    view.draft(&draft(11, thinking), SIZE);
+    assert!(!view.frame(SIZE, at(20)).contains("thinking"), "older than event 12");
+}
+
+#[test]
+fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.frame(SIZE, at(0));
+    let reasoning = |title: Option<&str>| DraftPart::Reasoning {
+        offset: 0,
+        delta: "**Reading the test output**\n".to_owned(),
+        title: title.map(str::to_owned),
+    };
+    view.draft(&draft(11, reasoning(None)), SIZE);
+    assert!(view.frame(SIZE, at(10)).contains("thinking\x1b[0m"));
+    view.draft(&draft(11, reasoning(Some("Reading the \x1b[2Jtest output"))), SIZE);
+    let titled = view.frame(SIZE, at(20));
+    assert!(
+        titled.contains("thinking: Reading the \u{241b}[2Jtest output"),
+        "{}",
+        readable(&titled)
+    );
+    let input =
+        |call: u32, bytes: u64| DraftPart::ToolInput { call, tool: "write_file".to_owned(), bytes };
+    view.draft(&draft(11, input(1, 3_250)), SIZE);
+    view.draft(&draft(11, input(0, 9_000)), SIZE);
+    let preparing = view.frame(SIZE, at(30));
+    assert!(preparing.contains("preparing write_file, 3.2 KB"), "{}", readable(&preparing));
+    view.envelope(&sent(12, 40, tool_started("ls")), SIZE, false);
+    assert!(view.frame(SIZE, at(40)).contains("running shell"));
+    let done = Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: String::new(),
+        truncated: false,
+        is_error: false,
+        exit_code: Some(0),
+        sandbox: None,
+        refusal: None,
+    };
+    view.envelope(&sent(13, 50, done), SIZE, false);
+    assert!(view.frame(SIZE, at(50)).contains("waiting for the model"));
+}
+
+/// The end of a turn on a terminal with `look`, `millis` after its start.
+fn ended(look: Look, end: Event, millis: i64) -> String {
+    let mut view = started_view(look);
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.envelope(&sent(12, 100, completed(0, "Done.")), SIZE, false);
+    view.frame(SIZE, at(100));
+    let step = view.envelope(&sent(13, millis, end), SIZE, false);
+    assert!(step.end.is_some());
+    readable(&view.frame(SIZE, at(millis)))
+}
+
+#[test]
+fn a_completed_turn_ends_with_its_time_and_tokens() {
+    let usage = Usage { input_tokens: 18_250, output_tokens: 1_100 };
+    let end = Event::TurnCompleted { turn_id: turn(), usage: Some(usage) };
+    insta::assert_snapshot!(ended(ALL, end, 42_000));
+}
+
+#[test]
+fn an_interrupted_turn_ends_with_its_time() {
+    let end = Event::TurnInterrupted { turn_id: turn() };
+    let frame = ended(ALL, end, 12_400);
+    assert!(frame.contains("interrupted after 12s"), "{frame}");
+    assert!(frame.contains("\\e]9;4;0\\e\\"), "{frame}");
+}
+
+#[test]
+fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
+    let error = ErrorBody::new(ErrorCode::Internal, "boom");
+    let frame = ended(ALL, Event::TurnFailed { turn_id: turn(), error }, 3_000);
+    assert!(!frame.contains("done"), "{frame}");
+    assert!(frame.contains("\\e]9;4;2;100\\e\\"), "{frame}");
+    assert!(frame.ends_with("\\e[?25h\\e]9;4;2;100\\e\\"), "{frame}");
+}
+
+#[test]
+fn without_the_summary_a_turn_ends_as_before() {
+    let end = Event::TurnCompleted { turn_id: turn(), usage: None };
+    let frame = ended(Look::default(), end, 5_000);
+    assert!(!frame.contains("done"), "{frame}");
+    let frame = ended(Look::default(), Event::TurnInterrupted { turn_id: turn() }, 5_000);
+    assert!(frame.contains("interrupted\\e[0m"), "{frame}");
+}
+
+#[test]
+fn the_progress_bar_runs_on_every_tick_and_clears_at_the_end() {
+    let mut view = started_view(ALL);
+    assert!(view.frame(SIZE, at(0)).ends_with(progress::RUNNING));
+    assert_eq!(view.restore(), format!("\x1b[?25h{}", progress::CLEAR));
+    assert!(view.tick(SIZE, at(100)).ends_with(progress::RUNNING), "sent again on a tick");
+    assert!(!view.frame(SIZE, at(110)).contains(progress::RUNNING), "not on a plain frame");
+    view.close();
+    let last = view.frame(SIZE, at(120));
+    assert!(last.ends_with(&format!("\x1b[?25h{}", progress::CLEAR)), "{}", readable(&last));
+    assert_eq!(view.restore(), "");
+    assert!(!view.ticks());
+    assert_eq!(view.tick(SIZE, at(200)), "");
+}
+
+#[test]
+fn without_the_bar_no_osc_9_goes_out() {
+    let mut view = started_view(Look { progress: false, ..ALL });
+    let mut out = view.frame(SIZE, at(0));
+    out.push_str(&view.tick(SIZE, at(100)));
+    view.close();
+    out.push_str(&view.frame(SIZE, at(200)));
+    assert!(!out.contains("\x1b]9;"), "{}", readable(&out));
+}
+
+#[test]
+fn without_colour_the_status_row_keeps_bold_and_dim_only() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(40).with_colour(ColourMode::None))
+        .with_look(Look { motion: true, ..Look::default() });
+    view.start();
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.frame(SIZE, at(0));
+    let frames = [view.tick(SIZE, at(200)), view.tick(SIZE, at(2_300))].join("\n---\n");
+    insta::assert_snapshot!(readable(&frames));
+}
+
+#[test]
+fn piped_output_has_no_status_row_and_no_escape_sequences() {
+    let mut view =
+        TurnView::new(turn(), RenderOptions::new(40).with_terminal(false)).with_look(ALL);
+    view.start();
+    assert!(!view.ticks());
+    let mut out = view.frame(SIZE, at(0));
+    for (seq, event) in (11..).zip([
+        turn_started(),
+        updated(0, "The disk"),
+        completed(0, "The disk is full."),
+        Event::TurnCompleted {
+            turn_id: turn(),
+            usage: Some(Usage { input_tokens: 5, output_tokens: 1 }),
+        },
+    ]) {
+        let step = view.envelope(&sent(seq, 0, event), SIZE, false);
+        out.push_str(&step.out);
+        out.push_str(&step.err);
+        out.push_str(&view.tick(SIZE, at(100)));
+    }
+    view.draft(&text_draft(12, 8, " is"), SIZE);
+    assert_eq!(out, "The disk is full.\n");
+    assert_eq!(view.restore(), "");
 }

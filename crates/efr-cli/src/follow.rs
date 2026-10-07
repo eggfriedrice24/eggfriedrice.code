@@ -23,6 +23,20 @@
 //! end of the process, would leave behind: a press then closes an open manual line
 //! unsent, and does nothing while an approval or another answer is asked.
 //!
+//! The view collects what each event changes, and the loop writes it in frames
+//! (`TurnView::frame`): a change shows at once when the last frame is [`FRAME`] old,
+//! else when that time is up, so the screen gets at most 60 frames a second however
+//! fast drafts and events come. A question, an answer, a key and the end of the turn
+//! show at once. While the turn runs, a tick every [`TICK`] moves the status row on,
+//! and a resize of the window (SIGWINCH) draws the live zone again at the new width.
+//! Every way out writes a last frame, which shows the cursor again and clears the
+//! progress bar; a panic and the default action of SIGQUIT write what
+//! [`TurnView::restore`] last said instead (`crate::output::set_restore`).
+//!
+//! The subscription asks for drafts: the text, the reasoning and the tool input of the
+//! running turn before the daemon records them. They are best effort; the view merges
+//! them with the persisted events, which stay the truth.
+//!
 //! A call that the user allowed here with `y` and whose approval says it may wait for
 //! input at the terminal keeps its keys: the reader that read the `y` goes on, and what
 //! is typed while the call asks nothing goes into a pending [`AnswerLine`] that is never
@@ -44,6 +58,7 @@ use efr_protocol::{
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use futures::StreamExt as _;
+use jiff::Timestamp;
 use serde_json::Value;
 
 use crate::answer::{AnswerLine, Edit};
@@ -53,7 +68,7 @@ use crate::keys::{self, KeyReader};
 use crate::output::Output;
 use view::AnswerKind;
 
-pub(crate) use view::{Ask, Step, TurnEnd, TurnView};
+pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView};
 
 /// How often in a row a subscription may fall behind before the command gives up.
 const MAX_RESUBSCRIBES: u32 = 8;
@@ -68,6 +83,9 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long a shell call that reports no wait prints nothing before the view offers
 /// `Ctrl+\` to type an input for it.
 pub(crate) const SILENCE: Duration = Duration::from_secs(10);
+
+/// The shortest time between two frames: at most 60 a second.
+pub(crate) const FRAME: Duration = Duration::from_millis(16);
 
 /// Where the turn to follow is.
 #[derive(Debug, Clone, Copy)]
@@ -95,9 +113,16 @@ pub(crate) async fn follow(
         keys: None,
         silence: None,
         quit: None,
+        last_frame: None,
+        frame: None,
+        tick: None,
     };
-    let result = match follower.blocking(out, view).await {
-        Ok(()) => follower.run(out, view).await,
+    // The first frame shows the status row and the notes before the first event.
+    let result = match follower.paint(out, view, false) {
+        Ok(()) => match follower.blocking(out, view).await {
+            Ok(()) => follower.run(out, view).await,
+            Err(error) => Err(error),
+        },
         Err(error) => Err(error),
     };
     // NOTE: the terminal must be back in its normal mode before anything else is
@@ -106,13 +131,17 @@ pub(crate) async fn follow(
         stop(keys, &asking).await;
     }
     if let Err(error) = &result {
-        let size = ctx.screen.size();
-        write(out, &view.close(size))?;
+        // The last frame shows the cursor again and clears the progress bar before the
+        // interrupt waits for the daemon.
+        let step = view.close();
+        follower.show(out, view, &step)?;
         if matches!(error, CliError::Interrupted) {
             let note = interrupt(ctx, client, target).await;
-            write(out, &view.note(&note, ctx.screen.size()))?;
+            let step = view.note(&note, ctx.screen.size());
+            follower.show(out, view, &step)?;
         }
     }
+    crate::output::set_restore(&view.restore());
     result
 }
 
@@ -152,6 +181,12 @@ struct Follower<'a> {
     silence: Option<((CallId, u64), Sleep)>,
     /// Waits for `Ctrl+\` while the view offers it, and only then.
     quit: Option<Stop>,
+    /// The time of the last frame.
+    last_frame: Option<Timestamp>,
+    /// The time until the next frame, while a change waits for it.
+    frame: Option<Sleep>,
+    /// The time until the next tick of the status row, while it runs.
+    tick: Option<Sleep>,
 }
 
 /// What the keys being read answer.
@@ -273,18 +308,67 @@ impl Follower<'_> {
         }
         for event in pending.into_iter().chain(output).chain(input) {
             let step = view.event(&event, self.ctx.screen.size(), self.ctx.keys.available());
-            self.apply(step, out, view).await?;
+            self.apply(step, out, view, true).await?;
         }
         Ok(())
     }
 
+    /// Writes a frame of `view` now; a tick's frame with `tick`.
+    fn paint(&mut self, out: &mut Output, view: &mut TurnView, tick: bool) -> Result<(), CliError> {
+        let now = self.ctx.clock.now();
+        let size = self.ctx.screen.size();
+        let frame = if tick { view.tick(size, now) } else { view.frame(size, now) };
+        self.last_frame = Some(now);
+        // Text that still waits to show asks for the next frame.
+        self.frame = view.wants_frame().then(|| self.ctx.clock.sleep(FRAME));
+        // NOTE: set before the write, so a panic during it still shows the cursor.
+        crate::output::set_restore(&view.restore());
+        out.out(&frame)
+    }
+
+    /// Writes a frame now when the last one is [`FRAME`] old, else when that time is
+    /// up, if the view has something to show.
+    fn schedule(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        if !view.wants_frame() || self.frame.is_some() {
+            return Ok(());
+        }
+        let now = self.ctx.clock.now();
+        let since = self
+            .last_frame
+            .map(|last| Duration::try_from(now.duration_since(last)).unwrap_or_default());
+        match since {
+            Some(since) if since < FRAME => {
+                self.frame = Some(self.ctx.clock.sleep(FRAME - since));
+                Ok(())
+            }
+            _ => self.paint(out, view, false),
+        }
+    }
+
+    /// Writes `step` and a frame of `view` at once.
+    fn show(&mut self, out: &mut Output, view: &mut TurnView, step: &Step) -> Result<(), CliError> {
+        write(out, step)?;
+        self.paint(out, view, false)
+    }
+
+    /// Keeps a tick waiting while the status row runs, and none otherwise.
+    fn watch_tick(&mut self, view: &TurnView) {
+        if !view.ticks() {
+            self.tick = None;
+        } else if self.tick.is_none() {
+            self.tick = Some(self.ctx.clock.sleep(TICK));
+        }
+    }
+
     async fn run(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
         let mut interrupt = self.ctx.interrupt.wait();
+        let mut resizes = self.ctx.resize.resizes();
         let mut resubscribes = 0;
         loop {
             let mut stream = self.subscribe().await?;
             let resubscribe = loop {
                 self.watch_silence(view);
+                self.watch_tick(view);
                 tokio::select! {
                     () = &mut interrupt => {
                         return Err(CliError::Interrupted);
@@ -295,7 +379,17 @@ impl Follower<'_> {
                     call_id = silent(&mut self.silence) => {
                         self.silence = None;
                         let step = view.silent(call_id, self.ctx.screen.size());
-                        self.apply(step, out, view).await?;
+                        self.apply(step, out, view, false).await?;
+                    }
+                    () = due(&mut self.frame) => {
+                        self.paint(out, view, false)?;
+                    }
+                    () = due(&mut self.tick) => {
+                        self.tick = None;
+                        self.paint(out, view, true)?;
+                    }
+                    Some(()) = resizes.next() => {
+                        self.paint(out, view, false)?;
                     }
                     () = pressed(&mut self.quit) => {
                         self.quit = None;
@@ -352,7 +446,7 @@ impl Follower<'_> {
         } else {
             return Ok(());
         };
-        self.apply(step, out, view).await.map(drop)
+        self.apply(step, out, view, false).await.map(drop)
     }
 
     async fn subscribe(&self) -> Result<ItemStream<Value>, CliError> {
@@ -363,7 +457,9 @@ impl Follower<'_> {
             // answered here; without one, the daemon stops a command that waits for a
             // password nobody can type.
             answers_input: self.ctx.keys.available(),
-            drafts: false,
+            // The text, the reasoning and the tool input of the running turn before the
+            // daemon records them; an older daemon sends none.
+            drafts: true,
         });
         Ok(self.client.stream(method).await?)
     }
@@ -380,6 +476,11 @@ impl Follower<'_> {
             Ok(ConversationSubscribeItem::Snapshot(snapshot)) => {
                 (snapshot.events, Some(snapshot.hwm))
             }
+            Ok(ConversationSubscribeItem::Draft(draft)) => {
+                let step = view.draft(&draft, self.ctx.screen.size());
+                self.apply(step, out, view, true).await?;
+                return Ok(None);
+            }
             Ok(_) | Err(_) => {
                 tracing::debug!("skipped a subscription item of a kind this build does not know");
                 return Ok(None);
@@ -390,9 +491,8 @@ impl Follower<'_> {
                 continue;
             }
             self.last_seen = envelope.seq;
-            let step =
-                view.event(&envelope.event, self.ctx.screen.size(), self.ctx.keys.available());
-            if let Some(end) = self.apply(step, out, view).await? {
+            let step = view.envelope(&envelope, self.ctx.screen.size(), self.ctx.keys.available());
+            if let Some(end) = self.apply(step, out, view, true).await? {
                 return Ok(Some(end));
             }
         }
@@ -404,14 +504,18 @@ impl Follower<'_> {
         Ok(None)
     }
 
-    /// Writes a step and starts or stops reading keys as it says.
+    /// Writes a step and starts or stops reading keys as it says. The frame goes out at
+    /// once unless the step is `paced` and asks, settles and ends nothing: a question
+    /// never waits, and the prompt comes back as soon as the turn ends.
     async fn apply(
         &mut self,
         step: Step,
         out: &mut Output,
         view: &mut TurnView,
+        paced: bool,
     ) -> Result<Option<TurnEnd>, CliError> {
         write(out, &step)?;
+        let urgent = !paced || step.ask.is_some() || step.settled || step.end.is_some();
         match step.ask {
             Some(ask) => {
                 let (reader, before) = match self.keys.take() {
@@ -426,7 +530,7 @@ impl Follower<'_> {
                 self.keys = Some((reader, asking));
                 let size = self.ctx.screen.size();
                 match seeded {
-                    Some(Seed::Shown(text)) => write(out, &view.typed(&text, size))?,
+                    Some(Seed::Shown(text)) => write(out, &view.typed(&text))?,
                     Some(Seed::Unshown(count)) => write(out, &view.typed_ahead(count, size))?,
                     None => {}
                 }
@@ -437,6 +541,11 @@ impl Follower<'_> {
                 }
             }
             None => {}
+        }
+        if urgent {
+            self.paint(out, view, false)?;
+        } else {
+            self.schedule(out, view)?;
         }
         Ok(step.end)
     }
@@ -480,7 +589,7 @@ impl Follower<'_> {
                     }
                     _ => reader.stop().await,
                 }
-                write(out, &step)?;
+                self.show(out, view, &step)?;
                 self.respond(call_id, decision, out, view).await
             }
             Asking::Surface(question_id) => {
@@ -491,7 +600,7 @@ impl Follower<'_> {
                 reader.stop().await;
                 let keep = decision == ApprovalDecision::Allow;
                 let step = view.surface_answered(question_id, keep, self.ctx.screen.size());
-                write(out, &step)?;
+                self.show(out, view, &step)?;
                 self.surface_respond(question_id, keep, out, view).await
             }
             Asking::Input { call_id, kind, mut line } => {
@@ -502,7 +611,8 @@ impl Follower<'_> {
                 // still stops it and restores the terminal.
                 self.keys = Some((reader, Asking::Input { call_id, kind, line }));
                 if let Some(shown) = shown {
-                    write(out, &view.typed(&shown, self.ctx.screen.size()))?;
+                    let step = view.typed(&shown);
+                    self.show(out, view, &step)?;
                 }
                 match text {
                     Some(text) => self.answer(call_id, kind, text, out, view).await,
@@ -546,11 +656,11 @@ impl Follower<'_> {
             Err(ClientError::Server { body }) => view.answer_failed(&body.message, size),
             Err(error) => return Err(error.into()),
         };
-        self.apply(step, out, view).await.map(drop)
+        self.apply(step, out, view, false).await.map(drop)
     }
 
     async fn respond(
-        &self,
+        &mut self,
         call_id: CallId,
         decision: ApprovalDecision,
         out: &mut Output,
@@ -570,7 +680,8 @@ impl Follower<'_> {
             {
                 let line =
                     format!("the answer was not taken: {}", crate::format::one_line(&body.message));
-                write(out, &view.note(&line, self.ctx.screen.size()))
+                let step = view.note(&line, self.ctx.screen.size());
+                self.show(out, view, &step)
             }
             Err(error) => Err(error.into()),
         }
@@ -579,7 +690,7 @@ impl Follower<'_> {
     /// Sends the answer to the quarantine question `question_id`. A "yes" moves the git
     /// change back; anything else leaves it in quarantine.
     async fn surface_respond(
-        &self,
+        &mut self,
         question_id: QuestionId,
         keep: bool,
         out: &mut Output,
@@ -603,7 +714,8 @@ impl Follower<'_> {
             {
                 let line =
                     format!("the answer was not taken: {}", crate::format::one_line(&body.message));
-                write(out, &view.note(&line, self.ctx.screen.size()))
+                let step = view.note(&line, self.ctx.screen.size());
+                self.show(out, view, &step)
             }
             Err(error) => Err(error.into()),
         }
@@ -669,6 +781,14 @@ async fn silent(silence: &mut Option<((CallId, u64), Sleep)>) -> CallId {
             sleep.as_mut().await;
             *call_id
         }
+        None => std::future::pending().await,
+    }
+}
+
+/// The end of `sleep`; never resolves without one.
+async fn due(sleep: &mut Option<Sleep>) {
+    match sleep {
+        Some(sleep) => sleep.as_mut().await,
         None => std::future::pending().await,
     }
 }

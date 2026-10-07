@@ -4,22 +4,24 @@ use std::sync::Arc;
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, CallId, ClientFrame, ConversationHistoryResult,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
-    ConversationSummary, ErrorBody, ErrorCode, Event, InputRespond, InputRespondResult, InputWait,
-    Method, Origin, QuestionId, RequestId, SandboxSurfaceRespondResult, Seq, SurfaceChange, TurnId,
-    TurnInterruptResult,
+    ConversationSummary, Draft, DraftPart, ErrorBody, ErrorCode, Event, InputRespond,
+    InputRespondResult, InputWait, Method, Origin, QuestionId, RequestId,
+    SandboxSurfaceRespondResult, Seq, SurfaceChange, TurnId, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
-use efr_test_support::Wait;
+use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
 
-use super::{AnswerKind, Ask, Asking, Seed, Target, TurnView, follow, take_over};
+use super::{AnswerKind, Ask, Asking, Look, Seed, Target, TurnView, follow, take_over};
 use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
 use crate::keys::KeyReader;
+use crate::progress;
+use crate::terminal::Size;
 use crate::testing::{
-    Captured, Conn, GateClock, ScriptedKeys, TestEnv, TestInterrupt, TestQuit, call, capture,
-    conversation, envelope, item, now, turn,
+    Captured, Conn, GateClock, ResizableScreen, ScriptedKeys, TestEnv, TestInterrupt, TestQuit,
+    TestResize, call, capture, conversation, envelope, item, now, readable, turn,
 };
 
 fn target() -> Target {
@@ -51,6 +53,7 @@ async fn subscription(conn: &mut Conn, after: u64) -> (RequestId, ConversationSu
     };
     assert_eq!(params.conversation_id, conversation());
     assert_eq!(params.after_seq, Some(Seq::new(after)));
+    assert!(params.drafts, "the view merges drafts");
     (id, params)
 }
 
@@ -1444,4 +1447,239 @@ fn keeping_the_keys_again_keeps_the_queue() {
     let (mut reader, asking, _) = take_over(reader, Some(before), Ask::Retain(call()));
     assert_eq!(line_of(&asking), "");
     assert_eq!(reader.queued(), Some(b'y'), "typed for the call, so it stays");
+}
+
+// --- frames, ticks, resizes and the ways out ----------------------------------------
+
+/// A terminal view with every switch on, whose status row runs, as `efr send` makes it.
+fn started_view() -> TurnView {
+    let look = Look { motion: true, summary: true, progress: true };
+    let mut view = TurnView::new(turn(), RenderOptions::new(80)).with_look(look);
+    view.start();
+    view
+}
+
+/// How many frames `text` holds.
+fn frames(text: &str) -> usize {
+    text.matches("\x1b[?2026h").count()
+}
+
+fn updated(text: &str) -> Event {
+    Event::AssistantMessageUpdated { turn_id: turn(), index: 0, offset: 0, delta: text.to_owned() }
+}
+
+/// A clock that moves only when the test moves it, shared with `ctx`.
+fn test_clock(env: &TestEnv) -> (TestClock, Context) {
+    let clock = TestClock::starting_at(now());
+    let ctx = Context { clock: clock.shared(), ..env.context() };
+    (clock, ctx)
+}
+
+#[tokio::test]
+async fn a_burst_of_events_inside_one_frame_time_gives_one_frame() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, out, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        // The first frame shows the status row; the tick waits.
+        timing.wait_for_sleeps(1).await;
+        let before = frames(&seen.stdout());
+        let events = (0..50).map(|n| envelope(11 + n, updated(&"x".repeat(n as usize + 1))));
+        let snapshot = ConversationSnapshot {
+            conversation: ConversationSummary {
+                id: conversation(),
+                title: None,
+                status: ConversationStatus::Running,
+                created_at: now(),
+                updated_at: now(),
+                last_seq: Seq::new(60),
+                cwd: None,
+                scope: None,
+                tty: None,
+            },
+            events: events.collect(),
+            history_cursor: None,
+            hwm: Seq::new(60),
+        };
+        conn.item(sub, &ConversationSubscribeItem::Snapshot(snapshot)).await;
+        // The burst waits for the frame time.
+        timing.wait_for_sleeps(2).await;
+        assert_eq!(frames(&seen.stdout()), before, "nothing before the frame time is up");
+        timing.advance(super::FRAME);
+        shows_on(&seen, Stream::Stdout, |text| frames(text) == before + 1).await;
+        assert!(seen.stdout().contains(&"x".repeat(50)));
+        conn.item(sub, &item(61, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(
+        out.matches(&"x".repeat(50)).count(),
+        2,
+        "the live text, then the committed text: {}",
+        readable(&out)
+    );
+}
+
+#[tokio::test]
+async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let (_clock, ctx) = test_clock(&env);
+    let ctx = Context { keys: keys.clone(), ..ctx };
+    let presser = Arc::clone(&keys);
+    // The clock never moves: only a frame that goes out at once can show anything.
+    let (result, out, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, updated("Writing to ~/.zshrc."))).await;
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "write ~/.zshrc".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+        };
+        conn.item(sub, &item(12, request)).await;
+        shows(&seen, "allow? y = yes, n = no").await;
+        assert!(seen.stdout().contains("Writing to"), "the question brings what came before it");
+        presser.press(b'y').await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(13) }).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.ends_with("\x1b[?25h\x1b]9;4;0\x1b\\"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn a_tick_moves_the_spinner_and_writes_only_the_status_row() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        let before = seen.stdout().len();
+        timing.advance(super::TICK);
+        shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
+        let tick = seen.stdout()[before..].to_owned();
+        assert!(
+            tick.starts_with("\x1b[?2026h\r\x1b[1A\x1b[2K\x1b[33m\u{2819}"),
+            "{}",
+            readable(&tick)
+        );
+        assert!(tick.ends_with(progress::RUNNING), "the bar goes again: {}", readable(&tick));
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn a_resize_draws_the_live_zone_again_at_the_new_width() {
+    let env = TestEnv::new();
+    let resize = Arc::new(TestResize::default());
+    let screen = Arc::new(ResizableScreen(std::sync::Mutex::new(Size { cols: 80, rows: 20 })));
+    let ctx = Context { resize: resize.clone(), screen: screen.clone(), ..env.context() };
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, updated(&"word ".repeat(12)))).await;
+        shows(&seen, "word word").await;
+        let before = seen.stdout().len();
+        // 59 columns of text took one row at 80 columns and take two at 40, above the
+        // status row.
+        screen.set(Size { cols: 40, rows: 20 });
+        resize.trigger();
+        shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
+        let redraw = seen.stdout()[before..].to_owned();
+        assert!(redraw.starts_with("\x1b[?2026h\r\x1b[3A\x1b[J"), "{}", readable(&redraw));
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
+    #[derive(Debug, Clone, Copy)]
+    enum Out {
+        Completed,
+        Failed,
+        CtrlC,
+        Ended,
+    }
+    for way in [Out::Completed, Out::Failed, Out::CtrlC, Out::Ended] {
+        let env = TestEnv::new();
+        let interrupt = Arc::new(TestInterrupt::default());
+        let ctx = Context { interrupt: interrupt.clone(), ..env.context() };
+        let (result, out, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+            let sub = subscribed(&mut conn, 10).await;
+            conn.item(sub, &item(11, updated("Partial answer"))).await;
+            shows(&seen, "Partial answer").await;
+            match way {
+                Out::Completed => conn.item(sub, &item(12, turn_completed())).await,
+                Out::Failed => {
+                    let error = ErrorBody::new(ErrorCode::Internal, "the provider is down");
+                    conn.item(sub, &item(12, Event::TurnFailed { turn_id: turn(), error })).await;
+                }
+                Out::CtrlC => {
+                    interrupt.trigger();
+                    let (id, _) = request_after_cancels(&mut conn).await;
+                    conn.reply(id, &TurnInterruptResult { turn_id: turn(), seq: Seq::new(12) })
+                        .await;
+                }
+                Out::Ended => conn.end(sub).await,
+            }
+            conn.until_closed().await;
+        })
+        .await;
+        assert_eq!(result.is_ok(), matches!(way, Out::Completed), "{way:?}: {result:?}");
+        assert!(out.starts_with("\x1b[?25l"), "{way:?}: {}", readable(&out));
+        let bar = if matches!(way, Out::Failed) { progress::FAILED } else { progress::CLEAR };
+        let shown = out.rfind("\x1b[?25h").unwrap_or_else(|| panic!("{way:?}: {}", readable(&out)));
+        assert!(out[shown..].contains(bar), "{way:?}: {}", readable(&out));
+        assert!(!out[shown..].contains("\x1b[?25l"), "{way:?}: {}", readable(&out));
+        assert_eq!(out.matches("\x1b[?25l").count(), 1, "{way:?}: {}", readable(&out));
+    }
+}
+
+#[tokio::test]
+async fn drafts_reach_the_screen_before_the_persisted_text_and_show_once() {
+    let env = TestEnv::new();
+    let (result, out, _) =
+        run_view(&env, &env.context(), started_view(), |mut conn, seen| async move {
+            let sub = subscribed(&mut conn, 10).await;
+            let text = |offset: u64, delta: &str| Draft {
+                turn_id: turn(),
+                after_seq: Seq::new(10),
+                draft: DraftPart::Text { index: 0, offset, delta: delta.to_owned() },
+            };
+            conn.item(sub, &ConversationSubscribeItem::Draft(text(0, "The disk "))).await;
+            conn.item(sub, &ConversationSubscribeItem::Draft(text(9, "is full."))).await;
+            shows(&seen, "The disk is full.").await;
+            conn.item(sub, &item(11, updated("The disk is"))).await;
+            let done = Event::AssistantMessageCompleted {
+                turn_id: turn(),
+                index: 0,
+                text: "The disk is full.".to_owned(),
+            };
+            conn.item(sub, &item(12, done)).await;
+            conn.item(sub, &item(13, turn_completed())).await;
+            conn.until_closed().await;
+        })
+        .await;
+    result.unwrap();
+    assert_eq!(
+        out.matches("The disk is full.").count(),
+        2,
+        "live, then committed once: {}",
+        readable(&out)
+    );
+    assert!(!out.contains("The disk isThe"), "{}", readable(&out));
 }

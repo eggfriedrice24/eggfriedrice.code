@@ -1,8 +1,9 @@
 use std::path::Path;
+use std::time::Duration;
 
 use efr_protocol::{
     AdminStatusResult, ConversationStatus, ConversationSummary, ConversationsListResult,
-    PageCursor, ProviderStatus, Seq,
+    PageCursor, ProviderStatus, Seq, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::{SignedDuration, Timestamp};
@@ -11,7 +12,8 @@ use serde_json::json;
 
 use super::{
     Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations,
-    lines, one_line, paint, run_heading, status, tool_call, tool_result, until,
+    elapsed, lines, one_line, paint, run_heading, size, status, tokens, took, tool_call,
+    tool_result, turn_done, until,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -310,4 +312,68 @@ fn format_characters_show_as_a_stand_in_in_every_line() {
     // Text without one stays as it is.
     assert!(matches!(lines("plain\ntext"), std::borrow::Cow::Borrowed(_)));
     assert_eq!(one_line("naïve 日本 \u{1f600}"), "naïve 日本 \u{1f600}");
+}
+
+#[test]
+fn elapsed_time_counts_seconds_then_minutes_then_hours() {
+    let cases = [
+        (0, "0s"),
+        (1, "1s"),
+        (59, "59s"),
+        (60, "1m 00s"),
+        (61, "1m 01s"),
+        (3_599, "59m 59s"),
+        (3_600, "1h 00m 00s"),
+        (3_725, "1h 02m 05s"),
+    ];
+    for (seconds, shown) in cases {
+        assert_eq!(elapsed(Duration::from_secs(seconds)), shown, "{seconds}");
+    }
+    assert_eq!(elapsed(Duration::from_millis(1_999)), "1s");
+}
+
+#[test]
+fn a_turn_under_ten_seconds_shows_tenths() {
+    assert_eq!(took(Duration::from_millis(420)), "0.4s");
+    assert_eq!(took(Duration::from_millis(9_990)), "9.9s");
+    assert_eq!(took(Duration::from_secs(42)), "42s");
+    assert_eq!(took(Duration::from_secs(66)), "1m 06s");
+}
+
+#[test]
+fn token_counts_are_short_and_never_round_up() {
+    let cases = [
+        (0, "0"),
+        (999, "999"),
+        (1_000, "1.0k"),
+        (1_234, "1.2k"),
+        (18_250, "18.2k"),
+        (99_999, "99.9k"),
+        (120_000, "120k"),
+        (999_999, "999k"),
+        (1_200_000, "1.2M"),
+    ];
+    for (count, shown) in cases {
+        assert_eq!(tokens(count), shown, "{count}");
+    }
+}
+
+#[test]
+fn sizes_count_in_thousands() {
+    assert_eq!(size(0), "0 B");
+    assert_eq!(size(999), "999 B");
+    assert_eq!(size(3_250), "3.2 KB");
+    assert_eq!(size(1_450_000), "1.4 MB");
+}
+
+#[test]
+fn the_end_of_turn_line_leaves_out_what_is_not_known() {
+    let usage = Usage { input_tokens: 18_250, output_tokens: 1_100 };
+    assert_eq!(
+        turn_done(Some(Duration::from_secs(42)), Some(&usage)),
+        "done in 42s, 18.2k tokens in, 1.1k out"
+    );
+    assert_eq!(turn_done(None, Some(&usage)), "done, 18.2k tokens in, 1.1k out");
+    assert_eq!(turn_done(Some(Duration::from_millis(1_500)), None), "done in 1.5s");
+    assert_eq!(turn_done(None, None), "done");
 }

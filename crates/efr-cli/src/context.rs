@@ -1,5 +1,6 @@
 //! Everything a command needs from the world, gathered once: the directories, the
-//! environment, the terminal, time, randomness, keys, Ctrl+C, `Ctrl+\` and the browser.
+//! environment, the terminal, time, randomness, keys, Ctrl+C, `Ctrl+\`, window resizes
+//! and the browser.
 //!
 //! Commands take a [`Context`] instead of reaching for process state themselves, so a
 //! test can run a whole command against a fake daemon with a fixed screen, scripted
@@ -18,6 +19,8 @@ use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
+use futures::{Stream, stream};
+use tokio::signal::unix::{SignalKind, signal};
 
 use crate::error::CliError;
 use crate::keys::{Keys, TtyKeys};
@@ -52,6 +55,35 @@ impl Interrupt for CtrlC {
                 std::future::pending::<()>().await;
             }
         })
+    }
+}
+
+/// The resizes of the terminal's window, one item each.
+pub(crate) type Resizes = Pin<Box<dyn Stream<Item = ()> + Send>>;
+
+/// Where window resizes come from.
+pub(crate) trait Resize: Send + Sync + fmt::Debug {
+    /// The resizes from now on. A source that cannot report them never ends and never
+    /// yields.
+    fn resizes(&self) -> Resizes;
+}
+
+/// Resizes of the terminal's window, as SIGWINCH.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Sigwinch;
+
+impl Resize for Sigwinch {
+    fn resizes(&self) -> Resizes {
+        match signal(SignalKind::window_change()) {
+            Ok(signals) => Box::pin(stream::unfold(signals, |mut signals| async move {
+                signals.recv().await.map(|()| ((), signals))
+            })),
+            // NOTE: without the handler, a resize shows at the next frame instead.
+            Err(error) => {
+                tracing::debug!(%error, "the SIGWINCH handler could not be installed");
+                Box::pin(stream::pending())
+            }
+        }
     }
 }
 
@@ -90,6 +122,8 @@ pub(crate) struct Context {
     pub(crate) screen: Arc<dyn Screen>,
     pub(crate) keys: Arc<dyn Keys>,
     pub(crate) interrupt: Arc<dyn Interrupt>,
+    /// Resizes of the window, which redraw the live zone at the new width.
+    pub(crate) resize: Arc<dyn Resize>,
     /// `Ctrl+\`, which asks to type an input for a command that prints nothing.
     pub(crate) quit: Arc<dyn Quit>,
     pub(crate) browser: Arc<dyn Browser>,
@@ -132,6 +166,7 @@ impl Context {
             screen: Arc::new(StdoutScreen),
             keys: Arc::new(keys),
             interrupt: Arc::new(CtrlC),
+            resize: Arc::new(Sigwinch),
             quit: Arc::new(CtrlBackslash::new()),
             browser: Arc::new(XdgOpen),
             cwd: std::env::current_dir().ok(),

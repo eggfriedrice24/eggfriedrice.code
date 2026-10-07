@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: readable(&frames)
+---
+\e[?2026h\r\e[1A\e[2K\e[1m⠹\e[0m \e[2m\e[22mwa\e[2miting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[2K\e[1m⠸\e[0m \e[2mwaiting for the mode\e[22ml\e[0m  \e[2m2s\e[0m
+\e[?2026l

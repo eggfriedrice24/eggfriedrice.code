@@ -1,0 +1,28 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: "frames.join(\"\\n---\\n\")"
+---
+\e[?25l\e[?2026h\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
+\e[?2026l
+---
+
+---
+\e[?2026h\r\e[1A\e[2K\e[33m⠙\e[0m \e[2m\e[22mw\e[2maiting for the model\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[JReading the logs.
+
+The disk
+\e[33m⠴\e[0m \e[2mwriting\e[0m  \e[2m1s\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[2K\e[33m⠦\e[0m \e[2mwriting\e[0m  \e[2m1s\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[3A\e[J
+The disk is full.
+\e[33m⠋\e[0m \e[2mwaiting for the m\e[22mode\e[2ml\e[0m  \e[2m2s\e[0m
+\e[?2026l
+---
+\e[?2026h\r\e[1A\e[2K\e[33m⠙\e[0m \e[2mwaiting for the mo\e[22mdel\e[0m  \e[2m2s\e[0m
+\e[?2026l

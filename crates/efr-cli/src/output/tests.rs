@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use pretty_assertions::assert_eq;
 
-use super::Output;
+use super::{Output, set_restore, take_restore};
 use crate::error::CliError;
 use crate::testing::capture;
 
@@ -51,4 +51,12 @@ fn empty_text_writes_nothing() {
     let mut out = Output::from_writers(Box::new(ClosedPipe), Box::new(ClosedPipe));
     out.out("").unwrap();
     out.err("");
+}
+
+#[test]
+fn the_restore_bytes_are_the_newest_and_are_taken_once() {
+    set_restore("\x1b[?25h");
+    set_restore("\x1b[?25h\x1b]9;4;0\x1b\\");
+    assert_eq!(take_restore(), "\x1b[?25h\x1b]9;4;0\x1b\\");
+    assert_eq!(take_restore(), "");
 }

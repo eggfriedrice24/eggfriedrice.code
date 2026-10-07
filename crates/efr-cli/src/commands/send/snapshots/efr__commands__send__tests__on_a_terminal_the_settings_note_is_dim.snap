@@ -2,7 +2,11 @@
 source: crates/efr-cli/src/commands/send/tests.rs
 expression: readable(&captured.stdout())
 ---
-\e[?2026h\e[2meffort high\e[0m
-\e[?2026l\e[?2026h
+\e[?25l\e[?2026h\e[2meffort high\e[0m
+\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
+\e[?2026l\e[?2026h\r\e[1A\e[J
 Restart nginx.
-\e[?2026l
+\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
+\e[?2026l\e[?2026h\r\e[1A\e[J
+\e[2mdone\e[0m
+\e[?2026l\e[?25h

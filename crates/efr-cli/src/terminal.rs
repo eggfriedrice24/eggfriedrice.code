@@ -25,12 +25,20 @@ pub(crate) struct TermFacts {
     pub(crate) stderr_tty: bool,
     /// Stdin is a terminal, so one-key answers can be read from it.
     pub(crate) stdin_tty: bool,
+    /// `TERM_PROGRAM`, when set and not empty, such as `ghostty`.
+    pub(crate) term_program: Option<String>,
+    /// `TERM_PROGRAM_VERSION`, when set and not empty, such as `1.3.1`.
+    pub(crate) term_program_version: Option<String>,
+    /// `TMUX` is set: the output goes through tmux.
+    pub(crate) tmux: bool,
+    /// `WT_SESSION` is set: the terminal is Windows Terminal.
+    pub(crate) wt_session: bool,
 }
 
 impl TermFacts {
     /// Reads the facts from this process.
     pub(crate) fn from_process() -> TermFacts {
-        // NOTE: efr_stdx::env::Var names only the EFR_* variables, and these three are
+        // NOTE: efr_stdx::env::Var names only the EFR_* variables, and these are
         // terminal conventions that efr does not own; the CLI is the composition root
         // that decides the output format, so it reads them here, once.
         let text = |name: &str| {
@@ -45,6 +53,10 @@ impl TermFacts {
             stdout_tty: io::stdout().is_terminal(),
             stderr_tty: io::stderr().is_terminal(),
             stdin_tty: io::stdin().is_terminal(),
+            term_program: text("TERM_PROGRAM"),
+            term_program_version: text("TERM_PROGRAM_VERSION"),
+            tmux: std::env::var_os("TMUX").is_some(),
+            wt_session: std::env::var_os("WT_SESSION").is_some(),
         }
     }
 

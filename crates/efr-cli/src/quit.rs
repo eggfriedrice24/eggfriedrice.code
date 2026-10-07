@@ -134,6 +134,9 @@ fn listen(state: &Arc<State>) {
 /// What SIGQUIT does without a handler: the process ends, with a core dump where the
 /// system keeps them.
 fn default_action() {
+    // The process ends here, past the view: the cursor and the tab's progress bar must
+    // come back first.
+    crate::output::restore_terminal();
     // NOTE: this puts the default disposition back and raises the signal again, so the
     // shell sees `efr` end by SIGQUIT, as it would without the handler.
     if let Err(error) =
