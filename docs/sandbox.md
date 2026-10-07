@@ -271,8 +271,11 @@ allow? y = yes, n = no
     2  journalctl -b -n 20 --no-pager
   ```
 
-  The `shell:` line of a running call shows only the first line and how many follow,
-  such as `shell: cd src (and 3 more lines)`.
+  The line of a running call shows only the first line and how many follow, such as
+  `$ cd src (and 3 more lines)`.
+- Only the facts that matter most stand out in the `warning` colour: the heading, the
+  full-rights line and the `untrusted` mark. The other fact lines are plain, and the
+  lines of efr's facts and of the model's reason are dim.
 - `programs:` names every program word with the path it runs. A word that the shell
   runs itself, such as `:` or `cd`, shows as `(builtin)`. A program in a write
   root, or one that changed in this turn, is marked `untrusted: written in the
