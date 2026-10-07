@@ -36,12 +36,20 @@ pub(crate) async fn run(
 ) -> Result<(), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
     let cursor = args.cursor.as_deref().map(PageCursor::new);
-    let Some(query) = &args.conversation else {
-        let method = Method::ConversationsList(ConversationsList { cursor, limit: args.limit });
-        let list: ConversationsListResult = client.call(method).await?;
-        return out.out(&format::conversations(&list, ctx.clock.now()));
+    let (conversation_id, picked) = match (&args.conversation, args.verbose) {
+        (Some(query), _) => (resolve(&client, query).await?, None),
+        // NOTE: the records of the exits are what `--verbose` is for, and the list has
+        // none, so it shows the conversation that the user most likely means.
+        (None, true) => match pick(&client, ctx.tty.as_deref()).await? {
+            Some((id, picked)) => (id, Some(picked)),
+            None => return out.out("no conversations yet\n"),
+        },
+        (None, false) => {
+            let method = Method::ConversationsList(ConversationsList { cursor, limit: args.limit });
+            let list: ConversationsListResult = client.call(method).await?;
+            return out.out(&format::conversations(&list, ctx.clock.now()));
+        }
     };
-    let conversation_id = resolve(&client, query).await?;
     let method = Method::ConversationHistory(ConversationHistory {
         conversation_id,
         cursor,
@@ -51,7 +59,49 @@ pub(crate) async fn run(
     let size = ctx.screen.size();
     let options = ctx.term.render_options(effective_width(size), ctx.settings.theme);
     let shown = Shown { options: &options, verbose: args.verbose, home: ctx.home.as_deref() };
-    out.out(&transcript(conversation_id, &page, &shown))
+    let mut text = String::new();
+    if let Some(picked) = picked {
+        let line = format!("{}; efr history lists them all", picked.words());
+        let _ = writeln!(text, "{}", format::paint(&line, Tone::Dim, &options));
+    }
+    text.push_str(&transcript(conversation_id, &page, &shown));
+    out.out(&text)
+}
+
+/// Why `efr history --verbose` without a conversation shows the one it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Picked {
+    /// The newest conversation of this terminal.
+    Terminal,
+    /// The newest conversation of all, because this terminal has none.
+    Newest,
+}
+
+impl Picked {
+    fn words(self) -> &'static str {
+        match self {
+            Picked::Terminal => "the newest conversation of this terminal",
+            Picked::Newest => "the newest conversation",
+        }
+    }
+}
+
+/// The conversation that `efr history --verbose` shows without one: the newest of the
+/// terminal `tty`, else the newest of all; `None` when there is none.
+async fn pick(
+    client: &Client,
+    tty: Option<&str>,
+) -> Result<Option<(ConversationId, Picked)>, CliError> {
+    if let Some(tty) = tty {
+        match super::send::active_conversation(client, tty).await {
+            Ok(id) => return Ok(Some((id, Picked::Terminal))),
+            Err(CliError::NoActiveConversation { .. }) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let method = Method::ConversationsList(ConversationsList { cursor: None, limit: Some(1) });
+    let list: ConversationsListResult = client.call(method).await?;
+    Ok(list.conversations.first().map(|summary| (summary.id, Picked::Newest)))
 }
 
 /// How a transcript is shown.

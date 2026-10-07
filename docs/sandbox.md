@@ -254,7 +254,8 @@ allow? y = yes, n = no
 - Three refusals in a row without a person (by a floor) stop the turn.
 
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and
-programs, and how it was judged.
+programs, and how it was judged. Without a conversation id, it shows the newest
+conversation of this terminal, else the newest of all, and says which.
 
 ## When the sandbox cannot run
 

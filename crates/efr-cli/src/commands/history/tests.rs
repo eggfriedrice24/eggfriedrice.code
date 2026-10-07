@@ -529,6 +529,91 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
+/// What `efr history --verbose` without a conversation writes when the terminal is
+/// `tty` and the daemon lists `listed`; the history it asks for gets the sandbox's
+/// events.
+async fn verbose_without_a_conversation(
+    tty: Option<&str>,
+    listed: Vec<ConversationSummary>,
+) -> (Exit, String, Option<efr_protocol::ConversationId>) {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let mut ctx = env.context();
+    ctx.tty = tty.map(str::to_owned);
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let mut shown = None;
+        loop {
+            let Some(frame) = conn.recv().await else { break };
+            let efr_protocol::ClientFrame::Request { id, method } = frame else { continue };
+            match method {
+                Method::ConversationsList(params) => {
+                    let mut conversations = listed.clone();
+                    if let Some(limit) = params.limit {
+                        conversations.truncate(limit as usize);
+                    }
+                    let list = ConversationsListResult { conversations, next_cursor: None };
+                    conn.reply(id, &list).await;
+                }
+                Method::ConversationHistory(params) => {
+                    shown = Some(params.conversation_id);
+                    let page =
+                        ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
+                    conn.reply(id, &page).await;
+                }
+                other => panic!("unexpected {}", other.name()),
+            }
+        }
+        shown
+    };
+    let line = command(&["history", "--verbose"]);
+    let (exit, shown) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    (exit, captured.stdout(), shown)
+}
+
+#[tokio::test]
+async fn history_verbose_without_a_conversation_shows_the_newest_of_this_terminal() {
+    let newest = "019a9b1c-3d00-7a10-8b20-0000000000a1";
+    let mut mine = summary(CONVERSATION);
+    mine.tty = Some("/dev/pts/3".to_owned());
+    let (exit, stdout, shown) =
+        verbose_without_a_conversation(Some("/dev/pts/3"), vec![summary(newest), mine]).await;
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(shown, Some(conversation()));
+    assert!(
+        stdout.starts_with(&format!(
+            "the newest conversation of this terminal; efr history lists them all\n\
+             conversation {CONVERSATION}\n"
+        )),
+        "{stdout}"
+    );
+    assert!(stdout.contains("exit requested: privilege (predicted from the line)"), "{stdout}");
+}
+
+#[tokio::test]
+async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
+    let newest = "019a9b1c-3d00-7a10-8b20-0000000000a1";
+    let (exit, stdout, shown) =
+        verbose_without_a_conversation(Some("/dev/pts/9"), vec![summary(newest)]).await;
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(shown, Some(newest.parse().unwrap()));
+    assert!(
+        stdout.starts_with(&format!(
+            "the newest conversation; efr history lists them all\nconversation {newest}\n"
+        )),
+        "{stdout}"
+    );
+    assert!(stdout.contains("exit requested:"), "{stdout}");
+
+    let (_, stdout, shown) = verbose_without_a_conversation(None, vec![summary(newest)]).await;
+    assert_eq!(shown, Some(newest.parse().unwrap()));
+    assert!(stdout.starts_with("the newest conversation;"), "{stdout}");
+
+    let (exit, stdout, shown) = verbose_without_a_conversation(None, Vec::new()).await;
+    assert_eq!((exit, stdout.as_str(), shown), (Exit::Success, "no conversations yet\n", None));
+}
+
 #[tokio::test]
 async fn history_verbose_is_a_flag() {
     let env = TestEnv::new();

@@ -215,7 +215,8 @@ impl FromStr for LastCommand {
 #[derive(Debug, Args)]
 pub(crate) struct HistoryArgs {
     /// The conversation to show: its id, or the start of it. Without one, the recent
-    /// conversations are listed.
+    /// conversations are listed; with --verbose, the newest conversation of this
+    /// terminal shows, else the newest of all.
     #[arg(value_name = "CONVERSATION")]
     pub(crate) conversation: Option<String>,
 
