@@ -159,6 +159,26 @@ fn text_goes_on_at_spaces_and_keeps_its_tones() {
     );
 }
 
+#[test]
+fn a_word_wider_than_the_first_row_starts_in_it() {
+    let url = format!("https://example.com/{}", "a".repeat(40));
+    let rows = wrap_spans(&[(url.clone(), Tone::Dim)], 20, 18, WidthMethod::CodePoint);
+    assert!(rows.iter().all(|row| !row.is_empty()), "{rows:?}");
+    assert_eq!(rows[0], [(url[..20].to_owned(), Tone::Dim)]);
+    assert!(rows[1..].iter().all(|row| row[0].0.len() <= 18), "{rows:?}");
+    let joined: String = rows.iter().map(|row| row[0].0.as_str()).collect();
+    assert_eq!(joined, url);
+
+    // A row of a card at a narrow width.
+    let card = Card { title: "allow this call".to_owned(), rows: vec![Row::text(url, Tone::Dim)] };
+    let shown = bare(&card.render(None, &plain(24)));
+    assert!(shown.lines().all(|row| row.trim_end() != "\u{2502}"), "{shown}");
+    assert!(
+        shown.lines().nth(1).is_some_and(|row| row.starts_with("\u{2502} https://")),
+        "{shown}"
+    );
+}
+
 fn command_card() -> Card {
     approval(
         "shell: run \"cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -type f | awk '{print $1}'\"",

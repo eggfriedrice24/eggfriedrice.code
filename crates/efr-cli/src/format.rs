@@ -506,9 +506,13 @@ pub(crate) fn wrap_spans(
                 used += width;
                 continue;
             }
-            rows.push(Vec::new());
-            used = 0;
-            room = rest;
+            // NOTE: a row with nothing in it yet takes the word that does not fit, cut
+            // to its room, so no row stays empty.
+            if used > 0 {
+                rows.push(Vec::new());
+                used = 0;
+                room = rest;
+            }
             if space {
                 continue;
             }
@@ -530,6 +534,7 @@ pub(crate) fn wrap_spans(
                     break;
                 }
                 rows.push(Vec::new());
+                room = rest;
                 left = after;
             }
             push_span(&mut rows, left, *tone);
