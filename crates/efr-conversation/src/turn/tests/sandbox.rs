@@ -264,6 +264,54 @@ async fn multi_command_unsandboxed_exit_refused_without_question() {
 }
 
 #[tokio::test]
+async fn a_sudo_that_forgets_the_password_asks_once_with_the_sudo_beside_it() {
+    let (setup, state) = auto("check sudo");
+    let line = "sudo -k; sudo true";
+    assert_eq!(efr_permissions::exits::unsandboxed_line_problem(line), None);
+    let input = json!({ "command": line });
+    let records = one_call(&setup, &state, "check sudo", &input, "done", false, "Checked.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("check sudo").await;
+    let asked = h.wait_for(|e| matches!(e, Event::ApprovalRequested { .. })).await;
+    let Event::ApprovalRequested { call_id, exit: Some(exit), .. } = asked else {
+        panic!("the question shows the exit: {asked:?}");
+    };
+    assert_eq!(exit.kinds, vec![ExitKind::Privilege]);
+    assert_eq!(exit.launch, Launch::Unsandboxed, "it runs with full rights");
+    assert!(exit.user_only);
+    h.answer(call_id, ApprovalDecision::Allow).await;
+    h.wait_end(sent.turn_id).await;
+
+    let events = h.events().await;
+    let questions = events.iter().filter(|e| matches!(e, Event::ApprovalRequested { .. })).count();
+    assert_eq!(questions, 1, "one question for the line");
+    let ran = h.toolbox.ran();
+    assert_eq!(ran.len(), 1);
+    assert_eq!(ran[0].launch, Launch::Unsandboxed);
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_write_beside_a_sudo_is_still_refused_without_question() {
+    let (setup, state) = auto("set up");
+    let line = "rm x; sudo true";
+    let problem = efr_permissions::exits::unsandboxed_line_problem(line).expect("a problem");
+    assert!(problem.starts_with(efr_permissions::exits::ONE_COMMAND), "{problem}");
+    let input = json!({ "command": line });
+    let records = one_call(&setup, &state, "set up", &input, &problem, true, "Split it.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("set up").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.invoked().is_empty());
+    let events = h.events().await;
+    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    h.finish();
+}
+
+#[tokio::test]
 async fn user_ask_rule_launch_is_contained() {
     let (mut setup, state) = auto("build");
     let rule =

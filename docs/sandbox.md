@@ -242,9 +242,11 @@ A grant lives for one call. The next call asks again.
 An exit that runs outside the sandbox runs with your full rights: your files, your
 secrets and the network. So efr accepts only a narrow line for it. One simple command
 carries the exit, and every other command of the line must be a read-only helper that
-`cautious` allows, such as `echo`. `sudo -v && ./helper` gets no question; the model
-reads "an approved command outside the sandbox must run alone; run the other parts in
-a separate call". The processes of such a run stop when the call ends.
+`cautious` allows, such as `echo`, or a `sudo -k` (also `-K`, `--reset-timestamp`)
+that only forgets the cached password, so `sudo -k; sudo true` asks once.
+`sudo -v && ./helper` gets no question; the model reads "an approved command outside
+the sandbox must run alone; run the other parts in a separate call". The processes of
+such a run stop when the call ends.
 
 The question shows the whole line, what leaves the sandbox, and how the call runs:
 

@@ -9,7 +9,8 @@
 //! turns the model's `needs` into exits.
 //!
 //! [`unsandboxed_line_problem`] is the one-command rule: a line that runs outside the
-//! sandbox must be one command plus read-only helpers.
+//! sandbox must be one command plus read-only helpers, or a `sudo -k` that only forgets
+//! the cached password.
 
 mod envelope;
 mod needs;
@@ -497,8 +498,9 @@ fn naming_part(
 /// exit must not carry other code with it. The line must be one that the engine can
 /// split, with no substitution, `eval`, group or function definition; redirections stay
 /// allowed, because their paths are declared and get their own exits. At most one of
-/// its simple commands may be other than a read-only helper, a command that the
-/// `cautious` read-only table allows, such as `echo` in `echo x | sudo tee /etc/x`.
+/// its simple commands may be other than a helper: a command that the `cautious`
+/// read-only table allows, such as `echo` in `echo x | sudo tee /etc/x`, or a `sudo`
+/// that only forgets the cached password, such as `sudo -k` in `sudo -k; sudo true`.
 /// The answer is the text for the model; the call gets no question.
 pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
     let commands = match command::analyze_with_redirects(line) {
@@ -513,6 +515,7 @@ pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
     let helpers = read_only_commands();
     let carrying = commands
         .iter()
+        .filter(|simple| !forgets_password(simple))
         .filter(|simple| {
             command::privileged(simple).is_some()
                 || !helpers
@@ -521,6 +524,21 @@ pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
         })
         .count();
     (carrying > 1).then(|| ONE_COMMAND.to_owned())
+}
+
+/// The options of `sudo` that only forget the cached password and run nothing.
+const FORGET_PASSWORD: &[&str] = &["-k", "-K", "--reset-timestamp", "--remove-timestamp"];
+
+/// True for `sudo` with one option that only forgets the cached password, such as
+/// `sudo -k`: it runs no program and opens nothing, so the next `sudo` asks for the
+/// password again. With any other word, such as `sudo -k make`, it runs a program.
+fn forgets_password(simple: &command::SimpleCommand) -> bool {
+    match simple.words.as_slice() {
+        [program, option] => {
+            program == "sudo" && !simple.pattern && FORGET_PASSWORD.contains(&option.as_str())
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

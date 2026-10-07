@@ -602,6 +602,10 @@ fn auto_nested_shell_denied() {
 #[case::function("f() { sudo ls; }; f")]
 #[case::eval("eval sudo ls")]
 #[case::two_privileged("sudo ls | sudo tee /etc/x")]
+#[case::write_then_sudo("rm x; sudo true")]
+#[case::forget_with_a_program("sudo -k make; sudo true")]
+#[case::forget_then_two("sudo -k; rm x; sudo true")]
+#[case::forget_by_path("./sudo -k; sudo true")]
 fn exits_unsandboxed_line_must_be_one_command(#[case] line: &str) {
     let problem = unsandboxed_line_problem(line).unwrap();
     assert!(problem.starts_with(ONE_COMMAND), "{line:?}: {problem}");
@@ -615,8 +619,21 @@ fn exits_unsandboxed_line_must_be_one_command(#[case] line: &str) {
 #[case::redirect("sudo make install > log.txt")]
 #[case::cd_first("cd /srv/x && sudo make install")]
 #[case::outside_alone("ls -la")]
+#[case::forget_then_sudo("sudo -k; sudo true")]
+#[case::forget_all_then_sudo("sudo -K && sudo true")]
+#[case::reset_then_sudo("sudo --reset-timestamp; sudo pacman -Syu")]
+#[case::sudo_then_forget("sudo true; sudo -k")]
 fn exits_read_only_helper_allowed_in_unsandboxed_line(#[case] line: &str) {
     assert_eq!(unsandboxed_line_problem(line), None, "{line:?}");
+}
+
+#[test]
+fn a_sudo_that_forgets_the_password_asks_with_the_sudo_beside_it() {
+    let decision = decide(shell("sudo -k; sudo true"));
+    assert_eq!(decision.effect(), Effect::Ask);
+    let needs: Vec<_> = decision.exits().collect();
+    assert!(needs.iter().all(|need| need.kind == ExitKind::Privilege), "{needs:?}");
+    assert!(needs.iter().all(|need| need.user_only && need.runs_unsandboxed()), "{needs:?}");
 }
 
 #[test]

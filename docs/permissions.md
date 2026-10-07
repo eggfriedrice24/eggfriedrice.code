@@ -329,7 +329,9 @@ Each entry is an exit that asks. Other modes ignore `needs`.
 An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_write`,
 `above_root`, or a write that no bind can serve, runs outside the sandbox. Such a line
 must be one command, plus read-only helpers from the table above, such as `echo` in
-`echo x | sudo tee /etc/x.conf`. `sudo -v && ./helper` gets an error with no question.
+`echo x | sudo tee /etc/x.conf`, and `sudo -k`, `sudo -K` or `sudo --reset-timestamp`
+alone, which only forget the cached password: `sudo -k; sudo true` asks once.
+`sudo -v && ./helper` gets an error with no question.
 
 A turn from the phone runs with at most `cautious`, so it is never contained.
 `crates/efr-permissions/src/exits.rs` holds the exit rules, and
