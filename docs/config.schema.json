@@ -194,7 +194,7 @@
           "description": "Added lines. Unset: slot 2 (green).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -205,7 +205,7 @@
           "description": "Hunk headers. Unset: slot 6 (cyan).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -216,7 +216,7 @@
           "description": "Removed lines. Unset: slot 1 (red).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -432,7 +432,7 @@
           "description": "The spinner and the colour of headings. Unset: slot 3 (yellow).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -443,7 +443,7 @@
           "description": "Inline code. Unset: slot 6 (cyan).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -459,7 +459,7 @@
           "description": "Failures. Unset: slot 1 (red).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -470,7 +470,7 @@
           "description": "Headings of level 1 and 2. Unset: the accent colour.",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -481,7 +481,7 @@
           "description": "Links. Unset: slot 4 (blue).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -492,7 +492,7 @@
           "description": "Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim.",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -503,7 +503,7 @@
           "description": "The text of a quote, in italic. Unset: the terminal's foreground.",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -514,7 +514,7 @@
           "description": "Done task boxes and good news. Unset: slot 2 (green).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -525,7 +525,7 @@
           "description": "Prose and plain lines. Unset: the terminal's foreground.",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
@@ -536,7 +536,7 @@
           "description": "Questions and refusals, in bold. Unset: slot 3 (yellow).",
           "maximum": 15,
           "minimum": 0,
-          "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+          "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",

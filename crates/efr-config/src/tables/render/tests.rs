@@ -53,6 +53,20 @@ fn anything_else_is_no_colour() {
 }
 
 #[test]
+fn the_schema_pattern_takes_the_slots_that_the_parser_takes() {
+    let schema = serde_json::to_value(schemars::schema_for!(ColorValue)).unwrap();
+    let pattern = schema["pattern"].as_str().unwrap();
+    // `0?[0-9]` takes 0 to 9 and 00 to 09, `1[0-5]` takes 10 to 15: no slot 16 to 99.
+    assert!(pattern.contains("|0?[0-9]|1[0-5]|"), "{pattern}");
+    assert!(!pattern.contains("{1,2}"), "{pattern}");
+    for slot in 0..100 {
+        let accepted = slot < 16;
+        assert_eq!(text(&slot.to_string()).is_some(), accepted, "{slot}");
+        assert_eq!(text(&format!("{slot:02}")).is_some(), accepted, "{slot:02}");
+    }
+}
+
+#[test]
 fn a_value_reads_from_a_number_or_a_string_and_shows_as_toml() {
     #[derive(serde::Deserialize)]
     struct One {

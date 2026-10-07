@@ -350,7 +350,7 @@ fn slot(number: i64) -> Option<RoleColor> {
 }
 
 /// Reads a colour as the JSON schema's pattern describes it: `#rrggbb` in either case,
-/// one or two digits, or a lowercase name.
+/// a slot from 0 to 15 in one or two digits, or a lowercase name.
 fn parse_color(text: &str) -> Option<RoleColor> {
     if let Some(hex) = text.strip_prefix('#') {
         if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -412,7 +412,7 @@ impl JsonSchema for ColorValue {
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({
             "type": ["string", "integer"],
-            "pattern": "^(#[0-9a-fA-F]{6}|[0-9]{1,2}|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
+            "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
             "minimum": 0,
             "maximum": 15
         })
