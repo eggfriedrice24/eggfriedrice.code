@@ -1806,7 +1806,20 @@ impl TurnView {
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
         if let Some(exit) = request.exit {
             let record = self.exits.get(&call_id);
-            card = sandbox::exit_card(exit, record, self.home.as_deref(), card.rows);
+            // NOTE: the exit's card says why on its own row, so the subject is only what
+            // runs: the lines of the command, else the summary's first row.
+            let commands: Vec<card::Row> = card
+                .rows
+                .iter()
+                .filter(|row| matches!(row, card::Row::Command(_)))
+                .cloned()
+                .collect();
+            let subject = if commands.is_empty() {
+                card.rows.into_iter().take(1).collect()
+            } else {
+                commands
+            };
+            card = sandbox::exit_card(exit, record, self.home.as_deref(), subject);
         }
         if let Some(diff) = request.diff {
             card.rows.push(card::Row::Diff(diff.to_owned()));

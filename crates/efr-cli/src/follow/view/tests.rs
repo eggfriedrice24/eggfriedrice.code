@@ -1531,6 +1531,26 @@ fn an_exit_without_its_record_keeps_the_summary() {
 }
 
 #[test]
+fn an_exit_without_its_record_says_why_once() {
+    let info = exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "shell: run \"npm ci\"; network\nasks for: npm ci".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: Some(info),
+    };
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &[contained_started("npm ci"), approval], false);
+    assert_eq!(
+        err,
+        "? allow full network for this call\n\u{2502} npm ci\n\u{2502} why: network\n\
+         \u{2502} waiting for another client to answer\n"
+    );
+}
+
+#[test]
 fn a_call_of_a_command_of_several_lines_shows_each_line() {
     let mut view = terminal_view();
     let step = framed(view.event(&tool_started(FAILED_UNITS), SIZE, false), &mut view);
