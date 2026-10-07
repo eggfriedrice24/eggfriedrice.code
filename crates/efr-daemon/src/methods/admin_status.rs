@@ -25,6 +25,8 @@ pub(crate) async fn handle(
         providers: state.providers.status().await,
         roots: Some(state.roots.clone()),
         config: Some(reload::status(state).await),
+        sandbox: Some(state.sandbox.current()),
+        sandbox_paths: Some(state.sandbox.paths().await),
     };
     responder.item(&result).await?;
     Ok(())

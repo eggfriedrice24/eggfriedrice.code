@@ -12,6 +12,7 @@ use efr_transport::ConnectionContext;
 use crate::DaemonError;
 use crate::connections::HelloInfo;
 use crate::methods::granted;
+use crate::sandbox::peers::PeerSide;
 use crate::state::{SCRATCH_DIR, State};
 
 /// The challenge's size: 256 bits, more than any signature scheme needs.
@@ -20,12 +21,13 @@ const CHALLENGE_BYTES: usize = 32;
 pub(crate) fn handle(
     state: &State,
     context: &ConnectionContext,
+    peer: PeerSide,
     hello: &Hello,
 ) -> Result<HelloResult, DaemonError> {
     let mut challenge = [0; CHALLENGE_BYTES];
     state.rng.fill_bytes(&mut challenge);
     let capabilities = Capabilities {
-        admin: Some(granted(context.surface()).contains(&ScopeName::Admin)),
+        admin: Some(granted(context.surface(), peer).contains(&ScopeName::Admin)),
         screen_snapshots: Some(true),
         ..Capabilities::default()
     };

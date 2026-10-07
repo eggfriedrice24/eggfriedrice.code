@@ -81,6 +81,22 @@ pub enum PermissionsError {
         program: String,
     },
 
+    /// A rule has the effect `contain`, which only the built-in policy of the `auto`
+    /// mode decides: a rule cannot put a call into the sandbox or take it out.
+    #[error("rule {index} has the effect contain, which is decided by the auto mode")]
+    RuleContain {
+        /// The position of the rule in its policy, counted from 0.
+        index: usize,
+    },
+
+    /// A rule names the envelope roots, which only the built-in policy of the `auto`
+    /// mode uses.
+    #[error("rule {index} names the envelope roots, which only the auto mode uses")]
+    RuleEnvelope {
+        /// The position of the rule in its policy, counted from 0.
+        index: usize,
+    },
+
     /// A rule pairs an action with a resource that no requirement can match, such as
     /// `execute` with a path class.
     #[error("rule {index} pairs the action {action} with a resource that it never matches")]

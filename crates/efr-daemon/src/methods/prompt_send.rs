@@ -22,7 +22,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use efr_conversation::ConversationError;
-use efr_protocol::{ConversationId, PromptSend};
+use efr_protocol::{ConversationId, Mode, PromptSend};
 use efr_stdx::id::uuid_v7;
 use efr_transport::{ConnectionContext, Responder};
 use jiff::Timestamp;
@@ -151,6 +151,7 @@ async fn send(
     params: PromptSend,
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
+    reprobe_for_auto(state, &params).await;
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.
     let mut prompting = state.connections.prompting(context.conn_id());
@@ -194,6 +195,17 @@ async fn send(
         }
         Err(ConversationError::DuplicateCommand { receipt }) => receipts::replay(METHOD, *receipt),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Runs the sandbox probe again before a prompt that asks for `auto`, or whose default
+/// mode is `auto`, while the last probe said the sandbox is unavailable, so a user who
+/// fixed the cause needs no restart (efr's auto spec, section 12.1).
+async fn reprobe_for_auto(state: &State, params: &PromptSend) {
+    let settings = std::sync::Arc::clone(&state.settings.borrow());
+    let mode = params.settings.mode.unwrap_or(settings.permissions.mode);
+    if mode == Mode::Auto && !state.sandbox.current().available {
+        state.sandbox.probe(&settings).await;
     }
 }
 

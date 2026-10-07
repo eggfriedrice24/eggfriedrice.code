@@ -14,9 +14,8 @@
 //!
 //! [`Policy::base`] is the built-in policy of each permission mode: `manual` asks for
 //! everything, `cautious` allows reading and the read-only commands of `defaults.rs`,
-//! and `auto` adds the table of `auto.rs`.
+//! and `auto` contains every command line in its sandbox.
 
-mod auto;
 mod check;
 mod defaults;
 
@@ -103,6 +102,14 @@ pub enum Resource {
     /// Every simple command that matches the pattern. With the action `network`, the
     /// network access of such a command; the action `any` does not open the network.
     Command(CommandPattern),
+    /// Every path below an envelope root of the `auto` sandbox
+    /// ([`Locations::with_envelope_root`](crate::Locations::with_envelope_root)), for a
+    /// shell call only: the sandbox makes it writable, while `write_file` would write
+    /// the real `/tmp` or cache outside the sandbox. Only the built-in `auto` policy
+    /// holds it; the configuration cannot name it.
+    #[serde(skip)]
+    #[schemars(skip)]
+    Envelope,
 }
 
 /// Where a command must run for a [`CommandPattern`] to match it: below a directory,
@@ -464,26 +471,41 @@ impl Policy {
     /// - `manual`: rule 0 (`any any ask`) and rule 1 (`any`, class secrets, `deny`).
     ///   Every requirement asks, reading included, and secrets are denied.
     /// - `cautious`: [`Policy::defaults`].
-    /// - `auto`: [`Policy::defaults`], then the table of `policy/auto.rs`: the writer
-    ///   programs, whose declared writes the path rules judge, the project's build,
-    ///   test, format and lint tools when the shell is in the project or `$SCRATCH`,
-    ///   and local git. Only the rows that fetch packages, and `git fetch` and
-    ///   `git pull`, allow network access. Each row becomes one rule for each place it
-    ///   may run in, and one more for the network:
+    /// - `auto`: the table below. Every command line runs contained in the
+    ///   sandbox; what leaves it is an exit, which the engine finds apart from the
+    ///   rules ([`exits`](crate::exits)).
     ///
-    /// | # | Program | Args | Forbid | Min | Max | Options | Check | Where | Network |
-    /// |---|---|---|---|---|---|---|---|---|---|
-    #[doc = include_str!("policy/auto.md")]
+    /// | # | Action | Resource | Effect |
+    /// |---|---|---|---|
+    /// | 0 | any | any | ask |
+    /// | 1 | read | any | allow |
+    /// | 2 | write | project | allow |
+    /// | 3 | write | class scratch | allow |
+    /// | 4 | write | envelope root (shell calls only) | allow |
+    /// | 5 | any | class secrets | deny |
+    /// | 6 | execute | any | contain |
+    ///
+    /// For a shell call, a path or network requirement that rule 0 makes `ask` is
+    /// `contain` instead: the sandbox holds it, and its exit asks. `read_file`,
+    /// `write_file` and edits run in the daemon, outside the sandbox, so in `auto` they
+    /// follow the `cautious` path rules, plus an exit for a read of a sandbox mask and
+    /// for a write to a floor inside a write root.
     ///
     /// A mode newer than this crate gets the `manual` policy, so it fails closed.
     pub fn base(mode: Mode) -> Self {
         match mode {
             Mode::Cautious => Policy::defaults(),
-            Mode::Auto => {
-                let mut policy = Policy::defaults();
-                policy.rules.extend(auto::rules());
-                policy
-            }
+            Mode::Auto => Policy {
+                rules: vec![
+                    Rule::new(Action::Any, Resource::Any, Effect::Ask),
+                    Rule::new(Action::Read, Resource::Any, Effect::Allow),
+                    Rule::new(Action::Write, Resource::Project, Effect::Allow),
+                    Rule::new(Action::Write, Resource::Class(PathClass::Scratch), Effect::Allow),
+                    Rule::new(Action::Write, Resource::Envelope, Effect::Allow),
+                    Rule::new(Action::Any, Resource::Class(PathClass::Secrets), Effect::Deny),
+                    Rule::new(Action::Execute, Resource::Any, Effect::Contain),
+                ],
+            },
             // NOTE: manual, and any mode added to the protocol after this crate.
             _ => Policy {
                 rules: vec![
@@ -554,6 +576,9 @@ impl Policy {
     }
 
     /// Appends a rule, which then wins over every rule before it.
+    ///
+    /// Fails for the rules that [`Policy::new`] refuses, among them a rule with the
+    /// effect `contain`, which only the `auto` mode decides.
     pub fn push(&mut self, rule: Rule) -> Result<(), PermissionsError> {
         check(self.rules.len(), &rule)?;
         self.rules.push(rule);
@@ -672,6 +697,8 @@ pub(crate) struct MatchContext<'a> {
     /// The conversation's `$SCRATCH`, when it may count as scratch, already under
     /// `home` when it lies under an alias.
     pub(crate) scratch: Option<&'a Path>,
+    /// The envelope roots that count, for a shell call in `auto`; empty otherwise.
+    pub(crate) envelope: &'a [PathBuf],
 }
 
 impl MatchContext<'_> {
@@ -695,7 +722,10 @@ impl Rule {
                     && match &self.resource {
                         Resource::Any => true,
                         Resource::Command(pattern) => self.runs(pattern, &part, cx),
-                        Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
+                        Resource::Class(_)
+                        | Resource::Under(_)
+                        | Resource::Project
+                        | Resource::Envelope => false,
                     }
             }
             Target::Opaque => self.action_is(Action::Execute) && self.resource == Resource::Any,
@@ -707,7 +737,10 @@ impl Rule {
                     self.action == Action::Network
                         && part.is_some_and(|part| self.runs(pattern, &part, cx))
                 }
-                Resource::Class(_) | Resource::Under(_) | Resource::Project => false,
+                Resource::Class(_)
+                | Resource::Under(_)
+                | Resource::Project
+                | Resource::Envelope => false,
             },
         }
     }
@@ -760,6 +793,15 @@ impl Rule {
                 let path = cx.rehome(path);
                 path.starts_with(root) && (access != Access::Write || path != root)
             }),
+            // NOTE: a write strictly below a root, as for the project: a write of the
+            // root itself removes or replaces it.
+            Resource::Envelope => {
+                let path = cx.rehome(path);
+                cx.envelope.iter().any(|root| {
+                    let root = cx.rehome(root);
+                    path.starts_with(&root) && path != root
+                })
+            }
             Resource::Command(_) => false,
         }
     }
@@ -773,9 +815,19 @@ pub(crate) fn expand(root: &Path, home: &Path) -> Option<PathBuf> {
     }
 }
 
+/// The read-only commands of the `cautious` table, which an unsandboxed exit may run
+/// as helpers beside its one command.
+pub(crate) fn read_only_commands() -> Vec<CommandPattern> {
+    defaults::read_only()
+}
+
 fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
+    if rule.effect == Effect::Contain {
+        return Err(PermissionsError::RuleContain { index });
+    }
     let fits = match &rule.resource {
         Resource::Any => true,
+        Resource::Envelope => return Err(PermissionsError::RuleEnvelope { index }),
         Resource::Class(_) | Resource::Under(_) | Resource::Project => {
             matches!(rule.action, Action::Any | Action::Read | Action::Write)
         }
@@ -823,7 +875,7 @@ fn check(index: usize, rule: &Rule) -> Result<(), PermissionsError> {
                 });
             }
         }
-        Resource::Any | Resource::Class(_) | Resource::Project => {}
+        Resource::Any | Resource::Class(_) | Resource::Project | Resource::Envelope => {}
     }
     Ok(())
 }

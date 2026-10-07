@@ -3,10 +3,11 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::Origin;
+use efr_protocol::{ExitKind, Origin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::exits::ExitNeed;
 use crate::{Access, Construct, PathClass};
 
 /// What happens to a tool call, ordered from the least to the most strict, so the
@@ -14,6 +15,10 @@ use crate::{Access, Construct, PathClass};
 ///
 /// The enum is deliberately exhaustive: the check point in `efr-conversation` must
 /// handle every effect, and a new one must not fall into a wildcard arm.
+// NOTE: a rule in the configuration may not use `contain`: only the built-in policy of
+// the `auto` mode decides it, `Policy::new` refuses it, and the JSON schema of a rule
+// leaves it out. This text stays a comment, because the doc comment goes into the
+// published schema of `config.toml`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
@@ -21,6 +26,10 @@ use crate::{Access, Construct, PathClass};
 pub enum Effect {
     /// The call runs.
     Allow,
+    /// The call runs at once in the `auto` sandbox, with no question. Only the `auto`
+    /// mode gives it; the check point runs the call with `Launch::Contained`.
+    #[schemars(skip)]
+    Contain,
     /// The call waits until the user approves or denies it.
     Ask,
     /// The call does not run; the model gets an error that names the reason.
@@ -31,6 +40,7 @@ impl fmt::Display for Effect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Effect::Allow => "allow",
+            Effect::Contain => "contain",
             Effect::Ask => "ask",
             Effect::Deny => "deny",
         })
@@ -68,6 +78,15 @@ impl Decision {
     /// The reasons that set the effect: why the call is denied, or what needs approval.
     pub fn deciding(&self) -> impl Iterator<Item = &Reason> {
         self.reasons.iter().filter(move |reason| reason.effect == self.effect)
+    }
+
+    /// The exits of the call in the `auto` mode: what it needs beyond the sandbox, in
+    /// the order the engine found them. The check point turns them into a launch.
+    pub fn exits(&self) -> impl Iterator<Item = &ExitNeed> {
+        self.reasons.iter().filter_map(|reason| match &reason.subject {
+            Subject::Exit { need } => Some(need),
+            _ => None,
+        })
     }
 }
 
@@ -117,6 +136,13 @@ pub enum Subject {
         /// True when the change loosens permissions.
         loosens: bool,
     },
+    /// An action of the call that leaves the `auto` sandbox: an exit.
+    Exit {
+        /// The exit.
+        need: ExitNeed,
+    },
+    /// The call types its line into a shell that runs inside the hidden one.
+    NestedShell,
     /// The call declared no requirement.
     Nothing,
 }
@@ -196,6 +222,18 @@ pub enum Cause {
     },
     /// The call declared nothing that needs a decision.
     NoRequirements,
+    /// The `auto` sandbox holds what the requirement does, so the call runs contained
+    /// and nobody is asked. A rule that allows a command line cannot lift the sandbox.
+    Contained,
+    /// The requirement leaves the `auto` sandbox: the user approves it, or a floor
+    /// refuses it before any question.
+    Exit {
+        /// The kind of the exit.
+        kind: ExitKind,
+    },
+    /// The call asks for a nested shell, which the `auto` mode never runs: no shell
+    /// outlives a contained call.
+    NestedShell,
 }
 
 /// The policy that a rule belongs to.
@@ -271,6 +309,15 @@ impl fmt::Display for Reason {
                 origin_name(*origin)
             ),
             Cause::NoRequirements => Ok(()),
+            Cause::Contained => f.write_str(", because the auto sandbox holds it"),
+            Cause::Exit { kind } if kind.is_floor() => {
+                f.write_str(", because it leaves the auto sandbox and no approval opens it")
+            }
+            Cause::Exit { .. } => f.write_str(", because it leaves the auto sandbox"),
+            Cause::NestedShell => f.write_str(
+                ", because nested_shell is not available in auto: no shell outlives a \
+                 contained call. For sudo or ssh, call shell without it; the command is an exit",
+            ),
         }
     }
 }
@@ -291,6 +338,8 @@ impl fmt::Display for Subject {
             Subject::Settings { summary, loosens: true } => {
                 write!(f, "change settings: {summary} (loosens permissions)")
             }
+            Subject::Exit { need } => write!(f, "exit {need}"),
+            Subject::NestedShell => f.write_str("a nested shell"),
             Subject::Nothing => f.write_str("no requirements"),
         }
     }

@@ -13,9 +13,15 @@
 //!   judges one simple command of a line at a time, in a place ([`Under`]) and with a
 //!   [`Check`] where words alone cannot say enough; a line it cannot split is a
 //!   [`Construct`] and asks by default.
-//! - [`Engine::decide`]: the [`Decision`], `Allow`, `Ask` or `Deny`, with a [`Reason`]
-//!   for every requirement, by the mode's policy and then the user's rules;
+//! - [`Engine::decide`]: the [`Decision`], `Allow`, `Contain`, `Ask` or `Deny`, with a
+//!   [`Reason`] for every requirement, by the mode's policy and then the user's rules;
 //!   [`effective_mode`] caps the mode of a remote turn at `cautious`.
+//! - The `auto` mode: a shell call runs contained in a kernel sandbox, and
+//!   [`exits::predict`] finds what leaves it, each an [`ExitNeed`] that asks, with the
+//!   [`AutoSupport`] of the machine and the [`CallFacts`] that the daemon collected.
+//!   [`exits::unsandboxed_line_problem`] is the one-command rule of an exit that runs
+//!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`] and
+//!   [`PERSISTENCE_FLOORS`] are the tables the engine and the sandbox share.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -35,16 +41,26 @@ mod command;
 mod decision;
 mod engine;
 mod error;
+pub mod exits;
 mod path_class;
 mod policy;
 mod request;
+mod support;
+mod tables;
 
 pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
-pub use path_class::{Locations, PathClass};
+pub use exits::{ExitNeed, FactRequest, PathFacts, WriteBind};
+pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{
-    Access, ConversationPolicy, DecisionInput, PathAccess, Requirements, SettingsChange,
+    Access, CallFacts, ConversationPolicy, DecisionInput, PathAccess, Requirements, SettingsChange,
+    TargetKind,
+};
+pub use support::{AutoSupport, Egress};
+pub use tables::{
+    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, persistence_floors, protected_names,
+    sandbox_masks,
 };

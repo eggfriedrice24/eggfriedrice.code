@@ -31,7 +31,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
-use crate::methods::{cursor, granted};
+use crate::methods::{cursor, granted, peer_side};
 use crate::state::State;
 
 /// The most events a resume replays, and the most a snapshot carries.
@@ -73,8 +73,9 @@ pub(crate) async fn handle(
     cancelled: CancellationToken,
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
-    let answering =
-        params.answers_input && granted(context.surface()).contains(&ScopeName::Terminal);
+    let answering = params.answers_input
+        && granted(context.surface(), peer_side(state, context).await)
+            .contains(&ScopeName::Terminal);
     let attached = state.connections.subscribe(context.conn_id(), conversation_id, answering);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();

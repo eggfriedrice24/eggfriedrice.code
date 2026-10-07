@@ -19,6 +19,9 @@ pub(crate) async fn handle(
 ) -> Result<(), DaemonError> {
     let (project, file) = projects::add(state, params).await?;
     tracing::info!(root = %project.root.display(), "project registered");
+    // NOTE: read once now, from the files the user just named; before each call efrd
+    // compares them with this record, never trusting what a call may have rewritten.
+    state.sandbox.register_project(&project.root).await;
     let reload = reload::reload(state, "admin.project_add").await?;
     responder.item(&AdminProjectAddResult { project, file, reload }).await?;
     Ok(())

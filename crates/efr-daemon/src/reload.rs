@@ -256,10 +256,12 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // alias of such a program. A shell that restarts early under the old engine is
     // harmless.
     if rules_changed {
-        // NOTE: the auto policy names the programs of every mode, as at the start.
-        let auto = settings.permissions.policy(Mode::Auto);
-        state.shells.set_trusted_programs(shells::trusted_programs(&auto));
+        // NOTE: the cautious policy names the programs of every mode, as at the start:
+        // auto contains every line and names no program of its own.
+        let cautious = settings.permissions.policy(Mode::Cautious);
+        state.shells.set_trusted_programs(shells::trusted_programs(&cautious));
     }
+    let engine_sent = engine.is_some();
     if let Some(engine) = engine {
         state.engine.send_replace(Arc::new(engine));
     }
@@ -276,8 +278,15 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     {
         tracing::warn!(error = %error, "the log filter stays as it was");
     }
+    // NOTE: the probe checks that no program of the sandbox lies in a write root, and
+    // which bwrap and cache mode it uses, so a change of `[sandbox]` or of the projects
+    // (the engine's locations) runs it again.
+    let probe_again = settings.sandbox != running.sandbox || engine_sent;
     if settings != *running {
         state.settings.send_replace(Arc::new(settings));
+    }
+    if probe_again {
+        state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
     }
     Ok(restart_needed)
 }

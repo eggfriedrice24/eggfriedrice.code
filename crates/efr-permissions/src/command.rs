@@ -199,7 +199,18 @@ const HARMLESS_VARIABLES: &[&str] =
 /// The simple commands of `line`, or the construct that keeps a command rule from
 /// judging it.
 pub(crate) fn analyze(line: &str) -> Result<Vec<SimpleCommand>, Construct> {
-    let tokens = Lexer::new(line).tokens()?;
+    commands(Lexer::new(line).tokens()?)
+}
+
+/// Like [`analyze`], but an output redirection to a file is no construct: the words
+/// stay as they are, and the target is left out of them. The one-command rule of an
+/// unsandboxed exit uses it, because the tool declares each target as a write.
+pub(crate) fn analyze_with_redirects(line: &str) -> Result<Vec<SimpleCommand>, Construct> {
+    commands(Lexer::new(line).with_file_redirects().tokens()?)
+}
+
+/// The simple commands of a line's tokens.
+fn commands(tokens: Vec<Token>) -> Result<Vec<SimpleCommand>, Construct> {
     let mut commands = Vec::new();
     let mut words: Vec<Word> = Vec::new();
     // NOTE: an operator that joins two commands needs a command on each side; a

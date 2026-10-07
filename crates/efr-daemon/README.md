@@ -61,6 +61,12 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    another: the conversations read the settings through `settings.rs` (`LiveSettings`)
    when a turn starts or a prompt arrives, and each tool call reads the engine.
    A change of the mode needs no new engine: a turn passes its own.
+   The sandbox service (`sandbox.rs`) copies the installed launcher (`efr-sbx` next to
+   `efrd`, else in `../lib/efr/`) to `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` (mode 0500),
+   checks its SHA-256 and runs the probe once before the socket opens. The
+   conversations read the probe's status from a `watch` of `SandboxStatus`; while it
+   says unavailable, an `auto` turn runs as `cautious` with the probe's reason. See
+   "The auto sandbox" below.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`), the
    idle shell collector (`gc.rs`, which reads `shell.idle_minutes` at each look), the
    reload task (`reload.rs`), the config file watcher (`reload/watcher.rs`) and the
@@ -213,7 +219,15 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   methods only by running `efr` in its shell, which no built-in rule allows.
 - `admin.status` reports the four roots with where each came from (its own variable,
   `EFR_HOME`, XDG, or `/run/user/<uid>`), and the config file: its path, whether it
-  exists, a symbolic link's target, the last reload's error and `restart_needed`.
+  exists, a symbolic link's target, the last reload's error and `restart_needed`; and
+  the sandbox's status and paths (the launcher's copy, its source and whether their
+  SHA-256 match).
+- `admin.sandbox_check` runs the probe now and answers each check; the new status
+  counts from then on. `sandbox.explain` (scope `read`) answers what a contained call
+  of a turn in `cwd` can do with a path, from the same plan that the launcher builds.
+  `sandbox.surface_respond` (scope `approve`, refused for a model-side peer, and by the
+  conversation for a phone) answers the quarantine question, with receipts as for
+  `approval.respond`.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell, through `ShellSessions::answer`: only
   while that call's command runs, a wait of it of the answer's kind was reported
@@ -272,6 +286,52 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   again. It needs the zsh integration: a hidden shell without it keeps the cache, and
   a call inside a nested shell forgets only when that shell exits. Every command with `sudo` still needs the user's approval with either value.
 
+### The auto sandbox
+
+`sandbox.rs` and `sandbox/` hold the daemon's side of the `auto` mode (efr's auto
+spec; `docs/sandbox.md` for the user's view):
+
+- The probe (`sandbox/probe.rs`): efrd's own checks first (`sandbox.enabled`, the
+  launcher found, outside every write root, its copy equal to its source), then
+  `efr-sbx probe --json` from the copy, with the bwrap of `sandbox.bwrap`, the hidden
+  shell's zsh and `PATH`, the cache mode and every registered project as a write root.
+  It runs at start, after a reload that changes `[sandbox]` or the projects, after a
+  call whose sandbox could not start, before an `auto` prompt while the last probe
+  failed, and for `admin.sandbox_check`. A change to unavailable after an earlier
+  probe is recorded once as `sandbox_unavailable`.
+- The spec of a call (`sandbox/plan.rs`): the turn's project, the registered projects
+  that the line names (`sandbox.write_projects`), never one at or above the home
+  directory; the git dirs of a worktree project when its `.git` file still matches the
+  record that `admin.project_add` wrote (`sandbox/projects.rs`, in
+  `$XDG_STATE_HOME/efr/sandbox/projects/`); the user's roots and caches; the engine's
+  secrets, the sandbox-only masks and the project `.env` files as masks; efr's config
+  and its links, the persistence paths of the home directory, `$ZDOTDIR`'s startup
+  files, dotfile link targets in a write root (`sandbox/links.rs`), efr's programs, the
+  protected names in each project and `sandbox.protect` as floors; the call's grants.
+- `prepare` takes the plan lock of the call's projects (`sandbox/lock.rs`), makes the
+  target of an approved `MakeFile` or `MakeDir` grant through its parent's descriptor
+  (`sandbox/fs.rs`, `openat2` with no link on the way), and writes the call dir
+  `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>` (0700) with `spec.json` and `nonce`
+  (0600). The toolbox (`tools.rs`) hands the run to the shell tool and lets the lock go
+  once the launcher wrote `started`, so a call that runs on past its timeout blocks
+  no other plan and no `write_file`, which takes the same lock for its own write.
+  Before `prepare`, the toolbox waits until the conversation's shell has no other run
+  (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
+  a command still running holds no lock while it waits.
+- Before the engine decides a shell call of an `auto` turn, the toolbox collects its
+  facts (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
+  directory through the hardened `git ls-files`, and where each program word leads
+  and whether it changed in the turn.
+- After a call, the quarantine question's "keep" moves the changes back
+  (`sandbox/quarantine.rs`), and at the end of the turn the report lists the files
+  that run code later outside the sandbox (`sandbox/report.rs`, from the hardened
+  `git status` before the turn's first launcher call and at its end).
+- An hourly task deletes cache layers idle for `sandbox.cache_days` and the oldest
+  above `sandbox.cache_max_gib` (`sandbox/gc.rs`), never those of a running call.
+- Socket peers (`sandbox/peers.rs`): a process that descends from a hidden zsh, or
+  shares a hidden zsh's session, and a process that is gone, get the `read` scope
+  only (`methods.rs`, `granted(surface, peer)`).
+
 ### Notices
 
 When a turn finishes or fails, or an approval waits, and no subscription from the
@@ -298,7 +358,13 @@ last event never hears about that turn.
 - `screen-ghostty`: the libghostty-vt screen backend (needs Zig 0.16.0). With it, the
   screens are ghostty unless `EFR_SCREEN=vt100`; without it, vt100.
 
-`cfg(feature = ...)` appears only in `screens.rs` and `shells.rs` (a tidy rule).
+- `test-sandbox-fake`: the test seams of the `auto` sandbox in `sandbox/seams.rs`:
+  `Deps::with_sandbox_launcher` names the `efr-sbx` to copy, and
+  `Deps::with_probe_override` replaces the probe's result. Only `efr-test-daemon`
+  turns it on; `just install` refuses an `efrd` whose hidden `--test-seams` says `on`.
+
+`cfg(feature = ...)` appears only in `screens.rs`, `shells.rs` and `sandbox/seams.rs`
+(a tidy rule).
 
 ## Tier
 
@@ -310,8 +376,9 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-oauth-openai`, `efr-config`, `efr-conversation` and
-`efr-transport`. `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
+`efr-provider-openai`, `efr-oauth-openai`, `efr-config`, `efr-conversation`,
+`efr-transport` and `efr-sandbox` (the spec of a sandboxed call, the worktree record,
+the probe's report and the plan that `sandbox.explain` reads). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
@@ -319,8 +386,8 @@ Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, 
 challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `rustix`
 (inotify, for the config file watcher), `toml_edit` (the values that the settings tool
 sets and the one-line text of a rule), `tracing`, `tracing-subscriber` (with its reload
-layer for the log filter), `tracing-journald`, `thiserror`, and `anyhow` in `main.rs`
-only.
+layer for the log filter), `tracing-journald`, `thiserror`, `sha2` (the check of the
+sandbox launcher's copy), and `anyhow` in `main.rs` only.
 
 `HOME`, `JOURNAL_STREAM` and the shells' environment are read with `std::env` here, the
 one crate besides `efr-stdx` that may read the environment: they are POSIX and systemd
@@ -379,7 +446,7 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -387,6 +454,18 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `sandbox` module runs the `auto` mode end to end with a scripted model: the
+probe's failure and the fallback with its reason, a launcher in a write root, a project
+at the home directory, the one-command rule, `sandbox.explain`, and, with a real zsh and
+a fake launcher (a script that runs the child shell directly), a routine command that
+runs contained without a question, an exit that asks and runs with its grant, and a
+failed start that runs the probe again; and a double-forked process of an approved
+command, which python3 plays, that reaches the socket and may only read. With
+`EFR_TEST_SBX_BIN` (`just test-sandbox`) one call runs in the real sandbox. A finished
+call's dir is removed. The unit tests of `sandbox/` cover the plan, the
+probe with a fake launcher, the lock, the worktree record, the facts, the report, the
+quarantine and the peer check on real process trees.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.

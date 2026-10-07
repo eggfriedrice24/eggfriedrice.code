@@ -12,11 +12,30 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_config::Settings;
-use efr_permissions::{Engine, Locations};
+use efr_config::{Settings, WriteProjects};
+use efr_permissions::{AutoSupport, Engine, Locations, PermissionsError};
+use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
 use crate::DaemonError;
+use crate::sandbox::HostFacts;
+use crate::sandbox::links::link_targets;
+
+/// The places that every contained call may write besides the projects: the private
+/// `/tmp`, `/var/tmp` and `/dev/shm`.
+const PRIVATE_ROOTS: &[&str] = &["/tmp", "/var/tmp", "/dev/shm"];
+
+/// The zsh startup files that `$ZDOTDIR` holds.
+const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
+
+/// What the engine needs from the hidden shells and the file system for the `auto`
+/// sandbox: the shells' `PATH`, `$ZDOTDIR`, `$XAUTHORITY` and `$HISTFILE`, and the
+/// dotfile link targets that lie in a write root.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SandboxFacts {
+    pub(crate) host: HostFacts,
+    pub(crate) link_targets: Vec<PathBuf>,
+}
 
 /// What the engine is built from besides the settings. It does not change while the
 /// daemon runs.
@@ -30,6 +49,8 @@ pub(crate) struct EngineParts {
     pub(crate) registry: PathBuf,
     /// efr's config directory, which holds `config.toml` and the registry.
     pub(crate) config: PathBuf,
+    /// The hidden shells' environment as the sandbox reads it.
+    pub(crate) host: HostFacts,
 }
 
 impl EngineParts {
@@ -41,7 +62,13 @@ impl EngineParts {
         let protected = tokio::task::spawn_blocking(move || protected_config(&config))
             .await
             .unwrap_or_else(|_| vec![self.config.clone()]);
-        build(&self.home, &self.secrets, &protected, settings, &projects)
+        let roots = write_roots(self.home.path(), settings, &projects);
+        let home = self.home.path().to_path_buf();
+        let links = tokio::task::spawn_blocking(move || link_targets(&home, &roots))
+            .await
+            .unwrap_or_default();
+        let facts = SandboxFacts { host: self.host.clone(), link_targets: links };
+        build(&self.home, &self.secrets, &protected, settings, &projects, &facts)
     }
 }
 
@@ -113,6 +140,7 @@ pub(crate) fn build(
     protected: &[PathBuf],
     settings: &Settings,
     projects: &Registry,
+    sandbox: &SandboxFacts,
 ) -> Result<Engine, DaemonError> {
     let invalid = |source| DaemonError::Locations { source };
     let mut locations = Locations::new(home.path()).map_err(invalid)?;
@@ -144,7 +172,93 @@ pub(crate) fn build(
     for project in projects.projects() {
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
-    Ok(Engine::with_rules(locations, settings.permissions.rules.clone()))
+    locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
+    // NOTE: phase 1 has no proxy, no bus proxy and no undo; later phases set them here.
+    Ok(Engine::with_rules(locations, settings.permissions.rules.clone())
+        .with_support(AutoSupport::default()))
+}
+
+/// The write roots of the `auto` sandbox besides scratch and the private tmp: the
+/// registered projects that `sandbox.write_projects` lets a call write and the roots of
+/// `sandbox.write_roots`, never one at or above the home directory.
+pub(crate) fn write_roots(home: &Path, settings: &Settings, projects: &Registry) -> Vec<PathBuf> {
+    let sandbox = &settings.sandbox;
+    let mut roots: Vec<PathBuf> = Vec::new();
+    // NOTE: with `turn`, only the turn's own project is a root, and the engine knows
+    // the turn's project from its scope; it needs no envelope root for it.
+    if sandbox.write_projects != WriteProjects::Turn {
+        roots.extend(projects.projects().iter().map(|project| project.root().to_path_buf()));
+    }
+    roots.extend(sandbox.write_roots.iter().map(|root| expand_home(root, home)));
+    roots.retain(|root| root.is_absolute() && !too_wide(root, home));
+    roots
+}
+
+/// `locations` with what the `auto` sandbox adds: its envelope roots (write roots,
+/// caches, the private tmp), the synced folders, the floors that efrd knows (the
+/// user's, `$ZDOTDIR`'s startup files, `PATH` dirs in a write root, dotfile link
+/// targets) and the masks (the user's, `$XAUTHORITY`, `$HISTFILE`). A path the engine
+/// refuses only costs a warning.
+fn with_sandbox(
+    mut locations: Locations,
+    home: &Path,
+    settings: &Settings,
+    projects: &Registry,
+    facts: &SandboxFacts,
+) -> Locations {
+    let sandbox = &settings.sandbox;
+    let roots = write_roots(home, settings, projects);
+    let expand = |paths: &[PathBuf]| -> Vec<PathBuf> {
+        paths.iter().map(|path| expand_home(path, home)).filter(|path| path.is_absolute()).collect()
+    };
+    let add = |locations: Locations,
+               path: PathBuf,
+               what: &str,
+               step: fn(Locations, PathBuf) -> Result<Locations, PermissionsError>| {
+        let kept = locations.clone();
+        match step(locations, path.clone()) {
+            Ok(next) => next,
+            Err(error) => {
+                tracing::warn!(error = %error, path = %path.display(), what, "the engine leaves out a sandbox path");
+                kept
+            }
+        }
+    };
+    let envelope: Vec<PathBuf> = PRIVATE_ROOTS
+        .iter()
+        .map(PathBuf::from)
+        .chain(expand(&sandbox.caches))
+        .chain(roots.iter().cloned())
+        .collect();
+    for root in envelope {
+        locations = add(locations, root, "envelope root", |l, p| l.with_envelope_root(p));
+    }
+    for dir in expand(&sandbox.synced_dirs) {
+        locations = add(locations, dir, "synced folder", |l, p| l.with_synced_root(p));
+    }
+    let mut floors = expand(&sandbox.protect);
+    if let Some(zdotdir) = &facts.host.zdotdir {
+        floors.extend(ZSH_STARTUP.iter().map(|name| zdotdir.join(name)));
+    }
+    floors.extend(
+        facts
+            .host
+            .path
+            .split(':')
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute() && roots.iter().any(|root| is_within(dir, root))),
+    );
+    floors.extend(facts.link_targets.iter().cloned());
+    for floor in floors {
+        locations = add(locations, floor, "floor", |l, p| l.with_floor_root(p));
+    }
+    let mut masks = expand(&sandbox.mask);
+    masks.extend(facts.host.xauthority.iter().cloned());
+    masks.extend(facts.host.histfile.iter().cloned());
+    for mask in masks {
+        locations = add(locations, mask, "mask", |l, p| l.with_sandbox_mask(p));
+    }
+    locations
 }
 
 #[cfg(test)]

@@ -24,6 +24,10 @@ default = ["local-pty"]
 local-pty = ["dep:efr-pty"]
 # The libghostty-vt screen backend; needs Zig 0.16.0 (docs/ghostty-pin.md).
 screen-ghostty = ["dep:efr-screen-ghostty"]
+# The test seams of the auto sandbox: `Deps` names the launcher to copy and can replace
+# the probe's result. Only efr-test-daemon turns it on; `just install` refuses a build
+# with it.
+test-sandbox-fake = []
 
 [dependencies]
 anyhow.workspace = true
@@ -42,6 +46,7 @@ efr-protocol.workspace = true
 efr-provider.workspace = true
 efr-provider-openai.workspace = true
 efr-pty = { workspace = true, optional = true }
+efr-sandbox.workspace = true
 efr-scope.workspace = true
 efr-screen.workspace = true
 efr-screen-ghostty = { workspace = true, optional = true }
@@ -57,6 +62,8 @@ rustix.workspace = true
 sd-notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The SHA-256 check of the sandbox launcher's copy.
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

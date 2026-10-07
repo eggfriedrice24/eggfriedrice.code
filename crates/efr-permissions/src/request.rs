@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{Mode, Origin, Scope};
+use efr_protocol::{Mode, Needs, Origin, Scope};
 
 use crate::Policy;
 
@@ -52,6 +52,16 @@ pub struct Requirements {
     /// tool declares. It asks in every mode and is denied for a remote origin, whatever
     /// the rules say.
     pub settings: Option<SettingsChange>,
+    /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
+    /// Each entry is an exit that asks; outside `auto` it is ignored.
+    pub needs: Option<Needs>,
+    /// True when the call types its line into a shell that runs inside the hidden one
+    /// (the shell tool's `nested_shell`). The `auto` mode denies it.
+    pub nested: bool,
+    /// Facts about the files and programs of the line that the daemon collected, for
+    /// the exits of the `auto` mode. `None`, or a path that they leave out, makes the
+    /// engine assume the stricter case.
+    pub facts: Option<CallFacts>,
 }
 
 impl Requirements {
@@ -109,6 +119,24 @@ impl Requirements {
         self
     }
 
+    /// Sets what the model asks for beyond the `auto` sandbox.
+    pub fn with_needs(mut self, needs: Needs) -> Self {
+        self.needs = Some(needs);
+        self
+    }
+
+    /// Marks the call as one that types its line into a nested shell.
+    pub fn with_nested(mut self) -> Self {
+        self.nested = true;
+        self
+    }
+
+    /// Sets the facts that the daemon collected about the line.
+    pub fn with_facts(mut self, facts: CallFacts) -> Self {
+        self.facts = Some(facts);
+        self
+    }
+
     /// True when the call declared nothing.
     pub fn is_empty(&self) -> bool {
         self.paths.is_empty()
@@ -116,7 +144,51 @@ impl Requirements {
             && !self.network
             && !self.interactive
             && self.settings.is_none()
+            && self.needs.as_ref().is_none_or(Needs::is_empty)
+            && !self.nested
     }
+}
+
+/// Facts about the files and programs of a command line, which the daemon collects
+/// before the engine decides, because the engine reads no file.
+///
+/// The engine assumes the stricter case for a fact that is missing: a target exists,
+/// and a directory holds tracked files. So a lost fact asks, and never runs more.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallFacts {
+    /// Paths that the line names, each with what it is now, or `None` when it does not
+    /// exist. The parents of a write target belong here too, so the engine can find the
+    /// nearest one that exists.
+    pub targets: Vec<(PathBuf, Option<TargetKind>)>,
+    /// How many files git tracks below a directory, from the hardened `git status`.
+    pub tracked_counts: Vec<(PathBuf, u32)>,
+    /// Each program word of the line: the word, the path it resolves to, and whether
+    /// that file changed in this turn.
+    pub programs: Vec<(String, Option<PathBuf>, bool)>,
+}
+
+impl CallFacts {
+    /// What `path` is, `Some(None)` when it does not exist, or `None` when no fact
+    /// says.
+    pub fn target(&self, path: &std::path::Path) -> Option<Option<TargetKind>> {
+        self.targets.iter().find(|(known, _)| known == path).map(|(_, kind)| *kind)
+    }
+
+    /// How many tracked files lie below `dir`, when a fact says.
+    pub fn tracked(&self, dir: &std::path::Path) -> Option<u32> {
+        self.tracked_counts.iter().find(|(known, _)| known == dir).map(|(_, count)| *count)
+    }
+}
+
+/// What a path is on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TargetKind {
+    /// A regular file.
+    File,
+    /// A directory.
+    Dir,
+    /// Anything else: a device, a socket, a pipe.
+    Other,
 }
 
 /// A change of efr's own settings (`config.toml`), as the settings tool plans it.

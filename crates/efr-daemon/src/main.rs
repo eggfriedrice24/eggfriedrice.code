@@ -23,6 +23,10 @@ struct Args {
     /// Print the effective configuration with the source of each value, then exit.
     #[arg(long)]
     print_config: bool,
+    /// Print whether this build has the sandbox's test seams (on or off), then exit;
+    /// `just install` refuses a build that has them.
+    #[arg(long, hide = true)]
+    test_seams: bool,
 }
 
 fn main() -> ExitCode {
@@ -45,6 +49,11 @@ fn main() -> ExitCode {
 }
 
 fn daemon(args: Args) -> anyhow::Result<()> {
+    if args.test_seams {
+        let seams = if efr_daemon::TEST_SEAMS { "on\n" } else { "off\n" };
+        std::io::stdout().write_all(seams.as_bytes())?;
+        return Ok(());
+    }
     let deps = Deps::from_process()?;
     let flags = Flags::new(args.log, args.screen);
     let config = efr_daemon::load_settings(deps.dirs.config(), &Env::process(), &flags)?;

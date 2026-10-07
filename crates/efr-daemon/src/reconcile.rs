@@ -82,6 +82,7 @@ pub(crate) fn plan(
                 truncated: false,
                 is_error: true,
                 exit_code: None,
+                sandbox: None,
             });
         }
         settled.push(Event::TurnCancelled { turn_id: turn.id });

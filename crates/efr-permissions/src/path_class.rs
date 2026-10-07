@@ -153,6 +153,14 @@ pub struct Locations {
     write_sealed_roots: Vec<PathBuf>,
     user_config_roots: Vec<PathBuf>,
     projects: BTreeMap<ProjectId, PathBuf>,
+    /// The write roots of a contained call besides the turn's project and `$SCRATCH`.
+    envelope_roots: Vec<PathBuf>,
+    /// Folders that a sync service copies off the machine.
+    synced_roots: Vec<PathBuf>,
+    /// Paths that run code later outside the sandbox, besides the built-in table.
+    floor_roots: Vec<PathBuf>,
+    /// Paths that a contained call reads as empty, besides the built-in table.
+    mask_roots: Vec<PathBuf>,
 }
 
 impl Locations {
@@ -173,6 +181,10 @@ impl Locations {
             write_sealed_roots: Vec::new(),
             user_config_roots: Vec::new(),
             projects: BTreeMap::new(),
+            envelope_roots: Vec::new(),
+            synced_roots: Vec::new(),
+            floor_roots: Vec::new(),
+            mask_roots: Vec::new(),
         })
     }
 
@@ -206,12 +218,20 @@ impl Locations {
             write_sealed_roots,
             user_config_roots,
             projects,
+            envelope_roots,
+            synced_roots,
+            floor_roots,
+            mask_roots,
         } = &mut self;
         let roots = secret_roots
             .iter_mut()
             .chain(sealed_roots)
             .chain(write_sealed_roots)
-            .chain(user_config_roots);
+            .chain(user_config_roots)
+            .chain(envelope_roots)
+            .chain(synced_roots)
+            .chain(floor_roots)
+            .chain(mask_roots);
         for root in roots.chain(projects.values_mut()) {
             if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
                 *root = rehomed;
@@ -282,6 +302,55 @@ impl Locations {
         Ok(self)
     }
 
+    /// Adds a write root of every contained call in the `auto` mode, besides the
+    /// turn's project and `$SCRATCH`: each registered project that a line may name
+    /// (unless `sandbox.write_projects` is `turn`), `/tmp`, `/var/tmp` and `/dev/shm`
+    /// (private in the sandbox), each cache overlay target, and each
+    /// `sandbox.write_roots` entry.
+    ///
+    /// A shell call may write below such a root without an exit, because the sandbox
+    /// makes it writable. `write_file` and `read_file` run in the daemon, outside the
+    /// sandbox, so the root changes nothing for them. A root at `/`, at `~` or above
+    /// `~`, in any form of `~`, never counts.
+    pub fn with_envelope_root(
+        mut self,
+        root: impl Into<PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        if !self.envelope_roots.contains(&root) {
+            self.envelope_roots.push(root);
+        }
+        Ok(self)
+    }
+
+    /// Adds a folder that a sync service copies off the machine (`sandbox.synced_dirs`):
+    /// in `auto` a write below it is a `synced_write` exit, user only.
+    pub fn with_synced_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        self.synced_roots.push(root);
+        Ok(self)
+    }
+
+    /// Adds a path that runs code later outside the sandbox and stays read-only in a
+    /// contained call (`sandbox.protect`, `$ZDOTDIR`, a `PATH` dir in a write root, the
+    /// target of a dotfile link): in `auto` a write at or below it is a `persistence`
+    /// exit, user only. The built-in ones are
+    /// [`PERSISTENCE_FLOORS`](crate::PERSISTENCE_FLOORS).
+    pub fn with_floor_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        self.floor_roots.push(root);
+        Ok(self)
+    }
+
+    /// Adds a path that a contained call reads as empty (`sandbox.mask`, `$XAUTHORITY`,
+    /// `$HISTFILE`): in `auto` a `read_file` of it asks, and a write to it is a user-only
+    /// `write` exit. The built-in ones are [`SANDBOX_MASKS`](crate::SANDBOX_MASKS).
+    pub fn with_sandbox_mask(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        self.mask_roots.push(root);
+        Ok(self)
+    }
+
     /// The home directory.
     pub fn home(&self) -> &Path {
         &self.home
@@ -296,6 +365,47 @@ impl Locations {
     /// alias is reported under the home directory.
     pub fn project_root(&self, id: &ProjectId) -> Option<&Path> {
         self.projects.get(id).map(PathBuf::as_path)
+    }
+
+    /// Every engine secret: the built-in ones under the home directory and outside it,
+    /// and the roots that the daemon and the config added. The `auto` sandbox masks
+    /// each one.
+    pub fn secret_paths(&self) -> Vec<PathBuf> {
+        let mut paths = secret_paths(&self.home);
+        for root in &self.secret_roots {
+            if !paths.contains(root) {
+                paths.push(root.clone());
+            }
+        }
+        paths
+    }
+
+    /// The envelope roots that count: none at `/`, at `~` or above `~`.
+    pub(crate) fn envelope_roots(&self) -> impl Iterator<Item = &Path> {
+        self.envelope_roots
+            .iter()
+            .map(PathBuf::as_path)
+            .filter(|root| !self.is_at_or_above_home(root))
+    }
+
+    /// The write-sealed roots: efr's config and the files behind its links.
+    pub(crate) fn write_sealed_roots(&self) -> &[PathBuf] {
+        &self.write_sealed_roots
+    }
+
+    /// The synced folders.
+    pub(crate) fn synced_roots(&self) -> &[PathBuf] {
+        &self.synced_roots
+    }
+
+    /// The floors that the daemon added.
+    pub(crate) fn floor_roots(&self) -> &[PathBuf] {
+        &self.floor_roots
+    }
+
+    /// The masks that the daemon added.
+    pub(crate) fn mask_roots(&self) -> &[PathBuf] {
+        &self.mask_roots
     }
 
     /// The class of `path` for a conversation whose `$SCRATCH` is `scratch`, or `None`
@@ -357,7 +467,7 @@ impl Locations {
     }
 
     /// `path` with a leading home alias replaced by the home directory.
-    fn rehome<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
+    pub(crate) fn rehome<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
         rehome(&self.home, &self.home_aliases, path)
     }
 
@@ -368,7 +478,7 @@ impl Locations {
 
     /// True when `dir` is a form of the home directory, `/`, or a directory above a form
     /// of the home directory.
-    fn is_at_or_above_home(&self, dir: &Path) -> bool {
+    pub(crate) fn is_at_or_above_home(&self, dir: &Path) -> bool {
         self.home_forms().any(|form| form.starts_with(dir))
     }
 
@@ -402,7 +512,7 @@ impl Locations {
             .map(PathBuf::as_path)
     }
 
-    fn is_secret(&self, path: &Path) -> bool {
+    pub(crate) fn is_secret(&self, path: &Path) -> bool {
         HOME_SECRETS.iter().any(|secret| path.starts_with(self.home.join(secret)))
             || SYSTEM_SECRETS.iter().any(|secret| path.starts_with(secret))
             || self.secret_roots.iter().any(|root| path.starts_with(root))
@@ -425,6 +535,17 @@ impl Locations {
         below.extend(proc_secret_below(dir));
         below
     }
+}
+
+/// The built-in engine secrets for a user whose home directory is `home`: the secret
+/// locations under it and the system ones outside it. The `auto` sandbox masks each
+/// one; [`Locations::secret_paths`] adds the roots of the config and the daemon.
+pub fn secret_paths(home: &Path) -> Vec<PathBuf> {
+    HOME_SECRETS
+        .iter()
+        .map(|secret| home.join(secret))
+        .chain(SYSTEM_SECRETS.iter().map(PathBuf::from))
+        .collect()
 }
 
 /// True for the secret entries of a process or thread directory under `/proc`.

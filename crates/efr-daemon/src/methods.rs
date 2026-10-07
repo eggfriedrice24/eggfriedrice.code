@@ -6,10 +6,12 @@
 //! handler lives in `methods/<noun_verb>.rs` and returns a [`DaemonError`]; the one
 //! mapping to the wire is `From<DaemonError> for ErrorFrame`.
 //!
-//! Scopes: every connection on the Unix socket holds all five, `admin` included. A
-//! phone connection (the tailnet listener of a later milestone, where every client is
-//! `Origin::Phone`) holds `read`, `operate` and `approve`; `terminal` is off by default
-//! there and `admin` is never granted.
+//! Scopes: every connection on the Unix socket holds all five, `admin` included,
+//! unless its process descends from a hidden shell or shares a hidden shell's session:
+//! such a model-side peer, or one whose process is gone, holds `read` only (efr's auto
+//! spec, section 13.5; `sandbox/peers.rs`). A phone connection (the tailnet listener of
+//! a later milestone, where every client is `Origin::Phone`) holds `read`, `operate`
+//! and `approve`; `terminal` is off by default there and `admin` is never granted.
 
 use std::sync::Arc;
 
@@ -21,12 +23,14 @@ use efr_transport::{ConnectionContext, Dispatcher, Request};
 use tracing::Instrument as _;
 
 use crate::DaemonError;
+use crate::sandbox::peers::{self, PeerSide};
 use crate::state::State;
 
 mod admin_config_reload;
 mod admin_login_openai;
 mod admin_project_add;
 mod admin_project_remove;
+mod admin_sandbox_check;
 mod admin_status;
 mod approval_respond;
 mod conversation_history;
@@ -41,11 +45,16 @@ mod prompt_send;
 mod pty_attach;
 mod pty_resize;
 mod pty_write;
+mod sandbox_explain;
+mod sandbox_surface_respond;
 mod turn_interrupt;
 mod turn_steer;
 
 /// The scopes of a phone connection.
 const PHONE_SCOPES: &[ScopeName] = &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve];
+
+/// The scopes of a model-side peer and of a peer whose process is gone.
+const READ_ONLY: &[ScopeName] = &[ScopeName::Read];
 
 /// The prefix of every paging cursor this daemon makes, so a cursor from elsewhere is
 /// refused rather than misread.
@@ -86,25 +95,55 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::AdminStatus(_) => ScopeName::Admin,
         Method::AdminConfigReload(_) => ScopeName::Admin,
         Method::AdminLoginOpenAi(_) => ScopeName::Admin,
+        Method::SandboxExplain(_) => ScopeName::Read,
+        Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
+        Method::AdminSandboxCheck(_) => ScopeName::Admin,
     }
 }
 
-/// The scopes a connection from `surface` holds.
-pub(crate) fn granted(surface: Origin) -> &'static [ScopeName] {
-    match surface {
-        Origin::Phone => PHONE_SCOPES,
-        _ => &ScopeName::ALL,
+/// The scopes a connection from `surface` holds, whose process stands at `peer`.
+pub(crate) fn granted(surface: Origin, peer: PeerSide) -> &'static [ScopeName] {
+    match (surface, peer) {
+        (Origin::Phone, _) => PHONE_SCOPES,
+        (_, PeerSide::User) => &ScopeName::ALL,
+        _ => READ_ONLY,
     }
 }
 
-/// Refuses `method` on a connection from `surface` that lacks its scope.
-pub(crate) fn authorize(surface: Origin, method: &Method) -> Result<(), DaemonError> {
+/// Refuses `method` on a connection from `surface` and `peer` that lacks its scope.
+pub(crate) fn authorize(
+    surface: Origin,
+    peer: PeerSide,
+    method: &Method,
+) -> Result<(), DaemonError> {
     let needed = scope(method);
-    if granted(surface).contains(&needed) {
+    if granted(surface, peer).contains(&needed) {
         Ok(())
+    } else if granted(surface, PeerSide::User).contains(&needed) {
+        Err(DaemonError::ModelSidePeer { method: method.name() })
     } else {
         Err(DaemonError::Forbidden { method: method.name(), scope: needed })
     }
+}
+
+/// Where the process of `context`'s peer stands: a look at `/proc` off the async
+/// workers. A phone has no process here; its surface decides.
+pub(crate) async fn peer_side(state: &State, context: &ConnectionContext) -> PeerSide {
+    if context.surface() == Origin::Phone {
+        return PeerSide::User;
+    }
+    let pid = context.pid();
+    let shells = state.ptys.shell_pids();
+    let own = state.pid;
+    tokio::task::spawn_blocking(move || peers::side(pid, &shells, own))
+        .await
+        .unwrap_or(PeerSide::Unknown)
+}
+
+/// The side of the peer of `context`, looked at only when `method` needs more than
+/// `read`, which every peer holds.
+async fn side_for(state: &State, context: &ConnectionContext, method: &Method) -> PeerSide {
+    if scope(method) == ScopeName::Read { PeerSide::User } else { peer_side(state, context).await }
 }
 
 /// A paging cursor that continues before `seq`.
@@ -148,7 +187,8 @@ impl Dispatcher for Methods {
         context: &ConnectionContext,
         hello: &Hello,
     ) -> Result<HelloResult, ErrorBody> {
-        hello::handle(&self.state, context, hello).map_err(|error| answer("hello", error))
+        let peer = peer_side(&self.state, context).await;
+        hello::handle(&self.state, context, peer, hello).map_err(|error| answer("hello", error))
     }
 
     async fn closed(&self, context: &ConnectionContext) {
@@ -161,7 +201,8 @@ impl Dispatcher for Methods {
         let span = tracing::debug_span!("request", method = name);
         let state = &self.state;
         let handled = async {
-            authorize(context.surface(), &method)?;
+            let peer = side_for(state, &context, &method).await;
+            authorize(context.surface(), peer, &method)?;
             match method {
                 Method::Hello(_) => Err(DaemonError::HelloRepeated),
                 Method::ConversationsList(params) => {
@@ -215,6 +256,15 @@ impl Dispatcher for Methods {
                 }
                 Method::AdminLoginOpenAi(params) => {
                     Box::pin(admin_login_openai::handle(state, params, &responder)).await
+                }
+                Method::SandboxExplain(params) => {
+                    sandbox_explain::handle(state, params, &responder).await
+                }
+                Method::SandboxSurfaceRespond(params) => {
+                    sandbox_surface_respond::handle(state, &context, params, &responder).await
+                }
+                Method::AdminSandboxCheck(params) => {
+                    admin_sandbox_check::handle(state, params, &responder).await
                 }
             }
         };

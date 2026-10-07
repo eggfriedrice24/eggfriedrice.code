@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
-    Applies, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, Kind, Settings, Source,
-    SudoCache,
+    Applies, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, Kind, SandboxSettings,
+    Settings, Source, SudoCache, WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
@@ -613,8 +613,9 @@ fn ids(models: &[ModelInfo]) -> String {
 }
 
 /// True when `next` lets more run without a question than `before`: a new allow rule,
-/// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, or a secret
-/// path less.
+/// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
+/// path less, or a `[sandbox]` key that opens the sandbox (efr's auto spec, section
+/// 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -630,6 +631,26 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
             .secret_paths
             .iter()
             .any(|path| !next.permissions.secret_paths.contains(path))
+        || sandbox_loosens(&before.sandbox, &next.sandbox)
+}
+
+/// True when `next` opens the sandbox more than `before`: another bwrap, all projects
+/// writable, a new write root, cache, kept or promoted variable or rebuildable dir, or
+/// a mask glob or synced folder less.
+fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
+    fn adds<T: PartialEq>(before: &[T], next: &[T]) -> bool {
+        next.iter().any(|item| !before.contains(item))
+    }
+    next.bwrap != before.bwrap
+        || (next.write_projects == WriteProjects::All
+            && before.write_projects != WriteProjects::All)
+        || adds(&before.write_roots, &next.write_roots)
+        || adds(&before.caches, &next.caches)
+        || adds(&next.mask_globs, &before.mask_globs)
+        || adds(&before.env_keep, &next.env_keep)
+        || adds(&before.promote_env, &next.promote_env)
+        || adds(&next.synced_dirs, &before.synced_dirs)
+        || adds(&before.rebuildable, &next.rebuildable)
 }
 
 /// The rules of `rules` that `other` does not hold, each counted as often as it occurs.
