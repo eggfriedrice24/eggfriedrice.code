@@ -77,6 +77,28 @@ fn a_title_split_over_deltas_is_found_once_its_line_is_whole() {
 }
 
 #[test]
+fn the_reasoning_of_a_new_model_call_drops_the_title_of_the_last_one() {
+    let (mut drafter, sender, mut builder) = drafter();
+    let mut receiver = sender.subscribe();
+    feed(&mut drafter, &mut builder, &reasoning("**Checking the build**\n\nRun it."));
+    drafter.begin_call();
+    let mut builder = CompletionBuilder::new();
+    feed(&mut drafter, &mut builder, &reasoning("**Reading"));
+    feed(&mut drafter, &mut builder, &reasoning(" the error**\n"));
+    let titles: Vec<Option<String>> = parts(&mut receiver)
+        .into_iter()
+        .map(|part| match part {
+            DraftPart::Reasoning { title, .. } => title,
+            other => panic!("only reasoning: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        vec![Some("Checking the build".to_owned()), None, Some("Reading the error".to_owned())]
+    );
+}
+
+#[test]
 fn text_drafts_follow_the_joined_text_of_the_message() {
     let (mut drafter, sender, mut builder) = drafter();
     let mut receiver = sender.subscribe();

@@ -109,8 +109,12 @@ impl Drafter {
                 true
             }
             ProviderEvent::ReasoningDelta { text } if !text.is_empty() => {
-                if !self.reasoning_in_call && !self.reasoning.is_empty() {
-                    self.reasoning.push_str(REASONING_BREAK);
+                if !self.reasoning_in_call {
+                    if !self.reasoning.is_empty() {
+                        self.reasoning.push_str(REASONING_BREAK);
+                    }
+                    // The title of the last call's reasoning says nothing about this one.
+                    self.title = None;
                 }
                 self.reasoning_in_call = true;
                 self.reasoning.push_str(text);
