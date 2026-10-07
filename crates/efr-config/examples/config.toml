@@ -211,9 +211,9 @@
 # the theme file). The path is absolute or ~/... Unset: no theme file.
 # palette = "~/.config/efr/theme.toml"
 
-# Motion in the status row of a running turn: the spinner turns and a band of normal
-# text moves over the dim state. false shows a still dot and no band; the time still
-# counts.
+# Motion in the status row of a running turn: the spinner turns and a band in the text
+# role moves over the state in the muted role. false shows a still dot and no band;
+# the time still counts.
 # motion = true
 
 # One muted line at the end of each turn: how long it took and the tokens it used,

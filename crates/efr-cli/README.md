@@ -110,9 +110,10 @@ Replies:
   running turn that a queued prompt waits behind), `waiting for an answer` (an approval
   that another client must answer), and, after
   20 s without an event or a draft while it waits for the model or writes,
-  `waiting for the model, no data for 25s`. A band of three characters at normal
-  intensity (SGR 22) moves over the dim state one character per tick, then rests for a
-  second. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
+  `waiting for the model, no data for 25s`. A band of three characters in the
+  `text` role moves over the state one character per tick, then rests for a second. The
+  band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with
+  a colour. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
   on the injected clock) that changes only the status row writes only that row:
   carriage return, cursor up one row, erase the line, the row. While the user is asked
   something here (an approval, the quarantine question, an answer line) the row goes

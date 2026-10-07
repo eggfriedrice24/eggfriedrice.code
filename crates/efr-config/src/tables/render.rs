@@ -131,9 +131,9 @@ pub struct RenderSettings {
     /// `~/...`. Unset: no theme file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<PathBuf>,
-    /// Motion in the status row of a running turn: the spinner turns and a band of
-    /// normal text moves over the dim state. `false` shows a still dot and no band;
-    /// the time still counts.
+    /// Motion in the status row of a running turn: the spinner turns and a band in
+    /// the `text` role moves over the state in the `muted` role. `false` shows a still
+    /// dot and no band; the time still counts.
     pub motion: bool,
     /// One muted line at the end of each turn: how long it took and the tokens it
     /// used, such as `done in 42s, 18.2k tokens in, 1.1k out`.

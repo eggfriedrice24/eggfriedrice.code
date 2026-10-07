@@ -1684,7 +1684,7 @@ fn a_tick_that_changes_only_the_status_row_writes_only_that_row() {
     let tick = view.tick(SIZE, at(100));
     assert_eq!(
         readable(&tick),
-        "\\e[?2026h\\r\\e[1A\\e[2K\\e[33m\u{2819}\\e[0m \\e[2m\\e[22mw\\e[2mriting\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[1A\\e[2K\\e[33m\u{2819}\\e[0m \\e[2m\\e[0mw\\e[0;2mriting\\e[0m\n\\e[?2026l"
     );
     // A row that does not change writes nothing.
     let mut still = started_view(Look::default());

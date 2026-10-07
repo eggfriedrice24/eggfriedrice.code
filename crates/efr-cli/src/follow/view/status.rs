@@ -28,7 +28,7 @@ pub(crate) const TICK: Duration = Duration::from_millis(100);
 /// How long the model may send nothing before the row says so.
 pub(crate) const STALL: Duration = Duration::from_secs(20);
 
-/// The characters in normal intensity that move over the dim state.
+/// The characters in the text role that move over the muted state.
 const BAND: usize = 3;
 
 /// The ticks the band waits after it crossed the state: one second.
@@ -234,19 +234,22 @@ fn band(ticks: usize, length: usize) -> Option<std::ops::Range<usize>> {
     Some(step.saturating_sub(BAND)..end)
 }
 
-/// `words` in the muted role, with the characters in `band` at normal intensity (SGR
-/// 22), which works with 16 colours and in a terminal that draws dim text faint.
+/// `words` in the muted role, with the characters in `band` in the text role. The band
+/// starts with a reset, so it leaves both kinds of muted: dim (the default, which also
+/// works with 16 colours and in a terminal that draws dim text faint) and a colour of
+/// the palette.
 fn shimmer(words: &str, band: Option<std::ops::Range<usize>>, options: &RenderOptions) -> String {
     let (Some(band), Some(muted)) = (band, options.sgr(Role::Muted)) else {
         return options.paint(Role::Muted, words);
     };
+    let text = options.sgr(Role::Text).map_or_else(String::new, |text| format!(";{text}"));
     let mut out = format!("\x1b[{muted}m");
     for (at, c) in words.chars().enumerate() {
         if at == band.start {
-            out.push_str("\x1b[22m");
+            out.push_str(&format!("\x1b[0{text}m"));
         }
         if at == band.end {
-            out.push_str(&format!("\x1b[{muted}m"));
+            out.push_str(&format!("\x1b[0;{muted}m"));
         }
         out.push(c);
     }

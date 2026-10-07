@@ -559,7 +559,7 @@
         },
         "motion": {
           "default": true,
-          "description": "Motion in the status row of a running turn: the spinner turns and a band of\nnormal text moves over the dim state. `false` shows a still dot and no band;\nthe time still counts.",
+          "description": "Motion in the status row of a running turn: the spinner turns and a band in\nthe `text` role moves over the state in the `muted` role. `false` shows a still\ndot and no band; the time still counts.",
           "type": "boolean"
         },
         "palette": {

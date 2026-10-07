@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use efr_render::{ColourMode, RenderOptions};
+use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role};
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
@@ -44,7 +44,8 @@ fn without_motion_the_spinner_is_a_still_dot_and_no_band_moves() {
     status.at(at(1_300), false);
     let later = status.row(at(1_300), &options());
     assert!(first.contains('•') && later.contains('•'), "{first:?} {later:?}");
-    assert!(!first.contains("\x1b[22m") && !later.contains("\x1b[22m"), "{first:?}");
+    let still = "\x1b[2mwaiting for the model\x1b[0m";
+    assert!(first.contains(still) && later.contains(still), "{first:?} {later:?}");
     assert!(later.ends_with("\x1b[2m1s\x1b[0m\n"), "{later:?}");
 }
 
@@ -68,8 +69,25 @@ fn the_band_is_normal_intensity_inside_the_dim_state() {
     let row = status.row(at(200), &options());
     assert_eq!(
         readable(&row),
-        "\\e[33m\u{2839}\\e[0m \\e[2m\\e[22mwa\\e[2miting for the model\\e[0m\n"
+        "\\e[33m\u{2839}\\e[0m \\e[2m\\e[0mwa\\e[0;2miting for the model\\e[0m\n"
     );
+}
+
+#[test]
+fn the_band_leaves_a_muted_colour_for_the_text_role() {
+    let status = started(true);
+    let palette = Palette::new()
+        .with(Role::Muted, Colour::Rgb(0xa8, 0xa3, 0x96))
+        .with(Role::Text, Colour::Rgb(0xe8, 0xe2, 0xd4));
+    let options = options().with_colour(ColourMode::TrueColor).with_palette(palette);
+    assert_eq!(
+        readable(&status.row(at(200), &options)),
+        "\\e[33m\u{2839}\\e[0m \\e[38;2;168;163;150m\\e[0;38;2;232;226;212mwa\\e[0;38;2;168;163;150miting for the model\\e[0m\n"
+    );
+    // A muted colour without a text colour: the band is the terminal's own foreground.
+    let palette = Palette::new().with(Role::Muted, Colour::Palette(8));
+    let row = status.row(at(200), &self::options().with_palette(palette));
+    assert!(readable(&row).contains("\\e[90m\\e[0mwa\\e[0;90miting"), "{row:?}");
 }
 
 #[test]
