@@ -20,8 +20,9 @@
 //!   [`exits::predict`] finds what leaves it, each an [`ExitNeed`] that asks, with the
 //!   [`AutoSupport`] of the machine and the [`CallFacts`] that the daemon collected.
 //!   [`exits::unsandboxed_line_problem`] is the one-command rule of an exit that runs
-//!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`] and
-//!   [`PERSISTENCE_FLOORS`] are the tables the engine and the sandbox share.
+//!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`],
+//!   [`PERSISTENCE_FLOORS`] and [`ZSH_STARTUP_FILES`] are the tables the engine and the
+//!   sandbox share.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -61,6 +62,6 @@ pub use request::{
 };
 pub use support::{AutoSupport, Egress};
 pub use tables::{
-    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, persistence_floors, protected_names,
-    sandbox_masks,
+    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, ZSH_STARTUP_FILES, persistence_floors,
+    protected_names, sandbox_masks,
 };

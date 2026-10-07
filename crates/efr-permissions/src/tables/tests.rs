@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use pretty_assertions::assert_eq;
 
 use super::{
-    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, is_env_file, persistence_floors,
-    protected_names, sandbox_masks,
+    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, ZSH_STARTUP_FILES, is_env_file,
+    persistence_floors, protected_names, sandbox_masks,
 };
 use crate::{Locations, PathClass, secret_paths};
 
@@ -66,6 +66,13 @@ fn the_persistence_floors_cover_startup_files_services_and_tool_config() {
         [".zshrc", ".bashrc", ".config/systemd", ".config/autostart", ".gitconfig", ".local/bin"]
     {
         assert!(floors.contains(&Path::new("/home/u").join(floor)), "{floor}");
+    }
+}
+
+#[test]
+fn every_zsh_startup_file_is_a_floor_in_the_home_directory_too() {
+    for name in ZSH_STARTUP_FILES {
+        assert!(PERSISTENCE_FLOORS.contains(name), "{name}");
     }
 }
 

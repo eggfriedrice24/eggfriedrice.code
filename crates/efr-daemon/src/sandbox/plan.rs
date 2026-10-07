@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use efr_config::{SandboxSettings, WriteProjects};
-use efr_permissions::{PROTECTED_NAMES, persistence_floors, sandbox_masks};
+use efr_permissions::{PROTECTED_NAMES, ZSH_STARTUP_FILES, persistence_floors, sandbox_masks};
 use efr_protocol::{CacheMode, CallId, ConversationId, Grant, Launch};
 use efr_sandbox::{
     CacheOverlay, EnvPlan, Floor, FloorKind, Mask, MaskKind, NetworkPlan, RecordLimits,
@@ -31,9 +31,6 @@ pub(crate) const SANDBOX_DIR: &str = "sandbox";
 
 /// The directory below efr's runtime root that holds each conversation's shell dir.
 pub(crate) const SHELL_DIR: &str = "sbx";
-
-/// The names of the zsh startup files that `$ZDOTDIR` holds.
-const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
 
 /// How deep below a write root the scan for project `.env` files looks.
 const ENV_DEPTH: usize = 3;
@@ -317,7 +314,7 @@ fn floors(input: &PlanInput<'_>, projects: &[PathBuf], writable: &[PathBuf]) -> 
         add(path, kind);
     }
     if let Some(zdotdir) = &input.host.zdotdir {
-        for name in ZSH_STARTUP {
+        for name in ZSH_STARTUP_FILES {
             add(zdotdir.join(name), FloorKind::ShellStartup);
         }
     }

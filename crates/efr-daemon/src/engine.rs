@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use efr_config::{Settings, WriteProjects};
-use efr_permissions::{AutoSupport, Engine, Locations, PermissionsError};
+use efr_permissions::{AutoSupport, Engine, Locations, PermissionsError, ZSH_STARTUP_FILES};
 use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
@@ -24,9 +24,6 @@ use crate::sandbox::links::link_targets;
 /// The places that every contained call may write besides the projects: the private
 /// `/tmp`, `/var/tmp` and `/dev/shm`.
 const PRIVATE_ROOTS: &[&str] = &["/tmp", "/var/tmp", "/dev/shm"];
-
-/// The zsh startup files that `$ZDOTDIR` holds.
-const ZSH_STARTUP: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
 
 /// What the engine needs from the hidden shells and the file system for the `auto`
 /// sandbox: the shells' `PATH`, `$ZDOTDIR`, `$XAUTHORITY` and `$HISTFILE`, and the
@@ -238,7 +235,7 @@ fn with_sandbox(
     }
     let mut floors = expand(&sandbox.protect);
     if let Some(zdotdir) = &facts.host.zdotdir {
-        floors.extend(ZSH_STARTUP.iter().map(|name| zdotdir.join(name)));
+        floors.extend(ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)));
     }
     floors.extend(
         facts

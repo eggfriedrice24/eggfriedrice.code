@@ -137,6 +137,10 @@ pub const PERSISTENCE_FLOORS: &[&str] = &[
     ".config/direnv",
 ];
 
+/// The zsh startup files that `$ZDOTDIR` holds. The daemon makes each a floor in the
+/// hidden shell's `$ZDOTDIR`, as [`PERSISTENCE_FLOORS`] does in the home directory.
+pub const ZSH_STARTUP_FILES: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
+
 /// The floors of [`PERSISTENCE_FLOORS`] under `home`.
 pub fn persistence_floors(home: &Path) -> Vec<PathBuf> {
     PERSISTENCE_FLOORS.iter().map(|relative| home.join(relative)).collect()
