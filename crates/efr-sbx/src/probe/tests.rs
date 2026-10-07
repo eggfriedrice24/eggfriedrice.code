@@ -103,7 +103,10 @@ fn a_fixture_in_a_deep_dir_still_makes_its_socket() {
     let fixture = fixture::Fixture::make(&args, &programs).unwrap();
     let socket = fixture.unavailable().iter().find(|(check, _)| *check == "unix_socket");
     assert_eq!(socket, None, "{:?}", fixture.unavailable());
-    let args = fixture.self_test_args();
+    let args = fixture.self_test_args(CacheMode::Tmp);
+    assert!(!args.iter().any(|arg| arg == "--cache-read-only"));
+    let readonly = fixture.self_test_args(CacheMode::Readonly);
+    assert!(readonly.iter().any(|arg| arg == "--cache-read-only"));
     let at = args.iter().position(|arg| arg == "--socket").unwrap();
     let path = PathBuf::from(&args[at + 1]);
     assert!(path.as_os_str().len() > 108, "{}", path.display());

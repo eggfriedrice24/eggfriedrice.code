@@ -54,6 +54,10 @@ pub(crate) struct SelfTestArgs {
     /// A directory of a cache overlay: a write there must work.
     #[arg(long)]
     pub(crate) cache: Option<PathBuf>,
+    /// The cache is read-only (`sandbox.cache_mode = "readonly"`): a write there must
+    /// fail with EROFS instead.
+    #[arg(long)]
+    pub(crate) cache_read_only: bool,
     /// The address that TCP must fail to reach at once.
     #[arg(long)]
     pub(crate) tcp: Option<SocketAddr>,
@@ -205,7 +209,12 @@ fn run(name: &str, args: &SelfTestArgs) -> Option<(bool, String)> {
         "cache_write" => {
             let path = args.cache.as_ref()?.join(".efr-self-test");
             let done = fs::write(&path, b"x");
-            outcome(done.is_ok(), format!("{done:?}"))
+            let ok = if args.cache_read_only {
+                done.as_ref().is_err_and(|error| errno(error) == Errno::ROFS.raw_os_error())
+            } else {
+                done.is_ok()
+            };
+            outcome(ok, format!("{done:?}"))
         }
         _ => return None,
     })

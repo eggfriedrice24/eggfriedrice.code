@@ -228,8 +228,8 @@ impl Fixture {
         SandboxSpec { cache_mode: mode, ..self.spec.clone() }
     }
 
-    /// The arguments of `efr-sbx self-test` for this fixture.
-    pub(crate) fn self_test_args(&self) -> Vec<OsString> {
+    /// The arguments of `efr-sbx self-test` for this fixture with the cache `mode`.
+    pub(crate) fn self_test_args(&self, mode: CacheMode) -> Vec<OsString> {
         let mut args: Vec<OsString> = Vec::new();
         let mut add = |flag: &str, value: OsString| {
             args.push(flag.into());
@@ -248,6 +248,9 @@ impl Fixture {
         add("--tcp", efr_sandbox::SELF_TEST_TCP_ADDR.into());
         if let Some(pts) = &self.pts {
             add("--other-pts", pts.clone().into_os_string());
+        }
+        if mode == CacheMode::Readonly {
+            args.push("--cache-read-only".into());
         }
         args
     }

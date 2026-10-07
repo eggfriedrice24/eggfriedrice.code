@@ -5,7 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::CheckOutcome;
+use efr_protocol::{CacheMode, CheckOutcome};
 use efr_sandbox::{ProbeFailure, ProbeReport};
 
 use crate::support::{command, sandbox_or_skip, target_tmp};
@@ -38,6 +38,20 @@ fn probe_reports_ready_here() {
     let names: Vec<&str> = report.checks.iter().map(|check| check.name.as_str()).collect();
     for name in ["platform", "landlock", "bwrap", "launcher", "zsh", "path", "self_test"] {
         assert!(names.contains(&name), "{name} missing: {names:?}");
+    }
+}
+
+#[test]
+fn probe_runs_the_self_test_and_the_launch_cost_in_the_configured_cache_mode() {
+    let _ready = sandbox_or_skip!();
+    let report = probe(&[]);
+    assert_eq!(report.cache_mode, CacheMode::Tmp, "tmp is the default of sandbox.cache_mode");
+    for (flag, mode) in [("overlay", CacheMode::Overlay), ("readonly", CacheMode::Readonly)] {
+        let report = probe(&["--cache-mode", flag]);
+        assert_eq!(report.failure, None, "{flag}: {report:#?}");
+        assert_eq!(report.cache_mode, mode, "{report:#?}");
+        assert!(report.warnings.is_empty(), "{report:#?}");
+        assert!(report.launch_us.is_some(), "{report:#?}");
     }
 }
 

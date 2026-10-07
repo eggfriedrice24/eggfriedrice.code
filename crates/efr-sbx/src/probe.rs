@@ -7,8 +7,10 @@
 //! shell's `PATH`. Then it makes a fake call in `DIR` and runs one real launch with the
 //! full plan, whose inner stage runs `efr-sbx self-test`: writes inside and outside,
 //! a mask, sockets, signals, `/proc`, TCP, io_uring, vsock, nested user namespaces,
-//! other terminals, TIOCSTI and a cache overlay. When the overlay cannot mount, it
-//! tries the `tmp` cache mode and says so in a warning. Every check of the self-test
+//! other terminals, TIOCSTI and the cache in the configured cache mode (`tmp` when the
+//! caller names none, as `sandbox.cache_mode`). The launch cost uses that mode too.
+//! When an overlay of the `overlay` mode cannot mount, it tries the `tmp` cache mode
+//! and says so in a warning. Every check of the self-test
 //! must pass and print its line: a check that did not run (its fixture could not be
 //! made) fails the probe with the reason. It prints a `ProbeReport`; efrd turns it into
 //! the `SandboxStatus`.
@@ -54,8 +56,9 @@ pub(crate) struct ProbeArgs {
     /// The user's runtime dir; `$XDG_RUNTIME_DIR` when absent.
     #[arg(long)]
     pub(crate) user_runtime: Option<PathBuf>,
-    /// The configured cache mode: overlay, tmp or readonly.
-    #[arg(long, default_value = "overlay")]
+    /// The configured cache mode: tmp (the default of `sandbox.cache_mode`), overlay or
+    /// readonly. The self-test and the launch cost use it.
+    #[arg(long, default_value = "tmp")]
     pub(crate) cache_mode: String,
     /// A write root of the user's projects; the launcher, bwrap and zsh must lie in
     /// none of them.
@@ -126,9 +129,9 @@ impl Checks {
 fn probe(args: &ProbeArgs) -> ProbeReport {
     let mut checks = Checks { report: ProbeReport::default() };
     checks.report.cache_mode = match args.cache_mode.as_str() {
-        "tmp" => CacheMode::Tmp,
+        "overlay" => CacheMode::Overlay,
         "readonly" => CacheMode::Readonly,
-        _ => CacheMode::Overlay,
+        _ => CacheMode::Tmp,
     };
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -389,7 +392,7 @@ fn run_self_test(
     let (env, _) = EnvFilter::new(&spec, &plan).apply(&launch::own_env());
     let (read, write) = rustix::pipe::pipe().map_err(|error| Some(error.to_string()))?;
     let mut argv = vec![plan.inside_launcher().as_os_str().to_owned(), "self-test".into()];
-    argv.extend(fixture.self_test_args());
+    argv.extend(fixture.self_test_args(mode));
     let launch =
         Launch { spec: &spec, plan: &plan, cwd: &fixture.project, argv, env, stdout: Some(write) };
     let reader =
