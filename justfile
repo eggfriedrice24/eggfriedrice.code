@@ -214,6 +214,46 @@ test-sandbox-ubuntu:
             # pid namespace ("fatal library error, lookup self"), with plain bwrap too.
             cargo nextest run -p efr-sbx -E "not test(ps_sees_host_processes)"'
 
+# The VM boots the kernel of .github/sandbox-vm.sh with virtme-ng. The container is set
+# up like GitHub's runner: it builds the archive that CI's build job makes, then runs
+# the job's own step.
+# CI's sandbox job: the tests of test-sandbox in a VM (needs Docker and /dev/kvm).
+test-sandbox-vm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v docker >/dev/null; then
+        echo "test-sandbox-vm: docker is not installed" >&2
+        exit 1
+    fi
+    if [[ ! -c /dev/kvm ]]; then
+        echo "test-sandbox-vm: /dev/kvm does not exist; the VM needs KVM" >&2
+        exit 1
+    fi
+    toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
+    nextest="$(sed -nE 's/.*tool: cargo-nextest@([0-9.]+).*/\1/p' .github/workflows/ci.yml | head -n1)"
+    echo "test-sandbox-vm: building efr-shell-ubuntu (Rust $toolchain, cargo-nextest $nextest)"
+    docker build -t efr-shell-ubuntu --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
+        --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
+        - < .github/ubuntu-shell.Dockerfile
+    echo "test-sandbox-vm: building efr-sandbox-vm (QEMU, virtme-ng, the kernel)"
+    docker build -t efr-sandbox-vm --build-arg BASE=efr-shell-ubuntu \
+        -f .github/sandbox-vm.Dockerfile .github
+    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
+    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
+    echo "test-sandbox-vm: running the sandbox job's step, cached in $cache"
+    docker run --rm --init --device /dev/kvm --group-add "$(stat -c %g /dev/kvm)" \
+        -v "$PWD:/home/runner/work/efr" \
+        -v "$cache/registry:/home/runner/.cargo/registry" \
+        -v "$cache/git:/home/runner/.cargo/git" \
+        -v "$cache/target:/home/runner/target" \
+        -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
+        -w /home/runner/work/efr efr-sandbox-vm bash -euo pipefail -c '
+            out=/home/runner/target/sandbox-vm
+            mkdir -p "$out"
+            cargo nextest archive --workspace --exclude efr-screen-ghostty \
+                --archive-file "$out/nextest-archive.tar.zst"
+            .github/sandbox-vm.sh run /opt/efr-kernel "$out/nextest-archive.tar.zst" . "$out"'
+
 # Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
 # feature combination: CI's fmt, lint, deny, tidy and hack jobs.
 lint: fmt-check typos clippy doc-check deny tidy deps hack
