@@ -102,10 +102,16 @@ cmd_kernel() {
         echo "$sum  $dir/debs/$deb" | sha256sum -c -
         dpkg-deb -x "$dir/debs/$deb" "$dir"
     done
-    # virtme-ng finds the modules in usr/lib/modules next to boot/ and runs depmod. The
-    # package makes the image readable by root only, and QEMU runs as the user.
+    # virtme-ng finds the modules in usr/lib/modules next to boot/. The package makes the
+    # image readable by root only, and QEMU runs as the user.
     chmod 0644 "$dir/boot/vmlinuz-$kernel_release"
     test -d "$dir/usr/lib/modules/$kernel_release"
+    # The packages ship no modules.dep. virtme-ng runs depmod when the file is missing,
+    # but it ignores a failure: in the image of `just test-sandbox-vm` root owns this
+    # dir, so the user's depmod fails, virtme-ng finds no modules and builds no
+    # initramfs, and the kernel cannot mount its virtiofs root. So make it here.
+    /usr/sbin/depmod -a -b "$dir/usr" "$kernel_release"
+    test -s "$dir/usr/lib/modules/$kernel_release/modules.dep"
 }
 
 cmd_run() {
