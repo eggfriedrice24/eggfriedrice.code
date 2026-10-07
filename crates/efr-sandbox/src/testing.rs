@@ -104,6 +104,18 @@ impl FsView for FakeFs {
         }
     }
 
+    fn read_dir_kinds(&self, path: &Path) -> io::Result<Vec<(OsString, Option<FileKind>)>> {
+        let names = self.read_dir(path)?;
+        let dir = resolve(self, path).map_err(|_| io::Error::from(io::ErrorKind::NotFound))?.path;
+        Ok(names
+            .into_iter()
+            .map(|name| {
+                let kind = self.lstat(&dir.join(&name)).ok();
+                (name, kind)
+            })
+            .collect())
+    }
+
     fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
         let resolved = resolve(self, path).map_err(|_| io::Error::from(io::ErrorKind::NotFound))?;
         match self.node(&resolved.path)? {

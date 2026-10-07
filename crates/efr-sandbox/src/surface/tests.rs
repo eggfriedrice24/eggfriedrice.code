@@ -230,3 +230,57 @@ fn the_scan_finds_nested_repositories_and_skips_build_dirs() {
         scan_git_dirs(&["/p/app".into()], &[], &[], &fs, ScanLimits { depth: 4, entries: 3 });
     assert!(truncated);
 }
+
+/// A file system that counts the `lstat` calls of the scan.
+struct Counting<'a> {
+    fs: &'a FakeFs,
+    lstats: std::cell::Cell<usize>,
+}
+
+impl crate::FsView for Counting<'_> {
+    fn lstat(&self, path: &Path) -> io::Result<crate::FileKind> {
+        self.lstats.set(self.lstats.get() + 1);
+        self.fs.lstat(path)
+    }
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        self.fs.read_link(path)
+    }
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<std::ffi::OsString>> {
+        self.fs.read_dir(path)
+    }
+    fn read_dir_kinds(
+        &self,
+        path: &Path,
+    ) -> io::Result<Vec<(std::ffi::OsString, Option<crate::FileKind>)>> {
+        self.fs.read_dir_kinds(path)
+    }
+    fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.fs.read_file(path, limit)
+    }
+    fn open_no_symlinks(&self, path: &Path) -> io::Result<std::os::fd::OwnedFd> {
+        self.fs.open_no_symlinks(path)
+    }
+    fn open_empty(&self) -> io::Result<std::os::fd::OwnedFd> {
+        self.fs.open_empty()
+    }
+}
+
+#[test]
+fn the_scan_reads_kinds_from_the_listing_not_one_lstat_per_entry() {
+    let mut fs = repo();
+    for dir in 0..10 {
+        for file in 0..50 {
+            fs.file(&format!("/p/app/src/m{dir}/f{file}.rs"), "");
+        }
+    }
+    fs.file("/p/app/src/m3/vendored/.git/config", "");
+    let counting = Counting { fs: &fs, lstats: std::cell::Cell::new(0) };
+    let (found, truncated) =
+        scan_git_dirs(&["/p/app".into()], &[], &[MAIN.into()], &counting, ScanLimits::default());
+    assert!(!truncated);
+    let dirs: Vec<&Path> = found.iter().map(|target| target.git_dir.as_path()).collect();
+    assert!(dirs.contains(&Path::new("/p/app/src/m3/vendored/.git")), "{dirs:?}");
+    // One lstat per directory (for its `.git`) and none per file: /p/app, src, the ten
+    // module dirs and vendored; the scan skips `.git` dirs.
+    assert_eq!(counting.lstats.get(), 13, "{} lstat calls for 500 files", counting.lstats.get());
+}

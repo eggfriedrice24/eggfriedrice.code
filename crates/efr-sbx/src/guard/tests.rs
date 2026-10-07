@@ -104,3 +104,33 @@ fn a_copy_across_file_systems_streams_within_its_budget_and_still_removes_the_en
     assert_eq!(fs::read(quarantined.join("1-config")).unwrap(), b"");
     assert_eq!(truncated, [config]);
 }
+
+#[test]
+fn a_call_from_the_home_dir_scans_only_the_guard_roots() {
+    let temp = temp_dir();
+    let home = temp.path().canonicalize().unwrap();
+    let project = home.join("p/proj");
+    let cache = home.join(".cache");
+    for dir in [project.join(".git"), home.join("other/.git"), cache.join("tool/.git")] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    for n in 0..200 {
+        fs::write(home.join(format!("file{n}")), b"").unwrap();
+    }
+    let guard = Guard {
+        pins: Vec::new(),
+        roots: vec![project.clone()],
+        chain_roots: vec![project.clone(), cache.clone()],
+        protected: Vec::new(),
+        lister: GitLister { git: None },
+        before: SurfaceManifest::default(),
+        started: now(),
+    };
+    // The home dir is never a write root, so a call that starts there adds nothing to
+    // the scan: the cost of the guard does not grow with the home dir.
+    assert!(guard.chain(&home).is_empty());
+    let found: Vec<PathBuf> = guard.targets(&home).into_iter().map(|t| t.git_dir).collect();
+    assert_eq!(found, vec![project.join(".git")]);
+    // A start dir in a cache adds its own chain, never a scan of the cache.
+    assert_eq!(guard.chain(&cache.join("tool")), vec![cache.join("tool"), cache.clone()]);
+}

@@ -63,3 +63,21 @@ fn changed_since_sees_a_new_file() {
     assert!(!RealFs::changed_since(&file, (i64::MAX, 0)));
     assert!(RealFs::changed_since(&dir.path().join("missing"), (i64::MAX, 0)));
 }
+
+#[test]
+fn a_listing_gives_each_entry_its_kind_like_lstat() {
+    let dir = temp();
+    fs::write(dir.path().join("file"), b"x").unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    symlink(dir.path().join("sub"), dir.path().join("link")).unwrap();
+    let mut entries = RealFs.read_dir_kinds(dir.path()).unwrap();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, kind) in &entries {
+        // A file system without d_type gives no kind; then lstat decides.
+        if let Some(kind) = kind {
+            assert_eq!(*kind, RealFs.lstat(&dir.path().join(name)).unwrap(), "{name:?}");
+        }
+    }
+    let names: Vec<&OsString> = entries.iter().map(|(name, _)| name).collect();
+    assert_eq!(names, ["file", "link", "sub"]);
+}

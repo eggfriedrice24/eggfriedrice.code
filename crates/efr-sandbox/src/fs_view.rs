@@ -37,6 +37,14 @@ pub trait FsView {
     /// The names in the directory `path`, without `.` and `..`, in any order.
     fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>>;
 
+    /// The names in the directory `path` with their kinds, where the listing itself
+    /// gives them (`d_type`), so a scan of a large tree needs no `lstat` per entry. An
+    /// entry whose kind the listing does not give has `None`; the caller asks
+    /// [`FsView::lstat`] for it.
+    fn read_dir_kinds(&self, path: &Path) -> io::Result<Vec<(OsString, Option<FileKind>)>> {
+        Ok(self.read_dir(path)?.into_iter().map(|name| (name, None)).collect())
+    }
+
     /// The content of the file `path`, at most `limit` bytes; a longer file is an
     /// error of kind [`io::ErrorKind::FileTooLarge`].
     fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>>;

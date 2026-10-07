@@ -73,6 +73,28 @@ impl FsView for RealFs {
         Ok(names)
     }
 
+    fn read_dir_kinds(&self, path: &Path) -> io::Result<Vec<(OsString, Option<FileKind>)>> {
+        let fd = RealFs::open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        let dir = rustix::fs::Dir::read_from(&fd)?;
+        let mut entries = Vec::new();
+        for entry in dir {
+            let entry = entry?;
+            let name = entry.file_name().to_bytes().to_vec();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            let kind = match entry.file_type() {
+                FileType::Directory => Some(FileKind::Dir),
+                FileType::RegularFile => Some(FileKind::File),
+                FileType::Symlink => Some(FileKind::Symlink),
+                FileType::Unknown => None,
+                _ => Some(FileKind::Other),
+            };
+            entries.push((std::os::unix::ffi::OsStringExt::from_vec(name), kind));
+        }
+        Ok(entries)
+    }
+
     fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
         let fd = RealFs::open(path, OFlags::RDONLY | OFlags::NONBLOCK)?;
         if FileType::from_raw_mode(rustix::fs::fstat(&fd)?.st_mode) != FileType::RegularFile {
