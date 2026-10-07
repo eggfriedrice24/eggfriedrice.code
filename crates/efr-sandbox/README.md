@@ -12,7 +12,7 @@ tested without a kernel.
 | File | Holds |
 |---|---|
 | `src/spec.rs` | `SandboxSpec` and its parts: `WriteRoot`, `CacheOverlay`, `Mask`, `Floor`, `NetworkPlan`, `EnvPlan`, `RecordLimits`, `RuntimePaths` |
-| `src/fs_view.rs` | `FsView`, the only way this crate reads the file system, and `resolve`, which follows every link |
+| `src/fs_view.rs` | `FsView`, the only way this crate reads the file system (with the kinds of a listing, so a scan needs no `lstat` per entry), `resolve`, which follows every link, and `Memo`, which a plan uses so it looks up each path once |
 | `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules, `explain` for `sandbox.explain` and the start dir of a call |
 | `src/args.rs` | the bwrap argument list, `FdTable` (one descriptor per bind, never reused) and `LaunchFds` |
 | `src/layers.rs` | `CacheLayers`: the cache overlays that `efr-sbx layers` mounts after bwrap's setup, and the mounts inside each cache that move onto it |
