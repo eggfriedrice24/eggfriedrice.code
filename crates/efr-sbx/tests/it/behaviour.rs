@@ -254,7 +254,12 @@ fn exit_child_survivor_cannot_read_next_input() {
     need!("setsid");
     let mut fixture = Fixture::new(&ready);
     fixture.spec.launch = SpecLaunch::Unsandboxed;
-    let run = fixture.run("setsid sleep 9876.3 & sleep 9876.4 &! print started");
+    // The line waits until both jobs run sleep: a call that ends first stops a forked
+    // zsh, which the summary names `zsh`, not `sleep`. A setsid that forked is gone.
+    let line = "setsid sleep 9876.3 & a=$!; sleep 9876.4 &! b=$!; \
+                while [[ ( -e /proc/$a && $(</proc/$a/comm) != sleep ) \
+                || $(</proc/$b/comm) != sleep ]]; do :; done; print started";
+    let run = fixture.run(line);
     run.expect_status(0);
     let alive = |marker: &str| {
         fs::read_dir("/proc").unwrap().flatten().any(|entry| {
