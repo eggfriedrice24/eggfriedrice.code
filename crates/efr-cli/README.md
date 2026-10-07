@@ -127,7 +127,8 @@ Replies:
 - A completed turn ends with one muted line after a blank line, such as `done in 42s,
   18.2k tokens in, 1.1k out`: the time from the `at` of `turn_started` to the `at` of
   `turn_completed`, and `turn_completed.usage`. An interrupted turn ends with
-  `interrupted after 12s`; a failed one has no such line. `render.turn_summary = false`
+  `interrupted after 12s`, also after Ctrl+C, which counts the time on efr's clock
+  without the time of questions; a failed one has no such line. `render.turn_summary = false`
   leaves the line out. Piped output keeps its notes as they were.
 - The progress bar of the terminal's tab (OSC 9;4): an indeterminate bar (`9;4;3`)
   while the turn runs, sent again on every tick, a paused one (`9;4;4`) while the user

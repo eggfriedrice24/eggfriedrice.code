@@ -146,7 +146,12 @@ pub(crate) async fn follow(
         let step = view.close();
         follower.show(out, view, &step)?;
         if matches!(error, CliError::Interrupted) {
-            let note = interrupt(ctx, client, target).await;
+            // The time of the Ctrl+C, not of the daemon's answer.
+            let stopped = ctx.clock.now();
+            let note = match interrupt(ctx, client, target).await {
+                Ok(()) => view.interrupted(stopped),
+                Err(note) => note,
+            };
             let step = view.note(&note, ctx.screen.size());
             follower.show(out, view, &step)?;
         }
@@ -155,8 +160,8 @@ pub(crate) async fn follow(
     result
 }
 
-/// Asks the daemon to stop the followed turn, and says how that went.
-async fn interrupt(ctx: &Context, client: &Client, target: Target) -> String {
+/// Asks the daemon to stop the followed turn; when that fails, says how.
+async fn interrupt(ctx: &Context, client: &Client, target: Target) -> Result<(), String> {
     let method = Method::TurnInterrupt(TurnInterrupt {
         command_id: ctx.command_id(),
         conversation_id: target.conversation,
@@ -164,18 +169,20 @@ async fn interrupt(ctx: &Context, client: &Client, target: Target) -> String {
     });
     let call = client.call::<TurnInterruptResult>(method);
     match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {
-        Ok(Ok(_)) => "interrupted".to_owned(),
+        Ok(Ok(_)) => Ok(()),
         // The turn already ended, or it still waits behind another turn, which the
         // daemon cannot take back yet.
         Ok(Err(ClientError::Server { body })) if body.code == ErrorCode::Conflict => {
-            "not interrupted: the turn is not running; a queued prompt still runs in its turn"
-                .to_owned()
+            Err("not interrupted: the turn is not running; a queued prompt still runs in its turn"
+                .to_owned())
         }
         Ok(Err(error)) => {
             tracing::debug!(error = %error, "turn.interrupt failed");
-            format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
+            Err(format!("the interrupt failed: {}", crate::format::one_line(&error.to_string())))
         }
-        Err(_) => "the daemon did not confirm the interrupt; the turn may still run".to_owned(),
+        Err(_) => {
+            Err("the daemon did not confirm the interrupt; the turn may still run".to_owned())
+        }
     }
 }
 

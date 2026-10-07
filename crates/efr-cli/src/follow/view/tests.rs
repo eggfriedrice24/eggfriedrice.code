@@ -1934,6 +1934,20 @@ fn an_interrupted_turn_ends_with_its_time() {
 }
 
 #[test]
+fn a_turn_stopped_with_ctrl_c_says_how_long_it_ran() {
+    let mut view = started_view(ALL);
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.frame(SIZE, at(0));
+    view.tick(SIZE, at(4_000));
+    view.close();
+    assert_eq!(view.interrupted(at(7_250)), "interrupted after 7.2s");
+    let mut plain = started_view(Look::default());
+    plain.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    plain.frame(SIZE, at(0));
+    assert_eq!(plain.interrupted(at(7_250)), "interrupted", "without the summary");
+}
+
+#[test]
 fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
     let error = ErrorBody::new(ErrorCode::Internal, "boom");
     let frame = ended(ALL, Event::TurnFailed { turn_id: turn(), error }, 3_000);

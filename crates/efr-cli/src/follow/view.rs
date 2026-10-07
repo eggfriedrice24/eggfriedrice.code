@@ -679,6 +679,21 @@ impl TurnView {
 
     /// True when a turn ends with a line of its time and tokens: on a terminal, where
     /// it closes the turn in the scrollback. Piped output keeps its notes as they were.
+    /// The note of a turn that the user stopped with Ctrl+C at `now`: on a terminal it
+    /// says how long the turn ran, as the end-of-turn line does.
+    pub(crate) fn interrupted(&self, now: Timestamp) -> String {
+        let ran = self
+            .status
+            .as_ref()
+            .filter(|_| self.summary())
+            .map(|status| status.elapsed(now))
+            .filter(|ran| !ran.is_zero());
+        match ran {
+            Some(ran) => format!("interrupted after {}", format::took(ran)),
+            None => "interrupted".to_owned(),
+        }
+    }
+
     fn summary(&self) -> bool {
         self.look.summary && self.terminal()
     }
