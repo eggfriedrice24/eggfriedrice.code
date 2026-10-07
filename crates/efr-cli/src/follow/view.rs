@@ -345,6 +345,8 @@ pub(crate) struct TurnView {
     contained: HashSet<CallId>,
     /// The record of each call's exit, for the lines of its approval.
     exits: HashMap<CallId, ExitRecord>,
+    /// The command of each shell call, whose approval shows each of its lines.
+    commands: HashMap<CallId, String>,
     /// The quarantine question waiting for a key.
     surface: Option<QuestionId>,
     /// The quarantine question that this client answered, whose answer needs no second
@@ -380,6 +382,7 @@ impl TurnView {
             traced: false,
             contained: HashSet::new(),
             exits: HashMap::new(),
+            commands: HashMap::new(),
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
@@ -414,6 +417,11 @@ impl TurnView {
 
     fn options_at(&self, size: Size) -> RenderOptions {
         at_width(&self.options, effective_width(size))
+    }
+
+    /// The width a note is cut to, on a terminal; none otherwise.
+    fn columns(&self, size: Size) -> Option<usize> {
+        self.terminal().then(|| usize::from(self.options_at(size).width()))
     }
 
     /// Takes one event of the conversation. Events of other turns change nothing,
@@ -457,6 +465,9 @@ impl TurnView {
             }
             Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
+                if let Some(command) = format::command_of(input) {
+                    self.commands.insert(*call_id, command.to_owned());
+                }
                 // A call that takes a manual input is followed from its start, so a
                 // command that never prints can still offer `Ctrl+\`.
                 let mut settled = false;
@@ -472,7 +483,9 @@ impl TurnView {
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
-                let mut step = self.note_after(before, &format::tool_call(tool, input), size);
+                let columns = self.columns(size);
+                let line = format::tool_call(tool, input, columns);
+                let mut step = self.note_after(before, &line, size);
                 // One line per turn says that the sandbox is on, then nothing new.
                 if contained && !self.traced {
                     self.traced = true;
@@ -491,16 +504,27 @@ impl TurnView {
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
-            Event::ToolCallCompleted { call_id, is_error, exit_code, sandbox: summary, .. } => {
+            Event::ToolCallCompleted {
+                call_id,
+                is_error,
+                exit_code,
+                sandbox: summary,
+                refusal,
+                ..
+            } => {
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.remove(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
                 // A setup failure has its own line; the call's status says nothing more.
-                let line = format::tool_result(tool, *is_error, *exit_code)
-                    .filter(|_| !self.refused.contains(call_id) && setup.is_none())
-                    .map(|line| if contained { format!("{line} (sandbox)") } else { line });
+                // A refused call never ran, in the sandbox or out of it.
+                let line = match refusal {
+                    Some(reason) => Some(format::refused(tool, reason)),
+                    None => format::tool_result(tool, *is_error, *exit_code)
+                        .filter(|_| !self.refused.contains(call_id) && setup.is_none())
+                        .map(|line| if contained { format!("{line} (sandbox)") } else { line }),
+                };
                 let mut notes: Vec<String> = line.into_iter().collect();
                 notes.extend(sandbox::setup_failed(setup));
                 if let Some(summary) = summary {
@@ -571,6 +595,13 @@ impl TurnView {
             return Step::default();
         }
         match event {
+            Event::ToolCallStarted { call_id, tool, input, .. } => {
+                self.tools.insert(*call_id, tool.clone());
+                if let Some(command) = format::command_of(input) {
+                    self.commands.insert(*call_id, command.to_owned());
+                }
+                Step::default()
+            }
             Event::ExitRequested { call_id, record, .. } => {
                 self.exits.insert(*call_id, (**record).clone());
                 Step::default()
@@ -1193,12 +1224,22 @@ impl TurnView {
         let options = self.options_at(size);
         let record = self.exits.get(&call_id);
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
-        let (summary, asking) = match request.exit.and_then(|_| sandbox::exit_heading(record)) {
+        let (heading, asking) = match request.exit.and_then(|_| sandbox::exit_heading(record)) {
             Some(heading) => (heading, None),
-            None => format::approval_summary(request.summary),
+            None => {
+                let tool = self.tools.get(&call_id).map(String::as_str);
+                let command = self.commands.get(&call_id).map(String::as_str);
+                format::approval_heading(request.summary, tool.zip(command))
+            }
         };
-        let mut text =
-            format!("{} {summary}\n", format::paint(request.heading, Tone::Attention, &options));
+        let mut text = format::paint(request.heading, Tone::Attention, &options);
+        for (at, line) in heading.iter().enumerate() {
+            if at == 0 {
+                text.push(' ');
+            }
+            text.push_str(line);
+            text.push('\n');
+        }
         if let Some(asking) = asking {
             text.push_str(&format::paint(&asking, Tone::Attention, &options));
             text.push('\n');

@@ -82,13 +82,22 @@ Replies:
   again at the current width when the terminal was resized), erase to the end of the
   screen, then the new committed output and live zone, all inside synchronized output
   (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen.
-  Tool calls, answers and the end of a turn are dim notes, one line each. While a tool
+  Tool calls, answers and the end of a turn are dim notes, one line each. A command
+  of several lines never shows its lines joined: its note is the first line and how
+  many follow, such as `shell: cd src (and 3 more lines)`, and a cut to the width
+  keeps that count. A call that efr refused before it ran (`tool_call_completed` with
+  a `refusal`) ends `shell refused: efr's config (floor)` instead of `shell failed`. While a tool
   call runs, the last line of its output with text in it (from `tool_call_output_updated`)
   sits dim in the live zone, cut to the width; it goes when the call completes and is
   never committed.
 - An approval question shows the daemon's summary on one line and, when the daemon
   named the simple commands of a long line that ask, a second line
-  `asks for: hostnamectl, systemctl --failed`. Only a last line of plain names counts
+  `asks for: hostnamectl, systemctl --failed`. A shell call whose command has several
+  lines shows `shell: run 2 lines:` and then each line on its own, numbered, so two
+  commands never look like one with more arguments; the whole command shows, and a
+  terminal wraps a long line. This needs a summary that quotes exactly the command of
+  the call's `tool_call_started` (what the summary says after it follows after
+  `also:`); any other summary shows as before. Only a last line of plain names counts
   as that line; anything else stays on the first line. `efr history` joins both with
   `; `, as the daemon's notices do.
 - The `auto` sandbox (`docs/sandbox.md`). The first call of a turn that runs in the
@@ -99,15 +108,18 @@ Replies:
   turn whose `auto` fell back to `cautious` (`EffectiveSettings.fallback`) starts with
   `auto is not available here; this turn runs as cautious: <reason>`.
 - An approval with `exit` (an action that leaves the sandbox) shows the whole line of
-  the call from its `exit_requested` record instead of the summary, then, in yellow,
+  the call from its `exit_requested` record instead of the summary (each line of a
+  command of several on its own, numbered), then, in yellow,
   what leaves and how the call runs after a "yes" (`leaves the sandbox: network; runs
   in the sandbox with full network for this call`, or `runs outside the sandbox: sudo
   (you may need to type your password)`). A line that runs outside the sandbox also
   gets `the whole line runs with your full rights (files, secrets, network)` and
-  `programs:` with every program word and the path it resolves to; a program in a
+  `programs:` with every program word and the path it resolves to, or `(builtin)` for
+  a word that the shell runs itself; a program in a
   write root or changed this turn gets `(untrusted: written in the sandbox)`, and the
   line turns yellow. efr's own facts follow dim after `efr:`, then the model's reason
-  as `the model says: "..."`. Every part passes through `format::one_line`.
+  as `the model says: "..."`. Every part passes through `format::one_line`, and each
+  line of a command through `format::command_line`.
 - The quarantine question (`surface_question_requested`) is not an approval: it names
   the git settings that the last call changed and the launcher moved to quarantine,
   and asks `keep it? y = yes, n = no` with one key. The answer goes with
@@ -291,8 +303,9 @@ the sandbox's lines to `~/...`.
 - The terminal is never left in non-canonical mode: every path out of a turn stops the
   key thread, which restores the settings before it reports done.
 - Text from the daemon or the model cannot drive the terminal: markdown goes through
-  `efr-render`, and everything else the CLI prints passes through `format::one_line` or
-  `format::lines`, which turn control characters into visible stand-ins.
+  `efr-render`, and everything else the CLI prints passes through `format::one_line`,
+  `format::lines` or `format::command_line`, which turn control characters into
+  visible stand-ins.
 - A hidden answer, one whose prompt looks secret, and a manual one are never written
   to stdout or stderr, never logged and never handed to the view; they leave the
   process only inside `input.respond`.

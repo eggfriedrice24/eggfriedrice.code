@@ -4,7 +4,8 @@
 //!
 //! Plain text only: the view and the commands choose the tone and where it goes. Every
 //! path and every text from the daemon or the model passes through [`one_line`], so it
-//! cannot drive the terminal or fake a line of a question.
+//! cannot drive the terminal or fake a line of a question; each line of a command of
+//! several passes through [`command_line`] after its number.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -16,7 +17,7 @@ use efr_protocol::{
     Verdict,
 };
 
-use super::{Tone, one_line};
+use super::{Tone, command_line, numbered_lines, one_line, run_heading};
 
 /// The line under an unsandboxed exit: the exit child runs the whole line with every
 /// right the user has.
@@ -379,14 +380,15 @@ fn program(program: &ProgramFact, home: Option<&Path>) -> (String, bool) {
 }
 
 /// The heading of an exit's approval: the whole line from the record, so nothing of it
-/// hides behind a summary; `None` without a record, and for an exit of a file tool,
-/// which has no line: its summary names the path.
-pub(crate) fn exit_heading(record: Option<&ExitRecord>) -> Option<String> {
+/// hides behind a summary, with each line of a command of several on its own
+/// ([`run_heading`]); `None` without a record, and for an exit of a file tool, which
+/// has no line: its summary names the path.
+pub(crate) fn exit_heading(record: Option<&ExitRecord>) -> Option<Vec<String>> {
     let action = &record?.action;
     if action.line.is_empty() {
         return None;
     }
-    Some(format!("{}: run \"{}\"", one_line(&action.tool), one_line(&action.line)))
+    Some(run_heading(&action.tool, &action.line))
 }
 
 /// The lines that an approval question for an exit shows between its heading and the
@@ -520,11 +522,15 @@ pub(crate) fn exit_record(
         let _ = write!(first, "; a yes opens {}", opened.join(", "));
     }
     let facts = &record.facts;
-    let mut lines = vec![
-        first,
-        format!("  line: {}", one_line(&record.action.line)),
-        format!("  cwd: {}", tilde(&record.action.cwd, home)),
-    ];
+    let mut lines = vec![first];
+    match numbered_lines(&record.action.line, "    ") {
+        Some(numbered) => {
+            lines.push(format!("  line: {} lines:", numbered.len()));
+            lines.extend(numbered);
+        }
+        None => lines.push(format!("  line: {}", command_line(record.action.line.trim()))),
+    }
+    lines.push(format!("  cwd: {}", tilde(&record.action.cwd, home)));
     lines.extend(facts.targets.iter().map(|target| format!("  {}", target_words(target, home))));
     for host in &facts.hosts {
         let mut words = Vec::new();

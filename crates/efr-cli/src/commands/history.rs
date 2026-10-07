@@ -139,6 +139,8 @@ struct Transcript<'a> {
     contained: HashSet<CallId>,
     /// The record of each call's exit, for the line of its approval.
     exits: HashMap<CallId, ExitRecord>,
+    /// The command of each shell call, whose approval shows each of its lines.
+    commands: HashMap<CallId, String>,
     /// The newest text of a message that has not completed, which a turn that ended
     /// early never completes.
     partial: Option<(TurnId, u32, String)>,
@@ -155,6 +157,7 @@ impl<'a> Transcript<'a> {
             tools: HashMap::new(),
             contained: HashSet::new(),
             exits: HashMap::new(),
+            commands: HashMap::new(),
             partial: None,
         }
     }
@@ -200,17 +203,30 @@ impl<'a> Transcript<'a> {
             }
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
+                if let Some(command) = format::command_of(input) {
+                    self.commands.insert(*call_id, command.to_owned());
+                }
                 if matches!(launch, Some(Launch::Contained { .. })) {
                     self.contained.insert(*call_id);
                 }
-                self.note(&format::tool_call(tool, input));
+                let columns = self.options.is_terminal().then(|| usize::from(self.options.width()));
+                self.note(&format::tool_call(tool, input, columns));
             }
-            Event::ToolCallCompleted { call_id, is_error, exit_code, sandbox: summary, .. } => {
+            Event::ToolCallCompleted {
+                call_id,
+                is_error,
+                exit_code,
+                sandbox: summary,
+                refusal,
+                ..
+            } => {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.contains(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
-                if let Some(line) = sandbox::setup_failed(setup) {
+                if let Some(reason) = refusal {
+                    self.note(&format::refused(tool, reason));
+                } else if let Some(line) = sandbox::setup_failed(setup) {
                     self.note(&line);
                 } else if let Some(mut line) = format::tool_result(tool, *is_error, *exit_code) {
                     if contained {
@@ -233,16 +249,15 @@ impl<'a> Transcript<'a> {
             Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } => {
                 let record = self.exits.get(call_id);
                 let heading = sandbox::exit_heading(record)
-                    .unwrap_or_else(|| format::approval_summary(summary).0);
+                    .unwrap_or_else(|| vec![format::approval_summary(summary).0]);
                 let lines = sandbox::exit_summary(exit, record, self.home);
-                self.dim_lines(&[format!("approval needed: {heading}; {lines}")]);
+                self.approval(heading, &lines, true);
             }
-            Event::ApprovalRequested { summary, .. } => {
-                let (summary, asking) = format::approval_summary(summary);
-                match asking {
-                    Some(asking) => self.note(&format!("approval needed: {summary}; {asking}")),
-                    None => self.note(&format!("approval needed: {summary}")),
-                }
+            Event::ApprovalRequested { call_id, summary, .. } => {
+                let tool = self.tools.get(call_id).map(String::as_str);
+                let command = self.commands.get(call_id).map(String::as_str);
+                let (heading, asking) = format::approval_heading(summary, tool.zip(command));
+                self.approval(heading, asking.as_deref().unwrap_or_default(), false);
             }
             Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
                 if self.verbose {
@@ -293,6 +308,31 @@ impl<'a> Transcript<'a> {
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
             _ => {}
         }
+    }
+
+    /// An approval: `approval needed:` with the lines of its heading and, after them,
+    /// `rest`. A heading of one line and the rest share a line, which a note cuts to
+    /// the screen unless `whole`; the lines of a command of several lines stay whole.
+    fn approval(&mut self, mut heading: Vec<String>, rest: &str, whole: bool) {
+        if let [only] = heading.as_slice() {
+            let line = match rest {
+                "" => format!("approval needed: {only}"),
+                rest => format!("approval needed: {only}; {rest}"),
+            };
+            if whole {
+                self.dim_lines(&[line]);
+            } else {
+                self.note(&line);
+            }
+            return;
+        }
+        if let Some(first) = heading.first_mut() {
+            *first = format!("approval needed: {first}");
+        }
+        if !rest.is_empty() {
+            heading.push(rest.to_owned());
+        }
+        self.dim_lines(&heading);
     }
 
     fn prompt(&mut self, text: &str) {

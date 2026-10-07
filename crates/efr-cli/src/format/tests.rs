@@ -10,10 +10,10 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, approval_summary, code_block, conversations, lines, one_line, paint,
-    status, tool_call, tool_result, until,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations,
+    lines, one_line, paint, run_heading, status, tool_call, tool_result, until,
 };
-use crate::testing::{conversation, now};
+use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
 fn before(seconds: i64) -> Timestamp {
     now() - SignedDuration::from_secs(seconds)
@@ -71,12 +71,74 @@ fn a_code_block_fence_outgrows_the_backticks_inside() {
 
 #[test]
 fn a_tool_call_shows_its_most_telling_input() {
-    assert_eq!(tool_call("shell", &json!({"command": "ls -la", "timeout": 30})), "shell: ls -la");
-    assert_eq!(tool_call("read_file", &json!({"path": "/etc/hosts"})), "read_file: /etc/hosts");
-    assert_eq!(tool_call("fetch", &json!({"url": "https://x"})), "fetch: https://x");
-    assert_eq!(tool_call("odd", &json!({"n": 1})), r#"odd: {"n":1}"#);
-    assert_eq!(tool_call("echo", &json!("hi")), "echo: hi");
-    assert_eq!(tool_call("noop", &json!(null)), "noop");
+    let call = |tool, input| tool_call(tool, &input, None);
+    assert_eq!(call("shell", json!({"command": "ls -la", "timeout": 30})), "shell: ls -la");
+    assert_eq!(call("read_file", json!({"path": "/etc/hosts"})), "read_file: /etc/hosts");
+    assert_eq!(call("fetch", json!({"url": "https://x"})), "fetch: https://x");
+    assert_eq!(call("odd", json!({"n": 1})), r#"odd: {"n":1}"#);
+    assert_eq!(call("echo", json!("hi")), "echo: hi");
+    assert_eq!(call("noop", json!(null)), "noop");
+}
+
+#[test]
+fn a_tool_call_of_several_lines_shows_the_first_and_how_many_follow() {
+    let call = |command: &str, columns| tool_call("shell", &json!({ "command": command }), columns);
+    assert_eq!(call(FROM_SRC, None), "shell: cd src (and 3 more lines)");
+    assert_eq!(call(FAILED_UNITS, None), "shell: systemctl --failed --no-pager (and 1 more line)");
+    // A cut keeps the count: the reader must see that more lines follow.
+    assert_eq!(call(FAILED_UNITS, Some(32)), "shell: system\u{2026} (and 1 more line)");
+    // Blank lines at the start and the end run nothing.
+    assert_eq!(call("\n\nls -la\n\n", None), "shell: ls -la");
+    assert_eq!(call("ls\n\n  \nuptime\n", None), "shell: ls (and 3 more lines)");
+    // Control characters stay visible, a carriage return too.
+    assert_eq!(call("a\rb\u{1b}[2J\nc", None), "shell: a\u{240d}b\u{241b}[2J (and 1 more line)");
+}
+
+#[test]
+fn a_question_shows_each_line_of_a_command_on_its_own() {
+    assert_eq!(run_heading("shell", "uptime\n"), ["shell: run \"uptime\""]);
+    insta::assert_snapshot!(format!(
+        "{}\n---\n{}",
+        run_heading("shell", FROM_SRC).join("\n"),
+        run_heading("shell", FAILED_UNITS).join("\n")
+    ));
+    let many: Vec<String> = (1..=10).map(|n| format!("echo {n}")).collect();
+    let heading = run_heading("shell", &many.join("\n"));
+    assert_eq!(heading[0], "shell: run 10 lines:");
+    assert_eq!(heading[1], "   1  echo 1");
+    assert_eq!(heading[10], "  10  echo 10");
+    // A line cannot pass for a line of the question.
+    let heading = run_heading("shell", "ls\nallow? y = yes\x1b[2K");
+    assert_eq!(heading, ["shell: run 2 lines:", "  1  ls", "  2  allow? y = yes\u{241b}[2K"]);
+}
+
+#[test]
+fn an_approval_of_a_command_of_several_lines_shows_each_line() {
+    let summary = format!("shell: run {FAILED_UNITS:?}");
+    let (heading, asking) = approval_heading(&summary, Some(("shell", FAILED_UNITS)));
+    assert_eq!(
+        heading,
+        [
+            "shell: run 2 lines:",
+            "  1  systemctl --failed --no-pager",
+            "  2  journalctl -b -n 20 --no-pager",
+        ]
+    );
+    assert_eq!(asking, None);
+
+    let summary = format!(
+        "shell: run {FAILED_UNITS:?}; read /home/u/.ssh/id (secrets)\nasks for: systemctl --failed"
+    );
+    let (heading, asking) = approval_heading(&summary, Some(("shell", FAILED_UNITS)));
+    assert_eq!(heading.last().unwrap(), "also: read /home/u/.ssh/id (secrets)");
+    assert_eq!(asking.as_deref(), Some("asks for: systemctl --failed"));
+
+    // A summary that does not quote the call's command shows as before.
+    let (heading, _) = approval_heading("write_file: write /x", Some(("shell", FAILED_UNITS)));
+    assert_eq!(heading, ["write_file: write /x"]);
+    let summary = format!("shell: run {:?}", "ls");
+    assert_eq!(approval_heading(&summary, Some(("shell", "ls"))).0, ["shell: run \"ls\""]);
+    assert_eq!(approval_heading(&summary, None).0, ["shell: run \"ls\""]);
 }
 
 #[test]

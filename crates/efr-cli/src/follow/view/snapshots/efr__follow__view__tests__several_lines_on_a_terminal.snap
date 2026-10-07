@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: "readable(&view.event(&approval, WIDE, true).out)"
+---
+\e[?2026h\e[1;33mapproval needed:\e[0m shell: run 2 lines:
+  1  systemctl --failed --no-pager
+  2  journalctl -b -n 20 --no-pager
+\e[1;33mleaves the sandbox: the system bus; runs in the sandbox with the system bus for this call\e[0m
+\e[2mallow? y = yes, n = no\e[0m
+\e[?2026l

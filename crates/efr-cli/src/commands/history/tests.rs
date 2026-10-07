@@ -15,8 +15,8 @@ use super::{Shown, transcript};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{
-    CONVERSATION, TestEnv, call, capture, command, conversation, envelope, exit_info, exit_record,
-    now, program_fact, readable, turn,
+    CONVERSATION, FAILED_UNITS, FROM_SRC, TestEnv, call, capture, command, conversation, envelope,
+    exit_info, exit_record, now, program_fact, readable, turn,
 };
 
 /// The transcript of `page`, not verbose.
@@ -472,6 +472,58 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
     let plain =
         transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
     assert!(!plain.contains("exit requested"), "{plain}");
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
+}
+
+#[test]
+fn a_command_of_several_lines_never_shows_as_one_line() {
+    let other: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
+    let started = |call_id, command: &str| Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id,
+        tool: "shell".to_owned(),
+        input: json!({ "command": command }),
+        manual_input: true,
+        launch: None,
+    };
+    let grants = vec![efr_protocol::Grant::Bus { bus: efr_protocol::BusKind::System }];
+    let info = exit_info(&[ExitKind::Bus], Launch::Contained { grants: grants.clone() });
+    let events = vec![
+        started(call(), FAILED_UNITS),
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Bus],
+            grants,
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record(FAILED_UNITS, ExitFacts::default())),
+        },
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: format!("shell: run {FAILED_UNITS:?}"),
+            diff_preview: None,
+            interactive: false,
+            exit: Some(info),
+        },
+        started(other, FROM_SRC),
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: other,
+            summary: format!("shell: run {FROM_SRC:?}"),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+        },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
     let verbose =
         transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));

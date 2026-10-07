@@ -51,6 +51,16 @@ pub(crate) const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 pub(crate) const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
 pub(crate) const CALL: &str = "019a9b1c-3d00-7a10-8b20-000000000003";
 
+/// A command of several lines that starts like one from the user's test of `auto`:
+/// four commands, one per line.
+pub(crate) const FROM_SRC: &str =
+    "cd src\nexport RUST_LOG=debug\ncargo test -p efr-cli\nunset RUST_LOG";
+
+/// The other command of several lines from that test: two commands, which joined by a
+/// space look like one with more arguments.
+pub(crate) const FAILED_UNITS: &str =
+    "systemctl --failed --no-pager\njournalctl -b -n 20 --no-pager";
+
 pub(crate) fn conversation() -> ConversationId {
     CONVERSATION.parse().unwrap()
 }

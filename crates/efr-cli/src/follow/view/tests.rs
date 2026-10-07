@@ -12,7 +12,9 @@ use serde_json::json;
 
 use super::{AnswerKind, Ask, ECHO_PREFIX, Step, TurnEnd, TurnView, last_line};
 use crate::terminal::Size;
-use crate::testing::{call, exit_info, exit_record, program_fact, readable, turn};
+use crate::testing::{
+    FAILED_UNITS, FROM_SRC, call, exit_info, exit_record, program_fact, readable, turn,
+};
 
 const SIZE: Size = Size { cols: 40, rows: 20 };
 
@@ -217,6 +219,36 @@ fn a_denied_call_is_not_reported_as_failed_too() {
     view.event(&approval(None), SIZE, true);
     view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true);
     assert_eq!(view.event(&refused_call_completed(), SIZE, true), Step::default());
+}
+
+#[test]
+fn a_call_that_efr_refused_says_why() {
+    let refused = Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "Permission denied for the shell call: ...".to_owned(),
+        truncated: false,
+        is_error: true,
+        exit_code: None,
+        sandbox: None,
+        refusal: Some("efr's config (floor)".to_owned()),
+    };
+    let contained = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "echo x >> ~/.config/efr/config.toml" }),
+        manual_input: true,
+        launch: Some(Launch::contained()),
+    };
+    let mut view = raw_view();
+    let (_, err, _) = feed(&mut view, &[contained, refused], false);
+    assert_eq!(
+        err,
+        "shell: echo x >> ~/.config/efr/config.toml\n\
+         sandbox: writes in $SCRATCH, private /tmp; no network\n\
+         shell refused: efr's config (floor)\n"
+    );
 }
 
 #[test]
@@ -1324,6 +1356,56 @@ fn an_exit_without_its_record_keeps_the_summary() {
         err.starts_with("approval needed: run `npm ci`\nleaves the sandbox: network;"),
         "{err}"
     );
+}
+
+#[test]
+fn the_progress_line_of_a_command_of_several_lines_says_how_many_follow() {
+    let mut view = terminal_view();
+    let step = view.event(&tool_started(FAILED_UNITS), SIZE, false);
+    insta::assert_snapshot!(readable(&step.out));
+
+    let mut view = raw_view();
+    let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC)], false);
+    assert_eq!(err, "shell: cd src (and 3 more lines)\n");
+}
+
+#[test]
+fn an_exit_question_shows_each_line_of_a_command_of_several() {
+    let grants = vec![Grant::Bus { bus: efr_protocol::BusKind::System }];
+    let info = exit_info(&[ExitKind::Bus], Launch::Contained { grants });
+    let mut view = sandbox_view(false);
+    let (_, err, _) =
+        feed(&mut view, &exit_events(FAILED_UNITS, ExitFacts::default(), info.clone()), true);
+    insta::assert_snapshot!(err);
+
+    let mut view = sandbox_view(true);
+    let [record, approval] = exit_events(FAILED_UNITS, ExitFacts::default(), info);
+    view.event(&record, WIDE, true);
+    insta::assert_snapshot!(
+        "several_lines_on_a_terminal",
+        readable(&view.event(&approval, WIDE, true).out)
+    );
+}
+
+#[test]
+fn a_question_without_an_exit_shows_each_line_of_a_command_of_several() {
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: format!("shell: run {FROM_SRC:?}"),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+    };
+    let mut view = raw_view();
+    let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC), approval.clone()], true);
+    insta::assert_snapshot!(err);
+
+    // A view that missed the call's start shows the daemon's summary, which quotes the
+    // line with its newlines escaped.
+    let mut view = raw_view();
+    let (_, err, _) = feed(&mut view, &[approval], true);
+    assert!(err.starts_with("approval needed: shell: run \"cd src\\nexport"), "{err}");
 }
 
 fn question_id() -> QuestionId {

@@ -1,0 +1,13 @@
+---
+source: crates/efr-cli/src/format/tests.rs
+expression: "format!(\"{}\\n---\\n{}\", run_heading(\"shell\", FROM_SRC).join(\"\\n\"),\nrun_heading(\"shell\", FAILED_UNITS).join(\"\\n\"))"
+---
+shell: run 4 lines:
+  1  cd src
+  2  export RUST_LOG=debug
+  3  cargo test -p efr-cli
+  4  unset RUST_LOG
+---
+shell: run 2 lines:
+  1  systemctl --failed --no-pager
+  2  journalctl -b -n 20 --no-pager

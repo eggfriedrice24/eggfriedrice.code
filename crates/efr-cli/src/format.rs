@@ -17,6 +17,7 @@ use efr_protocol::{
 use efr_render::{ColourMode, RenderOptions};
 use jiff::Timestamp;
 use serde_json::Value;
+use unicode_width::UnicodeWidthChar as _;
 
 pub(crate) mod sandbox;
 
@@ -109,16 +110,54 @@ const ASKS_FOR: &str = "\nasks for: ";
 /// with letters, digits, spaces and `._/:@%+,-`. A line with anything else is not
 /// split off, so a file name with a newline in an older summary cannot pass for it.
 pub(crate) fn approval_summary(summary: &str) -> (String, Option<String>) {
+    let (first, asking) = split_summary(summary);
+    (one_line(first), asking)
+}
+
+/// The summary without the line of the parts that ask, and that line.
+fn split_summary(summary: &str) -> (&str, Option<String>) {
     let named = |c: char| {
         c.is_ascii_alphanumeric()
             || matches!(c, ' ' | '.' | '_' | '/' | ':' | '@' | '%' | '+' | ',' | '-')
     };
     match summary.rsplit_once(ASKS_FOR) {
         Some((first, parts)) if !parts.is_empty() && parts.chars().all(named) => {
-            (one_line(first), Some(format!("asks for: {parts}")))
+            (first, Some(format!("asks for: {parts}")))
         }
-        _ => (one_line(summary), None),
+        _ => (summary, None),
     }
+}
+
+/// What an approval question shows of the daemon's summary, as [`approval_summary`],
+/// but with the lines of a command of several lines each on its own: `call` is the
+/// tool and the command of the call, from its `tool_call_started`.
+///
+/// NOTE: the daemon writes the line as a quoted Rust string (`run "cd src\nls"`). Only
+/// a summary that starts with exactly that quote of the call's command gets its lines;
+/// what the summary says after the quote follows on a line of its own after `also:`.
+/// Any other summary shows as before.
+pub(crate) fn approval_heading(
+    summary: &str,
+    call: Option<(&str, &str)>,
+) -> (Vec<String>, Option<String>) {
+    let (first, asking) = split_summary(summary);
+    if let Some((tool, command)) = call
+        && command_lines(command).len() > 1
+        && let Some(rest) = first.strip_prefix(&format!("{tool}: run {command:?}"))
+    {
+        let mut lines = run_heading(tool, command);
+        let rest = rest.trim_start_matches(';').trim();
+        if !rest.is_empty() {
+            lines.push(format!("also: {}", one_line(rest)));
+        }
+        return (lines, asking);
+    }
+    (vec![one_line(first)], asking)
+}
+
+/// The command of a shell call's input, if it has one.
+pub(crate) fn command_of(input: &Value) -> Option<&str> {
+    input.get("command").and_then(Value::as_str)
 }
 
 /// `text` safe to print as lines: newlines stay, tabs become a space, other control
@@ -163,7 +202,12 @@ pub(crate) fn code_block(info: &str, body: &str) -> String {
 }
 
 /// A tool call in one line, such as `shell: ls -la` or `read_file: /etc/hosts`.
-pub(crate) fn tool_call(tool: &str, input: &Value) -> String {
+///
+/// A command of several lines shows its first line and how many lines follow, such as
+/// `shell: cd src (and 2 more lines)`: lines joined by spaces would look like one
+/// command with more arguments. With `columns`, the line is cut to fit that width, but
+/// never the count of the lines that follow.
+pub(crate) fn tool_call(tool: &str, input: &Value, columns: Option<usize>) -> String {
     let detail = match input {
         Value::Object(members) => DETAIL_KEYS
             .iter()
@@ -173,7 +217,105 @@ pub(crate) fn tool_call(tool: &str, input: &Value) -> String {
         Value::Null => String::new(),
         other => other.to_string(),
     };
-    if detail.is_empty() { tool.to_owned() } else { format!("{tool}: {detail}") }
+    let tool = one_line(tool);
+    let lines = command_lines(&detail);
+    let (first, more) = match lines.split_first() {
+        Some((first, rest)) => (command_line(first), rest.len()),
+        None => (String::new(), 0),
+    };
+    let head = if first.is_empty() { tool } else { format!("{tool}: {first}") };
+    if more == 0 {
+        return head;
+    }
+    let unit = if more == 1 { "line" } else { "lines" };
+    let tail = format!(" (and {more} more {unit})");
+    match columns {
+        Some(columns) => format!("{}{tail}", cut(&head, columns.saturating_sub(width(&tail)))),
+        None => format!("{head}{tail}"),
+    }
+}
+
+/// The lines of a command, split at each newline, without the blank lines at its start
+/// and its end, which run nothing. A command of only blanks has none.
+pub(crate) fn command_lines(command: &str) -> Vec<&str> {
+    let lines: Vec<&str> = command.split('\n').collect();
+    let blank = |line: &&str| line.trim().is_empty();
+    match (lines.iter().position(|line| !blank(line)), lines.iter().rposition(|line| !blank(line)))
+    {
+        (Some(start), Some(end)) => lines[start..=end].to_vec(),
+        _ => Vec::new(),
+    }
+}
+
+/// One line of a command, safe to print: a tab becomes a space, and every other control
+/// character, a carriage return too, a visible stand-in, because the shell does not
+/// read a carriage return as a space.
+pub(crate) fn command_line(line: &str) -> String {
+    line.chars().map(|c| if c == '\t' { ' ' } else { visible(c) }).collect()
+}
+
+/// Each line of a command of several lines, numbered and after `indent`, so the start
+/// of each line shows also where a terminal wraps a long one; `None` for a command of
+/// one line.
+pub(crate) fn numbered_lines(command: &str, indent: &str) -> Option<Vec<String>> {
+    let lines = command_lines(command);
+    if lines.len() < 2 {
+        return None;
+    }
+    let digits = lines.len().to_string().len();
+    let numbered = lines
+        .iter()
+        .enumerate()
+        .map(|(at, line)| {
+            let number = at + 1;
+            format!("{indent}{number:>digits$}  {}", command_line(line)).trim_end().to_owned()
+        })
+        .collect();
+    Some(numbered)
+}
+
+/// The heading of a question about `tool` running `command`: `shell: run "ls -la"`, or
+/// for a command of several lines `shell: run 2 lines:` and then each line on its own,
+/// numbered. The whole command shows: the user approves exactly what runs.
+pub(crate) fn run_heading(tool: &str, command: &str) -> Vec<String> {
+    let tool = one_line(tool);
+    match numbered_lines(command, "  ") {
+        Some(numbered) => {
+            let mut lines = vec![format!("{tool}: run {} lines:", numbered.len())];
+            lines.extend(numbered);
+            lines
+        }
+        None => {
+            let line = command_lines(command)
+                .first()
+                .map_or_else(String::new, |line| command_line(line.trim_end_matches('\r')));
+            vec![format!("{tool}: run \"{line}\"")]
+        }
+    }
+}
+
+/// `text` cut to `columns` with `…` at the cut; whole when it fits.
+fn cut(text: &str, columns: usize) -> String {
+    if width(text) <= columns {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w + 1 > columns {
+            break;
+        }
+        out.push(c);
+        used += w;
+    }
+    out.push('\u{2026}');
+    out
+}
+
+/// How many columns `text` takes on a terminal.
+fn width(text: &str) -> usize {
+    text.chars().map(|c| c.width().unwrap_or(0)).sum()
 }
 
 /// The end of a tool call worth a line: a failure or a non-zero exit. `None` for a
@@ -184,6 +326,12 @@ pub(crate) fn tool_result(tool: &str, is_error: bool, exit_code: Option<i32>) ->
         _ if is_error => Some(format!("{tool} failed")),
         _ => None,
     }
+}
+
+/// The line of a call that efr refused before it ran, such as `shell refused: efr's
+/// config (floor)`, with the daemon's reason.
+pub(crate) fn refused(tool: &str, reason: &str) -> String {
+    format!("{} refused: {}", one_line(tool), one_line(reason))
 }
 
 /// A turn's settings on one line, such as `mode auto, model gpt-5.4, effort high`: every

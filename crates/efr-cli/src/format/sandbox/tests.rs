@@ -89,7 +89,7 @@ fn info(kinds: &[ExitKind], launch: Launch) -> ExitInfo {
 
 /// The lines of a question as text, each with its tone, the way a reviewer reads them.
 fn question(info: &ExitInfo, record: &ExitRecord) -> String {
-    let mut out = format!("approval needed: {}\n", exit_heading(Some(record)).unwrap());
+    let mut out = format!("approval needed: {}\n", exit_heading(Some(record)).unwrap().join("\n"));
     for (line, tone) in exit_lines(info, Some(record), home()) {
         let tone = match tone {
             Tone::Attention => "yellow",
@@ -280,6 +280,19 @@ fn a_privilege_exit_names_every_program_with_its_path() {
 }
 
 #[test]
+fn a_builtin_shows_as_a_builtin_not_as_a_program_that_is_missing() {
+    let mut record = record(": > ~/note && cd ~ && ./missing.sh");
+    let missing = ProgramFact { resolved: None, ..program("./missing.sh", "") };
+    record.facts.programs = vec![program(":", "builtin"), program("cd", "builtin"), missing];
+    let info = info(&[ExitKind::Outside], Launch::Unsandboxed);
+    let lines = exit_lines(&info, Some(&record), home());
+    assert_eq!(
+        lines[2],
+        ("programs: : (builtin); cd (builtin); ./missing.sh (not found)".to_owned(), Tone::Dim)
+    );
+}
+
+#[test]
 fn a_program_the_sandbox_wrote_is_marked_untrusted_in_yellow() {
     let mut record = record("sudo ./scripts/setup.sh");
     let mut setup = program("./scripts/setup.sh", "/home/u/p/eggfriedrice.code/scripts/setup.sh");
@@ -345,8 +358,13 @@ fn every_kind_has_words_and_a_line_never_breaks_out_of_its_row() {
         lines.push(format!("{kind}: {}", exit_lines(&info, Some(&record), home())[0].0));
     }
     let heading = exit_heading(Some(&record)).unwrap();
-    assert!(!heading.contains('\n') && !heading.contains('\x1b'), "{heading}");
-    insta::assert_snapshot!(format!("{heading}\n{}", lines.join("\n")));
+    for line in &heading {
+        assert!(!line.contains('\n') && !line.contains('\x1b'), "{line}");
+    }
+    // NOTE: each line of the command starts with its number, so none passes for a line
+    // of the question.
+    assert!(heading[1..].iter().all(|line| line.starts_with("  ")), "{heading:?}");
+    insta::assert_snapshot!(format!("{}\n{}", heading.join("\n"), lines.join("\n")));
 }
 
 #[test]

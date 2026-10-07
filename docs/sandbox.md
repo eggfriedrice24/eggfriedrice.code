@@ -231,13 +231,26 @@ leaves the sandbox: network; runs in the sandbox with full network for this call
 allow? y = yes, n = no
 ```
 
-- `programs:` names every program word with the path it runs. A program in a write
+- A command of several lines shows each line on its own, numbered:
+
+  ```
+  approval needed: shell: run 2 lines:
+    1  systemctl --failed --no-pager
+    2  journalctl -b -n 20 --no-pager
+  ```
+
+  The `shell:` line of a running call shows only the first line and how many follow,
+  such as `shell: cd src (and 3 more lines)`.
+- `programs:` names every program word with the path it runs. A word that the shell
+  runs itself, such as `:` or `cd`, shows as `(builtin)`. A program in a write
   root, or one that changed in this turn, is marked `untrusted: written in the
   sandbox`: the sandbox wrote it, so it can do anything with your rights.
 - Lines that start with `efr:` are facts that efr found itself.
 - `the model says:` is the model's reason from `needs`. It is the model's text; treat
   it as a claim, not as a fact.
 - A refused exit does not run. The model reads that you denied it.
+- A floor refuses a call with no question, and the call's line says why, such as
+  `shell refused: efr's config (floor)`.
 - Three refusals in a row without a person (by a floor) stop the turn.
 
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and

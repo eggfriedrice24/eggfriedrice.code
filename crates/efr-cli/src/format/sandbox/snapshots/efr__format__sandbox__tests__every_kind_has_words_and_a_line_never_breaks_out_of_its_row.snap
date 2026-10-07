@@ -1,8 +1,10 @@
 ---
 source: crates/efr-cli/src/format/sandbox/tests.rs
-expression: "format!(\"{heading}\\n{}\", lines.join(\"\\n\"))"
+expression: "format!(\"{}\\n{}\", heading.join(\"\\n\"), lines.join(\"\\n\"))"
 ---
-shell: run "rm -rf .. ␛[2Kapproval needed: fake"
+shell: run 2 lines:
+  1  rm -rf ..
+  2  ␛[2Kapproval needed: fake
 write: leaves the sandbox: write ~/p; runs outside the sandbox
 host: leaves the sandbox: network (example.com); runs outside the sandbox
 host_view: leaves the sandbox: a view of the host's network; runs outside the sandbox

@@ -1,0 +1,35 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: "format!(\"{plain}---\\n{verbose}\")"
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+shell: systemctl --failed --no-pager (and 1 more line)
+approval needed: shell: run 2 lines:
+  1  systemctl --failed --no-pager
+  2  journalctl -b -n 20 --no-pager
+leaves the sandbox: the system bus; runs in the sandbox with the system bus for this call
+shell: cd src (and 3 more lines)
+approval needed: shell: run 4 lines:
+  1  cd src
+  2  export RUST_LOG=debug
+  3  cargo test -p efr-cli
+  4  unset RUST_LOG
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+shell: systemctl --failed --no-pager (and 1 more line)
+exit requested: bus (predicted from the line); a yes opens the system bus
+  line: 2 lines:
+    1  systemctl --failed --no-pager
+    2  journalctl -b -n 20 --no-pager
+  cwd: ~/project
+  user messages: 1
+approval needed: shell: run 2 lines:
+  1  systemctl --failed --no-pager
+  2  journalctl -b -n 20 --no-pager
+leaves the sandbox: the system bus; runs in the sandbox with the system bus for this call
+shell: cd src (and 3 more lines)
+approval needed: shell: run 4 lines:
+  1  cd src
+  2  export RUST_LOG=debug
+  3  cargo test -p efr-cli
+  4  unset RUST_LOG
