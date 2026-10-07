@@ -164,6 +164,12 @@ fn a_hex_palette_in_truecolor() {
 #[test]
 fn a_hex_palette_falls_back_to_the_nearest_of_sixteen() {
     let options = RenderOptions::new(80).with_palette(hex_palette());
+    // The roles keep their meaning: an added line never looks like a removed one.
+    let roles = [Role::DiffAdd, Role::DiffRemove, Role::Muted, Role::Link];
+    let sgr: Vec<_> = roles.iter().map(|role| options.sgr(*role)).collect();
+    for (at, one) in sgr.iter().enumerate() {
+        assert!(!sgr[at + 1..].contains(one), "two roles share {one:?}: {sgr:?}");
+    }
     insta::assert_snapshot!(every_role(&options));
 }
 

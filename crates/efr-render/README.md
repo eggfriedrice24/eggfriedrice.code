@@ -41,7 +41,10 @@ Colour roles and their defaults in 16 colours:
 A `Palette` sets any role to a `Colour`: a palette entry or RGB. A role keeps its
 attributes (bold, underline, italic) with a new colour. `muted` is dim only when it has
 no colour. An RGB colour is written as RGB in truecolor, as the nearest of the 16
-entries in 16-colour mode, and not at all without colour. When `text` has a colour,
+entries in 16-colour mode, and not at all without colour. In 16-colour mode a colour
+with a clear hue keeps its hue (red, yellow, green, cyan, blue or magenta, normal or
+bright), and only a colour with little hue becomes a grey, so the soft colours of a
+design system keep their meaning. When `text` has a colour,
 every span without a colour of its own gets it. A heading without a colour of its own
 takes the accent's colour.
 

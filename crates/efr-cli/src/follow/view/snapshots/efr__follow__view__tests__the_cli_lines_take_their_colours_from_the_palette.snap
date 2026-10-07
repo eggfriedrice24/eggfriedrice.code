@@ -25,7 +25,7 @@ expression: "shown.join(\"\\n===\\n\")"
 \e[90m  │ error: no rule\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[2A\e[J\e[90m$ make\e[0m  \e[90mexit 2\e[0m  \e[90m2.0s\e[0m
+\e[?2026h\r\e[2A\e[J\e[90m$ make\e[0m  \e[31mexit 2\e[0m  \e[90m2.0s\e[0m
 \e[90m  │ error: no rule\e[0m
 
 \e[1;35mapproval needed:\e[0m write ~/.zshrc

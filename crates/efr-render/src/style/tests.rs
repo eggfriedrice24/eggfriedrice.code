@@ -60,6 +60,17 @@ fn sixteen_colour_mode_maps_rgb_to_the_nearest_palette_entry() {
     assert_eq!(to_ansi16(Colour::Palette(196)), Colour::Palette(9));
     assert_eq!(to_ansi16(Colour::Palette(4)), Colour::Palette(4));
     assert_eq!(to_ansi16(Colour::Palette(232)), Colour::Palette(0));
+}
+
+#[test]
+fn a_soft_colour_keeps_its_hue_in_sixteen_colours() {
+    // Nearest to grey 8 by distance alone.
+    assert_eq!(to_ansi16(Colour::Rgb(0xe0, 0x5d, 0x4f)), Colour::Palette(1));
+    assert_eq!(to_ansi16(Colour::Rgb(0x8f, 0xbf, 0x6a)), Colour::Palette(2));
+    assert_eq!(to_ansi16(Colour::Rgb(0x7f, 0xb4, 0xca)), Colour::Palette(6));
+    // A colour with little hue is a grey.
+    assert_eq!(to_ansi16(Colour::Rgb(0xa8, 0xa3, 0x96)), Colour::Palette(8));
+    assert_eq!(to_ansi16(Colour::Rgb(0xe8, 0xe2, 0xd4)), Colour::Palette(7));
     let spans = [Span::new("x", Style::fg(Colour::Rgb(250, 10, 10)))];
     assert_eq!(paint(ColourMode::Ansi16, true, &spans), "\x1b[91mx\x1b[0m\n");
 }

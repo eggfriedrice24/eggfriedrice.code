@@ -358,26 +358,48 @@ fn rgb_of(colour: Colour) -> (u8, u8, u8) {
     }
 }
 
-/// The palette index nearest to an RGB colour, by the "redmean" approximation of
-/// perceived distance.
+/// The palette index nearest to an RGB colour. A colour with a clear hue (HSV
+/// saturation over a quarter) takes the entry of its hue family (red, yellow, green,
+/// cyan, blue or magenta), normal or bright, and any other colour takes a grey (0, 7, 8
+/// or 15). By distance alone, the soft colours of a design system are nearest to grey
+/// 8, and red, green and blue roles would all look the same. Inside the choice, the
+/// "redmean" approximation of perceived distance decides.
 fn nearest16((r, g, b): (u8, u8, u8)) -> u8 {
-    let distance = |(pr, pg, pb): (u8, u8, u8)| {
+    let distance = |index: u8| {
+        let (pr, pg, pb) = XTERM16[usize::from(index)];
         let mean = (i32::from(r) + i32::from(pr)) / 2;
         let dr = i32::from(r) - i32::from(pr);
         let dg = i32::from(g) - i32::from(pg);
         let db = i32::from(b) - i32::from(pb);
         (((512 + mean) * dr * dr) >> 8) + 4 * dg * dg + (((767 - mean) * db * db) >> 8)
     };
-    let mut best = 0_u8;
-    let mut best_distance = i32::MAX;
-    for (index, candidate) in (0_u8..).zip(XTERM16) {
-        let d = distance(candidate);
-        if d < best_distance {
-            best = index;
-            best_distance = d;
-        }
+    match hue_family((r, g, b)) {
+        Some(normal) if distance(normal + 8) < distance(normal) => normal + 8,
+        Some(normal) => normal,
+        None => [0, 7, 8, 15].into_iter().min_by_key(|index| distance(*index)).unwrap_or(0),
     }
-    best
+}
+
+/// The normal palette entry (1 to 6) of the hue of an RGB colour, or `None` when the
+/// colour has too little hue to have one.
+fn hue_family((r, g, b): (u8, u8, u8)) -> Option<u8> {
+    /// The entries of the hue families in the order of the colour wheel, from red.
+    const FAMILIES: [u8; 6] = [1, 3, 2, 6, 4, 5];
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    let max = r.max(g).max(b);
+    let range = max - r.min(g).min(b);
+    if range * 4 <= max {
+        return None;
+    }
+    let hue = if max == r {
+        60 * (g - b) / range
+    } else if max == g {
+        120 + 60 * (b - r) / range
+    } else {
+        240 + 60 * (r - g) / range
+    };
+    let family = usize::try_from((hue + 360 + 30) / 60 % 6).unwrap_or(0);
+    FAMILIES.get(family).copied()
 }
 
 /// Replaces control characters with visible stand-ins. Markdown from a model can
