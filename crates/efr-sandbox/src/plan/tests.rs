@@ -638,3 +638,25 @@ fn plan_looks_up_each_path_once() {
     assert!(twice.is_empty(), "looked up more than once: {twice:?}");
     assert_eq!(lstats.get(Path::new("/home/u")), Some(&1));
 }
+
+#[test]
+fn plan_skips_a_cache_in_a_private_dir_of_the_sandbox() {
+    let mut spec = spec();
+    let runtime = spec.runtime.clone();
+    for dir in ["/tmp/cache", "/var/tmp/cache"] {
+        spec.caches.push(crate::CacheOverlay::new(
+            Path::new(dir),
+            &runtime.sandbox_dir,
+            &runtime.home,
+        ));
+    }
+    spec.cache_mode = CacheMode::Tmp;
+    let mut fs = world();
+    fs.dir("/tmp/cache").dir("/var/tmp/cache");
+    let plan = plan(&spec, &fs);
+    let layers = plan.cache_layers().unwrap();
+    let targets: Vec<&Path> = layers.layers.iter().map(|layer| layer.target.as_path()).collect();
+    assert_eq!(targets, [Path::new("/home/u/.cargo")]);
+    assert!(plan.notes().contains(&PlanNote::CacheSkipped("/tmp/cache".into())));
+    assert!(plan.notes().contains(&PlanNote::CacheSkipped("/var/tmp/cache".into())));
+}

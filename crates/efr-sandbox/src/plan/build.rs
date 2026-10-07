@@ -265,8 +265,14 @@ impl Builder<'_> {
         for cache in &self.spec.caches {
             let resolved = self.resolve(&cache.target)?;
             let in_root = self.writable(&resolved.path);
+            // NOTE: the helper finds the lower layer inside the sandbox, where these
+            // dirs are private ones, not the host's.
+            let private = ["/tmp", "/var/tmp", "/dev"]
+                .iter()
+                .any(|dir| is_within(&resolved.path, Path::new(dir)));
             if resolved.kind != Some(FileKind::Dir)
                 || in_root
+                || private
                 || self.masked_by(&resolved.path).is_some()
             {
                 self.notes.push(PlanNote::CacheSkipped(cache.target.clone()));

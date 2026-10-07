@@ -22,6 +22,7 @@
 //! - A cache overlay is a [`CacheLayers`] entry that the launcher's helper mounts after
 //!   bwrap's setup; the plan's mounts inside the cache move onto it, so they still win.
 //!   A cache with another mount at its own path gets no overlay: that mount covers it.
+//!   Nor does a cache in `/tmp`, `/var/tmp` or `/dev`, which are private inside.
 //!   In the `overlay` mode two caches never share a layer dir.
 
 use std::ffi::OsString;
