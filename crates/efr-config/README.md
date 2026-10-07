@@ -17,7 +17,9 @@ Modules:
   is its description in the JSON schema. A new key is one field here, its check in
   `validate` when it needs one, and its line in the example.
 - `tables/render`: `[render]` (`RenderSettings`): `theme`, `palette` (the path of a
-  theme file) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
+  theme file), `motion` (the spinner and the band over the state of the status row),
+  `turn_summary` (the line at the end of each turn), `progress` (`Progress`: `auto`,
+  `on` or `off`, for the progress bar of the terminal's tab) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
   `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
   (`ColorValue`) is `"#rrggbb"`, an ANSI slot from 0 to 15 (a number or one or two
   digits in a string), or a lowercase name of the 16 colours, also as

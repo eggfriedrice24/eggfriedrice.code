@@ -45,7 +45,9 @@ fn the_keys_start_with_the_top_level_ones_in_the_order_of_the_file() {
 #[test]
 fn the_render_keys_hold_one_colour_key_per_role() {
     let render: Vec<String> = keys().into_iter().filter(|key| key.starts_with("render.")).collect();
-    let mut expected = vec!["render.theme".to_owned(), "render.palette".to_owned()];
+    let mut expected: Vec<String> = ["theme", "palette", "motion", "turn_summary", "progress"]
+        .map(|key| format!("render.{key}"))
+        .into();
     expected.extend(COLOR_ROLES.iter().map(|role| format!("render.colors.{role}")));
     assert_eq!(render, expected);
     for role in COLOR_ROLES {
@@ -53,6 +55,10 @@ fn the_render_keys_hold_one_colour_key_per_role() {
     }
     assert_eq!(kind("render.colors"), None);
     assert_eq!(kind("render.palette"), Some(Kind::String));
+    assert_eq!(kind("render.motion"), Some(Kind::Boolean));
+    assert_eq!(kind("render.turn_summary"), Some(Kind::Boolean));
+    let choices = ["auto", "on", "off"].map(str::to_owned).to_vec();
+    assert_eq!(kind("render.progress"), Some(Kind::Choice(choices)));
 }
 
 #[test]

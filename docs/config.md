@@ -121,6 +121,9 @@ How `efr` shows replies.
 |---|---|---|---|
 | `theme` | unset | client | The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset: the terminal's own 16 colours. A `code_theme` in the palette file wins over it. |
 | `palette` | unset | client | A theme file with a colour for each role (its `[colors]` table) and, as `code_theme`, the path of a `.tmTheme` file for code: an absolute path or `~/...`. Unset: no theme file. |
+| `motion` | `true` | client | Motion in the status row of a running turn: the spinner turns and a band of normal text moves over the dim state. `false` shows a still dot and no band; the time still counts. |
+| `turn_summary` | `true` | client | One muted line at the end of each turn: how long it took and the tokens it used, such as `done in 42s, 18.2k tokens in, 1.1k out`. |
+| `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux), `on` or `off`. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |
 | `colors.muted` | unset | client | Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim. |
 | `colors.accent` | unset | client | The spinner and the colour of headings. Unset: slot 3 (yellow). |

@@ -404,6 +404,26 @@
       },
       "type": "array"
     },
+    "Progress": {
+      "description": "When `efr` shows the progress of a turn in the terminal's tab (OSC 9;4).",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47\nor later, Windows Terminal. Never inside tmux.",
+          "type": "string"
+        },
+        {
+          "const": "on",
+          "description": "Always, when stdout is a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "off",
+          "description": "Never.",
+          "type": "string"
+        }
+      ]
+    },
     "RenderColors": {
       "additionalProperties": false,
       "description": "The colour of each role: `[render.colors]` in `config.toml`, `[colors]` in a theme\nfile. A role that is not set keeps the colour of the layer below it.",
@@ -537,6 +557,11 @@
           },
           "description": "The colour of each role. A role set here wins over the palette file, and the\npalette file over the terminal's 16 colours."
         },
+        "motion": {
+          "default": true,
+          "description": "Motion in the status row of a running turn: the spinner turns and a band of\nnormal text moves over the dim state. `false` shows a still dot and no band;\nthe time still counts.",
+          "type": "boolean"
+        },
         "palette": {
           "description": "A theme file with a colour for each role (its `[colors]` table) and, as\n`code_theme`, the path of a `.tmTheme` file for code: an absolute path or\n`~/...`. Unset: no theme file.",
           "type": [
@@ -544,12 +569,22 @@
             "null"
           ]
         },
+        "progress": {
+          "$ref": "#/$defs/Progress",
+          "default": "auto",
+          "description": "The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`\n(only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never\ninside tmux), `on` or `off`."
+        },
         "theme": {
           "description": "The colour theme of code blocks and diffs, such as `catppuccin-mocha`. Unset:\nthe terminal's own 16 colours. A `code_theme` in the palette file wins over it.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "turn_summary": {
+          "default": true,
+          "description": "One muted line at the end of each turn: how long it took and the tokens it\nused, such as `done in 42s, 18.2k tokens in, 1.1k out`.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -986,7 +1021,10 @@
       "default": {
         "colors": {
           "diff": {}
-        }
+        },
+        "motion": true,
+        "progress": "auto",
+        "turn_summary": true
       },
       "description": "How `efr` shows replies."
     },

@@ -73,9 +73,35 @@ pub(crate) const COLOR_EXPECTED: &str =
 /// The names of the 16 colours, in the order of their ANSI slots from 0.
 const NAMES: [&str; 8] = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
 
+/// When `efr` shows the progress of a turn in the terminal's tab (OSC 9;4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum Progress {
+    /// Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47
+    /// or later, Windows Terminal. Never inside tmux.
+    #[default]
+    Auto,
+    /// Always, when stdout is a terminal.
+    On,
+    /// Never.
+    Off,
+}
+
+impl Progress {
+    /// The name in the file, such as `auto`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Progress::Auto => "auto",
+            Progress::On => "on",
+            Progress::Off => "off",
+        }
+    }
+}
+
 /// `[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it
 /// so one file serves both.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RenderSettings {
@@ -88,9 +114,33 @@ pub struct RenderSettings {
     /// `~/...`. Unset: no theme file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<PathBuf>,
+    /// Motion in the status row of a running turn: the spinner turns and a band of
+    /// normal text moves over the dim state. `false` shows a still dot and no band;
+    /// the time still counts.
+    pub motion: bool,
+    /// One muted line at the end of each turn: how long it took and the tokens it
+    /// used, such as `done in 42s, 18.2k tokens in, 1.1k out`.
+    pub turn_summary: bool,
+    /// The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`
+    /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
+    /// inside tmux), `on` or `off`.
+    pub progress: Progress,
     /// The colour of each role. A role set here wins over the palette file, and the
     /// palette file over the terminal's 16 colours.
     pub colors: RenderColors,
+}
+
+impl Default for RenderSettings {
+    fn default() -> Self {
+        RenderSettings {
+            theme: None,
+            palette: None,
+            motion: true,
+            turn_summary: true,
+            progress: Progress::Auto,
+            colors: RenderColors::default(),
+        }
+    }
 }
 
 impl RenderSettings {

@@ -5,7 +5,7 @@ use efr_protocol::Mode;
 use efr_stdx::env::Var;
 use pretty_assertions::assert_eq;
 
-use crate::{ConfigError, Location, ScreenChoice, Settings, Source, SudoCache};
+use crate::{ConfigError, Location, Progress, ScreenChoice, Settings, Source, SudoCache};
 
 const PATH: &str = "/home/u/.config/efr/config.toml";
 
@@ -237,6 +237,22 @@ fn colours_of_every_form_are_read_and_their_keys_come_from_the_file() {
     }
     assert_eq!(settings.source("render.colors.code"), Source::Default);
     assert_eq!(settings.source("render.colors"), Source::Default);
+}
+
+#[test]
+fn motion_the_turn_summary_and_the_progress_bar_are_on_or_auto_until_the_file_says_otherwise() {
+    let settings = parse("").unwrap();
+    assert!(settings.render.motion);
+    assert!(settings.render.turn_summary);
+    assert_eq!(settings.render.progress, Progress::Auto);
+    let text = "[render]\nmotion = false\nturn_summary = false\nprogress = \"off\"\n";
+    let settings = parse(text).unwrap();
+    assert!(!settings.render.motion);
+    assert!(!settings.render.turn_summary);
+    assert_eq!(settings.render.progress, Progress::Off);
+    assert_eq!(settings.source("render.progress"), Source::File);
+    let error = parse("[render]\nprogress = \"sometimes\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("render.progress"));
 }
 
 #[test]

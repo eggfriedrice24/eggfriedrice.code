@@ -3,7 +3,7 @@
 //!
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`SandboxSettings`], [`RenderSettings`] with [`RenderColors`] and
+//!   [`SandboxSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
@@ -58,7 +58,7 @@ pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
 pub use tables::render::{
-    COLOR_ROLES, ColorValue, DiffColors, RenderColors, RenderSettings, RoleColor,
+    COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings, RoleColor,
 };
 pub use tables::sandbox::{
     DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
