@@ -1,0 +1,27 @@
+---
+source: crates/efr-cli/src/format/changes/tests.rs
+expression: "shown.join(\"\\n\")"
+---
+=== colour
+\e[2mchanged \e[0msrc/a.rs                 \e[32m+3\e[0m\e[2m \e[0m\e[31m−1\e[0m
+\e[2mrenamed \e[0msrc/old.rs → src/new.rs
+\e[2mnew     \e[0mlogo.png                 \e[2m(binary)\e[0m
+\e[2mdeleted \e[0m~/notes/old.md           \e[31m−12\e[0m
+\e[2m… 2 more files\e[0m
+\e[2m6 files changed, +3 −13\e[0m
+
+=== NO_COLOR
+\e[2mchanged \e[0msrc/a.rs                 +3\e[2m \e[0m\e[1m−1\e[0m
+\e[2mrenamed \e[0msrc/old.rs → src/new.rs
+\e[2mnew     \e[0mlogo.png                 \e[2m(binary)\e[0m
+\e[2mdeleted \e[0m~/notes/old.md           \e[1m−12\e[0m
+\e[2m… 2 more files\e[0m
+\e[2m6 files changed, +3 −13\e[0m
+
+=== not a terminal
+changed src/a.rs                 +3 −1
+renamed src/old.rs → src/new.rs
+new     logo.png                 (binary)
+deleted ~/notes/old.md           −12
+… 2 more files
+6 files changed, +3 −13

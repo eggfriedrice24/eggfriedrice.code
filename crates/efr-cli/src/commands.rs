@@ -2,6 +2,7 @@
 //! arguments into protocol calls, and the replies into text for `output`.
 
 pub(crate) mod config;
+pub(crate) mod diff;
 pub(crate) mod history;
 pub(crate) mod login;
 pub(crate) mod models;

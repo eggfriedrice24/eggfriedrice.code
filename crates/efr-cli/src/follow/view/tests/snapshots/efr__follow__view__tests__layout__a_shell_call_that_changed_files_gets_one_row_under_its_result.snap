@@ -1,0 +1,86 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt && rm old.rs && touch notes.md\")),\nSent(1_500, changed(1, many, None)),\nSent(1_600, shell(2, \"git mv src/parse/expr.rs src/parse/expression.rs\")),\nSent(1_700, changed(2, moved, None)), Sent(1_800, shell(3, \"cargo test\")),\nSent(1_900, changed(3, FileChanges::default(), None)),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ cargo fmt && rm old.rs && touch \e[0m\e[2m\\e[0m
+        \e[36mnotes.md\e[0m
+  \e[32m✓ 1.4s\e[0m
+  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m−1\e[0m\e[2m · deleted\e[0m
+    \e[2mold.rs · new notes.md (+2 more)\e[0m
+
+\e[33m·\e[0m \e[36m$ git mv src/parse/expr.rs \e[0m\e[2m\\e[0m
+        \e[36msrc/parse/expression.rs\e[0m
+  \e[32m✓\e[0m
+  \e[2mrenamed src/parse/expr.rs →\e[0m
+    \e[2msrc/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m\e[2m ·\e[0m
+    \e[2mchanged assets/logo.png (binary)\e[0m
+
+\e[33m·\e[0m \e[36m$ cargo test\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ cargo fmt && rm old.rs && touch \e[2m\\e[0m
+        notes.md
+  ✓ 1.4s
+  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m−1\e[0m\e[2m · deleted\e[0m
+    \e[2mold.rs · new notes.md (+2 more)\e[0m
+
+\e[1m·\e[0m $ git mv src/parse/expr.rs \e[2m\\e[0m
+        src/parse/expression.rs
+  ✓
+  \e[2mrenamed src/parse/expr.rs →\e[0m
+    \e[2msrc/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m\e[2m ·\e[0m
+    \e[2mchanged assets/logo.png (binary)\e[0m
+
+\e[1m·\e[0m $ cargo test
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ cargo fmt && rm old.rs && touch notes.md\e[0m
+  \e[32m✓ 1.4s\e[0m
+  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m−1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
+
+\e[33m·\e[0m \e[36m$ git mv src/parse/expr.rs src/parse/expression.rs\e[0m
+  \e[32m✓\e[0m
+  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m\e[2m · changed\e[0m
+    \e[2massets/logo.png (binary)\e[0m
+
+\e[33m·\e[0m \e[36m$ cargo test\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ cargo fmt && rm old.rs && touch notes.md
+  ✓ 1.4s
+  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m−1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
+
+\e[1m·\e[0m $ git mv src/parse/expr.rs src/parse/expression.rs
+  ✓
+  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m\e[2m · changed\e[0m
+    \e[2massets/logo.png (binary)\e[0m
+
+\e[1m·\e[0m $ cargo test
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ cargo fmt && rm old.rs && touch notes.md
+  ✓ 1.4s
+  changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
+
+· $ git mv src/parse/expr.rs src/parse/expression.rs
+  ✓
+  renamed src/parse/expr.rs → src/parse/expression.rs +2 −2 · changed assets/logo.png (binary)
+
+· $ cargo test
+  ✓

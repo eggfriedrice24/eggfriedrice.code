@@ -17,6 +17,7 @@ state and never writes the daemon's database or credentials.
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the efforts of each; `--names` prints only the ids, for completion |
 | `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network none)` or `unavailable: <reason>; auto runs as cautious` with its fix |
 | `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, quarantine questions and turn-end reports show as dim lines; `--verbose` adds the record of each exit (`exit_requested`: its line, targets, hosts, programs and counts, never a user message) and how it was judged; `--verbose` without a conversation shows the newest conversation of this terminal (the first listed whose `tty` is the terminal on stdin), else the newest of all, after a dim line that says which; `--limit` and `--cursor` then page its events |
+| `efr diff [--turn <id>] [--conversation <id>] [--stat]` | `conversations.list` to find the conversation, `conversation.diff` (read scope) | what a turn changed in the files of its project and `$SCRATCH`, from the daemon's snapshots: by default the last turn of this terminal's conversation (the newest whose `tty` is the terminal on stdin), else of the newest conversation, with a dim line on stderr that says which; `--turn` asks for that turn and looks nothing up, `--conversation` takes an id or the start of one; on a terminal the diff is painted in the `diff.*` roles with the files' syntax colours, then a dim `… N more lines` for a diff the daemon cut and a dim `3 files changed, +24 −7`; in a pipe stdout holds the daemon's diff alone (tabs and newlines kept, other control characters as stand-ins), for `git apply` or a pager; `--stat` lists each file with its kind, path and counts, then the totals; a turn that changed nothing says so on stderr (exit 0); no conversation, or a turn that the daemon has no snapshot of (`not_found`), is an error (exit 1) that names the turn |
 | `efr sandbox check` | `admin.sandbox_check` | the daemon runs its sandbox probe now; one line per check (`ok`, `warn`, `fail` with its fix, `skip`), the warnings, the launch cost, then `auto: ready` or `auto: unavailable: <reason>`; exit 1 when it is unavailable |
 | `efr sandbox explain PATH` | `sandbox.explain` (read scope) | whether a contained command can read and write PATH (relative to the current directory, which also picks the project), and why: `read yes`, `write no: a shell startup file (floor); a write is a persistence exit, user only` |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
@@ -130,6 +131,10 @@ Replies:
   `interrupted after 12s`, also after Ctrl+C, which counts the time on efr's clock
   without the time of questions; a failed one has no such line. `render.turn_summary = false`
   leaves the line out. Piped output keeps its notes as they were.
+- A turn whose `turn_completed` carries `changes` (its first snapshot against its
+  last) ends with one more muted line right before that one, such as `3 files
+  changed, +24 −7`, also with `render.turn_summary = false` and in a pipe (on
+  stderr). A turn that changed no file has no such line.
 - The progress bar of the terminal's tab (OSC 9;4): an indeterminate bar (`9;4;3`)
   while the turn runs, sent again on every tick, a paused one (`9;4;4`) while the user
   is asked something, `9;4;0` on every way out, and `9;4;2;100` when the turn failed.
@@ -186,6 +191,23 @@ Replies:
   that went well keeps none. A call that the user denied, or whose approval expired,
   never ran: its rows follow the line of the answer at once, with no result, so the
   scrollback keeps what did not run. Notes and the end of a turn are muted lines.
+- What a call changed comes with its `tool_call_completed`, from the daemon's own
+  snapshots, so it works in every project, git or not, and in `$SCRATCH`. A file
+  write's `diff` shows in its block above the result, after the bar: the first
+  `render.diff_lines` lines (20 by default) from the first hunk on, in the `diff.*`
+  roles with the file's syntax colours, then a muted `… N more lines` that also counts
+  the lines that the daemon cut (its last line `... N more lines`). The file headers
+  (`diff --git`, `---`, `+++`) stay out, because the call names the file. A line wider
+  than the screen goes on in the next row at the same column after a muted `↩`, so
+  nothing of it is cut and the rows read back as the line (`efr_render::diff_rows`).
+  A call that shows no diff and has `changes` (a shell call, or a write with
+  `render.diff_lines = 0`) gets one muted row under its result, such as `changed
+  src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)`: the first three files,
+  grouped by kind (`changed`, `new`, `deleted`, `renamed a → b`), `(binary)` for a
+  binary file, the counts of a changed or renamed file with `+N` in the `success` role
+  and `−N` in the `error` role, and how many more files changed. A row wider than the
+  screen goes on in the next row, indented 2 more columns. Every path passes through
+  `format::one_line`.
 - When stdout is not a terminal, the blocks go to stderr in plain text, in the order
   that a terminal keeps them: the question of a call and the line of its answer, then
   the first rows of the call, then its result (with the last lines of a failure's
@@ -278,6 +300,7 @@ Replies:
   motion = true                # the spinner and the band of the status row
   turn_summary = true          # the line at the end of each turn
   progress = "auto"            # the progress bar of the tab: auto, on or off
+  diff_lines = 20              # the lines of a file write's diff; 0 shows none
 
   [render.colors]
   accent = "#f2c14e"           # "#rrggbb", an ANSI slot 0 to 15, or a name
@@ -534,7 +557,16 @@ columns wide, with colour and with `NO_COLOR`, and through a pipe: a call that w
 well, a failed call with its tail, a refused call, a command of several lines, a long
 command, the file tools, a question for a grant in the sandbox, a question for a run
 with full rights with an untrusted program, the answer lines, a card taller than the
-screen, and a whole turn with prose, two calls and a question. The card tests check
+screen, a whole turn with prose, two calls and a question, a file write with its
+diff (a line wider than 40 columns, the `… N more lines` row, a diff that the daemon
+cut, and `render.diff_lines = 0`), a shell call's row of changed files (kinds, a
+rename, a binary file, the files left out), the line of a turn that changed files,
+and a whole turn that writes a file and runs a command. `format/changes/tests.rs`
+checks the rows, the turn line, the split of a diff and the list of `efr diff
+--stat`; `commands/diff/tests.rs` runs `efr diff` against a fake daemon (the
+conversation it picks, `--turn`, a terminal, a pipe, a turn that changed nothing, no
+snapshot, no conversation) and snapshots its diff at 40 and 80 columns with colour
+and with `NO_COLOR`. The card tests check
 that every row fits the width and that the rows give the command back whole. The
 colour tests run the status row, a call and a question in 16 colours, in truecolor and
 under `NO_COLOR` with a palette of the user's, and check that `COLOR_ROLES` equals the

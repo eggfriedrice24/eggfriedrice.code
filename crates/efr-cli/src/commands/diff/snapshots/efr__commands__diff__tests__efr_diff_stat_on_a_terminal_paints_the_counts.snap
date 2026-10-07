@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/commands/diff/tests.rs
+expression: readable(&stdout)
+---
+\e[2mchanged \e[0msrc/main.rs  \e[32m+1\e[0m\e[2m \e[0m\e[31m−1\e[0m
+\e[2mnew     \e[0mnotes.md     \e[32m+1\e[0m
+\e[2m2 files changed, +2 −1\e[0m

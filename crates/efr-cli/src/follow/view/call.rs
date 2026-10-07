@@ -27,11 +27,31 @@
 //! the `success` role, or `✗ exit 101`, `✗ failed` or `✗ refused: <why>` in the
 //! `error` role. The time follows for a call that ran 1 s or more. A result or a note
 //! wider than the screen goes on in the next row, indented 2 more columns.
+//!
+//! ```text
+//! · write src/a.rs
+//!   │ @@ -1,2 +1,2 @@
+//!   │  fn main() {
+//!   │ -    old();
+//!   │ +    new();
+//!   │ … 12 more lines
+//!   ✓
+//!
+//! · $ cargo fmt
+//!   ✓ 1.2s
+//!   changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
+//! ```
+//!
+//! A file write shows its diff above its result: the first lines of `render.diff_lines`
+//! in the `diff.*` roles after the bar, then a muted row that counts the rest. A call
+//! that changed files and shows no diff, such as a shell call, gets one muted row of
+//! the files under its result, with the added lines in the `success` role and the
+//! removed lines in the `error` role.
 
 use std::time::Duration;
 
-use efr_protocol::CallId;
-use efr_render::{RenderOptions, text_width};
+use efr_protocol::{CallId, FileChanges};
+use efr_render::{RenderOptions, diff_rows, text_width};
 use jiff::Timestamp;
 
 use crate::follow::since_then;
@@ -66,6 +86,10 @@ const LIVE_LINES: usize = 3;
 
 /// What joins the parts of a result, such as `✗ exit 2 · 1.2s`.
 const JOIN: &str = " \u{b7} ";
+
+/// The fewest columns a row of a diff gets, so a very narrow screen still shows a few
+/// characters of each row.
+const MIN_DIFF_WIDTH: usize = 10;
 
 /// How a call ended, for its result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +174,11 @@ impl Call {
     /// The frame at `now` shows the call: its time counts from the first such frame.
     pub(crate) fn show(&mut self, now: Timestamp) {
         self.shown.get_or_insert(now);
+    }
+
+    /// The first line of what the call does: the path of a file tool's call.
+    pub(crate) fn subject(&self) -> Option<&str> {
+        self.text.lines.first().map(String::as_str)
     }
 
     /// The name and the first line, such as `$ cargo test`.
@@ -269,21 +298,88 @@ pub(crate) fn notes(lines: &[String], options: &RenderOptions) -> String {
     lines.iter().map(|line| indented(line, Tone::Dim, options)).collect()
 }
 
+/// The row of the files that a call changed, under its result: muted, with the added
+/// lines in the `success` role and the removed ones in the `error` role, as rows that
+/// fit the screen. Nothing when it changed none.
+pub(crate) fn changes(changes: &FileChanges, options: &RenderOptions) -> String {
+    let pieces = format::changes::call_row(changes);
+    if pieces.is_empty() {
+        return String::new();
+    }
+    indented_pieces(&pieces, options)
+}
+
+/// The rows of a file write's diff under the call's first rows: at most `limit` lines
+/// from the first hunk on, each after the bar, in the `diff.*` roles, then a muted
+/// `… N more lines` for the lines left out. The file headers stay out, because the call
+/// names the file; they only give the file's syntax colours, as `path`, the file that
+/// the call writes, does for a diff without them. On a terminal a line wider than the
+/// screen goes on in the next row at the same column after a muted `↩`, so nothing of
+/// it is cut; elsewhere each line is one row, without colour.
+pub(crate) fn diff(
+    diff: &str,
+    path: Option<&str>,
+    limit: usize,
+    options: &RenderOptions,
+) -> String {
+    let parts = format::changes::diff_parts(diff);
+    let shown = parts.body.len().min(limit);
+    let hidden = parts.body.len() - shown + parts.cut;
+    let mut source: Vec<String> = parts.head.iter().map(|line| (*line).to_owned()).collect();
+    if let Some(path) = path.filter(|_| !parts.head.iter().any(|line| line.starts_with("--- "))) {
+        source.push(format!("--- a/{path}"));
+        source.push(format!("+++ b/{path}"));
+    }
+    let head = source.len();
+    source.extend(parts.body[..shown].iter().map(|line| (*line).to_owned()));
+    let mut text = source.join("\n");
+    text.push('\n');
+    let room = match format::columns(options) {
+        Some((width, method)) => {
+            let taken = text_width(BAR, method) + text_width(format::WORD_MARK, method);
+            width.saturating_sub(taken).max(MIN_DIFF_WIDTH)
+        }
+        None => usize::from(options.width()),
+    };
+    let options = options.clone().with_width(u16::try_from(room).unwrap_or(u16::MAX));
+    let bar = format::paint(BAR, Tone::Dim, &options);
+    let mut out = String::new();
+    for rows in diff_rows(&text, &options).into_iter().skip(head) {
+        let last = rows.len().saturating_sub(1);
+        for (at, row) in rows.iter().enumerate() {
+            out.push_str(&bar);
+            out.push_str(row);
+            if at < last {
+                out.push_str(&format::paint(format::WORD_MARK, Tone::Dim, &options));
+            }
+            out.push('\n');
+        }
+    }
+    if hidden > 0 {
+        out.push_str(&bar);
+        out.push_str(&format::paint(&format::changes::more_lines(hidden), Tone::Dim, &options));
+        out.push('\n');
+    }
+    out
+}
+
 /// `text` in `tone` after [`INDENT`], as rows that fit the screen: a text wider than
 /// the screen goes on in the next row, indented 2 more columns, so the terminal never
 /// wraps a row of efr's own and nothing is cut. Elsewhere than on a terminal no screen
 /// sets a width, so the text stays on one row.
 fn indented(text: &str, tone: Tone, options: &RenderOptions) -> String {
-    let rows: Vec<String> = match format::columns(options) {
+    indented_pieces(&[(text.to_owned(), tone)], options)
+}
+
+/// Pieces of text with their tones after [`INDENT`], as [`indented`] lays them out.
+fn indented_pieces(pieces: &[(String, Tone)], options: &RenderOptions) -> String {
+    let rows: Vec<Vec<(String, Tone)>> = match format::columns(options) {
         Some((width, method)) => {
             let first = width.saturating_sub(INDENT.len()).max(1);
             let rest = width.saturating_sub(INDENT.len() + GOES_ON_TEXT).max(1);
-            format::wrap_spans(&[(text.to_owned(), tone)], first, rest, method)
-                .into_iter()
-                .map(|row| row.into_iter().map(|(text, _)| text).collect())
-                .collect()
+            format::wrap_spans(pieces, first, rest, method)
         }
-        None => vec![text.to_owned()],
+        None => vec![pieces.to_vec()],
     };
     let mut out = String::new();
     for (at, row) in rows.iter().enumerate() {
@@ -291,7 +387,9 @@ fn indented(text: &str, tone: Tone, options: &RenderOptions) -> String {
         if at > 0 {
             out.push_str(&" ".repeat(GOES_ON_TEXT));
         }
-        out.push_str(&format::paint(row, tone, options));
+        for (text, tone) in row {
+            out.push_str(&format::paint(text, *tone, options));
+        }
         out.push('\n');
     }
     out

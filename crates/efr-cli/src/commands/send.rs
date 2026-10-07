@@ -122,6 +122,7 @@ pub(crate) async fn send(
         motion: render.motion,
         summary: render.turn_summary,
         progress: progress::wanted(render.progress, &ctx.term),
+        diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
     };
     let mut view =
         TurnView::new(result.turn_id, options).with_home(ctx.home.clone()).with_look(look);

@@ -128,6 +128,22 @@ fn history_takes_a_conversation_a_limit_and_a_cursor() {
 }
 
 #[test]
+fn diff_takes_a_turn_a_conversation_and_stat() {
+    let Command::Diff(args) = command(&["diff"]) else { panic!("not diff") };
+    assert_eq!((args.turn, args.conversation, args.stat), (None, None, false));
+    let turn = "019a9b1c-3d00-7a10-8b20-000000000002";
+    let Command::Diff(args) =
+        command(&["diff", "--turn", turn, "--conversation", "019a9b1c", "--stat"])
+    else {
+        panic!("not diff");
+    };
+    assert_eq!(args.turn, Some(turn.parse().unwrap()));
+    assert_eq!(args.conversation.as_deref(), Some("019a9b1c"));
+    assert!(args.stat);
+    assert_eq!(parse_error(&["diff", "--turn", "not-a-turn"]), ErrorKind::ValueValidation);
+}
+
+#[test]
 fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
     assert_eq!(parse_error(&["login", "anthropic"]), ErrorKind::InvalidSubcommand);

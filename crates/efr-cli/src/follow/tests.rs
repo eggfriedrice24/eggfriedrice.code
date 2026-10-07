@@ -1478,7 +1478,7 @@ fn the_time_since_a_moment_is_never_negative() {
 
 /// A terminal view with every switch on, whose status row runs, as `efr send` makes it.
 fn started_view() -> TurnView {
-    let look = Look { motion: true, summary: true, progress: true };
+    let look = Look { motion: true, summary: true, progress: true, diff_lines: 20 };
     let mut view = TurnView::new(turn(), RenderOptions::new(80)).with_look(look);
     view.start();
     view

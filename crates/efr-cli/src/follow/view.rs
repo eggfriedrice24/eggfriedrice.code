@@ -70,6 +70,12 @@
 //! tokens, and a progress bar in the terminal's tab (OSC 9;4) runs while the turn does,
 //! when the terminal draws one.
 //!
+//! What a call changed comes with its end: a file write shows the first lines of its
+//! diff in its block (`render.diff_lines`), and a call that changed files without a
+//! diff shown gets one muted row of them under its result (`format::changes`). A turn
+//! that changed files ends with one muted line that counts them, right before the line
+//! of its time and tokens.
+//!
 //! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that
 //! says where the sandbox can write; the result of a failed call names no sandbox.
 //! An approval for an exit shows the whole line of the call, what a "yes" allows and
@@ -90,7 +96,8 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
-    ExitRecord, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange, TurnId,
+    ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange,
+    TurnId,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -363,6 +370,18 @@ pub(crate) struct Look {
     /// The progress bar of the terminal's tab shows while the turn runs
     /// (`render.progress`, already checked against the terminal).
     pub(crate) progress: bool,
+    /// The lines of a file write's diff that show under its call; 0 shows the row of
+    /// the files instead (`render.diff_lines`).
+    pub(crate) diff_lines: usize,
+}
+
+/// What a call changed in the files of the turn's roots, from its
+/// `tool_call_completed`.
+#[derive(Debug, Clone, Copy, Default)]
+struct Changed<'a> {
+    changes: Option<&'a FileChanges>,
+    /// The unified diff of a file tool's write.
+    diff: Option<&'a str>,
 }
 
 /// The state of one followed turn on the screen.
@@ -960,6 +979,8 @@ impl TurnView {
                 exit_code,
                 sandbox: summary,
                 refusal,
+                changes,
+                diff,
                 ..
             } => {
                 self.state(State::Model);
@@ -996,7 +1017,8 @@ impl TurnView {
                             (None, None, None) if *is_error => Outcome::Failed,
                             _ => Outcome::Ran,
                         };
-                        self.call_block(&call, outcome, &lines, &notes, size)
+                        let changed = Changed { changes: changes.as_ref(), diff: diff.as_deref() };
+                        self.call_block(&call, outcome, &lines, &notes, changed, size)
                     }
                     None => {
                         // The start of the call was not seen: its end is a note. A
@@ -1009,6 +1031,7 @@ impl TurnView {
                         let mut all: Vec<String> =
                             line.into_iter().map(|line| format!("{NO}{line}")).collect();
                         all.extend(sandbox::setup_failed(setup));
+                        all.extend(changes.as_ref().and_then(changes_note));
                         all.extend(notes);
                         self.notes(&all, size)
                     }
@@ -1075,19 +1098,23 @@ impl TurnView {
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
             }
-            Event::TurnCompleted { usage, .. } => {
+            Event::TurnCompleted { usage, changes, .. } => {
+                // NOTE: the files that the turn changed stand right before its end, also
+                // without the end's line: they say what the turn left behind.
+                let changed = changes.as_ref().and_then(format::changes::turn_line);
                 let line = self.summary().then(|| format::turn_done(self.took(), usage.as_ref()));
-                self.end(TurnEnd::Completed, line, size)
+                let lines: Vec<String> = changed.into_iter().chain(line).collect();
+                self.end(TurnEnd::Completed, &lines, size)
             }
-            Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), None, size),
+            Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), &[], size),
             Event::TurnInterrupted { .. } => {
                 let line = match self.took().filter(|_| self.summary()) {
                     Some(took) => format!("interrupted after {}", format::took(took)),
                     None => "interrupted".to_owned(),
                 };
-                self.end(TurnEnd::Interrupted, Some(line), size)
+                self.end(TurnEnd::Interrupted, &[line], size)
             }
-            Event::TurnCancelled { .. } => self.end(TurnEnd::Cancelled, None, size),
+            Event::TurnCancelled { .. } => self.end(TurnEnd::Cancelled, &[], size),
             _ => Step::default(),
         }
     }
@@ -1856,7 +1883,7 @@ impl TurnView {
         settled
     }
 
-    fn end(&mut self, end: TurnEnd, note: Option<String>, size: Size) -> Step {
+    fn end(&mut self, end: TurnEnd, notes: &[String], size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
@@ -1865,8 +1892,8 @@ impl TurnView {
         let failed = matches!(end, TurnEnd::Failed(_));
         self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
         let mut step = self.close();
-        if let Some(note) = note {
-            let noted = self.note(&note, size);
+        for note in notes {
+            let noted = self.note(note, size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
         }
@@ -1905,14 +1932,17 @@ impl TurnView {
 
     /// The block of call `call`, which ended as `outcome` at the time of the event being
     /// taken, written once, with `notes` under its result; a failed call keeps `lines`,
-    /// the last of its output. When stdout is not a terminal, its first rows went to
-    /// stderr before this event (`due_header`), and the rest follows now.
+    /// the last of its output. A file write's diff stands above the result; the files
+    /// that a call without a diff shown changed stand under it. When stdout is not a
+    /// terminal, its first rows went to stderr before this event (`due_header`), and
+    /// the rest follows now.
     fn call_block(
         &mut self,
         call: &Call,
         outcome: Outcome<'_>,
         lines: &[String],
         notes: &[String],
+        changed: Changed<'_>,
         size: Size,
     ) -> Step {
         let options = self.options_at(size);
@@ -1920,7 +1950,15 @@ impl TurnView {
         if outcome.failed() {
             block.push_str(&call::tail(lines, false, &options));
         }
+        let limit = self.look.diff_lines;
+        let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
+        if let Some(diff) = diff {
+            block.push_str(&call::diff(diff, call.subject(), limit, &options));
+        }
         block.push_str(&call.result(self.event_at, outcome, &options));
+        if let Some(changes) = changed.changes.filter(|_| diff.is_none()) {
+            block.push_str(&call::changes(changes, &options));
+        }
         block.push_str(&call::notes(notes, &options));
         if !self.terminal() {
             return Step { err: self.raw_err(block), ..Step::default() };
@@ -2040,6 +2078,14 @@ struct Request<'a> {
     diff: Option<&'a str>,
     /// What the call would do outside the sandbox, for an exit.
     exit: Option<&'a ExitInfo>,
+}
+
+/// The row of the files that a call changed as one plain note, for a call whose block
+/// is not shown; `None` when it changed none.
+fn changes_note(changes: &FileChanges) -> Option<String> {
+    let row: String =
+        format::changes::call_row(changes).into_iter().map(|(text, _)| text).collect();
+    (!row.is_empty()).then_some(row)
 }
 
 /// True for an event after which the drafts made before it show nothing new: the end

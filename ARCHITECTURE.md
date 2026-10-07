@@ -57,7 +57,7 @@ shipped binary.
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the

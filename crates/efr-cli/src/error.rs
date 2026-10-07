@@ -146,6 +146,15 @@ pub(crate) enum CliError {
     #[error("{query:?} matches {matches} conversations; type more of the id")]
     AmbiguousConversation { query: String, matches: usize },
 
+    /// `efr diff` found no conversation, so there is no turn to show.
+    #[error("there is no conversation yet, so no turn changed a file")]
+    NoConversation,
+
+    /// The daemon has no diff of the turn that `efr diff` asked for: the conversation
+    /// has no turn, or efr took no snapshot of it.
+    #[error("there is no diff of {what}: {reason}")]
+    NoDiff { what: String, reason: String },
+
     /// The turn ended with an error from the daemon or the model provider.
     #[error("the turn failed with {}: {}", .body.code, .body.message)]
     TurnFailed { body: ErrorBody },

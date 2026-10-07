@@ -22,6 +22,7 @@ use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation as _;
 
 pub(crate) mod card;
+pub(crate) mod changes;
 pub(crate) mod sandbox;
 
 /// Keys of a tool's input that best describe a call in one line, in order of
@@ -246,6 +247,17 @@ pub(crate) fn lines(text: &str) -> Cow<'_, str> {
             })
             .collect(),
     )
+}
+
+/// A diff safe to print as it is, for a pipe: newlines and tabs stay, so a tool that
+/// reads the diff can apply it, and other control characters and format characters
+/// become visible stand-ins.
+pub(crate) fn diff_text(text: &str) -> Cow<'_, str> {
+    let unsafe_char = |c: char| (c.is_control() && c != '\n' && c != '\t') || is_format(c);
+    if !text.chars().any(unsafe_char) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(text.chars().map(|c| if unsafe_char(c) { visible(c) } else { c }).collect())
 }
 
 /// A control character's visible stand-in, the same mapping `efr-render` uses, and

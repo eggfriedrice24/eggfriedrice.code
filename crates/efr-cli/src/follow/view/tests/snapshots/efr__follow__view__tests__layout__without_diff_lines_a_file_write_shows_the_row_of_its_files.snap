@@ -1,0 +1,39 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way_with(look,\n&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/main.rs\")),\nSent(40, changed(1, changes, Some(&main_rs_diff()))),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+  \e[32m✓\e[0m
+  \e[2mchanged src/main.rs \e[0m\e[32m+23\e[0m\e[2m \e[0m\e[31m−1\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m write src/main.rs
+  ✓
+  \e[2mchanged src/main.rs \e[0m+23\e[2m \e[0m\e[1m−1\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+  \e[32m✓\e[0m
+  \e[2mchanged src/main.rs \e[0m\e[32m+23\e[0m\e[2m \e[0m\e[31m−1\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m write src/main.rs
+  ✓
+  \e[2mchanged src/main.rs \e[0m+23\e[2m \e[0m\e[1m−1\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· write src/main.rs
+  ✓
+  changed src/main.rs +23 −1

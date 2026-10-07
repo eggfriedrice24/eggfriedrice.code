@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use efr_protocol::{
     ApprovalDecision, CallId, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource,
-    Grant, Launch, Origin, ProgramFact, Scope, Seq, Usage,
+    FileChange, FileChangeKind, FileChanges, Grant, Launch, Origin, ProgramFact, Scope, Seq, Usage,
 };
 use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use serde_json::{Value, json};
@@ -218,8 +218,15 @@ fn bare(text: &str) -> String {
 /// Plays `acts` on a view with `options` and a screen of `size`: the screen at each
 /// look and at the end on a terminal, or what stdout and stderr got through a pipe.
 fn play(options: RenderOptions, size: Size, acts: &[Act]) -> String {
+    play_with(LOOK, options, size, acts)
+}
+
+/// The look of the cases: no motion, the end-of-turn line, and 20 lines of a diff.
+const LOOK: Look = Look { motion: false, summary: true, progress: false, diff_lines: 20 };
+
+/// [`play`] with `look`.
+fn play_with(look: Look, options: RenderOptions, size: Size, acts: &[Act]) -> String {
     let terminal = options.is_terminal();
-    let look = Look { motion: false, summary: true, progress: false };
     let mut view =
         TurnView::new(turn(), options).with_look(look).with_home(Some(PathBuf::from("/home/user")));
     view.start();
@@ -266,16 +273,24 @@ fn play(options: RenderOptions, size: Size, acts: &[Act]) -> String {
 /// `acts` played every way: 40 and 80 columns, with colour and with `NO_COLOR`, and
 /// through a pipe.
 fn every_way(acts: &[Act]) -> String {
+    every_way_with(LOOK, acts)
+}
+
+/// [`every_way`] with `look`.
+fn every_way_with(look: Look, acts: &[Act]) -> String {
     let mut shown = Vec::new();
     for cols in [40_u16, 80] {
         let size = Size { cols, rows: 40 };
         for (name, colour) in [("colour", ColourMode::Ansi16), ("NO_COLOR", ColourMode::None)] {
             let options = RenderOptions::new(cols).with_colour(colour);
-            shown.push(format!("=== {cols} columns, {name}\n{}", play(options, size, acts)));
+            shown.push(format!(
+                "=== {cols} columns, {name}\n{}",
+                play_with(look, options, size, acts)
+            ));
         }
     }
     let piped = RenderOptions::new(80).with_terminal(false);
-    shown.push(format!("=== not a terminal\n{}", play(piped, Size::default(), acts)));
+    shown.push(format!("=== not a terminal\n{}", play_with(look, piped, Size::default(), acts)));
     shown.join("\n")
 }
 
@@ -544,4 +559,155 @@ fn a_card_taller_than_the_screen_goes_to_the_scrollback_and_its_keys_stay() {
         assert!(shown.contains(&format!("echo step {n}\n")), "{shown}");
     }
     insta::assert_snapshot!(shown);
+}
+
+fn file(path: &str, kind: FileChangeKind, added: u32, removed: u32) -> FileChange {
+    FileChange { path: path.to_owned(), kind, from: None, added, removed, binary: false }
+}
+
+fn file_changes(files: Vec<FileChange>, more: u32) -> FileChanges {
+    let added = files.iter().map(|file| file.added).sum();
+    let removed = files.iter().map(|file| file.removed).sum();
+    FileChanges { files, more, added, removed }
+}
+
+/// The end of call `n` that went well and changed `changes`, with the diff of a write.
+fn changed(n: u8, changes: FileChanges, diff: Option<&str>) -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: id(n),
+        output: String::new(),
+        truncated: false,
+        is_error: false,
+        exit_code: diff.is_none().then_some(0),
+        sandbox: None,
+        refusal: None,
+        changes: Some(changes),
+        diff: diff.map(str::to_owned),
+    }
+}
+
+fn write_file(n: u8, path: &str) -> Event {
+    started(n, "write_file", json!({ "path": path, "content": "..." }), None)
+}
+
+/// A diff of `src/main.rs` with its headers, 26 lines from its first hunk on and one
+/// line wider than 40 columns.
+fn main_rs_diff() -> String {
+    let mut diff = "diff --git a/src/main.rs b/src/main.rs\nindex 1111111..2222222 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,4 +1,27 @@\n fn main() {\n-    println!(\"old\");\n+    println!(\"a new greeting that is much wider than forty columns\");\n".to_owned();
+    for n in 1..=22 {
+        diff.push_str(&format!("+    step({n});\n"));
+    }
+    diff.push_str(" }\n");
+    diff
+}
+
+fn turn_changed(changes: FileChanges) -> Event {
+    let usage = Usage { input_tokens: 18_200, output_tokens: 1_100 };
+    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: Some(changes) }
+}
+
+#[test]
+fn a_file_write_shows_the_first_lines_of_its_diff() {
+    let changes = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, write_file(1, "src/main.rs")),
+        Sent(40, changed(1, changes, Some(&main_rs_diff()))),
+    ]));
+}
+
+#[test]
+fn a_diff_that_the_daemon_cut_counts_the_lines_it_left_out() {
+    // A new file without headers: the call's path gives the syntax colours, and the
+    // lines that the daemon cut join the lines that the view leaves out.
+    let diff = "@@ -0,0 +1,2000 @@\n+# Notes\n+\n+- one\n... 1997 more lines\n";
+    let changes = file_changes(vec![file("notes.md", FileChangeKind::Added, 2000, 0)], 0);
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, write_file(1, "notes.md")),
+        Sent(40, changed(1, changes, Some(diff))),
+    ]));
+}
+
+#[test]
+fn without_diff_lines_a_file_write_shows_the_row_of_its_files() {
+    let changes = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
+    let look = Look { diff_lines: 0, ..LOOK };
+    insta::assert_snapshot!(every_way_with(
+        look,
+        &[
+            Sent(0, turn_started()),
+            Sent(10, write_file(1, "src/main.rs")),
+            Sent(40, changed(1, changes, Some(&main_rs_diff()))),
+        ]
+    ));
+}
+
+#[test]
+fn a_shell_call_that_changed_files_gets_one_row_under_its_result() {
+    let mut renamed = file("src/parse/expression.rs", FileChangeKind::Renamed, 2, 2);
+    renamed.from = Some("src/parse/expr.rs".to_owned());
+    let mut logo = file("assets/logo.png", FileChangeKind::Modified, 0, 0);
+    logo.binary = true;
+    let many = file_changes(
+        vec![
+            file("src/a.rs", FileChangeKind::Modified, 3, 1),
+            file("old.rs", FileChangeKind::Deleted, 0, 40),
+            file("notes.md", FileChangeKind::Added, 12, 0),
+            file("src/b.rs", FileChangeKind::Modified, 1, 0),
+        ],
+        1,
+    );
+    let moved = file_changes(vec![renamed, logo], 0);
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, "cargo fmt && rm old.rs && touch notes.md")),
+        Sent(1_500, changed(1, many, None)),
+        Sent(1_600, shell(2, "git mv src/parse/expr.rs src/parse/expression.rs")),
+        Sent(1_700, changed(2, moved, None)),
+        Sent(1_800, shell(3, "cargo test")),
+        Sent(1_900, changed(3, FileChanges::default(), None)),
+    ]));
+}
+
+#[test]
+fn a_turn_that_changed_files_says_so_before_its_end() {
+    let changes = file_changes(
+        vec![
+            file("src/a.rs", FileChangeKind::Modified, 20, 7),
+            file("notes.md", FileChangeKind::Added, 4, 0),
+            file("old.rs", FileChangeKind::Deleted, 0, 0),
+        ],
+        0,
+    );
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(900, message(0, "Done.")),
+        Sent(1_000, turn_changed(changes)),
+    ]));
+}
+
+#[test]
+fn a_whole_turn_that_writes_a_file_and_runs_a_command() {
+    let written = file_changes(vec![file("src/main.rs", FileChangeKind::Modified, 23, 1)], 0);
+    let formatted = file_changes(vec![file("src/lib.rs", FileChangeKind::Modified, 2, 2)], 0);
+    let all = file_changes(
+        vec![
+            file("src/main.rs", FileChangeKind::Modified, 23, 1),
+            file("src/lib.rs", FileChangeKind::Modified, 2, 2),
+        ],
+        0,
+    );
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(900, message(0, "I will greet the user and run the formatter.")),
+        Sent(1_000, write_file(1, "src/main.rs")),
+        Sent(1_100, changed(1, written, Some(&main_rs_diff()))),
+        Sent(1_200, shell(2, "cargo fmt")),
+        Shot("running"),
+        Sent(2_500, changed(2, formatted, None)),
+        Sent(3_000, message(1, "The greeting is in `src/main.rs`.")),
+        Sent(3_100, turn_changed(all)),
+    ]));
 }

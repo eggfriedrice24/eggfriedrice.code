@@ -70,7 +70,7 @@ pub(crate) async fn run(
 
 /// Why `efr history --verbose` without a conversation shows the one it shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Picked {
+pub(crate) enum Picked {
     /// The newest conversation of this terminal.
     Terminal,
     /// The newest conversation of all, because this terminal has none.
@@ -78,7 +78,7 @@ enum Picked {
 }
 
 impl Picked {
-    fn words(self) -> &'static str {
+    pub(crate) fn words(self) -> &'static str {
         match self {
             Picked::Terminal => "the newest conversation of this terminal",
             Picked::Newest => "the newest conversation",
@@ -88,7 +88,7 @@ impl Picked {
 
 /// The conversation that `efr history --verbose` shows without one: the newest of the
 /// terminal `tty`, else the newest of all; `None` when there is none.
-async fn pick(
+pub(crate) async fn pick(
     client: &Client,
     tty: Option<&str>,
 ) -> Result<Option<(ConversationId, Picked)>, CliError> {
@@ -115,7 +115,7 @@ pub(crate) struct Shown<'a> {
 
 /// The conversation that `query` names: a whole id, or the start of exactly one
 /// listed conversation's id.
-async fn resolve(client: &Client, query: &str) -> Result<ConversationId, CliError> {
+pub(crate) async fn resolve(client: &Client, query: &str) -> Result<ConversationId, CliError> {
     if let Ok(id) = query.parse::<ConversationId>() {
         return Ok(id);
     }

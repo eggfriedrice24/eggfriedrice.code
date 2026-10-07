@@ -23,7 +23,7 @@ use std::str::FromStr;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser as _};
 use clap::{Args, Parser, Subcommand};
-use efr_protocol::{ConversationId, Mode};
+use efr_protocol::{ConversationId, Mode, TurnId};
 
 /// The parsed command line.
 #[derive(Debug, Parser)]
@@ -50,6 +50,8 @@ pub(crate) enum Command {
     Status,
     /// List recent conversations, or show the events of one.
     History(HistoryArgs),
+    /// Show what the last turn changed in the files of its project and $SCRATCH.
+    Diff(DiffArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
     Settings(TurnSettingsArgs),
@@ -231,6 +233,23 @@ pub(crate) struct HistoryArgs {
     /// Also show the facts that efr recorded for each exit from the auto sandbox.
     #[arg(long, short = 'v')]
     pub(crate) verbose: bool,
+}
+
+/// The arguments of `efr diff`.
+#[derive(Debug, Args)]
+pub(crate) struct DiffArgs {
+    /// Show this turn instead of the last one.
+    #[arg(long, value_name = "ID")]
+    pub(crate) turn: Option<TurnId>,
+
+    /// The conversation whose last turn shows: its id, or the start of it. Without it,
+    /// this terminal's conversation shows, else the newest of all.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+
+    /// List the files that changed, with their counts of lines, instead of the diff.
+    #[arg(long)]
+    pub(crate) stat: bool,
 }
 
 /// The providers `efr login` knows.

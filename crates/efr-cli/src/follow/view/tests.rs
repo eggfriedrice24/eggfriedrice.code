@@ -1743,7 +1743,7 @@ fn at(millis: i64) -> Timestamp {
 }
 
 /// Every switch of `config.toml` on.
-const ALL: Look = Look { motion: true, summary: true, progress: true };
+const ALL: Look = Look { motion: true, summary: true, progress: true, diff_lines: 20 };
 
 /// A terminal view with `look` whose status row runs.
 fn started_view(look: Look) -> TurnView {

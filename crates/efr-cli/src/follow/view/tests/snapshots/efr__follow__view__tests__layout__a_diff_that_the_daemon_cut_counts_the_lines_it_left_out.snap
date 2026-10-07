@@ -1,0 +1,59 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes.md\")),\nSent(40, changed(1, changes, Some(diff))),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36mwrite notes.md\e[0m
+\e[2m  │ \e[0m\e[36m@@ -0,0 +1,2000 @@\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m- one
+\e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m write notes.md
+\e[2m  │ \e[0m@@ -0,0 +1,2000 @@
+\e[2m  │ \e[0m\e[1m+\e[0m# Notes
+\e[2m  │ \e[0m\e[1m+\e[0m
+\e[2m  │ \e[0m\e[1m+\e[0m- one
+\e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36mwrite notes.md\e[0m
+\e[2m  │ \e[0m\e[36m@@ -0,0 +1,2000 @@\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m- one
+\e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m write notes.md
+\e[2m  │ \e[0m@@ -0,0 +1,2000 @@
+\e[2m  │ \e[0m\e[1m+\e[0m# Notes
+\e[2m  │ \e[0m\e[1m+\e[0m
+\e[2m  │ \e[0m\e[1m+\e[0m- one
+\e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· write notes.md
+  │ @@ -0,0 +1,2000 @@
+  │ +# Notes
+  │ +
+  │ +- one
+  │ … 1997 more lines
+  ✓

@@ -1,0 +1,79 @@
+---
+source: crates/efr-cli/src/commands/diff/tests.rs
+expression: "out.join(\"\\n\")"
+---
+=== 40 columns, colour
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+\e[36m@@ -1,3 +1,3 @@\e[0m
+ \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[1;31m-\e[0m   println!(\e[32m"old"\e[0m);
+\e[1;32m+\e[0m   println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+ }
+\e[1mdiff --git a/notes.md b/notes.md\e[0m
+\e[1mnew file mode 100644\e[0m
+\e[1m--- /dev/null\e[0m
+\e[1m+++ b/notes.md\e[0m
+\e[36m@@ -0,0 +1 @@\e[0m
+\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+
+\e[2m2 files changed, +2 −1\e[0m
+
+=== 40 columns, NO_COLOR
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+@@ -1,3 +1,3 @@
+ fn main() {
+\e[1m-\e[0m   println!("old");
+\e[1m+\e[0m   println!("a new greeting that is much wider than forty columns");
+ }
+\e[1mdiff --git a/notes.md b/notes.md\e[0m
+\e[1mnew file mode 100644\e[0m
+\e[1m--- /dev/null\e[0m
+\e[1m+++ b/notes.md\e[0m
+@@ -0,0 +1 @@
+\e[1m+\e[0m# Notes
+
+\e[2m2 files changed, +2 −1\e[0m
+
+=== 80 columns, colour
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+\e[36m@@ -1,3 +1,3 @@\e[0m
+ \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[1;31m-\e[0m   println!(\e[32m"old"\e[0m);
+\e[1;32m+\e[0m   println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+ }
+\e[1mdiff --git a/notes.md b/notes.md\e[0m
+\e[1mnew file mode 100644\e[0m
+\e[1m--- /dev/null\e[0m
+\e[1m+++ b/notes.md\e[0m
+\e[36m@@ -0,0 +1 @@\e[0m
+\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+
+\e[2m2 files changed, +2 −1\e[0m
+
+=== 80 columns, NO_COLOR
+\e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
+\e[1mindex 1111111..2222222 100644\e[0m
+\e[1m--- a/src/main.rs\e[0m
+\e[1m+++ b/src/main.rs\e[0m
+@@ -1,3 +1,3 @@
+ fn main() {
+\e[1m-\e[0m   println!("old");
+\e[1m+\e[0m   println!("a new greeting that is much wider than forty columns");
+ }
+\e[1mdiff --git a/notes.md b/notes.md\e[0m
+\e[1mnew file mode 100644\e[0m
+\e[1m--- /dev/null\e[0m
+\e[1m+++ b/notes.md\e[0m
+@@ -0,0 +1 @@
+\e[1m+\e[0m# Notes
+
+\e[2m2 files changed, +2 −1\e[0m
