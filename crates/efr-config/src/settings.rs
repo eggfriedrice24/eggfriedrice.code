@@ -14,7 +14,8 @@ use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
     ConfigError, ConversationSettings, DEFAULT_LOG, Location, ModelSettings, OpenAiSettings,
-    PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, Source,
+    PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings,
+    SnapshotSettings, Source,
 };
 
 /// The file name under the config root.
@@ -52,6 +53,8 @@ pub struct Settings {
     pub conversation: ConversationSettings,
     /// The kernel sandbox of the `auto` mode.
     pub sandbox: SandboxSettings,
+    /// efr's own snapshots, which show what a call and a turn changed in files.
+    pub snapshot: SnapshotSettings,
     /// How `efr` shows replies.
     pub render: RenderSettings,
     #[serde(skip)]
@@ -70,6 +73,7 @@ impl Default for Settings {
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
             sandbox: SandboxSettings::default(),
+            snapshot: SnapshotSettings::default(),
             render: RenderSettings::default(),
             sources: Vec::new(),
         }

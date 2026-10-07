@@ -11,7 +11,7 @@ Modules:
 
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `SandboxSettings`,
-  `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `SnapshotSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `WriteProjects` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
@@ -20,7 +20,8 @@ Modules:
   takes `theme_dark` or `theme_light` by the terminal's background), `theme_dark`
   (default `catppuccin-mocha`), `theme_light` (default `catppuccin-latte`), `palette`
   (the path of a theme file), `motion` (the spinner and the band over the state of the status row),
-  `turn_summary` (the line at the end of each turn), `progress` (`Progress`: `auto`,
+  `turn_summary` (the line at the end of each turn), `diff_lines` (the lines of a file
+  tool's diff that a call shows; 0 shows none), `progress` (`Progress`: `auto`,
   `on` or `off`, for the progress bar of the terminal's tab) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
   `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
   (`ColorValue`) is `"#rrggbb"`, an ANSI slot from 0 to 15 (a number or one or two
@@ -38,6 +39,12 @@ Modules:
   surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;
   this crate only reads and checks them. The proxy, classifier, bus and undo keys come
   with their phases.
+- `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
+  files that the agent can change (the auto spec, section 10): `enabled`,
+  `max_file_mib` (untracked files above it are left out), `ignored` (`IgnoredFiles`:
+  `none` or `small`), `max_files` (a root with more files is not snapshotted),
+  `keep_turns` and `max_age_days` (what the collector keeps). The spec names some of
+  them `undo.*`; they live here because the snapshots come before undo.
 - `settings`: `Settings`, the whole file. `Settings::parse` reads the text with unknown
   keys refused, reads `[[permissions.rules]]` one by one so an error names
   `permissions.rules[N]`, records which keys the file set, and runs the checks.

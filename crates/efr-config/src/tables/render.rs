@@ -139,6 +139,10 @@ pub struct RenderSettings {
     /// One muted line at the end of each turn: how long it took and the tokens it
     /// used, such as `done in 42s, 18.2k tokens in, 1.1k out`.
     pub turn_summary: bool,
+    /// The lines of a file tool's diff that a call shows after it ran, from 0 to 1000;
+    /// a muted line then says how many more there are. 0 shows no diff. `efr diff`
+    /// shows all of a turn's diff.
+    pub diff_lines: u32,
     /// The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
     /// inside tmux, GNU screen or zellij), `on` or `off`.
@@ -157,6 +161,7 @@ impl Default for RenderSettings {
             palette: None,
             motion: true,
             turn_summary: true,
+            diff_lines: 20,
             progress: Progress::Auto,
             colors: RenderColors::default(),
         }

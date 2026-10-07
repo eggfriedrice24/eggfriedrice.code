@@ -13,7 +13,7 @@ use serde_json::Value as Json;
 
 use crate::{
     ConversationSettings, DiffColors, ModelSettings, OpenAiSettings, PermissionSettings,
-    RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
+    RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -99,6 +99,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
+        "snapshot" => fields::<SnapshotSettings>(),
         "render" => fields::<RenderSettings>(),
         "render.colors" => fields::<RenderColors>(),
         "render.colors.diff" => fields::<DiffColors>(),

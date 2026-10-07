@@ -113,6 +113,19 @@ The kernel sandbox of the `auto` mode.
 | `offline_hints` | `true` | live | Tell package managers to work offline while the sandbox has no network (`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`). |
 | `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
 
+## [snapshot]
+
+efr's own snapshots, which show what a call and a turn changed in files.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `false` takes no snapshot: a `shell` call and the end of a turn then list no changed files, and `efr diff` has nothing new. A file tool still shows its diff. |
+| `max_file_mib` | `10` | live | Untracked files above this size in MiB are left out of a snapshot, from 1 to 1024. |
+| `ignored` | `"small"` | live | Which ignored files a snapshot takes: `none` or `small` (up to 1 MiB each, outside build and dependency directories, such as `.env`). |
+| `max_files` | `20000` | live | A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to 1000000; the debug log says so. |
+| `keep_turns` | `50` | live | The turns of each conversation whose snapshots stay, newest first, from 1 to 10000; older ones are deleted. |
+| `max_age_days` | `30` | live | Days without a snapshot after which the store of a project or `$SCRATCH` is deleted, from 1 to 3650. |
+
 ## [render]
 
 How `efr` shows replies.
@@ -125,6 +138,7 @@ How `efr` shows replies.
 | `palette` | unset | client | A theme file: a `[colors]` table with a colour for each role and, as `code_theme`, the path of a `.tmTheme` file for code (absolute, `~/...` or relative to the theme file). `palette` must be an absolute path or start with `~/`. Unset: no theme file. |
 | `motion` | `true` | client | Motion in the status row of a running turn: the spinner turns and a band in the `text` role moves over the state in the `muted` role. `false` shows a still dot and no band; the time still counts. |
 | `turn_summary` | `true` | client | One muted line at the end of each turn: how long it took and the tokens it used, such as `done in 42s, 18.2k tokens in, 1.1k out`. |
+| `diff_lines` | `20` | client | The lines of a file tool's diff that a call shows after it ran, from 0 to 1000; a muted line then says how many more there are. 0 shows no diff. `efr diff` shows all of a turn's diff. |
 | `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux, GNU screen or zellij), `on` or `off`. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |
 | `colors.muted` | unset | client | Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim. |

@@ -246,6 +246,21 @@
         }
       ]
     },
+    "IgnoredFiles": {
+      "description": "Which ignored files a snapshot takes.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No ignored file.",
+          "type": "string"
+        },
+        {
+          "const": "small",
+          "description": "Ignored files up to 1 MiB each, outside `target`, `node_modules`, `.venv`,\n`venv`, `__pycache__`, `dist`, `build`, `.next` and `.cache`, such as `.env`.",
+          "type": "string"
+        }
+      ]
+    },
     "Mode": {
       "description": "The permission mode of a turn: the base policy, which the user's own rules follow and\nwin over where they match.\n\nThe floors hold in every mode: an interactive call asks, a privileged program asks,\nsecrets are denied unless a user rule names them, and no tool writes efr's config. A\nturn from a remote origin runs with at most [`Mode::Cautious`].\n\nThe variants are ordered from the strictest to the loosest, so the remote cap is\n`mode.min(Mode::Cautious)`.",
       "oneOf": [
@@ -556,6 +571,13 @@
             "diff": {}
           },
           "description": "The colour of each role. A role set here wins over the palette file, and the\npalette file over the terminal's 16 colours."
+        },
+        "diff_lines": {
+          "default": 20,
+          "description": "The lines of a file tool's diff that a call shows after it ran, from 0 to 1000;\na muted line then says how many more there are. 0 shows no diff. `efr diff`\nshows all of a turn's diff.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
         "motion": {
           "default": true,
@@ -942,6 +964,51 @@
       },
       "type": "object"
     },
+    "SnapshotSettings": {
+      "additionalProperties": false,
+      "description": "`[snapshot]`: the snapshots before and after each call that can write, in the turn's\nregistered project, `$SCRATCH` and, in `auto`, the registered projects that a line\nnames. Every key applies from the next call.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "`false` takes no snapshot: a `shell` call and the end of a turn then list no\nchanged files, and `efr diff` has nothing new. A file tool still shows its diff.",
+          "type": "boolean"
+        },
+        "ignored": {
+          "$ref": "#/$defs/IgnoredFiles",
+          "default": "small",
+          "description": "Which ignored files a snapshot takes: `none` or `small` (up to 1 MiB each,\noutside build and dependency directories, such as `.env`)."
+        },
+        "keep_turns": {
+          "default": 50,
+          "description": "The turns of each conversation whose snapshots stay, newest first, from 1 to\n10000; older ones are deleted.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_age_days": {
+          "default": 30,
+          "description": "Days without a snapshot after which the store of a project or `$SCRATCH` is\ndeleted, from 1 to 3650.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_file_mib": {
+          "default": 10,
+          "description": "Untracked files above this size in MiB are left out of a snapshot, from 1 to\n1024.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_files": {
+          "default": 20000,
+          "description": "A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to\n1000000; the debug log says so.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "SudoCache": {
       "description": "What a hidden shell does with sudo's cached credentials after a call that ran sudo\nor doas.",
       "oneOf": [
@@ -1032,6 +1099,7 @@
         "colors": {
           "diff": {}
         },
+        "diff_lines": 20,
         "motion": true,
         "progress": "auto",
         "theme_dark": "catppuccin-mocha",
@@ -1141,6 +1209,18 @@
         "sudo_cache": "keep"
       },
       "description": "How hidden shells start and when idle ones stop."
+    },
+    "snapshot": {
+      "$ref": "#/$defs/SnapshotSettings",
+      "default": {
+        "enabled": true,
+        "ignored": "small",
+        "keep_turns": 50,
+        "max_age_days": 30,
+        "max_file_mib": 10,
+        "max_files": 20000
+      },
+      "description": "efr's own snapshots, which show what a call and a turn changed in files."
     }
   },
   "title": "efr config.toml",

@@ -133,6 +133,26 @@ fn sandbox_patterns_and_names_are_relative() {
 }
 
 #[test]
+fn snapshot_limits_and_diff_lines_have_ranges() {
+    type Change = fn(&mut Settings);
+    let cases: [(Change, &str); 5] = [
+        (|s| s.snapshot.max_file_mib = 0, "snapshot.max_file_mib"),
+        (|s| s.snapshot.max_files = 99, "snapshot.max_files"),
+        (|s| s.snapshot.keep_turns = 0, "snapshot.keep_turns"),
+        (|s| s.snapshot.max_age_days = 3_651, "snapshot.max_age_days"),
+        (|s| s.render.diff_lines = 1_001, "render.diff_lines"),
+    ];
+    for (change, key) in cases {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let mut settings = Settings::default();
+    settings.render.diff_lines = 0;
+    assert!(check(&settings).is_ok(), "0 shows no inline diff");
+}
+
+#[test]
 fn sandbox_cache_limits_have_ranges() {
     let mut settings = Settings::default();
     settings.sandbox.cache_days = 0;

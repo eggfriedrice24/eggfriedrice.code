@@ -5,7 +5,7 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
-use crate::{PROVIDERS, RenderColors, SandboxSettings, Settings};
+use crate::{PROVIDERS, RenderColors, SandboxSettings, Settings, SnapshotSettings};
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,8 +19,18 @@ pub(crate) struct Invalid {
 /// The first value of `settings` that is outside its allowed set or range, in the
 /// order of the file.
 pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
-    let Settings { log, model, openai, permissions, shell, conversation, sandbox, render, .. } =
-        settings;
+    let Settings {
+        log,
+        model,
+        openai,
+        permissions,
+        shell,
+        conversation,
+        sandbox,
+        snapshot,
+        render,
+        ..
+    } = settings;
     non_empty("log", log, "a tracing filter such as info")?;
 
     if !PROVIDERS.contains(&model.provider.as_str()) {
@@ -117,7 +127,9 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     )?;
 
     check_sandbox(sandbox)?;
+    check_snapshot(snapshot)?;
 
+    within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
     if let Some(theme) = &render.theme {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
@@ -146,6 +158,34 @@ pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 13]) -> Result
         }
         None => Ok(()),
     }
+}
+
+/// The checks of `[snapshot]`, in the order of the table.
+fn check_snapshot(snapshot: &SnapshotSettings) -> Result<(), Invalid> {
+    within(
+        "snapshot.max_file_mib",
+        u64::from(snapshot.max_file_mib),
+        1..=1_024,
+        "between 1 and 1024",
+    )?;
+    within(
+        "snapshot.max_files",
+        u64::from(snapshot.max_files),
+        100..=1_000_000,
+        "between 100 and 1000000",
+    )?;
+    within(
+        "snapshot.keep_turns",
+        u64::from(snapshot.keep_turns),
+        1..=10_000,
+        "between 1 and 10000",
+    )?;
+    within(
+        "snapshot.max_age_days",
+        u64::from(snapshot.max_age_days),
+        1..=3_650,
+        "between 1 and 3650",
+    )
 }
 
 /// The checks of `[sandbox]`, in the order of the table.

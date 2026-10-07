@@ -3,7 +3,7 @@
 //!
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`SandboxSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
+//!   [`SandboxSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
@@ -65,6 +65,7 @@ pub use tables::sandbox::{
     DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
     DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, SandboxSettings, WriteProjects,
 };
+pub use tables::snapshot::{IgnoredFiles, SnapshotSettings};
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings, ScreenChoice, ShellSettings,
