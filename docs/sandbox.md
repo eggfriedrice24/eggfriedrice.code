@@ -307,7 +307,7 @@ What you see:
 | Failure | Reason | Fix |
 |---|---|---|
 | no bubblewrap | `bubblewrap is not installed` | Arch: `pacman -S bubblewrap`; Debian and Ubuntu: `apt install bubblewrap`; Fedora: `dnf install bubblewrap` |
-| old bubblewrap | `bubblewrap 0.6.2 found; it lacks --bind-fd` | update the package |
+| old bubblewrap | `bubblewrap 0.6.2 found; it lacks --bind-fd` | update the package: efr needs bubblewrap 0.10.0 or newer, or a package with `--bind-fd`, such as Ubuntu 24.04's 0.9.0-1ubuntu0.3 |
 | setuid bubblewrap | `bubblewrap is setuid; efr needs the unprivileged build` | install the build that is not setuid |
 | user namespaces off | `unprivileged user namespaces are off (kernel.unprivileged_userns_clone = 0)` | `sysctl kernel.unprivileged_userns_clone=1` (Debian kernels) |
 | AppArmor | `AppArmor blocks user namespaces for bwrap (kernel.apparmor_restrict_unprivileged_userns = 1)` | an AppArmor profile for bwrap with `userns,`, or set the sysctl to 0 |

@@ -8,7 +8,7 @@
 # so the pins below are the only copy.
 #
 #   sandbox-vm.sh tools           QEMU, virtiofsd, virtme-ng and zsh (root or sudo)
-#   sandbox-vm.sh bwrap           bubblewrap 0.13.0 in /usr (root or sudo)
+#   sandbox-vm.sh bwrap           Ubuntu's bubblewrap in /usr (root or sudo)
 #   sandbox-vm.sh kernel DIR      the pinned kernel, checked and unpacked into DIR
 #   sandbox-vm.sh run KERNEL ARCHIVE WORKSPACE EXTRACT
 #                                 unpack the archive into EXTRACT, boot, run the tests
@@ -31,11 +31,6 @@ kernel_debs=(
 virtme_ng=1.41
 virtme_ng_sha256=2031f0f2c67947829e030d66b28950adcef351a17a8455483b57d27b6246f2d2
 virtme_ng_dir=/opt/virtme-ng-$virtme_ng
-
-# The same bubblewrap as .github/ubuntu-shell.Dockerfile: Ubuntu 24.04 ships 0.9.0,
-# which lacks --overlay and --tmp-overlay.
-bwrap=0.13.0
-bwrap_sha256=4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765
 
 self="$(realpath "${BASH_SOURCE[0]}")"
 
@@ -70,25 +65,16 @@ cmd_tools() {
     "$virtme_ng_dir/bin/vng" --version
 }
 
-# Built from the release tarball, owned by root and not setuid, as the probe requires.
-# It goes to /usr/bin, where Arch has it and where efr-shell's launcher tests look; on
-# the runner it replaces Ubuntu's 0.9.0 if that is installed.
+# Ubuntu's own package, as in .github/ubuntu-shell.Dockerfile: owned by root and not
+# setuid, as the probe requires, in /usr/bin, where Arch has it and where efr-shell's
+# launcher tests look. Upstream bwrap has --bind-fd from 0.10.0 on; Ubuntu 24.04's
+# 0.9.0-1ubuntu0.3 has it as a backport, and efr needs no flag that came later.
 cmd_bwrap() {
     as_root apt-get update -q
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        build-essential ca-certificates curl libcap-dev meson ninja-build pkg-config xz-utils
-    local dl tarball="bubblewrap-$bwrap.tar.xz"
-    dl="$(mktemp -d)"
-    curl -fsSL -o "$dl/$tarball" \
-        "https://github.com/containers/bubblewrap/releases/download/v$bwrap/$tarball"
-    echo "$bwrap_sha256  $dl/$tarball" | sha256sum -c -
-    tar -xJf "$dl/$tarball" -C "$dl"
-    meson setup "$dl/build" "$dl/bubblewrap-$bwrap" --prefix=/usr -Dman=disabled \
-        -Dselinux=disabled -Dtests=false -Dbash_completion=disabled -Dzsh_completion=disabled
-    meson compile -C "$dl/build"
-    as_root meson install -C "$dl/build"
-    rm -rf "$dl"
+        bubblewrap
     /usr/bin/bwrap --version
+    /usr/bin/bwrap --help | grep -q -- '--bind-fd' || fail "this bubblewrap lacks --bind-fd"
 }
 
 cmd_kernel() {

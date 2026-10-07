@@ -8,7 +8,20 @@ use crate::probe::{
     parse_bwrap_version,
 };
 
-const HELP: &str = "usage: bwrap\n    --args FD  x\n    --disable-userns  x\n    --bind-fd FD DEST\n    --ro-bind-fd FD DEST\n    --ro-bind-data FD DEST\n    --overlay RWSRC WORKDIR DEST\n    --tmp-overlay DEST\n    --json-status-fd FD\n";
+const HELP: &str = "usage: bwrap\n    --args FD  x\n    --disable-userns  x\n    --bind-fd FD DEST\n    --ro-bind-fd FD DEST\n    --ro-bind-data FD DEST\n    --json-status-fd FD\n    --perms OCTAL\n";
+
+/// The lines of `bwrap --help` of Ubuntu 24.04's bubblewrap `0.9.0-1ubuntu0.3` that name
+/// a flag of the list: it has no `--overlay`, and `--bind-fd` is a backport.
+const UBUNTU_24_04_HELP: &str = "\
+usage: bwrap [OPTIONS...] [--] COMMAND [ARGS...]
+    --args FD                    Parse NUL-separated args from FD
+    --disable-userns             Disable further use of user namespaces inside sandbox
+    --bind-fd FD DEST            Bind open directory or path fd on DEST
+    --ro-bind-fd FD DEST         Bind open directory or path fd read-only on DEST
+    --ro-bind-data FD DEST       Copy from FD to file which is readonly bind-mounted on DEST
+    --json-status-fd FD          Write container status to FD as multiple JSON documents
+    --perms OCTAL                Set permissions of next argument (--bind-data, --file, etc.)
+";
 
 fn bwrap() -> BwrapFacts {
     BwrapFacts {
@@ -53,6 +66,9 @@ fn bwrap_must_be_roots_unprivileged_and_complete() {
     let failure = check_bwrap(&old).unwrap_err();
     assert_eq!(failure.reason(), "bubblewrap 0.6.2 found; it lacks --bind-fd");
     assert_eq!(bwrap_missing_flags(HELP), Vec::<&str>::new());
+    // efr mounts no overlay with bwrap, so a bwrap without --overlay is not too old.
+    assert_eq!(bwrap_missing_flags(UBUNTU_24_04_HELP), Vec::<&str>::new());
+    assert!(!crate::BWRAP_REQUIRED_FLAGS.iter().any(|flag| flag.contains("overlay")));
     assert_eq!(parse_bwrap_version("bubblewrap 0.13.0"), Some("0.13.0".to_owned()));
     assert_eq!(parse_bwrap_version("nothing"), None);
 }

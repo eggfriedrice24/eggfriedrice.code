@@ -13,15 +13,24 @@ use serde::{Deserialize, Serialize};
 use crate::SandboxError;
 use crate::landlock::{ERRATUM_DISCONNECTED_DIRS, MIN_LANDLOCK_ABI};
 
-/// The flags that bwrap's `--help` must list.
+/// The flags that bwrap's `--help` must list: the flags of `MountPlan::bwrap_args` that
+/// came after bwrap 0.3.0, with the first release that has each one. The newest is
+/// `--bind-fd`, so upstream bwrap must be 0.10.0 or newer; Ubuntu 24.04's 0.9.0
+/// (`0.9.0-1ubuntu0.3`) has it as a backport. efr mounts no overlay with bwrap (the
+/// layer helper does), so `--overlay` and `--tmp-overlay` (0.11.0) are not on the list.
 pub const BWRAP_REQUIRED_FLAGS: &[&str] = &[
+    // 0.8.0
     "--disable-userns",
+    // 0.10.0, for CVE-2024-42472
     "--bind-fd",
     "--ro-bind-fd",
+    // 0.3.0 or older
     "--ro-bind-data",
-    "--overlay",
-    "--tmp-overlay",
+    // 0.4.0
     "--json-status-fd",
+    // 0.5.0
+    "--perms",
+    // 0.3.0 or older
     "--args",
 ];
 
