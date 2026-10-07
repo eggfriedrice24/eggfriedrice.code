@@ -301,12 +301,12 @@ has a kind:
 
 | Kind | Examples |
 |---|---|
-| `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt` |
+| `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit |
 | `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
 | `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
 | `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions` |
 | `desktop_ipc` | `xrandr`, `swaymsg`, `hyprctl`, `xdotool` (only you approve) |
-| `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1` |
+| `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
 | `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files |
 | `privilege` | `sudo`, `doas`, `pkexec`, `run0`, `yay`, `paru`, `docker`, `podman`, a changing `systemctl`, `busctl call` (only you approve) |

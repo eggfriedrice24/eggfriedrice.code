@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
 
+use super::programs::is_sandbox_device;
 use super::scan::OPAQUE;
 use super::{ExitNeed, WriteBind, existing_kind};
 use crate::path_class::normalize;
@@ -174,7 +175,9 @@ impl<'a> Envelope<'a> {
         if self.mask_of(path).is_some() {
             return WriteExit::write(WriteBind::ExitChild);
         }
-        if self.root_of(path).is_some() {
+        // NOTE: every contained call has its own `/dev` with these nodes, so a write
+        // such as `2>/dev/null` stays in the sandbox.
+        if self.root_of(path).is_some() || is_sandbox_device(path) {
             return None;
         }
         if locations.synced_roots().iter().any(|synced| path.starts_with(synced)) {

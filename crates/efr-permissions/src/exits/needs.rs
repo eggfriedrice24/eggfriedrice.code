@@ -5,12 +5,14 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
+use super::programs::is_sandbox_device;
 use super::{ExitNeed, write_need};
 use crate::path_class::normalize;
 use crate::{AutoSupport, CallFacts, Egress};
 
 /// The exits that `needs` asks for, each list cut at its limit. A write that the
-/// envelope already allows is dropped; a read of a secret is a floor.
+/// envelope already allows is dropped, and so is a device that every contained call
+/// has; a read of a secret is a floor.
 pub(super) fn exits(
     needs: &Needs,
     envelope: &Envelope<'_>,
@@ -46,7 +48,8 @@ pub(super) fn exits(
         found.push(need);
     }
     if let Some(device) = &needs.device
-        && let Some(path) = normalize(Path::new(device)).filter(|path| path.starts_with("/dev"))
+        && let Some(path) = normalize(Path::new(device))
+            .filter(|path| path.starts_with("/dev") && !is_sandbox_device(path))
     {
         let mut need = ExitNeed::new(ExitKind::Device, format!("needs.device {device}"), source);
         need.grants = vec![Grant::Device { path: path.clone() }];

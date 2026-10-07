@@ -201,6 +201,14 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         let part = part_text(segment);
         for redirect in &segment.redirects {
             let Some(path) = at(&redirect.target) else { continue };
+            // NOTE: a redirection to a node of the sandbox's own `/dev`, such as
+            // `2>/dev/null`, writes no file; one to a host device needs its grant.
+            if programs::is_sandbox_device(&path) {
+                continue;
+            }
+            if programs::is_host_device(&path) {
+                found.push(predicted(programs::device_exit(path.clone()), &part));
+            }
             let bare = match segment.words.as_slice() {
                 [] => true,
                 [only] => only == ":" || only == "true",
@@ -218,10 +226,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
                     continue;
                 }
-                let mut need = ExitNeed::new(exit.kind, &part, ExitSource::Predicted);
-                need.grants = exit.grants;
-                need.target = exit.target;
-                found.push(need);
+                found.push(predicted(exit, &part));
             }
             for (word, dir_kind) in programs::made_paths(command) {
                 if let Some(path) = at(word) {
@@ -336,8 +341,10 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, locations);
+        // NOTE: a node of the sandbox's own `/dev` is no exit, whatever the host has.
+        let written_at = |word: &str| at(word).filter(|path| !programs::is_sandbox_device(path));
         for redirect in &segment.redirects {
-            if let Some(path) = at(&redirect.target) {
+            if let Some(path) = written_at(&redirect.target) {
                 add(&mut request.targets, path);
             }
         }
@@ -362,7 +369,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 .chain(programs::dd_targets(command))
                 .chain(programs::sed_in_place_targets(command));
             for word in written {
-                if let Some(path) = at(word) {
+                if let Some(path) = written_at(word) {
                     add(&mut request.targets, path);
                 }
             }
@@ -417,6 +424,14 @@ impl Found {
             self.0.push(need);
         }
     }
+}
+
+/// The predicted exit of the simple command `part` that a program table found.
+fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
+    let mut need = ExitNeed::new(exit.kind, part, ExitSource::Predicted);
+    need.grants = exit.grants;
+    need.target = exit.target;
+    need
 }
 
 /// The `write` exit, or another kind, of a write of `path` that `exit` describes.

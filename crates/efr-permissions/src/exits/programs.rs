@@ -2,7 +2,7 @@
 //! privilege, persistence, upload, the network, the buses, the desktop, devices and the
 //! destructive idioms.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use efr_protocol::{BusKind, ExitKind, Grant};
 
@@ -448,20 +448,19 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         }),
         program if DESKTOP_IPC.contains(&program) => found.push(Found::of(ExitKind::DesktopIpc)),
         "niri" if verb(args, &[]) == Some("msg") => found.push(Found::of(ExitKind::DesktopIpc)),
-        "dd" if args.iter().any(|arg| arg.starts_with("of=")) => {
+        // NOTE: `dd of=/dev/null` overwrites nothing; the sandbox has that node.
+        "dd" if dd_targets(words).into_iter().any(|target| {
+            !crate::path_class::normalize(Path::new(target))
+                .is_some_and(|path| is_sandbox_device(&path))
+        }) =>
+        {
             found.push(Found::of(ExitKind::Destructive));
         }
         "shred" | "truncate" => found.push(Found::of(ExitKind::Destructive)),
         "find" if has(args, "-delete") => found.push(Found::of(ExitKind::Destructive)),
         _ => {}
     }
-    for path in device_operands(args) {
-        found.push(Found {
-            kind: ExitKind::Device,
-            grants: vec![Grant::Device { path: path.clone() }],
-            target: Some(path),
-        });
-    }
+    found.extend(device_operands(args).into_iter().map(device_exit));
     found
 }
 
@@ -573,6 +572,30 @@ const SANDBOX_DEVICES: &[&str] = &[
 /// The directories below `/dev` that every contained call has.
 const SANDBOX_DEVICE_DIRS: &[&str] = &["/dev/pts", "/dev/shm", "/dev/fd", "/dev/mqueue"];
 
+/// True when `path`, in normal form, is a device node that every contained call has,
+/// or lies in such a directory: `/dev/null`, `/dev/stderr`, `/dev/fd/2`. A write there
+/// stays in the sandbox and needs no exit.
+pub(super) fn is_sandbox_device(path: &Path) -> bool {
+    SANDBOX_DEVICES.iter().any(|node| path == Path::new(node))
+        || SANDBOX_DEVICE_DIRS.iter().any(|dir| path.starts_with(dir))
+}
+
+/// True when `path`, in normal form, lies below `/dev` and is not a node that every
+/// contained call has: a real device, such as `/dev/sda`, that only a `device` grant
+/// opens.
+pub(super) fn is_host_device(path: &Path) -> bool {
+    path.starts_with("/dev") && path != Path::new("/dev") && !is_sandbox_device(path)
+}
+
+/// The `device` exit of the host device `path`.
+pub(super) fn device_exit(path: PathBuf) -> Found {
+    Found {
+        kind: ExitKind::Device,
+        grants: vec![Grant::Device { path: path.clone() }],
+        target: Some(path),
+    }
+}
+
 /// The operands under `/dev` that name a node the sandbox does not have, also as the
 /// value of `name=value` (`dd if=/dev/sda`) or `--option=value`.
 fn device_operands(args: &[String]) -> Vec<PathBuf> {
@@ -582,15 +605,10 @@ fn device_operands(args: &[String]) -> Vec<PathBuf> {
             Some((_, value)) if !arg.starts_with("/dev/") => value,
             _ => arg.as_str(),
         };
-        let Some(path) = crate::path_class::normalize(std::path::Path::new(value)) else {
+        let Some(path) = crate::path_class::normalize(Path::new(value)) else {
             continue;
         };
-        if !path.starts_with("/dev") || path == std::path::Path::new("/dev") {
-            continue;
-        }
-        let known = SANDBOX_DEVICES.iter().any(|node| path == std::path::Path::new(node))
-            || SANDBOX_DEVICE_DIRS.iter().any(|dir| path.starts_with(dir));
-        if !known && !found.contains(&path) {
+        if is_host_device(&path) && !found.contains(&path) {
             found.push(path);
         }
     }

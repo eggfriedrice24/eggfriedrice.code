@@ -762,6 +762,102 @@ fn a_device_operand_outside_the_sandbox_nodes_is_a_device_exit() {
     }
 }
 
+/// The facts that the daemon collects for a line with `2>/dev/null`: the node exists.
+fn null_exists() -> CallFacts {
+    let targets = ["/dev/null", "/dev/stderr", "/dev/fd/2"]
+        .into_iter()
+        .map(|path| (PathBuf::from(path), Some(TargetKind::File)))
+        .collect();
+    CallFacts { targets, ..CallFacts::default() }
+}
+
+#[rstest]
+#[case::metadata_jq(
+    "cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[] | \
+     select(.name | test(\"ghostty\")) | \"\\(.name) \\(.manifest_path)\"'"
+)]
+#[case::find_sed(
+    "find target/debug/build -path '*libghostty*' -type f 2>/dev/null | sed -n '1,20p'"
+)]
+#[case::cd_find_awk(
+    "cd ~/p/app && find target/debug/build -path '*libghostty*' -type f 2>/dev/null | \
+     awk -F/ '{print $4}'"
+)]
+#[case::awk("awk '/ghostty/ {print FILENAME}' Cargo.toml crates/*/Cargo.toml 2>/dev/null")]
+#[case::stdout("make >/dev/null")]
+#[case::both("make &>/dev/null")]
+#[case::both_append("make &>>/dev/null")]
+#[case::copy_then_null("make 2>&1 >/dev/null | head")]
+#[case::null_then_copy("make >/dev/null 2>&1")]
+#[case::clobber("make >| /dev/null")]
+#[case::truncation(": > /dev/null")]
+#[case::stderr("echo x > /dev/stderr")]
+#[case::descriptor("echo x >/dev/fd/2")]
+#[case::terminal("echo x > /dev/tty")]
+#[case::zero("cat a > /dev/zero")]
+#[case::dotted("ls 2>/dev/./null")]
+#[case::dd_null("dd if=/dev/urandom of=/dev/null bs=1M count=1")]
+#[case::tee("ls | tee /dev/stderr | wc -l")]
+fn a_redirect_to_a_node_of_the_sandbox_is_routine(#[case] line: &str) {
+    for facts in [Some(null_exists()), None] {
+        let mut requirements = shell(line);
+        if let Some(facts) = facts.clone() {
+            requirements = requirements.with_facts(facts);
+        }
+        let decision = decide(requirements);
+        assert_eq!(decision.effect(), Effect::Contain, "{line:?} with {facts:?}");
+        assert_eq!(kinds(&decision), [], "{line:?} with {facts:?}");
+    }
+    let targets = crate::exits::fact_requests(line, Some(APP.as_ref()), &auto_locations()).targets;
+    assert!(targets.iter().all(|path| !path.starts_with("/dev")), "{line:?}: {targets:?}");
+}
+
+#[test]
+fn a_declared_write_of_a_node_of_the_sandbox_is_no_exit() {
+    // The shell tool declares every output but `/dev/null` as a write.
+    for path in ["/dev/stderr", "/dev/fd/2", "/dev/null"] {
+        let decision = decide(shell("echo x > /dev/stderr").with_write(path));
+        assert_eq!(decision.effect(), Effect::Contain, "{path}");
+        assert_eq!(kinds(&decision), [], "{path}");
+    }
+    let needs = Needs {
+        write: vec!["/dev/null".to_owned()],
+        device: Some("/dev/null".to_owned()),
+        ..Needs::default()
+    };
+    let decision = decide(shell("make").with_needs(needs));
+    assert_eq!(kinds(&decision), [], "needs of a node that the sandbox has");
+}
+
+#[rstest]
+#[case::system("make 2> /etc/build.log", "/etc/build.log")]
+#[case::home("make > ~/build.log 2>/dev/null", "/home/u/build.log")]
+#[case::dotted("make > /dev/../etc/build.log", "/etc/build.log")]
+fn a_redirect_to_a_real_file_outside_the_roots_is_still_a_write_exit(
+    #[case] line: &str,
+    #[case] target: &str,
+) {
+    let decision = decide(shell(line));
+    assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
+    let needs: Vec<_> = decision.exits().collect();
+    assert_eq!(needs.len(), 1, "{line:?}: {needs:?}");
+    assert_eq!(needs[0].kind, ExitKind::Write, "{line:?}");
+    assert_eq!(needs[0].target.as_deref(), Some(target.as_ref()), "{line:?}");
+}
+
+#[rstest]
+#[case::redirect("cat image.iso > /dev/sda")]
+#[case::stderr_to_a_disk("make 2>/dev/nvme0n1")]
+#[case::dd("dd if=image.iso of=/dev/sda bs=4M")]
+fn a_write_to_a_host_device_is_still_a_device_exit(#[case] line: &str) {
+    let decision = decide(shell(line));
+    assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
+    let device = decision.exits().find(|need| need.kind == ExitKind::Device);
+    let device = device.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
+    assert!(device.target.as_ref().is_some_and(|path| path.starts_with("/dev")), "{line:?}");
+    assert!(matches!(device.grants.as_slice(), [Grant::Device { .. }]), "{line:?}");
+}
+
 #[test]
 fn a_write_grant_binds_by_the_rules_of_spec_7_5() {
     let facts = |targets: &[(&str, Option<TargetKind>)]| CallFacts {
