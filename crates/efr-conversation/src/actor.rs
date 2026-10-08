@@ -372,6 +372,17 @@ impl ConversationActor {
                 limit,
             });
         }
+        self.resolve(settings, origin)
+    }
+
+    /// The settings that a prompt with `settings` from `origin` runs with now, or the
+    /// error that says why they cannot work.
+    fn resolve(
+        &self,
+        settings: &TurnSettings,
+        origin: Origin,
+    ) -> Result<EffectiveSettings, ConversationError> {
+        let config = self.shared.config.current();
         // NOTE: checked here so a value that cannot work fails before anything is
         // recorded; the turn checks again when it starts, against the settings of then,
         // when it also knows its project.
@@ -506,9 +517,6 @@ impl ConversationActor {
             }
             Some(_) => return Err(ConversationError::Unsupported { what: "resend_as" }),
         };
-        if let Some((_, _, settings)) = &resend_as {
-            self.admit(settings, origin)?;
-        }
         let withdrawn: Vec<(TurnId, String)> = self
             .queue
             .iter()
@@ -522,13 +530,27 @@ impl ConversationActor {
         let kept = running.control.steering.take_unread(&params.withdraw_steers);
         let resend = (!steers.is_empty()).then(|| {
             let text = steers.iter().map(|steer| steer.text.as_str()).collect::<Vec<_>>();
-            let (context, last_command, settings) = resend_as.unwrap_or_else(|| {
-                (
+            // NOTE: the interrupt never fails on account of the resend. The resent
+            // prompt holds steers that the turn took already, so it does not count
+            // against `max_queued`, and values of the terminal that cannot work now
+            // give way to the turn's own, which did.
+            let (context, last_command, settings) = match resend_as {
+                Some((context, last_command, settings)) => {
+                    let settings = match self.resolve(&settings, origin) {
+                        Ok(_) => settings,
+                        Err(error) => {
+                            tracing::debug!(%error, "the steers go again with the settings of the interrupted turn");
+                            running.spec.settings.clone()
+                        }
+                    };
+                    (context, last_command, settings)
+                }
+                None => (
                     running.spec.context.clone(),
                     running.spec.last_command.clone(),
                     running.spec.settings.clone(),
-                )
-            });
+                ),
+            };
             let prompt = NewPrompt {
                 command_id: params.command_id,
                 text: text.join("\n"),

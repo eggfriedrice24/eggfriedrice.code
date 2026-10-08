@@ -30,7 +30,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr` follows each prompt that you queue from the input row after the turn before
   it, and ends after the last one. Esc sends the steers that the model did not read as
   a new prompt, and puts the prompts that you queued back into the row, so nothing
-  runs that you did not see. Ctrl+C clears the row; on an empty row it interrupts the
+  runs that you did not see. Esc stops the turn also when the queue is full or when
+  the settings of your terminal do not work now: the steers then go with the settings
+  of the stopped turn. Ctrl+C clears the row; on an empty row it interrupts the
   turn and also takes back the prompts that you queued there and the steers that the
   model did not read. A prompt that still waits behind another turn is taken back
   instead, by Esc and by Ctrl+C.

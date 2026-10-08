@@ -41,7 +41,10 @@ pub struct TurnInterrupt {
     /// How the daemon queues the prompt of `resend_steers`: `queue` with the context,
     /// the last command and the settings of the terminal that interrupts, as a late
     /// steer of `turn.steer` would go. Absent: the context and the settings of the
-    /// interrupted turn's prompt. Boxed, so the method stays small.
+    /// interrupted turn's prompt. The resend never makes the interrupt fail: the
+    /// prompt does not count against `max_queued`, and settings that cannot work now
+    /// give way to those of the interrupted turn's prompt. Boxed, so the method stays
+    /// small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resend_as: Option<Box<LateSteer>>,
     /// The `turn_steered` events of this turn, by sequence number, that the client takes

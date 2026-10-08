@@ -592,6 +592,91 @@ async fn an_interrupt_takes_back_unread_steers_and_resends_with_the_values_it_na
     h.handle.shutdown().await.expect("the actor stops");
 }
 
+/// The review finding: Esc failed on a full queue, because the interrupt checked its
+/// resend as a new prompt before it did anything else. The interrupt goes through, and
+/// the steers go again in front of the queue, above its limit: the turn took them
+/// already.
+#[tokio::test]
+async fn a_full_queue_does_not_stop_an_interrupt_that_resends_steers() {
+    let mut setup = Setup::new();
+    setup.config.max_queued = 1;
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+    ];
+    let mut h = setup.start(records).await;
+    h.toolbox.hold_end.store(true, Ordering::SeqCst);
+    let sent = h.prompt("first").await;
+    h.toolbox.hang_started.notified().await;
+    let steer = h.steer_params(Some(sent.turn_id), "use tabs", true);
+    let steer = h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
+    let other = h.prompt_from(OTHER, "from another terminal").await;
+
+    let mut params = h.interrupt_params(Some(sent.turn_id), vec![steer.seq], Vec::new());
+    params.resend_as = Some(Box::new(LateSteer::Queue {
+        context: Some(ShellContext::new(&h.cwd)),
+        last_command: None,
+        settings: TurnSettings::default(),
+    }));
+    let result = h.handle.interrupt(params, Origin::Shell).await.expect("interrupted");
+
+    let resent = result.resent.expect("the steer goes again");
+    assert_eq!(resent.steers, vec![steer.seq]);
+    let state = h.handle.state().await.expect("state");
+    assert_eq!(state.queued, vec![resent.turn_id, other.turn_id], "the resend runs next");
+    // NOTE: the turn stays held before its end, so the shutdown drops it and the
+    // resent prompt never asks the model.
+    h.handle.shutdown().await.expect("the actor stops");
+}
+
+/// The review finding: Esc failed when the settings of the terminal that interrupts
+/// could not work now. The interrupt goes through, and the steers go again with the
+/// settings of the turn that took them.
+#[tokio::test]
+async fn settings_that_cannot_work_give_way_to_the_turns_own_when_steers_go_again() {
+    let mut setup = Setup::new();
+    setup.config.models = vec![efr_protocol::ModelInfo {
+        id: crate::testing::MODEL.to_owned(),
+        efforts: Vec::new(),
+        default_effort: None,
+        default: true,
+        source: efr_protocol::ModelSource::Builtin,
+    }];
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+    ];
+    let mut h = setup.start(records).await;
+    h.toolbox.hold_end.store(true, Ordering::SeqCst);
+    let sent = h.prompt("first").await;
+    h.toolbox.hang_started.notified().await;
+    let steer = h.steer_params(Some(sent.turn_id), "use tabs", true);
+    let steer = h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
+
+    let mut params = h.interrupt_params(Some(sent.turn_id), vec![steer.seq], Vec::new());
+    let gone = TurnSettings { model: Some("gone-model".to_owned()), ..TurnSettings::default() };
+    params.resend_as = Some(Box::new(LateSteer::Queue {
+        context: Some(ShellContext::new(&h.cwd)),
+        last_command: None,
+        settings: gone,
+    }));
+    let result = h.handle.interrupt(params, Origin::Shell).await.expect("interrupted");
+
+    let resent = result.resent.expect("the steer goes again");
+    let settings = h.events().await.into_iter().find_map(|event| match event {
+        Event::PromptQueued { turn_id, settings, .. } if turn_id == resent.turn_id => {
+            Some(settings)
+        }
+        _ => None,
+    });
+    assert_eq!(settings, Some(TurnSettings::default()), "the turn's own settings");
+    // NOTE: the turn stays held before its end, so the shutdown drops it and the
+    // resent prompt never asks the model.
+    h.handle.shutdown().await.expect("the actor stops");
+}
+
 #[test]
 fn a_stored_result_gets_back_every_sequence_number_of_its_batch() {
     let turn = "019a9b1c-3d00-7a10-8b20-000000000001";

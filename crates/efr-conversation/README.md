@@ -55,7 +55,9 @@ turns.
   one `prompt_queued` (texts joined by newlines, `steers` set) that runs next, before
   the prompts that wait. That prompt has the context, settings and last command of
   `resend_as` (the terminal that pressed Esc), else those of the interrupted turn's
-  prompt. Prompts and steers that are not listed stay as they are, so those of other
+  prompt. The resend never makes the interrupt fail: its prompt does not count
+  against `max_queued`, because the turn took its steers already, and settings of
+  `resend_as` that cannot work now give way to the interrupted turn's. Prompts and steers that are not listed stay as they are, so those of other
   terminals stay queued. A steer that the turn took for a model call counts as read,
   also when the interrupt stops that call. The history and the exit record leave out a
   steer that an interrupt sent again or took back.
