@@ -1485,14 +1485,14 @@ fn keys_from_before_the_mark_go_to_the_row_and_not_into_the_answer() {
     let (sender, keys) = tokio::sync::mpsc::channel(16);
     let mut reader = KeyReader::from_channel_confirming(keys);
     reader.mark();
-    for read in [b'a', b'b', b'c'].map(|byte| Read::Key(Key::Byte(byte))) {
+    for read in b"abc".map(|byte| Read::Key(Key::Byte(byte))) {
         sender.try_send(read).unwrap();
     }
     sender.try_send(Read::Marked).unwrap();
     sender.try_send(Read::Key(Key::Byte(b'x'))).unwrap();
     let ask = Ask::Input { call_id: call(), kind: AnswerKind::Masked };
     let (_, asking, seeded, row) = take_over(reader, Some(pending("")), ask);
-    assert_eq!(row, [b'a', b'b', b'c'].map(Key::Byte), "typed for the row");
+    assert_eq!(row, b"abc".map(Key::Byte), "typed for the row");
     assert_eq!(line_of(&asking), "x");
     assert_eq!(seeded, Some(Seed::Unshown(1)));
 }
