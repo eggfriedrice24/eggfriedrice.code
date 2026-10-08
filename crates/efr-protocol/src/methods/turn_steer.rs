@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::{CommandId, ConversationId, Seq, TurnId};
 
 /// The params of `turn.steer` (`,!` in the shell). Unlike `prompt.send`, it does not
-/// queue: the text joins the running turn.
+/// queue: the text joins the running turn. A turn that has made its last model call
+/// takes no more guidance, and the daemon answers `conflict`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TurnSteer {
     /// Makes the request idempotent.

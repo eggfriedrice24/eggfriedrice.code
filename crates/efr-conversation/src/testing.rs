@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -75,6 +76,12 @@ pub(crate) struct FakeToolbox {
     pub(crate) report: Mutex<Vec<ReportedFile>>,
     /// What `turn_changes` answers, and how often it was asked.
     pub(crate) turn_changes: Mutex<(Option<FileChanges>, usize)>,
+    /// When set, `turn_changes` signals [`end_reached`](Self::end_reached) and waits
+    /// for [`end_released`](Self::end_released): the turn has decided how it ends and
+    /// has not ended yet.
+    pub(crate) hold_end: AtomicBool,
+    pub(crate) end_reached: Notify,
+    pub(crate) end_released: Notify,
 }
 
 /// The changes that the command `edit-files` reports: one modified file.
@@ -292,6 +299,10 @@ impl Toolbox for FakeToolbox {
         _conversation_id: ConversationId,
         _turn_id: TurnId,
     ) -> Option<FileChanges> {
+        if self.hold_end.load(Ordering::SeqCst) {
+            self.end_reached.notify_one();
+            self.end_released.notified().await;
+        }
         let mut answer = self.turn_changes.lock().unwrap_or_else(PoisonError::into_inner);
         answer.1 += 1;
         answer.0.clone()
@@ -588,18 +599,19 @@ impl Harness {
         }
     }
 
+    /// True when the store has already sent the terminal event of `turn_id`; never
+    /// waits. It takes every event that was sent so far.
+    pub(crate) fn has_ended(&mut self, turn_id: TurnId) -> bool {
+        let mut ended = false;
+        while let Ok(committed) = self.events.try_recv() {
+            ended |= committed.events().iter().any(|e| is_end(&e.event, turn_id));
+        }
+        ended
+    }
+
     /// Waits until the turn `turn_id` has its terminal event.
     pub(crate) async fn wait_end(&mut self, turn_id: TurnId) -> Event {
-        self.wait_for(|event| {
-            event.turn_id() == Some(turn_id)
-                && matches!(
-                    event,
-                    Event::TurnCompleted { .. }
-                        | Event::TurnFailed { .. }
-                        | Event::TurnInterrupted { .. }
-                )
-        })
-        .await
+        self.wait_for(|event| is_end(event, turn_id)).await
     }
 
     /// Waits until a tool call asks for approval, and returns its call id.
@@ -672,6 +684,15 @@ impl Harness {
             panic!("the replay did not go as the transcript says: {error}");
         }
     }
+}
+
+/// True for the terminal event of `turn_id`.
+fn is_end(event: &Event, turn_id: TurnId) -> bool {
+    event.turn_id() == Some(turn_id)
+        && matches!(
+            event,
+            Event::TurnCompleted { .. } | Event::TurnFailed { .. } | Event::TurnInterrupted { .. }
+        )
 }
 
 /// The newest prompt as the request carries it: the preamble, then the text.

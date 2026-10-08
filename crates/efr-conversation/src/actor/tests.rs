@@ -1,3 +1,6 @@
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ConversationId, Event, Origin, Seq, TurnInterrupt, TurnSteer,
 };
@@ -6,6 +9,10 @@ use efr_store::receipts::ReceiptOutcome;
 use efr_test_support::TestRng;
 use pretty_assertions::assert_eq;
 use serde_json::json;
+use tokio::sync::mpsc;
+use tracing::{Dispatch, Subscriber, span};
+use tracing_subscriber::layer::{Context, Layer, SubscriberExt as _};
+use tracing_subscriber::registry::LookupSpan;
 
 use crate::testing::{
     Setup, answer, done, expect_request, hold, request, text_answer, tool_answer,
@@ -101,7 +108,7 @@ async fn the_queue_limit_is_read_when_each_prompt_arrives() {
     h.prompt("second").await;
     let mut smaller = (**h.settings.borrow()).clone();
     smaller.max_queued = 1;
-    h.settings.send_replace(std::sync::Arc::new(smaller));
+    h.settings.send_replace(Arc::new(smaller));
     let cwd = h.cwd.clone();
     let third = h.prompt_params(&cwd, "third");
     let refused = h.handle.send_prompt(third, Origin::Shell).await;
@@ -333,4 +340,166 @@ async fn queued_turns_finish_after_every_handle_is_dropped() {
         }
     }
     provider.finish().expect("the replay went as the transcript says");
+}
+
+#[tokio::test]
+async fn a_steer_after_the_last_model_call_is_refused_and_never_recorded() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "hi");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hi")])),
+        answer(&text_answer("Hello.")),
+    ];
+    let mut h = setup.start(records).await;
+    h.toolbox.hold_end.store(true, Ordering::SeqCst);
+    let sent = h.prompt("hi").await;
+    // The model answered without a tool call: the turn has made its last model call
+    // and waits in `turn_changes` before its end.
+    h.toolbox.end_reached.notified().await;
+
+    let steer = TurnSteer {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        turn_id: Some(sent.turn_id),
+        text: "and in French".to_owned(),
+    };
+    let steered = h.handle.steer(steer).await;
+    h.toolbox.end_released.notify_one();
+
+    assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
+    assert!(matches!(h.wait_end(sent.turn_id).await, Event::TurnCompleted { .. }));
+    let steered = h.events().await.iter().any(|e| matches!(e, Event::TurnSteered { .. }));
+    assert!(!steered, "no model call reads it, so it is not recorded");
+    h.finish();
+}
+
+/// Holds the thread that closes the span of a turn until the test releases it. The
+/// turn's task has done all its work then, but it has not finished, so the actor
+/// cannot know yet that it ended.
+struct HoldTurnClose {
+    closing: mpsc::UnboundedSender<()>,
+    release: Arc<Release>,
+}
+
+#[derive(Default)]
+struct Release {
+    released: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl Release {
+    fn open(&self) {
+        *self.released.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self) {
+        let mut released = self.released.lock().unwrap_or_else(PoisonError::into_inner);
+        while !*released {
+            released = self.changed.wait(released).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// Opens the release when the test ends, also when it fails, so no worker stays held.
+struct OpenOnDrop(Arc<Release>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.open();
+    }
+}
+
+impl<S> Layer<S> for HoldTurnClose
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
+        let is_turn = ctx.span(&id).is_some_and(|span| {
+            span.name() == "turn" && span.metadata().target().starts_with("efr_conversation")
+        });
+        if is_turn {
+            let _ = self.closing.send(());
+            self.release.wait();
+        }
+    }
+}
+
+/// A client that sees the end of a turn and at once steers, interrupts or sends a
+/// prompt must find no running turn. The turn's task is held after all its work, so
+/// an end that is sent before the actor clears the running turn is seen here every
+/// time, with no help from timing.
+#[test]
+fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
+    let (closing_tx, mut closing) = mpsc::unbounded_channel();
+    let release = Arc::new(Release::default());
+    let layer = HoldTurnClose { closing: closing_tx, release: Arc::clone(&release) };
+    let dispatch = Dispatch::new(tracing_subscriber::registry().with(layer));
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .on_thread_start(move || {
+            // NOTE: the guard is forgotten so the subscriber stays on this worker for
+            // as long as the worker runs.
+            std::mem::forget(tracing::dispatcher::set_default(&dispatch));
+        })
+        .build()
+        .expect("runtime");
+    // NOTE: made after the runtime so it drops first: a failed check opens the release
+    // before the runtime waits for its workers.
+    let _open = OpenOnDrop(Arc::clone(&release));
+
+    runtime.block_on(async move {
+        let setup = Setup::new();
+        let state = setup.live_state(&setup.cwd, "hi");
+        let records = vec![
+            expect_request(request(vec![setup.prompt(&state, "hi")])),
+            answer(&text_answer("Hello.")),
+            expect_request(request(vec![
+                Message::user("hi"),
+                Message::assistant("Hello."),
+                setup.prompt(&state, "again"),
+            ])),
+            answer(&text_answer("Hello again.")),
+        ];
+        let mut h = setup.start(records).await;
+        let first = h.prompt("hi").await;
+        closing.recv().await.expect("the turn's span closes");
+
+        // NOTE: the end must not be out while the turn's task is held. If it is, the
+        // checks below run while the actor still counts the turn as running.
+        if !h.has_ended(first.turn_id) {
+            release.open();
+            h.wait_end(first.turn_id).await;
+        }
+
+        let steer = TurnSteer {
+            command_id: h.command_id(),
+            conversation_id: h.conversation_id,
+            turn_id: None,
+            text: "more".to_owned(),
+        };
+        let steered = h.handle.steer(steer).await;
+        assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
+        let interrupt = TurnInterrupt {
+            command_id: h.command_id(),
+            conversation_id: h.conversation_id,
+            turn_id: None,
+        };
+        let interrupted = h.handle.interrupt(interrupt, Origin::Shell).await;
+        assert!(
+            matches!(interrupted, Err(ConversationError::NoRunningTurn { .. })),
+            "{interrupted:?}"
+        );
+        assert_eq!(h.handle.state().await.expect("state").running, None);
+        let second = h.prompt("again").await;
+        assert!(!second.queued, "the prompt starts at once");
+
+        release.open();
+        h.wait_end(second.turn_id).await;
+        let kinds = h.kinds().await;
+        let late = ["turn_steered", "turn_interrupt_requested"];
+        assert!(!kinds.iter().any(|kind| late.contains(&kind.as_str())), "{kinds:?}");
+        h.finish();
+    });
 }

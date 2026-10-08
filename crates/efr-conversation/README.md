@@ -33,6 +33,10 @@ turns.
   engine's `DecisionInput` and as a line of the preamble.
 - `steer` records `turn_steered`; the turn sends the text to the model before its next
   model call, and a turn that would end with steering waiting makes one more call.
+  When the turn has made its last model call, or ends another way, it closes its
+  steering, and a later `steer` gets `NoRunningTurn`. The turn waits for a steer that
+  the actor is recording at that moment and reads it, so the user never gets an answer
+  for guidance that no model call reads.
 - `interrupt` is two-phase: the actor records `turn_interrupt_requested`, the turn
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only
@@ -139,7 +143,10 @@ completion. The turn ends with
 to `unauthorized`, rate limits to `busy` with
 `retry_after_ms`, an unknown model to `invalid` with the `model`, the rest to
 `internal`) or
-`turn_interrupted`.
+`turn_interrupted`. The turn builds that batch and hands it to the actor. The actor
+clears the running turn first and records the batch after. It answers one request at
+a time, so a client that sees the end and at once steers or interrupts gets
+`NoRunningTurn`, and a prompt that it sends then starts at once.
 
 `$SCRATCH` is `<scratch root>/<YYYY-MM-DD>-<slug>-<idtail>`: the day the conversation
 began, up to five words of its title (lowercase ASCII, at most 48 bytes) and the last
@@ -288,7 +295,9 @@ provider items passed back to the same provider, also after a restart, and dropp
 for another provider, steering, coalesced updates, drafts (`turn/tests/drafts.rs`: their parts
 and `after_seq`, coalescing on the clock, the same log with and without a listener, no
 timer without one), a queued second prompt, receipts and
-the refusals. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
+the refusals, a steer after the last model call, and the requests of a client that has
+just seen the end of a turn (`actor/tests.rs` holds the turn's task after its work
+with a tracing layer, so an end recorded too early shows every time). The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,

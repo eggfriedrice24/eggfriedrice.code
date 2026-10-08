@@ -36,6 +36,14 @@ into the GitHub release notes, and it stops when the section is missing.
   breaks at a space only when it is at least half full; else it breaks inside the word
   with `↩`.
 
+### Fixed
+
+- A steer (`,!`) sent as a turn ends no longer gets lost. Before, efrd could accept it
+  for a turn that had already made its last model call, so the model never read it.
+  Now efrd refuses it with a conflict, and you can send the text as a new prompt. A
+  steer or an interrupt that you send after you see the end of a turn is refused too,
+  and a prompt that you send then starts at once.
+
 ## [0.0.2] - 2026-10-08
 
 The reply view is new: replies stream without lag, a status row shows what runs, and

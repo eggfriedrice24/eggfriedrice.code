@@ -7,6 +7,11 @@
 //! model streams. Prompts that arrive while a turn runs queue behind it, one turn at a
 //! time.
 //!
+//! The actor, not the turn, records a turn's terminal event, and only after it has
+//! cleared the running turn. The actor answers one request at a time, so a request that
+//! a client sends after it sees the end finds no running turn: a steer or an interrupt
+//! is refused, and a prompt starts at once.
+//!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
 //! runs twice. A result that reports a sequence number is stored without it; the store
@@ -191,8 +196,10 @@ impl ConversationActor {
             // daemon start cancels the turn and expires its approvals.
             running.task.abort();
             // Waiting for the cancelled task means nothing of the turn runs once the
-            // shutdown is answered.
-            let _ = running.task.await;
+            // shutdown is answered. A turn that had already ended still gets its end.
+            if let Ok(end) = running.task.await {
+                self.record_end(end.record).await;
+            }
         }
         if let Some(reply) = stopped_reply {
             let _ = reply.send(());
@@ -289,13 +296,20 @@ impl ConversationActor {
     async fn steer(&mut self, params: TurnSteer) -> Result<TurnSteerResult, ConversationError> {
         self.check_conversation(Some(params.conversation_id))?;
         let turn_id = self.running_turn(params.turn_id)?;
+        // NOTE: a turn that made its last model call reads no more steering; the
+        // steer is refused rather than recorded and never read.
+        let reservation =
+            self.running.as_ref().and_then(|running| running.control.steering.reserve());
+        let Some(reservation) = reservation else {
+            return Err(ConversationError::NoRunningTurn {
+                conversation_id: self.conversation_id(),
+            });
+        };
         let event = Event::TurnSteered { turn_id, text: params.text.clone() };
         let result = TurnSteerResult { turn_id, seq: Seq::ZERO };
         let receipt = receipt(params.command_id, TURN_STEER, &result)?;
         let committed = self.append(vec![event], receipt).await?;
-        if let Some(running) = &self.running {
-            running.control.steering.push(params.text);
-        }
+        reservation.push(params.text);
         Ok(TurnSteerResult { seq: committed.last_seq(), ..result })
     }
 
@@ -426,20 +440,32 @@ impl ConversationActor {
         self.running = Some(Running { turn_id, task, control });
     }
 
+    /// Clears the running turn, then records its end. The order matters: a client
+    /// that sees the end and at once steers or interrupts must find no running turn.
     async fn turn_ended(&mut self, ended: Result<TurnEnd, JoinError>) {
         let Some(running) = self.running.take() else {
             return;
         };
         if running.control.steering.is_waiting() {
-            // NOTE: steering that arrives after the turn's last model call is recorded
-            // but never answered; it is rare enough to log rather than start a turn.
-            tracing::warn!(turn_id = %running.turn_id, "steering arrived after the turn's last model call");
+            // NOTE: a turn that fails or is interrupted does not read the steering
+            // that waits; it is rare enough to log rather than start a turn.
+            tracing::warn!(turn_id = %running.turn_id, "steering waited when the turn ended");
         }
         match ended {
-            Ok(end) => self.remember(end),
+            Ok(mut end) => {
+                self.record_end(std::mem::take(&mut end.record)).await;
+                self.remember(end);
+            }
             Err(error) => self.turn_lost(running.turn_id, &error).await,
         }
         self.start_next();
+    }
+
+    /// Records the terminal batch of a turn that ended.
+    async fn record_end(&self, record: Batch) {
+        if let Err(error) = self.shared.deps.writer.append(record).await {
+            tracing::error!(error = %error, "the end of the turn could not be recorded");
+        }
     }
 
     /// Records the end of a turn whose task panicked, and expires its approvals.

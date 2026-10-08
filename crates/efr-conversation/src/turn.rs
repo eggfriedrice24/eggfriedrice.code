@@ -9,7 +9,9 @@
 //! is recorded, goes through [`Turn::authorize_tool_call`], runs when allowed or
 //! approved, and its result goes back to the model, until the model answers without a
 //! tool call. The turn ends with `turn_completed`, `turn_failed` or
-//! `turn_interrupted`.
+//! `turn_interrupted`: it builds that batch and hands it to the actor, which marks the
+//! turn as ended first and records the batch after, so a client that sees the end
+//! finds no running turn.
 //!
 //! `authorize_tool_call` is the only place in efr where a tool call meets the
 //! permission engine. Tools declare (`efr-tools`, through the daemon's [`Toolbox`]),
@@ -146,6 +148,10 @@ pub(crate) struct TurnEnd {
     /// The exact messages of the turn, for the history of later turns; `None` when
     /// the turn stopped before it was recorded as started.
     pub(crate) cached: Option<CachedTurn>,
+    /// The terminal event and what goes with it. The actor records it after it marks
+    /// the turn as ended, so no client sees the end while the turn still counts as
+    /// running.
+    pub(crate) record: Batch,
 }
 
 /// Runs the turn `spec` to its terminal event.
@@ -409,7 +415,7 @@ impl Turn {
             let calls = tool_calls(&message);
             self.push(&mut messages, message);
             if calls.is_empty() {
-                if self.control.steering.is_waiting() {
+                if !self.control.steering.close_if_idle().await {
                     continue;
                 }
                 return Ok(Ending::Completed);
@@ -439,13 +445,16 @@ impl Turn {
         )))
     }
 
-    /// Records the terminal event, with the turn's exact messages for the history of
-    /// later turns in the same batch, and hands the messages back. A turn that stopped
-    /// between a tool call and its result (a store error, say) leaves a call without a
-    /// result, which later turns could not send; it gets an error result.
+    /// Builds the batch of the terminal event, with the turn's exact messages for the
+    /// history of later turns, and hands both to the actor, which records the batch. A
+    /// turn that stopped between a tool call and its result (a store error, say) leaves
+    /// a call without a result, which later turns could not send; it gets an error
+    /// result.
     async fn finish(mut self, ending: Ending) -> TurnEnd {
         let turn_id = self.turn_id();
         let conversation_id = self.shared.conversation_id;
+        // NOTE: no model call reads steering from here on, so the actor refuses it.
+        self.control.steering.close();
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
         // interrupted or failed turn too; only a completed turn reports the changes.
         let watch = Stopwatch::start();
@@ -473,12 +482,9 @@ impl Turn {
         if let Some(messages) = self.saved_messages(&key) {
             batch = batch.turn_messages(messages);
         }
-        if let Err(error) = self.shared.deps.writer.append(batch).await {
-            tracing::error!(error = %error, "the end of the turn could not be recorded");
-        }
         let cached =
             (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
-        TurnEnd { turn_id, cached }
+        TurnEnd { turn_id, cached, record: batch }
     }
 
     /// The turn's messages as the store saves them, or `None` for a turn that never
