@@ -42,6 +42,10 @@ pub enum Var {
     /// that need the real launcher run only when it is set (`just test-sandbox` sets
     /// it).
     TestSbxBin,
+    /// `EFR_BENCH_PROJECT`: an absolute path to the project in which efrd's bench
+    /// `shell_call_phases_in_a_project` runs its calls; without it, the bench makes a
+    /// small git repository.
+    BenchProject,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
     /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
     /// over the terminal's choice in it.
@@ -85,6 +89,7 @@ impl Var {
         Var::OpenBrowser,
         Var::TestZsh,
         Var::TestSbxBin,
+        Var::BenchProject,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -122,6 +127,7 @@ impl Var {
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
             Var::TestZsh => "EFR_TEST_ZSH",
             Var::TestSbxBin => "EFR_TEST_SBX_BIN",
+            Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
             Var::Effort => "EFR_EFFORT",

@@ -459,6 +459,24 @@ mode, because load delays some calls but never makes one faster: it fails when t
 fastest call in `auto`, from the project or from the home directory, costs 75 ms more
 than the fastest call in `cautious`.
 
+The bench `shell_call_phases_in_a_project` shows where the time goes in a project of
+your choice. It runs 50 `true` calls in `auto` and prints the mean and the 95th
+percentile of each step. `EFR_BENCH_PROJECT` names the project, as an absolute path;
+without it, the bench makes a small git repository. It checks nothing, so it runs only
+when you ask for it:
+
+```sh
+cargo build --release -p efr-sbx
+EFR_TEST_SBX_BIN=$PWD/target/release/efr-sbx EFR_TEST_ZSH=1 EFR_BENCH_PROJECT=<dir> \
+    cargo nextest run --release -p efr-daemon --run-ignored only \
+    --success-output immediate -E 'test(shell_call_phases)'
+```
+
+Give it a copy of a project. The surface guard moves a git setting that changes while
+a call runs to quarantine, also when another program changes it. The bench keeps its
+runtime dir on the disk, not on tmpfs, so `call_dir_write` costs more there than in a
+real efrd.
+
 ## Settings
 
 The `[sandbox]` table of `config.toml` holds every key; [`docs/config.md`](config.md)

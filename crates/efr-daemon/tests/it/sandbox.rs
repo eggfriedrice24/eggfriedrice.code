@@ -1522,3 +1522,108 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     drop(client);
     daemon.stop().await.unwrap();
 }
+
+/// The calls per turn of [`shell_call_phases_in_a_project`].
+const PHASE_BENCH_TURN: u32 = 10;
+
+/// The calls that [`shell_call_phases_in_a_project`] measures, after one turn that
+/// starts the hidden shell.
+const PHASE_BENCH_CALLS: u32 = 50;
+
+/// Where the time of a routine call in `auto` goes, in a project of your choice: the
+/// mean and the 95th percentile of each `phase` line of efrd (docs/sandbox.md) over
+/// [`PHASE_BENCH_CALLS`] calls of `true`, from `EFR_BENCH_PROJECT`, or from a small
+/// git repository that the bench makes. It checks nothing, so it runs only when asked;
+/// docs/sandbox.md says how.
+///
+/// The calls only read the project, but the surface guard moves a git config, a hook
+/// or a new git dir that changes while a call runs to its quarantine: give it a copy
+/// of a project that nothing else changes at the same time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "a bench that checks nothing; docs/sandbox.md says how to run it"]
+async fn shell_call_phases_in_a_project() {
+    let test = "shell_call_phases_in_a_project";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    std::fs::write(dirs.home().join(".zshrc"), big_rc()).unwrap();
+    let project = match efr_stdx::env::path(efr_stdx::env::Var::BenchProject).unwrap() {
+        Some(dir) => std::fs::canonicalize(dir).unwrap(),
+        None => {
+            let project = dirs.create_dir("home/project").unwrap();
+            git(&project, &["init", "-q"]).await;
+            for n in 0..20 {
+                std::fs::write(project.join(format!("file{n}.rs")), "fn main() {}\n").unwrap();
+            }
+            git(&project, &["add", "."]).await;
+            git(&project, &["commit", "-qm", "files"]).await;
+            project
+        }
+    };
+    let calls = PHASE_BENCH_CALLS;
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+    ]);
+    let model = Arc::new(RepeatModel {
+        id: ProviderId::new("test").unwrap(),
+        line: "true".to_owned(),
+        calls: PHASE_BENCH_TURN as usize,
+        asked: AtomicUsize::new(0),
+    });
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    if !status.sandbox.is_some_and(|sandbox| sandbox.available) {
+        skip(test, "the probe says the sandbox is unavailable");
+        return;
+    }
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    // The first turn starts the hidden shell and writes the snapshot; it does not count.
+    debug_log();
+    turn_cost(&daemon, 1, &project, Mode::Auto, PHASE_BENCH_TURN).await;
+    take_log();
+    let mut lines = Vec::new();
+    for turn in 0..calls.div_ceil(PHASE_BENCH_TURN) {
+        turn_cost(&daemon, 2 + u128::from(turn), &project, Mode::Auto, PHASE_BENCH_TURN).await;
+        lines.extend(phase_lines(&take_log()));
+    }
+    let mut order: Vec<&str> = Vec::new();
+    for (phase, _) in &lines {
+        if !order.contains(&phase.as_str()) {
+            order.push(phase);
+        }
+    }
+    #[expect(clippy::print_stdout, reason = "the bench prints its numbers")]
+    {
+        println!("{calls} calls of `true` in auto from {}", project.display());
+        println!("{:<28} {:>6} {:>9} {:>9}", "phase", "lines", "mean ms", "p95 ms");
+        for phase in order {
+            let mut times: Vec<f64> =
+                lines.iter().filter(|(known, _)| known == phase).map(|(_, ms)| *ms).collect();
+            times.sort_by(f64::total_cmp);
+            let mean = times.iter().sum::<f64>() / f64::from(u32::try_from(times.len()).unwrap());
+            let p95 = times[(times.len() * 95).div_ceil(100) - 1];
+            println!("{phase:<28} {:>6} {mean:>9.2} {p95:>9.2}", times.len());
+        }
+    }
+    drop(client);
+    daemon.stop().await.unwrap();
+}
