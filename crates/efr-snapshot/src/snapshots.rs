@@ -20,6 +20,11 @@ use crate::store::{self, Store};
 /// hashes every file.
 pub const DEFAULT_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long a root that a snapshot skipped (too many files) stays skipped before the
+/// next snapshot counts its files again. Counting walks the whole root, the cost that
+/// the skip saves.
+const SKIP_FOR: Duration = Duration::from_secs(10 * 60);
+
 /// The directory below efr's data root that holds every store.
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
@@ -97,13 +102,15 @@ struct TurnRecord {
 }
 
 /// One store in this process: the gate that lets one snapshot, commit or collection of
-/// the store run at a time, the tree of its index at its last snapshot, and the trees
-/// that running turns and calls still need ([`Pin`]).
+/// the store run at a time, the tree of its index at its last snapshot, the trees
+/// that running turns and calls still need ([`Pin`]), and until when the root stays
+/// skipped.
 #[derive(Debug)]
 pub(crate) struct Slot {
     gate: tokio::sync::Semaphore,
     tree: Mutex<Option<String>>,
     live: Mutex<Vec<String>>,
+    skipped_until: Mutex<Option<jiff::Timestamp>>,
 }
 
 impl Default for Slot {
@@ -112,6 +119,7 @@ impl Default for Slot {
             gate: tokio::sync::Semaphore::new(1),
             tree: Mutex::new(None),
             live: Mutex::new(Vec::new()),
+            skipped_until: Mutex::new(None),
         }
     }
 }
@@ -170,6 +178,20 @@ impl Slot {
         trees.sort();
         trees.dedup();
         trees
+    }
+
+    /// True while the root stays skipped at `now`.
+    fn skipped(&self, now: jiff::Timestamp) -> bool {
+        self.lock_skipped().is_some_and(|until| now < until)
+    }
+
+    /// Skips the root from `now` for [`SKIP_FOR`].
+    fn skip(&self, now: jiff::Timestamp) {
+        *self.lock_skipped() = now.checked_add(SKIP_FOR).ok();
+    }
+
+    fn lock_skipped(&self) -> MutexGuard<'_, Option<jiff::Timestamp>> {
+        self.skipped_until.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn lock_live(&self) -> MutexGuard<'_, Vec<String>> {
@@ -362,6 +384,11 @@ impl Snapshots {
     async fn snap(&self, root: &Path, limits: &Limits, ignored: bool) -> Option<String> {
         let slot = self.slot(root);
         let _turn = slot.enter().await;
+        let now = self.runner().clock().now();
+        if slot.skipped(now) {
+            tracing::debug!(root = %root.display(), "no snapshot of this root: it was skipped a short time ago");
+            return None;
+        }
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
         let cached = slot.tree();
@@ -382,6 +409,7 @@ impl Snapshots {
                 Some(tree)
             }
             Ok(Err(reason)) => {
+                slot.skip(now);
                 tracing::debug!(root = %root.display(), reason, "no snapshot of this root");
                 None
             }
@@ -405,6 +433,11 @@ impl Snapshots {
     ) -> Option<Vec<RootChange>> {
         let slot = self.slot(root);
         let _turn = slot.enter().await;
+        let now = self.runner().clock().now();
+        if slot.skipped(now) {
+            tracing::debug!(root = %root.display(), "no snapshot of this root: it was skipped a short time ago");
+            return None;
+        }
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
         let cached = slot.tree();
@@ -431,6 +464,7 @@ impl Snapshots {
         match compared {
             Ok(Ok(changes)) => Some(changes),
             Ok(Err(reason)) => {
+                slot.skip(now);
                 tracing::debug!(root = %root.display(), reason, "no snapshot of this root");
                 None
             }

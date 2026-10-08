@@ -122,7 +122,7 @@ efr's own snapshots, which show what a call and a turn changed in files.
 | `enabled` | `true` | live | `false` takes no snapshot: a `shell` call and the end of a turn then list no changed files, and `efr diff` has nothing new. A file tool still shows its diff. |
 | `max_file_mib` | `10` | live | Files above this size in MiB are left out of a snapshot, from 1 to 1024: a new untracked file, and a file that grows past it, which then shows as changed with no line counts. |
 | `ignored` | `"small"` | live | Which ignored files a snapshot takes: `none` or `small` (up to 1 MiB each, outside build and dependency directories, such as `.env`). |
-| `max_files` | `20000` | live | A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to 1000000; the debug log says so. |
+| `max_files` | `20000` | live | A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to 1000000; the debug log says so, and efr counts its files again after 10 minutes. |
 | `keep_turns` | `50` | live | The turns of each conversation whose snapshots stay, newest first, from 1 to 10000; older ones are deleted. |
 | `max_age_days` | `30` | live | Days without a snapshot after which the store of a project or `$SCRATCH` is deleted, from 1 to 3650. |
 

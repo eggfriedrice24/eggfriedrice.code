@@ -1001,7 +1001,7 @@
         },
         "max_files": {
           "default": 20000,
-          "description": "A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to\n1000000; the debug log says so.",
+          "description": "A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to\n1000000; the debug log says so, and efr counts its files again after 10\nminutes.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

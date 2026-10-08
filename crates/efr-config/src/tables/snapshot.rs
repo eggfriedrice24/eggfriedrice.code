@@ -46,7 +46,8 @@ pub struct SnapshotSettings {
     /// outside build and dependency directories, such as `.env`).
     pub ignored: IgnoredFiles,
     /// A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to
-    /// 1000000; the debug log says so.
+    /// 1000000; the debug log says so, and efr counts its files again after 10
+    /// minutes.
     pub max_files: u32,
     /// The turns of each conversation whose snapshots stay, newest first, from 1 to
     /// 10000; older ones are deleted.

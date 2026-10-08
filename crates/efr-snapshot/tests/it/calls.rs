@@ -151,6 +151,31 @@ async fn a_root_with_too_many_files_is_skipped() {
 }
 
 #[tokio::test]
+async fn a_skipped_root_is_not_scanned_again_for_a_while() {
+    let world = World::new();
+    let dir = world.dir("many");
+    for n in 0..5 {
+        write(
+            &dir.join(format!("f{n}")),
+            "x
+",
+        );
+    }
+    let few = Limits { max_files: 3, ..limits() };
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], few).await;
+    assert!(call.is_empty());
+    for n in 0..3 {
+        fs::remove_file(dir.join(format!("f{n}"))).unwrap();
+    }
+    // NOTE: a scan would find 2 files now; the skip holds without one.
+    let call = world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], few).await;
+    assert!(call.is_empty(), "the skip holds for a while");
+    world.clock.advance(std::time::Duration::from_secs(11 * 60));
+    let call = world.snapshots.before_call(conversation(1), turn(3), vec![root(&dir)], few).await;
+    assert!(!call.is_empty(), "then the root is scanned again");
+}
+
+#[tokio::test]
 async fn two_roots_show_their_paths_with_their_prefixes() {
     let world = World::new();
     let project = world.dir("p/app");
