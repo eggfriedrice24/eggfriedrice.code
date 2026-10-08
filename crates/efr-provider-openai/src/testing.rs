@@ -186,6 +186,15 @@ impl ManualClock {
     }
 }
 
+impl ManualClock {
+    /// True while a sleep waits that ends `duration` from now.
+    pub(crate) fn waits_for(&self, duration: Duration) -> bool {
+        let state = self.state.lock().unwrap();
+        let at = state.now.checked_add(SignedDuration::try_from(duration).unwrap()).unwrap();
+        state.sleepers.iter().any(|(due, sleeper)| *due == at && !sleeper.is_closed())
+    }
+}
+
 impl Clock for ManualClock {
     fn now(&self) -> Timestamp {
         self.state.lock().unwrap().now

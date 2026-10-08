@@ -6,7 +6,7 @@ use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use super::IDLE;
+use super::{IDLE, PROBE_AFTER, PROBE_TIMEOUT};
 use crate::testing::{
     FakeTokens, FixedRng, ManualClock, ResponsesServer, Socket, Step, fixture, sse_events,
 };
@@ -461,4 +461,54 @@ async fn an_idle_connection_closes_and_the_next_call_opens_a_new_one() {
 
     assert_eq!(second.message.text(), "Again.");
     assert_eq!(setup.server.sockets().len(), 2);
+}
+
+#[tokio::test]
+async fn a_call_after_a_quiet_spell_pings_first_and_reuses_a_connection_that_answers() {
+    let socket = Socket::serving(vec![
+        vec![Step::Send(answer("resp_1", "Hello."))],
+        vec![Step::Send(answer("resp_2", "Again."))],
+    ]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = request("gpt-5.5", "hi");
+
+    let first = setup.provider.complete(request.clone()).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    request.messages.push(first.message);
+    request.messages.push(Message::user("and now?"));
+    let second = setup.provider.complete(request).await.unwrap();
+
+    assert_eq!(second.message.text(), "Again.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 1);
+    assert_eq!(sockets[0].messages[1]["previous_response_id"], "resp_1");
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_call_goes_over_http() {
+    let sockets = vec![
+        Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello.")), Step::Hang]]),
+        Socket::serving(vec![vec![Step::Send(answer("resp_3", "Fresh."))]]),
+    ];
+    let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    let pong_never_comes = async {
+        eventually(|| setup.clock.waits_for(PROBE_TIMEOUT)).await;
+        setup.clock.advance(PROBE_TIMEOUT);
+    };
+    let (second, ()) =
+        tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), pong_never_comes);
+    let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    // The request never went out on the dead connection, so HTTP sent the only call.
+    assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets[0].messages.len(), 1);
+    assert_eq!(setup.server.posts().len(), 1);
+    // A dead connection does not pause WebSockets: the next call opens a new one.
+    assert_eq!(third.message.text(), "Fresh.");
+    assert_eq!(sockets.len(), 2);
 }

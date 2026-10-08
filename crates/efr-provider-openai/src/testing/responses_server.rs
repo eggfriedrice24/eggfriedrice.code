@@ -26,6 +26,9 @@ pub(crate) enum Step {
     AfterNext(Vec<Value>),
     /// Closes the connection.
     Close,
+    /// Stops reading and sending but keeps the connection open, as a connection that
+    /// died without a close: a ping gets no pong.
+    Hang,
 }
 
 /// The script of one WebSocket connection.
@@ -235,6 +238,11 @@ async fn serve(
                 }
                 Step::Close => {
                     let _ = socket.write_frame(Frame::close(1011, b"going away")).await;
+                    return;
+                }
+                Step::Hang => {
+                    let _socket = socket;
+                    std::future::pending::<()>().await;
                     return;
                 }
             }

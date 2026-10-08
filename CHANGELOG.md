@@ -14,7 +14,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - Model calls to OpenAI can go over a WebSocket, which cuts the time to the first
   token. Each conversation keeps one connection open between the calls of a turn and
-  between turns, and closes it after 10 minutes without a call. While the connection
+  between turns, and closes it after 10 minutes without a call. Before a call on a
+  connection that had no call for 30 seconds, efr sends a ping. When the connection
+  died during a sleep of the computer or a change of network, the call goes over
+  HTTP after at most 5 seconds. While the connection
   holds the previous answer, a call sends only its new input. A call that the
   WebSocket cannot serve goes over HTTP, so a WebSocket failure never fails a turn
   that HTTP could serve. When you interrupt a turn, efr stops the answer on the

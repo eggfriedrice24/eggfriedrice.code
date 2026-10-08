@@ -151,6 +151,12 @@ The connections:
 - It stays open between the calls of a turn and between turns. It closes after 10
   minutes without a call, when the server closes it, after a failure, and it takes no
   call after 55 minutes, before the server's limit of 60 minutes.
+- A call on a connection that had no call for 30 seconds first sends a ping. A
+  connection can die without a close, such as during a sleep of the computer, a change
+  of network or a NAT that forgets the flow. When the pong does not come in 5 seconds,
+  the connection closes and the call goes over HTTP, because its request did not go
+  out. Without the ping, such a call would wait for the read timeout of 300 seconds.
+  The calls of one turn follow each other within seconds and skip the ping.
 - The handshake is an HTTP/1.1 `GET <base_url>/responses` through `efr_http`'s client
   (the same rustls stack and `User-Agent: efr/<version>`), with the headers of the
   HTTP path (`Authorization`, and on the subscription `chatgpt-account-id`,
@@ -179,6 +185,7 @@ Fallback to HTTP: a call that the socket cannot serve goes over HTTP, so a faile
 WebSocket never fails a call that HTTP could serve:
 
 - the connection cannot be opened, or the server refuses the upgrade;
+- a connection that had no call for 30 seconds does not answer its ping;
 - the server does not take the call: it sends an `error` event, or closes the
   connection, before the first event of an answer (`response.*`). The server has then
   started no answer, so the HTTP request is the first and only model call.
@@ -193,9 +200,10 @@ path: a close or a lost connection is `ProviderError::Incomplete` or a transport
 and the server's `error` and `response.failed` events map as they do over HTTP. The
 call is not sent again, because the model may have run.
 
-Timeouts: 15 seconds for the handshake, 300 seconds of silence inside an answer (the
-HTTP client's read timeout), 30 seconds to send a message and 10 seconds for an
-interrupted answer to end. They run on the injected `Clock`.
+Timeouts: 15 seconds for the handshake, 5 seconds for the pong of the ping before a
+call after 30 quiet seconds, 300 seconds of silence inside an answer (the HTTP
+client's read timeout), 30 seconds to send a message and 10 seconds for an interrupted
+answer to end. They run on the injected `Clock`.
 
 The debug lines: each call writes `phase=provider_accepted` when the server's first
 event arrives and `phase=provider_first_event` when the first canonical event is
@@ -236,7 +244,8 @@ What efr does not copy:
   goes over HTTP at once when the server did not take a call. Codex's switch lasts for
   the session; efr's lasts 5 minutes.
 - Codex keeps a connection for one turn and caches it between turns; efr keeps one
-  for each conversation and closes it after 10 minutes without a call.
+  for each conversation and closes it after 10 minutes without a call. Codex sends no
+  ping; efr pings a connection that had no call for 30 seconds before it uses it.
 - The prewarm request (`generate: false`), the `x-codex-turn-state` sticky routing,
   the `client_metadata`, the `codex.*` events, safety buffering and
   `permessage-deflate` compression. Events that the parser does not know become
@@ -378,7 +387,8 @@ over both transports, the handshake headers and the `response.create` body, the 
 of a connection with only the new items, the whole input after a changed setting or a
 compaction, the interrupt, the fallback to HTTP on a refused upgrade, a close and an
 `error` event before the answer, the failure of a close after the answer started, a
-lost previous answer, the idle close, and the switch with the catalog's
+lost previous answer, the idle close, the ping before a call after a quiet spell
+(answered, and not answered by a connection that hangs), and the switch with the catalog's
 `prefer_websockets`. `continuation` tests check when a call may send only its new
 items. The fixtures are hand-written in the Responses wire format, since the tests
 make no real network or model calls. Nothing

@@ -11,7 +11,10 @@
 //! `prompt_cache_key`, which the conversation sets to its id. A connection serves one
 //! call at a time; it stays open between the calls of a turn and between turns, and
 //! closes after [`IDLE`] without a call, when the server closes it, after any failure,
-//! and before the server's limit of 60 minutes.
+//! and before the server's limit of 60 minutes. A call on a connection that had no call
+//! for [`PROBE_AFTER`] first pings the server, so a connection that died without a close
+//! costs at most [`PROBE_TIMEOUT`] before the call goes over HTTP, and never the read
+//! timeout.
 //!
 //! A call that the socket cannot serve goes over HTTP: when the connection cannot be
 //! opened, when the server refuses the upgrade, or when the server does not take the
@@ -54,6 +57,15 @@ pub(crate) const IDLE: Duration = Duration::from_secs(10 * 60);
 /// A connection takes no new call after this age, before the server's limit of 60
 /// minutes for one connection (`websocket_connection_limit_reached` in Codex).
 const MAX_AGE: Duration = Duration::from_secs(55 * 60);
+
+/// A call on a connection that had no call for this long pings the server first. A
+/// turn's calls follow each other within seconds, and those skip the ping; the next
+/// prompt may come minutes later, after a sleep of the laptop or a change of network
+/// that dropped the connection without a close.
+pub(crate) const PROBE_AFTER: Duration = Duration::from_secs(30);
+
+/// How long the pong of that ping may take before the connection counts as dead.
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long every call goes over HTTP after a failure that says that WebSockets do not
 /// work now, such as a refused upgrade.
@@ -145,8 +157,14 @@ impl Drop for Taken {
 impl Sockets {
     /// No connections yet; `clock` times the idle close, the pause and every wait.
     pub(crate) fn new(clock: Arc<dyn Clock>) -> Sockets {
-        let limits =
-            Limits { idle: IDLE, read: READ_TIMEOUT, send: SEND_TIMEOUT, drain: DRAIN_TIMEOUT };
+        let limits = Limits {
+            idle: IDLE,
+            probe_after: PROBE_AFTER,
+            probe: PROBE_TIMEOUT,
+            read: READ_TIMEOUT,
+            send: SEND_TIMEOUT,
+            drain: DRAIN_TIMEOUT,
+        };
         Sockets { clock, limits, state: Mutex::new(State::default()) }
     }
 

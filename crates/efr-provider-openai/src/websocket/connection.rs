@@ -4,7 +4,10 @@
 //! caller of that request. It keeps reading after the caller has gone: it then sends
 //! `response.interrupt` for the answer and reads until the answer ends, so the
 //! connection is clean for the next request. While no request runs, it closes the
-//! connection after [`Limits::idle`] or when the server closes it.
+//! connection after [`Limits::idle`] or when the server closes it. A request that comes
+//! after [`Limits::probe_after`] without one first pings the server: a connection that
+//! died without a close, such as after a sleep of the laptop or a change of network,
+//! then fails fast, before the request goes out.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -36,6 +39,11 @@ const ENDS: &[&str] = &["response.completed", "response.incomplete", "response.f
 pub(crate) struct Limits {
     /// How long an unused connection stays open.
     pub(crate) idle: Duration,
+    /// How long a connection may go without a request before the next request pings
+    /// the server first.
+    pub(crate) probe_after: Duration,
+    /// How long the pong of that ping may take.
+    pub(crate) probe: Duration,
     /// The longest silence inside an answer, as the read timeout of the HTTP path.
     pub(crate) read: Duration,
     /// How long a `response.create` may take to go out.
@@ -180,6 +188,9 @@ async fn run(
     clock: Arc<dyn Clock>,
     limits: Limits,
 ) {
+    // NOTE: `None` until the first request has ended: the caller that opened the
+    // connection sends its request at once, on a socket that just answered.
+    let mut idle_since: Option<Timestamp> = None;
     loop {
         let create = tokio::select! {
             create = commands.recv() => create,
@@ -202,18 +213,48 @@ async fn run(
         let Some(create) = create else {
             break;
         };
+        let quiet = idle_since.is_some_and(|since| {
+            clock.now().duration_since(since).unsigned_abs() >= limits.probe_after
+        });
+        if quiet && !probe(&socket, &*clock, limits).await {
+            // NOTE: the request has not gone out, so the server has not seen it and
+            // the call may go over HTTP. A dead connection says nothing about the
+            // transport, so WebSockets do not pause.
+            retire(&shared);
+            let reason = "the websocket did not answer a ping".to_owned();
+            let _ = create.events.send(Delivery::Refused(Refusal { reason, pause: false })).await;
+            break;
+        }
         match serve(&mut socket, create, &shared, &*clock, limits).await {
-            Served::Idle => {}
+            Served::Idle => idle_since = Some(clock.now()),
             Served::Dead => break,
         }
     }
-    {
-        let mut shared = lock(&shared);
-        shared.closed = true;
-        shared.busy = false;
-        shared.last = None;
-    }
+    retire(&shared);
     let _ = clock.timeout(limits.send, socket.close(1000)).await;
+}
+
+/// True when the server answers a ping within [`Limits::probe`].
+async fn probe(socket: &WebSocket, clock: &dyn Clock, limits: Limits) -> bool {
+    match Clock::timeout(&clock, limits.probe, socket.ping()).await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            tracing::debug!(%error, "the ping of an unused websocket failed; closing it");
+            false
+        }
+        Err(_) => {
+            tracing::debug!(probe = ?limits.probe, "an unused websocket did not answer a ping in time; closing it");
+            false
+        }
+    }
+}
+
+/// Marks the connection closed and free: it takes no more requests.
+fn retire(shared: &Mutex<Shared>) {
+    let mut shared = lock(shared);
+    shared.closed = true;
+    shared.busy = false;
+    shared.last = None;
 }
 
 /// The state of one request.
@@ -244,10 +285,7 @@ impl Request<'_> {
     /// the caller's next request opens a new connection instead of finding this one
     /// busy.
     fn retire(&self) {
-        let mut shared = lock(self.shared);
-        shared.closed = true;
-        shared.busy = false;
-        shared.last = None;
+        retire(self.shared);
     }
 
     /// Ends a request that failed with a refusal before the server took it, or with
