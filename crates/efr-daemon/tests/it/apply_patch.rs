@@ -108,7 +108,6 @@ async fn a_custom_tool_call_with_a_patch_runs_and_its_result_goes_back_as_custom
 }
 
 #[tokio::test]
-#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
 async fn a_patch_in_the_project_changes_the_file_and_shows_its_diff_without_a_question() {
     let (server, daemon) = daemon_with_patch(UPDATE).await;
 
@@ -139,7 +138,6 @@ async fn a_patch_in_the_project_changes_the_file_and_shows_its_diff_without_a_qu
 }
 
 #[tokio::test]
-#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
 async fn a_delete_asks_even_in_the_project_and_a_no_keeps_the_file() {
     let patch = "*** Begin Patch\n*** Delete File: src/lib.rs\n*** End Patch\n";
     let (server, daemon) = daemon_with_patch(patch).await;

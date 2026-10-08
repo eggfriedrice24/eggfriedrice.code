@@ -76,9 +76,7 @@ pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonErr
         .map_err(|source| DaemonError::Tool { source })?;
     // NOTE: a delete or a move of a patch declares itself destructive, and the engine
     // asks about it in every mode (`efr_permissions::Requirements::destructive`).
-    registry
-        .register(Arc::new(ApplyPatchTool::new()))
-        .map_err(|source| DaemonError::Tool { source })?;
+    registry.register(Arc::new(ApplyPatchTool)).map_err(|source| DaemonError::Tool { source })?;
     Ok(registry)
 }
 

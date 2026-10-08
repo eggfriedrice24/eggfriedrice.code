@@ -16,7 +16,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use efr_patch::{ChangeKind, FileChange, Files, Operation, Patch, PatchError};
+use efr_patch::{ChangeKind, FileChange, NearLine, Operation, Patch, PatchError};
 use efr_scope::Home;
 use serde::de::Error as _;
 use serde_json::Value;
@@ -89,38 +89,12 @@ its files or none. A delete or a move always waits for the user's approval.";
 /// marks a delete or a move as destructive, which the permission engine asks about in
 /// every mode. Before it writes a file it records the original in the context's
 /// journal, and it writes nothing when the journal fails.
-#[derive(Debug, Clone, Copy)]
-pub struct ApplyPatchTool {
-    engine: Engine,
-}
-
-/// The two entry points of the patch engine. Tests put in a stand-in while the engine
-/// of `efr-patch` is not built.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Engine {
-    pub(crate) parse: fn(&str) -> Result<Patch, PatchError>,
-    pub(crate) apply: fn(&Patch, &dyn Files) -> Result<Vec<FileChange>, PatchError>,
-}
-
-impl Engine {
-    /// The engine of `efr-patch`.
-    const PATCH: Engine = Engine { parse: efr_patch::parse, apply: efr_patch::apply };
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ApplyPatchTool;
 
 impl ApplyPatchTool {
     /// The tool's name.
     pub const NAME: &'static str = "apply_patch";
-
-    /// The tool.
-    pub fn new() -> Self {
-        ApplyPatchTool { engine: Engine::PATCH }
-    }
-
-    /// The tool with another engine, for tests.
-    #[cfg(test)]
-    pub(crate) fn with_engine(engine: Engine) -> Self {
-        ApplyPatchTool { engine }
-    }
 
     /// The call's patch with absolute paths, or why it is not one.
     fn plan(&self, ctx: &ToolContext, input: &Value) -> Result<Planned, ToolError> {
@@ -128,7 +102,7 @@ impl ApplyPatchTool {
             tool: Self::NAME.to_owned(),
             source: serde_json::Error::custom("the input must be the text of a patch"),
         })?;
-        let written = (self.engine.parse)(text).map_err(|source| ToolError::Patch { source })?;
+        let written = efr_patch::parse(text).map_err(|source| ToolError::Patch { source })?;
         let mut failed = None;
         let patch = written.clone().map_paths(|path| {
             resolve(ctx, &path.to_string_lossy()).unwrap_or_else(|error| {
@@ -152,12 +126,6 @@ impl ApplyPatchTool {
             }
         }
         Ok(Planned { patch, written_as })
-    }
-}
-
-impl Default for ApplyPatchTool {
-    fn default() -> Self {
-        ApplyPatchTool::new()
     }
 }
 
@@ -235,7 +203,7 @@ impl Tool for ApplyPatchTool {
         let home = ctx.home.clone();
         let paths = planned.paths();
         let originals = blocking(&ctx.cwd, move || read_originals(&home, &paths)).await.ok()?;
-        let changes = (self.engine.apply)(&planned.patch, &originals.texts).ok()?;
+        let changes = efr_patch::apply(&planned.patch, &originals.texts).ok()?;
         Some(preview(&changes, &originals))
     }
 
@@ -249,7 +217,7 @@ impl Tool for ApplyPatchTool {
         let home = ctx.home.clone();
         let paths = planned.paths();
         let originals = blocking(&ctx.cwd, move || read_originals(&home, &paths)).await?;
-        let changes = match (self.engine.apply)(&planned.patch, &originals.texts) {
+        let changes = match efr_patch::apply(&planned.patch, &originals.texts) {
             Ok(changes) => changes,
             Err(error) => return Ok(ToolResult::error(failure(&error, &planned.patch))),
         };
@@ -500,36 +468,72 @@ fn success(changes: &[FileChange], planned: &Planned) -> String {
     format!("Success. {}", groups.join("; "))
 }
 
-/// What the model reads when the patch does not apply: the error, for a hunk that
-/// matches nowhere its `@@` lines and the nearest lines of the file, then that no file
-/// changed.
+/// What the model reads when the patch does not apply: the error, then what helps the
+/// model correct it (for a hunk that matches nowhere its `@@` lines and the nearest
+/// lines of the file, for an `@@` line that matches nowhere the nearest lines, for a
+/// hunk that matches several places their line numbers), then that no file changed.
 fn failure(error: &PatchError, patch: &Patch) -> String {
     let mut lines = vec![format!("{error}.")];
-    if let PatchError::NoMatch { path, hunk, nearest } = error {
-        let anchors = patch
-            .operations
-            .iter()
-            .find_map(|operation| match operation {
-                Operation::Update { path: updated, hunks, .. } if updated == path => {
-                    hunks.get(hunk.saturating_sub(1))
-                }
-                _ => None,
-            })
-            .map(|hunk| hunk.anchors.clone())
-            .unwrap_or_default();
-        if !anchors.is_empty() {
-            lines.push(format!("Its @@ lines: {}.", anchors.join(" | ")));
+    match error {
+        PatchError::NoMatch { path, hunk, nearest } => {
+            let anchors = hunk_anchors(patch, path, *hunk);
+            if !anchors.is_empty() {
+                lines.push(format!("Its @@ lines: {}.", anchors.join(" | ")));
+            }
+            nearest_lines(&mut lines, nearest, "its lines");
+            lines.push("Read the file again and send a corrected patch.".to_owned());
         }
-        if nearest.is_empty() {
-            lines.push("No line of the file is near its lines.".to_owned());
-        } else {
-            lines.push("The nearest lines of the file:".to_owned());
-            lines.extend(nearest.iter().map(|line| format!("{:>6} | {}", line.number, line.text)));
+        PatchError::NoAnchor { nearest, .. } => {
+            nearest_lines(&mut lines, nearest, "the @@ line");
+            lines.push(
+                "Use a line of the file as it is for the @@ line, or read the file again."
+                    .to_owned(),
+            );
         }
-        lines.push("Read the file again and send a corrected patch.".to_owned());
+        PatchError::Ambiguous { lines: starts, .. } => {
+            let starts: Vec<String> = starts.iter().map(usize::to_string).collect();
+            lines.push(format!("It matches at lines {}.", starts.join(", ")));
+            lines.push(
+                "Add more context lines, or an @@ line that names the function or class, so \
+                 the hunk matches one place."
+                    .to_owned(),
+            );
+        }
+        PatchError::Exists { .. } => {
+            lines.push("Update the file, or delete it first in the same patch.".to_owned());
+        }
+        PatchError::Missing { .. } => {
+            lines.push("Add the file with *** Add File, or check the path.".to_owned());
+        }
+        _ => {}
     }
     lines.push(NOTHING_CHANGED.to_owned());
     lines.join("\n")
+}
+
+/// The `@@` lines of a hunk of the update of `path`, the hunk counted from 1.
+fn hunk_anchors(patch: &Patch, path: &Path, hunk: usize) -> Vec<String> {
+    patch
+        .operations
+        .iter()
+        .find_map(|operation| match operation {
+            Operation::Update { path: updated, hunks, .. } if updated == path => {
+                hunks.get(hunk.saturating_sub(1))
+            }
+            _ => None,
+        })
+        .map(|hunk| hunk.anchors.clone())
+        .unwrap_or_default()
+}
+
+/// The nearest lines of a file with their numbers, or that no line is near `what`.
+fn nearest_lines(lines: &mut Vec<String>, nearest: &[NearLine], what: &str) {
+    if nearest.is_empty() {
+        lines.push(format!("No line of the file is near {what}."));
+    } else {
+        lines.push("The nearest lines of the file:".to_owned());
+        lines.extend(nearest.iter().map(|line| format!("{:>6} | {}", line.number, line.text)));
+    }
 }
 
 /// What the model reads when a write failed after the patch applied: the error, then

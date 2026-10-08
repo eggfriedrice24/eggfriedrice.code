@@ -1,5 +1,3 @@
-mod stand_in;
-
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,25 +8,15 @@ use efr_patch::{ChangeKind, FileChange, NearLine, Patch, PatchError};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use super::{ApplyPatchTool, Engine, Originals, failure, restore_all, written};
+use super::{ApplyPatchTool, Originals, failure, restore_all, written};
 use crate::testing::Fixture;
 use crate::{
     AccessMode, FileSnapshot, JournalEntry, NoOutput, Original, PathAccess, Tool as _, ToolError,
     ToolGrammar, WriteJournal, WrittenKind,
 };
 
-/// The engine the tests run on: the engine of `efr-patch` once it is built, the
-/// stand-in until then. Every patch here is one that both must apply the same way.
-fn engine() -> Engine {
-    let probe = efr_patch::parse("*** Begin Patch\n*** Delete File: x\n*** End Patch\n");
-    match probe {
-        Err(error) if error.to_string() == "the patch engine is not built yet" => stand_in::ENGINE,
-        _ => Engine::PATCH,
-    }
-}
-
 fn tool() -> ApplyPatchTool {
-    ApplyPatchTool::with_engine(engine())
+    ApplyPatchTool
 }
 
 fn patch(body: &str) -> Value {
@@ -60,7 +48,7 @@ fn every_kind() -> Value {
 
 #[test]
 fn the_spec_is_a_freeform_tool_with_the_patch_grammar() {
-    let spec = ApplyPatchTool::new().spec();
+    let spec = ApplyPatchTool.spec();
     assert_eq!(spec.name, "apply_patch");
     assert_eq!(spec.grammar, Some(ToolGrammar::Lark(efr_patch::GRAMMAR.to_owned())));
     assert_eq!(spec.input_schema["required"], json!(["input"]));
@@ -252,7 +240,11 @@ async fn an_update_of_a_missing_file_changes_nothing() {
     let missing = fixture.cwd().join("nope.txt");
     assert_eq!(
         result.output,
-        format!("{} does not exist.\nNo file was changed.", missing.display())
+        format!(
+            "{} does not exist.\nAdd the file with *** Add File, or check the path.\n\
+             No file was changed.",
+            missing.display()
+        )
     );
     assert!(fixture.cwd().join("d.txt").exists());
 }
@@ -495,33 +487,84 @@ fn the_diffs_of_all_files_together_stay_within_the_line_limit() {
     );
 }
 
-/// Tolerant matching is the engine's: these run once `efr-patch` is built.
 #[tokio::test]
-#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
 async fn a_hunk_matches_across_trailing_whitespace_and_unicode_punctuation() {
     let fixture = Fixture::new();
     let path = fixture.cwd().join("quote.txt");
     std::fs::write(&path, "say \u{201c}hi\u{201d}   \nend\n").unwrap();
     let input = patch("*** Update File: quote.txt\n@@\n-say \"hi\"\n+say \"bye\"\n end\n");
 
-    let result =
-        ApplyPatchTool::new().invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+    let result = ApplyPatchTool.invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
 
     assert!(!result.is_error, "{}", result.output);
     assert_eq!(read(&path), "say \"bye\"\nend\n");
 }
 
 #[tokio::test]
-#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
 async fn a_miss_of_the_real_engine_names_the_nearest_lines() {
     let fixture = Fixture::new();
     files(&fixture);
     let input = patch("*** Update File: a.txt\n@@\n one\n-too\n+2\n three\n");
 
-    let result =
-        ApplyPatchTool::new().invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+    let result = ApplyPatchTool.invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
 
     assert!(result.is_error);
     assert!(result.output.contains("The nearest lines of the file:\n"), "{}", result.output);
     assert!(result.output.ends_with("No file was changed."), "{}", result.output);
+}
+
+#[tokio::test]
+async fn an_ambiguous_hunk_names_its_lines_and_asks_for_more_context() {
+    let fixture = Fixture::new();
+    let path = fixture.cwd().join("twice.txt");
+    std::fs::write(&path, "a\nx\nb\nx\n").unwrap();
+    let input = patch("*** Update File: twice.txt\n@@\n-x\n+y\n");
+
+    let result = ApplyPatchTool.invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+
+    assert!(result.is_error);
+    assert_eq!(
+        result.output,
+        format!(
+            "hunk 1 matches 2 places in {}.\nIt matches at lines 2, 4.\n\
+             Add more context lines, or an @@ line that names the function or class, so the \
+             hunk matches one place.\nNo file was changed.",
+            path.display()
+        )
+    );
+    assert_eq!(read(&path), "a\nx\nb\nx\n");
+}
+
+#[tokio::test]
+async fn an_anchor_that_matches_nowhere_shows_the_nearest_lines() {
+    let fixture = Fixture::new();
+    files(&fixture);
+    let input = patch("*** Update File: a.txt\n@@ fn nowhere()\n-two\n+2\n");
+
+    let result = ApplyPatchTool.invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+
+    assert!(result.is_error);
+    assert!(result.output.contains("matches no line of"), "{}", result.output);
+    assert!(result.output.contains("Use a line of the file as it is"), "{}", result.output);
+    assert!(result.output.ends_with("No file was changed."), "{}", result.output);
+}
+
+#[tokio::test]
+async fn an_add_of_a_file_that_exists_says_to_update_it() {
+    let fixture = Fixture::new();
+    files(&fixture);
+    let input = patch("*** Add File: a.txt\n+new\n");
+
+    let result = ApplyPatchTool.invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+
+    assert!(result.is_error);
+    assert_eq!(
+        result.output,
+        format!(
+            "{} already exists.\nUpdate the file, or delete it first in the same patch.\n\
+             No file was changed.",
+            fixture.cwd().join("a.txt").display()
+        )
+    );
+    assert_eq!(read(&fixture.cwd().join("a.txt")), "one\ntwo\nthree\n");
 }

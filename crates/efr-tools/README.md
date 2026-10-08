@@ -293,9 +293,7 @@ cargo nextest run -p efr-tools
 
 The file tools run against temporary directories (a home and a working directory,
 with symbolic links made where a test needs one). The tests of `apply_patch` run on
-the engine of `efr-patch` once it is built, and until then on a small stand-in
-(`src/apply_patch/tests/stand_in.rs`) that applies the same patches; the tests of
-tolerant matching are ignored until the engine is built; the shell tool runs against a fake
+the engine of `efr-patch`; the shell tool runs against a fake
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
 shell, uses the network or touches the user's home.

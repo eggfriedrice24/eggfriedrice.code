@@ -182,14 +182,13 @@ fn the_model_is_offered_the_shell_the_file_tools_and_the_settings() {
 /// The grammar that `apply_patch` sends, as its spec gives it.
 fn efr_patch_grammar() -> String {
     use efr_tools::Tool as _;
-    match efr_tools::ApplyPatchTool::new().spec().grammar {
+    match efr_tools::ApplyPatchTool.spec().grammar {
         Some(efr_tools::ToolGrammar::Lark(grammar)) => grammar,
         None => panic!("apply_patch is a freeform tool"),
     }
 }
 
 #[tokio::test]
-#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
 async fn a_patch_declares_every_path_as_a_write_and_a_delete_as_destructive() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
