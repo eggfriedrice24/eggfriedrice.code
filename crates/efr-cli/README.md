@@ -392,7 +392,12 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   nobody to follow them. Only the texts that the result names go back to the shell: a
   steer that it does not name was read by a model call, or stays part of the turn.
   When the followed prompt still waits behind another turn, Ctrl+C takes it back as
-  Esc does, with the prompts after it, and their texts go back to the shell.
+  Esc does, with the prompts after it, and their texts go back to the shell. When no
+  answer comes in 3 s, or the connection ends before the last answer, nothing says
+  what the daemon took back: the followed prompt that did not start, the unread
+  steers and the queued prompts of this view all go back to the shell, with a note
+  that efrd may still run them. A late `steering_withdrawn` would otherwise keep a
+  steer from every model call and from the shell.
 - Above the status row, each unread steer of this view shows as `↳ steer: <first
   line>` and each queued prompt as `↳ queued: <first line>`, muted; a steer that came
   too late is a queued prompt with `(too late to steer, so it waits in the queue)`.

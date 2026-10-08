@@ -224,14 +224,31 @@ pub(crate) async fn follow(
             let stopped = ctx.clock.now();
             // Prompts that this view queued would run with nobody to follow them: they
             // come back with the steers that no model call read, to the user's shell.
-            let note =
+            let (note, unsure) =
                 match ctx.clock.timeout(INTERRUPT_TIMEOUT, follower.ctrl_c(view, stopped)).await {
-                    Ok(note) => note,
-                    Err(_) => "the daemon did not confirm the interrupt; the turn may still run"
-                        .to_owned(),
+                    Ok(Ok(note)) => (note, false),
+                    Ok(Err(error)) => (
+                        format!(
+                            "the interrupt failed: {}",
+                            crate::format::one_line(&error.to_string())
+                        ),
+                        true,
+                    ),
+                    Err(_) => (
+                        "the daemon did not confirm the interrupt; the turn may still run"
+                            .to_owned(),
+                        true,
+                    ),
                 };
             let step = view.note(&note, ctx.screen.size());
             follower.show(out, view, &step)?;
+            // NOTE: without an answer, nothing says what the daemon took back; it may
+            // have taken back steers that no model call reads now. So what this view
+            // sent and did not see run comes back, and no text is lost.
+            if unsure && view.give_back_pending() {
+                let step = view.note(UNCONFIRMED, ctx.screen.size());
+                follower.show(out, view, &step)?;
+            }
         }
         if matches!(error, CliError::Client(error) if lost(error)) && view.give_back_pending() {
             let step = view.note(GIVEN_BACK, ctx.screen.size());
@@ -1197,8 +1214,10 @@ impl Follower<'_> {
     /// the user's shell. Only what the daemon names comes back: a steer that it does
     /// not name was read, or stays part of the turn. A followed prompt that did not
     /// start yet is taken back, with the prompts behind it. The note says what
-    /// happened; `stopped` is the time of the Ctrl+C.
-    async fn ctrl_c(&self, view: &mut TurnView, stopped: Timestamp) -> String {
+    /// happened; `stopped` is the time of the Ctrl+C. An error, such as a lost
+    /// connection, leaves unknown what the daemon did, and the view as it was: a
+    /// result changes the view only when every answer came.
+    async fn ctrl_c(&self, view: &mut TurnView, stopped: Timestamp) -> Result<String, CliError> {
         if view.is_queued() && self.compose.is_some() {
             return match self.take_back_queued(view, Unread::TakeBack).await {
                 Ok(taken) => {
@@ -1211,33 +1230,37 @@ impl Follower<'_> {
                     if let Some(result) = &taken.interrupted {
                         view.taken_back(result);
                     }
-                    match (taken.notes.first(), &taken.interrupted) {
+                    Ok(match (taken.notes.first(), &taken.interrupted) {
                         (Some(note), _) => note.clone(),
                         (None, Some(_)) => view.interrupted(stopped),
                         (None, None) => TAKEN_BACK.to_owned(),
-                    }
+                    })
                 }
-                Err(error) => {
-                    format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
-                }
+                Err(error) => Err(error),
             };
         }
         let method = self.interrupt_method(view, Unread::TakeBack, view.queued_turns());
         match self.client().call::<TurnInterruptResult>(method).await {
             Ok(result) => {
                 view.taken_back(&result);
-                view.interrupted(stopped)
+                Ok(view.interrupted(stopped))
             }
-            // The turn already ended, or it still waits behind another turn. Without
-            // the row, Ctrl+C leaves a queued prompt in the queue, as before the row.
-            Err(ClientError::Server { body }) if body.code == ErrorCode::Conflict => {
-                "not interrupted: the turn is not running; a queued prompt still runs in its turn"
-                    .to_owned()
-            }
-            Err(error) => {
-                tracing::debug!(error = %error, "turn.interrupt failed");
-                format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
-            }
+            Err(error) => match server_error(error)? {
+                // The turn already ended, or it still waits behind another turn.
+                // Without the row, Ctrl+C leaves a queued prompt in the queue, as before
+                // the row.
+                body if body.code == ErrorCode::Conflict => Ok(
+                    "not interrupted: the turn is not running; a queued prompt still runs in its turn"
+                        .to_owned(),
+                ),
+                body => {
+                    tracing::debug!(message = %body.message, "turn.interrupt failed");
+                    Ok(format!(
+                        "the interrupt failed: {}",
+                        crate::format::one_line(&body.message)
+                    ))
+                }
+            },
         }
     }
 
@@ -1526,6 +1549,10 @@ fn lost(error: &ClientError) -> bool {
 
 /// The note while the view connects again.
 const RECONNECTING: &str = "the connection to efrd ended; connecting again";
+
+/// The note when Ctrl+C got no answer and what this view sent comes back.
+const UNCONFIRMED: &str =
+    "what you queued or steered here goes back to your shell, but efrd may still run it";
 
 /// The note when the connection did not come back and what this view sent comes back.
 const GIVEN_BACK: &str = "efrd did not come back: what you queued or steered here goes back to your shell, because it may not run";

@@ -629,6 +629,98 @@ async fn ctrl_c_on_a_waiting_prompt_takes_it_back_with_the_prompts_behind_it() {
     assert_eq!(setup.handed_back().as_deref(), Some("write the code\nthen the docs"));
 }
 
+/// The review finding: when the connection ended before the answer to Ctrl+C, the
+/// texts that the daemon may have taken back were lost. Without an answer, what the
+/// view sent comes back to the shell with a note.
+#[tokio::test]
+async fn ctrl_c_without_an_answer_gives_back_the_unread_steers() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, _| async move {
+        let _sub = subscribed(&mut conn, 10).await;
+        enter(&mut conn, &keys, "keep it small", 11).await;
+        interrupt.trigger();
+        let (_, params) = interrupt_request(&mut conn).await;
+        assert_eq!(params.withdraw_steers, [Seq::new(11)]);
+        drop(conn);
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert!(out.contains("the interrupt failed"), "{}", readable(&out));
+    assert!(out.contains("goes back to your shell"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small"));
+}
+
+/// A clock whose interrupt wait ends at once, as when the daemon answers too late.
+#[derive(Debug)]
+struct LateClock;
+
+impl efr_stdx::time::Clock for LateClock {
+    fn now(&self) -> jiff::Timestamp {
+        crate::testing::now()
+    }
+
+    fn sleep(&self, duration: std::time::Duration) -> efr_stdx::time::Sleep {
+        if duration <= super::super::FRAME || duration == super::super::INTERRUPT_TIMEOUT {
+            return Box::pin(std::future::ready(()));
+        }
+        Box::pin(std::future::pending())
+    }
+}
+
+/// The review finding: a daemon that took the steers back after the wait for its
+/// answer ended kept them from every model call, and the view did not give them back.
+/// Without an answer in time, they come back to the shell.
+#[tokio::test]
+async fn ctrl_c_whose_answer_comes_too_late_gives_back_the_unread_steers() {
+    let setup = Setup::new();
+    let ctx = Context { clock: Arc::new(LateClock), ..setup.context(true) };
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, _| async move {
+        let _sub = subscribed(&mut conn, 10).await;
+        enter(&mut conn, &keys, "keep it small", 11).await;
+        interrupt.trigger();
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert!(out.contains("did not confirm the interrupt"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small"));
+}
+
+/// The review finding: Ctrl+C on a waiting prompt lost the prompts that the daemon took
+/// back when the connection ended before the last answer. They come back now.
+#[tokio::test]
+async fn ctrl_c_on_a_waiting_prompt_keeps_what_was_taken_back_when_the_connection_ends() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, out, _) = run_row_view(&setup, &ctx, queued_view(), |mut conn, _| async move {
+        nothing_blocks(&mut conn).await;
+        let _sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then the docs", turn_2(), 11).await;
+        interrupt.trigger();
+        let (id, method) = request_after_cancels(&mut conn).await;
+        let Method::PromptWithdraw(_) = method else {
+            panic!("expected prompt.withdraw, got {}", method.name());
+        };
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn_2(), seq: Seq::new(12), text: "then the docs".into() };
+        conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
+        let (_, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn() });
+        drop(conn);
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert!(out.contains("goes back to your shell"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("then the docs"));
+}
+
 #[tokio::test]
 async fn a_question_takes_the_keys_and_the_row_keeps_its_text() {
     let setup = Setup::new();

@@ -35,7 +35,9 @@ into the GitHub release notes, and it stops when the section is missing.
   of the stopped turn. Ctrl+C clears the row; on an empty row it interrupts the
   turn and also takes back the prompts that you queued there and the steers that the
   model did not read. A prompt that still waits behind another turn is taken back
-  instead, by Esc and by Ctrl+C.
+  instead, by Esc and by Ctrl+C. When efrd does not answer Ctrl+C in time, or the
+  connection ends, all of that text goes back to your shell with a note, so no text
+  is lost.
 - Text that is still in the input row when `efr` ends goes back to your zsh command
   line as `, <text>`, so you can edit it and send it again. Without the zsh plugin,
   `efr` shows it as one muted line.
