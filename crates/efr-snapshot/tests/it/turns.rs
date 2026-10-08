@@ -81,3 +81,26 @@ async fn a_scratch_turn_diff_shows_the_scratch_prefix() {
     assert_eq!(diff.changes.files[0].path, "$SCRATCH/plot.py");
     assert!(diff.diff.unwrap().contains("+++ b/$SCRATCH/plot.py\n"));
 }
+
+#[tokio::test]
+async fn a_file_of_two_nested_roots_shows_once_in_the_diff() {
+    let world = World::new();
+    let outer = world.dir("p");
+    let inner = world.dir("p/sub");
+    write(&outer.join("a.txt"), "a\n");
+    write(&inner.join("x.txt"), "old\n");
+    let roots =
+        vec![efr_snapshot::Root::new(&outer, ""), efr_snapshot::Root::new(&inner, "~/p/sub/")];
+    let call = world.snapshots.before_call(conversation(1), turn(1), roots, limits()).await;
+    write(&outer.join("a.txt"), "b\n");
+    write(&inner.join("x.txt"), "new\n");
+    world.snapshots.after_call(call, limits()).await.unwrap();
+    world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
+
+    let found = world.snapshots.turn_diff(conversation(1), None, true, 100).await.unwrap().unwrap();
+    let paths: Vec<&str> = found.changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt", "~/p/sub/x.txt"]);
+    let diff = found.diff.unwrap();
+    assert_eq!(diff.matches("diff --git ").count(), 2, "{diff}");
+    assert_eq!(diff.matches("+new\n").count(), 1, "{diff}");
+}

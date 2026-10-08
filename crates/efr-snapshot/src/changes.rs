@@ -117,18 +117,22 @@ pub(crate) struct Shown {
 }
 
 /// The list of a call or a turn: every root's changes with the root's prefix, sorted
-/// and cut by [`FileChanges::from_files`]. A path that two nested roots both list is
-/// kept once, from the deeper root. `None` when nothing changed.
+/// and cut by [`FileChanges::from_files`]. A path below a deeper root of `roots` comes
+/// from that root alone, so a file of two nested roots shows once, with the deeper
+/// root's prefix; `turn_diff` leaves the same paths out of the outer root's patch
+/// ([`deeper_roots`]). `None` when nothing changed.
 pub(crate) fn merge(roots: Vec<Shown>) -> Option<FileChanges> {
     // NOTE: a call can change tens of thousands of files (a checkout, an install), so
     // the paths seen go in a set, not a list searched for each change.
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut files: Vec<FileChange> = Vec::new();
-    let mut roots = roots;
-    // Deeper roots first, so their names win.
-    roots.sort_by_key(|root| std::cmp::Reverse(root.root.components().count()));
+    let all: Vec<PathBuf> = roots.iter().map(|root| root.root.clone()).collect();
     for root in roots {
+        let deeper = deeper_roots(&root.root, &all);
         for change in root.changes {
+            if deeper.iter().any(|below| Path::new(&change.path).starts_with(below)) {
+                continue;
+            }
             if !seen.insert(root.root.join(&change.path)) {
                 continue;
             }
@@ -143,6 +147,15 @@ pub(crate) fn merge(roots: Vec<Shown>) -> Option<FileChanges> {
         }
     }
     (!files.is_empty()).then(|| FileChanges::from_files(files))
+}
+
+/// The roots of `all` strictly below `root`, relative to it.
+pub(crate) fn deeper_roots(root: &Path, all: &[PathBuf]) -> Vec<PathBuf> {
+    all.iter()
+        .filter_map(|other| other.strip_prefix(root).ok())
+        .filter(|below| !below.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .collect()
 }
 
 /// The prefix that shows a path below `root`, as the protocol's

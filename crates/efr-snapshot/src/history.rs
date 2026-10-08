@@ -1,6 +1,7 @@
 //! What a finished turn changed, read back from the refs that
 //! [`Snapshots::finish_turn`] kept, for `conversation.diff`.
 
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -58,7 +59,11 @@ impl Snapshots {
         let name = wanted.to_string();
         let mut shown = Vec::new();
         let mut patches: Vec<(String, Vec<u8>)> = Vec::new();
-        for holder in holders.iter().filter(|holder| holder.turns.contains(&name)) {
+        let holders: Vec<&Holder> =
+            holders.iter().filter(|holder| holder.turns.contains(&name)).collect();
+        let roots: Vec<PathBuf> =
+            holders.iter().map(|holder| holder.store.root().to_path_buf()).collect();
+        for holder in holders {
             let base = format!("refs/efr/{conversation}/{name}");
             let pre = format!("{base}/pre");
             let post = format!("{base}/post");
@@ -67,7 +72,7 @@ impl Snapshots {
             if with_diff && !changes.is_empty() {
                 let src = format!("--src-prefix=a/{prefix}");
                 let dst = format!("--dst-prefix=b/{prefix}");
-                let args = [
+                let mut args: Vec<OsString> = [
                     "diff-tree",
                     "-r",
                     "-p",
@@ -79,7 +84,21 @@ impl Snapshots {
                     dst.as_str(),
                     pre.as_str(),
                     post.as_str(),
-                ];
+                ]
+                .into_iter()
+                .map(OsString::from)
+                .collect();
+                // NOTE: the files below a deeper root come from that root's patch, as
+                // `changes::merge` lists them.
+                let deeper = changes::deeper_roots(holder.store.root(), &roots);
+                if !deeper.is_empty() {
+                    args.push("--".into());
+                    for below in deeper {
+                        let mut spec = OsString::from(":(exclude,literal)");
+                        spec.push(below.as_os_str());
+                        args.push(spec);
+                    }
+                }
                 let patch = self
                     .runner()
                     .checked(&holder.store, "diff-tree", &args, Run::default())

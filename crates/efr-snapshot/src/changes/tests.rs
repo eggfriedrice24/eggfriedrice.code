@@ -118,3 +118,24 @@ fn merge_of_many_changes_keeps_each_once() {
     assert_eq!(changes.files.len() as u32 + changes.more, 100_000);
     assert_eq!(changes.added, 100_000);
 }
+
+#[test]
+fn a_path_below_a_deeper_root_comes_from_that_root_alone() {
+    let outer = Shown {
+        root: PathBuf::from("/p"),
+        shown: String::new(),
+        changes: vec![
+            change("a.rs", ChangeKind::Modified, 1, 1),
+            change("sub/only-outer", ChangeKind::Added, 1, 0),
+            change("subway", ChangeKind::Added, 1, 0),
+        ],
+    };
+    let inner = Shown {
+        root: PathBuf::from("/p/sub"),
+        shown: "/p/sub/".to_owned(),
+        changes: vec![change("x", ChangeKind::Added, 1, 0)],
+    };
+    let changes = merge(vec![outer, inner]).unwrap();
+    let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["/p/sub/x", "a.rs", "subway"]);
+}
