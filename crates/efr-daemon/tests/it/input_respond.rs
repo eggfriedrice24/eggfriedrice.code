@@ -122,14 +122,21 @@ fn envelopes(item: ConversationSubscribeItem) -> Vec<EventEnvelope> {
 }
 
 /// The events of `stream` up to the first that `stop` accepts. Whenever none comes for
-/// a while, the daemon's clock moves one second, at most `max_seconds` times, which is
-/// what lets the run look for input: nothing in the daemon waits on real time.
+/// a while and a sleep of the daemon ends within one second, the daemon's clock moves
+/// one second, at most `max_seconds` times. This lets the run look for input.
+///
+/// The clock moves only while the daemon waits for it. After the run stops a command,
+/// the daemon does work in real time before the call's end reaches the stream: it
+/// interrupts the program, takes the snapshot after the call and writes the events.
+/// No sleep of the daemon ends soon while it does that work, so the clock stays where
+/// the run stopped the command, also on a machine under load.
 async fn events_while_time_passes(
     daemon: &TestDaemon,
     stream: &mut ItemStream<ConversationSubscribeItem>,
     max_seconds: u32,
     mut stop: impl FnMut(&Event) -> bool,
 ) -> Vec<EventEnvelope> {
+    let step = Duration::from_secs(1);
     let mut seen = Vec::new();
     let mut moved = 0;
     loop {
@@ -145,9 +152,13 @@ async fn events_while_time_passes(
                 }
             }
             () = idle() => {
-                assert!(moved < max_seconds, "nothing came in {max_seconds}s: {seen:#?}");
-                daemon.clock().advance(Duration::from_secs(1));
-                moved += 1;
+                let clock = daemon.clock();
+                let soon = clock.now().checked_add(step).unwrap();
+                if clock.next_deadline().is_some_and(|deadline| deadline <= soon) {
+                    assert!(moved < max_seconds, "nothing came in {max_seconds}s: {seen:#?}");
+                    clock.advance(step);
+                    moved += 1;
+                }
             }
         }
     }
