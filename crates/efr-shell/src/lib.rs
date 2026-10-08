@@ -69,5 +69,5 @@ pub use run::{
 };
 pub use sandbox::SandboxRun;
 pub use screens::ScreenFactory;
-pub use sessions::{CommandRunner, ShellInfo, ShellSessions};
+pub use sessions::{CommandRunner, MOVE_TIMEOUT, ShellInfo, ShellSessions};
 pub use state::{Phase, ShellState};

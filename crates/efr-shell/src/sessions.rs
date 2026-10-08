@@ -30,12 +30,16 @@ use crate::session::{
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, OutputUpdate, RunProgress, RunRequest, SandboxRun, ShellConfig,
-    ShellDeps, ShellError, ShellNotice, ShellState, env, integration, sandbox, sentinel,
+    CommandResult, Completion, NoProgress, OutputUpdate, RunProgress, RunRequest, SandboxRun,
+    ShellConfig, ShellDeps, ShellError, ShellNotice, ShellState, env, integration, sandbox,
+    sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
 const DEFAULT_PROGRAM: &str = "zsh";
+
+/// How long [`ShellSessions::move_to`] waits for the shell to take its `cd`.
+pub const MOVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Ctrl+Z, the terminal's suspend character.
 const SUSPEND: u8 = 0x1a;
@@ -395,6 +399,48 @@ impl ShellSessions {
             // Too late to matter whether the kill or the shell's own end came first.
             let _ = holder.signal(session.pty_id, Signal::Kill, SignalTarget::Child).await;
             session.ended().await;
+        }
+        Ok(())
+    }
+
+    /// Moves the conversation's shell to `dir`, as a `cd` that the user types, because
+    /// the user went there between two prompts. The shell keeps its variables and
+    /// functions. Nothing happens when the conversation has no shell (the next call
+    /// starts one where it asks) or when the shell is already there.
+    ///
+    /// It fails with [`ShellError::Busy`] while a command runs, with
+    /// [`ShellError::InvalidCommand`] for a path that is not UTF-8, and with
+    /// [`ShellError::NotReady`] when the shell does not take the `cd` within
+    /// [`MOVE_TIMEOUT`]. A `cd` that the shell refuses (the directory is gone or not
+    /// readable) leaves the shell where it was. In each case the shell stays where it
+    /// is, and the caller reads [`state`](Self::state) to learn where that is.
+    pub async fn move_to(
+        &self,
+        conversation: ConversationId,
+        dir: &Path,
+    ) -> Result<(), ShellError> {
+        let Ok(session) = self.existing(conversation) else {
+            return Ok(());
+        };
+        let state = session.state().await?;
+        // NOTE: a shell whose real directory is `dir` but whose last sandboxed call
+        // ended in the sandbox's private tmp keeps that tmp: a `cd` to the directory it
+        // is in changes nothing that the marks report.
+        if state.cwd == dir {
+            return Ok(());
+        }
+        if state.is_busy() {
+            return Err(ShellError::Busy { conversation });
+        }
+        let path =
+            dir.to_str().ok_or(ShellError::InvalidCommand { reason: "the path is not UTF-8" })?;
+        let mut request =
+            RunRequest::new(format!("builtin cd -q -- {}", sentinel::quote(path)), dir);
+        request.timeout = MOVE_TIMEOUT;
+        let session = self.current(session).await?;
+        let result = self.run_on(&session, request, &mut NoProgress).await?;
+        if result.exit_code != Some(0) {
+            tracing::info!(%conversation, exit_code = ?result.exit_code, "the hidden shell did not move to the user's directory");
         }
         Ok(())
     }

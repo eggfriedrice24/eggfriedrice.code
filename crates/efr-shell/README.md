@@ -33,6 +33,13 @@ prompts such as `sudo` stay visible.
   current directory; while a command still runs in it, the run fails with
   `ShellError::Busy` instead, so no command ever runs with the old set.
 
+`move_to(conversation, dir)` moves the shell with `builtin cd -q -- <dir>` (no `chpwd`
+hook runs), because the user went there between two prompts; the shell keeps its
+variables and functions. It does nothing when the conversation has no shell or the
+shell is already there. It fails with `ShellError::Busy` while a command runs, and a
+`cd` that the shell refuses (a directory that is gone) leaves the shell where it was.
+The `cd` waits at most `MOVE_TIMEOUT` (5 s).
+
 `run_command(conversation, RunRequest, progress)` (also the `CommandRunner` trait that
 `efr-tools` drives):
 

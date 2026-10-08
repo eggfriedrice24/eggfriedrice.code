@@ -130,6 +130,68 @@ async fn e2e_cd_changes_cwd_after() {
 }
 
 #[tokio::test]
+async fn e2e_move_to_moves_the_shell_and_keeps_its_variables() {
+    let Some(zsh) = Zsh::start("e2e_move_to_moves_the_shell_and_keeps_its_variables") else {
+        return;
+    };
+    let target = zsh.dir("it's here");
+    zsh.run("export EFR_MOVE_TEST=kept").await;
+
+    zsh.sessions.move_to(zsh.conversation, &target).await.unwrap();
+
+    assert_eq!(zsh.sessions.state(zsh.conversation).await.unwrap().cwd, target);
+    let seen = zsh.run("pwd; print -r -- $EFR_MOVE_TEST").await;
+    assert_eq!(seen.output, format!("{}\nkept\n", target.display()));
+}
+
+#[tokio::test]
+async fn e2e_move_to_starts_no_shell_and_keeps_a_shell_where_a_cd_fails() {
+    let Some(zsh) = Zsh::start("e2e_move_to_starts_no_shell_and_keeps_a_shell_where_a_cd_fails")
+    else {
+        return;
+    };
+    let gone = zsh.start_dir().join("gone");
+
+    zsh.sessions.move_to(zsh.conversation, &gone).await.unwrap();
+    assert!(matches!(zsh.sessions.state(zsh.conversation).await, Err(ShellError::NoShell { .. })));
+
+    zsh.run("true").await;
+    zsh.sessions.move_to(zsh.conversation, &gone).await.unwrap();
+    let state = zsh.sessions.state(zsh.conversation).await.unwrap();
+    assert_eq!(state.cwd, zsh.start_dir());
+    assert!(!state.is_busy());
+}
+
+#[tokio::test]
+async fn e2e_move_to_leaves_a_busy_shell_where_it_is() {
+    let Some(zsh) = Zsh::start("e2e_move_to_leaves_a_busy_shell_where_it_is") else {
+        return;
+    };
+    let target = zsh.dir("work");
+    zsh.sessions.open(zsh.conversation, zsh.start_dir()).await.unwrap();
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let request = zsh.request("sleep 1");
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation, request, &mut NoProgress).await },
+        );
+    Wait::new("the running command")
+        .until_some_async(async || {
+            let state = zsh.sessions.state(zsh.conversation).await.unwrap();
+            (state.phase == Phase::Running).then_some(())
+        })
+        .await
+        .unwrap();
+
+    let moved = zsh.sessions.move_to(zsh.conversation, &target).await;
+
+    assert!(matches!(moved, Err(ShellError::Busy { .. })), "{moved:?}");
+    assert_eq!(run.await.unwrap().unwrap().exit_code, Some(0));
+    assert_eq!(zsh.sessions.state(zsh.conversation).await.unwrap().cwd, zsh.start_dir());
+}
+
+#[tokio::test]
 async fn e2e_an_interactive_read_hits_the_timeout() {
     let Some(zsh) = Zsh::start("e2e_an_interactive_read_hits_the_timeout") else {
         return;

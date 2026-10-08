@@ -50,7 +50,7 @@ pub(crate) fn sentinel_line(command: &str, token: &str) -> Result<Bytes, ShellEr
 /// `command` as one shell word. Plain single quotes when it has no control
 /// characters; otherwise `$'...'` with escapes, so that no newline or tab is typed
 /// into a line editor, where it would end the line or start a completion.
-fn quote(command: &str) -> String {
+pub(crate) fn quote(command: &str) -> String {
     if !command.chars().any(char::is_control) {
         return format!("'{}'", command.replace('\'', r"'\''"));
     }
