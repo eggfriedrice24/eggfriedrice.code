@@ -453,8 +453,9 @@ EFR_TEST_SBX_BIN=$PWD/target/release/efr-sbx EFR_TEST_ZSH=1 cargo nextest run --
 ```
 
 In a release build, it fails when a call in `auto` costs 40 ms more than a call in
-`cautious`, or when a call costs more than 250 ms. The turns in the two modes take
-turns, so both see the same load. A debug build compares the fastest call of each
+`cautious`, or when a call costs more than 250 ms. The turns in `auto` from the
+project, in `auto` from the home directory and in `cautious` take turns, so all see
+the same load. A debug build compares the fastest call of each
 mode, because load delays some calls but never makes one faster: it fails when the
 fastest call in `auto`, from the project or from the home directory, costs 75 ms more
 than the fastest call in `cautious`.

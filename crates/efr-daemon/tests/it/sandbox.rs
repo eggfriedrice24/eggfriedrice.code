@@ -1157,7 +1157,8 @@ const AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(40);
 /// What a routine call may cost in a release build, in either mode.
 const CALL_COSTS_AT_MOST: Duration = Duration::from_millis(250);
 
-/// The rounds of the bench: one turn in `auto`, then one in `cautious`.
+/// The rounds of the bench: one turn in `auto` from the project, one in `auto` from
+/// the home dir, then one in `cautious` from the project.
 const ROUNDS: u128 = 3;
 
 /// What the fastest call in `auto` may cost more than the fastest in `cautious`, in a
@@ -1177,9 +1178,10 @@ const ROUNDS: u128 = 3;
 /// wait) adds it to the fastest call too. 75 ms is about three times the cost that
 /// `auto` adds today, so a change that adds about 50 ms to every call fails; a 60 ms
 /// sleep in the launcher made the fastest calls 82 and 86 ms apart. The same bound
-/// holds the turn from the home dir, whose fastest of its 10 calls stayed at 25 to
-/// 27 ms, as the project's did, also next to the daemon's, the shell's and the CLI's
-/// tests at 64 threads.
+/// holds the turns from the home dir, which take part in each round, so they see the
+/// same load as the other two: their fastest call stayed at 25 to 27 ms, as the
+/// project's did, also next to the daemon's, the shell's and the CLI's tests at 64
+/// threads.
 const DEBUG_AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(75);
 
 /// The debug lines of efr's crates in this process, for the bench's `phase` lines.
@@ -1312,7 +1314,8 @@ async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: 
 
 /// What a routine call costs in `auto` against `cautious`, from a project and from the
 /// home dir, with a big rc and every default cache: it prints the cost of each. The
-/// turns in `auto` and in `cautious` take turns, so both see the same load. A release
+/// turns in `auto` from the project, in `auto` from the home dir and in `cautious` take
+/// turns, so all see the same load. A release
 /// build fails when a call in `auto` costs 40 ms more than one in `cautious`, or a
 /// call costs more than a quarter of a second; a debug build when the fastest call in
 /// `auto`, from the project or from the home dir, costs 75 ms more than the fastest in
@@ -1384,20 +1387,22 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     debug_log();
     turn_cost(&daemon, 1, &project, Mode::Auto, calls).await;
     take_log();
-    let home = turn_cost(&daemon, 2, dirs.home(), Mode::Auto, calls).await;
-    let home_calls = call_times(&take_log());
-    // NOTE: the modes take turns, so a change of the machine's load hits both alike.
-    let (mut auto, mut cautious) = (Duration::ZERO, Duration::ZERO);
-    let (mut auto_calls, mut cautious_calls) = (Vec::new(), Vec::new());
+    // NOTE: the modes and places take turns, so a change of the machine's load hits
+    // all of them alike; a burst during one turn alone leaves the others' fastest call.
+    let (mut auto, mut home, mut cautious) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+    let (mut auto_calls, mut home_calls, mut cautious_calls) = (Vec::new(), Vec::new(), Vec::new());
     let (mut auto_phases, mut cautious_phases) = (Vec::new(), Vec::new());
     for round in 0..ROUNDS {
-        auto += turn_cost(&daemon, 3 + round * 2, &project, Mode::Auto, calls).await;
+        let first = 2 + round * 3;
+        auto += turn_cost(&daemon, first, &project, Mode::Auto, calls).await;
         let log = take_log();
         auto_calls.extend(call_times(&log));
         if round == 0 {
             auto_phases = phase_totals(&log);
         }
-        cautious += turn_cost(&daemon, 4 + round * 2, &project, Mode::Cautious, calls).await;
+        home += turn_cost(&daemon, first + 1, dirs.home(), Mode::Auto, calls).await;
+        home_calls.extend(call_times(&take_log()));
+        cautious += turn_cost(&daemon, first + 2, &project, Mode::Cautious, calls).await;
         let log = take_log();
         cautious_calls.extend(call_times(&log));
         if round == 0 {
@@ -1405,10 +1410,10 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
         }
     }
     let rounds = u32::try_from(ROUNDS).unwrap();
-    let (auto, cautious) = (auto / rounds, cautious / rounds);
+    let (auto, home, cautious) = (auto / rounds, home / rounds, cautious / rounds);
     assert_eq!(auto_calls.len(), (calls * rounds) as usize, "a tool_call line per call");
     assert_eq!(cautious_calls.len(), (calls * rounds) as usize, "a tool_call line per call");
-    assert_eq!(home_calls.len(), calls as usize, "a tool_call line per call");
+    assert_eq!(home_calls.len(), (calls * rounds) as usize, "a tool_call line per call");
     let fastest_auto = fastest(&auto_calls);
     let fastest_home = fastest(&home_calls);
     let fastest_cautious = fastest(&cautious_calls);
@@ -1424,7 +1429,7 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
         );
         println!(
             "the fastest call of {ROUNDS} rounds: auto {fastest_auto:.1} ms, cautious \
-             {fastest_cautious:.1} ms; of the turn from the home dir: auto {fastest_home:.1} ms"
+             {fastest_cautious:.1} ms; of the turns from the home dir: auto {fastest_home:.1} ms"
         );
         // The `phase` lines of efrd (docs/sandbox.md), per call: where the time goes.
         println!("{:<28} {:>9} {:>9}", "phase (ms per call)", "auto", "cautious");
@@ -1490,7 +1495,7 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     // NOTE: a debug build runs the launcher and the daemon several times slower, so
     // only a release build holds the fixed bounds; a debug build compares the modes.
     if cfg!(debug_assertions) {
-        // NOTE: the turn from the home dir (no project, the $SCRATCH root) is bound too:
+        // NOTE: the turns from the home dir (no project, the $SCRATCH root) are bound too:
         // a cost that only that path adds would pass the project's calls.
         for (place, fastest_auto, auto_calls) in [
             ("the project", fastest_auto, &auto_calls),
