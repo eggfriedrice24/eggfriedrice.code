@@ -820,6 +820,29 @@ async fn a_password_typed_before_the_wait_is_reported_never_reaches_the_row() {
     assert_eq!(setup.handed_back().as_deref(), Some("ok"));
 }
 
+/// The review finding: every line of output that named a password held the keys, so a
+/// steer typed while `grep password` ran was thrown away without a note. A line that
+/// ends with a line break is not a prompt: the keys stay in the row, and Enter steers.
+#[tokio::test]
+async fn a_finished_line_that_names_a_password_does_not_hold_the_keys() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("grep -rn password config/"))).await;
+        let found = shell_output("config/db.yml:3:password: ${DB_PASS}\n");
+        conn.item(sub, &item(12, found)).await;
+        shows(&seen, "DB_PASS").await;
+        enter(&mut conn, &keys, "do not print secrets", 13).await;
+        conn.item(sub, &item(14, shell_completed(0))).await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
 /// Keys typed while a password prompt shows start its answer when the daemon then
 /// reports a visible wait that looks secret, unshown, as for a call allowed here.
 #[tokio::test]

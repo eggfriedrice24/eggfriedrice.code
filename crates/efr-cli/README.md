@@ -425,7 +425,9 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   hidden wait, a new last line and the end of the call throw it away, zeroed. The
   daemon reports a wait only after a quiet time (about 1 s for a hidden one), and the
   output shows the prompt earlier, so without this a password typed at once would
-  land in the row, and Enter would send it as a steer.
+  land in the row, and Enter would send it as a steer. Only an open last line holds
+  the keys: a line that ends with a line break, as in the output of `grep password`,
+  is not a prompt, and the daemon too tests only the line that the cursor is on.
 - When the connection to efrd ends while the row exists (efrd restarts, the socket
   breaks), the view says so in a note, connects again as the command did (60 tries,
   0.25 s apart), and subscribes after the last event that it showed. The

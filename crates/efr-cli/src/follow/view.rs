@@ -55,7 +55,8 @@
 //! thrown away as before. Keys typed outside such a call stay typeahead for the user's
 //! shell, or go to the input row.
 //!
-//! With the input row, a running call whose last line of output looks like a password
+//! With the input row, a running call whose open last line of output (one without a
+//! line break at its end) looks like a password
 //! prompt (`efr_protocol::looks_secret`) holds the keys the same way until the daemon
 //! reports its wait ([`Running::held`]): the daemon reports a wait only after a quiet
 //! time, and a password typed meanwhile must never land in the row or go as a steer. A
@@ -1726,8 +1727,10 @@ impl TurnView {
     }
 
     /// The output of call `call_id` grew and now ends in `tail`. With the input row,
-    /// a last line that looks like a password prompt holds the keys until the daemon
-    /// reports the wait ([`Running::held`]), and a new last line lets them go.
+    /// an open last line that looks like a password prompt holds the keys until the
+    /// daemon reports the wait ([`Running::held`]), and a new last line lets them go.
+    /// A line that ends with a line break is not a prompt: the daemon too tests only
+    /// the line that the cursor is on.
     fn output(&mut self, call_id: CallId, tail: &str) -> Step {
         let free = self.input.is_some() && !self.question_pending();
         let retained = self.retained == Some(call_id);
@@ -1736,7 +1739,7 @@ impl TurnView {
         running.lines = call::last_lines(tail);
         running.stirred();
         let quiet = running.asking.is_none() && !running.guarding && !retained;
-        let hold = free && quiet && looks_secret(&running.tail);
+        let hold = free && quiet && looks_secret(open_line(tail));
         let mut step = Step { settled, ..self.commit(String::new()) };
         let Some(running) = self.running.as_mut() else {
             return step;
@@ -2495,6 +2498,13 @@ fn echo_edit(shown: &str, text: &str) -> String {
 /// there is none.
 fn last_line(tail: &str) -> String {
     tail.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or("").to_owned()
+}
+
+/// The line of `tail` that the cursor is on: the text after its last line break,
+/// trimmed. Empty when `tail` ends with a line break, as the output of `grep password`
+/// or `cat` does.
+fn open_line(tail: &str) -> &str {
+    tail.rsplit('\n').next().unwrap_or_default().trim()
 }
 
 /// An approval request as the view shows it.
