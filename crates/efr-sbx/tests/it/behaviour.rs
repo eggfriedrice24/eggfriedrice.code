@@ -8,6 +8,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use efr_protocol::{CacheMode, Grant};
@@ -367,19 +368,44 @@ fn overlay_lower_changes_during_call() {
     let cache = fixture.home.join(".cache");
     write(&cache.join("index"), "one\n");
     fixture.cache(&cache);
-    let line = format!("cat {0}/index; sleep 1; cat {0}/index; ls {0}", q(&cache));
+    // The project is shared with the test. The call writes `read` after its first read
+    // of the index, then waits for `changed`. The test changes the user's cache in that
+    // gap, so a slow launch cannot move the change before the first read.
+    let read = fixture.project.join("read");
+    let changed = fixture.project.join("changed");
+    let line = format!(
+        "cat {c}/index; : > {read}; until [[ -e {changed} ]]; do sleep 0.01; done; \
+         cat {c}/index; ls {c}",
+        c = q(&cache),
+        read = q(&read),
+        changed = q(&changed),
+    );
     let index = cache.join("index");
-    let changer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(400));
-        fs::write(&index, "two\n").unwrap();
-        fs::write(index.with_file_name("new"), "new\n").unwrap();
+    let ended = AtomicBool::new(false);
+    let (run, did_change) = std::thread::scope(|scope| {
+        let changer = scope.spawn(|| {
+            while !read.exists() {
+                if ended.load(Ordering::SeqCst) {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            fs::write(&index, "two\n").unwrap();
+            fs::write(index.with_file_name("new"), "new\n").unwrap();
+            fs::write(&changed, "").unwrap();
+            true
+        });
+        let run = fixture.run(&line);
+        ended.store(true, Ordering::SeqCst);
+        (run, changer.join().unwrap())
     });
-    let run = fixture.run(&line);
-    changer.join().unwrap();
+    assert!(did_change, "the call never read the index: {run:#?}");
     // The kernel calls changes below a mounted overlay undefined; the call must still
     // end normally and see one of the two contents.
     run.expect_status(0);
-    assert!(run.stdout.starts_with("one\n"), "{run:#?}");
+    let lines: Vec<&str> = run.stdout.lines().collect();
+    assert_eq!(lines.first(), Some(&"one"), "{run:#?}");
+    assert!(matches!(lines.get(1), Some(&("one" | "two"))), "{run:#?}");
 }
 
 #[test]
