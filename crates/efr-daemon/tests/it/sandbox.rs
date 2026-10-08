@@ -23,8 +23,9 @@ use efr_provider::{
     Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, StopReason,
 };
 use efr_sandbox::{ProbeFailure, ProbeReport, SandboxSpec};
+use efr_stdx::time::{Clock as _, SystemClock};
 use efr_test_daemon::{ClientError, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until};
-use efr_test_support::TestDirs;
+use efr_test_support::{TestDirs, Wait};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -977,8 +978,13 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
     let (launcher, _) = fake_launcher(&dirs);
     // Conversation A leaves a command running past its timeout, as a dev server does,
     // then its next call queues behind it. Conversation B calls in the same project.
+    // A's command says that it runs, and it runs until the test lets it go.
     let model = ScriptedModel::new(vec![
-        json!({ "command": "sleep 3; : > orphan-done", "timeout_seconds": 1 }),
+        json!({
+            "command": ": > a-running; until [[ -e release ]]; do sleep 0.05; done; \
+                        : > orphan-done",
+            "timeout_seconds": 1,
+        }),
         json!({ "command": "echo second" }),
         json!({ "command": "echo from-b" }),
     ]);
@@ -1001,18 +1007,31 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
     let Method::PromptSend(mut params) = daemon.prompt(1, "serve", TTY) else { unreachable!() };
     params.settings = TurnSettings { mode: Some(Mode::Auto), ..TurnSettings::default() };
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
-    // The test clock moves until A's first call times out and its second one starts.
-    let mut a_started = 0;
-    for _ in 0..200 {
-        let events = daemon.events(&client, sent.conversation_id).await.unwrap();
-        a_started = kinds(&events).iter().filter(|kind| **kind == "tool_call_started").count();
-        if a_started == 2 {
-            break;
-        }
-        daemon.clock().advance(Duration::from_millis(500));
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(a_started, 2, "A's second call never started");
+    // NOTE: the test clock moves only once A's command runs. The wait for the new
+    // shell's prompt also counts against the call's timeout, so a clock that moves
+    // earlier ends the call before its command runs, and nothing queues.
+    Wait::new("A's first command to run")
+        .until(|| project.join("a-running").exists())
+        .await
+        .unwrap();
+    // The test clock moves until A's first call times out and its second one starts. A
+    // real pause after each step lets the daemon act on it.
+    let a_events = Wait::new("A's second call to start")
+        .until_some_async(async || {
+            let events = daemon.events(&client, sent.conversation_id).await.unwrap();
+            let started =
+                kinds(&events).iter().filter(|kind| **kind == "tool_call_started").count();
+            if started == 2 {
+                return Some(events);
+            }
+            daemon.clock().advance(Duration::from_millis(500));
+            SystemClock.sleep(Duration::from_millis(20)).await;
+            None
+        })
+        .await
+        .unwrap();
+    let [(first, _)] = completed(&a_events).try_into().unwrap();
+    assert!(first.contains("[still running after 1s"), "{first}");
 
     // A's second call waits for its shell; B's call in the same project runs now.
     let b = daemon.client_for_tty("/dev/pts/efr-test-b").await.unwrap();
@@ -1024,14 +1043,21 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
     let b_sent: PromptSendResult = b.call(Method::PromptSend(params)).await.unwrap();
     assert_ne!(b_sent.conversation_id, sent.conversation_id);
     let mut b_follow = daemon.follow(&b, b_sent.conversation_id).await.unwrap();
-    let b_events =
-        events_until(&mut b_follow, |event| matches!(event, Event::TurnCompleted { .. }))
-            .await
-            .unwrap();
+    // A's command runs until the release below, so a B that waits behind A's queued
+    // call never ends.
+    let b_turn = events_until(&mut b_follow, |event| matches!(event, Event::TurnCompleted { .. }));
+    let b_events = SystemClock
+        .timeout(Duration::from_secs(30), b_turn)
+        .await
+        .expect("B waited behind A's queued call")
+        .unwrap();
     let [(output, _)] = completed(&b_events).try_into().unwrap();
     assert!(output.contains("from-b"), "{output}");
-    assert!(!project.join("orphan-done").exists(), "B waited for A's command to end");
+    assert!(!project.join("orphan-done").exists(), "A's command ended before the release");
+    let a_events = daemon.events(&client, sent.conversation_id).await.unwrap();
+    assert_eq!(completed(&a_events).len(), 1, "A's second call ran before its shell was free");
 
+    std::fs::write(project.join("release"), "").unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
     let events = events_until(&mut follow, |event| matches!(event, Event::TurnCompleted { .. }))
         .await
