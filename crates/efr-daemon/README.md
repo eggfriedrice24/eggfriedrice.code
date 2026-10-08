@@ -373,6 +373,9 @@ spec; `docs/sandbox.md` for the user's view):
   `deleted` and a moved one `renamed` with the path it came from. The diff holds the
   diff of each file in the order the call changed them, one after the other, with
   each header naming the shown paths (`/dev/null` for the side that is missing).
+  The approval preview of an `apply_patch` call names the same shown paths, in its
+  headers and in its `delete` and `move` lines; the lines of each hunk stay as
+  they are.
   Before the call writes into a root, the turn gets its first snapshot of that
   root.
 - At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the

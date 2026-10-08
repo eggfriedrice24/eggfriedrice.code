@@ -217,7 +217,8 @@ out, each file within the bounds of `written_diff` (`MAX_CALL_DIFF_LINES` lines 
 256 KiB), with absolute paths as `write_file`'s preview has them. A delete and a move
 have a header line before their diff that says so, such as
 `delete /home/u/p/old.rs` and `move /home/u/p/a.rs -> /home/u/p/b.rs`, so the card
-can mark them. After 4 MiB of preview, the files that follow are only counted
+can mark them. The daemon shows these paths as the diff of the finished call does
+(relative to the project, `$SCRATCH/` or `~/`). After 4 MiB of preview, the files that follow are only counted
 (`[... N more files of the patch]`), so the event stays far below the frame limit. A
 patch that does not apply has no preview; its call fails when it runs.
 

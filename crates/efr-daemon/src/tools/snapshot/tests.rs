@@ -11,7 +11,7 @@ use efr_test_support::TestClock;
 use efr_tools::{WrittenDiff, WrittenFile, WrittenKind, written_diff};
 use pretty_assertions::assert_eq;
 
-use super::{CallSnapshots, with_shown_header};
+use super::{CallSnapshots, with_shown_header, with_shown_paths};
 
 fn snapshots(home: &Path, settings: Settings) -> CallSnapshots {
     let clock = TestClock::new();
@@ -51,6 +51,29 @@ fn the_header_of_a_written_diff_names_the_shown_path() {
     assert!(
         with_shown_header(&new.text, (path, "~/p/a.rs"), (path, "~/p/a.rs"))
             .starts_with("--- /dev/null\n+++ b/~/p/a.rs\n")
+    );
+}
+
+#[test]
+fn a_patch_preview_names_the_shown_paths_and_keeps_its_hunk_lines() {
+    let shown = |path: &Path| match path.strip_prefix("/home/u/p") {
+        Ok(below) => below.display().to_string(),
+        Err(_) => path.display().to_string(),
+    };
+    let preview = "--- a/home/u/p/a.rs\n+++ b/home/u/p/a.rs\n@@ -1 +1 @@\n\
+                   --- a/home/u/p/x\n+++ b/home/u/p/y\n\
+                   --- /dev/null\n+++ b/home/u/p/new.txt\n@@ -0,0 +1 @@\n+delete /home/u/p/n\n\
+                   delete /home/u/p/old.rs\n--- a/home/u/p/old.rs\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-x\n\
+                   move /home/u/p/e.rs -> /etc/f.rs\n--- a/home/u/p/e.rs\n+++ b/etc/f.rs\n\
+                   @@ -1,3 +1,3 @@\n a\n-b\n... 2 more lines\n--- a/home/u/p/z\n+++ b/home/u/p/z\n";
+
+    assert_eq!(
+        with_shown_paths(preview, shown),
+        "--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n--- a/home/u/p/x\n+++ b/home/u/p/y\n\
+         --- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+delete /home/u/p/n\n\
+         delete old.rs\n--- a/old.rs\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-x\n\
+         move e.rs -> /etc/f.rs\n--- a/e.rs\n+++ b/etc/f.rs\n\
+         @@ -1,3 +1,3 @@\n a\n-b\n... 2 more lines\n--- a/z\n+++ b/z\n"
     );
 }
 

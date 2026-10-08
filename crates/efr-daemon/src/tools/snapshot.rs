@@ -203,6 +203,13 @@ impl CallSnapshots {
         (Some(FileChanges::from_files(files)), diff)
     }
 
+    /// The preview of an `apply_patch` call with each path as a client shows it, as
+    /// the diff of the finished call names them: the `---` and `+++` lines of each
+    /// file and the lines that mark a delete or a move.
+    pub(crate) fn shown_preview(&self, call: &CallContext, text: &str) -> String {
+        with_shown_paths(text, |path| self.shown_path(call, path))
+    }
+
     /// `path` as a client shows it: relative to the turn's project root, under
     /// `$SCRATCH/`, under `~/`, else absolute.
     fn shown_path(&self, call: &CallContext, path: &Path) -> String {
@@ -247,6 +254,80 @@ fn with_shown_header(text: &str, old: (&Path, &str), new: (&Path, &str)) -> Stri
     }
     out.push_str(rest);
     out
+}
+
+/// `text`, a diff of several files from `efr-tools`, with every absolute path of its
+/// file headers (`--- a/<path>`, `+++ b/<path>`) and of its marks (`delete <path>`,
+/// `move <from> -> <to>`) as `shown` gives it. The lines of a hunk stay as they are,
+/// even when one looks like a header: the counts of each `@@` line say how many
+/// follow.
+fn with_shown_paths(text: &str, shown: impl Fn(&Path) -> String) -> String {
+    let absolute = |path: &str| path.starts_with('/').then(|| shown(Path::new(path)));
+    let side = |line: &str, start: &str, prefix: &str| -> Option<String> {
+        let path = line.strip_prefix(start)?;
+        absolute(path).map(|path| format!("{prefix}{}", path.trim_start_matches('/')))
+    };
+    let mut out = String::with_capacity(text.len());
+    // The old and new lines that the current hunk still has.
+    let mut left: Option<(u32, u32)> = None;
+    for line in text.split_inclusive('\n') {
+        let bare = line.strip_suffix('\n').unwrap_or(line);
+        if let Some((old, new)) = left {
+            let rest = match bare.chars().next() {
+                Some(' ') => Some((old.saturating_sub(1), new.saturating_sub(1))),
+                Some('-') => Some((old.saturating_sub(1), new)),
+                Some('+') => Some((old, new.saturating_sub(1))),
+                Some('\\') => Some((old, new)),
+                _ => None,
+            };
+            if let Some(rest) = rest {
+                left = (rest != (0, 0)).then_some(rest);
+                out.push_str(line);
+                continue;
+            }
+            left = None;
+        }
+        let rewritten = if bare.starts_with("@@ ") {
+            left = hunk_counts(bare).filter(|counts| *counts != (0, 0));
+            None
+        } else if let Some(path) = side(bare, "--- a", "--- a/") {
+            Some(path)
+        } else if let Some(path) = side(bare, "+++ b", "+++ b/") {
+            Some(path)
+        } else if let Some(path) = bare.strip_prefix("delete ").and_then(absolute) {
+            Some(format!("delete {path}"))
+        } else if let Some((from, to)) =
+            bare.strip_prefix("move ").and_then(|paths| paths.split_once(" -> "))
+        {
+            absolute(from).zip(absolute(to)).map(|(from, to)| format!("move {from} -> {to}"))
+        } else {
+            None
+        };
+        match rewritten {
+            Some(rewritten) => {
+                out.push_str(&rewritten);
+                if line.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// The old and new line counts of a hunk header `@@ -a,b +c,d @@`; a range without a
+/// count is one line.
+fn hunk_counts(line: &str) -> Option<(u32, u32)> {
+    let mut words = line.split(' ').skip(1);
+    let count = |word: Option<&str>, sign: char| -> Option<u32> {
+        let range = word?.strip_prefix(sign)?;
+        match range.split_once(',') {
+            Some((_, count)) => count.parse().ok(),
+            None => range.parse::<u32>().ok().map(|_| 1),
+        }
+    };
+    Some((count(words.next(), '-')?, count(words.next(), '+')?))
 }
 
 #[cfg(test)]

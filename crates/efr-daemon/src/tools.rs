@@ -458,7 +458,13 @@ impl Toolbox for DaemonToolbox {
             return self.settings_tool.preview(call).await;
         }
         let context = self.context(&call.context);
-        self.registry.preview(&call.name, &context, &call.input).await
+        let preview = self.registry.preview(&call.name, &context, &call.input).await?;
+        // NOTE: the patch tool names absolute paths; the question shows them as the
+        // finished call's diff does.
+        match (&self.snapshots, call.name == ApplyPatchTool::NAME) {
+            (Some(snapshots), true) => Some(snapshots.shown_preview(&call.context, &preview)),
+            _ => Some(preview),
+        }
     }
 
     fn takes_manual_input(&self, name: &str, input: &Value) -> bool {
