@@ -368,19 +368,28 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   plugin handed over. An empty Enter does nothing. Tab sends `prompt.send` to the
   conversation, queued behind the running turn. Alt+Up sends `prompt.withdraw` for the
   newest prompt that this view queued and puts its text into the row, after the text
-  there on a line of its own; a prompt that already started (`conflict`) leaves the
-  list with a note. A send that fails puts the text back and says why.
-- Esc sends `turn.interrupt` with the unread steers of this view (`resend_steers`) and
-  the prompts that it queued (`withdraw`). The prompts that the daemon took back come
-  into the row after its text; the steers that it sent again become a prompt that runs
-  next, with the note `interrupted to send your message`. When the followed prompt
-  still waits behind another turn, Esc takes it back with `prompt.withdraw` instead,
-  with the prompts after it. A turn that Esc stopped, and after which nothing runs,
-  ends the command as Ctrl+C does (exit 130, no message).
+  there on a line of its own. A prompt that already started (`conflict`) stays in the
+  list with a note, so the view follows it until it ends; one that the daemon does not
+  know (`not_found`) leaves the list. A send that fails puts the text back and says
+  why.
+- Esc sends `turn.interrupt` with the unread steers of this view (`resend_steers`),
+  this terminal's context, last command and settings for them (`resend_as`, as Enter
+  sends them), and the prompts that it queued (`withdraw`). The prompts that the
+  daemon took back come into the row after its text; the steers that it sent again
+  become a prompt that runs next, with the note `interrupted to send your message`.
+  When the followed prompt still waits behind another turn, Esc takes it back with
+  `prompt.withdraw` instead, with the prompts after it: the newest first and the
+  followed one last, so none of them can start in between. When the followed one
+  started meanwhile (`conflict`), Esc interrupts it as above. A turn that Esc stopped,
+  and after which nothing runs, ends the command as Ctrl+C does (exit 130, no
+  message).
 - Ctrl+C with text in the row clears the text. On an empty row it interrupts the turn
-  and ends the command as before, and it takes back the prompts that this view queued,
-  which would run with nobody to follow them; their texts and the steers that no model
-  call read go back to the shell.
+  and ends the command as before. It sends the unread steers of this view as
+  `withdraw_steers` and the prompts that it queued as `withdraw`, which would run with
+  nobody to follow them. Only the texts that the result names go back to the shell: a
+  steer that it does not name was read by a model call, or stays part of the turn.
+  When the followed prompt still waits behind another turn, Ctrl+C takes it back as
+  Esc does, with the prompts after it, and their texts go back to the shell.
 - Above the status row, each unread steer of this view shows as `↳ steer: <first
   line>` and each queued prompt as `↳ queued: <first line>`, muted; a steer that came
   too late is a queued prompt with `(too late to steer, so it waits in the queue)`.
@@ -526,9 +535,9 @@ no longer waits.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
 130); the daemon stops the model and any running command. With the input row, it
-first clears the row's text, and it takes back the prompts that the row queued (see
-above). A followed prompt that still waits behind another turn is not interrupted,
-and the CLI says so; Esc in the input row takes it back. During a login, Ctrl+C
+first clears the row's text, and it takes back the prompts that the row queued and a
+followed prompt that still waits (see above). Without the row, a followed prompt that
+still waits behind another turn is not interrupted, and the CLI says so. During a login, Ctrl+C
 closes the connection. What arrived stays on the screen.
 
 SIGTERM (`kill`, `timeout`) and SIGHUP (the terminal closes) while a turn is followed

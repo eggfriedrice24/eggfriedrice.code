@@ -56,9 +56,10 @@
 //! (`prompt.send`), Esc interrupts the turn and takes back what this view sent and the
 //! turn did not read (`turn.interrupt`), and Alt+Up takes back the newest prompt that
 //! this view queued (`prompt.withdraw`). Ctrl+C clears the row; with an empty row it
-//! interrupts as before. The view follows each prompt that it queued after the turn
-//! before it, and the command ends when the last one ends. Text that is still in the
-//! row then goes back to the user's shell (`crate::draft`).
+//! interrupts as before and takes back what this view sent and the turn did not read,
+//! but only what the daemon names. The view follows each prompt that it queued after
+//! the turn before it, and the command ends when the last one ends. Text that is still
+//! in the row then goes back to the user's shell (`crate::draft`).
 
 mod view;
 
@@ -198,19 +199,11 @@ pub(crate) async fn follow(
             let stopped = ctx.clock.now();
             // Prompts that this view queued would run with nobody to follow them: they
             // come back with the steers that no model call read, to the user's shell.
-            let withdraw = view.queued_turns();
             let note =
-                match interrupt(ctx, client, target.conversation, view.turn(), withdraw).await {
-                    Ok(withdrawn) => {
-                        for text in view.take_unread() {
-                            view.row_append(&text);
-                        }
-                        for prompt in withdrawn {
-                            view.withdrawn(prompt.turn_id, &prompt.text);
-                        }
-                        view.interrupted(stopped)
-                    }
-                    Err(note) => note,
+                match ctx.clock.timeout(INTERRUPT_TIMEOUT, follower.ctrl_c(view, stopped)).await {
+                    Ok(note) => note,
+                    Err(_) => "the daemon did not confirm the interrupt; the turn may still run"
+                        .to_owned(),
                 };
             let step = view.note(&note, ctx.screen.size());
             follower.show(out, view, &step)?;
@@ -225,41 +218,27 @@ pub(crate) async fn follow(
     result
 }
 
-/// Asks the daemon to stop `turn` and to take back the prompts of `withdraw`, which this
-/// view queued; the prompts it took back, or how that failed.
-async fn interrupt(
-    ctx: &Context,
-    client: &Client,
-    conversation: ConversationId,
-    turn: TurnId,
-    withdraw: Vec<TurnId>,
-) -> Result<Vec<WithdrawnPrompt>, String> {
-    let method = Method::TurnInterrupt(TurnInterrupt {
-        command_id: ctx.command_id(),
-        conversation_id: conversation,
-        turn_id: Some(turn),
-        resend_steers: Vec::new(),
-        resend_as: None,
-        withdraw_steers: Vec::new(),
-        withdraw,
-    });
-    let call = client.call::<TurnInterruptResult>(method);
-    match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {
-        Ok(Ok(result)) => Ok(result.withdrawn),
-        // The turn already ended, or it still waits behind another turn. Ctrl+C leaves
-        // a queued prompt in the queue, as before the input row; Esc takes it back.
-        Ok(Err(ClientError::Server { body })) if body.code == ErrorCode::Conflict => {
-            Err("not interrupted: the turn is not running; a queued prompt still runs in its turn"
-                .to_owned())
-        }
-        Ok(Err(error)) => {
-            tracing::debug!(error = %error, "turn.interrupt failed");
-            Err(format!("the interrupt failed: {}", crate::format::one_line(&error.to_string())))
-        }
-        Err(_) => {
-            Err("the daemon did not confirm the interrupt; the turn may still run".to_owned())
-        }
-    }
+/// What the unread steers of this view become when it interrupts its turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unread {
+    /// Esc: they go again as one prompt that runs next.
+    Resend,
+    /// Ctrl+C: they come back to the user, and no model call reads them.
+    TakeBack,
+}
+
+/// What a take-back of the followed prompt, which had not started, and of the prompts
+/// that this view queued after it did.
+#[derive(Debug, Default)]
+struct TakenBack {
+    /// The text of the followed prompt, when the daemon took it back.
+    followed: Option<String>,
+    /// The prompts of this view that the daemon took back, in queue order.
+    withdrawn: Vec<WithdrawnPrompt>,
+    /// The followed prompt started before its take-back: the interrupt that stopped it.
+    interrupted: Option<TurnInterruptResult>,
+    /// What did not work, one note each.
+    notes: Vec<String>,
 }
 
 struct Follower<'a> {
@@ -915,15 +894,7 @@ impl Follower<'_> {
             return self.take_back_all(out, view).await;
         }
         let turn = view.turn();
-        let method = Method::TurnInterrupt(TurnInterrupt {
-            command_id: self.ctx.command_id(),
-            conversation_id: self.target.conversation,
-            turn_id: Some(turn),
-            resend_steers: view.unread_steers(),
-            resend_as: None,
-            withdraw_steers: Vec::new(),
-            withdraw: view.queued_turns(),
-        });
+        let method = self.interrupt_method(view, Unread::Resend, view.queued_turns());
         let size = self.ctx.screen.size();
         let step = match self.client.call::<TurnInterruptResult>(method).await {
             Ok(result) => {
@@ -943,33 +914,156 @@ impl Follower<'_> {
         self.apply(step, out, view, false).await.map(drop)
     }
 
+    /// `turn.interrupt` for the followed turn, with what happens to the unread steers
+    /// of this view, and the queued prompts of `withdraw` to take back. A resent prompt
+    /// goes with this terminal's values, as a late steer does.
+    fn interrupt_method(&self, view: &TurnView, unread: Unread, withdraw: Vec<TurnId>) -> Method {
+        let steers = view.unread_steers();
+        let (resend_steers, withdraw_steers) = match unread {
+            Unread::Resend => (steers, Vec::new()),
+            Unread::TakeBack => (Vec::new(), steers),
+        };
+        let resend_as = self.compose.clone().filter(|_| !resend_steers.is_empty()).map(|compose| {
+            Box::new(LateSteer::Queue {
+                context: Some(compose.context),
+                last_command: compose.last_command.map(LastCommand::into_string),
+                settings: compose.settings,
+            })
+        });
+        Method::TurnInterrupt(TurnInterrupt {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            turn_id: Some(view.turn()),
+            resend_steers,
+            resend_as,
+            withdraw_steers,
+            withdraw,
+        })
+    }
+
     /// Esc while the followed prompt waits behind another turn: takes it back, and the
     /// prompts that this view queued after it, into the row. Its `prompt_withdrawn`
-    /// then ends it, and with it the command.
+    /// then ends it, and with it the command. When it started meanwhile, Esc
+    /// interrupts it instead.
     async fn take_back_all(
         &mut self,
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
         let followed = view.turn();
-        let mut notes = Vec::new();
-        for turn in std::iter::once(followed).chain(view.queued_turns()) {
-            match self.take_back(turn).await? {
-                TakeBack::Taken(prompt) if turn == followed => {
-                    self.escaped = Some(turn);
-                    view.row_append(&prompt.text);
-                }
-                TakeBack::Taken(prompt) => view.withdrawn(turn, &prompt.text),
-                TakeBack::Gone(note) | TakeBack::Refused(note) => notes.push(note),
-            }
-        }
+        let taken = self.take_back_queued(view, Unread::Resend).await?;
         let size = self.ctx.screen.size();
+        if let Some(text) = &taken.followed {
+            self.escaped = Some(followed);
+            view.row_append(text);
+        }
+        for prompt in &taken.withdrawn {
+            view.withdrawn(prompt.turn_id, &prompt.text);
+        }
         let mut step = Step::default();
+        if let Some(result) = &taken.interrupted {
+            self.escaped = Some(followed);
+            step = view.interrupt_result(result, size);
+        }
         // One note says it for all.
-        if let Some(note) = notes.first() {
-            step = view.note(note, size);
+        if let Some(note) = taken.notes.first() {
+            let noted = view.note(note, size);
+            step.out.push_str(&noted.out);
+            step.err.push_str(&noted.err);
         }
         self.apply(step, out, view, false).await.map(drop)
+    }
+
+    /// Takes back the followed prompt, which had not started, and the prompts that this
+    /// view queued after it. The newest goes first and the followed prompt last: a
+    /// prompt cannot start while one before it waits, so none of them starts in
+    /// between. When the followed prompt started meanwhile, the interrupt stops it and
+    /// does with the unread steers of this view as `unread` says.
+    async fn take_back_queued(
+        &self,
+        view: &TurnView,
+        unread: Unread,
+    ) -> Result<TakenBack, CliError> {
+        let mut taken = TakenBack::default();
+        let mut later = Vec::new();
+        let mut left = Vec::new();
+        for turn in view.queued_turns().into_iter().rev() {
+            match self.take_back(turn).await? {
+                TakeBack::Taken(prompt) => later.push(prompt),
+                TakeBack::Started(note) | TakeBack::Unknown(note) | TakeBack::Refused(note) => {
+                    left.push(turn);
+                    taken.notes.push(note);
+                }
+            }
+        }
+        later.reverse();
+        left.reverse();
+        taken.withdrawn = later;
+        match self.take_back(view.turn()).await? {
+            TakeBack::Taken(prompt) => taken.followed = Some(prompt.text),
+            TakeBack::Started(note) => {
+                let method = self.interrupt_method(view, unread, left);
+                match self.client.call::<TurnInterruptResult>(method).await {
+                    Ok(result) => taken.interrupted = Some(result),
+                    Err(error) => {
+                        let body = server_error(error)?;
+                        tracing::debug!(message = %body.message, "the started prompt was not interrupted");
+                        taken.notes.push(note);
+                    }
+                }
+            }
+            TakeBack::Unknown(note) | TakeBack::Refused(note) => taken.notes.push(note),
+        }
+        Ok(taken)
+    }
+
+    /// Ctrl+C with an empty row, after the view closed: interrupts the followed turn
+    /// and takes back what this view sent and the turn did not read, so it goes back to
+    /// the user's shell. Only what the daemon names comes back: a steer that it does
+    /// not name was read, or stays part of the turn. A followed prompt that did not
+    /// start yet is taken back, with the prompts behind it. The note says what
+    /// happened; `stopped` is the time of the Ctrl+C.
+    async fn ctrl_c(&self, view: &mut TurnView, stopped: Timestamp) -> String {
+        if view.is_queued() && self.compose.is_some() {
+            return match self.take_back_queued(view, Unread::TakeBack).await {
+                Ok(taken) => {
+                    if let Some(text) = &taken.followed {
+                        view.row_append(text);
+                    }
+                    for prompt in &taken.withdrawn {
+                        view.withdrawn(prompt.turn_id, &prompt.text);
+                    }
+                    if let Some(result) = &taken.interrupted {
+                        view.taken_back(result);
+                    }
+                    match (taken.notes.first(), &taken.interrupted) {
+                        (Some(note), _) => note.clone(),
+                        (None, Some(_)) => view.interrupted(stopped),
+                        (None, None) => TAKEN_BACK.to_owned(),
+                    }
+                }
+                Err(error) => {
+                    format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
+                }
+            };
+        }
+        let method = self.interrupt_method(view, Unread::TakeBack, view.queued_turns());
+        match self.client.call::<TurnInterruptResult>(method).await {
+            Ok(result) => {
+                view.taken_back(&result);
+                view.interrupted(stopped)
+            }
+            // The turn already ended, or it still waits behind another turn. Without
+            // the row, Ctrl+C leaves a queued prompt in the queue, as before the row.
+            Err(ClientError::Server { body }) if body.code == ErrorCode::Conflict => {
+                "not interrupted: the turn is not running; a queued prompt still runs in its turn"
+                    .to_owned()
+            }
+            Err(error) => {
+                tracing::debug!(error = %error, "turn.interrupt failed");
+                format!("the interrupt failed: {}", crate::format::one_line(&error.to_string()))
+            }
+        }
     }
 
     /// Alt+Up: takes back the newest prompt that this view queued, into the row.
@@ -982,11 +1076,13 @@ impl Follower<'_> {
                 view.withdrawn(turn, &prompt.text);
                 None
             }
-            TakeBack::Gone(note) => {
+            // NOTE: it runs now, or it is about to: the view keeps it in its list and
+            // follows it, and its end event takes it out.
+            TakeBack::Started(note) | TakeBack::Refused(note) => Some(note),
+            TakeBack::Unknown(note) => {
                 view.drop_queued(turn);
                 Some(note)
             }
-            TakeBack::Refused(note) => Some(note),
         };
         self.row_done(note, out, view).await
     }
@@ -1002,10 +1098,10 @@ impl Follower<'_> {
             Ok(result) => Ok(TakeBack::Taken(result.withdrawn)),
             Err(error) => Ok(match server_error(error)? {
                 body if body.code == ErrorCode::Conflict => {
-                    TakeBack::Gone("not taken back: the prompt already started".to_owned())
+                    TakeBack::Started("not taken back: the prompt already started".to_owned())
                 }
                 body if body.code == ErrorCode::NotFound => {
-                    TakeBack::Gone("not taken back: the daemon has no such prompt".to_owned())
+                    TakeBack::Unknown("not taken back: the daemon has no such prompt".to_owned())
                 }
                 body => TakeBack::Refused(format!(
                     "not taken back: {}",
@@ -1238,12 +1334,17 @@ fn write(out: &mut Output, step: &Step) -> Result<(), CliError> {
 enum TakeBack {
     /// The daemon took it back.
     Taken(WithdrawnPrompt),
-    /// It is no longer in the queue: it started, ended or was taken back already. The
-    /// note says so.
-    Gone(String),
+    /// It no longer waits (`conflict`): it started, ended or was taken back already.
+    /// The note says so.
+    Started(String),
+    /// The daemon does not know it (`not_found`). The note says so.
+    Unknown(String),
     /// The daemon refused for another reason, which the note gives.
     Refused(String),
 }
+
+/// The note when Ctrl+C took back the followed prompt before it ran.
+const TAKEN_BACK: &str = "the prompt was taken back before it ran";
 
 #[cfg(test)]
 mod tests;

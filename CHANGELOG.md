@@ -26,7 +26,9 @@ into the GitHub release notes, and it stops when the section is missing.
   it, and ends after the last one. Esc sends the steers that the model did not read as
   a new prompt, and puts the prompts that you queued back into the row, so nothing
   runs that you did not see. Ctrl+C clears the row; on an empty row it interrupts the
-  turn and also takes back the prompts that you queued there.
+  turn and also takes back the prompts that you queued there and the steers that the
+  model did not read. A prompt that still waits behind another turn is taken back
+  instead, by Esc and by Ctrl+C.
 - Text that is still in the input row when `efr` ends goes back to your zsh command
   line as `, <text>`, so you can edit it and send it again. Without the zsh plugin,
   `efr` shows it as one muted line.

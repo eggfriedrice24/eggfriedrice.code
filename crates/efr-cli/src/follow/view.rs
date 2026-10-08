@@ -651,12 +651,6 @@ impl TurnView {
         self.input.as_ref().map(Input::unread).unwrap_or_default()
     }
 
-    /// Takes the texts of the unread steers of this view, oldest first.
-    pub(crate) fn take_unread(&mut self) -> Vec<String> {
-        self.dirty = true;
-        self.input.as_mut().map(Input::take_unread).unwrap_or_default()
-    }
-
     /// The prompts that this view queued and that did not start, in queue order.
     pub(crate) fn queued_turns(&self) -> Vec<TurnId> {
         self.input.as_ref().map(Input::queued_turns).unwrap_or_default()
@@ -700,6 +694,24 @@ impl TurnView {
             input.resent(resent.turn_id, &resent.steers);
         }
         self.note(RESENT, size)
+    }
+
+    /// What an interrupt with Ctrl+C took back: the steers and the prompts that the
+    /// daemon names come into the input row, in that order, and leave the lists. A
+    /// steer that it does not name stays unread: a model call read it, or it stays
+    /// part of the turn, so it does not come back.
+    pub(crate) fn taken_back(&mut self, result: &TurnInterruptResult) {
+        if let Some(input) = &mut self.input {
+            let seqs: Vec<Seq> = result.withdrawn_steers.iter().map(|steer| steer.seq).collect();
+            input.delivered(&seqs);
+            for steer in &result.withdrawn_steers {
+                input.line.append(&steer.text);
+            }
+            self.dirty = true;
+        }
+        for withdrawn in &result.withdrawn {
+            self.withdrawn(withdrawn.turn_id, &withdrawn.text);
+        }
     }
 
     /// Starts the status row, on a terminal: the prompt's line was just sent, and the

@@ -6,15 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespondResult, ErrorBody, ErrorCode, Event, InputRespondResult,
-    InputWait, LateSteer, Method, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    ApprovalDecision, ApprovalRespondResult, ConversationHistoryResult, ErrorBody, ErrorCode,
+    Event, InputRespondResult, InputWait, LateSteer, Method, Mode, Origin, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq,
+    ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
-use super::super::{Compose, Row, follow};
+use super::super::{Compose, Row, TurnView, follow};
 use super::{
     Stream, completed, input_changed, input_respond, readable, request_after_cancels,
     shell_completed, shell_output, shell_started, shows_on, started_view, subscribed, target,
@@ -111,10 +112,23 @@ async fn run_row<F>(
 where
     F: Future<Output = ()>,
 {
+    run_row_view(setup, ctx, started_view().with_input(), script).await
+}
+
+/// Runs `follow` of `view` with the input row, against the fake daemon, which runs
+/// `script`.
+async fn run_row_view<F>(
+    setup: &Setup,
+    ctx: &Context,
+    mut view: TurnView,
+    script: impl FnOnce(Conn, Captured) -> F,
+) -> (Result<(), CliError>, String, String)
+where
+    F: Future<Output = ()>,
+{
     let daemon = setup.env.listen();
     let (mut out, captured) = capture();
     let seen = captured.clone();
-    let mut view = started_view().with_input();
     let reader = setup.keys.keep().unwrap();
     let client = async {
         let client = ctx.connect(Origin::Shell, None).await.unwrap();
@@ -327,6 +341,14 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         let (id, params) = interrupt_request(&mut conn).await;
         assert_eq!(params.turn_id, Some(turn()));
         assert_eq!(params.resend_steers, [Seq::new(11)]);
+        let compose = compose();
+        let resend_as = LateSteer::Queue {
+            context: Some(compose.context),
+            last_command: Some("cargo test".to_owned()),
+            settings: compose.settings,
+        };
+        assert_eq!(params.resend_as, Some(Box::new(resend_as)), "this terminal's values");
+        assert!(params.withdraw_steers.is_empty(), "Esc takes back no steer");
         assert_eq!(params.withdraw, [turn_2()]);
         let result = TurnInterruptResult {
             turn_id: turn(),
@@ -409,13 +431,19 @@ async fn alt_up_takes_back_the_newest_queued_prompt() {
             WithdrawnPrompt { turn_id: turn_3(), seq: Seq::new(13), text: "second".to_owned() };
         conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
         shows(&seen, "\u{203a} second").await;
-        // The next one already started: the daemon refuses, and it leaves the list.
+        // The next one already started: the daemon refuses, and the view keeps it, so
+        // it follows the prompt that now runs until it ends.
         keys.type_bytes(b"\x1b[1;3A").await;
         let (id, params) = withdraw_request(&mut conn).await;
         assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn_2() });
         conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "the prompt started")).await;
         shows(&seen, "not taken back: the prompt already started").await;
         conn.item(sub, &item(14, turn_completed())).await;
+        conn.item(sub, &item(15, started(turn_2()))).await;
+        conn.item(sub, &item(16, answer(turn_2(), "First done."))).await;
+        shows(&seen, "First done.").await;
+        let done = Event::TurnCompleted { turn_id: turn_2(), usage: None, changes: None };
+        conn.item(sub, &item(17, done)).await;
         conn.until_closed().await;
     })
     .await;
@@ -441,14 +469,17 @@ async fn ctrl_c_clears_the_row_first_then_interrupts_and_takes_back_the_queue() 
         let (id, params) = interrupt_request(&mut conn).await;
         assert_eq!(params.withdraw, [turn_2()]);
         assert!(params.resend_steers.is_empty(), "Ctrl+C sends nothing again");
+        assert_eq!(params.resend_as, None);
+        assert_eq!(params.withdraw_steers, [Seq::new(11)], "the daemon takes the steer back");
         let withdrawn =
             WithdrawnPrompt { turn_id: turn_2(), seq: Seq::new(14), text: "queued".to_owned() };
+        let steer = WithdrawnSteer { seq: Seq::new(11), text: "a steer nobody reads".to_owned() };
         let result = TurnInterruptResult {
             turn_id: turn(),
             seq: Seq::new(13),
             resent: None,
             withdrawn: vec![withdrawn],
-            withdrawn_steers: Vec::new(),
+            withdrawn_steers: vec![steer],
         };
         conn.reply(id, &result).await;
         conn.until_closed().await;
@@ -456,6 +487,132 @@ async fn ctrl_c_clears_the_row_first_then_interrupts_and_takes_back_the_queue() 
     .await;
     assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
     assert_eq!(setup.handed_back().as_deref(), Some("a steer nobody reads\nqueued"));
+}
+
+/// The review finding: Ctrl+C handed back every steer that the view still listed as
+/// unread, also one that a model call had read just before. Only the steers that the
+/// daemon took back come back now.
+#[tokio::test]
+async fn ctrl_c_hands_back_only_the_steers_that_the_daemon_took_back() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, _| async move {
+        let _sub = subscribed(&mut conn, 10).await;
+        enter(&mut conn, &keys, "use tabs", 11).await;
+        enter(&mut conn, &keys, "keep it small", 12).await;
+        interrupt.trigger();
+        let (id, params) = interrupt_request(&mut conn).await;
+        assert_eq!(params.withdraw_steers, [Seq::new(11), Seq::new(12)]);
+        // A model call read the first one before the view saw `steering_delivered`.
+        let steer = WithdrawnSteer { seq: Seq::new(12), text: "keep it small".to_owned() };
+        let result = TurnInterruptResult {
+            turn_id: turn(),
+            seq: Seq::new(14),
+            resent: None,
+            withdrawn: Vec::new(),
+            withdrawn_steers: vec![steer],
+        };
+        conn.reply(id, &result).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small"));
+}
+
+/// A view whose followed prompt waits behind another terminal's turn.
+fn queued_view() -> TurnView {
+    let mut view = started_view().with_input();
+    view.queue();
+    view
+}
+
+/// Answers the read of the approvals that a queued prompt waits behind: none.
+async fn nothing_blocks(conn: &mut Conn) {
+    let (id, method) = conn.request().await;
+    let Method::ConversationHistory(_) = method else {
+        panic!("expected conversation.history, got {}", method.name());
+    };
+    conn.reply(id, &ConversationHistoryResult { events: Vec::new(), next_cursor: None }).await;
+}
+
+/// The review finding: Esc on a followed prompt that waits sent one withdraw per prompt,
+/// the followed one first, and a followed prompt that started in between ran on. Now
+/// the newest goes first, so none starts in between, and a followed prompt that
+/// started is interrupted.
+#[tokio::test]
+async fn esc_on_a_waiting_prompt_takes_back_the_newest_first_and_interrupts_one_that_started() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row_view(&setup, &ctx, queued_view(), |mut conn, _| async move {
+        nothing_blocks(&mut conn).await;
+        let sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then the docs", turn_2(), 11).await;
+        keys.press_esc().await;
+        let (id, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn_2() }, "newest first");
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn_2(), seq: Seq::new(13), text: "then the docs".into() };
+        conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
+        let (id, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn() });
+        conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "the prompt started")).await;
+        let (id, params) = interrupt_request(&mut conn).await;
+        assert_eq!(params.turn_id, Some(turn()));
+        assert!(params.withdraw.is_empty(), "the other prompt is back already");
+        let result = TurnInterruptResult {
+            turn_id: turn(),
+            seq: Seq::new(14),
+            resent: None,
+            withdrawn: Vec::new(),
+            withdrawn_steers: Vec::new(),
+        };
+        conn.reply(id, &result).await;
+        conn.item(sub, &item(12, started(turn()))).await;
+        conn.item(sub, &item(15, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Escaped)), "{result:?}");
+    assert_eq!(setup.handed_back().as_deref(), Some("then the docs"));
+}
+
+/// The review finding: Ctrl+C on a followed prompt that waits sent `turn.interrupt`
+/// for a turn that did not run, took back nothing and left the prompts of this view to
+/// run with nobody to follow them. Now it takes them back, as Esc does.
+#[tokio::test]
+async fn ctrl_c_on_a_waiting_prompt_takes_it_back_with_the_prompts_behind_it() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, out, _) = run_row_view(&setup, &ctx, queued_view(), |mut conn, _| async move {
+        nothing_blocks(&mut conn).await;
+        let _sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then the docs", turn_2(), 11).await;
+        interrupt.trigger();
+        let (id, method) = request_after_cancels(&mut conn).await;
+        let Method::PromptWithdraw(params) = method else {
+            panic!("expected prompt.withdraw, got {}", method.name());
+        };
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn_2() });
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn_2(), seq: Seq::new(12), text: "then the docs".into() };
+        conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
+        let (id, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn() });
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn(), seq: Seq::new(13), text: "write the code".into() };
+        conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert!(out.contains("the prompt was taken back before it ran"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("write the code\nthen the docs"));
 }
 
 #[tokio::test]
