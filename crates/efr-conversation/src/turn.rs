@@ -4,8 +4,11 @@
 //! A turn reads a snapshot of the conversation, derives the scope from the user's
 //! working directory, records `turn_started` (and `scope_changed` when the user moved),
 //! makes sure `$SCRATCH` exists, and assembles the request: the system prompt, bounded
-//! history, the live-state preamble with the prompt, and the tool definitions. It then
-//! streams the provider and records what comes back. Each tool call the model asks for
+//! history, the live-state preamble with the prompt, and the tool definitions. Before
+//! each model call it estimates the request and guards it: it compacts at the trigger,
+//! never sends a request above the hard cap, and compacts once and sends the call once
+//! more when the provider refuses it as too large (the README, section "Context"). It
+//! then streams the provider and records what comes back. Each tool call the model asks for
 //! is recorded, goes through [`Turn::authorize_tool_call`], runs when allowed or
 //! approved, and its result goes back to the model, until the model answers without a
 //! tool call. The turn ends with `turn_completed`, `turn_failed` or
