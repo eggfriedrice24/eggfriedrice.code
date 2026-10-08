@@ -151,6 +151,31 @@ async fn a_root_with_too_many_files_is_skipped() {
 }
 
 #[tokio::test]
+async fn a_root_with_too_many_files_never_lists_its_ignored_files() {
+    let world = World::with_git_log();
+    let dir = world.dir("many");
+    write(&dir.join(".gitignore"), "*.log\n");
+    write(&dir.join("build.log"), "x\n");
+    for n in 0..5 {
+        write(&dir.join(format!("f{n}")), "x\n");
+    }
+    let few = Limits { max_files: 3, ..limits() };
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], few).await;
+    assert!(call.is_empty());
+    assert_eq!(world.git_runs(), ["init", "ls-files"], "one listing; the ignored one never ran");
+
+    // A root below the limit lists its ignored files too, after the check.
+    let small = world.dir("small");
+    write(&small.join(".gitignore"), "*.log\n");
+    write(&small.join("build.log"), "x\n");
+    write(&small.join("a.rs"), "x\n");
+    let call = world.snapshots.before_call(conversation(1), turn(2), vec![root(&small)], few).await;
+    assert!(!call.is_empty());
+    let runs = world.git_runs();
+    assert_eq!(runs.iter().filter(|run| *run == "ls-files").count(), 2, "{runs:?}");
+}
+
+#[tokio::test]
 async fn a_skipped_root_is_not_scanned_again_for_a_while() {
     let world = World::new();
     let dir = world.dir("many");

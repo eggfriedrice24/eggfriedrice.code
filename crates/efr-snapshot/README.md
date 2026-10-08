@@ -44,7 +44,9 @@ a turn, ignored files up to 1 MiB outside `SKIPPED_DIRS` (`target`, `node_module
 `.venv`, `venv`, `__pycache__`, `dist`, `build`, `.next`, `.cache`), such as `.env`. It
 leaves out empty directories, nested repositories, and a root with more than
 `max_files` files, which the debug log names. Counting the files of a root walks all
-of it, so a skipped root stays skipped for 10 minutes without a count. The same size limits hold for a file
+of it, so a skipped root stays skipped for 10 minutes without a count. A root without a
+snapshot yet lists its ignored files only after the count, so a root that is too big
+never pays for that listing; a root with a snapshot lists both at the same time. The same size limits hold for a file
 that the store already has: one that grows past its limit (`max_file_bytes`, or 1 MiB
 for an ignored file) leaves the index, so no later call hashes it again, and it shows
 as changed with no line counts, not as deleted. A call's own list does not show a new

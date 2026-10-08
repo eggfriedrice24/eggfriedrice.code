@@ -12,7 +12,9 @@
 //! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories
 //! at the same time as the first, and the small ones outside build and dependency
 //! directories and outside nested repositories are added too. In a root where nothing
-//! changed, these two runs are all that the first snapshot of a turn costs.
+//! changed, these two runs are all that the first snapshot of a turn costs. A root
+//! without a snapshot yet lists its ignored files only after the `max_files` check, so
+//! a root that is too big never pays for that listing.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -123,36 +125,31 @@ pub(crate) async fn stage(
     let now = SystemTime::from(runner.clock().now());
     runner.blocking(&root, move || stamped.stamp(now)).await?;
 
-    // NOTE: both listings only read the root and the index, so they run together, and
-    // the scan of the ignored files adds no git run to the time of the snapshot.
     let scan_ignored = ignored && limits.ignored_small;
-    let (listed, ignored_listed) = tokio::join!(
-        runner.checked(
-            store,
-            "ls-files",
-            &["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"],
-            Run { work_tree: Some(&root), ..Run::default() },
-        ),
-        async {
-            if !scan_ignored {
-                return Ok(Vec::new());
-            }
-            runner
-                .checked(
-                    store,
-                    "ls-files",
-                    &["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"],
-                    Run { work_tree: Some(&root), ..Run::default() },
-                )
-                .await
-        },
-    );
-    let listing = parse_listing(&listed?);
-    let ignored_listed = ignored_listed?;
     let entries = store.index_entries().unwrap_or(0);
-    if entries + listing.others.len() as u64 > limits.max_files {
-        return Ok(Staged::Skipped("the root has more files than snapshot.max_files"));
+    if entries > limits.max_files {
+        return Ok(Staged::Skipped(TOO_MANY_FILES));
     }
+    // NOTE: both listings only read the root and the index. A root whose index holds
+    // files had a snapshot, so it was below max_files: its two listings run together,
+    // and the scan of the ignored files adds no git run to the time of the snapshot. A
+    // root with an empty index (its first snapshot, or one that max_files skipped) runs
+    // the ignored listing only once the max_files check passed: a root that is too big
+    // never pays for it.
+    let together = scan_ignored && entries > 0;
+    let (listed, early) = tokio::join!(listing(runner, store, &root), async {
+        if together { ignored_listing(runner, store, &root).await.map(Some) } else { Ok(None) }
+    });
+    let listing = parse_listing(&listed?);
+    let early = early?;
+    if entries + listing.others.len() as u64 > limits.max_files {
+        return Ok(Staged::Skipped(TOO_MANY_FILES));
+    }
+    let ignored_listed = match early {
+        Some(listed) => listed,
+        None if scan_ignored => ignored_listing(runner, store, &root).await?,
+        None => Vec::new(),
+    };
     let max_file_bytes = limits.max_file_bytes;
     let changed: Vec<String> = listing.changed.into_iter().collect();
     let base = root.clone();
@@ -227,6 +224,37 @@ pub(crate) async fn stage(
         }
     }
     Ok(Staged::Changed)
+}
+
+/// Why a root has no snapshot when it holds more files than `snapshot.max_files`.
+const TOO_MANY_FILES: &str = "the root has more files than snapshot.max_files";
+
+/// The modified, deleted and untracked files of the root of `store`, from `ls-files`.
+async fn listing(runner: &Runner, store: &Store, root: &Path) -> Result<Vec<u8>, SnapshotError> {
+    runner
+        .checked(
+            store,
+            "ls-files",
+            &["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"],
+            Run { work_tree: Some(root), ..Run::default() },
+        )
+        .await
+}
+
+/// The ignored files and directories of the root of `store`, from `ls-files`.
+async fn ignored_listing(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+) -> Result<Vec<u8>, SnapshotError> {
+    runner
+        .checked(
+            store,
+            "ls-files",
+            &["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"],
+            Run { work_tree: Some(root), ..Run::default() },
+        )
+        .await
 }
 
 /// Fails when a `command` that failed left the index as it was because another git
