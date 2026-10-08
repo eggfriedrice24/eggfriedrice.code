@@ -1,21 +1,21 @@
 //! Compaction inside a turn: auto at the trigger, after an overflow, the breaker, a
 //! pruning alone, and the history that later turns send, also after a restart.
 
-use efr_protocol::{Compaction, CompactionTrigger, ErrorCode, Event, TurnId};
+use efr_protocol::{Compaction, CompactionTrigger, DraftPart, ErrorCode, Event, TurnId};
 use efr_provider::{Message, Request};
 use efr_store::turn_messages;
 use efr_test_support::Record;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use crate::CompactionConfig;
 use crate::compaction::{request_tokens, summary_message};
-use crate::context::PRUNED_OUTPUT_STUB;
+use crate::context::{PRUNED_OUTPUT_STUB, kilo};
 use crate::testing::{
     HARD_CAP, MODEL, SUMMARY, SUMMARY_2, Setup, TRIGGER, WINDOW, answer, big_file, big_text,
     compacting, compactions, expect_request, failure, fresh, request, result_message,
     run_two_big_turns, summary, text_answer, tool_answer, tool_message, two_big_turns,
 };
+use crate::{CompactionConfig, ContextLimits};
 
 /// `request` as JSON without its tools, with the test's root directory as `<root>` and
 /// each string longer than 200 bytes replaced by its size, so a snapshot shows the order
@@ -71,6 +71,7 @@ async fn an_auto_compaction_at_the_trigger_summarizes_and_the_turn_goes_on() {
     let setup = compacting();
     let (records, before, after) = auto_compaction_records(&setup);
     assert!(request_tokens(&before) >= TRIGGER, "{}", request_tokens(&before));
+    let mut receiver = setup.drafts.subscribe();
     let mut h = setup.start(records).await;
     let (_, two) = run_two_big_turns(&mut h).await;
 
@@ -78,6 +79,25 @@ async fn an_auto_compaction_at_the_trigger_summarizes_and_the_turn_goes_on() {
     let end = h.wait_end(three).await;
 
     assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    let drafts: Vec<DraftPart> = std::iter::from_fn(|| receiver.try_recv().ok())
+        .map(|draft| draft.part)
+        .filter(|part| matches!(part, DraftPart::Context(_) | DraftPart::Compacting { .. }))
+        .collect();
+    let limits = ContextLimits::new(Some(WINDOW), CompactionConfig::default());
+    let at = drafts
+        .iter()
+        .position(|part| matches!(part, DraftPart::Compacting { trigger: CompactionTrigger::Auto }))
+        .expect("a compacting draft");
+    assert_eq!(
+        drafts[at - 1],
+        DraftPart::Context(limits.gauge(request_tokens(&before))),
+        "the estimate that reached the trigger: {drafts:?}"
+    );
+    assert_eq!(
+        drafts[at + 1],
+        DraftPart::Context(limits.gauge(request_tokens(&request(after.clone())))),
+        "the estimate of the compacted request: {drafts:?}"
+    );
     let kinds = h.kinds().await;
     let from = kinds.iter().rposition(|kind| kind == "tool_call_completed").expect("a call");
     assert_eq!(kinds[from + 1], "conversation_compacted");
@@ -225,7 +245,7 @@ async fn an_overflow_compacts_once_and_sends_the_call_again() {
 #[tokio::test]
 async fn a_second_overflow_of_the_same_call_fails_the_turn_and_names_the_cause() {
     let setup = compacting();
-    let (mut records, refused, _) = overflow_records(&setup);
+    let (mut records, _, after) = overflow_records(&setup);
     records.push(failure(serde_json::from_str(OVERFLOW).expect("json")));
     let mut h = setup.start(records).await;
     run_two_big_turns(&mut h).await;
@@ -236,7 +256,8 @@ async fn a_second_overflow_of_the_same_call_fails_the_turn_and_names_the_cause()
     let Event::TurnFailed { error, .. } = end else {
         panic!("the turn fails: {end:?}");
     };
-    let tokens = request_tokens(&refused);
+    // The estimate of the request that the provider refused the second time.
+    let tokens = request_tokens(&request(after));
     assert_eq!(error.code, ErrorCode::Internal);
     assert_eq!(
         error.data,
@@ -245,8 +266,9 @@ async fn a_second_overflow_of_the_same_call_fails_the_turn_and_names_the_cause()
     assert_eq!(
         error.message,
         format!(
-            "the context is full: {}k of 100k tokens; run ,compact or start a new conversation",
-            (tokens + 500) / 1000
+            "the context is still full after a compaction: the model refused about {} of \
+             100k tokens; run ,compact or start a new conversation",
+            kilo(tokens)
         )
     );
     assert_eq!(compactions(&h).await.len(), 1);

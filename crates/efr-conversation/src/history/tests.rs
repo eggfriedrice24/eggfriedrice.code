@@ -563,7 +563,15 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
         limits,
     );
 
-    assert_eq!(history, vec![Message::user("second"), Message::assistant("Two.")]);
+    assert_eq!(
+        history,
+        vec![
+            Message::user("1 earlier turn is omitted."),
+            Message::user("second"),
+            Message::assistant("Two.")
+        ],
+        "the model reads that a turn is left out"
+    );
 }
 
 #[tokio::test]
@@ -640,6 +648,7 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
     let by_bytes = snapshot.history(turn(9), &none, &replay, HistoryLimits::new(50, 4096, 500));
 
     let last_two = vec![
+        Message::user("1 earlier turn is omitted."),
         Message::user("second"),
         Message::assistant("Two."),
         Message::user("third"),
@@ -647,6 +656,77 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
     ];
     assert_eq!(by_turns, last_two);
     assert_eq!(by_bytes, last_two);
+    let all = snapshot.history(turn(9), &none, &replay, HistoryLimits::default());
+    assert_eq!(all.len(), 6, "no note when nothing is left out: {all:?}");
+}
+
+#[tokio::test]
+async fn a_newest_turn_too_large_for_the_bytes_leaves_only_the_note() {
+    let (a, b) = (turn(2), turn(3));
+    let long = "x".repeat(1000);
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "first",
+            vec![completed(a, 0, "One.")],
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
+        ),
+        whole_turn(
+            b,
+            "second",
+            vec![completed(b, 0, &long)],
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
+        ),
+    ])
+    .await;
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+
+    let history = snapshot.history(
+        turn(9),
+        &HashMap::new(),
+        &key("replay", "m"),
+        HistoryLimits::new(50, 4096, 100),
+    );
+
+    assert_eq!(history, vec![Message::user("2 earlier turns are omitted.")]);
+}
+
+#[tokio::test]
+async fn a_turn_that_never_started_is_not_counted_as_omitted() {
+    let (a, b) = (turn(2), turn(3));
+    let command_id = CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1000)));
+    let store = store_with(vec![
+        vec![
+            Event::PromptQueued {
+                turn_id: a,
+                command_id,
+                text: "refused".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+                steers: Vec::new(),
+            },
+            Event::TurnFailed {
+                turn_id: a,
+                error: ErrorBody::new(ErrorCode::Invalid, "no such model"),
+                usage: None,
+                context: None,
+            },
+        ],
+        whole_turn(
+            b,
+            "second",
+            vec![completed(b, 0, "Two.")],
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
+        ),
+    ])
+    .await;
+    let snapshot = snapshot(&store, HistoryLimits::default()).await;
+
+    let history =
+        snapshot.history(turn(9), &HashMap::new(), &key("replay", "m"), HistoryLimits::default());
+
+    assert_eq!(history, vec![Message::user("second"), Message::assistant("Two.")]);
 }
 
 #[tokio::test]

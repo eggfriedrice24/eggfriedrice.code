@@ -438,7 +438,7 @@ impl Setup {
     pub(crate) fn new() -> Self {
         let dirs = TestDirs::new().expect("temporary directories");
         let clock = TestClock::new();
-        let conversation_id = ConversationId::from_uuid(uuid_v7(&clock, &TestRng::new(1)));
+        let conversation_id = conversation_id();
         let cwd = dirs.create_dir("home/project").expect("working directory");
         let mut config = ConversationConfig::new(MODEL, dirs.dirs().data().join("scratch"))
             .with_system_prompt(SYSTEM)
@@ -855,15 +855,27 @@ pub(crate) fn expect_request(request: Request) -> Record {
     ))
 }
 
-/// The request a turn sends with `messages`.
+/// The id of the conversation of every [`Setup`]: its clock starts at the same time and
+/// its generator from the same seed.
+pub(crate) fn conversation_id() -> ConversationId {
+    ConversationId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1)))
+}
+
+/// The request a turn sends with `messages`: the conversation id is its prompt cache
+/// key.
 pub(crate) fn request(messages: Vec<Message>) -> Request {
+    let mut provider_options = Map::new();
+    provider_options.insert(
+        crate::turn::PROMPT_CACHE_KEY.to_owned(),
+        Value::String(conversation_id().to_string()),
+    );
     Request {
         model: MODEL.to_owned(),
         system: Some(SYSTEM.to_owned()),
         messages,
         tools: FakeToolbox::tools(),
         max_output_tokens: None,
-        provider_options: Map::new(),
+        provider_options,
     }
 }
 

@@ -38,9 +38,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
 use efr_protocol::{
-    ApprovalDecision, CallId, CompactionTrigger, ConversationId, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext,
-    SurfaceChange, TurnId, TurnSettings, Verdict,
+    ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
+    TurnId, TurnSettings, Verdict,
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
@@ -54,11 +54,12 @@ use tracing::Instrument as _;
 pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 
 use self::coalesce::{Coalescer, sleep_or_pending};
-use self::compact::{Compacted, Guard};
+use self::compact::{Guard, Recovered};
 use self::drafter::Drafter;
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
 use crate::compaction::{Placed, Window, with_window};
+use crate::context::{self, Meter};
 use crate::exit::{self, TurnExits};
 use crate::fresh::Fresh;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
@@ -82,6 +83,10 @@ const INPUT_CAPACITY: usize = 64;
 
 /// The `provider_options` key of the reasoning effort, which the OpenAI provider reads.
 const REASONING_EFFORT: &str = "reasoning_effort";
+
+/// The `provider_options` key of the prompt cache key, which the OpenAI provider reads.
+/// The turn sends the conversation id there unless the config names a key.
+pub(crate) const PROMPT_CACHE_KEY: &str = "prompt_cache_key";
 
 /// What the model reads for a call that did not run because the user interrupted the
 /// turn.
@@ -243,13 +248,16 @@ struct Turn {
     streamed: usize,
     /// The drafts of the turn, for live clients only.
     drafter: Drafter,
+    /// The sum of the usage of the turn's model calls.
     usage: Option<TokenUsage>,
-    /// The usage of the newest model call, until the estimate takes it as its base.
+    /// The usage of the last model call that reported one.
     last_call: Option<TokenUsage>,
-    /// The base of the estimate: the real context of the newest call that reported its
-    /// usage, and how many messages of the window it covered. `None` before the first
-    /// such call and after a compaction.
-    counted: Option<(u64, usize)>,
+    /// The usage of the current model call, until the turn counts it.
+    call_usage: Option<TokenUsage>,
+    /// The context so far: the last real count and what came after it.
+    meter: Meter,
+    /// The newest estimate of a request.
+    estimated: Option<u64>,
     /// The compactions in a row that left the context at or above the trigger, or freed
     /// nothing; at [`BREAKER_TRIES`](crate::BREAKER_TRIES) the turn stops compacting.
     misses: u32,
@@ -333,7 +341,9 @@ impl Turn {
             drafter,
             usage: None,
             last_call: None,
-            counted: None,
+            call_usage: None,
+            meter: Meter::default(),
+            estimated: None,
             misses: 0,
             fresh,
             logged_shell_cwd: None,
@@ -380,6 +390,7 @@ impl Turn {
                 Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
             };
         self.settings = Some(settings.clone());
+        self.meter = Meter::new(context::context_base(&snapshot.page));
         self.user_messages = exit::user_messages(&snapshot.page, turn_id);
         let mut started = vec![Event::TurnStarted {
             turn_id,
@@ -432,21 +443,19 @@ impl Turn {
             config.history,
             fresh.as_deref(),
         );
-        window.placed.push(Placed {
-            turn: turn_id,
-            index: 0,
-            message: Message::new(
-                Role::User,
-                vec![
-                    ContentBlock::Text { text: preamble },
-                    ContentBlock::Text { text: self.spec.text.clone() },
-                ],
-            ),
-        });
-        let mut provider_options = config.provider_options.clone();
-        if let Some(effort) = &settings.effort {
-            provider_options.insert(REASONING_EFFORT.to_owned(), Value::String(effort.clone()));
-        }
+        let prompt = Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text { text: preamble },
+                ContentBlock::Text { text: self.spec.text.clone() },
+            ],
+        );
+        // NOTE: the history is in the base already, the context at the end of the
+        // previous turn; only the new prompt comes after it.
+        self.meter.add(&prompt);
+        window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
+        let provider_options =
+            provider_options(&config, settings.effort.as_deref(), shared.conversation_id);
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
@@ -477,33 +486,23 @@ impl Turn {
                 Guard::Full(error) => return Ok(Ending::Failed(error)),
                 Guard::Interrupted => return Ok(Ending::Interrupted),
             };
-            let mut overflowed = false;
-            let message = loop {
-                match self.respond(with_window(&base, &window)).await? {
-                    Response::Done(message) => break message,
-                    // NOTE: never retried as a transient error: the same request fails
-                    // again. One compaction and one more try; a second refusal ends the
-                    // turn.
-                    Response::Failed(error) if error.is_context_overflow() => {
-                        if overflowed || !self.may_compact() {
-                            return Ok(Ending::Failed(self.full(estimate)));
-                        }
-                        overflowed = true;
-                        self.catch_up(&mut window);
-                        let trigger = CompactionTrigger::Overflow;
-                        match self.compact(trigger, estimate, &mut window, &base).await? {
-                            Compacted::Done { .. } => {}
-                            Compacted::NotDone => return Ok(Ending::Failed(self.full(estimate))),
-                            Compacted::Interrupted => return Ok(Ending::Interrupted),
-                        }
+            let message = match self.respond(with_window(&base, &window)).await? {
+                Response::Done(message) => message,
+                // NOTE: never retried as a transient error: the same request fails
+                // again. One compaction and one more try; a second refusal ends the
+                // turn.
+                Response::Failed(error) if error.is_context_overflow() => {
+                    match self.recover(&mut window, &base, estimate).await? {
+                        Recovered::Done(message) => message,
+                        Recovered::Stop(ending) => return Ok(ending),
                     }
-                    Response::Failed(error) => return Ok(Ending::Failed(provider_failure(&error))),
-                    Response::Interrupted => return Ok(Ending::Interrupted),
                 }
+                Response::Failed(error) => return Ok(Ending::Failed(provider_failure(&error))),
+                Response::Interrupted => return Ok(Ending::Interrupted),
             };
             let calls = tool_calls(&message);
             self.push(&mut window, message);
-            self.count(&window);
+            self.count_call();
             if calls.is_empty() {
                 if !self.control.steering.close_if_idle().await {
                     continue;
@@ -550,11 +549,20 @@ impl Turn {
         let watch = Stopwatch::start();
         let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await;
         tracing::debug!(phase = "turn_changes", elapsed_ms = %watch, "phase=turn_changes elapsed_ms={}", watch);
-        let usage = self.usage.map(efr_protocol::Usage::from);
+        let usage = self.usage.map(|sum| {
+            let mut usage = efr_protocol::Usage::from(sum);
+            usage.context_tokens = self.last_call.map_or(0, |call| context_tokens(&call));
+            usage
+        });
+        // NOTE: the last real count plus what came after it, such as the results of a
+        // call that an interrupt stopped; after a compaction with no call since, the
+        // estimate of the compacted request.
+        let tokens = self.meter.known().or(self.estimated);
+        let context = tokens.map(|tokens| self.limits().gauge(tokens));
         let event = match ending {
-            Ending::Completed => Event::TurnCompleted { turn_id, usage, context: None, changes },
-            Ending::Failed(error) => Event::TurnFailed { turn_id, error, usage, context: None },
-            Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context: None },
+            Ending::Completed => Event::TurnCompleted { turn_id, usage, context, changes },
+            Ending::Failed(error) => Event::TurnFailed { turn_id, error, usage, context },
+            Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context },
         };
         let key = self.model_key();
         close_open_calls(&mut self.transcript);
@@ -614,6 +622,7 @@ impl Turn {
     /// Adds `message` to the request's window and to the turn's transcript, where its
     /// place is.
     fn push(&mut self, window: &mut Window, message: Message) {
+        self.meter.add(&message);
         let index = u32::try_from(self.transcript.len()).unwrap_or(u32::MAX);
         window.placed.push(Placed { turn: self.turn_id(), index, message: message.clone() });
         self.transcript.push(message);
@@ -1325,6 +1334,28 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
         .collect()
 }
 
+/// The `provider_options` of a request of the conversation `conversation_id`: those of
+/// the config, the reasoning `effort`, and the conversation id as the prompt cache key
+/// unless the config names one. The key sends every request of the conversation, the
+/// summary requests too, to the same prompt cache, as Codex does with its session id.
+pub(crate) fn provider_options(
+    config: &ConversationConfig,
+    effort: Option<&str>,
+    conversation_id: ConversationId,
+) -> serde_json::Map<String, Value> {
+    let mut options = config.provider_options.clone();
+    if let Some(effort) = effort {
+        options.insert(REASONING_EFFORT.to_owned(), Value::String(effort.to_owned()));
+    }
+    options.entry(PROMPT_CACHE_KEY).or_insert_with(|| Value::String(conversation_id.to_string()));
+    options
+}
+
+/// The context of a model call: its input, cached tokens included, plus its output.
+fn context_tokens(usage: &TokenUsage) -> u64 {
+    usage.input_tokens.saturating_add(usage.output_tokens)
+}
+
 /// The `turn_failed` body for a provider error: a code a client can act on and the
 /// error's one-sentence message.
 pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
@@ -1350,6 +1381,9 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
         // subscription serves to efr is known only once a request is refused.
         ProviderError::UnknownModel { model } => {
             body.with_data(serde_json::json!({ "model": model }))
+        }
+        ProviderError::ContextOverflow { .. } => {
+            body.with_data(serde_json::json!({ "cause": context::CONTEXT_OVERFLOW }))
         }
         _ => body,
     }

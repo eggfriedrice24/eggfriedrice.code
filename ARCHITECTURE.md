@@ -210,7 +210,7 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   and its contract in `crates/efr-tools/README.md`; the question for each delete and
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
 - The model's context window and its compaction: the contract in
-  `crates/efr-conversation/README.md`, section "Context"; the numbers in
+  `crates/efr-conversation/README.md`, section "Context"; the numbers and the estimate in
   `crates/efr-conversation/src/context.rs`; pruning, the cut, the summary request and
   its prompt (`compaction/prompt.md`) in `crates/efr-conversation/src/compaction.rs`;
   the fresh context block in `crates/efr-conversation/src/fresh.rs`; the guards and the

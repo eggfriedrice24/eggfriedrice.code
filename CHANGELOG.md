@@ -97,6 +97,14 @@ into the GitHub release notes, and it stops when the section is missing.
   (`steering_delivered`). `efr history` shows a prompt that you took back as
   `withdrawn before it ran`, and steers that you took back as `took back a steer that
   the model did not read`.
+- efrd sends the conversation id as the prompt cache key of every model request, and
+  on the subscription also as the `session-id` header, as Codex does. The requests of
+  one conversation then go to the same prompt cache.
+- `turn_completed`, `turn_failed` and `turn_interrupted` say how full the model's
+  context is (`context`: the tokens, the point where efrd compacts and the window).
+  Their `usage` also gives the cached input tokens, the reasoning tokens and the
+  context of the last model call (`context_tokens`). A client that follows a turn gets
+  a `context` draft before and after each model call.
 - An entry of `[openai] models` can be a table that gives the model's limits:
   `{ id = "gpt-next", context_window = 400000, max_output_tokens = 128000 }`. An
   entry can also name a built-in model to change its limits. `models.list` shows the
@@ -141,13 +149,19 @@ into the GitHub release notes, and it stops when the section is missing.
   guard runs git only for a git config that changed since the last call, reads no
   `*.sample` hook, and lists directories faster. In a copy of efr's own repository, the
   guard went from 15 ms to 6 ms per call.
-- When the model refuses a request as too large for its context window, efrd
-  compacts the context once and sends the request again. When the model refuses it
-  again, or when auto compaction is off, the turn fails with `the context is full:
-  281k of 272k tokens; run ,compact or start a new conversation`. efrd never sends a
-  request that it estimates above 95% of the window. After two compactions in a row
+- When the model refuses a request as too large for its context window, efrd never
+  sends that request again as a retry. It compacts the context once and sends the
+  request again. Before each model call, efrd estimates the size of the request, and
+  it never sends a request above 95% of the window. When the model refuses the request
+  again, when auto compaction is off, or when the request stays above the cap, the turn
+  fails with a message that names the cause, the size and the way out, such as `the
+  context is still full after a compaction: the model refused about 281k of 272k
+  tokens; run ,compact or start a new conversation`. After two compactions in a row
   that leave the context too full, a turn stops compacting and says so. Before, the
   turn failed with the provider's own message.
+- When the history of a long conversation leaves out earlier turns, the model reads
+  `3 earlier turns are omitted.` first, and efrd logs a warning. Before, the turns
+  went without a trace.
 
 ### Fixed
 

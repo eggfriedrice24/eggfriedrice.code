@@ -16,20 +16,28 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{bounded_tail, provider_failure};
+use crate::context::request_tokens;
 use crate::preamble::LiveState;
 use crate::testing::{
     MODEL, Setup, answer, default_settings, done, expect_request, failure, find, freeform_answer,
     freeform_message, hold, request, result_message, text_answer, tool_answer, tool_message,
     user_prompt,
 };
+use crate::{CompactionConfig, ContextLimits};
 use crate::{ConversationError, approvals};
 
 mod compaction;
+mod context;
 mod drafts;
 mod sandbox;
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
+}
+
+/// The limits of a model whose window efr does not know, under the default compaction.
+fn unknown_window() -> ContextLimits {
+    ContextLimits::new(None, CompactionConfig::default())
 }
 
 /// A model list with the test model and two others, each with its efforts.
@@ -276,11 +284,9 @@ async fn a_text_turn_records_the_answer_and_completes() {
     assert_eq!(sent.seq.get(), 2, "conversation_created is 1, prompt_queued is 2");
     let end = h.wait_end(sent.turn_id).await;
 
-    let usage = Some(Usage::new(10, 4));
-    assert_eq!(
-        end,
-        Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context: None }
-    );
+    let usage = Some(Usage { context_tokens: 14, ..Usage::new(10, 4) });
+    let context = Some(unknown_window().gauge(14));
+    assert_eq!(end, Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context });
     assert_eq!(
         h.kinds().await,
         kinds(&[
@@ -773,8 +779,11 @@ async fn a_patch_that_deletes_a_project_file_asks_even_in_auto() {
 async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "write a story");
+    let first = request(vec![setup.prompt(&state, "write a story")]);
+    // NOTE: no call reported its usage, so the turn ends with its estimate.
+    let context = Some(unknown_window().gauge(request_tokens(&first)));
     let records = vec![
-        expect_request(request(vec![setup.prompt(&state, "write a story")])),
+        expect_request(first),
         answer(&[ProviderEvent::TextDelta { text: "Once upon a time".to_owned() }]),
         hold(),
         answer(&[
@@ -799,7 +808,7 @@ async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() 
     assert_eq!(requested.turn_id, sent.turn_id);
     let end = h.wait_end(sent.turn_id).await;
 
-    assert_eq!(end, Event::TurnInterrupted { turn_id: sent.turn_id, usage: None, context: None });
+    assert_eq!(end, Event::TurnInterrupted { turn_id: sent.turn_id, usage: None, context });
     assert_eq!(
         h.kinds().await,
         kinds(&[
@@ -1830,6 +1839,10 @@ fn provider_errors_map_to_codes_a_client_can_act_on() {
         provider_failure(&ProviderError::RateLimited { retry_after: Some(Duration::from_secs(2)) });
     assert_eq!(limited.code, ErrorCode::Busy);
     assert_eq!(limited.data, Some(json!({ "retry_after_ms": 2000 })));
+    let overflow = ProviderError::api(Some(413), None, "Payload Too Large".to_owned());
+    let overflow = provider_failure(&overflow);
+    assert_eq!(overflow.code, ErrorCode::Internal);
+    assert_eq!(overflow.data, Some(json!({ "cause": "context_overflow" })));
 }
 
 #[test]

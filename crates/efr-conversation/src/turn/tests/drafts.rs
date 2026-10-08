@@ -4,13 +4,15 @@
 use std::time::Duration;
 
 use efr_protocol::{DraftPart, Event, Seq};
-use efr_provider::{ContentBlock, Message, ProviderEvent, Role, StopReason};
+use efr_provider::{ContentBlock, Message, ProviderEvent, Request, Role, StopReason};
 use efr_test_support::Record;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tokio::sync::broadcast;
 
+use super::unknown_window;
 use crate::ConversationDraft;
+use crate::context::request_tokens;
 use crate::testing::{Harness, Setup, answer, done, expect_request, hold, request, result_message};
 
 fn text(text: &str) -> ProviderEvent {
@@ -22,8 +24,9 @@ fn reasoning(text: &str) -> ProviderEvent {
 }
 
 /// The records of a turn whose model reasons, writes the input of one `read_file` call
-/// in two pieces, reads the result, reasons again and answers in two pieces of text.
-fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
+/// in two pieces, reads the result, reasons again and answers in two pieces of text,
+/// with the input of the call and the two requests.
+fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String, [Request; 2]) {
     let state = setup.live_state(&setup.cwd, "read my notes");
     let notes = setup.home().join("notes.txt");
     let input = json!({ "path": notes });
@@ -43,8 +46,12 @@ fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
             },
         ],
     );
+    let requests = [
+        request(vec![first.clone()]),
+        request(vec![first, called, result_message("call_1", &output, false)]),
+    ];
     let records = vec![
-        expect_request(request(vec![first.clone()])),
+        expect_request(requests[0].clone()),
         answer(&[
             reasoning("**Reading the notes**"),
             reasoning("\n\nI open them."),
@@ -67,7 +74,7 @@ fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
             },
             done(StopReason::ToolUse, None),
         ]),
-        expect_request(request(vec![first, called, result_message("call_1", &output, false)])),
+        expect_request(requests[1].clone()),
         answer(&[
             reasoning("**Answering**"),
             text("Your notes"),
@@ -75,7 +82,7 @@ fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
             done(StopReason::EndTurn, None),
         ]),
     ];
-    (records, arguments)
+    (records, arguments, requests)
 }
 
 /// Every draft that `receiver` holds now.
@@ -87,12 +94,17 @@ fn drained(receiver: &mut broadcast::Receiver<ConversationDraft>) -> Vec<Convers
     drafts
 }
 
-/// The next draft, waiting at most a second of real time.
+/// The next draft other than a `context` one, waiting at most a second of real time.
 async fn next_draft(receiver: &mut broadcast::Receiver<ConversationDraft>) -> ConversationDraft {
-    tokio::time::timeout(Duration::from_secs(1), receiver.recv())
-        .await
-        .expect("a draft in time")
-        .expect("the channel is open")
+    loop {
+        let draft = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+            .await
+            .expect("a draft in time")
+            .expect("the channel is open");
+        if !matches!(draft.part, DraftPart::Context(_)) {
+            return draft;
+        }
+    }
 }
 
 /// The text of one update or completion: its index, its offset (`None` for the
@@ -121,7 +133,7 @@ async fn log_of(h: &Harness) -> (Vec<String>, Vec<Written>) {
 async fn drafts_carry_the_reasoning_the_tool_input_and_the_text_as_they_arrive() {
     let mut setup = Setup::new();
     setup.config.draft_interval = Duration::ZERO;
-    let (records, arguments) = reasoning_tool_text(&setup);
+    let (records, arguments, requests) = reasoning_tool_text(&setup);
     let mut receiver = setup.drafts.subscribe();
     let conversation_id = setup.conversation_id;
     let mut h = setup.start(records).await;
@@ -145,14 +157,18 @@ async fn drafts_carry_the_reasoning_the_tool_input_and_the_text_as_they_arrive()
     let started = seq_of("turn_started");
     let completed = seq_of("tool_call_completed");
     let updated = seq_of("assistant_message_updated");
-    assert_eq!(after, [vec![started; 5], vec![completed; 2], vec![updated]].concat());
+    assert_eq!(after, [vec![started; 6], vec![completed; 3], vec![updated]].concat());
     let parts: Vec<DraftPart> = drafts.into_iter().map(|draft| draft.part).collect();
+    // NOTE: no call reports its usage here, so each call has only the estimate before it.
+    let estimate =
+        |request: &Request| DraftPart::Context(unknown_window().gauge(request_tokens(request)));
     let title = |title: &str| Some(title.to_owned());
     let reading = "**Reading the notes**".len() as u64;
     let first_call = reading + "\n\nI open them.".len() as u64;
     assert_eq!(
         parts,
         vec![
+            estimate(&requests[0]),
             DraftPart::Reasoning {
                 offset: 0,
                 delta: "**Reading the notes**".to_owned(),
@@ -170,6 +186,7 @@ async fn drafts_carry_the_reasoning_the_tool_input_and_the_text_as_they_arrive()
                 tool: "read_file".to_owned(),
                 bytes: arguments.len() as u64,
             },
+            estimate(&requests[1]),
             // The reasoning of the second model call continues after a blank line.
             DraftPart::Reasoning {
                 offset: first_call,
@@ -189,7 +206,7 @@ async fn the_event_log_is_the_same_with_and_without_a_listener() {
     for listen in [false, true] {
         let mut setup = Setup::new();
         setup.config.draft_interval = Duration::ZERO;
-        let (records, _) = reasoning_tool_text(&setup);
+        let (records, _, _) = reasoning_tool_text(&setup);
         let mut receiver = setup.drafts.subscribe();
         if !listen {
             drop(receiver);

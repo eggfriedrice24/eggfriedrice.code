@@ -12,7 +12,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use efr_protocol::{ConversationId, DraftPart, Seq, TurnId};
+use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId};
 use efr_provider::{CompletionBuilder, ProviderEvent};
 use jiff::Timestamp;
 use tokio::sync::broadcast;
@@ -216,17 +216,23 @@ impl Drafter {
         }
     }
 
-    /// Sends `part` now, outside the coalescing of the model's parts: a change of the
-    /// turn's state that a client shows at once, such as a compaction that starts.
-    /// Without a listener it does nothing.
-    pub(super) fn part(&self, part: DraftPart) {
-        if self.sender.receiver_count() == 0 {
-            return;
-        }
-        self.emit(part);
+    /// Sends how full the context is, at once: before a model call with the estimate,
+    /// after it with the provider's count.
+    pub(super) fn context(&self, context: ContextUse) {
+        self.emit(DraftPart::Context(context));
+    }
+
+    /// Sends that the turn compacts its context now.
+    pub(super) fn compacting(&self, trigger: CompactionTrigger) {
+        self.emit(DraftPart::Compacting { trigger });
     }
 
     fn emit(&self, part: DraftPart) {
+        // NOTE: without a receiver a send fails and costs nothing; the parts that the
+        // drafter holds back stay for the next listener, and these are not held.
+        if self.sender.receiver_count() == 0 {
+            return;
+        }
         let draft = ConversationDraft {
             conversation_id: self.conversation_id,
             turn_id: self.turn_id,

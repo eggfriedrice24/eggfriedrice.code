@@ -1,8 +1,16 @@
-use efr_protocol::ContextUse;
+use efr_protocol::{
+    ContextUse, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Seq, TurnId, Usage,
+};
+use efr_provider::{Message, Request};
+use efr_stdx::id::uuid_v7;
+use efr_stdx::time::Clock as _;
+use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
+use serde_json::json;
 
 use super::{
-    CompactionConfig, ContextLimits, DEFAULT_CONTEXT_WINDOW, HARD_CAP_PERCENT, estimate_tokens,
+    CompactionConfig, ContextLimits, DEFAULT_CONTEXT_WINDOW, Full, HARD_CAP_PERCENT, Meter,
+    context_base, context_full, estimate_tokens, kilo, message_tokens, request_tokens,
 };
 
 #[test]
@@ -43,4 +51,98 @@ fn the_estimate_is_four_bytes_a_token_rounded_up() {
     assert_eq!(estimate_tokens(1), 1);
     assert_eq!(estimate_tokens(4_000), 1_000);
     assert_eq!(estimate_tokens(4_001), 1_001);
+}
+
+#[test]
+fn the_meter_counts_from_the_last_call_and_adds_what_came_after() {
+    let request = Request { messages: vec![Message::user("x".repeat(400))], ..Request::new("m") };
+    let json = serde_json::to_vec(&request).unwrap();
+    let mut meter = Meter::new(None);
+    assert_eq!(meter.estimate(&request), (json.len() as u64).div_ceil(4), "the whole request");
+    assert_eq!(meter.known(), None);
+
+    meter.counted(1_000);
+    let result = Message::user("y".repeat(40));
+    meter.add(&result);
+    assert_eq!(meter.estimate(&request), 1_000 + message_tokens(&result));
+    meter.counted(1_200);
+    assert_eq!(meter.known(), Some(1_200), "a real count replaces the estimate");
+
+    meter.reset();
+    assert_eq!(meter.estimate(&request), request_tokens(&request), "a compaction drops the base");
+}
+
+fn envelope(seq: u64, event: Event) -> EventEnvelope {
+    let conversation_id = ConversationId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1)));
+    EventEnvelope {
+        seq: Seq::new(seq),
+        conversation_id: Some(conversation_id),
+        at: TestClock::new().now(),
+        event,
+    }
+}
+
+#[test]
+fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
+    let turn = TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(2)));
+    let limits = ContextLimits::new(Some(10_000), CompactionConfig::default());
+    let usage = Usage { context_tokens: 700, ..Usage::default() };
+    let ended = |tokens: u64| Event::TurnCompleted {
+        turn_id: turn,
+        usage: Some(usage),
+        context: Some(limits.gauge(tokens)),
+        changes: None,
+    };
+    let uncounted = Event::TurnInterrupted { turn_id: turn, usage: Some(usage), context: None };
+    let estimated = Event::TurnFailed {
+        turn_id: turn,
+        error: ErrorBody::new(ErrorCode::Internal, "the context is full"),
+        usage: None,
+        context: Some(limits.gauge(900)),
+    };
+
+    assert_eq!(context_base(&[envelope(1, ended(800)), envelope(2, ended(900))]), Some(900));
+    assert_eq!(
+        context_base(&[envelope(1, ended(800)), envelope(2, uncounted)]),
+        None,
+        "the newest turn is in no count"
+    );
+    assert_eq!(
+        context_base(&[envelope(1, ended(800)), envelope(2, estimated)]),
+        None,
+        "no call of the newest turn reported a count"
+    );
+    assert_eq!(context_base(&[]), None);
+}
+
+#[test]
+fn a_full_context_names_the_cause_and_the_way_out() {
+    let limits = ContextLimits::new(Some(272_000), CompactionConfig::default());
+
+    let refused = context_full(Full::Refused, 281_000, &limits);
+    let cap = context_full(Full::Cap, 260_000, &limits);
+
+    assert_eq!(refused.code, ErrorCode::Internal);
+    assert_eq!(
+        refused.message,
+        "the context is full: the model refused about 281k of 272k tokens; run ,compact or \
+         start a new conversation"
+    );
+    assert_eq!(
+        refused.data,
+        Some(json!({ "cause": "context_overflow", "tokens": 281_000, "window": 272_000 }))
+    );
+    assert_eq!(
+        cap.message,
+        "the context is full: about 260k of 272k tokens, above the cap of 258k; run ,compact \
+         or start a new conversation"
+    );
+}
+
+#[test]
+fn token_counts_read_as_a_person_says_them() {
+    assert_eq!(kilo(950), "950");
+    assert_eq!(kilo(3_240), "3.2k");
+    assert_eq!(kilo(24_400), "24k");
+    assert_eq!(kilo(281_000), "281k");
 }

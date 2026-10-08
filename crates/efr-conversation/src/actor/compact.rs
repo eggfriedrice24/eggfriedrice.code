@@ -17,7 +17,6 @@ use efr_protocol::{
 use efr_provider::Request;
 use efr_stdx::id::uuid_v7;
 use efr_store::Batch;
-use serde_json::Value;
 
 use super::receipt;
 use crate::ConversationError;
@@ -29,9 +28,6 @@ use crate::turn::{Shared, read_fresh, summarized, wire_usage};
 
 /// The method of the receipt.
 pub(super) const CONVERSATION_COMPACT: &str = "conversation.compact";
-
-/// The `provider_options` key of the reasoning effort, as a turn sends it.
-const REASONING_EFFORT: &str = "reasoning_effort";
 
 /// What a manual compaction hands back to the actor: its answer, and the fresh context
 /// block of the new compaction for the next turns.
@@ -87,10 +83,8 @@ async fn compact(
     };
     let key = ModelKey::new(shared.deps.provider.id().clone(), model.clone());
     let window = snapshot.window(None, cache, &key, config.history, head.as_deref());
-    let mut provider_options = config.provider_options.clone();
-    if let Some(effort) = effort {
-        provider_options.insert(REASONING_EFFORT.to_owned(), Value::String(effort));
-    }
+    let provider_options =
+        crate::turn::provider_options(&config, effort.as_deref(), shared.conversation_id);
     let base = Request {
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),

@@ -10,18 +10,17 @@
 
 use std::sync::Arc;
 
-use efr_protocol::{
-    Compaction, CompactionId, CompactionTrigger, DraftPart, ErrorBody, ErrorCode, Event,
-};
-use efr_provider::{Request, TokenUsage};
+use efr_protocol::{Compaction, CompactionId, CompactionTrigger, ErrorBody, Event};
+use efr_provider::{Message, Request, TokenUsage};
 use efr_stdx::id::uuid_v7;
 
-use super::Turn;
+use super::stream::Response;
+use super::{Ending, Turn, context_tokens, provider_failure};
 use crate::compaction::{
     self, Job, Outcome, Pruning, Window, cut_before, request_tokens, summary_message, turn_count,
     with_window,
 };
-use crate::context::{BREAKER_TRIES, ContextLimits};
+use crate::context::{BREAKER_TRIES, ContextLimits, Full, context_full};
 use crate::fresh::{self, Fresh};
 use crate::{ConversationDeps, ConversationError};
 
@@ -40,12 +39,20 @@ pub(super) enum Guard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Compacted {
     /// It recorded `conversation_compacted`; the window is the new one.
-    Done { tokens_after: u64 },
+    Done,
     /// It freed nothing and recorded nothing: nothing lay before the tail, or the
     /// summary request failed. The window is as it was.
     NotDone,
     /// The user interrupted the turn during the summary call.
     Interrupted,
+}
+
+/// What a model call that the provider refused as too large ended with.
+pub(super) enum Recovered {
+    /// The turn compacted and the call went through.
+    Done(Message),
+    /// The turn ends.
+    Stop(Ending),
 }
 
 impl Turn {
@@ -62,25 +69,26 @@ impl Turn {
         ContextLimits::new(window, self.config.compaction)
     }
 
-    /// The estimated context of `request`, whose messages are those of `window`: the
-    /// last real count plus the estimate of the messages added since that call, or the
-    /// estimate of the whole request when no real count holds for this window.
-    pub(super) fn estimate(&self, window: &Window, request: &Request) -> u64 {
-        match self.counted {
-            Some((tokens, len)) if len <= window.len() => {
-                tokens.saturating_add(window.tokens_from(len))
-            }
-            _ => request_tokens(request),
-        }
+    /// The estimated context of `request`: the last real count plus the estimate of the
+    /// messages added since, or the estimate of the whole request when no real count
+    /// holds for this history. Live clients see it.
+    pub(super) fn estimate(&mut self, request: &Request) -> u64 {
+        let tokens = self.meter.estimate(request);
+        self.estimated = Some(tokens);
+        self.drafter.context(self.limits().gauge(tokens));
+        tokens
     }
 
-    /// Takes the usage of the call that just ended as the new base of the estimate:
-    /// `window` holds its request and its answer.
-    pub(super) fn count(&mut self, window: &Window) {
-        if let Some(usage) = self.last_call.take() {
-            let tokens = usage.input_tokens.saturating_add(usage.output_tokens);
-            self.counted = Some((tokens, window.len()));
-        }
+    /// The model call that just ended reported its usage: its input plus its output is
+    /// the new base of the estimate, and live clients see it.
+    pub(super) fn count_call(&mut self) {
+        let Some(call) = self.call_usage.take() else {
+            return;
+        };
+        let tokens = context_tokens(&call);
+        self.meter.counted(tokens);
+        self.last_call = Some(call);
+        self.drafter.context(self.limits().gauge(tokens));
     }
 
     /// True while the turn may compact on its own: auto compaction is on and the
@@ -89,26 +97,85 @@ impl Turn {
         self.limits().auto && self.misses < BREAKER_TRIES
     }
 
-    /// The guard before a model call: compacts at the trigger when the turn may, and
-    /// refuses a request whose estimate is above the hard cap.
+    /// The guard before a model call: compacts at the trigger (or above the hard cap)
+    /// when the turn may, and refuses a request whose estimate is above the hard cap.
     pub(super) async fn guard(
         &mut self,
         window: &mut Window,
         base: &Request,
     ) -> Result<Guard, ConversationError> {
         let limits = self.limits();
-        let mut estimate = self.estimate(window, &with_window(base, window));
-        if estimate >= limits.trigger && self.may_compact() {
+        let mut estimate = self.estimate(&with_window(base, window));
+        let full = estimate >= limits.trigger || estimate > limits.hard_cap;
+        if full && self.may_compact() {
             match self.compact(CompactionTrigger::Auto, estimate, window, base).await? {
-                Compacted::Done { tokens_after } => estimate = tokens_after,
+                Compacted::Done => estimate = self.estimate(&with_window(base, window)),
                 Compacted::NotDone => {}
                 Compacted::Interrupted => return Ok(Guard::Interrupted),
             }
         }
-        if estimate > limits.hard_cap {
-            return Ok(Guard::Full(self.full(estimate)));
+        if estimate <= limits.hard_cap {
+            return Ok(Guard::Send { estimate });
         }
-        Ok(Guard::Send { estimate })
+        let why = if limits.auto && !self.may_compact() { Full::Breaker } else { Full::Cap };
+        tracing::warn!(
+            tokens = estimate,
+            hard_cap = limits.hard_cap,
+            "the request would pass the hard cap of the context"
+        );
+        Ok(Guard::Full(context_full(why, estimate, &limits)))
+    }
+
+    /// The provider refused the request of `window`, estimated at `refused`, as larger
+    /// than the model's context window: with auto compaction on, compacts once and
+    /// sends the call again once. A second refusal, a compaction that frees nothing, an
+    /// open breaker or auto compaction off ends the turn.
+    pub(super) async fn recover(
+        &mut self,
+        window: &mut Window,
+        base: &Request,
+        refused: u64,
+    ) -> Result<Recovered, ConversationError> {
+        let limits = self.limits();
+        tracing::warn!(
+            tokens = refused,
+            window = limits.window,
+            "the provider refused the request as larger than the model's context window"
+        );
+        let stop = |why| Ok(Recovered::Stop(Ending::Failed(context_full(why, refused, &limits))));
+        if !limits.auto {
+            return stop(Full::Refused);
+        }
+        if !self.may_compact() {
+            return stop(Full::Breaker);
+        }
+        self.catch_up(window);
+        match self.compact(CompactionTrigger::Overflow, refused, window, base).await? {
+            Compacted::Done => {}
+            Compacted::NotDone => return stop(Full::CompactionFailed),
+            Compacted::Interrupted => return Ok(Recovered::Stop(Ending::Interrupted)),
+        }
+        let request = with_window(base, window);
+        let estimate = self.estimate(&request);
+        if estimate > limits.hard_cap {
+            let body = context_full(Full::Cap, estimate, &limits);
+            return Ok(Recovered::Stop(Ending::Failed(body)));
+        }
+        match self.respond(request).await? {
+            Response::Done(message) => Ok(Recovered::Done(message)),
+            Response::Failed(error) if error.is_context_overflow() => {
+                tracing::warn!(
+                    tokens = estimate,
+                    "the provider refused the request again after a compaction"
+                );
+                let body = context_full(Full::StillRefused, estimate, &limits);
+                Ok(Recovered::Stop(Ending::Failed(body)))
+            }
+            Response::Failed(error) => {
+                Ok(Recovered::Stop(Ending::Failed(provider_failure(&error))))
+            }
+            Response::Interrupted => Ok(Recovered::Stop(Ending::Interrupted)),
+        }
     }
 
     /// The hook of a compaction inside the turn, between two model calls: prunes, and
@@ -125,7 +192,7 @@ impl Turn {
         base: &Request,
     ) -> Result<Compacted, ConversationError> {
         let limits = self.limits();
-        self.drafter.part(DraftPart::Compacting { trigger });
+        self.drafter.compacting(trigger);
         let provider = Arc::clone(&self.shared.deps.provider);
         let interrupt = self.control.interrupt.clone();
         let job = Job {
@@ -172,7 +239,7 @@ impl Turn {
             }
         };
         let Some(built) = built else {
-            self.misses += 1;
+            self.miss(tokens_before, limits);
             return Ok(Compacted::NotDone);
         };
         let tokens_after = request_tokens(&with_window(base, &built.window));
@@ -196,20 +263,26 @@ impl Turn {
         };
         self.record(vec![Event::ConversationCompacted(compaction)]).await?;
         *window = built.window;
-        // NOTE: the real count of the last call held for the old window.
-        self.counted = None;
+        // NOTE: the real count of the last call held for the old history.
+        self.meter.reset();
         if tokens_after >= limits.trigger {
-            self.misses += 1;
+            self.miss(tokens_after, limits);
         } else {
             self.misses = 0;
         }
-        Ok(Compacted::Done { tokens_after })
+        Ok(Compacted::Done)
     }
 
-    /// The failure of a turn whose request does not fit: `tokens` is the estimate, or
-    /// the size that the provider refused.
-    pub(super) fn full(&self, tokens: u64) -> ErrorBody {
-        full(tokens, self.limits(), self.misses >= BREAKER_TRIES)
+    /// A compaction did not bring the context of `tokens` below the trigger.
+    fn miss(&mut self, tokens: u64, limits: ContextLimits) {
+        self.misses += 1;
+        if self.misses >= BREAKER_TRIES {
+            tracing::warn!(
+                tokens,
+                trigger = limits.trigger,
+                "compaction did not free enough room; the turn stops compacting on its own"
+            );
+        }
     }
 
     /// The fresh context block for a history that starts with the summary of
@@ -241,35 +314,6 @@ pub(crate) async fn read_fresh(
     logged_shell_cwd: Option<std::path::PathBuf>,
 ) -> String {
     fresh::read(deps, conversation_id, cwd, logged_shell_cwd).await.render()
-}
-
-/// The failure body of a request that does not fit in the model's window.
-fn full(tokens: u64, limits: ContextLimits, breaker: bool) -> ErrorBody {
-    let window = limits.window;
-    let message = if breaker {
-        format!(
-            "the context is full: compaction did not free enough room (still {} of {} \
-             tokens); run ,compact or start a new conversation",
-            thousands(tokens),
-            thousands(window)
-        )
-    } else {
-        format!(
-            "the context is full: {} of {} tokens; run ,compact or start a new conversation",
-            thousands(tokens),
-            thousands(window)
-        )
-    };
-    ErrorBody::new(ErrorCode::Internal, message).with_data(serde_json::json!({
-        "cause": "context_overflow",
-        "tokens": tokens,
-        "window": window,
-    }))
-}
-
-/// `tokens` in thousands, rounded, such as `281k`.
-fn thousands(tokens: u64) -> String {
-    format!("{}k", tokens.saturating_add(500) / 1000)
 }
 
 /// The wire usage of the summary call: one call, so its context is its input plus its
@@ -318,7 +362,7 @@ pub(crate) fn summarized(
 ) -> Option<Built> {
     let cut = cut_before(&window.placed, tail)?;
     let placed = window.placed[tail..].to_vec();
-    let head = vec![efr_provider::Message::user(fresh.text.clone()), summary_message(&summary)];
+    let head = vec![Message::user(fresh.text.clone()), summary_message(&summary)];
     let (pruned_outputs, pruned_tokens) =
         pruned.map_or((0, 0), |pruning| (pruning.outputs, pruning.tokens));
     Some(Built {

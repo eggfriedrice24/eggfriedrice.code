@@ -69,5 +69,8 @@ expression: "shape(&next, &root)"
     }
   ],
   "model": "test-model",
+  "provider_options": {
+    "prompt_cache_key": "01a106c9-0600-715c-8289-ec2d0a9167ec"
+  },
   "system": "You are the efr test model."
 }

@@ -63,18 +63,6 @@ impl Window {
             .chain(self.placed.iter().map(|placed| placed.message.clone()))
             .collect()
     }
-
-    /// The number of messages that [`messages`](Self::messages) returns.
-    pub(crate) fn len(&self) -> usize {
-        self.head.len() + self.placed.len()
-    }
-
-    /// The estimated tokens of the messages from the `from`th on.
-    pub(crate) fn tokens_from(&self, from: usize) -> u64 {
-        let head = self.head.iter();
-        let placed = self.placed.iter().map(|placed| &placed.message);
-        head.chain(placed).skip(from).map(message_tokens).sum()
-    }
 }
 
 /// A place in the history: the compaction covers every message before it.
@@ -124,16 +112,7 @@ impl Pruning {
     }
 }
 
-/// The estimated tokens of `message` as the request carries it.
-pub(crate) fn message_tokens(message: &Message) -> u64 {
-    estimate_tokens(json_len(message))
-}
-
-/// The estimated tokens of the whole `request`: the system prompt, the tool definitions
-/// and the messages.
-pub(crate) fn request_tokens(request: &Request) -> u64 {
-    estimate_tokens(json_len(request))
-}
+pub(crate) use crate::context::{message_tokens, request_tokens};
 
 fn json_len<T: serde::Serialize>(value: &T) -> u64 {
     serde_json::to_vec(value).map_or(0, |json| json.len() as u64)

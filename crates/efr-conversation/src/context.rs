@@ -1,7 +1,12 @@
 //! The numbers of the context contract: the trigger, the hard cap, the estimate and the
 //! budgets of a compaction. The README, section "Context", says how they are used.
+//!
+//! [`Meter`] keeps the context of a running turn: the last real count and the estimate
+//! of the messages added after it. [`context_full`] is the failure of a turn whose
+//! context does not fit.
 
-use efr_protocol::ContextUse;
+use efr_protocol::{ContextUse, ErrorBody, ErrorCode, Event, EventEnvelope};
+use efr_provider::{Message, Request};
 
 /// The window that efr counts with for a model whose window it does not know: small
 /// enough for every current model, so a compaction comes early rather than late.
@@ -115,6 +120,148 @@ pub fn estimate_tokens(bytes: u64) -> u64 {
 
 fn percent_of(window: u64, percent: u64) -> u64 {
     window.saturating_mul(percent) / 100
+}
+
+/// The estimated tokens of the whole of `request`: its JSON, system prompt, tool
+/// definitions and messages, at [`BYTES_PER_TOKEN`].
+pub(crate) fn request_tokens(request: &Request) -> u64 {
+    estimate_tokens(json_len(request))
+}
+
+/// The estimated tokens of `message`, from its JSON.
+pub(crate) fn message_tokens(message: &Message) -> u64 {
+    estimate_tokens(json_len(message))
+}
+
+fn json_len(value: &impl serde::Serialize) -> u64 {
+    serde_json::to_vec(value).map_or(0, |json| json.len() as u64)
+}
+
+/// The context of a turn as it grows: the last real count, and the estimate of the
+/// messages added after it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Meter {
+    /// The last real count: the input plus the output of the last model call, or the
+    /// context at the end of the previous turn. `None` when no count is known since the
+    /// last compaction.
+    base: Option<u64>,
+    /// The estimated tokens of the messages added after `base`.
+    added: u64,
+}
+
+impl Meter {
+    /// A meter that starts from `base`, the context at the end of the previous turn.
+    pub(crate) fn new(base: Option<u64>) -> Self {
+        Meter { base, added: 0 }
+    }
+
+    /// `message` joins the context.
+    pub(crate) fn add(&mut self, message: &Message) {
+        self.added = self.added.saturating_add(message_tokens(message));
+    }
+
+    /// A model call reported `tokens` as its input plus its output: the new base.
+    pub(crate) fn counted(&mut self, tokens: u64) {
+        self.base = Some(tokens);
+        self.added = 0;
+    }
+
+    /// A compaction changed the history: no count is known until the next call.
+    pub(crate) fn reset(&mut self) {
+        *self = Meter::default();
+    }
+
+    /// The estimated context of `request`: the base plus what came after it, or
+    /// without a base the estimate of the whole request.
+    pub(crate) fn estimate(&self, request: &Request) -> u64 {
+        self.known().unwrap_or_else(|| request_tokens(request))
+    }
+
+    /// The base plus what came after it; `None` without a base.
+    pub(crate) fn known(&self) -> Option<u64> {
+        self.base.map(|base| base.saturating_add(self.added))
+    }
+}
+
+/// The context at the end of the newest turn of `page`, the base of the next turn's
+/// estimate. `None` when a compaction came after it, or when the newest ended turn has
+/// no `context` (a turn from before efr counted it, or one that ended before it sent
+/// anything), or no real count (no call of it reported its usage): its messages are
+/// then not in any count, and an estimate is no base.
+pub(crate) fn context_base(page: &[EventEnvelope]) -> Option<u64> {
+    page.iter().rev().find_map(|envelope| match &envelope.event {
+        Event::ConversationCompacted(_) => Some(None),
+        Event::TurnCompleted { context, usage, .. }
+        | Event::TurnFailed { context, usage, .. }
+        | Event::TurnInterrupted { context, usage, .. } => {
+            let counted = usage.is_some_and(|usage| usage.context_tokens > 0);
+            Some(context.filter(|_| counted).map(|context| context.tokens))
+        }
+        _ => None,
+    })?
+}
+
+/// Why a turn's context does not fit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Full {
+    /// The next request is estimated above the hard cap, and the turn cannot compact.
+    Cap,
+    /// The provider refused the request, and auto compaction is off.
+    Refused,
+    /// The provider refused the request, and the compaction to make room failed.
+    CompactionFailed,
+    /// The compactions of this turn did not free enough room.
+    Breaker,
+    /// The provider refused the request again after a compaction.
+    StillRefused,
+}
+
+/// The `turn_failed` body of a turn whose context of `tokens` tokens does not fit:
+/// code `internal`, data `{"cause": "context_overflow", "tokens", "window"}`, and a
+/// message that names the cause and the way out.
+pub(crate) fn context_full(why: Full, tokens: u64, limits: &ContextLimits) -> ErrorBody {
+    let (size, window, cap) = (kilo(tokens), kilo(limits.window), kilo(limits.hard_cap));
+    let message = match why {
+        Full::Cap => {
+            format!("the context is full: about {size} of {window} tokens, above the cap of {cap}")
+        }
+        Full::Refused => {
+            format!("the context is full: the model refused about {size} of {window} tokens")
+        }
+        Full::CompactionFailed => format!(
+            "the context is full and the compaction failed: the model refused about {size} of {window} tokens"
+        ),
+        Full::Breaker => format!(
+            "the context is full: compaction did not free enough room (still about {size} of {window} tokens)"
+        ),
+        Full::StillRefused => format!(
+            "the context is still full after a compaction: the model refused about {size} of {window} tokens"
+        ),
+    };
+    ErrorBody::new(
+        ErrorCode::Internal,
+        format!("{message}; run ,compact or start a new conversation"),
+    )
+    .with_data(serde_json::json!({
+        "cause": CONTEXT_OVERFLOW,
+        "tokens": tokens,
+        "window": limits.window,
+    }))
+}
+
+/// The `cause` of a `turn_failed` whose context did not fit.
+pub(crate) const CONTEXT_OVERFLOW: &str = "context_overflow";
+
+/// `tokens` as a person reads it: `950`, `3.2k`, `281k`.
+pub(crate) fn kilo(tokens: u64) -> String {
+    match tokens {
+        0..1_000 => tokens.to_string(),
+        1_000..10_000 => {
+            let tenths = (tokens + 50) / 100;
+            format!("{}.{}k", tenths / 10, tenths % 10)
+        }
+        _ => format!("{}k", (tokens + 500) / 1_000),
+    }
 }
 
 #[cfg(test)]

@@ -199,13 +199,20 @@ impl Snapshot {
     ///
     /// A turn counts when it has finished and its `turn_started` event is in the page,
     /// so none of its events was cut off. `current` is the turn being assembled, which
-    /// never counts; a manual compaction between turns has none. A cached turn keeps its provider items only when `key`, the
-    /// provider and the model of the current turn, answered it.
+    /// never counts; a manual compaction between turns has none. A cached turn keeps
+    /// its provider items only when `key`, the provider and the model of the current
+    /// turn, answered it.
     ///
     /// After a compaction with a summary, the window starts with `fresh` (the fresh
     /// context block, when given) and the summary, and holds only the messages after
     /// the compaction's cut. A newer compaction that only pruned puts the stub in each
     /// tool result before its own cut.
+    ///
+    /// The limits are a safety net. When they leave out earlier turns that ran and that
+    /// no summary covers (the most turns, the bytes, or a start that fell out of the
+    /// page), the head ends with a user message that says how many
+    /// ([`omitted_note`]), and a `warn` line gives the count, so neither the model nor
+    /// the log loses them without a trace.
     pub(crate) fn window(
         &self,
         current: Option<TurnId>,
@@ -244,9 +251,25 @@ impl Snapshot {
             compaction.summary.as_deref().map(|summary| (cut, summary))
         });
 
-        let eligible = self.turns.iter().filter(|turn| {
-            Some(turn.id) != current && turn.status.is_finished() && started.contains(&turn.id)
-        });
+        let ran = |turn: &&Turn| {
+            Some(turn.id) != current && turn.status.is_finished() && turn.started_at.is_some()
+        };
+        // NOTE: a turn that the summary covers is not omitted, even when its start fell
+        // out of the page.
+        let summarized = |turn: &&Turn| {
+            summary.is_some_and(|(cut, _)| {
+                let first = Placed { turn: turn.id, index: 0, message: Message::user("") };
+                turn.id != cut.through_turn && cut.covers(&first, position)
+                    || turn.id == cut.through_turn && cut.through_message.is_none()
+            })
+        };
+        let out_of_page = self
+            .turns
+            .iter()
+            .filter(ran)
+            .filter(|turn| !started.contains(&turn.id) && !summarized(turn))
+            .count();
+        let eligible = self.turns.iter().filter(ran).filter(|turn| started.contains(&turn.id));
         let mut turns: Vec<Vec<Placed>> = eligible
             .map(|turn| {
                 let exact =
@@ -280,6 +303,7 @@ impl Snapshot {
             first += 1;
         }
         turns.drain(..first);
+        let omitted = out_of_page + skip + first;
         let mut placed: Vec<Placed> = turns.into_iter().flatten().collect();
 
         // NOTE: a pruning newer than the summary holds for the results before its cut;
@@ -303,7 +327,27 @@ impl Snapshot {
             head.extend(fresh.map(Message::user));
             head.push(summary_message(summary));
         }
+        if omitted > 0 {
+            tracing::warn!(
+                omitted,
+                max_turns = limits.max_turns,
+                max_events = limits.max_events,
+                max_bytes = limits.max_bytes,
+                "the history leaves out earlier turns"
+            );
+            head.push(Message::user(omitted_note(omitted)));
+        }
         Window { head, placed }
+    }
+}
+
+/// What the model reads after the summary, or first, when the history leaves out
+/// `omitted` earlier turns.
+pub(crate) fn omitted_note(omitted: usize) -> String {
+    if omitted == 1 {
+        "1 earlier turn is omitted.".to_owned()
+    } else {
+        format!("{omitted} earlier turns are omitted.")
     }
 }
 

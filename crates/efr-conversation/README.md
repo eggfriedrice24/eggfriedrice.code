@@ -324,31 +324,44 @@ parts `context` and `compacting`, `conversation.compact`).
    counts cached tokens too.
 2. `turn_completed`, `turn_failed` and `turn_interrupted` carry `usage` (the sums, plus
    `context_tokens` of the last call) and `context` (`ContextUse`: `tokens`, `limit`,
-   `window`). `context.tokens` is the last real count, or the estimate when a
-   compaction came after the last call.
+   `window`). `context.tokens` is the last real count plus the estimate of the
+   messages after it, such as the results of a call that an interrupt stopped. After
+   a completed turn nothing comes after it, so it is the real count. When a
+   compaction came after the last call, it is the estimate of the compacted request.
+   A turn that ended before it had its settings has no `context`.
 3. The turn sends a `context` draft (`DraftPart::Context`) before each model call, with
    the estimate, and after each call, with the real count.
 4. Each request carries the conversation id as `prompt_cache_key` unless
    `ConversationConfig::provider_options` names one. OpenAI caches on its own; the key
-   sends the requests of one conversation to the same cache.
+   sends the requests of one conversation to the same cache. On the subscription
+   backend, `efr-provider-openai` also sends the key as the `session-id` header, as
+   Codex does.
 
 ### The estimate
 
-Before each model call, the turn estimates the context of the request:
+Before each model call, the turn estimates the context of the request (`Meter` in
+`src/context.rs`):
 
-- with a real count: the `context_tokens` of the last call of this conversation's
-  current history, plus `estimate_tokens` (4 bytes a token, rounded up) of the JSON of
-  the canonical messages added since that call;
-- without one (the first call, the first call after a compaction or after a restart):
+- with a base: the base plus `estimate_tokens` (4 bytes a token, rounded up) of the
+  JSON of each canonical message added after it. Inside a turn the base is the input
+  plus the output of the last call. At the start of a turn it is the `context.tokens`
+  of the newest ended turn in the log, and the new prompt is added to it. The log
+  holds it, so it survives a restart;
+- without one (the first turn, the first call after a compaction, or a newest ended
+  turn without `context`, without a real count in its `usage`, or with a
+  `conversation_compacted` after it):
   `estimate_tokens` of the JSON of the whole request (system prompt, tool definitions
   and messages).
 
-Each real count replaces the estimate as the new base.
+Each real count replaces the estimate as the new base. A base that counts turns that
+the history no longer sends is too high, never too low, so the turn compacts early
+rather than late.
 
 ### The guards, before each model call
 
-1. When `auto` is on and the estimate is at or above the trigger, the turn compacts
-   (trigger `auto`) and then makes the call. The turn goes on after the compaction.
+1. When `auto` is on and the estimate is at or above the trigger (or above the hard
+   cap, for an `auto_at` above 95), the turn compacts (trigger `auto`) and then makes
+   the call. The turn goes on after the compaction.
 2. When the estimate is above the hard cap and the turn cannot compact (auto is off, or
    the breaker stopped it), the turn does not send the request. It fails, see "Failures".
 3. When the provider answers `ProviderError::ContextOverflow` (OpenAI
@@ -363,9 +376,18 @@ Each real count replaces the estimate as the new base.
    misses in a row in one turn, the turn makes no more auto or overflow compactions.
    It goes on while its requests fit under the hard cap. The client shows the breaker
    line (see "Display").
-5. The safety net of `HistoryLimits` stays. When it leaves out earlier turns, the
-   history starts with a user message `N earlier turns are omitted.` and the daemon
-   logs one `warn` line with the count. It never leaves out turns without that note.
+5. The safety net of `HistoryLimits` stays. When it leaves out earlier turns that ran
+   and that no summary covers (past the most turns or the most bytes, or a turn whose
+   start fell out of the event page), the history gets a user message `N earlier turns
+   are omitted.` (`1 earlier turn is omitted.` for one) after the summary, or first
+   when there is no summary, and the daemon logs one `warn` line with the count. It
+   never leaves out turns without that note. A turn that never started, such as one
+   whose settings failed, is no omitted turn.
+
+The turn sends the `compacting` draft before each compaction, records
+`conversation_compacted` itself, drops the base of its estimate, counts the misses of
+the breaker, and sends the next `context` draft with the estimate of the compacted
+request. An interrupt during a compaction ends the turn at once.
 
 ### Compaction
 
@@ -511,8 +533,22 @@ history as before, with the stub in each pruned result.
 
 A turn that fails for its context records `turn_failed` with code `internal`, data
 `{"cause": "context_overflow", "tokens": <estimate or refused size>, "window":
-<window>}`, and a message that names the cause and the way out, such as `the context
-is full: 281k of 272k tokens; run ,compact or start a new conversation`.
+<window>}`, and a message that names the cause and the way out (`context_full` in
+`src/context.rs`):
+
+- above the hard cap: `the context is full: about 260k of 272k tokens, above the cap
+  of 258k; run ,compact or start a new conversation`;
+- a refusal with auto off: `the context is full: the model refused about 281k of 272k
+  tokens; run ,compact or start a new conversation`;
+- a refusal whose compaction failed: `the context is full and the compaction failed:
+  ...`;
+- a refusal or a request above the hard cap after the breaker: `the context is full:
+  compaction did not free enough room (still about 240k of 272k tokens); ...`;
+- a second refusal after the compaction: `the context is still full after a
+  compaction: the model refused about 150k of 272k tokens; ...`.
+
+A `ContextOverflow` that reaches the generic mapping of provider errors gets the data
+`{"cause": "context_overflow"}`.
 
 ### Display
 
@@ -600,16 +636,20 @@ withdraws by turn and by terminal with their refusals, a withdraw just before an
 after the queued prompt would start, an interrupt that withdraws and resends in one
 append (with the prompt of another terminal left queued and a retry that gets the same
 sequence numbers), a steer that a model call read, and a refused interrupt that
-changes nothing. The compaction tests (`turn/tests/compaction.rs`,
+changes nothing. The context tests (`turn/tests/context.rs`) cover the sums and the
+last call's count on the end event, the `context` drafts, the estimate of the next turn
+from the end of the last, the cache key, the hard cap with auto off, and the note for
+omitted turns. The compaction tests (`turn/tests/compaction.rs`,
 `actor/tests/compact.rs`, `compaction/tests.rs`) use a model with a window of 100000
 tokens, big prompts and big reads: an auto compaction at the trigger that goes on with
 the turn, the request of the next turn (an insta snapshot of its shape) and the same
 request after a restart, an overflow that compacts once and sends the call again, a
-second overflow and an overflow with auto off that fail the turn, the breaker, a
-pruning without a summary that the next turn rebuilds, a manual compaction with a
-focus, a prompt that waits for it, and its refusals; the pure steps (pruning frees at
-least 20000 tokens or does nothing, the tail rule, the cut) and the summary prompt's
-sections have unit tests. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
+second overflow and an overflow with auto off that fail the turn, a failed summary
+under and above the hard cap, the breaker, a pruning without a summary that the next
+turn rebuilds, a manual compaction with a focus, a prompt that waits for it, and its
+refusals; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
+rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests
+(`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,

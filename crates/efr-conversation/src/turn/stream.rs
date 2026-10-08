@@ -64,6 +64,7 @@ impl Turn {
             Ok(stream) => stream,
             Err(error) => return Ok(Response::Failed(error)),
         };
+        self.call_usage = None;
         let mut builder = CompletionBuilder::new();
         let mut updates = Coalescer::new(self.config.update_interval);
         self.streamed = 0;
@@ -123,6 +124,7 @@ impl Turn {
                 Ok(completion) => {
                     if let Some(usage) = completion.usage {
                         self.usage = Some(self.usage.unwrap_or_default() + usage);
+                        self.call_usage = Some(usage);
                     }
                     self.last_call = completion.usage;
                     self.complete_text(completion.message.text()).await?;
