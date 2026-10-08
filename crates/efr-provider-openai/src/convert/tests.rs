@@ -6,7 +6,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{OutputItem, input_items, provider_raw, request_body, tool_definition};
-use crate::{OpenAiConfig, ReasoningMode};
+use crate::catalog::with_extra;
+use crate::{Catalog, OpenAiConfig, ReasoningMode};
 
 fn shell_tool() -> ToolDefinition {
     ToolDefinition::function(
@@ -37,8 +38,12 @@ fn freeform_call(call_id: &str, text: &str) -> ContentBlock {
     }
 }
 
+/// The body as the provider builds it, with the built-in catalog and the config's
+/// models laid over it.
 fn body(request: &Request, config: &OpenAiConfig) -> Value {
-    serde_json::to_value(request_body(request, config)).unwrap()
+    let models = with_extra(Catalog::builtin(config.backend()).models(), config.models());
+    let model = models.iter().find(|model| model.id == request.model);
+    serde_json::to_value(request_body(request, config, model)).unwrap()
 }
 
 fn text(text: &str) -> ContentBlock {
@@ -105,8 +110,8 @@ fn a_subscription_request_has_the_codex_shape() {
 #[test]
 fn the_body_puts_the_routing_fields_first() {
     let request = Request::new("gpt-5.5");
-    let text =
-        serde_json::to_string(&request_body(&request, &OpenAiConfig::subscription())).unwrap();
+    let text = serde_json::to_string(&request_body(&request, &OpenAiConfig::subscription(), None))
+        .unwrap();
     assert!(text.starts_with(r#"{"model":"gpt-5.5","stream":true,"#), "{text}");
 }
 

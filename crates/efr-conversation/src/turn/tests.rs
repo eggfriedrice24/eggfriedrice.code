@@ -49,6 +49,8 @@ fn models() -> Vec<ModelInfo> {
         default: id == MODEL,
         source: ModelSource::Builtin,
         context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
     };
     vec![
         model(MODEL, &["low", "medium"]),

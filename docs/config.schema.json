@@ -318,7 +318,7 @@
       "description": "A model of `[openai] models` with its limits.",
       "properties": {
         "context_window": {
-          "description": "The model's context window in tokens, from 1000 to 100000000. Unset: efr's\nbuilt-in value for the model, else a default.",
+          "description": "The model's context window in tokens, from 1000 to 100000000. For a model of the\ncatalog, it raises or lowers the catalog's window up to the largest window of\nthe model; above that, efrd uses the largest one and warns once. Unset: the\ncatalog's window for the model, else a default.",
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -366,7 +366,7 @@
           ]
         },
         "name": {
-          "description": "The default model of a turn, such as `gpt-5.5`. Unset: the first of\n`openai.models`, else the provider's default.",
+          "description": "The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the\nbest priority in the provider's model catalog, which comes from the backend.",
           "type": [
             "string",
             "null"
@@ -397,7 +397,7 @@
           ]
         },
         "models": {
-          "description": "Models added to the built-in model list, such as a new model before efr knows\nit. A prompt may then name them; their efforts are not checked. An entry is a\nmodel id, or a table `{ id, context_window, max_output_tokens }` that also gives\nthe model's limits in tokens; a table may name a built-in model to change its\nlimits.",
+          "description": "Models added to the provider's model list, such as a new model before the\nbackend lists it. A prompt may then name them; their efforts are not checked. An\nentry is a model id, or a table `{ id, context_window, max_output_tokens }` that\nalso gives the model's limits in tokens. A table may name a model of the catalog\nto change its limits: its window up to the largest window that the catalog gives\nfor the model.",
           "items": {
             "$ref": "#/$defs/ModelEntry"
           },

@@ -104,8 +104,8 @@ pub struct ModelSettings {
     /// The provider of new conversations: `openai-subscription` (the ChatGPT plan) or
     /// `openai-api` (an API key). Needs a restart.
     pub provider: String,
-    /// The default model of a turn, such as `gpt-5.5`. Unset: the first of
-    /// `openai.models`, else the provider's default.
+    /// The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the
+    /// best priority in the provider's model catalog, which comes from the backend.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The default reasoning effort, such as `low`, `medium` or `high`. Unset: the
@@ -139,11 +139,12 @@ pub struct OpenAiSettings {
     /// The `originator` of the subscription login and of every subscription request.
     /// Needs a restart.
     pub originator: String,
-    /// Models added to the built-in model list, such as a new model before efr knows
-    /// it. A prompt may then name them; their efforts are not checked. An entry is a
-    /// model id, or a table `{ id, context_window, max_output_tokens }` that also gives
-    /// the model's limits in tokens; a table may name a built-in model to change its
-    /// limits.
+    /// Models added to the provider's model list, such as a new model before the
+    /// backend lists it. A prompt may then name them; their efforts are not checked. An
+    /// entry is a model id, or a table `{ id, context_window, max_output_tokens }` that
+    /// also gives the model's limits in tokens. A table may name a model of the catalog
+    /// to change its limits: its window up to the largest window that the catalog gives
+    /// for the model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ModelEntry>>,
     /// Replaces the subscription backend's base URL. Needs a restart.
@@ -183,8 +184,10 @@ pub enum ModelEntry {
 pub struct ModelLimits {
     /// The model id, such as `gpt-5.5`.
     pub id: String,
-    /// The model's context window in tokens, from 1000 to 100000000. Unset: efr's
-    /// built-in value for the model, else a default.
+    /// The model's context window in tokens, from 1000 to 100000000. For a model of the
+    /// catalog, it raises or lowers the catalog's window up to the largest window of
+    /// the model; above that, efrd uses the largest one and warns once. Unset: the
+    /// catalog's window for the model, else a default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
     /// The most tokens one model call may produce, from 1 to 1000000. Unset:

@@ -13,8 +13,9 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request as SeenRequest, ResponseTemplate};
 
 use super::OpenAiProvider;
-use crate::OpenAiConfig;
 use crate::testing::{FakeTokens, FixedRng, InstantClock, fixture};
+use crate::{Backend, Catalog, Fetched, ModelCatalog, OpenAiConfig};
+use efr_stdx::time::Clock as _;
 
 const SUBSCRIPTION_PATH: &str = "/backend-api/codex/responses";
 const API_PATH: &str = "/v1/responses";
@@ -39,7 +40,7 @@ fn setup_with(
     let http =
         HttpClient::new(&HttpConfig::default(), clock.clone(), Arc::new(FixedRng(0))).unwrap();
     let base = match config.backend() {
-        crate::Backend::Subscription => "/backend-api/codex",
+        Backend::Subscription => "/backend-api/codex",
         _ => "/v1",
     };
     let config = config.with_base_url(&format!("{}{base}", server.uri())).unwrap();
@@ -624,8 +625,50 @@ async fn the_provider_names_itself_and_its_models() {
     let config = OpenAiConfig::subscription().with_models(vec![ModelInfo::new("gpt-test")]);
     let setup = setup(&server, config, subscription_tokens());
     assert_eq!(setup.provider.id().as_str(), "openai-test");
-    assert_eq!(setup.provider.models(), &[ModelInfo::new("gpt-test")]);
+    let models = setup.provider.models();
+    assert_eq!(models.first().map(|model| model.id.as_str()), Some("gpt-6.1-sol"));
+    assert_eq!(models.last(), Some(&ModelInfo::new("gpt-test")), "the config's model comes last");
     assert_eq!(setup.provider.config().originator(), "efr");
     let debug = format!("{:?}", setup.provider);
     assert!(debug.contains("OpenAiProvider"), "{debug}");
+}
+
+#[tokio::test]
+async fn a_new_catalog_decides_the_tool_form_from_the_next_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(sse_response("plain_text.sse"))
+        .mount(&server)
+        .await;
+    let catalog = ModelCatalog::new(Catalog::builtin(Backend::Subscription));
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+    let provider = setup.provider.with_catalog(catalog.clone());
+    let mut request = request("hello");
+    request.model = "gpt-7-sol".to_owned();
+    request.tools = vec![ToolDefinition::freeform(
+        "apply_patch",
+        "Edit files.",
+        efr_provider::ToolGrammar::lark("start: \"x\""),
+    )];
+
+    provider.complete(request.clone()).await.unwrap();
+    let body = serde_json::json!({"models": [{
+        "slug": "gpt-7-sol", "visibility": "list", "priority": 1,
+        "apply_patch_tool_type": "freeform", "supported_reasoning_levels": [],
+    }]});
+    let (entries, _) = crate::catalog::entries_of(&body).unwrap();
+    let fetched = Catalog::from_backend(
+        Backend::Subscription,
+        "https://backend.test/codex",
+        entries,
+        None,
+        setup.clock.now(),
+    );
+    catalog.apply(Fetched::Changed(fetched), setup.clock.now());
+    provider.complete(request).await.unwrap();
+
+    let sent = seen(&server).await;
+    assert_eq!(body_of(&sent[0])["tools"][0]["type"], "function", "unknown before the fetch");
+    assert_eq!(body_of(&sent[1])["tools"][0]["type"], "custom", "the catalog says freeform");
 }

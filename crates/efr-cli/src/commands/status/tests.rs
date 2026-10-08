@@ -28,6 +28,10 @@ fn result() -> AdminStatusResult {
             logged_in: false,
             expires_at: None,
         }],
+        catalog: Some(efr_protocol::CatalogStatus {
+            origin: efr_protocol::CatalogOrigin::Cache,
+            fetched_at: Some(now() - SignedDuration::from_hours(26)),
+        }),
         roots: None,
         config: None,
         sandbox: None,

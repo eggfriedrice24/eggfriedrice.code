@@ -17,15 +17,16 @@ efr-http.workspace = true
 efr-provider.workspace = true
 efr-stdx.workspace = true
 futures.workspace = true
+jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-jiff.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 wiremock.workspace = true
 

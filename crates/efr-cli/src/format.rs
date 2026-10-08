@@ -12,8 +12,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use efr_protocol::{
-    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError, ContextUse,
-    ConversationStatus, ConversationsListResult, EffectiveSettings, Origin, Usage,
+    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, CatalogOrigin, CatalogStatus,
+    ConfigFileError, ContextUse, ConversationStatus, ConversationsListResult, EffectiveSettings,
+    Origin, Usage,
 };
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
@@ -923,6 +924,9 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         };
         row("provider", &format!("{}: {state}", one_line(&provider.provider)));
     }
+    if let Some(models) = &status.catalog {
+        row("models", &catalog(models, now));
+    }
     if let Some(config) = &status.config {
         let file = match (&config.symlink_target, config.exists) {
             (Some(target), _) => format!("{} -> {}", config.path.display(), target.display()),
@@ -945,6 +949,22 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         }
     }
     out
+}
+
+/// Where the model catalog came from, at `now`: `from the backend, fetched 5m ago`,
+/// `from the cache, fetched 2h 5m ago` (the backend did not answer yet) or `built into
+/// efr`.
+pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
+    let fetched = |place: &str| match catalog.fetched_at {
+        Some(at) => format!("from {place}, fetched {}", ago(at, now)),
+        None => format!("from {place}"),
+    };
+    match catalog.origin {
+        CatalogOrigin::Backend => fetched("the backend"),
+        CatalogOrigin::Cache => fetched("the cache"),
+        CatalogOrigin::Builtin => "built into efr".to_owned(),
+        _ => "from elsewhere".to_owned(),
+    }
 }
 
 /// A config file's error as one line: the message, then its key and place.

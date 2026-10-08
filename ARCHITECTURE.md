@@ -50,7 +50,7 @@ shipped binary.
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file and apply_patch tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-openai` | lib | 2 | the Responses API client; the model catalog, which also says which models take freeform (`custom`) tools; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-provider-openai` | lib | 2 | the Responses API client; the model catalog (the fetch from the backend, its cache file and the built-in table), which also says which models take freeform (`custom`) tools; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
@@ -204,8 +204,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
-  `crates/efr-provider-openai/src/models.rs` (`takes_freeform_tools`), the `custom`
-  items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
+  `crates/efr-provider-openai/src/catalog.rs` (`ModelInfo::freeform_tools` from the
+  catalog's `apply_patch_tool_type`), the `custom` items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
   `apply_patch`: `crates/efr-patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
   and its contract in `crates/efr-tools/README.md`; the question for each delete and
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
@@ -219,5 +219,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-store/src/compactions.rs`; the wire types in
   `crates/efr-protocol/src/compaction.rs`; `[compaction]` in
   `crates/efr-config/src/tables/compaction.rs`.
+- The model catalog: the fetch, the cache file and which models are on offer in
+  `crates/efr-provider-openai/src/catalog.rs`; the built-in table, the last fallback, in
+  `crates/efr-provider-openai/src/models.rs`; when efrd fetches, the effective model
+  list, the default model and the windows of `[openai] models` in
+  `crates/efr-daemon/src/catalog.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

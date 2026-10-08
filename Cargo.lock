@@ -863,6 +863,7 @@ dependencies = [
  "tracing-journald",
  "tracing-subscriber",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -1008,6 +1009,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",

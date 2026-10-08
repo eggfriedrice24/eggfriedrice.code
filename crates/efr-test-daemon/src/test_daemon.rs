@@ -36,7 +36,9 @@ use jiff::tz::TimeZone;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-pub use self::responses::{ReceivedRequest, ResponsesAnswer, ResponsesServer, TokenRequest};
+pub use self::responses::{
+    ModelsAnswer, ModelsRequest, ReceivedRequest, ResponsesAnswer, ResponsesServer, TokenRequest,
+};
 use crate::{FakePtyHolder, TestDaemonError};
 
 /// The system prompt of a test daemon: short, so provider requests in fixtures stay

@@ -1,7 +1,8 @@
 ---
 source: crates/efr-cli/src/commands/models/tests.rs
-expression: listing(&models())
+expression: "listing(&models(), now())"
 ---
-* gpt-5.5   efforts: low, medium, high, xhigh; default medium
-  gpt-5.4   efforts: low, medium, high
-  my-model  efforts unknown; from [openai] models
+* gpt-5.5   272k (up to 872k)  efforts: low, medium, high, xhigh; default medium
+  gpt-5.4   128k               efforts: low, medium, high
+  my-model  window unknown     efforts unknown; from [openai] models
+models: from the backend, fetched 5m 0s ago

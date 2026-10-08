@@ -4,7 +4,6 @@ use efr_http::{HeaderValue, HttpRequest, RetryPolicy};
 use efr_provider::ModelInfo;
 
 use crate::OpenAiError;
-use crate::models::{api_models, subscription_models};
 
 /// The ChatGPT subscription backend that Codex uses
 /// (`codex-rs/model-provider-info/src/lib.rs`, `CHATGPT_CODEX_BASE_URL`; goose
@@ -75,29 +74,26 @@ pub struct OpenAiConfig {
 
 impl OpenAiConfig {
     /// The ChatGPT subscription backend at [`SUBSCRIPTION_BASE_URL`], with the
-    /// [`DEFAULT_ORIGINATOR`], the [subscription models](crate::subscription_models),
-    /// the default retry policy, the backend's default reasoning effort, `auto`
-    /// reasoning summaries and parallel tool calls on.
+    /// [`DEFAULT_ORIGINATOR`], no models of its own (the
+    /// [catalog](crate::ModelCatalog) lists them), the default retry policy, the
+    /// backend's default reasoning effort, `auto` reasoning summaries and parallel tool
+    /// calls on.
     pub fn subscription() -> Self {
-        OpenAiConfig::with_backend(
-            Backend::Subscription,
-            SUBSCRIPTION_BASE_URL,
-            subscription_models(),
-        )
+        OpenAiConfig::with_backend(Backend::Subscription, SUBSCRIPTION_BASE_URL)
     }
 
-    /// The public API at [`API_BASE_URL`], with no listed models and otherwise the
-    /// defaults of [`OpenAiConfig::subscription`].
+    /// The public API at [`API_BASE_URL`], with the defaults of
+    /// [`OpenAiConfig::subscription`].
     pub fn api() -> Self {
-        OpenAiConfig::with_backend(Backend::Api, API_BASE_URL, api_models())
+        OpenAiConfig::with_backend(Backend::Api, API_BASE_URL)
     }
 
-    fn with_backend(backend: Backend, base_url: &str, models: Vec<ModelInfo>) -> Self {
+    fn with_backend(backend: Backend, base_url: &str) -> Self {
         OpenAiConfig {
             backend,
             base_url: base_url.to_owned(),
             originator: DEFAULT_ORIGINATOR.to_owned(),
-            models,
+            models: Vec::new(),
             retry: RetryPolicy::default(),
             reasoning: ReasoningMode::ByModel,
             reasoning_effort: None,
@@ -127,7 +123,10 @@ impl OpenAiConfig {
         Ok(self)
     }
 
-    /// The same config listing `models` as the models the backend serves.
+    /// The same config with `models` laid over the catalog: a model of the catalog
+    /// takes the window and output limit that its entry here gives, and a model that
+    /// the catalog does not list is added. The daemon puts the models of
+    /// `[openai] models` here.
     #[must_use]
     pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
         self.models = models;
@@ -194,7 +193,7 @@ impl OpenAiConfig {
         &self.originator
     }
 
-    /// The models the backend is known to serve.
+    /// The models that the config lays over the catalog.
     pub fn models(&self) -> &[ModelInfo] {
         &self.models
     }

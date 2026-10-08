@@ -17,11 +17,11 @@ use std::time::Duration;
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    ActionFacts, CallId, Capabilities, ClientFrame, Compaction, CompactionTrigger, ConversationId,
-    ConversationSubscribeItem, DaemonPaths, ErrorBody, Event, EventEnvelope, ExitFacts, ExitInfo,
-    ExitKind, ExitRecord, ExitSource, Hello, HelloResult, Launch, Method, ModelInfo, ModelSource,
-    ModelsListResult, PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId,
-    Usage,
+    ActionFacts, CallId, Capabilities, CatalogOrigin, CatalogStatus, ClientFrame, Compaction,
+    CompactionTrigger, ConversationId, ConversationSubscribeItem, DaemonPaths, ErrorBody, Event,
+    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, Hello, HelloResult,
+    Launch, Method, ModelInfo, ModelSource, ModelsListResult, PROTOCOL_VERSION, ProgramFact,
+    RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
@@ -298,7 +298,9 @@ pub(crate) fn models() -> ModelsListResult {
                 default_effort: Some("medium".to_owned()),
                 default: true,
                 source: ModelSource::Builtin,
-                context_window: None,
+                context_window: Some(272_000),
+                max_context_window: Some(872_000),
+                prefer_websockets: false,
             },
             ModelInfo {
                 id: "gpt-5.4".to_owned(),
@@ -306,7 +308,9 @@ pub(crate) fn models() -> ModelsListResult {
                 default_effort: None,
                 default: false,
                 source: ModelSource::Builtin,
-                context_window: None,
+                context_window: Some(128_000),
+                max_context_window: Some(128_000),
+                prefer_websockets: false,
             },
             ModelInfo {
                 id: "my-model".to_owned(),
@@ -315,8 +319,14 @@ pub(crate) fn models() -> ModelsListResult {
                 default: false,
                 source: ModelSource::Config,
                 context_window: None,
+                max_context_window: None,
+                prefer_websockets: false,
             },
         ],
+        catalog: Some(CatalogStatus {
+            origin: CatalogOrigin::Backend,
+            fetched_at: Some(now() - jiff::SignedDuration::from_mins(5)),
+        }),
     }
 }
 

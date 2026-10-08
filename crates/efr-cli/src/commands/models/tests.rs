@@ -4,11 +4,11 @@ use pretty_assertions::assert_eq;
 use super::{listing, names};
 use crate::error::Exit;
 use crate::run;
-use crate::testing::{TestEnv, capture, command, models};
+use crate::testing::{TestEnv, capture, command, models, now};
 
 #[test]
 fn the_listing_marks_the_default_and_names_the_efforts() {
-    insta::assert_snapshot!(listing(&models()));
+    insta::assert_snapshot!(listing(&models(), now()));
 }
 
 #[test]
@@ -21,8 +21,21 @@ fn text_from_the_daemon_cannot_drive_the_terminal() {
     let mut list = models();
     list.models[0].id = "evil\x1b]52;c;aGk=\x07".to_owned();
     list.models[0].efforts = vec!["\x1b[2J".to_owned()];
-    assert!(!listing(&list).contains('\x1b'));
+    assert!(!listing(&list, now()).contains('\x1b'));
     assert!(!names(&list).contains('\x1b'));
+}
+
+#[test]
+fn the_listing_says_where_an_older_list_came_from() {
+    let mut list = models();
+    list.catalog = Some(efr_protocol::CatalogStatus {
+        origin: efr_protocol::CatalogOrigin::Cache,
+        fetched_at: Some(now() - jiff::SignedDuration::from_hours(26)),
+    });
+    let text = listing(&list, now());
+    assert!(text.ends_with("models: from the cache, fetched 1d 2h ago\n"), "{text}");
+    list.catalog = None;
+    assert!(!listing(&list, now()).contains("models:"), "an older daemon does not say");
 }
 
 #[tokio::test]

@@ -137,6 +137,13 @@ pub(crate) fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
+/// The text of the catalog fixture `name` under `fixtures/catalog/`.
+pub(crate) fn catalog_fixture(name: &str) -> String {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("catalog").join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
 /// The server-sent events of the fixture `name`.
 pub(crate) fn fixture_events(name: &str) -> Vec<SseEvent> {
     let mut decoder = SseDecoder::new();

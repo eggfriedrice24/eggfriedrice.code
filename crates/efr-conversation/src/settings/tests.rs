@@ -41,6 +41,8 @@ fn model(id: &str, efforts: &[&str], default_effort: &str) -> ModelInfo {
         default: id == "gpt-5.5",
         source: ModelSource::Builtin,
         context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
     }
 }
 
@@ -217,6 +219,8 @@ fn a_model_whose_efforts_are_not_known_takes_any_effort_word() {
         default: false,
         source: ModelSource::Config,
         context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
     });
 
     let settings = resolve(

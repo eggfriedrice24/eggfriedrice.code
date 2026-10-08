@@ -23,6 +23,7 @@ pub(crate) async fn handle(
         conversations: count(state.conversations.count()),
         shells: count(state.ptys.count()),
         providers: state.providers.status().await,
+        catalog: Some(state.providers.models().status()),
         roots: Some(state.roots.clone()),
         config: Some(reload::status(state).await),
         sandbox: Some(state.sandbox.current()),

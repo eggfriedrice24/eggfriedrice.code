@@ -28,7 +28,12 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
   one function call sent whole, `ResponsesAnswer::custom_tool_call` one call of a
   freeform tool whose text streams in two deltas) and keeps every request,
-  `Authorization` header included (never shown by `Debug`).
+  `Authorization` header included (never shown by `Debug`). It also answers
+  `GET /v1/models`, the model catalog that efrd fetches in the background for the
+  subscription: with the `ModelsAnswer` of `set_models` (a catalog with its `ETag`, a
+  bare status such as 304 or 503, and a delay for a backend that hangs), else with a
+  404. It keeps each fetch as a `ModelsRequest` (`client_version`, `If-None-Match`,
+  `originator`).
 - `pty_script`: `FakePtyHolder`, a `PtyHolder` whose masters are socketpairs. The test
   takes the other end of the n-th spawned PTY as a `FakeTerminal`, reads what the
   session types (`typed_line`, `typed_against`) and prints what a zsh with the efr

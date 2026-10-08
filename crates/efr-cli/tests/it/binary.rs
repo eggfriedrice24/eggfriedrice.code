@@ -214,6 +214,7 @@ fn status_prints_the_daemons_health() {
                 conversations: 1,
                 shells: 1,
                 providers: Vec::new(),
+                catalog: None,
                 roots: None,
                 config: None,
                 sandbox: None,
@@ -391,10 +392,15 @@ fn listing_models(roots: &Roots) -> JoinHandle<()> {
             default,
             source: ModelSource::Builtin,
             context_window: None,
+            max_context_window: None,
+            prefer_websockets: false,
         };
         conn.reply(
             id,
-            &ModelsListResult { models: vec![model("gpt-5.5", true), model("gpt-5.4", false)] },
+            &ModelsListResult {
+                models: vec![model("gpt-5.5", true), model("gpt-5.4", false)],
+                catalog: None,
+            },
         );
         conn.drain();
     })

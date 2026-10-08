@@ -7,7 +7,9 @@
 //!   `admin.status`: the file it reads, the last reload's error and the keys that wait
 //!   for a restart, with a warning when it reads another file than this shell would.
 //! - `check` reads a file with the daemon's checks and the theme names of
-//!   `efr-render`; an error names its line, its column and its key, and exits 1.
+//!   `efr-render`; an error names its line, its column and its key, and exits 1. When
+//!   the daemon runs, a window of `[openai] models` above the largest window of its
+//!   model in the daemon's catalog gets a note: efrd uses the largest one.
 //! - `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `vi`, after it creates a
 //!   missing one from the commented example (never through a link to nothing); when
 //!   `config.toml` is a symbolic link, the editor gets the file behind it, so the link
@@ -23,7 +25,10 @@ use std::path::{Path, PathBuf};
 
 use efr_client::{ClientError, Discovered};
 use efr_config::{AUTO_THEME, CONFIG_FILE, ConfigError, ConfigFile, Edit, Entry, FileState};
-use efr_protocol::{AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult};
+use efr_protocol::{
+    AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, ModelsList,
+    ModelsListResult,
+};
 use efr_protocol::{Method, Origin};
 use efr_render::{ColourMode, Theme};
 use efr_stdx::env::Var;
@@ -276,12 +281,63 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
         None if text.is_none() => {
             out.out(&format!("{}: ok, absent; every value is its default\n", path.display()))
         }
-        None => out.out(&format!("{}: ok\n", path.display())),
+        None => {
+            out.out(&format!("{}: ok\n", path.display()))?;
+            if let Ok(settings) = efr_config::Settings::parse(&path, text.as_deref()) {
+                for note in window_notes(ctx, &settings).await {
+                    out.out(&format!("{}: note: {note}\n", path.display()))?;
+                }
+            }
+            Ok(())
+        }
         Some(problem) => {
             out.out(&format!("{}: {problem}\n", path.display()))?;
             Err(CliError::ConfigInvalid)
         }
     }
+}
+
+/// A note for each window of `[openai] models` that is above the largest window that
+/// the model takes, from the running daemon's catalog. efrd uses the largest one, so
+/// the file is still valid. Without a daemon, or without such a window, there is none.
+async fn window_notes(ctx: &Context, settings: &efr_config::Settings) -> Vec<String> {
+    let asked: Vec<(&str, u64)> = settings
+        .openai
+        .models
+        .iter()
+        .flatten()
+        .filter_map(|entry| Some((entry.id(), entry.context_window()?)))
+        .collect();
+    if asked.is_empty() {
+        return Vec::new();
+    }
+    let Ok(client) = ctx.connect(Origin::Cli, None).await else {
+        return Vec::new();
+    };
+    let Ok(list) = client.call::<ModelsListResult>(Method::ModelsList(ModelsList {})).await else {
+        return Vec::new();
+    };
+    windows_above_the_largest(&asked, &list)
+}
+
+/// The notes for the windows of `asked` that are above the largest one of their model
+/// in `list`.
+pub(crate) fn windows_above_the_largest(
+    asked: &[(&str, u64)],
+    list: &ModelsListResult,
+) -> Vec<String> {
+    asked
+        .iter()
+        .filter_map(|(id, window)| {
+            let model = list.models.iter().find(|model| model.id == *id)?;
+            let max = model.max_context_window.filter(|max| window > max)?;
+            Some(format!(
+                "openai.models: the context_window {window} of {} is above the largest window \
+                 that the model takes ({max}), so efrd uses {max}",
+                format::one_line(id)
+            ))
+        })
+        .collect()
 }
 
 /// `efr config edit`.

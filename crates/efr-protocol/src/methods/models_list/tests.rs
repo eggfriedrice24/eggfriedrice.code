@@ -8,6 +8,8 @@ fn model(efforts: &[&str]) -> ModelInfo {
         default: false,
         source: ModelSource::Builtin,
         context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
     }
 }
 

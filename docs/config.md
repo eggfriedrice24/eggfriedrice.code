@@ -37,7 +37,7 @@ The provider, the default model of a turn and what each request carries.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `provider` | `"openai-subscription"` | restart | The provider of new conversations: `openai-subscription` (the ChatGPT plan) or `openai-api` (an API key). Needs a restart. |
-| `name` | unset | live | The default model of a turn, such as `gpt-5.5`. Unset: the first of `openai.models`, else the provider's default. |
+| `name` | unset | live | The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the best priority in the provider's model catalog, which comes from the backend. |
 | `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`. Unset: the backend's own default for the model. |
 | `system_prompt` | built in | live | The system prompt of every request. |
 | `max_output_tokens` | unset | live | The most tokens one model call may produce. Unset: the provider's default. |
@@ -49,7 +49,7 @@ The OpenAI providers.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `originator` | `"efr"` | restart | The `originator` of the subscription login and of every subscription request. Needs a restart. |
-| `models` | unset | live | Models added to the built-in model list, such as a new model before efr knows it. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens; a table may name a built-in model to change its limits. |
+| `models` | unset | live | Models added to the provider's model list, such as a new model before the backend lists it. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens. A table may name a model of the catalog to change its limits: its window up to the largest window that the catalog gives for the model. |
 | `subscription_base_url` | unset | restart | Replaces the subscription backend's base URL. Needs a restart. |
 | `api_base_url` | unset | restart | Replaces the public API's base URL. Needs a restart. |
 

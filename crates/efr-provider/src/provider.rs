@@ -31,10 +31,12 @@ pub trait Provider: Send + Sync + fmt::Debug {
     /// message's `provider_raw` belongs to it.
     fn id(&self) -> &ProviderId;
 
-    /// The models the provider knows it can serve. Empty when it does not say, in which
-    /// case any model id is passed through and the provider's answer decides.
-    fn models(&self) -> &[ModelInfo] {
-        &[]
+    /// The models the provider knows it can serve now. Empty when it does not say, in
+    /// which case any model id is passed through and the provider's answer decides. The
+    /// list can change while the provider runs, such as when a new model catalog comes
+    /// from the backend, so a caller gets its own copy.
+    fn models(&self) -> Vec<ModelInfo> {
+        Vec::new()
     }
 
     /// Sends `request` and returns the answer as it streams. An error here means the
@@ -53,8 +55,12 @@ pub trait Provider: Send + Sync + fmt::Debug {
 pub struct ModelInfo {
     /// The model id a [`Request`] names.
     pub id: String,
-    /// The context window in tokens, when known.
+    /// The context window in tokens, when known: the window that a conversation uses
+    /// by default.
     pub context_window: Option<u64>,
+    /// The largest context window in tokens that a setting can raise the window to,
+    /// when known. A larger setting is cut down to it.
+    pub max_context_window: Option<u64>,
     /// The output token limit, when known.
     pub max_output_tokens: Option<u32>,
     /// The reasoning efforts the model takes, such as `low` and `high`, in the order a
@@ -63,6 +69,14 @@ pub struct ModelInfo {
     pub efforts: Vec<String>,
     /// The effort the backend uses when a request names none, when known.
     pub default_effort: Option<String>,
+    /// True when the model takes freeform tools, so a tool with a grammar goes to it in
+    /// its freeform form. False sends every freeform tool in its function form, which
+    /// every model with function calls takes.
+    pub freeform_tools: bool,
+    /// True when the backend prefers that a client reach this model over a WebSocket
+    /// and not over a streamed HTTP response. It is a fact for the transport to read;
+    /// a provider without such a transport ignores it.
+    pub prefer_websockets: bool,
 }
 
 impl ModelInfo {
@@ -71,9 +85,12 @@ impl ModelInfo {
         ModelInfo {
             id: id.into(),
             context_window: None,
+            max_context_window: None,
             max_output_tokens: None,
             efforts: Vec::new(),
             default_effort: None,
+            freeform_tools: false,
+            prefer_websockets: false,
         }
     }
 
@@ -81,6 +98,27 @@ impl ModelInfo {
     #[must_use]
     pub fn with_context_window(mut self, tokens: u64) -> Self {
         self.context_window = Some(tokens);
+        self
+    }
+
+    /// The same model with the largest window that a setting can raise its window to.
+    #[must_use]
+    pub fn with_max_context_window(mut self, tokens: u64) -> Self {
+        self.max_context_window = Some(tokens);
+        self
+    }
+
+    /// The same model, which takes freeform tools when `takes` is true.
+    #[must_use]
+    pub fn with_freeform_tools(mut self, takes: bool) -> Self {
+        self.freeform_tools = takes;
+        self
+    }
+
+    /// The same model with the backend's preference for a WebSocket transport.
+    #[must_use]
+    pub fn with_prefer_websockets(mut self, prefers: bool) -> Self {
+        self.prefer_websockets = prefers;
         self
     }
 

@@ -16,7 +16,7 @@ fn the_subscription_defaults_follow_codex() {
     assert_eq!(config.base_url(), SUBSCRIPTION_BASE_URL);
     assert_eq!(config.responses_url(), "https://chatgpt.com/backend-api/codex/responses");
     assert_eq!(config.originator(), DEFAULT_ORIGINATOR);
-    assert!(!config.models().is_empty());
+    assert!(config.models().is_empty(), "the catalog lists the models");
     assert_eq!(config.retry(), &RetryPolicy::default());
     assert_eq!(config.reasoning(), ReasoningMode::ByModel);
     assert_eq!(config.reasoning_effort(), None);

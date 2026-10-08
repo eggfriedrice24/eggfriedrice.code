@@ -246,6 +246,12 @@ impl PtyHolder for NoHolder {
     }
 }
 
+/// The models of the subscription's built-in table, never fetched.
+pub(crate) fn builtin_models() -> Arc<crate::catalog::Models> {
+    let catalog = efr_provider_openai::Catalog::builtin(efr_provider_openai::Backend::Subscription);
+    Arc::new(crate::catalog::Models::fixed(efr_provider_openai::ModelCatalog::new(catalog)))
+}
+
 /// The dependencies of a daemon on `dirs`, with nothing taken from the machine.
 pub(crate) fn deps(dirs: &TestDirs, clock: &TestClock) -> Deps {
     Deps::new(dirs.dirs().clone(), dirs.home(), clock.shared(), Arc::new(TestRng::new(7)))

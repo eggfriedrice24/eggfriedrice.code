@@ -1,0 +1,149 @@
+//! The fetch of the model catalog from the backend.
+//!
+//! `GET <base_url>/models?client_version=<efr's version>` with the same credentials and
+//! headers as a model request (Codex `codex-rs/codex-api/src/endpoint/models.rs`,
+//! `ModelsClient`). A list that efr already has goes with its tag in `If-None-Match`,
+//! and a 304 answer confirms it without a body.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use efr_http::{HeaderValue, HttpClient, HttpError, HttpRequest, StatusCode, Url, header};
+use efr_provider::{ProviderError, TokenSource};
+use efr_stdx::time::Clock;
+use serde_json::Value;
+
+use super::{CLIENT_VERSION, Catalog, entries_of};
+use crate::OpenAiConfig;
+use crate::responses::sign;
+
+/// How long one fetch may take. The fetch runs in the background, so this only bounds
+/// how long a hung backend holds a connection.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// What a fetch got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Fetched {
+    /// A list, maybe the same as before.
+    Changed(Catalog),
+    /// The backend confirmed the list whose tag efr sent.
+    NotModified,
+}
+
+/// Fetches the catalog of the backend that an [`OpenAiConfig`] names.
+#[derive(Debug, Clone)]
+pub struct CatalogClient {
+    config: OpenAiConfig,
+    http: HttpClient,
+    tokens: Arc<dyn TokenSource>,
+    clock: Arc<dyn Clock>,
+}
+
+impl CatalogClient {
+    /// A client for the backend of `config`, sending through `http` with tokens from
+    /// `tokens`. `clock` dates each list.
+    pub fn new(
+        config: OpenAiConfig,
+        http: HttpClient,
+        tokens: Arc<dyn TokenSource>,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
+        CatalogClient { config, http, tokens, clock }
+    }
+
+    /// The base URL of the backend, which the cache file records.
+    pub fn base_url(&self) -> &str {
+        self.config.base_url()
+    }
+
+    /// The URL of the catalog, with efr's own version as `client_version`.
+    pub fn url(&self) -> Result<Url, HttpError> {
+        let mut url = Url::parse(&format!("{}/models", self.config.base_url()))
+            .map_err(|source| HttpError::InvalidUrl { source })?;
+        url.query_pairs_mut().append_pair("client_version", CLIENT_VERSION);
+        Ok(url)
+    }
+
+    /// Asks the backend for its catalog. `current` is the list that efr has: when the
+    /// same backend sent it to this version of efr, its tag goes along, and the answer
+    /// can be [`Fetched::NotModified`]. A 401 makes the token source forget its token,
+    /// and the request goes once more with a new one.
+    pub async fn fetch(&self, current: &Catalog) -> Result<Fetched, ProviderError> {
+        let etag = current.etag_for(self.config.base_url());
+        let url = self.url().map_err(transport)?;
+        let mut unsigned = HttpRequest::get(url.as_str())
+            .map_err(transport)?
+            .header(header::ACCEPT, HeaderValue::from_static("application/json"))
+            .timeout(FETCH_TIMEOUT);
+        if let Some(etag) = etag {
+            unsigned = unsigned.header_text(header::IF_NONE_MATCH, etag).map_err(transport)?;
+        }
+        let mut refreshed = false;
+        loop {
+            let token = self.tokens.access_token().await?;
+            let request = sign(&unsigned, &self.config, &token).map_err(transport)?;
+            let response = self
+                .http
+                .send_with_retry(&request, self.config.retry())
+                .await
+                .map_err(transport)?;
+            let status = response.status();
+            if status == StatusCode::NOT_MODIFIED && etag.is_some() {
+                return Ok(Fetched::NotModified);
+            }
+            if status == StatusCode::UNAUTHORIZED {
+                if refreshed {
+                    return Err(ProviderError::Unauthorized);
+                }
+                tracing::warn!(
+                    "the backend refused the access token for the model catalog; refreshing it once"
+                );
+                drop(response);
+                self.tokens.invalidate().await;
+                refreshed = true;
+                continue;
+            }
+            if !status.is_success() {
+                let reason = status.canonical_reason().unwrap_or("no reason");
+                return Err(ProviderError::api(
+                    Some(status.as_u16()),
+                    None,
+                    format!("the model catalog request failed: {reason}"),
+                ));
+            }
+            let tag = response
+                .headers()
+                .get(header::ETAG)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            let body = response.bytes().await.map_err(transport)?;
+            let body: Value =
+                serde_json::from_slice(&body).map_err(|source| ProviderError::Decode { source })?;
+            let Some((entries, broken)) = entries_of(&body) else {
+                return Err(ProviderError::api(
+                    Some(status.as_u16()),
+                    None,
+                    "the model catalog has no list of models".to_owned(),
+                ));
+            };
+            if broken > 0 {
+                tracing::debug!(broken, "the model catalog has entries that efr cannot read");
+            }
+            return Ok(Fetched::Changed(Catalog::from_backend(
+                self.config.backend(),
+                self.config.base_url(),
+                entries,
+                tag,
+                self.clock.now(),
+            )));
+        }
+    }
+}
+
+fn transport(error: HttpError) -> ProviderError {
+    ProviderError::Transport { source: Box::new(error) }
+}
+
+#[cfg(test)]
+mod tests;

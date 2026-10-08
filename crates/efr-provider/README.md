@@ -34,10 +34,14 @@ Modules:
   and convert to the wire's `efr_protocol::Usage`.
 - `provider`: the `Provider` trait, dyn-compatible through `async-trait`.
   `stream(Request) -> ProviderStream` is the one model call a provider implements;
-  `complete` collects it by default, and `models` defaults to an empty list. `id`
-  is also required: a `ProviderId` such as `openai-subscription` or `openai-api`,
-  which decides whose `provider_raw` a message carries. `ModelInfo` describes a
-  model's limits and the reasoning efforts it takes, with the backend's default.
+  `complete` collects it by default, and `models` defaults to an empty list. `models`
+  returns a copy, because the list can change while the provider runs, such as when
+  a new model catalog comes from the backend. `id` is also required: a `ProviderId`
+  such as `openai-subscription` or `openai-api`, which decides whose `provider_raw` a
+  message carries. `ModelInfo` describes a model's limits (its window, the largest
+  window that a setting can raise it to, its output limit), the reasoning efforts it
+  takes with the backend's default, whether it takes freeform tools, and whether the
+  backend prefers a WebSocket transport for it.
 - `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
   logs, the config and the event log.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
@@ -60,13 +64,14 @@ Modules:
   again. A provider builds an error answer of its API with `ProviderError::api`, which
   picks `ContextOverflow` for the code `context_length_exceeded`, HTTP 413 or a message
   that starts with `prompt is too long`, and `Api` for the rest.
-  `ModelInfo::context_window` and `ModelInfo::max_output_tokens` are where a provider
-  reports a model's limits; the daemon lays the entries of `[openai] models` over
-  them.
+  `ModelInfo::context_window`, `ModelInfo::max_context_window` and
+  `ModelInfo::max_output_tokens` are where a provider reports a model's limits; the
+  daemon lays the entries of `[openai] models` over them.
 
 Freeform tools. Which models take the freeform form is a fact about the model, so
-each provider knows it in its own model catalog; `efr-provider-openai` says it in
-`models.rs` (`takes_freeform_tools`). A provider sends a freeform tool in its
+each provider knows it in its own model catalog and says it as
+`ModelInfo::freeform_tools`; `efr-provider-openai` reads it from the backend's
+`apply_patch_tool_type`. A provider sends a freeform tool in its
 freeform form only to a model that takes it, and in its function form to every other
 model. A call in the freeform form is a `ContentBlock::ToolCall` with `freeform` set
 and the text as a JSON string `input`; its stream is a `ToolCallStart` with

@@ -250,3 +250,11 @@ No protocol version has shipped yet.
   and `events/turn_interrupted.json` now set the new members;
   `conversation_compact_params.json`, `conversation_compact_result.json` and
   `events/conversation_compacted.json` are new.
+- Version 1, additive: the model catalog comes from the provider's backend. A model of
+  `models.list` gains an optional `max_context_window` (the largest window that
+  `[openai] models` can set) and `prefer_websockets` (false when absent), and its
+  `context_window` is the window that efrd uses. The source `builtin` now means the
+  provider's catalog. The result of `models.list` and of `admin.status` gains an
+  optional `catalog` (`origin`: `backend`, `cache` or `builtin`, and an optional
+  `fetched_at`). The fixtures `models_list_result.json` and `admin_status_result.json`
+  now set the new members.

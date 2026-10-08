@@ -15,22 +15,50 @@ over a streaming `POST <base_url>/responses`, on one of two backends:
 
 Modules:
 
-- `config`: `OpenAiConfig` (backend, base URL, originator, models, retry policy,
-  reasoning mode, default reasoning effort and summary, parallel tool calls) and the
-  `Backend` and `ReasoningMode` enums. A request's `provider_options` override the
-  defaults: `reasoning_effort`, `reasoning_summary`, `parallel_tool_calls`,
-  `prompt_cache_key`, `service_tier` and `text_verbosity`; other keys are ignored.
-- `models`: the models the subscription is known to serve, with their limits, the
-  reasoning efforts each takes and its default effort, verified against Codex's
-  bundled catalog and opencode on 2026-10-05 (the sources are in the code). Codex
-  fetches the list from `/backend-api/codex/models` for a ChatGPT login; efr does
-  not call it yet. The lists are hints: a model that is not listed is still sent, and
-  an answer that says the model is not served becomes `ProviderError::UnknownModel`.
-  The catalog also says which models take freeform (`custom`) tools
-  (`takes_freeform_tools`): Codex's `apply_patch_tool_type` is `"freeform"` for every
-  listed model (read at c0c230e on 2026-10-08), so each of them does, on both
-  backends. Every model outside the catalog gets the function form of a freeform
-  tool, which every model with function calls takes.
+- `config`: `OpenAiConfig` (backend, base URL, originator, the models that the config
+  lays over the catalog, retry policy, reasoning mode, default reasoning effort and
+  summary, parallel tool calls) and the `Backend` and `ReasoningMode` enums. A
+  request's `provider_options` override the defaults: `reasoning_effort`,
+  `reasoning_summary`, `parallel_tool_calls`, `prompt_cache_key`, `service_tier` and
+  `text_verbosity`; other keys are ignored.
+- `catalog`: the model catalog. The backend lists its models at
+  `GET <base_url>/models?client_version=<efr's version>`, as Codex asks for a ChatGPT
+  login, with the same token, `originator` and account headers as a model request.
+  `CatalogClient::fetch` sends it, with `If-None-Match` and the tag of the list that
+  efr has when the same backend sent that list to the same version of efr. A 304 is
+  `Fetched::NotModified`; a 401 makes the token source forget its token, and the
+  request goes once more. A `Catalog` is one list and its origin (`CatalogOrigin`:
+  `Backend`, `Cache` or `Builtin`) with the time of the fetch and the tag. Each entry
+  has the members of Codex's `ModelInfo` that efr reads: `slug`, `display_name`,
+  `description`, `priority`, `visibility`, `context_window`, `max_context_window`,
+  `supported_reasoning_levels`, `default_reasoning_level`, `apply_patch_tool_type`,
+  `prefer_websockets`, `minimal_client_version` and `supported_in_api`. Unknown
+  members are ignored, a broken window or priority counts as unknown, and an entry
+  that cannot be read is left out. `Catalog::models` gives the models on offer, best
+  (lowest) priority first: `visibility` must be `list` (or absent), the
+  `minimal_client_version` must not be above `CLIENT_VERSION` (efr's own version,
+  never another client's), and the API key backend also needs `supported_in_api`.
+  A missing window takes the largest one, and the largest one is never below the
+  window. `apply_patch_tool_type: "freeform"` gives `ModelInfo::freeform_tools`;
+  `prefer_websockets` is passed on as `ModelInfo::prefer_websockets` for a transport
+  that can use it. `Catalog::default_model` is the first model on offer.
+  `ModelCatalog` holds the current catalog for the provider and the daemon: a reader
+  takes it from memory, and `ModelCatalog::apply` makes a fetch current, except a list
+  that offers no model to this version of efr (`Applied::Refused`), which keeps the
+  current one. `read_cache` and `write_cache` keep a fetched list in a file (JSON:
+  `version`, `base_url`, `client_version`, `fetched_at`, `etag` and the entries in
+  the backend's form), written in one step with mode 0600; a file of another version
+  or another backend is not used. They block; the daemon calls them off its async
+  workers. When to fetch is the daemon's choice.
+- `models`: the table built into efr, the last fallback of the catalog: the listed
+  models of Codex's bundled catalog (`codex-rs/models-manager/models.json`, read at
+  c0c230e on 2026-10-08), in priority order, with gpt-6.1-sol first and gpt-5.5 as the
+  legacy model. It stands in when no fetch worked yet and no cache is on disk, and for
+  the API key backend, whose `/v1/models` says nothing about windows. Every model in
+  it takes freeform tools. The lists are hints: a model that is not listed is still
+  sent, and an answer that says the model is not served becomes
+  `ProviderError::UnknownModel`. Every model outside the catalog gets the function
+  form of a freeform tool, which every model with function calls takes.
 - `convert`: canonical `Request` and `Message` to the Responses body and `input`
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
@@ -38,8 +66,9 @@ Modules:
   `reasoning: {effort, summary}` with `include: ["reasoning.encrypted_content"]`. The
   subscription path sends no `max_output_tokens`, which that backend refuses. The API
   path sends the model's own limit from its entry in `[openai] models`, else the
-  request's. A
-  freeform tool goes to a model that takes it as
+  request's. The provider reads the catalog from memory for each request, with the
+  models of the config laid over it, so a new catalog decides the tool form from the
+  next request on. A freeform tool goes to a model that takes it as
   `{"type": "custom", name, description, "format": {"type": "grammar", syntax,
   definition}}`, and to any other model as a function tool with its function form. A
   canonical freeform call goes back to a model that takes freeform tools as a
@@ -112,8 +141,8 @@ It must never depend on `efr-oauth-openai`: tokens arrive through
 never sees a refresh token and never parses a JWT. That edge is forbidden in
 `xtask/src/deps.rs`.
 
-Third-party crates: `async-trait`, `futures`, `serde`, `serde_json`, `thiserror` and
-`tracing`.
+Third-party crates: `async-trait`, `futures`, `jiff` (the time of a fetched catalog),
+`serde`, `serde_json`, `thiserror` and `tracing`.
 
 ## Invariant
 
@@ -126,6 +155,11 @@ Third-party crates: `async-trait`, `futures`, `serde`, `serde_json`, `thiserror`
   recorder, and error messages come from the server's error body, never from the
   request.
 - A model call is never sent twice after the server may have acted on it.
+- efr names itself honestly: a fetch of the catalog sends efr's own version as
+  `client_version` and the configured `originator` (`efr` by default), never the
+  values of another client.
+- A request never waits for a fetch of the catalog: it reads the current catalog from
+  memory.
 
 ## Sources
 
@@ -155,10 +189,17 @@ reference implementations (shallow clones of 2026-10-04):
   tool), `codex-rs/protocol/src/openai_models.rs` (`ApplyPatchToolType`; read at
   c0c230e on 2026-10-08), `codex-rs/protocol/src/models.rs` (`CustomToolCall` and
   `CustomToolCallOutput`),
-  `codex-rs/models-manager/models.json` (model ids, `context_window`, the reasoning
-  levels and the default level; read again at 823ea83 on 2026-10-05),
+  `codex-rs/models-manager/models.json` (the built-in table: model ids, priorities,
+  windows, the reasoning levels and the default level; read again at c0c230e on
+  2026-10-08),
   `codex-rs/model-provider/src/models_endpoint.rs` (the `/models` endpoint that
   Codex asks for a ChatGPT login),
+  `codex-rs/codex-api/src/endpoint/models.rs` (`GET <base>/models?client_version=`
+  and the `ETag` of the answer),
+  `codex-rs/models-manager/src/manager.rs` and `cache.rs` (the cache with its tag,
+  the fallback to the bundled list, the sort by `priority` and the default: the first
+  model in the picker), `codex-rs/protocol/src/openai_models.rs` (`ModelInfo`,
+  `ModelVisibility`, `max_context_window` for config overrides),
   `codex-rs/core/tests/common/responses.rs` (stream shapes for the fixtures).
 - sst/opencode at `907b3bc`:
   `packages/opencode/src/plugin/openai/codex.ts` (the endpoint, `ChatGPT-Account-Id`,
@@ -193,6 +234,12 @@ the output limit) and over small inline streams. `responses` tests drive
 `OpenAiProvider` against a `wiremock` server on the loopback interface: the headers of
 both backends, the reasoning round trip across two requests, the 401 refresh (with
 `fixtures/responses/unauthorized.json`), retries on the injected clock, the error
-mappings and the redacted transcript record. The fixtures are hand-written in the
-Responses wire format, since the tests make no real network or model calls. Nothing
+mappings, the redacted transcript record, and a new catalog that changes the tool form
+from the next request. `catalog` tests read `fixtures/catalog/models.json` (a list,
+a hidden model, a model too new for efr, a broken window and two broken entries): the
+models on offer and their order, the windows, the default, the version compare, the
+tag and what `apply` does with each answer. `catalog::cache` tests write and read the
+cache file in a temporary directory, and `catalog::client` tests fetch from `wiremock`:
+the query and the headers, a 304 for the tag, the 401 refresh and the failures. The
+fixtures are hand-written in the Responses wire format, since the tests make no real network or model calls. Nothing
 sleeps on real time and nothing needs Zig.

@@ -10,11 +10,17 @@
       "default_effort": "medium",
       "default": true,
       "source": "builtin",
-      "context_window": 272000
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "prefer_websockets": true
     },
     {
       "id": "gpt-5.5-preview",
       "source": "config"
     }
-  ]
+  ],
+  "catalog": {
+    "origin": "cache",
+    "fetched_at": "2026-10-03T07:00:00Z"
+  }
 }

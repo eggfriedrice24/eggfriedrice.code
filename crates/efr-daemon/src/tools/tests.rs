@@ -86,8 +86,13 @@ fn toolbox_with(
     let engine = Engine::with_defaults(Locations::new(home).unwrap());
     let (_, engine) = tokio::sync::watch::channel(Arc::new(engine));
     let (reloads, _) = Reloads::new();
-    let settings_tool =
-        SettingsTool::new(&home.join(".config").join("efr"), receiver.clone(), engine, reloads);
+    let settings_tool = SettingsTool::new(
+        &home.join(".config").join("efr"),
+        receiver.clone(),
+        engine,
+        reloads,
+        crate::testing::builtin_models(),
+    );
     let toolbox = DaemonToolbox::new(
         registry,
         shells,

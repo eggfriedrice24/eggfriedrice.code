@@ -10,3 +10,4 @@ screen         ghostty
 conversations  0
 shells         0
 provider       openai: not logged in
+models         from the cache, fetched 1d 2h ago

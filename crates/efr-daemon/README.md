@@ -44,8 +44,9 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    prompt: after a reboot the terminal name may belong to another terminal by now.
    Running shells recorded as exited, process-bound outbox items
    cancelled. A prompt never runs by surprise after a restart.
-5. The PTY table, the recording sink, the shells, the providers (`providers.rs`), the
-   tool registry and the settings tool (`tools.rs`), the permission engine and the
+5. The PTY table, the recording sink, the shells, the model catalog (`catalog.rs`: the
+   cache file in the state root, else the built-in table), the providers
+   (`providers.rs`), the tool registry and the settings tool (`tools.rs`), the permission engine and the
    conversation registry.
    The engine is built in one place, `engine.rs`, from the settings, the project
    registry and the config directory. It holds one machine policy for each permission
@@ -127,6 +128,37 @@ the appliers take the new values:
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
 
+### The model catalog
+
+`catalog.rs` keeps the model catalog of the active provider (`Models`), and every
+reader takes it from memory: a turn when it starts, a prompt when it arrives,
+`models.list`, `admin.status` and the settings tool. No reader ever waits for a fetch;
+a new list applies from the next turn on.
+
+- At start, efrd reads `model_catalog.json` in its state root: the last list that the
+  configured subscription backend sent. A file of another backend, a broken file or a
+  list that offers no model is not used, and the table built into efr stands in. So a
+  start while offline offers the last list.
+- In the background (a task of `run.rs`), efrd fetches the subscription's catalog
+  with the login's token (`efr_provider_openai::CatalogClient`): at start, after a
+  login, then every hour (`REFRESH_INTERVAL`). The list that efrd has goes with its
+  tag in `If-None-Match`, so an unchanged list costs a 304, which confirms it. A new
+  list or a confirmed one goes to the cache file in one step. Without a login, efrd
+  waits for one. After a failed fetch it keeps the list that it has and tries again
+  after five minutes (`RETRY_INTERVAL`). A list that offers no model to this version
+  of efr is refused with a warning, and the current list stays.
+- The API key backend keeps the built-in table, because its `/v1/models` says
+  nothing about windows. A daemon with a `ProviderFactory` (an in-process test) never
+  fetches, so a test never reaches the network by accident.
+- The effective list (`effective_models`) is the catalog's models on offer, best
+  priority first, then the ids of `[openai] models` that the catalog does not hold. A
+  window that an entry of `[openai] models` gives raises or lowers the catalog's
+  window up to the model's `max_context_window`; above it, efrd uses the largest one
+  and warns once per entry (`efr config check` notes it too). The provider gets the
+  entry's window and output limit as well (`openai_config`).
+- The default model (`default_model`) is `[model] name`, else the catalog's model with
+  the best priority, else the first id of `[openai] models`.
+
 ### The settings tool
 
 `tools/settings_tool.rs` is the model's way to efr's own settings. It lives here and not
@@ -197,7 +229,7 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   starts fresh.
   A prompt's `settings` (mode, model, effort) are checked by the conversation
   against the latest settings (`settings.rs` gives it the defaults and the model list
-  of `providers.rs`): a model outside the list, or an effort the model does not take,
+  of `catalog.rs`, both from memory): a model outside the list, or an effort the model does not take,
   is `invalid` with the setting, the value and the choices as data, and nothing is
   recorded. The result carries the effective settings; the turn resolves them again
   when it starts, records them on `turn_started` and sends the effort in the request's
@@ -220,13 +252,12 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   columns, clamps a huge one, and stores the new size in the recording
   (`StoreRecording::resized`) before attached clients hear it.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
-  `login_completed` and makes the running provider forget its cached token.
-- `models.list` answers the effective model list of the latest settings
-  (`providers.rs`, `effective_models`): the provider's built-in models with their
-  efforts, default effort and context window, then the models of `[openai] models`
-  that the list does not hold, with the default model marked. A window that an entry
-  of `[openai] models` gives wins over the built-in one, and the provider gets the
-  entry's window and output limit too (`openai_config`).
+  `login_completed`, makes the running provider forget its cached token and asks for a
+  fetch of the model catalog of the new account.
+- `models.list` answers the effective model list of the latest settings over the
+  current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
+  (`catalog`: `backend`, `cache` or `builtin`, with the time of the fetch). See "The
+  model catalog" below. `admin.status` says where the catalog came from too.
 - `conversation.compact` (`methods/conversation_compact.rs`) answers a retried command
   id from its receipt, else starts the conversation's actor when none runs and asks it
   to compact: the actor writes the summary, records `conversation_compacted` with the
@@ -485,6 +516,9 @@ conventions that `efr_stdx::env::Var` does not name.
 - The last command of a prompt reaches the turn in memory only; it never enters an
   event, a receipt or a log field.
 - Shutdown releases the lock last, after the database is closed.
+- A turn, a prompt and `models.list` never wait for a fetch of the model catalog.
+- efrd names itself to the backend as efr, with efr's own version.
+- A daemon with an injected provider never fetches the model catalog.
 
 ## Tests
 
@@ -504,7 +538,12 @@ with saves by rename and in place, a removed and recreated file, a symlinked fil
 retargeted link, a removed and recreated target directory and a forced queue
 overflow), the PTY
 fan-out with overflow, the connection table, notices, the lock, `daemon.json`, the
-providers, the tool adapter and its answer to who can answer hidden input. The tests
+providers, the model catalog (the default, the effective list, the windows that
+`[openai] models` raises, lowers or clamps with one warning, the cache read at an
+offline start and the fallback to the built-in table, a fetch against `wiremock` with
+its tag and a 304, a failed fetch, a list that offers nothing, the task that fetches at
+start, after a login and hourly, and a fetch that hangs while a reader goes on), the
+tool adapter and its answer to who can answer hidden input. The tests
 in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
@@ -526,7 +565,7 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`, `sandbox`, `drafts`, `turn_input`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -534,6 +573,11 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `catalog` module runs the real subscription provider against the local server's
+`/models`: the backend's list applies with its default, windows and tool form, a
+restart while the backend is down offers the cached list and asks with its tag, a 304
+confirms the cached list, and a prompt completes while a fetch hangs.
 
 The `turn_input` module holds each turn in a model that waits for the test: a late
 steer that becomes a prompt (also for a conversation with no live actor after a

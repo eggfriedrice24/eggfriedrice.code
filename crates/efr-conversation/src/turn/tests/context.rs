@@ -26,6 +26,8 @@ fn with_window(setup: &mut Setup, window: u64) -> ContextLimits {
         default: true,
         source: ModelSource::Builtin,
         context_window: Some(window),
+        max_context_window: None,
+        prefer_websockets: false,
     }];
     ContextLimits::new(Some(window), setup.config.compaction)
 }

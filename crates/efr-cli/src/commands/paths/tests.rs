@@ -143,6 +143,7 @@ fn status(roots: DaemonRoots) -> AdminStatusResult {
         conversations: 0,
         shells: 0,
         providers: vec![],
+        catalog: None,
         roots: Some(roots),
         config: None,
         sandbox: None,

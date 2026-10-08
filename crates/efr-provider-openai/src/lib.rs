@@ -8,15 +8,19 @@
 //! or the public API at [`API_BASE_URL`] with an API key. Each assistant message keeps
 //! the response's own output items as `provider_raw`, and the next request sends them
 //! back verbatim, so encrypted reasoning survives without server-side storage.
-//! [`subscription_models`] and [`api_models`] list the models each backend is known to
-//! serve.
+//!
+//! The models come from a [`Catalog`]: the backend's own list, which a
+//! [`CatalogClient`] fetches, its cache file ([`read_cache`], [`write_cache`]), or the
+//! table built into efr. A [`ModelCatalog`] holds the current one for the provider.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-http`, `efr-protocol` and `efr-stdx`.
 //! What does not belong here: how a token is obtained or refreshed (`efr-oauth-openai`,
 //! which this crate must never depend on; tokens arrive through
 //! `efr_provider::TokenSource`), the conversation's turn loop and history
-//! (`efr-conversation`), and composing providers from the config (`efr-daemon`).
+//! (`efr-conversation`), and composing providers from the config, or when to fetch the
+//! catalog (`efr-daemon`).
 
+mod catalog;
 mod config;
 mod convert;
 mod error;
@@ -26,9 +30,12 @@ mod sse_events;
 #[cfg(test)]
 mod testing;
 
+pub use catalog::{
+    Applied, CLIENT_VERSION, Catalog, CatalogClient, CatalogOrigin, Fetched, ModelCatalog,
+    read_cache, write_cache,
+};
 pub use config::{
     API_BASE_URL, Backend, DEFAULT_ORIGINATOR, OpenAiConfig, ReasoningMode, SUBSCRIPTION_BASE_URL,
 };
 pub use error::OpenAiError;
-pub use models::{DEFAULT_SUBSCRIPTION_MODEL, api_models, subscription_models};
 pub use responses::OpenAiProvider;

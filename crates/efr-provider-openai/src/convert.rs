@@ -26,12 +26,14 @@
 
 use std::collections::HashSet;
 
-use efr_provider::{ContentBlock, FREEFORM_INPUT, Message, Request, Role, ToolDefinition};
+use efr_provider::{
+    ContentBlock, FREEFORM_INPUT, Message, ModelInfo, Request, Role, ToolDefinition,
+};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::config::{Backend, OpenAiConfig, ReasoningMode};
-use crate::models::{is_reasoning_model, takes_freeform_tools};
+use crate::models::is_reasoning_model;
 
 /// The item type of a call of a freeform tool.
 pub(crate) const CUSTOM_CALL: &str = "custom_tool_call";
@@ -81,14 +83,21 @@ struct TextParam {
     verbosity: String,
 }
 
-/// The body for `request` under `config`.
+/// The body for `request` under `config`. `model` is what the provider knows about the
+/// request's model, from its catalog and the config; `None` for a model that neither
+/// lists, which then gets the function form of each freeform tool and the request's
+/// output limit.
 ///
 /// `provider_options` keys this provider reads, each overriding the config:
 /// `reasoning_effort` (a string, or `null` for the backend's default),
 /// `reasoning_summary` (a string, or `null` for no summary), `parallel_tool_calls`
 /// (a boolean), `prompt_cache_key`, `service_tier` and `text_verbosity` (strings).
 /// Other keys, and known keys with a value of the wrong type, are ignored.
-pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> ResponsesBody {
+pub(crate) fn request_body(
+    request: &Request,
+    config: &OpenAiConfig,
+    model: Option<&ModelInfo>,
+) -> ResponsesBody {
     let options = Options(&request.provider_options);
     let reasons = match config.reasoning() {
         ReasoningMode::Always => true,
@@ -103,25 +112,19 @@ pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> Response
     // and opencode removes it on that path ("Match codex cli").
     let max_output_tokens = match config.backend() {
         Backend::Subscription => None,
-        // NOTE: a model's own limit (an entry of `[openai] models`) wins over the
-        // request's, which is `[model] max_output_tokens` for every model.
-        _ => config
-            .models()
-            .iter()
-            .find(|model| model.id == request.model)
-            .and_then(|model| model.max_output_tokens)
-            .or(request.max_output_tokens),
+        // NOTE: a model's own limit (an entry of `[openai] models`, else the built-in
+        // table's) wins over the request's, which is `[model] max_output_tokens` for
+        // every model.
+        _ => model.and_then(|model| model.max_output_tokens).or(request.max_output_tokens),
     };
+    let freeform = model.is_some_and(|model| model.freeform_tools);
     ResponsesBody {
         model: request.model.clone(),
         stream: true,
         service_tier: options.string("service_tier"),
         instructions: request.system.clone().filter(|system| !system.is_empty()),
-        input: input_items(&request.messages, takes_freeform_tools(&request.model)),
-        tools: {
-            let freeform = takes_freeform_tools(&request.model);
-            request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect()
-        },
+        input: input_items(&request.messages, freeform),
+        tools: request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect(),
         tool_choice: "auto",
         parallel_tool_calls: options.bool("parallel_tool_calls", config.parallel_tool_calls()),
         reasoning,

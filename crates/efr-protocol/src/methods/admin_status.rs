@@ -7,7 +7,7 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{ConfigFileError, DaemonId, SandboxPaths, SandboxStatus};
+use crate::{CatalogStatus, ConfigFileError, DaemonId, SandboxPaths, SandboxStatus};
 
 /// The params of `admin.status`, an admin method (Unix socket only). It takes none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -34,6 +34,10 @@ pub struct AdminStatusResult {
     pub shells: u32,
     /// The configured model providers.
     pub providers: Vec<ProviderStatus>,
+    /// Where the model catalog of the active provider came from. Absent when the
+    /// daemon does not report it, as before the catalog came from the backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<CatalogStatus>,
     /// The daemon's four root directories and where each came from, so a client can
     /// warn when its own differ. Absent when the daemon does not report them, as before
     /// `efr paths`.

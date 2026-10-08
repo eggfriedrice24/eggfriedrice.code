@@ -14,6 +14,10 @@
       "expires_at": "2026-10-03T20:00:00Z"
     }
   ],
+  "catalog": {
+    "origin": "backend",
+    "fetched_at": "2026-10-03T07:30:00Z"
+  },
   "roots": {
     "config": {
       "path": "/home/me/.config/efr",

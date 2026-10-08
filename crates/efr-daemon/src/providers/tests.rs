@@ -3,21 +3,17 @@ use std::sync::Arc;
 use efr_config::{ModelLimits, Settings};
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{ModelInfo, ModelSource};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
-use efr_provider_openai::OpenAiConfig;
+use efr_provider_openai::{Backend, Catalog, OpenAiConfig};
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
 use crate::providers::{
-    API, Providers, SUBSCRIPTION, StoredApiKey, default_model, effective_models, openai_config,
+    API, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION, StoredApiKey, openai_config,
     provider_status,
 };
-
-fn known_models(config: &Settings) -> Vec<String> {
-    effective_models(config).into_iter().map(|model| model.id).collect()
-}
+use crate::testing::OneAnswerFactory;
 
 fn store(dir: &std::path::Path) -> Arc<FileStore> {
     Arc::new(FileStore::new(dir.join("secrets")))
@@ -25,6 +21,22 @@ fn store(dir: &std::path::Path) -> Arc<FileStore> {
 
 fn http(clock: &TestClock) -> HttpClient {
     HttpClient::new(&HttpConfig::default(), clock.shared(), Arc::new(TestRng::new(1))).unwrap()
+}
+
+fn parts(
+    clock: &TestClock,
+    dir: &std::path::Path,
+    factory: Option<Arc<dyn ProviderFactory>>,
+) -> ProviderParts {
+    ProviderParts {
+        http: http(clock),
+        clock: clock.shared(),
+        rng: Arc::new(TestRng::new(2)),
+        factory,
+        issuer: None,
+        catalog: Catalog::builtin(Backend::Subscription),
+        catalog_cache: dir.join("state").join("model_catalog.json"),
+    }
 }
 
 #[test]
@@ -48,105 +60,13 @@ fn status_reports_a_login_and_its_expiry() {
 }
 
 #[test]
-fn the_model_is_the_configured_one_then_the_first_listed_then_the_default() {
-    let mut config = Settings::default();
-    assert_eq!(default_model(&config), efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
-
-    config.openai.models = Some(vec!["gpt-6-sol".into(), "gpt-5.5".into()]);
-    assert_eq!(default_model(&config), "gpt-6-sol");
-
-    config.model.name = Some("gpt-6-luna".to_owned());
-    assert_eq!(default_model(&config), "gpt-6-luna");
-}
-
-#[test]
-fn the_effective_models_are_the_builtin_list_then_the_configured_ids() {
-    let mut config = Settings::default();
-    let builtin = effective_models(&config);
-    assert!(builtin.iter().all(|model| model.source == ModelSource::Builtin));
-    let default: Vec<&str> =
-        builtin.iter().filter(|model| model.default).map(|model| model.id.as_str()).collect();
-    assert_eq!(default, [efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL]);
-    let gpt_5_5 = builtin.iter().find(|model| model.id == "gpt-5.5").unwrap();
-    assert_eq!(gpt_5_5.efforts, ["low", "medium", "high", "xhigh"]);
-    assert_eq!(gpt_5_5.default_effort.as_deref(), Some("medium"));
-
-    config.openai.models = Some(vec!["gpt-next".into(), "gpt-5.5".into()]);
-    let models = effective_models(&config);
-    assert_eq!(models.len(), builtin.len() + 1, "an id the list holds is not added again");
-    let added = models.last().unwrap();
-    assert_eq!(
-        added,
-        &ModelInfo {
-            id: "gpt-next".to_owned(),
-            efforts: Vec::new(),
-            default_effort: None,
-            default: true,
-            source: ModelSource::Config,
-            context_window: None,
-        },
-        "the first configured id is the default when model.name is unset"
-    );
-    assert_eq!(models.iter().filter(|model| model.default).count(), 1);
-}
-
-#[test]
-fn a_configured_window_wins_over_the_built_in_one_and_reaches_the_provider() {
-    let mut config = Settings::default();
-    let builtin = effective_models(&config);
-    let gpt_5_5 = builtin.iter().find(|model| model.id == "gpt-5.5").unwrap();
-    assert_eq!(gpt_5_5.context_window, Some(272_000), "the built-in window is listed");
-
-    let mut wider = ModelLimits::new("gpt-5.5");
-    wider.context_window = Some(400_000);
-    let mut next = ModelLimits::new("gpt-next");
-    next.context_window = Some(1_000_000);
-    next.max_output_tokens = Some(64_000);
-    config.openai.models = Some(vec![wider.into(), next.into()]);
-    let models = effective_models(&config);
-
-    let window = |id: &str| models.iter().find(|model| model.id == id).unwrap().context_window;
-    assert_eq!(window("gpt-5.5"), Some(400_000));
-    assert_eq!(window("gpt-next"), Some(1_000_000));
-    assert_eq!(models.len(), builtin.len() + 1);
-
-    let provider = openai_config(OpenAiConfig::subscription(), &config.openai, None).unwrap();
-    let next = provider.models().iter().find(|model| model.id == "gpt-next").unwrap();
-    assert_eq!(next.context_window, Some(1_000_000));
-    assert_eq!(next.max_output_tokens, Some(64_000));
-    let gpt_5_5 = provider.models().iter().find(|model| model.id == "gpt-5.5").unwrap();
-    assert_eq!(gpt_5_5.context_window, Some(400_000));
-}
-
-#[test]
-fn an_unknown_default_model_is_named_and_marks_no_model() {
-    let mut config = Settings::default();
-    config.model.name = Some("gpt-9".to_owned());
-
-    let known = known_models(&config);
-
-    assert!(!effective_models(&config).iter().any(|model| model.default));
-    assert_eq!(
-        config.unknown_model(&known.iter().map(String::as_str).collect::<Vec<_>>()),
-        Some("gpt-9")
-    );
-}
-
-#[test]
-fn the_api_provider_lists_only_the_configured_ids() {
-    let mut config = Settings::default();
-    config.model.provider = API.to_owned();
-    assert!(effective_models(&config).is_empty());
-
-    config.openai.models = Some(vec!["gpt-4.1".into()]);
-    assert_eq!(known_models(&config), ["gpt-4.1"]);
-}
-
-#[test]
 fn the_openai_settings_reach_the_provider_config() {
     let mut settings = Settings::default().openai;
     settings.originator = "efr-test".to_owned();
-    settings.models = Some(vec!["m1".into(), "gpt-5.5".into()]);
+    let mut next = ModelLimits::new("gpt-next");
+    next.context_window = Some(1_000_000);
+    next.max_output_tokens = Some(64_000);
+    settings.models = Some(vec!["m1".into(), next.into()]);
 
     let config =
         openai_config(OpenAiConfig::subscription(), &settings, Some("http://127.0.0.1:9/codex/"))
@@ -155,8 +75,9 @@ fn the_openai_settings_reach_the_provider_config() {
     assert_eq!(config.originator(), "efr-test");
     assert_eq!(config.base_url(), "http://127.0.0.1:9/codex");
     let ids: Vec<&str> = config.models().iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids.last(), Some(&"m1"), "a configured id is added to the built-in list");
-    assert_eq!(ids.len(), efr_provider_openai::subscription_models().len() + 1);
+    assert_eq!(ids, ["m1", "gpt-next"], "the configured models lie over the catalog");
+    assert_eq!(config.models()[1].context_window, Some(1_000_000));
+    assert_eq!(config.models()[1].max_output_tokens, Some(64_000));
     assert_eq!(config.reasoning_effort(), None, "each turn sends its own effort");
 }
 
@@ -195,21 +116,46 @@ async fn the_configured_provider_is_built_without_touching_the_network() {
     let mut config = Settings::default();
     config.model.provider = API.to_owned();
 
-    let providers = Providers::build(
-        &config,
-        store(dir.path()),
-        http(&clock),
-        clock.shared(),
-        Arc::new(TestRng::new(2)),
-        None,
-        None,
-    )
-    .unwrap();
+    let providers =
+        Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None)).unwrap();
 
     assert_eq!(providers.active().id().as_str(), "openai-api");
+    assert!(!providers.models().fetches(), "the API key backend never fetches");
     let status = providers.status().await;
     assert_eq!(
         status.iter().map(|s| (s.provider.as_str(), s.logged_in)).collect::<Vec<_>>(),
         [("openai-subscription", false), ("openai-api", false)]
     );
+}
+
+#[test]
+fn the_subscription_fetches_its_catalog_and_its_provider_reads_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let config = Settings::default();
+
+    let providers =
+        Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None)).unwrap();
+
+    assert!(providers.models().fetches());
+    let models = providers.active().models();
+    assert_eq!(models.first().map(|model| model.id.as_str()), Some("gpt-6.1-sol"));
+    assert!(models.iter().all(|model| model.freeform_tools));
+}
+
+#[test]
+fn a_daemon_with_its_own_provider_never_fetches_the_catalog() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let config = Settings::default();
+
+    let providers = Providers::build(
+        &config,
+        store(dir.path()),
+        parts(&clock, dir.path(), Some(Arc::new(OneAnswerFactory))),
+    )
+    .unwrap();
+
+    assert!(!providers.models().fetches());
+    assert_eq!(providers.models().default_model(&config), "gpt-6.1-sol");
 }

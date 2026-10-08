@@ -19,6 +19,7 @@ use serde_json::Value;
 use tracing::Instrument as _;
 
 use crate::OpenAiConfig;
+use crate::catalog::{Catalog, ModelCatalog, with_extra};
 use crate::config::Backend;
 use crate::convert::request_body;
 use crate::sse_events::{EventMapper, retry_hint};
@@ -70,10 +71,15 @@ const QUOTA_CODES: &[&str] = &[
 /// The `Done` event carries the response's output items verbatim as `provider_raw`,
 /// and a later request sends them back unchanged, so encrypted reasoning survives a
 /// stateless (`store: false`) conversation.
+///
+/// Which models take freeform tools, and the output limit that the API path sends,
+/// come from the [`ModelCatalog`], read from memory for each request, with the models
+/// of the config laid over it.
 #[derive(Debug)]
 pub struct OpenAiProvider {
     id: ProviderId,
     config: OpenAiConfig,
+    catalog: ModelCatalog,
     http: HttpClient,
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
@@ -82,6 +88,8 @@ pub struct OpenAiProvider {
 impl OpenAiProvider {
     /// A provider named `id` that sends requests through `http` with tokens from
     /// `tokens`. `clock` dates the wait of a rate limit that names the time it resets.
+    /// Its catalog is the table built into efr until [`with_catalog`](Self::with_catalog)
+    /// gives it a shared one.
     pub fn new(
         id: ProviderId,
         config: OpenAiConfig,
@@ -89,7 +97,16 @@ impl OpenAiProvider {
         tokens: Arc<dyn TokenSource>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        OpenAiProvider { id, config, http, tokens, clock }
+        let catalog = ModelCatalog::new(Catalog::builtin(config.backend()));
+        OpenAiProvider { id, config, catalog, http, tokens, clock }
+    }
+
+    /// The same provider reading its models from `catalog`, which a fetch in the
+    /// background can replace while the provider runs.
+    #[must_use]
+    pub fn with_catalog(mut self, catalog: ModelCatalog) -> Self {
+        self.catalog = catalog;
+        self
     }
 
     /// The provider's settings.
@@ -100,7 +117,8 @@ impl OpenAiProvider {
     /// The request for `request` without its credentials: built once, then cloned for
     /// each attempt, since only the token may change between attempts.
     fn unsigned(&self, request: &Request) -> Result<HttpRequest, HttpError> {
-        let body = request_body(request, &self.config);
+        let model = self.models().into_iter().find(|model| model.id == request.model);
+        let body = request_body(request, &self.config, model.as_ref());
         let mut unsigned = HttpRequest::post(&self.config.responses_url())?
             .json(&body)?
             .header(header::ACCEPT, HeaderValue::from_static("text/event-stream"));
@@ -110,25 +128,6 @@ impl OpenAiProvider {
             unsigned = unsigned.header_text(HeaderName::from_static(SESSION_HEADER), key)?;
         }
         Ok(unsigned.recorded())
-    }
-
-    fn signed(
-        &self,
-        unsigned: &HttpRequest,
-        token: &AccessToken,
-    ) -> Result<HttpRequest, HttpError> {
-        let mut request = unsigned.clone().bearer_auth(token.secret())?;
-        if self.config.backend() == Backend::Subscription {
-            request = request.header_text(
-                HeaderName::from_static(ORIGINATOR_HEADER),
-                self.config.originator(),
-            )?;
-            if let Some(account_id) = token.account_id() {
-                request =
-                    request.header_text(HeaderName::from_static(ACCOUNT_HEADER), account_id)?;
-            }
-        }
-        Ok(request)
     }
 
     /// Sends the request and returns the successful response, with one token refresh on
@@ -141,7 +140,7 @@ impl OpenAiProvider {
         let mut refreshed = false;
         loop {
             let token = self.tokens.access_token().await?;
-            let request = self.signed(unsigned, &token).map_err(transport)?;
+            let request = sign(unsigned, &self.config, &token).map_err(transport)?;
             let response = self
                 .http
                 .send_with_retry(&request, self.config.retry())
@@ -213,8 +212,8 @@ impl Provider for OpenAiProvider {
         &self.id
     }
 
-    fn models(&self) -> &[ModelInfo] {
-        self.config.models()
+    fn models(&self) -> Vec<ModelInfo> {
+        with_extra(self.catalog.current().models(), self.config.models())
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
@@ -298,6 +297,24 @@ fn clip(message: &str) -> String {
 
 fn transport(error: HttpError) -> ProviderError {
     ProviderError::Transport { source: Box::new(error) }
+}
+
+/// `unsigned` with the credentials of `token` and, on the subscription path, the
+/// `originator` and account headers. Model requests and catalog fetches send the same.
+pub(crate) fn sign(
+    unsigned: &HttpRequest,
+    config: &OpenAiConfig,
+    token: &AccessToken,
+) -> Result<HttpRequest, HttpError> {
+    let mut request = unsigned.clone().bearer_auth(token.secret())?;
+    if config.backend() == Backend::Subscription {
+        request =
+            request.header_text(HeaderName::from_static(ORIGINATOR_HEADER), config.originator())?;
+        if let Some(account_id) = token.account_id() {
+            request = request.header_text(HeaderName::from_static(ACCOUNT_HEADER), account_id)?;
+        }
+    }
+    Ok(request)
 }
 
 /// The events of a streaming response, until the answer is done or fails.

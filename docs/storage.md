@@ -15,6 +15,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records | `efr-credentials/src/file_store.rs` |
 | `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration | `efr-store/src/migrations.rs` |
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |
+| `$XDG_STATE_HOME/efr/model_catalog.json` (0600) | the last model catalog that the subscription backend sent, with its base URL, efr's version, the time and the `ETag`; efrd starts with it while the backend does not answer, and replaces it in one step after each fetch | `efr-daemon/src/catalog.rs`, `efr-provider-openai/src/catalog/cache.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/tmp/` | the private `/tmp` and `/var/tmp` of the `auto` sandbox, one per conversation | `efr-daemon` makes it, `efr-sbx` binds it |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/cache/<name>/upper/`, `work/` | the private upper layer of one tool cache overlay; efrd deletes it after `sandbox.cache_days` without a call, with the conversation, or when all layers pass `sandbox.cache_max_gib` | `efr-daemon`, `efr-sandbox/src/spec.rs` (`CacheOverlay`) |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/last-call` | an empty file that each call's plan touches; the cache collector counts idle days from its time | `efr-daemon/src/sandbox/gc.rs` |

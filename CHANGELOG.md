@@ -142,8 +142,31 @@ into the GitHub release notes, and it stops when the section is missing.
   and a prompt that you send meanwhile waits for it. While a turn runs, efr refuses
   it. A retry of the same command waits for the compaction that runs. The plugin
   hands the focus to `efr` in its environment, as it does a prompt.
+- The model list comes from the ChatGPT backend. efrd asks for it in the background
+  at start, after `efr login openai` and then every hour, with efr's own version. An
+  unchanged list costs a short answer. A prompt never waits for this request: a new
+  list applies from the next turn on. efrd keeps the last list in its state directory
+  (`~/.local/state/efr/model_catalog.json` by default), so a start without network
+  offers it. The
+  list built into efr stands in only when no list came yet, and for an API key. Models
+  that the backend hides, or that need a newer client, are not offered.
+- `efr models` shows the context window of each model and the largest window that
+  `[openai] models` can set, such as `gpt-6.1-sol  272k (up to 872k)`, and a last line
+  that says where the list came from: `models: from the backend, fetched 5m ago`,
+  `from the cache, fetched 2h 5m ago` or `built into efr`. `efr status` shows the same
+  as its `models` line.
+- A `context_window` in `[openai] models` can raise or lower the window of a model of
+  the list, up to its largest window. Above that, efrd uses the largest window and
+  warns once in its log, and `efr config check` adds a note.
 
 ### Changed
+
+- The default model is now the first model of the backend's list (gpt-6.1-sol today),
+  not gpt-5.5, which the backend lists as its legacy model. `[model] name` still wins.
+  The first id of `[openai] models` no longer picks the default model. The window,
+  the efforts, the default effort and the tool form of each model come from the
+  backend's list too. With an API key, the built-in list stands in, so a model that
+  it does not hold needs an entry in `[openai] models`.
 
 - A long command no longer leaves a short first word alone in its row (`cp \`). A row
   breaks at a space only when it is at least half full; else it breaks inside the word

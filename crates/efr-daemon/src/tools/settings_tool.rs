@@ -45,7 +45,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use crate::providers::{default_model, effective_models};
+use crate::catalog::{self, Models};
 use crate::reload::{Outcome, Reloads};
 
 /// The tool's name.
@@ -114,6 +114,8 @@ pub(crate) struct SettingsTool {
     engine: watch::Receiver<Arc<Engine>>,
     /// The reload task, asked after a write.
     reloads: Reloads,
+    /// The model catalog, which the default model and effort are checked against.
+    models: Arc<Models>,
     /// The changes the user saw, by call.
     shown: Mutex<VecDeque<(CallId, Shown)>>,
 }
@@ -144,12 +146,14 @@ impl SettingsTool {
         settings: watch::Receiver<Arc<Settings>>,
         engine: watch::Receiver<Arc<Engine>>,
         reloads: Reloads,
+        models: Arc<Models>,
     ) -> Self {
         SettingsTool {
             path: config_dir.join(CONFIG_FILE),
             settings,
             engine,
             reloads,
+            models,
             shown: Mutex::default(),
         }
     }
@@ -226,7 +230,8 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
-        blocking(move || plan(&path, &input, &engine, &running)).await
+        let models = self.models.current();
+        blocking(move || plan(&path, &input, &engine, &running, &models)).await
     }
 
     /// Plans `input` again and writes it when the user saw exactly this change.
@@ -234,8 +239,9 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
+        let models = self.models.current();
         blocking(move || {
-            let plan = plan(&path, &input, &engine, &running)?;
+            let plan = plan(&path, &input, &engine, &running, &models)?;
             if plan.shown != shown {
                 return Err(CHANGED.to_owned());
             }
@@ -320,7 +326,7 @@ impl SettingsTool {
             Ok(file) => file,
             Err(_) => FileState::of(&self.path),
         };
-        read_text(&file, &self.reloads.last(), &running)
+        read_text(&file, &self.reloads.last(), &running, &self.models.effective(&running))
     }
 
     fn remember(&self, call_id: CallId, shown: Shown) {
@@ -409,6 +415,7 @@ fn plan(
     input: &SettingsInput,
     engine: &Engine,
     running: &Settings,
+    models: &efr_provider_openai::Catalog,
 ) -> Result<Plan, String> {
     let file = ConfigFile::open(path).map_err(|error| describe(&error))?;
     let mut edit = file.edit().map_err(|error| describe(&error))?;
@@ -433,7 +440,7 @@ fn plan(
             describe(&error)
         )
     })?;
-    check_models(&next)?;
+    check_models(&next, models)?;
     let loosens = loosens(&before_settings, &next);
     Ok(Plan { file, edit, shown: Shown { before, after }, summary, loosens, key })
 }
@@ -580,12 +587,12 @@ fn refuse_secrets(engine: &Engine, rule: &Rule) -> Result<(), String> {
 }
 
 /// The default model must be in the model list, and the default effort one it takes.
-fn check_models(settings: &Settings) -> Result<(), String> {
-    let models = effective_models(settings);
+fn check_models(settings: &Settings, catalog: &efr_provider_openai::Catalog) -> Result<(), String> {
+    let (models, _) = catalog::effective_models(settings, catalog);
     if models.is_empty() {
         return Ok(());
     }
-    let model = default_model(settings);
+    let model = catalog::default_model(settings, catalog);
     let Some(info) = models.iter().find(|info| info.id == model) else {
         return Err(format!(
             "The change was not made: {model} is not in the model list ({}). A new model id \
@@ -665,7 +672,12 @@ fn without<'a>(rules: &'a [Rule], other: &[Rule]) -> Vec<&'a Rule> {
 }
 
 /// The text of `read`.
-fn read_text(file: &FileState, last: &Outcome, settings: &Settings) -> String {
+fn read_text(
+    file: &FileState,
+    last: &Outcome,
+    settings: &Settings,
+    models: &[ModelInfo],
+) -> String {
     let mut text = String::new();
     let place = match (&file.symlink_target, file.exists) {
         (Some(target), true) => format!("a link to {}", target.display()),
@@ -719,18 +731,26 @@ fn read_text(file: &FileState, last: &Outcome, settings: &Settings) -> String {
         }
     }
     text.push_str("\nModels (model.name must be one of them; model.effort one of its efforts):\n");
-    for model in effective_models(settings) {
-        let mut line = model.id.clone();
-        if model.default {
-            line.push_str(" (the default)");
-        }
+    for model in models {
+        let mut facts = Vec::new();
         if !model.efforts.is_empty() {
-            let _ = write!(line, ": efforts {}", model.efforts.join(", "));
+            let mut efforts = format!("efforts {}", model.efforts.join(", "));
+            if let Some(effort) = &model.default_effort {
+                let _ = write!(efforts, ", default effort {effort}");
+            }
+            facts.push(efforts);
         }
-        if let Some(effort) = &model.default_effort {
-            let _ = write!(line, ", default effort {effort}");
+        if let Some(window) = model.context_window {
+            let mut fact = format!("window {window} tokens");
+            if let Some(max) = model.max_context_window.filter(|max| *max > window) {
+                let _ = write!(fact, ", openai.models can raise it up to {max}");
+            }
+            facts.push(fact);
         }
-        let _ = writeln!(text, "{line}");
+        let default = if model.default { " (the default)" } else { "" };
+        let facts =
+            if facts.is_empty() { String::new() } else { format!(": {}", facts.join("; ")) };
+        let _ = writeln!(text, "{}{default}{facts}", model.id);
     }
     text.push_str(
         "\nThe user changes the model, effort or mode for one terminal with ,model, ,effort \

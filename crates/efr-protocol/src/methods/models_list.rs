@@ -1,5 +1,6 @@
 //! `models.list`: the models that a prompt may name, with their reasoning efforts.
 
+use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,8 +12,39 @@ pub struct ModelsList {}
 /// `settings.model` must name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ModelsListResult {
-    /// Every model, the built-in ones first, then the ones that the config adds.
+    /// Every model: the ones of the provider's catalog first, best priority first, then
+    /// the ones that the config adds.
     pub models: Vec<ModelInfo>,
+    /// Where the provider's catalog came from. Absent when the daemon does not report
+    /// it, as before the catalog came from the backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<CatalogStatus>,
+}
+
+/// Where the daemon's model catalog came from, and when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CatalogStatus {
+    /// Where the list came from.
+    pub origin: CatalogOrigin,
+    /// When the backend last sent the list or said that it did not change. Absent for
+    /// the list built into efr.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<Timestamp>,
+}
+
+/// Where a model catalog came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CatalogOrigin {
+    /// The provider's backend sent it to this daemon, or said that it did not change.
+    Backend,
+    /// The cache file of an earlier fetch. The daemon starts with it, such as while it
+    /// is offline, until the backend answers.
+    Cache,
+    /// The list built into efr: no fetch worked yet and no cache is on disk, or the
+    /// provider has no catalog with windows (the API key backend).
+    Builtin,
 }
 
 /// One model of the list.
@@ -34,11 +66,19 @@ pub struct ModelInfo {
     pub default: bool,
     /// Where the model comes from.
     pub source: ModelSource,
-    /// The model's context window in tokens: from efr's built-in list, or from the
-    /// model's entry in `[openai] models`. Absent when efr does not know it; efrd then
-    /// counts with a default window.
+    /// The context window in tokens that efrd uses for the model: the window of the
+    /// model's entry in `[openai] models`, cut down to `max_context_window`, else the
+    /// catalog's window. Absent when efr does not know it; efrd then counts with a
+    /// default window.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
+    /// The largest window in tokens that an entry in `[openai] models` can set for the
+    /// model, from the catalog. Absent when the catalog does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_context_window: Option<u64>,
+    /// True when the backend prefers that a client reach the model over a WebSocket.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prefer_websockets: bool,
 }
 
 /// Where a model of the list comes from.
@@ -46,7 +86,8 @@ pub struct ModelInfo {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ModelSource {
-    /// The daemon's built-in list for its provider.
+    /// The provider's model catalog: from the backend, its cache or the list built into
+    /// efr. [`ModelsListResult::catalog`] says which.
     Builtin,
     /// The `[openai] models` list of the config file.
     Config,

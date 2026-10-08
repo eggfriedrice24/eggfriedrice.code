@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 
 use crate::settings::{LiveSettings, conversation_config};
+use crate::testing::builtin_models;
 
 #[test]
 fn the_conversation_settings_follow_the_config() {
@@ -24,8 +25,13 @@ fn the_conversation_settings_follow_the_config() {
     config.permissions.mode = Mode::Auto;
     let host = HostInfo::new(Some("box".to_owned()), Some("Arch Linux".to_owned()));
 
-    let settings =
-        conversation_config(&config, PathBuf::from("/d/scratch"), host.clone(), TimeZone::UTC);
+    let settings = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/scratch"),
+        host.clone(),
+        TimeZone::UTC,
+    );
 
     assert_eq!(settings.model, "gpt-6-sol");
     assert_eq!(settings.scratch_root, PathBuf::from("/d/scratch"));
@@ -47,12 +53,17 @@ fn the_turn_defaults_and_the_model_list_follow_the_config() {
     config.model.effort = Some("high".to_owned());
     config.openai.models = Some(vec!["gpt-next".into()]);
 
-    let settings =
-        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+    let settings = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
 
     assert_eq!(settings.mode, Mode::Auto);
     assert_eq!(settings.effort.as_deref(), Some("high"));
-    assert_eq!(settings.models, crate::providers::effective_models(&config));
+    assert_eq!(settings.models, builtin_models().effective(&config));
     assert!(settings.models.iter().any(|model| model.id == "gpt-next"));
 }
 
@@ -60,14 +71,24 @@ fn the_turn_defaults_and_the_model_list_follow_the_config() {
 fn the_compaction_settings_reach_the_conversations_with_one_default() {
     assert_eq!(efr_config::DEFAULT_AUTO_AT, efr_conversation::DEFAULT_AUTO_AT);
     let mut config = Settings::default();
-    let defaults =
-        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+    let defaults = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
     assert_eq!(defaults.compaction, efr_conversation::CompactionConfig::default());
 
     config.compaction.auto = false;
     config.compaction.auto_at = 60;
-    let settings =
-        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+    let settings = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
 
     assert_eq!(settings.compaction, efr_conversation::CompactionConfig::new(false, 60));
 }
@@ -76,10 +97,16 @@ fn the_compaction_settings_reach_the_conversations_with_one_default() {
 fn the_conversations_read_the_latest_settings() {
     let (sender, receiver) = watch::channel(Arc::new(Settings::default()));
     let host = HostInfo::new(Some("box".to_owned()), None);
-    let live = LiveSettings::new(receiver, PathBuf::from("/d/scratch"), host, TimeZone::UTC);
+    let live = LiveSettings::new(
+        receiver,
+        PathBuf::from("/d/scratch"),
+        host,
+        TimeZone::UTC,
+        builtin_models(),
+    );
 
     let before = live.current();
-    assert_eq!(before.model, efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
+    assert_eq!(before.model, "gpt-6.1-sol");
     assert_eq!(before.system_prompt.as_deref(), Some(efr_config::DEFAULT_SYSTEM_PROMPT));
     let mut changed = Settings::default();
     changed.model.name = Some("gpt-6-sol".to_owned());
@@ -93,5 +120,5 @@ fn the_conversations_read_the_latest_settings() {
     assert_eq!(before.mode, Mode::Cautious);
     assert_eq!(after.mode, Mode::Manual);
     assert_eq!(after.scratch_root, PathBuf::from("/d/scratch"));
-    assert_eq!(before.model, efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL, "a value read stays");
+    assert_eq!(before.model, "gpt-6.1-sol", "a value read stays");
 }

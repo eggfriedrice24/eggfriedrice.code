@@ -182,9 +182,10 @@ Definition:
   `efr-patch`, next to the parser that reads it.
 - A provider sends the freeform form (a Responses `custom` tool with the grammar) to
   a model that takes it, and the function form (one string member `input`) to every
-  other model. Which models take which form is in
-  `efr-provider-openai/src/models.rs` (`takes_freeform_tools`): every model of
-  Codex's catalog takes the freeform form, as its `apply_patch_tool_type` says.
+  other model. Which models take which form comes from the model catalog
+  (`efr-provider-openai/src/catalog.rs`, `ModelInfo::freeform_tools`): a model whose
+  `apply_patch_tool_type` is `freeform` takes the freeform form, as every model of
+  Codex's catalog does today.
 - The description tells the model the format with a short example, says that the
   patch is plain text and not JSON (in the function form, the whole patch goes in
   `input`), and says that paths are relative to the working directory or absolute.

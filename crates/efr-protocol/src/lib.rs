@@ -76,7 +76,8 @@ pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};
 pub use methods::lease_report::{LeaseReport, LeaseReportResult};
 pub use methods::models_list::{
-    EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList, ModelsListResult, is_effort_word,
+    CatalogOrigin, CatalogStatus, EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList,
+    ModelsListResult, is_effort_word,
 };
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};

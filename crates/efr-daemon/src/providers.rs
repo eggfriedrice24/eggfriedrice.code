@@ -1,5 +1,5 @@
-//! The model providers: credential rows to token sources to providers, and the
-//! subscription login.
+//! The model providers: credential rows to token sources to providers, the model
+//! catalog, and the subscription login.
 //!
 //! Two providers exist at milestone 1, both over `efr_provider_openai::OpenAiProvider`
 //! and one shared `efr_http` client:
@@ -13,9 +13,11 @@
 //! The config picks the provider of new conversations; a [`ProviderFactory`] given to
 //! the daemon replaces how it is built, which is how an in-process daemon answers from
 //! a replay instead of the network. After a login the token source forgets its cached
-//! token, so the running provider uses the new account at once.
+//! token, so the running provider uses the new account at once, and the model catalog
+//! is fetched again (`catalog.rs`). A daemon with a factory never fetches the catalog.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -23,15 +25,16 @@ use efr_config::{OpenAiSettings, Settings};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
-use efr_protocol::{ModelInfo as WireModel, ModelSource, ProviderStatus};
+use efr_protocol::ProviderStatus;
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderId, StaticToken, TokenSource,
 };
-use efr_provider_openai::{OpenAiConfig, OpenAiProvider};
+use efr_provider_openai::{Catalog, CatalogClient, ModelCatalog, OpenAiConfig, OpenAiProvider};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
+use crate::catalog::Models;
 
 /// The subscription provider and its credential.
 pub const SUBSCRIPTION: &str = "openai-subscription";
@@ -44,27 +47,41 @@ pub trait ProviderFactory: Send + Sync + fmt::Debug {
     fn provider(&self, id: &str) -> Result<Arc<dyn Provider>, DaemonError>;
 }
 
-/// The daemon's providers and the login.
+/// The daemon's providers, the model catalog and the login.
 #[derive(Debug)]
 pub(crate) struct Providers {
     store: Arc<dyn SecretStore>,
     subscription: Arc<OpenAiTokenSource>,
     login: OpenAiLogin,
     active: Arc<dyn Provider>,
+    models: Arc<Models>,
+}
+
+/// What [`Providers::build`] takes besides the config and the store.
+#[derive(Debug)]
+pub(crate) struct ProviderParts {
+    pub(crate) http: HttpClient,
+    pub(crate) clock: Arc<dyn Clock>,
+    pub(crate) rng: Arc<dyn Rng>,
+    /// Replaces how the conversations' provider is built; the catalog is then never
+    /// fetched.
+    pub(crate) factory: Option<Arc<dyn ProviderFactory>>,
+    /// Replaces the authorization server.
+    pub(crate) issuer: Option<String>,
+    /// The catalog to start with, from the cache or built in.
+    pub(crate) catalog: Catalog,
+    /// The cache file of the catalog.
+    pub(crate) catalog_cache: PathBuf,
 }
 
 impl Providers {
-    /// The providers of `config`, with credentials in `store`. `factory` replaces how
-    /// the conversations' provider is built, and `issuer` the authorization server.
+    /// The providers of `config`, with credentials in `store`.
     pub(crate) fn build(
         config: &Settings,
         store: Arc<dyn SecretStore>,
-        http: HttpClient,
-        clock: Arc<dyn Clock>,
-        rng: Arc<dyn Rng>,
-        factory: Option<Arc<dyn ProviderFactory>>,
-        issuer: Option<String>,
+        parts: ProviderParts,
     ) -> Result<Self, DaemonError> {
+        let ProviderParts { http, clock, rng, factory, issuer, catalog, catalog_cache } = parts;
         let mut oauth = OAuthConfig::default();
         oauth.originator.clone_from(&config.openai.originator);
         if let Some(issuer) = issuer {
@@ -85,6 +102,21 @@ impl Providers {
             Arc::clone(&clock),
             rng,
         );
+        let catalog = ModelCatalog::new(catalog);
+        let fetches = factory.is_none() && config.model.provider != API;
+        let models = if fetches {
+            let base_url = config.openai.subscription_base_url.as_deref();
+            let openai = openai_config(OpenAiConfig::subscription(), &config.openai, base_url)?;
+            let client = CatalogClient::new(
+                openai,
+                http.clone(),
+                Arc::clone(&subscription) as Arc<dyn TokenSource>,
+                Arc::clone(&clock),
+            );
+            Models::fetched(catalog.clone(), client, catalog_cache, Arc::clone(&clock))
+        } else {
+            Models::fixed(catalog.clone())
+        };
         let factory: Arc<dyn ProviderFactory> = match factory {
             Some(factory) => factory,
             None => Arc::new(CredentialProviders {
@@ -93,13 +125,15 @@ impl Providers {
                 subscription: Arc::clone(&subscription),
                 store: Arc::clone(&store),
                 clock,
+                catalog,
             }),
         };
         let active = factory.provider(&config.model.provider)?;
-        let model = default_model(config);
-        warn_unfit_defaults(config);
-        tracing::info!(provider = %active.id(), model = %model, "provider ready");
-        Ok(Providers { store, subscription, login, active })
+        let models = Arc::new(models);
+        let model = models.default_model(config);
+        warn_unfit_defaults(config, &models);
+        tracing::info!(provider = %active.id(), model = %model, fetches_catalog = models.fetches(), "provider ready");
+        Ok(Providers { store, subscription, login, active, models })
     }
 
     /// The provider of new conversations.
@@ -107,14 +141,21 @@ impl Providers {
         Arc::clone(&self.active)
     }
 
+    /// The model catalog and its fetch.
+    pub(crate) fn models(&self) -> Arc<Models> {
+        Arc::clone(&self.models)
+    }
+
     /// Binds the login callback and returns the login to complete.
     pub(crate) async fn start_login(&self) -> Result<PendingLogin, DaemonError> {
         self.login.start().await.map_err(|source| DaemonError::Login { source })
     }
 
-    /// Makes the subscription provider read the new login at its next request.
+    /// Makes the subscription provider read the new login at its next request, and
+    /// fetches the model catalog of the new account.
     pub(crate) fn login_completed(&self) {
         self.subscription.clear_cache();
+        self.models.refresh_now();
     }
 
     /// Whether each provider has credentials, for `admin.status`.
@@ -149,79 +190,20 @@ pub(crate) fn provider_status(id: &str, record: Option<&CredentialRecord>) -> Pr
     ProviderStatus { provider: id.to_owned(), logged_in: record.is_some(), expires_at }
 }
 
-/// The model of new conversations: the configured one, else the first of a configured
-/// model list, else the subscription's default.
-pub(crate) fn default_model(config: &Settings) -> String {
-    config
-        .model
-        .name
-        .clone()
-        .or_else(|| {
-            config
-                .openai
-                .models
-                .as_ref()
-                .and_then(|models| models.first())
-                .map(|m| m.id().to_owned())
-        })
-        .unwrap_or_else(|| efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL.to_owned())
-}
-
-/// The built-in models of the provider of `config`.
-fn builtin_models(config: &Settings) -> Vec<ModelInfo> {
-    if config.model.provider == API {
-        efr_provider_openai::api_models()
-    } else {
-        efr_provider_openai::subscription_models()
-    }
-}
-
-/// The effective model list of `config`, as `models.list` answers it and a turn checks
-/// against it: the built-in models of its provider, then each model of `[openai] models`
-/// that the built-in list does not hold, and the default model marked. A context window
-/// that an entry of `[openai] models` gives wins over the built-in one.
-pub(crate) fn effective_models(config: &Settings) -> Vec<WireModel> {
-    let default = default_model(config);
-    let builtin = builtin_models(config).into_iter().map(|model| WireModel {
-        default: model.id == default,
-        id: model.id,
-        efforts: model.efforts,
-        default_effort: model.default_effort,
-        source: ModelSource::Builtin,
-        context_window: model.context_window,
-    });
-    let mut models: Vec<WireModel> = builtin.collect();
-    for entry in config.openai.models.iter().flatten() {
-        if let Some(model) = models.iter_mut().find(|model| model.id == entry.id()) {
-            model.context_window = entry.context_window().or(model.context_window);
-            continue;
-        }
-        models.push(WireModel {
-            id: entry.id().to_owned(),
-            efforts: Vec::new(),
-            default_effort: None,
-            default: entry.id() == default,
-            source: ModelSource::Config,
-            context_window: entry.context_window(),
-        });
-    }
-    models
-}
-
 /// Warns when the config's default model is not in the model list, or its default
 /// effort is not one the default model takes: every prompt that leaves them to the
 /// config then fails until the file is fixed.
-fn warn_unfit_defaults(config: &Settings) {
-    let models = effective_models(config);
-    if models.is_empty() {
+fn warn_unfit_defaults(config: &Settings, models: &Models) {
+    let list = models.effective(config);
+    if list.is_empty() {
         return;
     }
-    let known: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
+    let known: Vec<&str> = list.iter().map(|model| model.id.as_str()).collect();
     if let Some(name) = config.unknown_model(&known) {
         tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so a turn that does not name its own model fails");
     }
-    let default = default_model(config);
-    let efforts = models.iter().find(|model| model.id == default).map(|model| &model.efforts);
+    let default = models.default_model(config);
+    let efforts = list.iter().find(|model| model.id == default).map(|model| &model.efforts);
     if let (Some(effort), Some(efforts)) = (&config.model.effort, efforts)
         && !efforts.is_empty()
         && !efforts.contains(effort)
@@ -234,7 +216,8 @@ fn credential(id: &str) -> Result<CredentialId, DaemonError> {
     CredentialId::new(id).map_err(|source| DaemonError::Credentials { source })
 }
 
-/// The production factory: OpenAI providers over the stored credentials.
+/// The production factory: OpenAI providers over the stored credentials, reading their
+/// models from the shared catalog.
 #[derive(Debug)]
 struct CredentialProviders {
     openai: OpenAiSettings,
@@ -242,6 +225,7 @@ struct CredentialProviders {
     subscription: Arc<OpenAiTokenSource>,
     store: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
+    catalog: ModelCatalog,
 }
 
 impl ProviderFactory for CredentialProviders {
@@ -257,19 +241,21 @@ impl ProviderFactory for CredentialProviders {
             let base_url = self.openai.subscription_base_url.as_deref();
             (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
         };
-        Ok(Arc::new(OpenAiProvider::new(
+        let provider = OpenAiProvider::new(
             provider_id,
             config,
             self.http.clone(),
             tokens,
             Arc::clone(&self.clock),
-        )))
+        )
+        .with_catalog(self.catalog.clone());
+        Ok(Arc::new(provider))
     }
 }
 
 /// `config` with the user's settings applied: the originator, the base URL and the
-/// models of `[openai] models` added to the built-in list, with the limits that an
-/// entry gives over the built-in ones.
+/// models of `[openai] models`, laid over the catalog with the limits that an entry
+/// gives.
 ///
 /// The reasoning effort is not set here: each turn sends its own in the request's
 /// `provider_options`, so a change of `[model] effort` reaches the next turn without a
@@ -285,23 +271,15 @@ pub(crate) fn openai_config(
         config = config.with_base_url(base_url).map_err(invalid)?;
     }
     if let Some(extra) = &settings.models {
-        let mut models = config.models().to_vec();
-        for entry in extra {
-            let index = match models.iter().position(|model| model.id == entry.id()) {
-                Some(index) => index,
-                None => {
-                    models.push(ModelInfo::new(entry.id()));
-                    models.len() - 1
-                }
-            };
-            let model = &mut models[index];
-            if let Some(window) = entry.context_window() {
-                model.context_window = Some(window);
-            }
-            if let Some(tokens) = entry.max_output_tokens() {
-                model.max_output_tokens = Some(tokens);
-            }
-        }
+        let models = extra
+            .iter()
+            .map(|entry| {
+                let mut model = ModelInfo::new(entry.id());
+                model.context_window = entry.context_window();
+                model.max_output_tokens = entry.max_output_tokens();
+                model
+            })
+            .collect();
         config = config.with_models(models);
     }
     Ok(config)

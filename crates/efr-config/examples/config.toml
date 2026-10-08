@@ -21,9 +21,10 @@
 # efr login openai) or openai-api (an API key). (restart)
 # provider = "openai-subscription"
 
-# The default model of a turn. Unset: the first of openai.models, else gpt-5.5. A
+# The default model of a turn. Unset: the model with the best priority in the
+# provider's model catalog, which comes from the backend (efr models shows it). A
 # prompt may choose another one for its turn.
-# name = "gpt-5.5"
+# name = "gpt-6.1-sol"
 
 # The default reasoning effort, such as low, medium or high. Unset: the backend's own
 # default for the model. A prompt may choose another one for its turn.
@@ -42,12 +43,13 @@
 # (restart)
 # originator = "efr"
 
-# Models added to the built-in model list, such as a new model before efr knows it.
-# A prompt may then name them; their efforts are not checked. An entry is a model id,
-# or a table that also gives the model's context window (1000 to 100000000 tokens) and
-# its output limit (1 to 1000000 tokens, below the window). A table may name a
-# built-in model to change its limits.
-# models = ["gpt-5.4", { id = "gpt-next", context_window = 400000, max_output_tokens = 128000 }]
+# Models added to the provider's model list, such as a new model before the backend
+# lists it. A prompt may then name them; their efforts are not checked. An entry is a
+# model id, or a table that also gives the model's context window (1000 to 100000000
+# tokens) and its output limit (1 to 1000000 tokens, below the window). A table may
+# name a model of the catalog to raise or lower its window, up to the largest window
+# of the model ("up to" in efr models). Above that, efrd uses the largest one.
+# models = ["gpt-5.4", { id = "gpt-6.1-sol", context_window = 400000 }]
 
 # Replaces the subscription backend's base URL. Unset: the ChatGPT backend. (restart)
 # subscription_base_url = "https://chatgpt.com/backend-api/codex"

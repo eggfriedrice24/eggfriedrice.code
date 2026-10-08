@@ -70,7 +70,8 @@ impl Fixture {
                 });
             }
         });
-        let tool = SettingsTool::new(&config, receiver, engine, reloads);
+        let tool =
+            SettingsTool::new(&config, receiver, engine, reloads, crate::testing::builtin_models());
         Fixture { home, tool, settings, reloads: asked }
     }
 
@@ -167,7 +168,17 @@ async fn read_needs_no_approval_and_lists_settings_rules_and_models() {
         ),
         "{text}"
     );
-    assert!(text.contains("gpt-5.5 (the default): efforts low, medium, high, xhigh"), "{text}");
+    assert!(
+        text.contains(
+            "gpt-5.5 (the default): efforts low, medium, high, xhigh, default effort medium; \
+             window 272000 tokens"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("gpt-6.1-sol: efforts low, medium, high, xhigh, max, ultra, default effort low; window 272000 tokens, openai.models can raise it up to 872000"),
+        "{text}"
+    );
     assert!(text.contains(",model"), "{text}");
     assert!(fixture.reloads.lock().unwrap().is_empty(), "a read reloads nothing");
 }

@@ -1,24 +1,64 @@
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{
-    DEFAULT_SUBSCRIPTION_MODEL, api_models, is_reasoning_model, subscription_models,
-    takes_freeform_tools,
-};
+use super::is_reasoning_model;
+use crate::{Backend, Catalog};
+
+/// A model as the table test compares it: id, efforts, default effort, largest window.
+type Row = (String, Vec<String>, Option<String>, Option<u64>);
 
 #[test]
-fn the_default_model_is_listed_for_the_subscription() {
-    let models = subscription_models();
-    let default = models.iter().find(|model| model.id == DEFAULT_SUBSCRIPTION_MODEL).unwrap();
-    assert_eq!(default.context_window, Some(272_000));
-    assert_eq!(default.max_output_tokens, Some(128_000));
+fn the_builtin_table_is_codexs_listed_catalog_in_priority_order() {
+    let models: Vec<Row> = Catalog::builtin(Backend::Subscription)
+        .models()
+        .into_iter()
+        .map(|model| (model.id, model.efforts, model.default_effort, model.max_context_window))
+        .collect();
+    let ultra = ["low", "medium", "high", "xhigh", "max", "ultra"];
+    let max = ["low", "medium", "high", "xhigh", "max"];
+    let entry = |id: &str, efforts: &[&str], default: &str, most: u64| {
+        (
+            id.to_owned(),
+            efforts.iter().map(|effort| (*effort).to_owned()).collect::<Vec<_>>(),
+            Some(default.to_owned()),
+            Some(most),
+        )
+    };
+    assert_eq!(
+        models,
+        [
+            entry("gpt-6.1-sol", &ultra, "low", 872_000),
+            entry("gpt-6-astra", &ultra, "low", 872_000),
+            entry("gpt-6-sol", &ultra, "medium", 872_000),
+            entry("gpt-6-luna", &max, "medium", 872_000),
+            entry("gpt-5.6-sol", &ultra, "low", 872_000),
+            entry("gpt-5.6-terra", &ultra, "medium", 872_000),
+            entry("gpt-5.6-luna", &max, "medium", 872_000),
+            entry("gpt-5.5", &["low", "medium", "high", "xhigh"], "medium", 272_000),
+        ]
+    );
 }
 
 #[test]
-fn subscription_models_are_unique_and_reason() {
-    let models = subscription_models();
+fn the_builtin_default_is_the_newest_workhorse_and_not_the_legacy_model() {
+    assert_eq!(
+        Catalog::builtin(Backend::Subscription).default_model().as_deref(),
+        Some("gpt-6.1-sol")
+    );
+}
+
+#[test]
+fn every_builtin_model_reasons_takes_freeform_tools_and_has_a_window() {
+    let models = Catalog::builtin(Backend::Subscription).models();
     let mut ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
-    assert!(ids.iter().all(|id| is_reasoning_model(id)), "{ids:?}");
+    for model in &models {
+        assert!(is_reasoning_model(&model.id), "{}", model.id);
+        assert!(model.freeform_tools, "{}", model.id);
+        assert!(model.prefer_websockets, "{}", model.id);
+        assert_eq!(model.context_window, Some(272_000), "{}", model.id);
+        let default = model.default_effort.as_deref().unwrap();
+        assert!(model.efforts.iter().any(|effort| effort == default), "{}", model.id);
+    }
     let count = ids.len();
     ids.sort_unstable();
     ids.dedup();
@@ -26,47 +66,11 @@ fn subscription_models_are_unique_and_reason() {
 }
 
 #[test]
-fn every_subscription_model_names_its_efforts_and_a_default_among_them() {
-    for model in subscription_models() {
-        assert!(!model.efforts.is_empty(), "{}", model.id);
-        let default = model.default_effort.as_deref().unwrap();
-        assert!(model.efforts.iter().any(|effort| effort == default), "{}", model.id);
-    }
-}
-
-#[test]
-fn the_subscription_list_is_codexs_listed_catalog() {
-    let models: Vec<(String, Vec<String>, Option<String>)> = subscription_models()
-        .into_iter()
-        .map(|model| (model.id, model.efforts, model.default_effort))
-        .collect();
-    let ultra = ["low", "medium", "high", "xhigh", "max", "ultra"];
-    let max = ["low", "medium", "high", "xhigh", "max"];
-    let entry = |id: &str, efforts: &[&str], default: &str| {
-        (
-            id.to_owned(),
-            efforts.iter().map(|effort| (*effort).to_owned()).collect::<Vec<_>>(),
-            Some(default.to_owned()),
-        )
-    };
+fn the_api_backend_falls_back_to_the_same_table() {
     assert_eq!(
-        models,
-        [
-            entry("gpt-6.1-sol", &ultra, "low"),
-            entry("gpt-6-astra", &ultra, "low"),
-            entry("gpt-6-sol", &ultra, "medium"),
-            entry("gpt-6-luna", &max, "medium"),
-            entry("gpt-5.6-sol", &ultra, "low"),
-            entry("gpt-5.6-terra", &ultra, "medium"),
-            entry("gpt-5.6-luna", &max, "medium"),
-            entry("gpt-5.5", &["low", "medium", "high", "xhigh"], "medium"),
-        ]
+        Catalog::builtin(Backend::Api).models(),
+        Catalog::builtin(Backend::Subscription).models()
     );
-}
-
-#[test]
-fn the_api_lists_no_models() {
-    assert!(api_models().is_empty());
 }
 
 #[rstest]
@@ -82,15 +86,4 @@ fn the_api_lists_no_models() {
 #[case("", false)]
 fn reasoning_families(#[case] model: &str, #[case] reasons: bool) {
     assert_eq!(is_reasoning_model(model), reasons, "{model}");
-}
-
-#[test]
-fn every_catalog_model_takes_freeform_tools_and_no_other_model_does() {
-    // Codex's catalog says `apply_patch_tool_type: "freeform"` for every listed model.
-    for model in subscription_models() {
-        assert!(takes_freeform_tools(&model.id), "{}", model.id);
-    }
-    for model in ["gpt-4.1", "gpt-5", "o3", "", "gpt-5.5-preview"] {
-        assert!(!takes_freeform_tools(model), "{model}");
-    }
 }

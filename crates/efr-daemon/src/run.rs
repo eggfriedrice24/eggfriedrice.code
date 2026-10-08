@@ -45,7 +45,7 @@ use crate::discovery::{self, DaemonInfo};
 use crate::engine::EngineParts;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
-use crate::providers::{ProviderFactory, Providers};
+use crate::providers::{ProviderFactory, ProviderParts, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
 use crate::sandbox::{self, HostFacts, SandboxService, Seams, ServiceParts, launcher};
@@ -54,7 +54,7 @@ use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
 use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
-use crate::{DaemonError, gc, notices, reconcile, screens, signals};
+use crate::{DaemonError, catalog, gc, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
 const RECORDINGS_DIR: &str = "recordings";
@@ -410,15 +410,21 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
+    let catalog_cache = dirs.state().join(catalog::CATALOG_FILE);
     let providers = Providers::build(
         &settings,
         secrets,
-        http,
-        Arc::clone(&clock),
-        Arc::clone(&rng),
-        providers,
-        oauth_issuer,
+        ProviderParts {
+            http,
+            clock: Arc::clone(&clock),
+            rng: Arc::clone(&rng),
+            factory: providers,
+            issuer: oauth_issuer,
+            catalog: catalog::load(&settings, &catalog_cache).await,
+            catalog_cache,
+        },
     )?;
+    let models = providers.models();
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
@@ -443,6 +449,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings_receiver.clone(),
         engine_receiver.clone(),
         reloads.clone(),
+        Arc::clone(&models),
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
@@ -498,6 +505,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         dirs.data().join(SCRATCH_DIR),
         host,
         time_zone.unwrap_or_else(TimeZone::system),
+        models,
     );
     let drafts = draft_channel();
     let conversation_deps = ConversationDeps {
@@ -568,6 +576,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
+        tokio::spawn(state.providers.models().serve(stop.clone())),
     ];
     if watch_config && let Some(watching) = reload::watcher::watch(&state).await {
         let follow = reload::watcher::follow(Arc::clone(&state), watching, stop.clone());

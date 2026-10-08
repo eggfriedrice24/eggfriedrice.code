@@ -11,9 +11,9 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations, cut,
-    elapsed, keys, lines, one_line, paint, run_heading, size, status, tokens, took, tool_call,
-    tool_result, turn_done, turn_interrupted, until,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, catalog, code_block,
+    conversations, cut, elapsed, keys, lines, one_line, paint, run_heading, size, status, tokens,
+    took, tool_call, tool_result, turn_done, turn_interrupted, until,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -258,6 +258,10 @@ fn status_result() -> AdminStatusResult {
             },
             ProviderStatus { provider: "anthropic".to_owned(), logged_in: false, expires_at: None },
         ],
+        catalog: Some(efr_protocol::CatalogStatus {
+            origin: efr_protocol::CatalogOrigin::Backend,
+            fetched_at: Some(before(5 * 60)),
+        }),
         roots: None,
         config: None,
         sandbox: None,
@@ -280,6 +284,17 @@ fn status_shows_times_to_the_second() {
     let text = status(&result, Path::new("/s"), now());
     assert!(text.contains("started        2026-10-04T09:59:00Z (2h 0m ago)\n"), "{text}");
     assert!(text.contains("token expires 2026-10-04T12:52:00Z (in 52m 0s)\n"), "{text}");
+}
+
+#[test]
+fn the_catalog_says_where_it_came_from_and_when() {
+    let status = |origin, fetched_at| efr_protocol::CatalogStatus { origin, fetched_at };
+    let backend = status(efr_protocol::CatalogOrigin::Backend, Some(before(5 * 60)));
+    assert_eq!(catalog(&backend, now()), "from the backend, fetched 5m 0s ago");
+    let cache = status(efr_protocol::CatalogOrigin::Cache, Some(before(26 * 3_600)));
+    assert_eq!(catalog(&cache, now()), "from the cache, fetched 1d 2h ago");
+    let builtin = status(efr_protocol::CatalogOrigin::Builtin, None);
+    assert_eq!(catalog(&builtin, now()), "built into efr");
 }
 
 #[test]

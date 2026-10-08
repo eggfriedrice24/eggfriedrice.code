@@ -312,6 +312,7 @@ async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
             conversations: 0,
             shells: 0,
             providers: Vec::new(),
+            catalog: None,
             roots: None,
             config: None,
             sandbox,

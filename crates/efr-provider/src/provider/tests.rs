@@ -124,7 +124,7 @@ async fn complete_passes_on_a_failure_to_start() {
 fn a_provider_names_itself_and_lists_no_models_by_default() {
     let provider = FakeProvider::answering(Vec::new());
     assert_eq!(provider.id().as_str(), "replay");
-    assert_eq!(provider.models(), []);
+    assert_eq!(provider.models(), Vec::<ModelInfo>::new());
 }
 
 #[test]
@@ -135,6 +135,23 @@ fn model_info_records_known_limits() {
     assert_eq!(model.context_window, Some(400_000));
     assert_eq!(model.max_output_tokens, Some(128_000));
     assert_eq!(ModelInfo::new("m").context_window, None);
+}
+
+#[test]
+fn model_info_records_the_facts_of_a_catalog() {
+    let model = ModelInfo::new("gpt-6.1-sol")
+        .with_context_window(272_000)
+        .with_max_context_window(872_000)
+        .with_freeform_tools(true)
+        .with_prefer_websockets(true);
+    assert_eq!(model.context_window, Some(272_000));
+    assert_eq!(model.max_context_window, Some(872_000));
+    assert!(model.freeform_tools);
+    assert!(model.prefer_websockets);
+    let plain = ModelInfo::new("m");
+    assert_eq!(plain.max_context_window, None);
+    assert!(!plain.freeform_tools);
+    assert!(!plain.prefer_websockets);
 }
 
 #[test]

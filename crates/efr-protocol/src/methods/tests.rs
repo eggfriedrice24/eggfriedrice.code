@@ -209,6 +209,8 @@ fn a_model_without_efforts_or_default_is_its_id_and_source() {
         default: false,
         source: ModelSource::Config,
         context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
     };
     let value = serde_json::to_value(&model).unwrap();
     assert_eq!(value, json!({ "id": "gpt-5.5-preview", "source": "config" }));
@@ -226,7 +228,10 @@ fn the_default_model_and_its_efforts_are_written() {
             default: true,
             source: ModelSource::Builtin,
             context_window: None,
+            max_context_window: None,
+            prefer_websockets: false,
         }],
+        catalog: None,
     };
     assert_eq!(
         serde_json::to_value(&result).unwrap(),

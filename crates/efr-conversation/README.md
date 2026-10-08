@@ -300,9 +300,10 @@ parts `context` and `compacting`, `conversation.compact`).
 ### Words
 
 - The window: the context window of the turn's model, in tokens. It is the
-  `context_window` of the model in `ConversationConfig::models` (efr's built-in list,
-  or the model's entry in `[openai] models`). When it is not known, efr counts with
-  `DEFAULT_CONTEXT_WINDOW` (128000).
+  `context_window` of the model in `ConversationConfig::models` (the provider's model
+  catalog, from the backend, its cache or efr's built-in list, or the model's entry in
+  `[openai] models`, which the daemon cuts down to the model's largest window). When
+  it is not known, efr counts with `DEFAULT_CONTEXT_WINDOW` (128000).
 - The context: the tokens of one request plus its answer.
 - The trigger: `auto_at` percent of the window, rounded down (`[compaction] auto_at`,
   default 76; 206720 tokens on a window of 272000). An auto compaction runs at the

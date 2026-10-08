@@ -169,7 +169,7 @@ mod daemon {
 
         let requests = requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].model, efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
+        assert_eq!(requests[0].model, "gpt-6.1-sol");
         assert_eq!(requests[0].system.as_deref(), Some(crate::DEFAULT_SYSTEM_PROMPT));
         assert_eq!(requests[0].max_output_tokens, None);
         assert_eq!(requests[1].model, "gpt-6-sol");
@@ -669,7 +669,12 @@ mod daemon {
         let defaults = |list: &ModelsListResult| -> Vec<String> {
             list.models.iter().filter(|model| model.default).map(|model| model.id.clone()).collect()
         };
-        assert_eq!(defaults(&before), ["gpt-5.5"]);
+        assert_eq!(defaults(&before), ["gpt-6.1-sol"]);
+        assert_eq!(
+            before.catalog.map(|catalog| catalog.origin),
+            Some(efr_protocol::CatalogOrigin::Builtin),
+            "a daemon with its own provider keeps the built-in list"
+        );
         assert!(before.models.iter().all(|model| model.source == ModelSource::Builtin));
         assert_eq!(defaults(&after), ["gpt-6-sol"]);
         let added = after.models.last().unwrap();

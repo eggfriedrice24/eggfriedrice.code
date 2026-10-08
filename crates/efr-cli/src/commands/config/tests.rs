@@ -56,6 +56,7 @@ fn status(config: ConfigStatus) -> AdminStatusResult {
         conversations: 0,
         shells: 0,
         providers: vec![],
+        catalog: None,
         roots: None,
         config: Some(config),
         sandbox: None,
@@ -232,6 +233,46 @@ async fn check_says_ok_or_names_the_place_and_the_key_of_an_error() {
         (exit, stdout),
         (Exit::Invalid, format!("{}: it does not exist\n", missing.display()))
     );
+}
+
+#[tokio::test]
+async fn check_notes_a_window_above_the_largest_of_its_model() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let path = env.dirs.config().join("config.toml");
+    let shown = path.display().to_string();
+    std::fs::write(
+        &path,
+        "[openai]\nmodels = [{ id = \"gpt-5.5\", context_window = 900000 }, \
+         { id = \"gpt-5.4\", context_window = 100000 }, { id = \"new\", context_window = 5000000 }]\n",
+    )
+    .unwrap();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        conn.answer_models(&crate::testing::models()).await;
+        conn.until_closed().await;
+    };
+
+    let ((exit, stdout, _), ()) = tokio::join!(efr(&ctx, &["config", "check"]), script);
+
+    assert_eq!(exit, Exit::Success, "efrd uses the largest window, so the file is valid");
+    assert_eq!(
+        stdout,
+        format!(
+            "{shown}: ok\n{shown}: note: openai.models: the context_window 900000 of gpt-5.5 is \
+             above the largest window that the model takes (872000), so efrd uses 872000\n"
+        )
+    );
+}
+
+#[test]
+fn only_a_window_above_a_known_largest_one_gets_a_note() {
+    let list = crate::testing::models();
+    let asked = [("gpt-5.5", 872_000), ("gpt-5.4", 128_001), ("my-model", 9_000_000)];
+    let notes = super::windows_above_the_largest(&asked, &list);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("128001 of gpt-5.4"), "{notes:?}");
 }
 
 #[tokio::test]

@@ -1,0 +1,77 @@
+{
+  "models": [
+    {
+      "slug": "gpt-7-sol",
+      "display_name": "GPT-7-Sol",
+      "description": "A model of the future, listed second by priority.",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        {"effort": "low", "description": "Fast."},
+        {"effort": "medium", "description": "Balanced."},
+        {"effort": "high", "description": "Deep."}
+      ],
+      "shell_type": "shell_command",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 2,
+      "context_window": 300000,
+      "max_context_window": 900000,
+      "apply_patch_tool_type": "freeform",
+      "prefer_websockets": true,
+      "minimal_client_version": "0.0.1",
+      "available_in_plans": ["plus", "pro"],
+      "truncation_policy": {"mode": "tokens", "limit": 10000}
+    },
+    {
+      "slug": "gpt-7-luna",
+      "display_name": "GPT-7-Luna",
+      "description": "The best priority, without freeform tools.",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [{"effort": "low"}, {"effort": "medium"}],
+      "visibility": "list",
+      "supported_in_api": false,
+      "priority": 1,
+      "context_window": 128000,
+      "max_context_window": null,
+      "prefer_websockets": false
+    },
+    {
+      "slug": "gpt-7-hidden",
+      "display_name": "Hidden",
+      "supported_reasoning_levels": [],
+      "visibility": "hide",
+      "priority": 0,
+      "context_window": 272000
+    },
+    {
+      "slug": "gpt-7-unpicked",
+      "supported_reasoning_levels": [],
+      "visibility": "none",
+      "priority": 0,
+      "context_window": 272000
+    },
+    {
+      "slug": "gpt-7-too-new",
+      "supported_reasoning_levels": [{"effort": "low"}],
+      "visibility": "list",
+      "priority": 0,
+      "context_window": 272000,
+      "minimal_client_version": "99.0.0"
+    },
+    {
+      "slug": "gpt-7-odd-window",
+      "supported_reasoning_levels": [{"effort": "low"}],
+      "visibility": "list",
+      "priority": 7,
+      "context_window": -1,
+      "max_context_window": 500000
+    },
+    {
+      "display_name": "An entry without a slug"
+    },
+    {
+      "slug": "gpt-7-broken",
+      "supported_reasoning_levels": "not a list"
+    }
+  ]
+}

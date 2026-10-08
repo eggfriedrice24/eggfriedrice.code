@@ -11,3 +11,4 @@ conversations  2
 shells         1
 provider       openai: logged in, token expires 2026-10-04T12:52:00Z (in 52m 0s)
 provider       anthropic: not logged in
+models         from the backend, fetched 5m 0s ago
