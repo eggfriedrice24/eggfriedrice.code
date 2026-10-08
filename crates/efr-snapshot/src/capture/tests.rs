@@ -63,3 +63,24 @@ fn changed_files_sort_by_their_size_now() {
     assert_eq!(sized.mid, ["mid"]);
     assert_eq!(sized.large, ["large"]);
 }
+
+#[test]
+fn ignored_files_that_git_lists_in_a_nested_repository_are_left_out() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path();
+    fs::write(dir.join("notes.md"), "n").unwrap();
+    fs::create_dir_all(dir.join("vendor/lib/.git")).unwrap();
+    fs::create_dir_all(dir.join("vendor/lib/src")).unwrap();
+    fs::write(dir.join("vendor/lib/src/a.txt"), "a").unwrap();
+    fs::create_dir_all(dir.join("vendor/wt/sub")).unwrap();
+    fs::write(dir.join("vendor/wt/.git"), "gitdir: /elsewhere\n").unwrap();
+    fs::write(dir.join("vendor/wt/sub/f"), "f").unwrap();
+    fs::create_dir_all(dir.join("vendor/repo/.git")).unwrap();
+    fs::write(dir.join("vendor/repo/x"), "x").unwrap();
+    fs::write(dir.join("vendor/key"), "k").unwrap();
+    let entries: Vec<String> =
+        ["notes.md", "vendor/lib/src/a.txt", "vendor/wt/sub/f", "vendor/repo/", "vendor/key"]
+            .map(str::to_owned)
+            .into();
+    assert_eq!(small_ignored(dir, &entries), ["notes.md", "vendor/key"]);
+}

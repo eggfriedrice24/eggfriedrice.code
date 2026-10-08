@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{ConversationId, TurnId};
@@ -25,6 +26,46 @@ impl World {
         let clock = TestClock::starting_at("2026-10-08T10:00:00Z".parse::<Timestamp>().unwrap());
         let snapshots = store(base.path(), &clock);
         World { base, clock, snapshots }
+    }
+
+    /// A world whose store runs git through a script that writes the subcommand of each
+    /// run to a log ([`World::git_runs`]).
+    pub(crate) fn with_git_log() -> World {
+        let world = World::new();
+        let script = world.base.path().join("git-logged");
+        let log = world.base.path().join("git-runs.log");
+        let text = format!(
+            "#!/bin/sh\n\
+             skip=\n\
+             for arg; do\n\
+             \x20 if [ -n \"$skip\" ]; then skip=; elif [ \"$arg\" = -c ]; then skip=1; \
+             else printf '%s\\n' \"$arg\" >> '{}'; break; fi\n\
+             done\n\
+             exec git \"$@\"\n",
+            log.display()
+        );
+        fs::write(&script, text).unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let home = Home::new(world.home()).unwrap();
+        let snapshots = Snapshots::new(SnapshotParts {
+            dir: world.store_dir(),
+            git: Git::new(world.clock.shared()).isolated().with_program(&script),
+            home,
+            clock: world.clock.shared(),
+            excludes_file: None,
+            timeout: DEFAULT_SNAPSHOT_TIMEOUT,
+        });
+        World { snapshots, ..world }
+    }
+
+    /// The git subcommands that the store ran since the last look, sorted.
+    pub(crate) fn git_runs(&self) -> Vec<String> {
+        let log = self.base.path().join("git-runs.log");
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        let _ = fs::remove_file(&log);
+        let mut runs: Vec<String> = text.lines().map(str::to_owned).collect();
+        runs.sort();
+        runs
     }
 
     pub(crate) fn home(&self) -> PathBuf {

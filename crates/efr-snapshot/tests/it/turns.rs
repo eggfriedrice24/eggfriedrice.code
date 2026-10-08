@@ -3,7 +3,7 @@
 use efr_protocol::ChangeKind;
 use pretty_assertions::assert_eq;
 
-use crate::support::{World, conversation, limits, root, turn, write};
+use crate::support::{World, conversation, git, limits, root, tree_of, turn, write};
 
 #[tokio::test]
 async fn a_turn_compares_its_first_snapshot_with_its_last_across_calls_and_writes() {
@@ -129,4 +129,35 @@ async fn the_diff_of_a_turn_lists_an_ignored_file_without_its_content() {
     assert!(diff.contains("+b\n"), "{diff}");
     assert!(diff.contains(".env: ignored file, content not shown\n"), "{diff}");
     assert!(diff.contains("local/key: ignored file, content not shown\n"), "{diff}");
+}
+
+#[tokio::test]
+async fn the_first_call_of_a_turn_in_an_unchanged_root_runs_only_the_two_listings() {
+    let world = World::with_git_log();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join(".gitignore"), "vendor/\n.env\n");
+    write(&dir.join("a.txt"), "a\n");
+    write(&dir.join(".env"), "TOKEN=1\n");
+    write(&dir.join("vendor/notes.md"), "n\n");
+    write(&dir.join("vendor/lib/src/a.rs"), "fn a() {}\n");
+    git(&dir.join("vendor/lib"), &home, &[], &["init", "-q"]).await;
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    world.git_runs();
+
+    // NOTE: vendor/ now has a file in the index, so git lists the ignored files below
+    // it one by one, also those of the nested repository, which git add refuses.
+    let call =
+        world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    assert_eq!(world.git_runs(), ["ls-files", "ls-files"], "no add and no new tree");
+    world.snapshots.after_call(call, limits()).await;
+    assert_eq!(world.git_runs(), ["ls-files"], "a later snapshot skips the ignored files");
+    world.snapshots.finish_turn(turn(2), limits()).await;
+    let pre = format!("refs/efr/{}/{}/pre", conversation(1), turn(2));
+    let tree = tree_of(&world.only_store(), &home, &pre).await;
+    let names: Vec<&str> = tree.keys().map(String::as_str).collect();
+    assert_eq!(names, [".env", ".gitignore", "a.txt", "vendor/notes.md"]);
 }

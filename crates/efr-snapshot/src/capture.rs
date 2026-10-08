@@ -10,9 +10,10 @@
 //! literally ([`stage`]), and `write-tree` writes the tree when one is needed
 //! ([`write_tree`]). With the ignored files of
 //! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories,
-//! and the small ones outside build and dependency directories are added too.
+//! and the small ones outside build and dependency directories and outside nested
+//! repositories are added too.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -358,16 +359,24 @@ pub(crate) fn keep_others(root: &Path, others: Vec<String>, max_file_bytes: u64)
 
 /// The ignored files that a snapshot takes from `entries` of `ls-files -o -i
 /// --directory`: files up to [`MAX_IGNORED_BYTES`] and links, outside
-/// [`SKIPPED_DIRS`]; an ignored directory (an entry that ends with `/`) is walked
-/// without following links, up to [`MAX_IGNORED_FILES`] files in all.
+/// [`SKIPPED_DIRS`] and outside nested repositories; an ignored directory (an entry
+/// that ends with `/`) is walked without following links, up to [`MAX_IGNORED_FILES`]
+/// files in all.
 pub(crate) fn small_ignored(root: &Path, entries: &[String]) -> Vec<String> {
     let mut kept = Vec::new();
+    let mut repos = NestedRepos::default();
     for entry in entries {
         if kept.len() >= MAX_IGNORED_FILES {
             break;
         }
         let relative = entry.trim_end_matches('/');
         if relative.is_empty() || in_skipped_dir(relative) {
+            continue;
+        }
+        // NOTE: git lists the ignored files in a nested repository one by one, but
+        // `git add` refuses each of them. If the snapshot took them, they would fail
+        // again at each turn, and each failure costs an add and a new tree.
+        if repos.holds(root, relative, entry.ends_with('/')) {
             continue;
         }
         if entry.ends_with('/') {
@@ -378,6 +387,34 @@ pub(crate) fn small_ignored(root: &Path, entries: &[String]) -> Vec<String> {
     }
     kept.truncate(MAX_IGNORED_FILES);
     kept
+}
+
+/// The directories of a root that are nested repositories (that hold a `.git`). Each
+/// directory is looked up once.
+#[derive(Debug, Default)]
+struct NestedRepos {
+    known: HashMap<PathBuf, bool>,
+}
+
+impl NestedRepos {
+    /// True when a directory above `relative` is a nested repository, or `relative`
+    /// itself when it is a directory (`dir`). The root does not count.
+    fn holds(&mut self, root: &Path, relative: &str, dir: bool) -> bool {
+        let parts: Vec<&str> = relative.split('/').collect();
+        let dirs = if dir { parts.len() } else { parts.len().saturating_sub(1) };
+        let mut at = PathBuf::new();
+        for part in parts.into_iter().take(dirs) {
+            at.push(part);
+            let nested = *self
+                .known
+                .entry(at.clone())
+                .or_insert_with(|| fs::symlink_metadata(root.join(&at).join(".git")).is_ok());
+            if nested {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// True when a part of `relative` is a skipped directory or a `.git`.
