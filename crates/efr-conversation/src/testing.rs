@@ -636,6 +636,8 @@ impl Harness {
             conversation_id: self.conversation_id,
             turn_id,
             resend_steers: resend,
+            resend_as: None,
+            withdraw_steers: Vec::new(),
             withdraw,
         }
     }

@@ -341,6 +341,7 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
                 seq: Seq::new(14),
                 text: "then fix the bug".to_owned(),
             }],
+            withdrawn_steers: Vec::new(),
         };
         conn.reply(id, &result).await;
         shows(&seen, "interrupted to send your message").await;
@@ -380,6 +381,7 @@ async fn esc_with_nothing_unread_ends_as_ctrl_c_does_and_the_text_shows_without_
             seq: Seq::new(11),
             resent: None,
             withdrawn: vec![],
+            withdrawn_steers: Vec::new(),
         };
         conn.reply(id, &result).await;
         conn.item(sub, &item(12, Event::TurnInterrupted { turn_id: turn() })).await;
@@ -446,6 +448,7 @@ async fn ctrl_c_clears_the_row_first_then_interrupts_and_takes_back_the_queue() 
             seq: Seq::new(13),
             resent: None,
             withdrawn: vec![withdrawn],
+            withdrawn_steers: Vec::new(),
         };
         conn.reply(id, &result).await;
         conn.until_closed().await;

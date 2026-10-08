@@ -558,6 +558,8 @@ async fn a_turn_from_the_phone_asks_before_reading_outside_scratch() {
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     h.handle.interrupt(interrupt, Origin::Phone).await.expect("interrupt accepted");
@@ -651,6 +653,8 @@ async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() 
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     let requested = h.handle.interrupt(interrupt, Origin::Shell).await.expect("interrupt accepted");
@@ -699,6 +703,8 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
         conversation_id: h.conversation_id,
         turn_id: None,
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     h.handle.interrupt(interrupt, Origin::Shell).await.expect("interrupt accepted");

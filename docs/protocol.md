@@ -200,12 +200,18 @@ No protocol version has shipped yet.
   without a waiting prompt gets `not_found`. New event kind `prompt_withdrawn`
   (`turn_id`, `origin`), the last event of a turn that never started. `turn.interrupt`
   takes optional `resend_steers` (seqs of unread `turn_steered` events to send again
-  as one prompt that runs next) and `withdraw` (turns of queued prompts to withdraw),
-  both done in the step that records `turn_interrupt_requested`; its result gains an
-  optional `resent` (`turn_id`, `seq`, `steers`) and `withdrawn`, absent when empty.
+  as one prompt that runs next), `resend_as` (`{kind: "queue"}` with the `context`,
+  `last_command` and `settings` of that prompt, as in `if_late`; absent: those of the
+  interrupted turn), `withdraw_steers` (seqs of unread `turn_steered` events to take
+  back) and `withdraw` (turns of queued prompts to withdraw), all done in the step
+  that records `turn_interrupt_requested`; its result gains an optional `resent`
+  (`turn_id`, `seq`, `steers`), `withdrawn` and `withdrawn_steers` (`seq`, `text`),
+  absent when empty. New event kind `steering_withdrawn` (`turn_id`, `steers`,
+  `origin`): steers taken back that no model call read.
   The `prompt_queued` event gains `steers`, absent when empty: the steers whose text it
   carries. The fixtures `turn_steer_params.json`, `turn_steer_result.json`,
   `turn_interrupt_params.json`, `turn_interrupt_result.json` and
   `events/prompt_queued.json` now set the new members; `prompt_withdraw_params.json`,
   `prompt_withdraw_result.json`, `events/steering_delivered.json`,
-  `events/prompt_withdrawn.json` and `withdraw_targets.json` are new.
+  `events/steering_withdrawn.json`, `events/prompt_withdrawn.json` and
+  `withdraw_targets.json` are new.

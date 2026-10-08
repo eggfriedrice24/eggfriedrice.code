@@ -506,6 +506,25 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
 }
 
 #[test]
+fn a_steer_taken_back_says_that_the_model_did_not_read_it() {
+    let events = vec![
+        Event::TurnSteered { turn_id: turn(), text: "use tabs".to_owned() },
+        Event::TurnInterruptRequested { turn_id: turn(), origin: Origin::Shell },
+        Event::SteeringWithdrawn {
+            turn_id: turn(),
+            steers: vec![Seq::new(1)],
+            origin: Origin::Shell,
+        },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+    let shown =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
+    assert!(shown.contains("took back a steer that the model did not read"), "{shown}");
+}
+
+#[test]
 fn a_command_of_several_lines_never_shows_as_one_line() {
     let other: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
     let started = |call_id, command: &str| Event::ToolCallStarted {

@@ -7,6 +7,28 @@
     "resend_steers": [
       45
     ],
+    "resend_as": {
+      "kind": "queue",
+      "context": {
+        "pwd": "/var/log",
+        "oldpwd": "/home/me",
+        "tty": "/dev/pts/3",
+        "shell_pid": 4242,
+        "last_status": 1,
+        "shlvl": 1,
+        "ssh_connection": "192.0.2.10 51234 192.0.2.20 22",
+        "hostname": "desk"
+      },
+      "last_command": "du -sh /var/log",
+      "settings": {
+        "mode": "auto",
+        "model": "gpt-5.4",
+        "effort": "high"
+      }
+    },
+    "withdraw_steers": [
+      46
+    ],
     "withdraw": [
       "019a9b1c-3d00-7a10-8b20-00000000000a"
     ]

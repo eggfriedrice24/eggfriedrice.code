@@ -108,10 +108,11 @@ fn event_index(event: &Event) -> usize {
         Event::Unknown { .. } => 31,
         Event::PromptWithdrawn { .. } => 32,
         Event::SteeringDelivered { .. } => 33,
+        Event::SteeringWithdrawn { .. } => 34,
     }
 }
 
-const EVENT_COUNT: usize = 34;
+const EVENT_COUNT: usize = 35;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

@@ -527,6 +527,7 @@ async fn ctrl_c_interrupts_the_turn_and_keeps_what_arrived() {
                 seq: Seq::new(12),
                 resent: None,
                 withdrawn: Vec::new(),
+                withdrawn_steers: Vec::new(),
             },
         )
         .await;
@@ -1699,6 +1700,7 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
                             seq: Seq::new(12),
                             resent: None,
                             withdrawn: Vec::new(),
+                            withdrawn_steers: Vec::new(),
                         },
                     )
                     .await;

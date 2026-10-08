@@ -158,6 +158,7 @@ fn esc_puts_the_prompts_it_took_back_into_the_row_after_the_draft() {
             seq: Seq::new(13),
             text: "then update the docs".to_owned(),
         }],
+        withdrawn_steers: Vec::new(),
     };
     view.interrupt_result(&result, SIZE);
     assert_eq!(view.row_text(), "draft\nthen update the docs");

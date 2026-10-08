@@ -227,6 +227,8 @@ async fn steering_or_interrupting_without_a_running_turn_is_refused() {
         conversation_id: h.conversation_id,
         turn_id: None,
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     let interrupted = h.handle.interrupt(interrupt, Origin::Shell).await;
@@ -255,6 +257,8 @@ async fn a_request_for_another_turn_or_conversation_is_refused() {
         conversation_id: h.conversation_id,
         turn_id: Some(other_turn),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     let mismatch = h.handle.interrupt(interrupt, Origin::Shell).await;
@@ -496,6 +500,8 @@ fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
             conversation_id: h.conversation_id,
             turn_id: None,
             resend_steers: Vec::new(),
+            resend_as: None,
+            withdraw_steers: Vec::new(),
             withdraw: Vec::new(),
         };
         let interrupted = h.handle.interrupt(interrupt, Origin::Shell).await;

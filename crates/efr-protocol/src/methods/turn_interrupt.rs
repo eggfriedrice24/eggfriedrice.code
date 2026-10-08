@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{CommandId, ConversationId, Seq, TurnId, WithdrawnPrompt};
+use crate::{CommandId, ConversationId, LateSteer, Seq, TurnId, WithdrawnPrompt};
 
 /// The params of `turn.interrupt`.
 ///
@@ -11,12 +11,14 @@ use crate::{CommandId, ConversationId, Seq, TurnId, WithdrawnPrompt};
 /// (`turn_interrupt_requested`) and records `turn_interrupted` when the model's stream
 /// has really stopped.
 ///
-/// Esc in the input row of a turn also hands back what the client sent for that turn:
-/// `resend_steers` and `withdraw`. The daemon does all of it in the one actor step that
-/// records `turn_interrupt_requested`, so no queued prompt can start in between. It
-/// records, in this order: `turn_interrupt_requested`, one `prompt_withdrawn` for each
-/// withdrawn prompt in queue order, then the `prompt_queued` of the resent steers.
-/// When the turn is not running (`conflict`), it does none of it.
+/// Esc and Ctrl+C in the input row of a turn also hand back what the client sent for
+/// that turn: `resend_steers`, `withdraw_steers` and `withdraw`. The daemon does all of
+/// it in the one actor step that records `turn_interrupt_requested`, so no queued
+/// prompt can start and no model call can read a steer in between. It records, in this
+/// order: `turn_interrupt_requested`, one `prompt_withdrawn` for each withdrawn prompt
+/// in queue order, the `steering_withdrawn` of the steers taken back, then the
+/// `prompt_queued` of the resent steers. When the turn is not running (`conflict`), it
+/// does none of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TurnInterrupt {
     /// Makes the request idempotent.
@@ -36,6 +38,19 @@ pub struct TurnInterrupt {
     /// this request's `command_id`. Absent means none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resend_steers: Vec<Seq>,
+    /// How the daemon queues the prompt of `resend_steers`: `queue` with the context,
+    /// the last command and the settings of the terminal that interrupts, as a late
+    /// steer of `turn.steer` would go. Absent: the context and the settings of the
+    /// interrupted turn's prompt. Boxed, so the method stays small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resend_as: Option<Box<LateSteer>>,
+    /// The `turn_steered` events of this turn, by sequence number, that the client takes
+    /// back without sending them again (Ctrl+C). The daemon takes those that no
+    /// `steering_delivered` names yet and that `resend_steers` does not list, records
+    /// one `steering_withdrawn` for them, and returns their texts. No model call reads
+    /// them. Absent means none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withdraw_steers: Vec<Seq>,
     /// Queued prompts of this conversation to withdraw, by turn. The daemon withdraws
     /// those that still wait and skips the others: a prompt that started, ended or was
     /// withdrawn, and a turn that it does not know. Absent means none.
@@ -58,6 +73,20 @@ pub struct TurnInterruptResult {
     /// none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub withdrawn: Vec<WithdrawnPrompt>,
+    /// The steers of `withdraw_steers` that the daemon took back, in sequence order.
+    /// Only these were not read: a client hands back these texts and no others. Absent
+    /// when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withdrawn_steers: Vec<WithdrawnSteer>,
+}
+
+/// A steer that the daemon took back before a model call read it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WithdrawnSteer {
+    /// The sequence number of its `turn_steered` event.
+    pub seq: Seq,
+    /// The text of the steer.
+    pub text: String,
 }
 
 /// The prompt that unread steers became when their turn was interrupted.

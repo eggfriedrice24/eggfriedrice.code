@@ -51,9 +51,12 @@ into the GitHub release notes, and it stops when the section is missing.
   for the running turn can become a queued prompt (`turn.steer` with `if_late`). You
   can take back a prompt that waits in the queue before it starts (`prompt.withdraw`).
   An interrupt can take back the queued prompts of one terminal and send its unread
-  steers again as one new prompt, which runs next. efrd records when a model call
-  reads a steer (`steering_delivered`). `efr history` shows a prompt that you took
-  back as `withdrawn before it ran`.
+  steers again as one new prompt, which runs next with the settings of that terminal.
+  An interrupt can also take back unread steers, so that no model call reads them
+  (`steering_withdrawn`). efrd records when a model call reads a steer
+  (`steering_delivered`). `efr history` shows a prompt that you took back as
+  `withdrawn before it ran`, and steers that you took back as `took back a steer that
+  the model did not read`.
 
 ### Changed
 

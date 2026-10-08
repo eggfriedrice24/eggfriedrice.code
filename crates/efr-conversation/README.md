@@ -46,15 +46,19 @@ turns.
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only
   then records `turn_interrupted`. Esc in the input row of `efr` lists the prompts that
-  its view queued (`withdraw`) and its unread steers (`resend_steers`). In the step and
+  its view queued (`withdraw`) and its unread steers (`resend_steers`); Ctrl+C lists
+  the prompts and the unread steers to take back (`withdraw_steers`). In the step and
   the append that record `turn_interrupt_requested`, the actor withdraws the listed
   prompts that still wait (`prompt_withdrawn` each, in queue order) and takes the
   listed steers that no model call took yet out of the turn's steering. It records
-  them as one `prompt_queued` (texts joined by newlines, `steers` set, the context,
-  settings and last command of the interrupted turn's prompt) that runs next, before
-  the prompts that wait. Prompts and steers that are not listed stay as they are, so
-  those of other terminals stay queued. A steer that the turn took for a model call
-  counts as read, also when the interrupt stops that call.
+  the steers taken back as one `steering_withdrawn`, and the steers to send again as
+  one `prompt_queued` (texts joined by newlines, `steers` set) that runs next, before
+  the prompts that wait. That prompt has the context, settings and last command of
+  `resend_as` (the terminal that pressed Esc), else those of the interrupted turn's
+  prompt. Prompts and steers that are not listed stay as they are, so those of other
+  terminals stay queued. A steer that the turn took for a model call counts as read,
+  also when the interrupt stops that call. The history and the exit record leave out a
+  steer that an interrupt sent again or took back.
 - `withdraw` takes one queued prompt back, by its turn or as the newest prompt of a
   terminal, and records `prompt_withdrawn`, the last event of that turn. The actor
   starts a queued turn only between requests, so a prompt either starts or is

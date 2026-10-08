@@ -306,6 +306,19 @@ pub enum Event {
         steers: Vec<Seq>,
     },
 
+    /// The user took back steers of the turn that no model call read
+    /// (`turn.interrupt` with `withdraw_steers`, Ctrl+C in the input row of a turn). No
+    /// model call reads them, and they do not count as sent: a client shows them as
+    /// taken back, as a `prompt_withdrawn` prompt.
+    SteeringWithdrawn {
+        /// The turn.
+        turn_id: TurnId,
+        /// The `turn_steered` events that the user took back, in sequence order.
+        steers: Vec<Seq>,
+        /// The surface that took them back.
+        origin: Origin,
+    },
+
     /// The user asked to interrupt the turn. The turn ends with
     /// [`Event::TurnInterrupted`] once the model's stream actually stops.
     TurnInterruptRequested {
@@ -550,6 +563,7 @@ impl Event {
             | Event::ApprovalExpired { turn_id, .. }
             | Event::TurnSteered { turn_id, .. }
             | Event::SteeringDelivered { turn_id, .. }
+            | Event::SteeringWithdrawn { turn_id, .. }
             | Event::TurnInterruptRequested { turn_id, .. }
             | Event::TurnInterrupted { turn_id }
             | Event::TurnCompleted { turn_id, .. }

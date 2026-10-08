@@ -6,7 +6,8 @@
 use std::sync::atomic::Ordering;
 
 use efr_protocol::{
-    Event, Origin, ResentSteers, Seq, ShellContext, TurnId, WithdrawTarget, WithdrawnPrompt,
+    Event, LateSteer, Mode, Origin, ResentSteers, Seq, ShellContext, TurnId, TurnSettings,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_provider::{Message, ProviderEvent, StopReason};
 use efr_store::receipts::ReceiptOutcome;
@@ -511,6 +512,86 @@ async fn a_refused_interrupt_withdraws_nothing_and_resends_nothing() {
     h.handle.shutdown().await.expect("the actor stops");
 }
 
+/// Ctrl+C takes back the unread steers that it lists, in the append that records the
+/// interrupt: `steering_withdrawn` names them, the result gives their texts, and no
+/// model call reads them. A steer that Esc sends again in the same request takes the
+/// values of `resend_as`, the terminal that interrupts, and is not taken back too.
+#[tokio::test]
+async fn an_interrupt_takes_back_unread_steers_and_resends_with_the_values_it_names() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+    ];
+    let mut h = setup.start(records).await;
+    h.toolbox.hold_end.store(true, Ordering::SeqCst);
+    let sent = h.prompt("first").await;
+    h.toolbox.hang_started.notified().await;
+    let a = h.steer_params(Some(sent.turn_id), "keep it small", true);
+    let a = h.handle.steer(a, Origin::Shell).await.expect("steer accepted");
+    let b = h.steer_params(Some(sent.turn_id), "use tabs", true);
+    let b = h.handle.steer(b, Origin::Shell).await.expect("steer accepted");
+
+    let mut context = ShellContext::new(&h.cwd);
+    context.tty = Some(OTHER.to_owned());
+    let settings = TurnSettings { mode: Some(Mode::Cautious), ..TurnSettings::default() };
+    let mut params = h.interrupt_params(Some(sent.turn_id), vec![b.seq], Vec::new());
+    params.withdraw_steers = vec![a.seq, b.seq];
+    params.resend_as = Some(Box::new(LateSteer::Queue {
+        context: Some(context.clone()),
+        last_command: None,
+        settings: settings.clone(),
+    }));
+    let command_id = params.command_id;
+    let result = h.handle.interrupt(params.clone(), Origin::Shell).await.expect("interrupted");
+    let retried = h.handle.interrupt(params, Origin::Shell).await.expect_err("a retry");
+
+    assert_eq!(
+        result.withdrawn_steers,
+        vec![WithdrawnSteer { seq: a.seq, text: "keep it small".to_owned() }],
+        "only the steer that is not sent again comes back"
+    );
+    let resent = result.resent.clone().expect("the steer is sent again");
+    assert_eq!(resent.seq, Seq::new(result.seq.get() + 2));
+    assert_eq!(
+        replayed(retried, "turn.interrupt"),
+        serde_json::to_value(&result).expect("encodes"),
+        "a retry answers exactly as the first time, sequence numbers included"
+    );
+    let envelopes = h.envelopes().await;
+    let at = envelopes.iter().position(|e| e.seq == result.seq).expect("the request");
+    let batch: Vec<Event> = envelopes[at..at + 3].iter().map(|e| e.event.clone()).collect();
+    assert_eq!(
+        batch,
+        vec![
+            Event::TurnInterruptRequested { turn_id: sent.turn_id, origin: Origin::Shell },
+            Event::SteeringWithdrawn {
+                turn_id: sent.turn_id,
+                steers: vec![a.seq],
+                origin: Origin::Shell,
+            },
+            Event::PromptQueued {
+                turn_id: resent.turn_id,
+                command_id,
+                text: "use tabs".to_owned(),
+                origin: Origin::Shell,
+                context: Some(context),
+                settings,
+                steers: vec![b.seq],
+            },
+        ]
+    );
+    let page = h.envelopes().await;
+    let messages = crate::exit::user_messages(&page, resent.turn_id);
+    assert_eq!(messages, ["first", "use tabs"], "the steer taken back was never sent");
+    let kinds = h.kinds().await;
+    assert!(!kinds.contains(&"steering_delivered".to_owned()), "no model call read them");
+    // NOTE: the turn stays held before its end, so the shutdown drops it and the
+    // resent prompt never asks the model.
+    h.handle.shutdown().await.expect("the actor stops");
+}
+
 #[test]
 fn a_stored_result_gets_back_every_sequence_number_of_its_batch() {
     let turn = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -533,6 +614,23 @@ fn a_stored_result_gets_back_every_sequence_number_of_its_batch() {
             ],
             "resent": {"turn_id": turn, "seq": 13, "steers": [3, 4]},
         })
+    );
+    let taken = json!({
+        "turn_id": turn,
+        "withdrawn": [{"turn_id": turn, "text": "a"}],
+        "withdrawn_steers": [{"seq": 3, "text": "c"}],
+        "resent": {"turn_id": turn, "steers": [4]},
+    });
+    assert_eq!(
+        completed_result("turn.interrupt", taken, Seq::new(10)),
+        json!({
+            "turn_id": turn,
+            "seq": 10,
+            "withdrawn": [{"turn_id": turn, "seq": 11, "text": "a"}],
+            "withdrawn_steers": [{"seq": 3, "text": "c"}],
+            "resent": {"turn_id": turn, "seq": 13, "steers": [4]},
+        }),
+        "steering_withdrawn stands before the resent prompt, and a steer keeps its own seq"
     );
     assert_eq!(
         completed_result("prompt.withdraw", withdraw, Seq::new(7)),

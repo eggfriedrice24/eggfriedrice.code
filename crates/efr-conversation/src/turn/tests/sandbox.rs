@@ -697,6 +697,8 @@ async fn an_interrupt_during_the_surface_question_keeps_the_quarantine() {
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     };
     h.handle.interrupt(interrupt, Origin::Shell).await.unwrap();

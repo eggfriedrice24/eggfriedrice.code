@@ -58,6 +58,8 @@ fn every_method() -> Vec<Method> {
             conversation_id,
             turn_id: None,
             resend_steers: Vec::new(),
+            resend_as: None,
+            withdraw_steers: Vec::new(),
             withdraw: Vec::new(),
         }),
         Method::TurnSteer(TurnSteer {

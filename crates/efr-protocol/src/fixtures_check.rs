@@ -39,7 +39,7 @@ use crate::{
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
     ShellContext, Size, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
     TurnSettings, TurnSteer, TurnSteerResult, Usage, UserAuthorization, Verdict, WithdrawTarget,
-    WithdrawnPrompt,
+    WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -479,6 +479,12 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             turn_id: Some(turn_id()),
             resend_steers: vec![Seq::new(45)],
+            resend_as: Some(Box::new(LateSteer::Queue {
+                context: Some(shell_context()),
+                last_command: Some("du -sh /var/log".into()),
+                settings: turn_settings(),
+            })),
+            withdraw_steers: vec![Seq::new(46)],
             withdraw: vec![queued_turn_id()],
         }),
         Method::TurnSteer(TurnSteer {
@@ -694,6 +700,10 @@ fn answer_fixtures() -> Vec<Fixture> {
                     steers: vec![Seq::new(45)],
                 }),
                 withdrawn: vec![withdrawn_prompt()],
+                withdrawn_steers: vec![WithdrawnSteer {
+                    seq: Seq::new(46),
+                    text: "and the rotated files".to_owned(),
+                }],
             },
         ),
         fixture(
@@ -1032,6 +1042,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::ApprovalExpired { turn_id: turn_id(), call_id: call_id() },
         Event::TurnSteered { turn_id: turn_id(), text: "check the journal too".into() },
         Event::SteeringDelivered { turn_id: turn_id(), steers: vec![Seq::new(45), Seq::new(46)] },
+        Event::SteeringWithdrawn {
+            turn_id: turn_id(),
+            steers: vec![Seq::new(46)],
+            origin: Origin::Shell,
+        },
         Event::TurnInterruptRequested { turn_id: turn_id(), origin: Origin::Cli },
         Event::TurnInterrupted { turn_id: turn_id() },
         Event::TurnCompleted {

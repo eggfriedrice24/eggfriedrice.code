@@ -239,6 +239,8 @@ async fn interrupt(
         conversation_id: conversation,
         turn_id: Some(turn),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw,
     });
     let call = client.call::<TurnInterruptResult>(method);
@@ -918,6 +920,8 @@ impl Follower<'_> {
             conversation_id: self.target.conversation,
             turn_id: Some(turn),
             resend_steers: view.unread_steers(),
+            resend_as: None,
+            withdraw_steers: Vec::new(),
             withdraw: view.queued_turns(),
         });
         let size = self.ctx.screen.size();

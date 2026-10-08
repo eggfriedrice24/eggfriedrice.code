@@ -423,12 +423,15 @@ fn an_interrupt_from_before_esc_resends_and_withdraws_nothing() {
     let old = json!({ "command_id": COMMAND, "conversation_id": CONVERSATION, "turn_id": TURN });
     let interrupt: TurnInterrupt = serde_json::from_value(old.clone()).unwrap();
     assert!(interrupt.resend_steers.is_empty());
+    assert_eq!(interrupt.resend_as, None);
+    assert!(interrupt.withdraw_steers.is_empty());
     assert!(interrupt.withdraw.is_empty());
     assert_eq!(serde_json::to_value(&interrupt).unwrap(), old, "no empty lists are written");
     let old_result = json!({ "turn_id": TURN, "seq": 44 });
     let result: TurnInterruptResult = serde_json::from_value(old_result.clone()).unwrap();
     assert_eq!(result.resent, None);
     assert!(result.withdrawn.is_empty());
+    assert!(result.withdrawn_steers.is_empty());
     assert_eq!(serde_json::to_value(&result).unwrap(), old_result);
 }
 

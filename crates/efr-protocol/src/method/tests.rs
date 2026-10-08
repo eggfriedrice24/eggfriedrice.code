@@ -101,6 +101,8 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 conversation_id: conversation(),
                 turn_id: None,
                 resend_steers: Vec::new(),
+                resend_as: None,
+                withdraw_steers: Vec::new(),
                 withdraw: Vec::new(),
             }),
             "turn.interrupt",

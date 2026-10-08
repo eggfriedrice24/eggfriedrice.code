@@ -83,7 +83,9 @@ pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
 pub use methods::sandbox_explain::{SandboxExplain, SandboxExplainResult, SandboxPathRole};
 pub use methods::sandbox_surface_respond::{SandboxSurfaceRespond, SandboxSurfaceRespondResult};
-pub use methods::turn_interrupt::{ResentSteers, TurnInterrupt, TurnInterruptResult};
+pub use methods::turn_interrupt::{
+    ResentSteers, TurnInterrupt, TurnInterruptResult, WithdrawnSteer,
+};
 pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};

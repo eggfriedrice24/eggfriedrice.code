@@ -141,6 +141,8 @@ async fn a_late_steer_becomes_a_prompt_and_a_retry_answers_from_its_receipt() {
         conversation_id,
         turn_id: Some(sent.turn_id),
         resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: Vec::new(),
     });
     let _: TurnInterruptResult = client.call(stop).await.unwrap();
@@ -252,6 +254,8 @@ async fn esc_withdraws_and_resends_in_one_step_and_a_retry_gets_the_same_numbers
         conversation_id,
         turn_id: Some(sent.turn_id),
         resend_steers: vec![steered.seq],
+        resend_as: None,
+        withdraw_steers: Vec::new(),
         withdraw: vec![queued.turn_id],
     });
 

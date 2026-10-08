@@ -14,5 +14,11 @@
       "seq": 47,
       "text": "then clean up the old logs"
     }
+  ],
+  "withdrawn_steers": [
+    {
+      "seq": 46,
+      "text": "and the rotated files"
+    }
   ]
 }

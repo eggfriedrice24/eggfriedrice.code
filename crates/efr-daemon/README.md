@@ -180,9 +180,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   conflict, as before. `prompt.withdraw` (`methods/prompt_withdraw.rs`) takes a queued
   prompt back by its turn or as the newest of a terminal: `conflict` when it no longer
   waits, `not_found` for a turn the conversation never queued or a terminal with no
-  queued prompt. `turn.interrupt` with `withdraw` and `resend_steers` withdraws those
-  prompts and sends the unread steers again as one prompt that runs next, in the one
-  append that records the request. A retry of either answers from its receipt with
+  queued prompt. `turn.interrupt` with `withdraw`, `withdraw_steers` and
+  `resend_steers` withdraws those prompts, takes back the unread steers of
+  `withdraw_steers` (`steering_withdrawn`) and sends the unread steers of
+  `resend_steers` again as one prompt that runs next, in the one append that records
+  the request. A retry of either answers from its receipt with
   every sequence number, also those inside the result
   (`efr_conversation::completed_result`). A late steer that became a prompt and resent
   steers hold the notices of the terminal, as `prompt.send` does.

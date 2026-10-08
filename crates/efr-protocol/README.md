@@ -103,26 +103,35 @@ efrd must:
    withdrawn; `not_found` for a turn that the conversation never queued, and for a tty
    without a queued prompt. Keep a receipt, so a retry with the same `command_id`
    returns the first result.
-5. `turn.interrupt` with `resend_steers` or `withdraw`: do all of it in the one actor
-   step that records `turn_interrupt_requested`, in one append, so no queued prompt can
-   start in between. Record in this order: `turn_interrupt_requested`, then one
-   `prompt_withdrawn` per withdrawn prompt in queue order, then the `prompt_queued` of
-   the resent steers.
+5. `turn.interrupt` with `resend_steers`, `withdraw_steers` or `withdraw`: do all of
+   it in the one actor step that records `turn_interrupt_requested`, in one append, so
+   no queued prompt can start and no model call can read a listed steer in between.
+   Record in this order: `turn_interrupt_requested`, then one `prompt_withdrawn` per
+   withdrawn prompt in queue order, then the `steering_withdrawn` of the steers taken
+   back, then the `prompt_queued` of the resent steers.
    - `withdraw`: withdraw each listed turn that is still queued in this conversation.
      Skip the others (started, ended, withdrawn, unknown). Prompts that are not listed
      stay queued, also those of other terminals.
    - `resend_steers`: take the listed seqs that are unread `turn_steered` events of
      this turn. Skip the others. When one or more remain, record one `prompt_queued`:
      a new `turn_id`, the texts joined with `\n` in seq order, `steers` set to those
-     seqs, the `context` and `settings` of the interrupted turn's own `prompt_queued`,
-     the origin of the connection and the interrupt's `command_id`. This prompt runs
-     next, before the prompts that wait in the queue.
+     seqs, the origin of the connection and the interrupt's `command_id`. Its
+     `context` and `settings` come from `resend_as` (`{kind: "queue", context,
+     last_command, settings}`, as `if_late`); without `resend_as`, from the interrupted
+     turn's own `prompt_queued`. This prompt runs next, before the prompts that wait in
+     the queue.
+   - `withdraw_steers`: take the listed seqs that are unread `turn_steered` events of
+     this turn and that `resend_steers` does not take. Skip the others. When one or
+     more remain, record one `steering_withdrawn` (`turn_id`, the seqs in order, the
+     origin of the connection). No model call reads them, and the history and the exit
+     record leave them out.
    - When the turn does not run, answer `conflict` and do none of it.
-   - The result has `resent` (absent when no steer was unread) and `withdrawn` (the
-     texts, in queue order).
-6. efrd implements points 1 to 5. An older efrd ignores `if_late`, `resend_steers`
-   and `withdraw`, and refuses `prompt.withdraw` with `invalid`. `efr` must accept
-   these answers too.
+   - The result has `resent` (absent when no steer was unread), `withdrawn` (the
+     texts, in queue order) and `withdrawn_steers` (`seq` of each `turn_steered` and
+     its text, in seq order).
+6. efrd implements points 1 to 5. An older efrd ignores `if_late`, `resend_steers`,
+   `resend_as`, `withdraw_steers` and `withdraw`, and refuses `prompt.withdraw` with
+   `invalid`. `efr` must accept these answers too.
 
 `efr` must:
 
@@ -137,15 +146,29 @@ efrd must:
    the scrollback, in the style of a user message. `prompt_queued` with `steers`: those
    steers are now that prompt.
 4. Esc: send `turn.interrupt` with the followed `turn_id`, `resend_steers` set to the
-   unread steers of this view and `withdraw` set to the queued prompts of this view.
-   Put the `withdrawn` texts back into the input row. When `resent` is present, show
-   the note "interrupted to send your message".
+   unread steers of this view, `resend_as` with the values of point 1, and `withdraw`
+   set to the queued prompts of this view. Put the `withdrawn` texts back into the
+   input row. When `resent` is present, show the note "interrupted to send your
+   message". When the followed prompt did not start yet, send `prompt.withdraw` for
+   the queued prompts of this view, the newest first and the followed prompt last, so
+   no later prompt can start before it. When the followed prompt gets `conflict`, it
+   started: send `turn.interrupt` for it as above.
 5. Alt+Up: send `prompt.withdraw` with target `turn` and the newest queued prompt of
    this view. Put the text back into the input row. On `conflict` the prompt already
-   started: drop it from the list.
-6. Keep following until the followed turn and every queued prompt of this view ended:
+   started: keep it in the list, so the view follows it until its end event. On
+   `not_found`, drop it from the list.
+6. Ctrl+C with an empty input row: send `turn.interrupt` with the followed `turn_id`,
+   `withdraw_steers` set to the unread steers of this view and `withdraw` set to the
+   queued prompts of this view. Hand back to the shell the texts of `withdrawn` and
+   `withdrawn_steers` only: a steer that the result does not name was read or is
+   still part of the turn. When the followed prompt did not start yet, do as point 4,
+   with `withdraw_steers` in place of `resend_steers`.
+7. Keep following until the followed turn and every queued prompt of this view ended:
    `turn_completed`, `turn_failed`, `turn_interrupted`, `turn_cancelled` or
-   `prompt_withdrawn`.
+   `prompt_withdrawn`. When the connection ends before that, connect again and
+   subscribe after the last event shown, so a `turn_cancelled` of a restarted efrd
+   puts the text of a cancelled prompt or of an unread steer back into the input
+   row. Retry a request that got no answer with the same `command_id`.
 
 Outside the protocol, the zsh plugin gets back the text that is still in the input
 row when `efr` ends. The plugin sets `EFR_DRAFT_FILE` to a path in its runtime

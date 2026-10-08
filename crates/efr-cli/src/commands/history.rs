@@ -356,6 +356,10 @@ impl<'a> Transcript<'a> {
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
             Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
+            Event::SteeringWithdrawn { steers, .. } => {
+                let what = if steers.len() == 1 { "a steer" } else { "steers" };
+                self.note(&format!("took back {what} that the model did not read"));
+            }
             _ => {}
         }
     }
