@@ -43,8 +43,9 @@ Modules:
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:
   `none` or `small`), `max_files` (a root with more files is not snapshotted),
-  `keep_turns` and `max_age_days` (what the collector keeps). The spec names some of
-  them `undo.*`; they live here because the snapshots come before undo.
+  `keep_turns` and `max_age_days` (what the collector keeps). The spec named some of
+  them `undo.*`; they live here because the snapshots come before undo
+  (`docs/adr/0008-snapshot-config-keys.md`).
 - `settings`: `Settings`, the whole file. `Settings::parse` reads the text with unknown
   keys refused, reads `[[permissions.rules]]` one by one so an error names
   `permissions.rules[N]`, records which keys the file set, and runs the checks.
