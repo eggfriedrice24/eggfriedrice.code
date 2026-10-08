@@ -203,7 +203,7 @@ fn user_text_and_images_form_one_message() {
         vec![text("What is on this screen?"), image("image/png", "iVBORw==")],
     );
     assert_eq!(
-        input_items(&[message]),
+        input_items(&[message], true),
         vec![json!({
             "type": "message",
             "role": "user",
@@ -228,7 +228,7 @@ fn an_assistant_message_without_raw_items_is_rebuilt_in_order() {
         ],
     );
     assert_eq!(
-        input_items(&[message]),
+        input_items(&[message], true),
         vec![
             json!({
                 "type": "message",
@@ -264,7 +264,7 @@ fn tool_results_become_function_call_outputs_between_messages() {
         ],
     );
     assert_eq!(
-        input_items(&[message]),
+        input_items(&[message], true),
         vec![
             json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Before."}]}),
             json!({"type": "function_call_output", "call_id": "call_1", "output": "file.txt"}),
@@ -309,7 +309,7 @@ fn raw_items_are_sent_verbatim_in_place_of_the_content() {
         assistant,
         Message::new(Role::User, vec![result("call_1", "file.txt", false)]),
     ];
-    let items = input_items(&messages);
+    let items = input_items(&messages, true);
     assert_eq!(items.len(), 4);
     assert_eq!(Value::Array(items[1..3].to_vec()), raw);
     assert_eq!(items[3]["type"], json!("function_call_output"));
@@ -381,7 +381,7 @@ fn a_body_after_a_model_switch_holds_no_reasoning_or_item_id_of_the_other_model(
 fn unusable_raw_items_fall_back_to_the_content(#[case] raw: Value) {
     let message = Message::assistant("Done.").with_provider_raw(raw);
     assert_eq!(
-        input_items(&[message]),
+        input_items(&[message], true),
         vec![json!({
             "type": "message",
             "role": "assistant",
@@ -393,7 +393,7 @@ fn unusable_raw_items_fall_back_to_the_content(#[case] raw: Value) {
 #[test]
 fn an_empty_message_sends_nothing() {
     assert_eq!(
-        input_items(&[Message::new(Role::User, Vec::new()), Message::user("")]),
+        input_items(&[Message::new(Role::User, Vec::new()), Message::user("")], true),
         Vec::<Value>::new()
     );
 }
@@ -476,7 +476,7 @@ fn raw_items_round_trip_through_provider_raw() {
     assert_eq!(provider_raw(Vec::new()), None);
     let raw = provider_raw(items.clone()).unwrap();
     let message = Message::assistant("ignored").with_provider_raw(raw);
-    assert_eq!(input_items(&[message]), items);
+    assert_eq!(input_items(&[message], true), items);
 }
 
 #[test]
@@ -484,7 +484,7 @@ fn raw_items_on_a_user_message_are_not_used() {
     let raw = json!([{"type": "message", "role": "user", "content": []}]);
     let message = Message::user("Hello.").with_provider_raw(raw);
     assert_eq!(
-        input_items(&[message]),
+        input_items(&[message], true),
         vec![json!({
             "type": "message",
             "role": "user",
@@ -546,12 +546,29 @@ fn a_freeform_call_and_its_result_go_back_as_custom_items() {
         ),
     ];
     assert_eq!(
-        input_items(&messages),
+        input_items(&messages, true),
         vec![
             json!({"type": "custom_tool_call", "call_id": "call_1", "name": "apply_patch", "input": patch}),
             json!({"type": "function_call", "call_id": "call_2", "name": "shell", "arguments": "{\"command\":\"ls\"}"}),
             json!({"type": "custom_tool_call_output", "call_id": "call_1", "output": "Success. Deleted: a.txt"}),
             json!({"type": "function_call_output", "call_id": "call_2", "output": "Error: x"}),
+        ]
+    );
+}
+
+#[test]
+fn a_freeform_call_goes_back_in_the_function_form_to_a_model_without_freeform_tools() {
+    let patch = "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch";
+    let messages = [
+        Message::new(Role::Assistant, vec![freeform_call("call_1", patch)]),
+        Message::new(Role::User, vec![result("call_1", "Success. Deleted: a.txt", false)]),
+    ];
+    let items = input_items(&messages, false);
+    assert_eq!(
+        items,
+        vec![
+            json!({"type": "function_call", "call_id": "call_1", "name": "apply_patch", "arguments": json!({"input": patch}).to_string()}),
+            json!({"type": "function_call_output", "call_id": "call_1", "output": "Success. Deleted: a.txt"}),
         ]
     );
 }
@@ -572,7 +589,7 @@ fn a_result_of_a_raw_custom_call_is_a_custom_output() {
     )
     .with_provider_raw(raw.clone());
     let messages = [assistant, Message::new(Role::User, vec![result("call_1", "bad", true)])];
-    let items = input_items(&messages);
+    let items = input_items(&messages, true);
     assert_eq!(items[0], raw[0]);
     assert_eq!(
         items[1],

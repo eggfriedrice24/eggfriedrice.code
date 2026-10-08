@@ -13,7 +13,9 @@
 //! its grammar (`codex-rs/tools/src/responses_api.rs`, `FreeformTool`, and
 //! `codex-rs/core/src/tools/handlers/apply_patch_spec.rs`); the model answers with a
 //! `custom_tool_call` whose `input` is the raw text, and the result goes back as a
-//! `custom_tool_call_output`. Every other model gets the tool's function form.
+//! `custom_tool_call_output`. Every other model gets the tool's function form, and so
+//! do the freeform calls of its history that have no raw items, such as after a
+//! change of the model.
 //!
 //! An assistant message that carries `provider_raw` is sent as those items, verbatim:
 //! they are the exact `reasoning`, `message`, `function_call` and `custom_tool_call`
@@ -24,7 +26,7 @@
 
 use std::collections::HashSet;
 
-use efr_provider::{ContentBlock, Message, Request, Role, ToolDefinition};
+use efr_provider::{ContentBlock, FREEFORM_INPUT, Message, Request, Role, ToolDefinition};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -108,7 +110,7 @@ pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> Response
         stream: true,
         service_tier: options.string("service_tier"),
         instructions: request.system.clone().filter(|system| !system.is_empty()),
-        input: input_items(&request.messages),
+        input: input_items(&request.messages, takes_freeform_tools(&request.model)),
         tools: {
             let freeform = takes_freeform_tools(&request.model);
             request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect()
@@ -213,26 +215,31 @@ pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
     }
 }
 
-/// The Responses `input` for a conversation, oldest first.
+/// The Responses `input` for a conversation, oldest first, for a model that takes
+/// freeform tools when `takes_freeform` is true.
 ///
 /// A tool result answers a `custom_tool_call` with a `custom_tool_call_output` and
 /// any other call with a `function_call_output`, so the calls of the conversation are
-/// read first, from the raw items and from the canonical content.
-pub(crate) fn input_items(messages: &[Message]) -> Vec<Value> {
-    let freeform = freeform_calls(messages);
+/// read first, from the raw items and from the canonical content. A canonical
+/// freeform call goes to a model that does not take freeform tools in the function
+/// form that the tool has for it, so a conversation that changes the model keeps one
+/// shape for each tool.
+pub(crate) fn input_items(messages: &[Message], takes_freeform: bool) -> Vec<Value> {
+    let freeform = freeform_calls(messages, takes_freeform);
     let mut items = Vec::new();
     for message in messages {
         match raw_items(message) {
             Some(raw) => items.extend(raw.iter().cloned()),
-            None => push_canonical(&mut items, message, &freeform),
+            None => push_canonical(&mut items, message, &freeform, takes_freeform),
         }
     }
     items
 }
 
-/// The provider ids of the freeform calls in `messages`: the `custom_tool_call` items
-/// of their raw items and the canonical freeform calls.
-fn freeform_calls(messages: &[Message]) -> HashSet<&str> {
+/// The provider ids of the calls in `messages` that go as `custom_tool_call` items:
+/// those of their raw items, and the canonical freeform calls when `takes_freeform`
+/// is true.
+fn freeform_calls(messages: &[Message], takes_freeform: bool) -> HashSet<&str> {
     let mut calls = HashSet::new();
     for message in messages {
         if let Some(raw) = raw_items(message) {
@@ -243,7 +250,9 @@ fn freeform_calls(messages: &[Message]) -> HashSet<&str> {
             );
         }
         calls.extend(message.content.iter().filter_map(|block| match block {
-            ContentBlock::ToolCall { call_id, freeform: true, .. } => Some(call_id.as_str()),
+            ContentBlock::ToolCall { call_id, freeform: true, .. } if takes_freeform => {
+                Some(call_id.as_str())
+            }
             _ => None,
         }));
     }
@@ -285,8 +294,15 @@ fn raw_items(message: &Message) -> Option<&Vec<Value>> {
 /// Appends `message` rebuilt from its canonical blocks. Text and images of one run form
 /// one message item; a tool call or a tool result ends the run and becomes an item of
 /// its own, so the order of the blocks is kept. A result of one of the `freeform`
-/// calls is a `custom_tool_call_output`.
-fn push_canonical(items: &mut Vec<Value>, message: &Message, freeform: &HashSet<&str>) {
+/// calls is a `custom_tool_call_output`. A freeform call is a `custom_tool_call` when
+/// `takes_freeform` is true, else a `function_call` with the text in
+/// [`FREEFORM_INPUT`].
+fn push_canonical(
+    items: &mut Vec<Value>,
+    message: &Message,
+    freeform: &HashSet<&str>,
+    takes_freeform: bool,
+) {
     let role = match message.role {
         Role::Assistant => "assistant",
         Role::User => "user",
@@ -321,7 +337,7 @@ fn push_canonical(items: &mut Vec<Value>, message: &Message, freeform: &HashSet<
                     _ => tracing::debug!("an image whose bytes did not encode; left out"),
                 }
             }
-            ContentBlock::ToolCall { call_id, name, input, freeform: true } => {
+            ContentBlock::ToolCall { call_id, name, input, freeform: true } if takes_freeform => {
                 flush(items, role, &mut content);
                 items.push(json!({
                     "type": CUSTOM_CALL,
@@ -330,13 +346,17 @@ fn push_canonical(items: &mut Vec<Value>, message: &Message, freeform: &HashSet<
                     "input": arguments_text(input),
                 }));
             }
-            ContentBlock::ToolCall { call_id, name, input, .. } => {
+            ContentBlock::ToolCall { call_id, name, input, freeform } => {
                 flush(items, role, &mut content);
+                let arguments = match input {
+                    Value::String(text) if *freeform => json!({ FREEFORM_INPUT: text }).to_string(),
+                    other => arguments_text(other),
+                };
                 items.push(json!({
                     "type": "function_call",
                     "call_id": call_id,
                     "name": name,
-                    "arguments": arguments_text(input),
+                    "arguments": arguments,
                 }));
             }
             ContentBlock::ToolResult { call_id, output, is_error } => {

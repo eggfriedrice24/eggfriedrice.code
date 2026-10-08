@@ -37,9 +37,13 @@ Modules:
   freeform tool goes to a model that takes it as
   `{"type": "custom", name, description, "format": {"type": "grammar", syntax,
   definition}}`, and to any other model as a function tool with its function form. A
-  canonical freeform call goes back as a `custom_tool_call` item (`call_id`, `name`,
-  `input`), and the result of a call that was a `custom_tool_call` (in the raw items
-  or the canonical content) as a `custom_tool_call_output`.
+  canonical freeform call goes back to a model that takes freeform tools as a
+  `custom_tool_call` item (`call_id`, `name`, `input`), and the result of a call
+  that was a `custom_tool_call` (in the raw items or the canonical content) as a
+  `custom_tool_call_output`. To any other model, such as after `,model o3` in a
+  conversation that started on a model of the catalog, the canonical freeform call
+  goes as a `function_call` with the text in `arguments` as `{"input": text}`, and
+  its result as a `function_call_output`, so each tool has one shape in the request.
 - `sse_events`: `EventMapper`, a pure state machine from Responses events to
   `ProviderEvent`s (text, reasoning, tool call start, deltas and end, usage, done).
   A `custom_tool_call` item is a freeform call: `response.custom_tool_call_input.delta`
