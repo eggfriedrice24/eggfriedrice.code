@@ -28,6 +28,8 @@ pub(crate) enum Step {
     Close,
     /// Drops the connection without a close frame, as a connection that breaks.
     Drop,
+    /// Waits until the test notifies this, then goes on.
+    Wait(Arc<tokio::sync::Notify>),
     /// Stops reading and sending but keeps the connection open, as a connection that
     /// died without a close: a ping gets no pong.
     Hang,
@@ -243,6 +245,7 @@ async fn serve(
                     return;
                 }
                 Step::Drop => return,
+                Step::Wait(gate) => gate.notified().await,
                 Step::Hang => {
                     let _socket = socket;
                     std::future::pending::<()>().await;

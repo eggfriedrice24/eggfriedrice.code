@@ -147,7 +147,10 @@ Which calls use it:
 The connections:
 
 - One connection for each conversation, by its `prompt_cache_key`. It serves one call
-  at a time; a call that finds it busy goes over HTTP.
+  at a time; a call that finds it busy goes over HTTP. When two calls of one
+  conversation both find no connection and both open one, the first to open stays the
+  conversation's connection, and the other serves only its own call. Each answer
+  holds its connection, so no answer is cut when the map holds another one.
 - It stays open between the calls of a turn and between turns. It closes after 10
   minutes without a call, when the server closes it, after a failure, and it takes no
   call after 55 minutes, before the server's limit of 60 minutes.
@@ -410,7 +413,8 @@ compaction, the interrupt, the fallback to HTTP on a refused upgrade, a close an
 failure of a broken connection and of a silent server after the request went out
 (with no HTTP request), an error status that fails the call (a context overflow and a
 429 with its wait), a second refused token in a row (in the event and at the upgrade)
-that pauses WebSockets, a lost previous answer, the idle close, the ping before a call after a quiet spell
+that pauses WebSockets, a second connection of one conversation that does not cut the
+answer of the first, a lost previous answer, the idle close, the ping before a call after a quiet spell
 (answered, and not answered by a connection that hangs), and the switch with the catalog's
 `prefer_websockets`. `continuation` tests check when a call may send only its new
 items. The fixtures are hand-written in the Responses wire format, since the tests

@@ -272,7 +272,8 @@ impl Sockets {
                 None => return Attempt::Http("the websocket task ended".to_owned()),
             }
         }
-        Attempt::Answered(answer(early, receiver, timing, span))
+        let connection = Arc::clone(&taken.connection);
+        Attempt::Answered(answer(early, receiver, connection, timing, span))
     }
 
     /// The free connection of `key`, taken for one call. `Ok(None)` when there is none
@@ -327,7 +328,14 @@ impl Sockets {
         let opened_at = self.clock.now();
         let connection =
             Arc::new(Connection::start(socket, Arc::clone(&self.clock), self.limits, opened_at));
-        self.state().connections.insert(key.to_owned(), Arc::clone(&connection));
+        let mut state = self.state();
+        // NOTE: two calls of one conversation can both find no connection and both
+        // open one. The first stays the conversation's connection; the second serves
+        // only its own call, and its answer keeps it open until the answer ends.
+        if !state.connections.get(key).is_some_and(|existing| !existing.is_closed()) {
+            state.connections.insert(key.to_owned(), Arc::clone(&connection));
+        }
+        drop(state);
         Ok(Taken::new(connection, None, true))
     }
 
@@ -370,11 +378,13 @@ impl Sockets {
 fn answer(
     early: Vec<Value>,
     receiver: mpsc::Receiver<Delivery>,
+    connection: Arc<Connection>,
     timing: Timing,
     span: tracing::Span,
 ) -> ProviderStream {
     let state = Answer {
         receiver: Some(receiver),
+        _connection: connection,
         early: early.into(),
         mapper: EventMapper::new(),
         pending: std::collections::VecDeque::new(),
@@ -390,6 +400,10 @@ struct Answer {
     /// The events from the task, dropped once the answer has ended. Dropping it early,
     /// with the stream, makes the task interrupt the answer.
     receiver: Option<mpsc::Receiver<Delivery>>,
+    /// The connection that serves the answer. Dropping the last handle stops its task,
+    /// so the answer holds one: the map of connections may hold another connection of
+    /// the conversation, or none.
+    _connection: Arc<Connection>,
     early: std::collections::VecDeque<Value>,
     mapper: EventMapper,
     pending: std::collections::VecDeque<Result<ProviderEvent, ProviderError>>,

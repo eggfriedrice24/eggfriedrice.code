@@ -611,3 +611,76 @@ async fn a_second_refused_token_in_a_row_pauses_websockets() {
         assert_eq!(setup.server.posts().len(), 3);
     }
 }
+
+#[tokio::test]
+async fn a_second_connection_for_one_conversation_does_not_cut_the_answer_of_the_first() {
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let rest = vec![
+        json!({"type": "response.output_item.done", "output_index": 0, "item": message_item("resp_1", "World.")}),
+        completed("resp_1"),
+    ];
+    let server = ResponsesServer::start(
+        vec![
+            Socket::serving(vec![vec![
+                Step::Send(vec![created("resp_1"), delta("resp_1", "World.")]),
+                Step::Wait(Arc::clone(&gate)),
+                Step::Send(rest),
+            ]]),
+            Socket::serving(vec![vec![Step::Send(answer("resp_2", "Two."))]]),
+        ],
+        Vec::new(),
+    )
+    .await;
+    let clock = Arc::new(ManualClock::new());
+    let http =
+        HttpClient::new(&HttpConfig::default(), clock.clone(), Arc::new(FixedRng(0))).unwrap();
+    let url = format!("{}/responses", server.uri());
+    let connect = || async {
+        let request = efr_http::HttpRequest::get(&url).unwrap();
+        http.websocket(&request).await.map_err(|error| super::ConnectError {
+            reason: error.to_string(),
+            health: super::Health::Broken,
+        })
+    };
+    let sockets = super::Sockets::new(clock.clone());
+    let body = crate::convert::request_body(
+        &request("gpt-5.5", "hi"),
+        &OpenAiConfig::subscription(),
+        None,
+    );
+    let stream = |attempt: super::Attempt| match attempt {
+        super::Attempt::Answered(stream) => stream,
+        _ => panic!("the socket did not serve the call"),
+    };
+
+    // The later call finds no connection, so it opens one, and waits in its handshake.
+    let (open, opened) = tokio::sync::oneshot::channel::<()>();
+    let later = sockets.stream(
+        KEY,
+        &body,
+        || async {
+            opened.await.unwrap();
+            connect().await
+        },
+        crate::timing::Timing::start(),
+        tracing::Span::none(),
+    );
+    let mut later = std::pin::pin!(later);
+    assert!(futures::poll!(&mut later).is_pending());
+    // The first call opens its own connection, and its answer starts.
+    let first = stream(
+        sockets
+            .stream(KEY, &body, connect, crate::timing::Timing::start(), tracing::Span::none())
+            .await,
+    );
+    // The later call's connection opens while the first answer runs, and serves it.
+    open.send(()).unwrap();
+    let later = collect(stream(later.await)).await;
+    gate.notify_one();
+    let first = collect(first).await;
+
+    assert!(later.last().unwrap().is_ok(), "{later:?}");
+    assert!(first.iter().all(Result::is_ok), "{first:?}");
+    assert!(matches!(first.last(), Some(Ok(ProviderEvent::Done { .. }))), "{first:?}");
+    assert_eq!(server.sockets().len(), 2);
+}
