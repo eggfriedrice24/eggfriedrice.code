@@ -105,6 +105,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - The model now reads that you changed directories since the previous prompt, and
   whether its hidden shell moved with you. Before, a short follow-up such as `and
   here?` could go to the old directory.
+- After a restart, the model reads each steer of an earlier turn at the place where
+  it read the steer during that turn. Before, a turn without saved messages showed a
+  steer where you typed it, and also showed steers that the model never read, such as
+  a steer of a failed turn or a steer that you took back.
 
 ## [0.0.2] - 2026-10-08
 

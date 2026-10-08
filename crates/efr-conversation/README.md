@@ -70,6 +70,12 @@ turns.
   numbers, so `completed_result` puts them back from the receipt's seq.
 - The rebuilt history and the user messages of an exit record leave out a steer that
   an interrupt sent again (it counts once, as its prompt) and a withdrawn prompt.
+- The rebuilt history puts a steer where the `steering_delivered` that names it is,
+  because the model read it at that model call. A steer that no
+  `steering_delivered` names is left out: no model call read it (the turn failed, an
+  old client interrupted it, or the user took it back). A completed turn without any
+  `steering_delivered` comes from a daemon that did not record the event yet, and
+  keeps its steers where the user typed them.
 - An approval's summary names the tool and what needs approval, the command line
   first. When some simple commands of a line of several ask, a second line names them,
   such as `asks for: hostnamectl, systemctl --failed`: each by its program and at most

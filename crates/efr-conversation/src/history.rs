@@ -167,7 +167,7 @@ impl Snapshot {
         key: &ModelKey,
         limits: HistoryLimits,
     ) -> Vec<Message> {
-        let mut by_turn: HashMap<TurnId, Vec<&Event>> = HashMap::new();
+        let mut by_turn: HashMap<TurnId, Vec<&EventEnvelope>> = HashMap::new();
         let mut started: HashSet<TurnId> = HashSet::new();
         let left = left_steers(&self.page);
         for envelope in &self.page {
@@ -183,7 +183,7 @@ impl Snapshot {
             if matches!(envelope.event, Event::TurnStarted { .. }) {
                 started.insert(turn_id);
             }
-            by_turn.entry(turn_id).or_default().push(&envelope.event);
+            by_turn.entry(turn_id).or_default().push(envelope);
         }
 
         let eligible = self.turns.iter().filter(|turn| {
@@ -276,15 +276,26 @@ fn json_size(messages: &[Message]) -> usize {
 ///
 /// Each `assistant_message_completed` starts an assistant message; a tool call joins
 /// the assistant message before it unless a tool result came in between; results
-/// gather in a user message; steering is a user message of its own. Text that was
-/// streamed but never completed, as when the daemon stopped mid-answer, is joined from
-/// its updates and ends the turn as its last assistant message. A tool call without a recorded result gets an error
-/// result, see [`close_open_calls`].
-pub(crate) fn rebuild(prompt: &str, events: &[&Event]) -> Vec<Message> {
+/// gather in a user message. Each steer is a user message of its own, where the
+/// `steering_delivered` that names it is: the turn records that event just before the
+/// model call that sends the steer, so the model read it there and not where the user
+/// typed it. A steer that no `steering_delivered` names never reached the model (the
+/// turn failed or was interrupted first, or the user took it back), and is left out.
+/// Text that was streamed but never completed, as when the daemon stopped mid-answer,
+/// is joined from its updates and ends the turn as its last assistant message. A tool
+/// call without a recorded result gets an error result, see [`close_open_calls`].
+pub(crate) fn rebuild(prompt: &str, events: &[&EventEnvelope]) -> Vec<Message> {
     let mut rebuilt = Rebuilt { messages: vec![Message::user(prompt)], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
-    for event in events {
-        match event {
+    let mut steers: HashMap<Seq, &str> = HashMap::new();
+    // NOTE: a daemon from before `steering_delivered` did not record it. A completed
+    // turn of today's daemon reads every steer before it ends, so a completed turn
+    // without the event is from such a daemon: it keeps its steers where the user
+    // typed them, as its history showed them then.
+    let typed_place = events.iter().any(|e| matches!(e.event, Event::TurnCompleted { .. }))
+        && !events.iter().any(|e| matches!(e.event, Event::SteeringDelivered { .. }));
+    for envelope in events {
+        match &envelope.event {
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 match &mut streaming {
                     Some((open, text)) if open == index && *offset == text.len() as u64 => {
@@ -316,7 +327,15 @@ pub(crate) fn rebuild(prompt: &str, events: &[&Event]) -> Vec<Message> {
                     is_error: *is_error,
                 });
             }
-            Event::TurnSteered { text, .. } => rebuilt.steer(text),
+            Event::TurnSteered { text, .. } if typed_place => rebuilt.steer(text),
+            Event::TurnSteered { text, .. } => {
+                steers.insert(envelope.seq, text);
+            }
+            Event::SteeringDelivered { steers: delivered, .. } => {
+                for text in delivered.iter().filter_map(|seq| steers.get(seq)) {
+                    rebuilt.steer(text);
+                }
+            }
             _ => {}
         }
     }

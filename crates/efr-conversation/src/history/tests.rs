@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, Origin, PtyId, Scope, TurnId,
-    TurnSettings,
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId,
+    Scope, Seq, TurnId, TurnSettings,
 };
 use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
+use efr_stdx::time::Clock;
 use efr_store::Batch;
 use efr_test_support::{TestClock, TestRng, TestStore};
 use pretty_assertions::assert_eq;
@@ -76,12 +77,27 @@ fn tool_result(call_id: CallId, output: &str) -> ContentBlock {
     }
 }
 
+/// `events` as the log of one turn from seq 1 on, rebuilt after `prompt`.
+fn rebuilt(prompt: &str, events: &[Event]) -> Vec<Message> {
+    let clock = TestClock::new();
+    let envelopes: Vec<EventEnvelope> = (1..)
+        .zip(events)
+        .map(|(seq, event)| EventEnvelope {
+            seq: Seq::new(seq),
+            conversation_id: None,
+            at: Clock::now(&clock),
+            event: event.clone(),
+        })
+        .collect();
+    let refs: Vec<&EventEnvelope> = envelopes.iter().collect();
+    rebuild(prompt, &refs)
+}
+
 #[test]
 fn a_text_turn_is_the_prompt_and_the_answer() {
     let t = turn(2);
     let events = [completed(t, 0, "Hi.")];
-    let refs: Vec<&Event> = events.iter().collect();
-    assert_eq!(rebuild("hello", &refs), vec![Message::user("hello"), Message::assistant("Hi.")]);
+    assert_eq!(rebuilt("hello", &events), vec![Message::user("hello"), Message::assistant("Hi.")]);
 }
 
 #[test]
@@ -96,10 +112,9 @@ fn tool_calls_join_the_assistant_message_until_a_result_comes() {
         finished(t, c2, "two"),
         completed(t, 1, "Done."),
     ];
-    let refs: Vec<&Event> = events.iter().collect();
 
     assert_eq!(
-        rebuild("look", &refs),
+        rebuilt("look", &events),
         vec![
             Message::user("look"),
             Message::new(
@@ -135,10 +150,9 @@ fn a_call_without_a_result_gets_an_error_result_after_its_message() {
         finished(t, c1, "one"),
         started(t, c2, "shell"),
     ];
-    let refs: Vec<&Event> = events.iter().collect();
 
     assert_eq!(
-        rebuild("look", &refs),
+        rebuilt("look", &events),
         vec![
             Message::user("look"),
             Message::new(
@@ -184,17 +198,85 @@ fn open_calls_join_the_results_after_their_message_or_start_one() {
     assert_eq!(messages, again, "a closed transcript stays as it is");
 }
 
+/// The user typed the steers while a command ran; the next model call read them after
+/// the command's result, and so the rebuilt history holds them there.
 #[test]
-fn steering_is_a_user_message_where_it_happened() {
+fn a_steer_is_where_steering_delivered_put_it() {
+    let t = turn(2);
+    let c = call(3);
+    let events = [
+        completed(t, 0, "Working."),
+        started(t, c, "shell"),
+        // seq 3
+        Event::TurnSteered { turn_id: t, text: "faster".to_owned() },
+        // seq 4
+        Event::TurnSteered { turn_id: t, text: "and quieter".to_owned() },
+        finished(t, c, "ok"),
+        Event::SteeringDelivered { turn_id: t, steers: vec![Seq::new(3), Seq::new(4)] },
+        completed(t, 1, "Done."),
+        Event::TurnCompleted { turn_id: t, usage: None, changes: None },
+    ];
+    assert_eq!(
+        rebuilt("go", &events),
+        vec![
+            Message::user("go"),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text { text: "Working.".to_owned() }, tool_call(c, "shell")]
+            ),
+            Message::new(Role::User, vec![tool_result(c, "ok")]),
+            Message::user("faster"),
+            Message::user("and quieter"),
+            Message::assistant("Done."),
+        ]
+    );
+}
+
+/// A steer that no model call read is left out: the turn failed, an old client
+/// interrupted it without taking the steer back, or the user took it back.
+#[test]
+fn a_steer_that_no_model_call_read_is_left_out() {
+    let t = turn(2);
+    let steered = Event::TurnSteered { turn_id: t, text: "faster".to_owned() };
+    let failed = [
+        completed(t, 0, "Working."),
+        steered.clone(),
+        Event::TurnFailed { turn_id: t, error: ErrorBody::new(ErrorCode::Internal, "no") },
+    ];
+    let interrupted = [
+        completed(t, 0, "Working."),
+        steered.clone(),
+        Event::TurnInterruptRequested { turn_id: t, origin: Origin::Shell },
+        Event::TurnInterrupted { turn_id: t },
+    ];
+    let withdrawn = [
+        completed(t, 0, "Working."),
+        steered,
+        Event::SteeringWithdrawn { turn_id: t, steers: vec![Seq::new(2)], origin: Origin::Shell },
+        Event::TurnInterrupted { turn_id: t },
+    ];
+    for events in [&failed[..], &interrupted[..], &withdrawn[..]] {
+        assert_eq!(
+            rebuilt("go", events),
+            vec![Message::user("go"), Message::assistant("Working.")],
+            "{events:?}"
+        );
+    }
+}
+
+/// A daemon from before `steering_delivered` did not record it; its completed turns
+/// keep their steers where the user typed them.
+#[test]
+fn a_completed_turn_without_steering_delivered_keeps_its_steers_where_they_were_typed() {
     let t = turn(2);
     let events = [
         completed(t, 0, "Working."),
         Event::TurnSteered { turn_id: t, text: "faster".to_owned() },
         completed(t, 1, "Done."),
+        Event::TurnCompleted { turn_id: t, usage: None, changes: None },
     ];
-    let refs: Vec<&Event> = events.iter().collect();
     assert_eq!(
-        rebuild("go", &refs),
+        rebuilt("go", &events),
         vec![
             Message::user("go"),
             Message::assistant("Working."),
@@ -216,8 +298,10 @@ fn text_that_streamed_but_never_completed_ends_the_turn() {
             delta: "f an answ".to_owned(),
         },
     ];
-    let refs: Vec<&Event> = events.iter().collect();
-    assert_eq!(rebuild("go", &refs), vec![Message::user("go"), Message::assistant("Half an answ")]);
+    assert_eq!(
+        rebuilt("go", &events),
+        vec![Message::user("go"), Message::assistant("Half an answ")]
+    );
 }
 
 /// Records a whole turn: queued, started, `body`, then `end`.
@@ -324,7 +408,7 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
         Event::TurnCompleted { turn_id: b, usage: None, changes: None },
     );
     if let Event::PromptQueued { steers, .. } = &mut resent[0] {
-        *steers = vec![efr_protocol::Seq::new(4)];
+        *steers = vec![Seq::new(4)];
     }
     let store = store_with(vec![
         whole_turn(
@@ -343,8 +427,7 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
     assert!(
         page.page
             .iter()
-            .any(|e| e.seq == efr_protocol::Seq::new(4)
-                && matches!(e.event, Event::TurnSteered { .. })),
+            .any(|e| e.seq == Seq::new(4) && matches!(e.event, Event::TurnSteered { .. })),
         "the steer has the seq that the prompt names"
     );
 
@@ -355,6 +438,43 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
         history,
         vec![
             Message::user("fix the build"),
+            Message::user("only the parser"),
+            Message::assistant("Parser fixed."),
+        ]
+    );
+}
+
+/// The store gives each event its seq, and `steering_delivered` names the steers by it.
+#[tokio::test]
+async fn a_rebuilt_turn_finds_its_delivered_steers_by_their_seq() {
+    let a = turn(2);
+    // NOTE: seq 1 is conversation_created, 2 and 3 queue and start `a`, 4 is the answer
+    // and 5 the steer.
+    let store = store_with(vec![whole_turn(
+        a,
+        "fix the build",
+        vec![
+            completed(a, 0, "Looking."),
+            Event::TurnSteered { turn_id: a, text: "only the parser".to_owned() },
+            Event::SteeringDelivered { turn_id: a, steers: vec![Seq::new(5)] },
+            completed(a, 1, "Parser fixed."),
+        ],
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+    )])
+    .await;
+
+    let history = snapshot(&store, HistoryLimits::default()).await.history(
+        turn(9),
+        &HashMap::new(),
+        &key("replay", "m"),
+        HistoryLimits::default(),
+    );
+
+    assert_eq!(
+        history,
+        vec![
+            Message::user("fix the build"),
+            Message::assistant("Looking."),
             Message::user("only the parser"),
             Message::assistant("Parser fixed."),
         ]
