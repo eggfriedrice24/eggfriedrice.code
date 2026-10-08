@@ -80,8 +80,9 @@ pub use spec::{
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{
-    ConfigLister, GitDirTarget, MAX_SURFACE_FILE, SCAN_SKIP, ScanLimits, SurfaceManifest,
-    SurfaceRule, check_surface, report_file, scan_git_dirs,
+    CONFIG_LISTINGS_FILE, ConfigLister, ConfigListings, GitDirTarget, MAX_CONFIG_LISTINGS_BYTES,
+    MAX_SURFACE_FILE, SCAN_SKIP, ScanLimits, SurfaceManifest, SurfaceRule, check_surface,
+    report_file, scan_git_dirs,
 };
 pub use worktree::{
     WorktreeCheck, WorktreeRecord, check_worktree, parse_git_file, read_worktree, record_file_name,

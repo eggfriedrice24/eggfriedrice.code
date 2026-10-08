@@ -7,6 +7,7 @@
 //! `quarantined` must move to `$SBX/quarantine/<call>/`, outside the sandbox's view,
 //! before anything reads it; efrd then asks the user whether to keep it.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
@@ -18,6 +19,10 @@ use crate::fs_view::{FileKind, FsView};
 use crate::git_config::{cargo_code_keys, code_keys};
 use crate::paths::{is_within, normalize};
 
+mod listings;
+
+pub use listings::{CONFIG_LISTINGS_FILE, ConfigListings, MAX_CONFIG_LISTINGS_BYTES};
+
 /// The most bytes of one file that the manifest keeps; a longer file counts as
 /// changed in every comparison.
 pub const MAX_SURFACE_FILE: usize = 256 * 1024;
@@ -27,6 +32,10 @@ pub const MAX_SURFACE_FILE: usize = 256 * 1024;
 pub trait ConfigLister {
     /// The listing of the config file `config`.
     fn list(&self, config: &Path) -> io::Result<String>;
+
+    /// The listing of a config whose bytes are `content`, which git reads from stdin
+    /// (`--file -`): it depends on these bytes alone.
+    fn list_content(&self, content: &[u8]) -> io::Result<String>;
 }
 
 /// A rule of the surface guard; its name is the wire `SurfaceChange::rule`.
@@ -171,6 +180,7 @@ pub struct SurfaceManifest {
 struct Capture<'a> {
     fs: &'a dyn FsView,
     lister: &'a dyn ConfigLister,
+    listings: RefCell<&'a mut ConfigListings>,
 }
 
 impl Capture<'_> {
@@ -191,7 +201,14 @@ impl Capture<'_> {
         let snap = self.snap(path);
         let (keys, unreadable) = match &snap {
             Snap::Missing => (Vec::new(), false),
-            Snap::File(_) | Snap::TooLarge => match self.lister.list(path) {
+            // NOTE: git lists the bytes that the snap holds, so the keys and the
+            // comparison see the same content, and a content that git listed before
+            // needs no git again.
+            Snap::File(bytes) => match self.listings.borrow_mut().listing(bytes, self.lister) {
+                Some(listing) => (code_keys(listing), false),
+                None => (Vec::new(), true),
+            },
+            Snap::TooLarge => match self.lister.list(path) {
                 Ok(listing) => (code_keys(&listing), false),
                 Err(_) => (Vec::new(), true),
             },
@@ -202,9 +219,12 @@ impl Capture<'_> {
 
     fn hooks(&self, dir: &Path) -> Hooks {
         match self.fs.lstat(dir) {
+            // NOTE: git runs no `*.sample` hook and no rule looks at one, so the capture
+            // does not read them; a git dir has about fourteen.
             Ok(FileKind::Dir) => Hooks::Entries(
                 self.names(dir)
                     .into_iter()
+                    .filter(|name| !name.as_encoded_bytes().ends_with(b".sample"))
                     .map(|name| {
                         let snap = self.snap(&dir.join(&name));
                         (name.to_string_lossy().into_owned(), snap)
@@ -277,14 +297,16 @@ impl Capture<'_> {
 
 impl SurfaceManifest {
     /// Records the git surface of `targets`; `protected` are the names that count when
-    /// a call creates them at a repository root.
+    /// a call creates them at a repository root. git lists only a config content that
+    /// `listings` does not hold yet, and `listings` keeps each new listing.
     pub fn capture(
         targets: &[GitDirTarget],
         protected: &[String],
         fs: &dyn FsView,
         lister: &dyn ConfigLister,
+        listings: &mut ConfigListings,
     ) -> SurfaceManifest {
-        let capture = Capture { fs, lister };
+        let capture = Capture { fs, lister, listings: RefCell::new(listings) };
         let repos = targets
             .iter()
             .map(|target| (target.git_dir.clone(), capture.repo(target, protected)))

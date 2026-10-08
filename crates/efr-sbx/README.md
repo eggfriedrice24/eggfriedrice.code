@@ -57,6 +57,7 @@ What the launcher writes, in order:
 | `$SBX/quarantine/<call>/<n>-<name>` and `entries.json` | each entry the surface guard moved away; `entries.json` lists `{ "from", "to" }` so efrd can move an entry back when the user keeps it. Across file systems the launcher copies at most 64 MiB per call and removes the original all the same; a file cut short is listed in the entry's `truncated`, and efrd does not move that entry back |
 | `$CALL/apply` | the filtered `cd`, exports and unsets for `_efr_hs_sbx_apply` |
 | `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
+| `$R/sbx/<conversation>/config-listings.json` | contained calls only, after the surface guard, when its listings changed: git's listing of each config content that the call read. git reads the content on stdin, so a listing depends on the content alone, and the next call runs git only for a new content. A listing of another git (path, inode, size or times) is never used |
 | `$CALL/result.json` | last, by a rename, after every process of the call is gone |
 
 The child shell's contract (efr-shell's `assets/zsh/efr-child.zsh` keeps it):

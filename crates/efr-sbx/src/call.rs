@@ -162,7 +162,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         StartDir::Private { path } => plan.private_host_path(path).unwrap_or_else(|| path.clone()),
         other => other.path().to_path_buf(),
     };
-    let guard = Guard::before(&spec, &plan, &start_host);
+    let mut guard = Guard::before(&spec, &plan, &start_host, &shell_dir);
     timings.lap("guard_before");
     let (env, removed) = EnvFilter::new(&spec, &plan).apply(&env);
     let mut argv = plan.child_argv().to_vec();
@@ -257,6 +257,7 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
     }
     timings.lap("records_and_state");
     let mut changes = guard.after(&final_host);
+    guard.keep_listings(&shell_dir);
     if guard::quarantine(&mut changes, &spec.runtime.quarantine(spec.call)).is_err() {
         for change in &mut changes {
             change.quarantined = false;

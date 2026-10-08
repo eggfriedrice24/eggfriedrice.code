@@ -31,6 +31,30 @@ fn git_lists_a_config_without_its_includes() {
 }
 
 #[test]
+fn git_lists_a_content_from_stdin_as_it_lists_the_file() {
+    let Some(lister) = Some(GitLister::find("/usr/bin:/bin", &[])).filter(|l| l.git.is_some())
+    else {
+        return;
+    };
+    let temp = temp_dir();
+    let config = temp.path().join("config");
+    // Larger than a pipe: git prints while it reads, and nothing may block.
+    let mut content = String::from("[core]\n\thooksPath = ./h\n[include]\n\tpath = other\n");
+    for n in 0..4000 {
+        content.push_str(&format!("[branch \"b{n}\"]\n\tremote = origin\n"));
+    }
+    fs::write(&config, &content).unwrap();
+    fs::write(temp.path().join("other"), "[core]\n\tpager = evil\n").unwrap();
+    let listing = lister.list_content(content.as_bytes()).unwrap();
+    assert_eq!(listing, lister.list(&config).unwrap());
+    assert_eq!(efr_sandbox::code_keys(&listing), vec!["core.hookspath", "include.path"]);
+    assert!(lister.list_content(b"[[broken").is_err());
+    // The identity names this git; there is none without a git.
+    assert!(lister.identity().starts_with(&lister.git.as_ref().unwrap().display().to_string()));
+    assert_eq!(GitLister { git: None }.identity(), "");
+}
+
+#[test]
 fn quarantine_moves_entries_and_writes_the_index() {
     let temp = temp_dir();
     let repo = temp.path().join("repo/.git");
@@ -123,6 +147,8 @@ fn a_call_from_the_home_dir_scans_only_the_guard_roots() {
         chain_roots: vec![project.clone(), cache.clone()],
         protected: Vec::new(),
         lister: GitLister { git: None },
+        listings: ConfigListings::default(),
+        kept: Vec::new(),
         before: SurfaceManifest::default(),
         started: now(),
     };

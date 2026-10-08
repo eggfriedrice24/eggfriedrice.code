@@ -25,6 +25,7 @@ tested without a kernel.
 | `src/state.rs` | `SandboxState` and `state.zsh`: what later contained calls inherit |
 | `src/result.rs` | the files of a call dir and `SandboxResult`, the launcher's `result.json`, with the time of each launcher step (`LaunchTiming`) |
 | `src/surface.rs` | the surface guard: `SurfaceManifest`, `check_surface`, the scan for nested git dirs, the turn-end report entry |
+| `src/surface/listings.rs` | `ConfigListings`: git's listing of each config content, which the captures of a call and the next calls of the shell use again |
 | `src/git_config.rs` | the git and cargo config keys that run a program, and a small git config reader |
 | `src/worktree.rs` | `WorktreeRecord`: the git dirs of a worktree project, read once at registration |
 | `src/probe.rs` | `ProbeReport`, `ProbeFailure` with the reason and fix texts, the Landlock and bwrap checks |

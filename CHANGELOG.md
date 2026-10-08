@@ -84,6 +84,10 @@ into the GitHub release notes, and it stops when the section is missing.
   prompt that you queued or sent again with Esc showed in the middle of the turn
   before it. A prompt that you took back shows where it was in the queue, with the
   note `withdrawn before it ran`.
+- A call in `auto` costs less in a project with nested git repositories. The surface
+  guard runs git only for a git config that changed since the last call, reads no
+  `*.sample` hook, and lists directories faster. In a copy of efr's own repository, the
+  guard went from 15 ms to 6 ms per call.
 
 ### Fixed
 

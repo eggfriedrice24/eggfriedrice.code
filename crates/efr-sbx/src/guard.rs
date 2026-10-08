@@ -4,21 +4,26 @@
 //! every git dir the scan finds in the guard roots and of the start dir's chain; after
 //! the run it records it again, compares, and moves every entry that breaks a rule to
 //! `$SBX/quarantine/<call>/`, outside the sandbox's view. git itself lists each config
-//! (`git config --file F --list --no-includes -z`), in `/`, with no system or global
-//! config, and from a `PATH` dir that no call can write.
+//! (`git config --file - --list --no-includes -z`, with the bytes that the guard read
+//! as its input; a config too large to keep, by its path), in `/`, with no system or
+//! global config, and from a `PATH` dir that no call can write. A content that git
+//! listed before is not listed again: the listings stay in the hidden shell's sandbox
+//! dir between calls ([`efr_sandbox::ConfigListings`]).
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use efr_protocol::SurfaceChange;
 use efr_sandbox::{
-    ConfigLister, FileKind, FsView, GitDirTarget, MountOp, MountOrigin, MountPlan, SandboxSpec,
-    ScanLimits, SurfaceManifest, check_surface, is_within, scan_git_dirs,
+    CONFIG_LISTINGS_FILE, ConfigLister, ConfigListings, FileKind, FsView, GitDirTarget,
+    MAX_CONFIG_LISTINGS_BYTES, MountOp, MountOrigin, MountPlan, SandboxSpec, ScanLimits,
+    SurfaceManifest, check_surface, is_within, scan_git_dirs,
 };
+use rustix::fs::MemfdFlags;
 use serde::Serialize;
 
 use crate::call_dir::PrivateDir;
@@ -47,14 +52,46 @@ impl GitLister {
             .find(|git| fs::metadata(git).is_ok_and(|meta| meta.is_file()));
         GitLister { git }
     }
-}
 
-impl ConfigLister for GitLister {
-    fn list(&self, config: &Path) -> io::Result<String> {
+    /// What names this git for [`ConfigListings`]: its path and what identifies its
+    /// file, so a listing that another git made, or the same path after an update, is
+    /// never used. Empty when there is no git.
+    pub(crate) fn identity(&self) -> String {
+        use std::os::unix::fs::MetadataExt as _;
+        let Some(git) = &self.git else { return String::new() };
+        let Ok(meta) = fs::metadata(git) else { return String::new() };
+        format!(
+            "{} {}:{} {} {}.{} {}.{}",
+            git.display(),
+            meta.dev(),
+            meta.ino(),
+            meta.size(),
+            meta.mtime(),
+            meta.mtime_nsec(),
+            meta.ctime(),
+            meta.ctime_nsec()
+        )
+    }
+
+    /// `git config --no-includes --list -z --file <file>` in a scrubbed environment, in
+    /// `/`, with `stdin` as its input.
+    fn run(&self, file: &OsStr, stdin: Option<&[u8]>) -> io::Result<String> {
         let git = self.git.as_ref().ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        // NOTE: the input is a file in memory, not a pipe: git prints the listing while
+        // it reads, so a config larger than a pipe would block both ends.
+        let input = match stdin {
+            Some(bytes) => {
+                let memfd = rustix::fs::memfd_create("efr-sbx-config", MemfdFlags::CLOEXEC)?;
+                let mut file = fs::File::from(memfd);
+                file.write_all(bytes)?;
+                file.seek(SeekFrom::Start(0))?;
+                Stdio::from(file)
+            }
+            None => Stdio::null(),
+        };
         let output = os::command(git)
             .args(["config", "--no-includes", "--list", "-z", "--file"])
-            .arg(config)
+            .arg(file)
             .current_dir("/")
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -63,13 +100,23 @@ impl ConfigLister for GitLister {
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CEILING_DIRECTORIES", "/")
             .env("LC_ALL", "C")
-            .stdin(Stdio::null())
+            .stdin(input)
             .stderr(Stdio::null())
             .output()?;
         if !output.status.success() {
             return Err(io::Error::other("git config failed"));
         }
         String::from_utf8(output.stdout).map_err(io::Error::other)
+    }
+}
+
+impl ConfigLister for GitLister {
+    fn list(&self, config: &Path) -> io::Result<String> {
+        self.run(config.as_os_str(), None)
+    }
+
+    fn list_content(&self, content: &[u8]) -> io::Result<String> {
+        self.run(OsStr::new("-"), Some(content))
     }
 }
 
@@ -81,13 +128,23 @@ pub(crate) struct Guard {
     chain_roots: Vec<PathBuf>,
     protected: Vec<String>,
     lister: GitLister,
+    listings: ConfigListings,
+    /// The listings file as the call found it.
+    kept: Vec<u8>,
     before: SurfaceManifest,
     started: (i64, u32),
 }
 
 impl Guard {
-    /// Records the surface before the run; `start` is the host path of the start dir.
-    pub(crate) fn before(spec: &SandboxSpec, plan: &MountPlan, start: &Path) -> Guard {
+    /// Records the surface before the run; `start` is the host path of the start dir,
+    /// and `shell_dir` the hidden shell's sandbox dir, which keeps the config listings
+    /// of its calls.
+    pub(crate) fn before(
+        spec: &SandboxSpec,
+        plan: &MountPlan,
+        start: &Path,
+        shell_dir: &PrivateDir,
+    ) -> Guard {
         let pins: Vec<PathBuf> = plan
             .mounts()
             .iter()
@@ -100,18 +157,43 @@ impl Guard {
         let mut chain_roots: Vec<PathBuf> = plan.write_dirs().to_vec();
         chain_roots.push(plan.private_tmp().to_path_buf());
         let lister = GitLister::find(&spec.shell_path, &chain_roots);
+        let git = lister.identity();
+        let kept = shell_dir
+            .read(CONFIG_LISTINGS_FILE, MAX_CONFIG_LISTINGS_BYTES)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let listings = ConfigListings::from_json(&kept, &git);
         let mut guard = Guard {
             pins,
             roots: spec.guard_roots.clone(),
             chain_roots,
             protected: spec.protected_names.clone(),
             lister,
+            listings,
+            kept,
             before: SurfaceManifest::default(),
             started: now(),
         };
         let targets = guard.targets(start);
-        guard.before = SurfaceManifest::capture(&targets, &guard.protected, &RealFs, &guard.lister);
+        guard.before = SurfaceManifest::capture(
+            &targets,
+            &guard.protected,
+            &RealFs,
+            &guard.lister,
+            &mut guard.listings,
+        );
         guard
+    }
+
+    /// Keeps the config listings of this call in `shell_dir` for the next call. A
+    /// listing that does not reach the disk costs the next call a run of git, nothing
+    /// more.
+    pub(crate) fn keep_listings(&self, shell_dir: &PrivateDir) {
+        let json = self.listings.to_json();
+        if json != self.kept {
+            let _ = shell_dir.write_atomic(CONFIG_LISTINGS_FILE, &json);
+        }
     }
 
     /// The directory chain of `cwd` that lies in a place a call can write.
@@ -131,7 +213,7 @@ impl Guard {
     /// and returns the changes. A git dir that only the second scan finds counts as new
     /// when it or its config, commondir or hooks changed during the call; one that sat
     /// unchanged where the first scan did not look is left out.
-    pub(crate) fn after(&self, cwd: &Path) -> Vec<SurfaceChange> {
+    pub(crate) fn after(&mut self, cwd: &Path) -> Vec<SurfaceChange> {
         let known = self.before.git_dirs();
         let targets: Vec<GitDirTarget> = self
             .targets(cwd)
@@ -140,7 +222,13 @@ impl Guard {
                 known.contains(&target.git_dir.as_path()) || self.changed(&target.git_dir)
             })
             .collect();
-        let after = SurfaceManifest::capture(&targets, &self.protected, &RealFs, &self.lister);
+        let after = SurfaceManifest::capture(
+            &targets,
+            &self.protected,
+            &RealFs,
+            &self.lister,
+            &mut self.listings,
+        );
         check_surface(&self.before, &after)
     }
 
