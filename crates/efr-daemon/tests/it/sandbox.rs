@@ -1154,6 +1154,31 @@ fn big_rc() -> String {
 /// What a routine call in `auto` may cost more than in `cautious`, in a release build.
 const AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(40);
 
+/// What a routine call may cost in a release build, in either mode.
+const CALL_COSTS_AT_MOST: Duration = Duration::from_millis(250);
+
+/// The rounds of the bench: one turn in `auto`, then one in `cautious`.
+const ROUNDS: u128 = 3;
+
+/// What the fastest call in `auto` may cost more than the fastest in `cautious`, in a
+/// debug build, over the calls of all rounds (the `tool_call` line of each call).
+///
+/// NOTE: on an idle machine a debug build adds about 26 ms: the fastest call costs
+/// about 32 ms in `auto` and 6 ms in `cautious`. Load does not hit the two modes alike.
+/// A call in `cautious` runs `true` in a zsh that is already there; a call in `auto`
+/// also starts git, the launcher, bwrap, the inner stage and a child zsh, and each new
+/// process of a debug build waits for a CPU and reads its pages. So no ratio of the
+/// averages holds under load: with the workspace's tests at 64 threads next to the
+/// bench, calls in `auto` cost 32 to 222 ms and in `cautious` 5 to 56 ms, and the
+/// average of a turn in `auto` was 4 to 16 times that of `cautious`. Load only adds
+/// time, and it leaves some calls of each mode alone: the fastest call stayed at 28 to
+/// 38 ms in `auto` and 5 to 8 ms in `cautious`, at most 31 ms apart. A change that adds
+/// a cost to every call in `auto` (one more process, a git run on the project, a fixed
+/// wait) adds it to the fastest call too. 75 ms is about three times the cost that
+/// `auto` adds today, so a change that adds about 50 ms to every call fails; a 60 ms
+/// sleep in the launcher made the fastest calls 82 and 86 ms apart.
+const DEBUG_AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(75);
+
 /// The debug lines of efr's crates in this process, for the bench's `phase` lines.
 fn debug_log() -> Arc<std::sync::Mutex<Vec<u8>>> {
     static LOG: std::sync::OnceLock<Arc<std::sync::Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
@@ -1189,26 +1214,47 @@ fn take_log() -> String {
     String::from_utf8_lossy(&std::mem::take(&mut *debug_log().lock().unwrap())).into_owned()
 }
 
-/// The total of each `phase` line of `log` in milliseconds, in the order in which each
-/// phase first shows.
-fn phase_totals(log: &str) -> Vec<(String, f64)> {
+/// Each `phase` line of `log` as its phase and its time in milliseconds, in order.
+fn phase_lines(log: &str) -> Vec<(String, f64)> {
     let field = |line: &str, name: &str| {
         let start = line.find(&format!(" {name}="))? + name.len() + 2;
         let value = line.get(start..)?.split(' ').next()?;
         Some(value.trim_matches('"').to_owned())
     };
+    log.lines()
+        .filter_map(|line| {
+            let phase = field(line, "phase")?;
+            let ms = field(line, "elapsed_ms")?.parse::<f64>().ok()?;
+            Some((phase, ms))
+        })
+        .collect()
+}
+
+/// The total of each `phase` line of `log` in milliseconds, in the order in which each
+/// phase first shows.
+fn phase_totals(log: &str) -> Vec<(String, f64)> {
     let mut totals: Vec<(String, f64)> = Vec::new();
-    for line in log.lines() {
-        let (Some(phase), Some(ms)) = (field(line, "phase"), field(line, "elapsed_ms")) else {
-            continue;
-        };
-        let Ok(ms) = ms.parse::<f64>() else { continue };
+    for (phase, ms) in phase_lines(log) {
         match totals.iter_mut().find(|(known, _)| *known == phase) {
             Some((_, total)) => *total += ms,
             None => totals.push((phase, ms)),
         }
     }
     totals
+}
+
+/// The time of each call in `log`, from its `tool_call` line, in milliseconds.
+fn call_times(log: &str) -> Vec<f64> {
+    phase_lines(log)
+        .into_iter()
+        .filter(|(phase, _)| phase == "tool_call")
+        .map(|(_, ms)| ms)
+        .collect()
+}
+
+/// The smallest of `values`.
+fn fastest(values: &[f64]) -> f64 {
+    values.iter().copied().fold(f64::INFINITY, f64::min)
 }
 
 /// One turn of `calls` calls from `cwd` in `mode`, answered with yes: the time per call.
@@ -1262,10 +1308,12 @@ async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: 
 }
 
 /// What a routine call costs in `auto` against `cautious`, from a project and from the
-/// home dir, with a big rc and every default cache: it prints the cost of each. A
-/// release build fails when a call in `auto` costs 40 ms more than one in `cautious`;
-/// a debug build only when a call costs more than a quarter of a second. Run the
-/// release gate with `cargo nextest run --release`, as docs/sandbox.md says.
+/// home dir, with a big rc and every default cache: it prints the cost of each. The
+/// turns in `auto` and in `cautious` take turns, so both see the same load. A release
+/// build fails when a call in `auto` costs 40 ms more than one in `cautious`, or a
+/// call costs more than a quarter of a second; a debug build when the fastest call in
+/// `auto` costs 75 ms more than the fastest in `cautious` ([`DEBUG_AUTO_ADDS_AT_MOST`]).
+/// Run the release gate with `cargo nextest run --release`, as docs/sandbox.md says.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     let test = "shell_routine_calls_in_auto_cost_close_to_cautious";
@@ -1332,12 +1380,32 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     debug_log();
     turn_cost(&daemon, 1, &project, Mode::Auto, calls).await;
     take_log();
-    let auto = turn_cost(&daemon, 2, &project, Mode::Auto, calls).await;
-    let auto_phases = phase_totals(&take_log());
-    let home = turn_cost(&daemon, 3, dirs.home(), Mode::Auto, calls).await;
+    let home = turn_cost(&daemon, 2, dirs.home(), Mode::Auto, calls).await;
     take_log();
-    let cautious = turn_cost(&daemon, 4, &project, Mode::Cautious, calls).await;
-    let cautious_phases = phase_totals(&take_log());
+    // NOTE: the modes take turns, so a change of the machine's load hits both alike.
+    let (mut auto, mut cautious) = (Duration::ZERO, Duration::ZERO);
+    let (mut auto_calls, mut cautious_calls) = (Vec::new(), Vec::new());
+    let (mut auto_phases, mut cautious_phases) = (Vec::new(), Vec::new());
+    for round in 0..ROUNDS {
+        auto += turn_cost(&daemon, 3 + round * 2, &project, Mode::Auto, calls).await;
+        let log = take_log();
+        auto_calls.extend(call_times(&log));
+        if round == 0 {
+            auto_phases = phase_totals(&log);
+        }
+        cautious += turn_cost(&daemon, 4 + round * 2, &project, Mode::Cautious, calls).await;
+        let log = take_log();
+        cautious_calls.extend(call_times(&log));
+        if round == 0 {
+            cautious_phases = phase_totals(&log);
+        }
+    }
+    let rounds = u32::try_from(ROUNDS).unwrap();
+    let (auto, cautious) = (auto / rounds, cautious / rounds);
+    assert_eq!(auto_calls.len(), (calls * rounds) as usize, "a tool_call line per call");
+    assert_eq!(cautious_calls.len(), (calls * rounds) as usize, "a tool_call line per call");
+    let fastest_auto = fastest(&auto_calls);
+    let fastest_cautious = fastest(&cautious_calls);
     let ms = |cost: Duration| cost.as_secs_f64() * 1000.0;
     #[expect(clippy::print_stdout, reason = "the bench prints its numbers")]
     {
@@ -1347,6 +1415,10 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
             ms(auto),
             ms(home),
             ms(cautious)
+        );
+        println!(
+            "the fastest call of {ROUNDS} rounds: auto {fastest_auto:.1} ms, cautious \
+             {fastest_cautious:.1} ms"
         );
         // The `phase` lines of efrd (docs/sandbox.md), per call: where the time goes.
         println!("{:<28} {:>9} {:>9}", "phase (ms per call)", "auto", "cautious");
@@ -1409,12 +1481,21 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
             "no {phase} line in auto: {auto_phases:?}"
         );
     }
-    for cost in [auto, home, cautious] {
-        assert!(cost < Duration::from_millis(250), "a call cost {:.1} ms", ms(cost));
-    }
     // NOTE: a debug build runs the launcher and the daemon several times slower, so
-    // only a release build holds the bound of what auto may add to a call.
-    if !cfg!(debug_assertions) {
+    // only a release build holds the fixed bounds; a debug build compares the modes.
+    if cfg!(debug_assertions) {
+        let added = fastest_auto - fastest_cautious;
+        assert!(
+            added < ms(DEBUG_AUTO_ADDS_AT_MOST),
+            "the fastest call in auto cost {added:.1} ms more than in cautious \
+             ({fastest_auto:.1} against {fastest_cautious:.1} ms); at most {:.1} ms: \
+             auto {auto_calls:?}, cautious {cautious_calls:?}",
+            ms(DEBUG_AUTO_ADDS_AT_MOST)
+        );
+    } else {
+        for cost in [auto, home, cautious] {
+            assert!(cost < CALL_COSTS_AT_MOST, "a call cost {:.1} ms", ms(cost));
+        }
         for cost in [auto, home] {
             let added = cost.saturating_sub(cautious);
             assert!(
