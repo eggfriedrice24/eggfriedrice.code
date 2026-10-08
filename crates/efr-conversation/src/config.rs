@@ -17,7 +17,9 @@ use jiff::tz::TimeZone;
 use serde_json::{Map, Value};
 use tokio::sync::{broadcast, watch};
 
-use crate::{ConversationDraft, ExitJudge, HistoryLimits, ScopeResolver, Toolbox};
+use crate::{
+    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, ScopeResolver, Toolbox,
+};
 
 /// The settings of one conversation.
 #[derive(Debug, Clone)]
@@ -55,6 +57,9 @@ pub struct ConversationConfig {
     pub policy: Policy,
     /// How much history a request carries.
     pub history: HistoryLimits,
+    /// When the context is compacted on its own (`[compaction]`). Read when a turn
+    /// starts.
+    pub compaction: CompactionConfig,
     /// The shortest time between two `assistant_message_updated` events, and between
     /// two `tool_call_output_updated` events of one call.
     pub update_interval: Duration,
@@ -75,7 +80,8 @@ impl ConversationConfig {
     /// Settings for `model` with scratch directories under `scratch_root`, and the
     /// defaults for the rest: the backend's default effort, the `cautious` mode, no
     /// model list (any model), no system prompt, UTC dates, no machine facts, no
-    /// conversation rules, [`HistoryLimits::default`], 200 ms between updates, 16 ms
+    /// conversation rules, [`HistoryLimits::default`], [`CompactionConfig::default`],
+    /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, 64 model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
@@ -91,6 +97,7 @@ impl ConversationConfig {
             host: HostInfo::default(),
             policy: Policy::empty(),
             history: HistoryLimits::default(),
+            compaction: CompactionConfig::default(),
             update_interval: Duration::from_millis(200),
             draft_interval: Duration::from_millis(16),
             approval_timeout: None,

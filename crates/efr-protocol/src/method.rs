@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
-    AdminStatus, ApprovalRespond, CommandId, ConversationDiff, ConversationHistory,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, ModelsList,
-    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
+    AdminStatus, ApprovalRespond, CommandId, ConversationCompact, ConversationDiff,
+    ConversationHistory, ConversationSubscribe, ConversationsList, Hello, InputRespond,
+    LeaseReport, ModelsList, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
+    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -100,6 +100,9 @@ pub enum Method {
     /// `prompt.withdraw`: take back a prompt that waits in the queue.
     #[serde(rename = "prompt.withdraw")]
     PromptWithdraw(PromptWithdraw),
+    /// `conversation.compact`: compact a conversation's context now.
+    #[serde(rename = "conversation.compact")]
+    ConversationCompact(ConversationCompact),
 }
 
 impl Method {
@@ -132,6 +135,7 @@ impl Method {
             Method::AdminSandboxCheck(_) => "admin.sandbox_check",
             Method::ConversationDiff(_) => "conversation.diff",
             Method::PromptWithdraw(_) => "prompt.withdraw",
+            Method::ConversationCompact(_) => "conversation.compact",
         }
     }
 
@@ -146,6 +150,7 @@ impl Method {
             Method::ApprovalRespond(params) => Some(params.command_id),
             Method::SandboxSurfaceRespond(params) => Some(params.command_id),
             Method::PromptWithdraw(params) => Some(params.command_id),
+            Method::ConversationCompact(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -196,7 +201,8 @@ impl Method {
             | Method::SandboxSurfaceRespond(_)
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_)
-            | Method::PromptWithdraw(_) => false,
+            | Method::PromptWithdraw(_)
+            | Method::ConversationCompact(_) => false,
         }
     }
 }
@@ -221,6 +227,7 @@ impl ScopeName {
             | Method::ConversationDiff(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
+            | Method::ConversationCompact(_)
             | Method::TurnInterrupt(_)
             | Method::TurnSteer(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.

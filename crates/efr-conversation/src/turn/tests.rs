@@ -39,6 +39,7 @@ fn models() -> Vec<ModelInfo> {
         default_effort: Some("medium".to_owned()),
         default: id == MODEL,
         source: ModelSource::Builtin,
+        context_window: None,
     };
     vec![
         model(MODEL, &["low", "medium"]),
@@ -274,8 +275,11 @@ async fn a_text_turn_records_the_answer_and_completes() {
     assert_eq!(sent.seq.get(), 2, "conversation_created is 1, prompt_queued is 2");
     let end = h.wait_end(sent.turn_id).await;
 
-    let usage = Some(Usage { input_tokens: 10, output_tokens: 4 });
-    assert_eq!(end, Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None });
+    let usage = Some(Usage::new(10, 4));
+    assert_eq!(
+        end,
+        Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context: None }
+    );
     assert_eq!(
         h.kinds().await,
         kinds(&[
@@ -794,7 +798,7 @@ async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() 
     assert_eq!(requested.turn_id, sent.turn_id);
     let end = h.wait_end(sent.turn_id).await;
 
-    assert_eq!(end, Event::TurnInterrupted { turn_id: sent.turn_id });
+    assert_eq!(end, Event::TurnInterrupted { turn_id: sent.turn_id, usage: None, context: None });
     assert_eq!(
         h.kinds().await,
         kinds(&[

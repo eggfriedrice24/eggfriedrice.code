@@ -34,6 +34,11 @@ pub struct ModelInfo {
     pub default: bool,
     /// Where the model comes from.
     pub source: ModelSource,
+    /// The model's context window in tokens: from efr's built-in list, or from the
+    /// model's entry in `[openai] models`. Absent when efr does not know it; efrd then
+    /// counts with a default window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
 }
 
 /// Where a model of the list comes from.

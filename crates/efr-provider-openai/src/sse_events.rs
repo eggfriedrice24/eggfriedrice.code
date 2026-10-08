@@ -477,7 +477,7 @@ fn provider_error(error: Option<&Value>, shape: ErrorShape, fallback: &str) -> P
     if code.as_deref().is_some_and(|code| RATE_LIMIT_CODES.contains(&code)) {
         return ProviderError::RateLimited { retry_after: retry_hint(message) };
     }
-    ProviderError::Api { status: None, code, message: message.to_owned() }
+    ProviderError::api(None, code, message.to_owned())
 }
 
 /// The wait a rate-limit message asks for, as in "Please try again in 11.054s" or

@@ -45,7 +45,7 @@ fn the_turn_defaults_and_the_model_list_follow_the_config() {
     let mut config = Settings::default();
     config.permissions.mode = Mode::Auto;
     config.model.effort = Some("high".to_owned());
-    config.openai.models = Some(vec!["gpt-next".to_owned()]);
+    config.openai.models = Some(vec!["gpt-next".into()]);
 
     let settings =
         conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
@@ -54,6 +54,22 @@ fn the_turn_defaults_and_the_model_list_follow_the_config() {
     assert_eq!(settings.effort.as_deref(), Some("high"));
     assert_eq!(settings.models, crate::providers::effective_models(&config));
     assert!(settings.models.iter().any(|model| model.id == "gpt-next"));
+}
+
+#[test]
+fn the_compaction_settings_reach_the_conversations_with_one_default() {
+    assert_eq!(efr_config::DEFAULT_AUTO_AT, efr_conversation::DEFAULT_AUTO_AT);
+    let mut config = Settings::default();
+    let defaults =
+        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+    assert_eq!(defaults.compaction, efr_conversation::CompactionConfig::default());
+
+    config.compaction.auto = false;
+    config.compaction.auto_at = 60;
+    let settings =
+        conversation_config(&config, PathBuf::from("/d/s"), HostInfo::default(), TimeZone::UTC);
+
+    assert_eq!(settings.compaction, efr_conversation::CompactionConfig::new(false, 60));
 }
 
 #[test]

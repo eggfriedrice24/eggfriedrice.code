@@ -56,6 +56,21 @@ pub enum ProviderError {
         message: String,
     },
 
+    /// The request is larger than the model's context window. It is never transient:
+    /// the same request fails again, so the conversation compacts its context before it
+    /// sends another one. [`ProviderError::api`] picks this variant for an API error
+    /// that says so.
+    #[error("the request is larger than the model's context window")]
+    ContextOverflow {
+        /// The HTTP status, when the error came as a response rather than inside a
+        /// stream.
+        status: Option<u16>,
+        /// The provider's machine-readable error code, when it sent one.
+        code: Option<String>,
+        /// The provider's message.
+        message: String,
+    },
+
     /// A response body or a stream event could not be parsed.
     #[error("the provider sent a response that could not be parsed")]
     Decode {
@@ -89,6 +104,43 @@ pub enum ProviderError {
         /// The rejected id.
         id: String,
     },
+}
+
+/// The error codes with which a provider refuses a request that does not fit in the
+/// model's context window: OpenAI's Responses and Chat APIs.
+const CONTEXT_OVERFLOW_CODES: &[&str] = &["context_length_exceeded"];
+
+/// The start of the message with which Anthropic's Messages API refuses a request that
+/// does not fit, inside an `invalid_request_error`.
+const CONTEXT_OVERFLOW_MESSAGE: &str = "prompt is too long";
+
+/// HTTP 413 Payload Too Large: the request body is larger than the backend takes.
+const PAYLOAD_TOO_LARGE: u16 = 413;
+
+impl ProviderError {
+    /// The error for an error answer of a provider's API: [`ProviderError::ContextOverflow`]
+    /// when the answer says that the request does not fit in the model's context window
+    /// (the code `context_length_exceeded`, HTTP 413, or a message that starts with
+    /// `prompt is too long`), else [`ProviderError::Api`]. The typed signals come first;
+    /// the message is the last resort, for a provider without a code of its own.
+    pub fn api(status: Option<u16>, code: Option<String>, message: String) -> ProviderError {
+        let by_code = code.as_deref().is_some_and(|code| CONTEXT_OVERFLOW_CODES.contains(&code));
+        let by_status = status == Some(PAYLOAD_TOO_LARGE);
+        let by_message = message
+            .trim_start()
+            .get(..CONTEXT_OVERFLOW_MESSAGE.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(CONTEXT_OVERFLOW_MESSAGE));
+        if by_code || by_status || by_message {
+            ProviderError::ContextOverflow { status, code, message }
+        } else {
+            ProviderError::Api { status, code, message }
+        }
+    }
+
+    /// True for [`ProviderError::ContextOverflow`].
+    pub fn is_context_overflow(&self) -> bool {
+        matches!(self, ProviderError::ContextOverflow { .. })
+    }
 }
 
 /// The tail of the rate-limit message: the delay rounded up to whole seconds, so a

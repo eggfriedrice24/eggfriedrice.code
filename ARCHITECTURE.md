@@ -209,5 +209,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `apply_patch`: `crates/efr-patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
   and its contract in `crates/efr-tools/README.md`; the question for each delete and
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
+- The model's context window and its compaction: the contract in
+  `crates/efr-conversation/README.md`, section "Context"; the numbers in
+  `crates/efr-conversation/src/context.rs`; the wire types in
+  `crates/efr-protocol/src/compaction.rs`; `[compaction]` in
+  `crates/efr-config/src/tables/compaction.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

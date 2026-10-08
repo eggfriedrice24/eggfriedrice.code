@@ -220,7 +220,7 @@ fn a_steer_is_where_steering_delivered_put_it() {
         finished(t, c, "ok"),
         Event::SteeringDelivered { turn_id: t, steers: vec![Seq::new(3), Seq::new(4)] },
         completed(t, 1, "Done."),
-        Event::TurnCompleted { turn_id: t, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: t, usage: None, changes: None, context: None },
     ];
     assert_eq!(
         rebuilt("go", &events),
@@ -247,19 +247,24 @@ fn a_steer_that_no_model_call_read_is_left_out() {
     let failed = [
         completed(t, 0, "Working."),
         steered.clone(),
-        Event::TurnFailed { turn_id: t, error: ErrorBody::new(ErrorCode::Internal, "no") },
+        Event::TurnFailed {
+            turn_id: t,
+            error: ErrorBody::new(ErrorCode::Internal, "no"),
+            usage: None,
+            context: None,
+        },
     ];
     let interrupted = [
         completed(t, 0, "Working."),
         steered.clone(),
         Event::TurnInterruptRequested { turn_id: t, origin: Origin::Shell },
-        Event::TurnInterrupted { turn_id: t },
+        Event::TurnInterrupted { turn_id: t, usage: None, context: None },
     ];
     let withdrawn = [
         completed(t, 0, "Working."),
         steered,
         Event::SteeringWithdrawn { turn_id: t, steers: vec![Seq::new(2)], origin: Origin::Shell },
-        Event::TurnInterrupted { turn_id: t },
+        Event::TurnInterrupted { turn_id: t, usage: None, context: None },
     ];
     for events in [&failed[..], &interrupted[..], &withdrawn[..]] {
         assert_eq!(
@@ -279,7 +284,7 @@ fn a_completed_turn_without_steering_delivered_keeps_its_steers_where_they_were_
         completed(t, 0, "Working."),
         Event::TurnSteered { turn_id: t, text: "faster".to_owned() },
         completed(t, 1, "Done."),
-        Event::TurnCompleted { turn_id: t, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: t, usage: None, changes: None, context: None },
     ];
     assert_eq!(
         rebuilt("go", &events),
@@ -360,13 +365,18 @@ async fn only_finished_turns_other_than_the_current_one_count() {
             a,
             "first",
             vec![completed(a, 0, "One.")],
-            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
         ),
         whole_turn(
             b,
             "second",
             vec![],
-            Event::TurnFailed { turn_id: b, error: ErrorBody::new(ErrorCode::Unauthorized, "no") },
+            Event::TurnFailed {
+                turn_id: b,
+                error: ErrorBody::new(ErrorCode::Unauthorized, "no"),
+                usage: None,
+                context: None,
+            },
         ),
         vec![
             Event::PromptQueued {
@@ -411,7 +421,7 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
         b,
         "only the parser",
         vec![completed(b, 0, "Parser fixed.")],
-        Event::TurnCompleted { turn_id: b, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
     );
     if let Event::PromptQueued { steers, .. } = &mut resent[0] {
         *steers = vec![Seq::new(4)];
@@ -424,7 +434,7 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
                 Event::TurnSteered { turn_id: a, text: "only the parser".to_owned() },
                 Event::TurnInterruptRequested { turn_id: a, origin: Origin::Shell },
             ],
-            Event::TurnInterrupted { turn_id: a },
+            Event::TurnInterrupted { turn_id: a, usage: None, context: None },
         ),
         resent,
     ])
@@ -465,7 +475,7 @@ async fn a_rebuilt_turn_finds_its_delivered_steers_by_their_seq() {
             Event::SteeringDelivered { turn_id: a, steers: vec![Seq::new(5)] },
             completed(a, 1, "Parser fixed."),
         ],
-        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
     )])
     .await;
 
@@ -534,13 +544,13 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
             a,
             "first",
             vec![completed(a, 0, "One.")],
-            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
         ),
         whole_turn(
             b,
             "second",
             vec![completed(b, 0, "Two.")],
-            Event::TurnCompleted { turn_id: b, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
         ),
     ])
     .await;
@@ -563,7 +573,7 @@ async fn a_cached_turn_keeps_its_provider_items_only_for_the_same_provider_and_m
         a,
         "first",
         vec![started(a, c, "shell"), finished(a, c, "ok"), completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
     )])
     .await;
     let raw = json!([
@@ -605,19 +615,19 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
             a,
             "first",
             vec![completed(a, 0, &long)],
-            Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
         ),
         whole_turn(
             b,
             "second",
             vec![completed(b, 0, "Two.")],
-            Event::TurnCompleted { turn_id: b, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
         ),
         whole_turn(
             c,
             "third",
             vec![completed(c, 0, "Three.")],
-            Event::TurnCompleted { turn_id: c, usage: None, changes: None },
+            Event::TurnCompleted { turn_id: c, usage: None, changes: None, context: None },
         ),
     ])
     .await;
@@ -697,7 +707,7 @@ async fn a_saved_turn_takes_the_place_of_the_cache_after_a_restart() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
     )])
     .await;
     let raw = json!([{ "type": "reasoning", "encrypted_content": "opaque" }]);
@@ -722,7 +732,7 @@ async fn a_saved_turn_that_cannot_be_read_back_is_rebuilt() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
     )])
     .await;
     save(&store, a, "replay", vec![json!({ "role": "nobody" })]).await;
@@ -766,7 +776,7 @@ async fn saved_messages_that_cannot_be_read_are_logged_without_their_text() {
         a,
         "first",
         vec![completed(a, 0, "One.")],
-        Event::TurnCompleted { turn_id: a, usage: None, changes: None },
+        Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
     )])
     .await;
     // A string where the content's list belongs, as after a change of the schema.

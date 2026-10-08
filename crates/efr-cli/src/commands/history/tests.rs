@@ -120,7 +120,7 @@ fn events() -> Vec<EventEnvelope> {
                 delta: " mid".to_owned(),
             },
         ),
-        envelope(9, Event::TurnInterrupted { turn_id: turn() }),
+        envelope(9, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
     ]
 }
 
@@ -146,6 +146,8 @@ fn a_failed_turn_shows_its_message_safely() {
             Event::TurnFailed {
                 turn_id: turn(),
                 error: ErrorBody::new(ErrorCode::Internal, "boom\u{1b}[2J"),
+                usage: None,
+                context: None,
             },
         )],
         next_cursor: None,
@@ -534,7 +536,8 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
         index: 0,
         text: text.to_owned(),
     };
-    let done = |turn_id| Event::TurnCompleted { turn_id, usage: None, changes: None };
+    let done =
+        |turn_id| Event::TurnCompleted { turn_id, usage: None, changes: None, context: None };
     // While the first turn runs, the user queues two prompts and takes the second
     // back, then steers and presses Esc: the steer runs next as a new prompt.
     let events = vec![
@@ -567,7 +570,7 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
             changes: None,
             diff: None,
         },
-        Event::TurnInterrupted { turn_id: first },
+        Event::TurnInterrupted { turn_id: first, usage: None, context: None },
         started(resent),
         answer(resent, "The logs show a timeout."),
         done(resent),
@@ -616,7 +619,7 @@ fn a_turn_that_started_before_the_page_comes_first() {
                 steers: Vec::new(),
             },
         ),
-        envelope(21, Event::TurnInterrupted { turn_id: turn() }),
+        envelope(21, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
         envelope(
             22,
             Event::TurnStarted {

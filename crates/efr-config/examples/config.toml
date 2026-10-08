@@ -42,9 +42,12 @@
 # (restart)
 # originator = "efr"
 
-# Model ids added to the built-in model list, such as a new model before efr knows
-# it. A prompt may then name them; their efforts are not checked.
-# models = ["gpt-5.4"]
+# Models added to the built-in model list, such as a new model before efr knows it.
+# A prompt may then name them; their efforts are not checked. An entry is a model id,
+# or a table that also gives the model's context window (1000 to 100000000 tokens) and
+# its output limit (1 to 1000000 tokens, below the window). A table may name a
+# built-in model to change its limits.
+# models = ["gpt-5.4", { id = "gpt-next", context_window = 400000, max_output_tokens = 128000 }]
 
 # Replaces the subscription backend's base URL. Unset: the ChatGPT backend. (restart)
 # subscription_base_url = "https://chatgpt.com/backend-api/codex"
@@ -116,6 +119,16 @@
 # Hours without activity after which a terminal's next , line starts a new
 # conversation, up to a year; 0 continues the old one forever.
 # tty_idle_hours = 12
+
+[compaction]
+# true compacts a conversation's context on its own when it reaches auto_at, before a
+# model call, and the turn goes on. false compacts only when you run ,compact (efr
+# compact), and a request that does not fit in the model's window fails the turn.
+# auto = true
+
+# The percent of the model's context window at which efr compacts on its own, from 1
+# to 99. ctx 100% in the status row means this point.
+# auto_at = 76
 
 [sandbox]
 # false makes the auto mode unavailable: its turns run as cautious.

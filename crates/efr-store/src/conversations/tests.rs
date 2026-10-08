@@ -116,6 +116,7 @@ async fn the_status_follows_the_running_turn_and_its_approvals() {
             turn_id: testing::turn(1),
             usage: Some(Usage::default()),
             changes: None,
+            context: None,
         },
     ] {
         writer.append(Batch::new().event(id, event)).await.unwrap();
@@ -137,7 +138,14 @@ async fn a_pending_approval_of_an_ended_turn_does_not_keep_the_conversation_wait
                 .event(id, testing::queued(1, "x"))
                 .event(id, testing::started(1, "/"))
                 .event(id, approval_requested(1, 1))
-                .event(id, Event::TurnInterrupted { turn_id: testing::turn(1) }),
+                .event(
+                    id,
+                    Event::TurnInterrupted {
+                        turn_id: testing::turn(1),
+                        usage: None,
+                        context: None,
+                    },
+                ),
         )
         .await
         .unwrap();
@@ -230,6 +238,8 @@ async fn turns_keep_their_status_and_the_unfinished_ones_are_listed() {
                     Event::TurnFailed {
                         turn_id: testing::turn(1),
                         error: ErrorBody::new(ErrorCode::Internal, "provider down"),
+                        usage: None,
+                        context: None,
                     },
                 )
                 .event(id, testing::queued(2, "waiting"))

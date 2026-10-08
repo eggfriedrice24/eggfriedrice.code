@@ -21,7 +21,8 @@ use crate::{
     AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus,
     AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes,
     BlockReason, Blocked, BusKind, CacheMode, CallId, Capabilities, Cell, ChangeKind, CheckOutcome,
-    ClientFrame, Color, CommandId, ConfigFileError, ConfigStatus, ConversationDiff,
+    ClientFrame, Color, CommandId, Compaction, CompactionId, CompactionTrigger, ConfigFileError,
+    ConfigStatus, ContextUse, ConversationCompact, ConversationCompactResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
@@ -153,7 +154,46 @@ pub(crate) fn draft_part_samples() -> Vec<DraftPart> {
             title: Some("Reading the journal size".to_owned()),
         },
         DraftPart::ToolInput { call: 0, tool: "write_file".to_owned(), bytes: 3277 },
+        DraftPart::Context(context_use()),
+        DraftPart::Compacting { trigger: CompactionTrigger::Auto },
     ]
+}
+
+/// How full the context of [`turn_id`] is: 43% of the trigger of a 272k window.
+fn context_use() -> ContextUse {
+    ContextUse { tokens: 89_000, limit: 206_720, window: 272_000 }
+}
+
+fn compaction_id() -> CompactionId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000b")
+}
+
+/// A compaction that pruned and then wrote a summary, inside [`turn_id`].
+fn compaction() -> Compaction {
+    Compaction {
+        compaction_id: compaction_id(),
+        turn_id: Some(turn_id()),
+        trigger: CompactionTrigger::Auto,
+        focus: None,
+        model: "gpt-5.5".into(),
+        window: 272_000,
+        limit: 206_720,
+        tokens_before: 231_000,
+        tokens_after: 24_000,
+        through_turn: turn_id(),
+        through_message: Some(6),
+        kept_turns: 3,
+        pruned_outputs: 12,
+        pruned_tokens: 41_000,
+        summary: Some("## Task and state\nFree space on /var.".into()),
+        usage: Some(Usage {
+            input_tokens: 205_000,
+            output_tokens: 3_200,
+            cached_input_tokens: 198_000,
+            reasoning_tokens: 900,
+            context_tokens: 208_200,
+        }),
+    }
 }
 
 fn parse<T: FromStr>(text: &str) -> T
@@ -575,6 +615,11 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             target: WithdrawTarget::Turn { turn_id: queued_turn_id() },
         }),
+        Method::ConversationCompact(ConversationCompact {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            focus: Some("the journal cleanup".into()),
+        }),
     ]
 }
 
@@ -689,7 +734,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                     30,
                     Event::TurnCompleted {
                         turn_id: turn_id(),
-                        usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+                        usage: Some(Usage::new(1200, 340)),
+                        context: None,
                         changes: None,
                     },
                 )],
@@ -730,6 +776,19 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture(
             "prompt_withdraw_result.json",
             &PromptWithdrawResult { withdrawn: withdrawn_prompt() },
+        ),
+        fixture(
+            "conversation_compact_result.json",
+            &ConversationCompactResult {
+                seq: Seq::new(50),
+                compaction: Compaction {
+                    turn_id: None,
+                    trigger: CompactionTrigger::Manual,
+                    focus: Some("the journal cleanup".into()),
+                    through_message: None,
+                    ..compaction()
+                },
+            },
         ),
         fixture("approval_respond_result.json", &ApprovalRespondResult { seq: Seq::new(46) }),
         fixture(
@@ -932,6 +991,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
                 default_effort: Some("medium".into()),
                 default: true,
                 source: ModelSource::Builtin,
+                context_window: Some(272_000),
             },
             ModelInfo {
                 id: "gpt-5.5-preview".into(),
@@ -939,6 +999,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
                 default_effort: None,
                 default: false,
                 source: ModelSource::Config,
+                context_window: None,
             },
         ],
     }
@@ -1065,16 +1126,29 @@ pub(crate) fn event_samples() -> Vec<Event> {
             origin: Origin::Shell,
         },
         Event::TurnInterruptRequested { turn_id: turn_id(), origin: Origin::Cli },
-        Event::TurnInterrupted { turn_id: turn_id() },
+        Event::TurnInterrupted {
+            turn_id: turn_id(),
+            usage: Some(Usage::new(900, 20)),
+            context: Some(context_use()),
+        },
         Event::TurnCompleted {
             turn_id: turn_id(),
-            usage: Some(Usage { input_tokens: 1200, output_tokens: 340 }),
+            usage: Some(Usage {
+                input_tokens: 1200,
+                output_tokens: 340,
+                cached_input_tokens: 1024,
+                reasoning_tokens: 128,
+                context_tokens: 89_000,
+            }),
+            context: Some(context_use()),
             changes: Some(file_changes()),
         },
         Event::TurnFailed {
             turn_id: turn_id(),
             error: ErrorBody::new(ErrorCode::Internal, "the provider stream ended early")
                 .with_data(json!({ "provider": "openai", "status": 502 })),
+            usage: Some(Usage::new(600, 0)),
+            context: Some(context_use()),
         },
         Event::TurnCancelled { turn_id: turn_id() },
         Event::ShellStarted { pty_id: pty_id(), cwd: "/home/me".into(), pid: Some(6060) },
@@ -1136,6 +1210,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::SandboxUnavailable {
             reason: "Landlock ABI 6 found; auto needs 9 (Linux 7.1)".into(),
         },
+        Event::ConversationCompacted(compaction()),
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]
 }

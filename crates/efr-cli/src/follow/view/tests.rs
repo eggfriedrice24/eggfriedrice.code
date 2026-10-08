@@ -80,7 +80,7 @@ fn resolved(origin: Origin) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
 }
 
 /// `step` with the frame that shows it, at a time that never moves, in its `out`.
@@ -431,7 +431,16 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
     framed(view.event(&updated(0, "Half a line"), SIZE, false), &mut view);
     let error = ErrorBody::new(ErrorCode::Internal, "the provider is down");
     let step = framed(
-        view.event(&Event::TurnFailed { turn_id: turn(), error: error.clone() }, SIZE, false),
+        view.event(
+            &Event::TurnFailed {
+                turn_id: turn(),
+                error: error.clone(),
+                usage: None,
+                context: None,
+            },
+            SIZE,
+            false,
+        ),
         &mut view,
     );
     assert_eq!(step.end, Some(TurnEnd::Failed(error)));
@@ -441,8 +450,14 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
 #[test]
 fn an_interrupted_turn_says_so() {
     let mut view = raw_view();
-    let step =
-        framed(view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, false), &mut view);
+    let step = framed(
+        view.event(
+            &Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+            SIZE,
+            false,
+        ),
+        &mut view,
+    );
     assert_eq!(step.end, Some(TurnEnd::Interrupted));
     assert_eq!(step.err, "interrupted\n");
 }
@@ -902,8 +917,14 @@ fn an_input_does_not_ask_over_a_pending_approval() {
 fn the_end_of_the_turn_settles_an_input() {
     let mut view = terminal_view();
     framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
-    let step =
-        framed(view.event(&Event::TurnInterrupted { turn_id: turn() }, SIZE, true), &mut view);
+    let step = framed(
+        view.event(
+            &Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+            SIZE,
+            true,
+        ),
+        &mut view,
+    );
     assert!(step.settled);
     assert!(!readable(&step.out).contains("type the answer"));
 }
@@ -2071,14 +2092,15 @@ fn ended(look: Look, end: Event, millis: i64) -> String {
 
 #[test]
 fn a_completed_turn_ends_with_its_time_and_tokens() {
-    let usage = Usage { input_tokens: 18_250, output_tokens: 1_100 };
-    let end = Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None };
+    let usage = Usage::new(18_250, 1_100);
+    let end =
+        Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None, context: None };
     insta::assert_snapshot!(ended(ALL, end, 42_000));
 }
 
 #[test]
 fn an_interrupted_turn_ends_with_its_time() {
-    let end = Event::TurnInterrupted { turn_id: turn() };
+    let end = Event::TurnInterrupted { turn_id: turn(), usage: None, context: None };
     let frame = ended(ALL, end, 12_400);
     assert!(frame.contains("interrupted after 12s"), "{frame}");
     assert!(frame.contains("\\e]9;4;0\\e\\"), "{frame}");
@@ -2101,7 +2123,8 @@ fn a_turn_stopped_with_ctrl_c_says_how_long_it_ran() {
 #[test]
 fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
     let error = ErrorBody::new(ErrorCode::Internal, "boom");
-    let frame = ended(ALL, Event::TurnFailed { turn_id: turn(), error }, 3_000);
+    let frame =
+        ended(ALL, Event::TurnFailed { turn_id: turn(), error, usage: None, context: None }, 3_000);
     assert!(!frame.contains("done"), "{frame}");
     assert!(frame.contains("\\e]9;4;2;100\\e\\"), "{frame}");
     assert!(frame.ends_with("\\e[?25h\\e]9;4;2;100\\e\\"), "{frame}");
@@ -2109,10 +2132,14 @@ fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
 
 #[test]
 fn without_the_summary_a_turn_ends_as_before() {
-    let end = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
+    let end = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None };
     let frame = ended(Look::default(), end, 5_000);
     assert!(!frame.contains("done"), "{frame}");
-    let frame = ended(Look::default(), Event::TurnInterrupted { turn_id: turn() }, 5_000);
+    let frame = ended(
+        Look::default(),
+        Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+        5_000,
+    );
     assert!(frame.contains("interrupted\\e[0m"), "{frame}");
 }
 
@@ -2165,8 +2192,9 @@ fn piped_output_has_no_status_row_and_no_escape_sequences() {
         completed(0, "The disk is full."),
         Event::TurnCompleted {
             turn_id: turn(),
-            usage: Some(Usage { input_tokens: 5, output_tokens: 1 }),
+            usage: Some(Usage::new(5, 1)),
             changes: None,
+            context: None,
         },
     ]) {
         let step = view.envelope(&sent(seq, 0, event), SIZE, false);

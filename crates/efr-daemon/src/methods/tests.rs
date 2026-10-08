@@ -1,11 +1,11 @@
 use efr_protocol::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
-    InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
-    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt,
-    TurnSteer, WithdrawTarget,
+    ConversationCompact, ConversationHistory, ConversationId, ConversationSubscribe,
+    ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
+    PROTOCOL_VERSION, PageCursor, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId,
+    PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText,
+    Seq, Size, TurnInterrupt, TurnSteer, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -110,13 +110,18 @@ fn every_method() -> Vec<Method> {
             conversation_id,
             target: WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() },
         }),
+        Method::ConversationCompact(ConversationCompact {
+            command_id,
+            conversation_id,
+            focus: None,
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 24, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 25, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -154,6 +159,7 @@ fn the_scope_table_is_the_designed_one() {
             ("sandbox.surface_respond", ScopeName::Approve),
             ("admin.sandbox_check", ScopeName::Admin),
             ("prompt.withdraw", ScopeName::Operate),
+            ("conversation.compact", ScopeName::Operate),
         ]
     );
 }
@@ -333,4 +339,17 @@ fn sandbox_explain_needs_read_scope_only() {
         .find(|method| method.name() == "sandbox.surface_respond")
         .unwrap();
     assert!(authorize(Origin::Shell, PeerSide::ModelSide, &respond).is_err());
+}
+
+#[test]
+fn conversation_compact_is_refused_until_the_conversation_can_compact() {
+    let params = ConversationCompact {
+        command_id: CommandId::from_uuid(id(1)),
+        conversation_id: ConversationId::from_uuid(id(2)),
+        focus: Some("the failing test".to_owned()),
+    };
+
+    let error = super::conversation_compact::handle(&params).unwrap_err();
+
+    assert!(matches!(error, DaemonError::InvalidParams { .. }), "{error:?}");
 }

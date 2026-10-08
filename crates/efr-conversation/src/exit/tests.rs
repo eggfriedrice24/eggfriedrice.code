@@ -192,7 +192,12 @@ fn the_user_messages_end_with_the_turn_s_own_prompt() {
     let page = vec![
         prompt(first, "fix the build"),
         envelope(Event::TurnSteered { turn_id: first, text: "only the parser".to_owned() }),
-        envelope(Event::TurnCompleted { turn_id: first, usage: None, changes: None }),
+        envelope(Event::TurnCompleted {
+            turn_id: first,
+            usage: None,
+            changes: None,
+            context: None,
+        }),
         prompt(current, "now push it"),
         prompt(later, "and tag it"),
     ];

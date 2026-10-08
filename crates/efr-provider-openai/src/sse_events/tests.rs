@@ -197,16 +197,35 @@ fn an_error_event_may_nest_its_error() {
         "type": "error",
         "error": {
             "type": "invalid_request_error",
+            "code": "server_error",
+            "message": "The server had an error.",
+        },
+    })]);
+    match map_all(&events).1 {
+        Some(ProviderError::Api { code, message, .. }) => {
+            assert_eq!(code.as_deref(), Some("server_error"));
+            assert_eq!(message, "The server had an error.");
+        }
+        other => panic!("not an API error: {other:?}"),
+    }
+}
+
+#[test]
+fn a_request_larger_than_the_window_is_a_context_overflow() {
+    let events = sse(&[json!({
+        "type": "error",
+        "error": {
+            "type": "invalid_request_error",
             "code": "context_length_exceeded",
             "message": "Your input exceeds the context window of this model.",
         },
     })]);
     match map_all(&events).1 {
-        Some(ProviderError::Api { code, message, .. }) => {
+        Some(ProviderError::ContextOverflow { code, message, .. }) => {
             assert_eq!(code.as_deref(), Some("context_length_exceeded"));
             assert_eq!(message, "Your input exceeds the context window of this model.");
         }
-        other => panic!("not an API error: {other:?}"),
+        other => panic!("not a context overflow: {other:?}"),
     }
 }
 

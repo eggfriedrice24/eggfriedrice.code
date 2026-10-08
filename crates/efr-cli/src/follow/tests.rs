@@ -38,7 +38,7 @@ fn completed(text: &str) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
 }
 
 /// Reads the subscribe request and checks where it starts.
@@ -236,7 +236,11 @@ async fn a_failed_turn_is_an_error_with_the_daemons_message() {
     let (result, _, _) = run(&env, &ctx, |mut conn, _| async move {
         let id = subscribed(&mut conn, 10).await;
         let error = ErrorBody::new(ErrorCode::Internal, "the provider is down");
-        conn.item(id, &item(11, Event::TurnFailed { turn_id: turn(), error })).await;
+        conn.item(
+            id,
+            &item(11, Event::TurnFailed { turn_id: turn(), error, usage: None, context: None }),
+        )
+        .await;
         conn.until_closed().await;
     })
     .await;
@@ -441,7 +445,15 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
         conn.item(sub, &item(11, resolved)).await;
         conn.item(
             sub,
-            &item(12, Event::TurnCompleted { turn_id: running, usage: None, changes: None }),
+            &item(
+                12,
+                Event::TurnCompleted {
+                    turn_id: running,
+                    usage: None,
+                    changes: None,
+                    context: None,
+                },
+            ),
         )
         .await;
         let started = Event::TurnStarted {
@@ -988,7 +1000,7 @@ async fn a_turn_that_ends_while_a_password_is_asked_throws_away_what_was_typed()
         conn.item(sub, &item(11, shell_started("sudo true"))).await;
         conn.item(sub, &item(12, input_changed(InputWait::Hidden))).await;
         presser.type_bytes(b"hunt").await;
-        let interrupted = Event::TurnInterrupted { turn_id: turn() };
+        let interrupted = Event::TurnInterrupted { turn_id: turn(), usage: None, context: None };
         conn.item(sub, &item(13, interrupted)).await;
         presser.stopped().await;
         conn.until_closed().await;
@@ -1075,7 +1087,15 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
         presser.stopped().await;
         conn.item(
             sub,
-            &item(13, Event::TurnCompleted { turn_id: running, usage: None, changes: None }),
+            &item(
+                13,
+                Event::TurnCompleted {
+                    turn_id: running,
+                    usage: None,
+                    changes: None,
+                    context: None,
+                },
+            ),
         )
         .await;
         let started = Event::TurnStarted {
@@ -1725,7 +1745,19 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
                 Out::Completed => conn.item(sub, &item(12, turn_completed())).await,
                 Out::Failed => {
                     let error = ErrorBody::new(ErrorCode::Internal, "the provider is down");
-                    conn.item(sub, &item(12, Event::TurnFailed { turn_id: turn(), error })).await;
+                    conn.item(
+                        sub,
+                        &item(
+                            12,
+                            Event::TurnFailed {
+                                turn_id: turn(),
+                                error,
+                                usage: None,
+                                context: None,
+                            },
+                        ),
+                    )
+                    .await;
                 }
                 Out::CtrlC => {
                     interrupt.trigger();

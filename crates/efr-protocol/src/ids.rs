@@ -112,6 +112,11 @@ uuid_id!(
 );
 
 uuid_id!(
+    /// One compaction of a conversation's context: a `conversation_compacted` event.
+    CompactionId
+);
+
+uuid_id!(
     /// The identity of one daemon installation, created at its first start. Clients pin
     /// it, so they notice when a socket path leads to a different daemon.
     DaemonId

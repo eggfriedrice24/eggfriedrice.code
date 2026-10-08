@@ -49,7 +49,7 @@ The OpenAI providers.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `originator` | `"efr"` | restart | The `originator` of the subscription login and of every subscription request. Needs a restart. |
-| `models` | unset | live | Model ids added to the built-in model list, such as a new model before efr knows it. A prompt may then name them; their efforts are not checked. |
+| `models` | unset | live | Models added to the built-in model list, such as a new model before efr knows it. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens; a table may name a built-in model to change its limits. |
 | `subscription_base_url` | unset | restart | Replaces the subscription backend's base URL. Needs a restart. |
 | `api_base_url` | unset | restart | Replaces the public API's base URL. Needs a restart. |
 
@@ -86,6 +86,15 @@ Queues, approvals, streaming and terminals.
 | `update_interval_ms` | `200` | live | The shortest time between two streamed text updates in the log, in milliseconds. Live clients see the text sooner, through drafts. |
 | `draft_interval_ms` | `16` | live | The shortest time between two drafts of a running turn, in milliseconds: the text, the reasoning and the tool input that a terminal shows as they arrive. Drafts go only to live clients and never into the log; 0 sends every change. |
 | `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line starts a new conversation instead of continuing the old one; 0 continues it forever. |
+
+## [compaction]
+
+When efrd compacts a conversation's context on its own.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `auto` | `true` | live | `true` compacts the context on its own when it reaches `auto_at`, before a model call, and the turn goes on. `false` compacts only when you run `,compact` (`efr compact`), and a request that does not fit in the model's window fails the turn with a message that names `,compact`. |
+| `auto_at` | `76` | live | The percent of the model's context window at which efr compacts on its own, from 1 to 99. `ctx 100%` in the status row means this point. |
 
 ## [sandbox]
 

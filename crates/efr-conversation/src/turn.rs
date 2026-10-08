@@ -481,14 +481,11 @@ impl Turn {
         let watch = Stopwatch::start();
         let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await;
         tracing::debug!(phase = "turn_changes", elapsed_ms = %watch, "phase=turn_changes elapsed_ms={}", watch);
+        let usage = self.usage.map(efr_protocol::Usage::from);
         let event = match ending {
-            Ending::Completed => Event::TurnCompleted {
-                turn_id,
-                usage: self.usage.map(efr_protocol::Usage::from),
-                changes,
-            },
-            Ending::Failed(error) => Event::TurnFailed { turn_id, error },
-            Ending::Interrupted => Event::TurnInterrupted { turn_id },
+            Ending::Completed => Event::TurnCompleted { turn_id, usage, context: None, changes },
+            Ending::Failed(error) => Event::TurnFailed { turn_id, error, usage, context: None },
+            Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context: None },
         };
         let key = self.model_key();
         close_open_calls(&mut self.transcript);

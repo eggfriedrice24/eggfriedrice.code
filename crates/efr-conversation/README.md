@@ -288,6 +288,230 @@ events reads back. So the next request sends the call and its result in the form
 model wrote them (for the Responses API, `custom_tool_call` and
 `custom_tool_call_output`).
 
+## Context
+
+This section is the contract of context management: the accounting, the guards, the
+compaction and its display. The code that builds each part follows it. A change of the
+contract changes this text first. The numbers live in `src/context.rs`
+(`CompactionConfig`, `ContextLimits` and the constants); the wire types live in
+`efr-protocol` (`Usage`, `ContextUse`, `Compaction`, `CompactionTrigger`, the draft
+parts `context` and `compacting`, `conversation.compact`).
+
+### Words
+
+- The window: the context window of the turn's model, in tokens. It is the
+  `context_window` of the model in `ConversationConfig::models` (efr's built-in list,
+  or the model's entry in `[openai] models`). When it is not known, efr counts with
+  `DEFAULT_CONTEXT_WINDOW` (128000).
+- The context: the tokens of one request plus its answer.
+- The trigger: `auto_at` percent of the window, rounded down (`[compaction] auto_at`,
+  default 76; 206720 tokens on a window of 272000). An auto compaction runs at the
+  trigger.
+- The hard cap: 95% of the window, rounded down (`HARD_CAP_PERCENT`). efr never sends a
+  request that it estimates above the hard cap.
+- The limit: the trigger when `[compaction] auto` is true, else the hard cap. A client
+  shows the context as a percent of the limit, so 100% means "a compaction runs now"
+  (or, with auto off, "the next request does not go out").
+- The cut: a place in the model's history. The messages before it are compacted. The
+  messages after it (the verbatim tail) stay word for word. A cut never falls between a
+  tool call and its result: the tail never starts with a message that holds tool
+  results.
+
+### Accounting
+
+1. After each model call, the turn keeps the usage of that call next to the sum of the
+   turn. `context_tokens` is the input plus the output of the last call. The input
+   counts cached tokens too.
+2. `turn_completed`, `turn_failed` and `turn_interrupted` carry `usage` (the sums, plus
+   `context_tokens` of the last call) and `context` (`ContextUse`: `tokens`, `limit`,
+   `window`). `context.tokens` is the last real count, or the estimate when a
+   compaction came after the last call.
+3. The turn sends a `context` draft (`DraftPart::Context`) before each model call, with
+   the estimate, and after each call, with the real count.
+4. Each request carries the conversation id as `prompt_cache_key` unless
+   `ConversationConfig::provider_options` names one. OpenAI caches on its own; the key
+   sends the requests of one conversation to the same cache.
+
+### The estimate
+
+Before each model call, the turn estimates the context of the request:
+
+- with a real count: the `context_tokens` of the last call of this conversation's
+  current history, plus `estimate_tokens` (4 bytes a token, rounded up) of the JSON of
+  the canonical messages added since that call;
+- without one (the first call, the first call after a compaction or after a restart):
+  `estimate_tokens` of the JSON of the whole request (system prompt, tool definitions
+  and messages).
+
+Each real count replaces the estimate as the new base.
+
+### The guards, before each model call
+
+1. When `auto` is on and the estimate is at or above the trigger, the turn compacts
+   (trigger `auto`) and then makes the call. The turn goes on after the compaction.
+2. When the estimate is above the hard cap and the turn cannot compact (auto is off, or
+   the breaker stopped it), the turn does not send the request. It fails, see "Failures".
+3. When the provider answers `ProviderError::ContextOverflow` (OpenAI
+   `context_length_exceeded`, HTTP 413, later Anthropic's `prompt is too long`), the
+   turn never retries it as a transient error. With auto on, it compacts once
+   (trigger `overflow`, `tokens_before` is the estimate of the refused request) and
+   sends the call again once. A second overflow of the same call fails the turn.
+   With auto off, the first overflow fails the turn.
+4. The breaker: a compaction whose `tokens_after` is at or above the trigger counts as
+   a miss. After `BREAKER_TRIES` (2) misses in a row in one turn, the turn makes no more
+   auto compactions. It goes on while its requests fit under the hard cap. The client
+   shows the breaker line (see "Display").
+5. The safety net of `HistoryLimits` stays. When it leaves out earlier turns, the
+   history starts with a user message `N earlier turns are omitted.` and the daemon
+   logs one `warn` line with the count. It never leaves out turns without that note.
+
+### Compaction
+
+One compaction has these steps. A turn runs them between two model calls, and a
+manual compaction runs them between turns.
+
+1. Prune. Take the model's history as the next request would send it. Walk its tool
+   results from the oldest. Keep every result in the newest `PRUNE_KEEP_TOKENS` (40000)
+   of history as it is. Give every other result whose output is longer than
+   `PRUNED_OUTPUT_STUB` that stub as its output. When this frees fewer than
+   `PRUNE_MIN_TOKENS` (20000), do not prune: a new cache prefix costs more than it
+   saves. When it frees enough and the estimate is then below the trigger, the
+   compaction ends here, with no summary (an auto or overflow compaction only). The
+   cut is the place after the newest pruned result.
+2. Summarize. Send one summary request:
+   - the same system prompt and the same tool definitions as the turn;
+   - the history as the last request sent it, so the request hits the prompt cache.
+     Only when that request would pass the hard cap does it send the pruned history;
+   - as the last message, a user message with the summary prompt (below) and, for a
+     manual compaction with `focus`, the line `Keep in the summary: <focus>`;
+   - `max_output_tokens` of `SUMMARY_MAX_OUTPUT_TOKENS` (8000). The subscription
+     backend refuses that member, so there the prompt alone asks for the length.
+
+   The answer's text is the summary. Tool calls in the answer are ignored. An answer
+   without text fails the compaction. The summary covers the whole history it saw,
+   the tail too: the tail repeats the newest part word for word, and the summary must
+   stand alone. An earlier summary is part of that history, so each summary carries
+   the one before it forward.
+3. Cut. Walk back from the newest message and keep messages in the tail while their
+   estimate fits in `TAIL_TOKENS` (20000). The tail always holds at least the newest
+   tool call with its result, or the newest prompt. Move the cut back until it does not
+   start with tool results. The cut may fall inside a turn (`through_message`).
+4. Record `conversation_compacted` (`Compaction`), see "Storage". `tokens_after` is the
+   estimate of the rebuilt request.
+
+A compaction that fails (the summary request fails, or its answer has no text)
+records nothing. An auto compaction that fails lets the turn go on when the request
+fits under the hard cap; else the turn fails.
+
+### The summary prompt and its record
+
+The summary prompt is one constant. It asks for these sections, as Markdown headings in
+this order, with `None.` under a heading that has nothing:
+
+1. `## Task and state`: what the user asked for, and how far the work is.
+2. `## Decisions`: the choices made and why; what the user approved or refused.
+3. `## Important details`: the facts the rest of the work needs: names, values,
+   errors, commands that worked or failed, and the instructions and preferences that
+   the user gave in chat, quoted.
+4. `## Files and places`: the files read or changed, directories, URLs and services
+   touched.
+5. `## Open work and next step`: what is left, and the next action.
+6. `## Shell and directories`: the user's directory and the hidden shell's directory
+   now, the earlier directories that matter, the shell state (variables, virtual
+   environments) and the running jobs.
+7. `## System tasks`: open system-manager tasks that need a follow-up or a cleanup,
+   such as a service that was started, a package that is half installed, a timer or a
+   mount.
+
+The prompt also says: write facts, not a story; keep paths, commands and error texts
+exact; at most about 2000 words; do not call tools. The same prompt and the same
+sections make the handoff record of milestone 4: a record is the summary text plus
+the event's `compaction_id`, `model`, time and conversation id.
+
+### Storage
+
+- `conversation_compacted` holds the whole compaction (`efr_protocol::Compaction`): its
+  id, the turn that ran it (absent for a manual one), `trigger`, `focus`, `model`,
+  `window`, `limit`, `tokens_before`, `tokens_after`, the cut (`through_turn`,
+  `through_message`), `kept_turns`, `pruned_outputs`, `pruned_tokens`, `summary` and
+  the `usage` of the summary request.
+- The store keeps the newest compaction with a summary, and the newest compaction of
+  any kind, in a projection or a table of their own. A turn reads both with their own
+  query, never from the 4096-event page, so the page never decides what the model
+  sees.
+- Every event stays in the log. After the event is recorded, the `turn_messages` rows
+  of the turns before `through_turn` may be deleted, and the row of `through_turn` too
+  when `through_message` is absent.
+- `efr history` shows every event and marks the place of each compaction with its
+  scrollback line (see "Display").
+
+### The history after a compaction
+
+A request after a compaction with a summary has these parts, in this order:
+
+1. the system prompt;
+2. a fresh context block, one user message read from disk when the compaction ends:
+   the user's directory and the hidden shell's directory, the git status of the
+   project, the `AGENTS.md` files from the project root down to the user's directory,
+   and the running jobs of the hidden shell (memory joins at milestone 4). The actor
+   keeps the block in memory with the compaction id, so every request until the next
+   compaction sends the same bytes. After a daemon restart, the next turn reads it
+   from disk again;
+3. the summary, one user message: `<conversation-summary>`, the summary text,
+   `</conversation-summary>`;
+4. the verbatim tail: the messages after the cut, from the turn's messages (the
+   actor's cache or `turn_messages`), with the stub in each tool result before the cut
+   of a newer prune-only compaction;
+5. the new turn: its preamble and prompt, or, inside a turn, the rest of that turn.
+
+Parts 1 to 3 stay the same until the next compaction, so the request prefix stays
+stable and the prompt cache hits. After a prune-only compaction, the request is the
+history as before, with the stub in each pruned result.
+
+### Manual compaction
+
+`conversation.compact { command_id, conversation_id, focus? }` (`efr compact [focus]`,
+`,compact [focus]`), scope `operate`:
+
+- While a turn of the conversation runs, it is refused with `conflict`. efrd does not
+  wait for the turn: the turn compacts on its own when it needs to, and a wait would
+  hold the client for an unknown time.
+- When nothing lies before the cut, it is refused with `conflict`.
+- Otherwise the actor runs the steps above as its one job; a prompt that arrives
+  meanwhile waits in the queue. A manual compaction always writes a summary: it does
+  not stop after the pruning. The event has trigger `manual`, no `turn_id`, and the
+  `focus`. The result has the event's `seq` and the compaction. A retry with the same
+  command id returns the first result.
+- It never starts a turn.
+
+### Failures
+
+A turn that fails for its context records `turn_failed` with code `internal`, data
+`{"cause": "context_overflow", "tokens": <estimate or refused size>, "window":
+<window>}`, and a message that names the cause and the way out, such as `the context
+is full: 281k of 272k tokens; run ,compact or start a new conversation`.
+
+### Display
+
+`efr` shows the context inline, never in an alternate screen:
+
+- The status row of a running turn always has `ctx N%`, from the newest `context`
+  draft. N is `tokens` times 100 divided by `limit`, rounded down. The colour roles
+  are `Success` below 50, `Warning` (not bold) from 50 and `Error` from 90.
+- The end-of-turn line has `ctx N% (<tokens>/<limit>)` from the end event's `context`,
+  such as `done in 42s, ctx 43% (89k/207k), 1.1k out`. A turn without `context` keeps
+  today's line.
+- After a `compacting` draft the status row says `compacting context`, until the
+  `conversation_compacted` event, the next `context` draft or the end of the turn.
+- Each `conversation_compacted` prints one muted line:
+  - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`
+    (`(efr compact)` for a manual one; `pruned 12 outputs` in place of the summary
+    for a prune-only one);
+  - for trigger `overflow`: `context full: the request was 281k of 272k tokens;
+    compacted and retried`;
+  - when `tokens_after` is at or above `limit` (a breaker miss): `context full:
+    compaction did not free enough room (still 240k); run ,compact or efr new`.
+
 ## Tier
 
 Tier 3, the engine.

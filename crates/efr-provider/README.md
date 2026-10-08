@@ -55,7 +55,14 @@ Modules:
 - `error`: `ProviderError`, the crate's one error type, shared by every provider.
   `Unauthorized` is what a provider reports after a 401 survived one
   `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider
-  asked for.
+  asked for. `ContextOverflow` says that the request does not fit in the model's
+  context window; it is never transient, and the conversation compacts before it sends
+  again. A provider builds an error answer of its API with `ProviderError::api`, which
+  picks `ContextOverflow` for the code `context_length_exceeded`, HTTP 413 or a message
+  that starts with `prompt is too long`, and `Api` for the rest.
+  `ModelInfo::context_window` and `ModelInfo::max_output_tokens` are where a provider
+  reports a model's limits; the daemon lays the entries of `[openai] models` over
+  them.
 
 Freeform tools. Which models take the freeform form is a fact about the model, so
 each provider knows it in its own model catalog; `efr-provider-openai` says it in

@@ -28,10 +28,13 @@ fn a_tty_that_could_escape_the_directory_gets_no_file() {
 
 #[test]
 fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
-    let completed = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
+    let completed =
+        Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None };
     let failed = Event::TurnFailed {
         turn_id: turn(),
         error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
+        usage: None,
+        context: None,
     };
     let approval = Event::ApprovalRequested {
         turn_id: turn(),
@@ -61,6 +64,8 @@ fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
     let failed = Event::TurnFailed {
         turn_id: turn(),
         error: ErrorBody::new(ErrorCode::Unauthorized, "no provider credentials are stored"),
+        usage: None,
+        context: None,
     };
 
     assert_eq!(
@@ -95,6 +100,8 @@ fn the_login_hint_survives_a_long_title() {
     let failed = Event::TurnFailed {
         turn_id: turn(),
         error: ErrorBody::new(ErrorCode::Unauthorized, "the token was refused"),
+        usage: None,
+        context: None,
     };
     let title = "x".repeat(400);
 
@@ -106,13 +113,16 @@ fn the_login_hint_survives_a_long_title() {
 
 #[test]
 fn other_events_get_no_line() {
-    assert_eq!(line(&Event::TurnInterrupted { turn_id: turn() }, Some("x")), None);
+    assert_eq!(
+        line(&Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }, Some("x")),
+        None
+    );
     assert_eq!(line(&Event::TurnCancelled { turn_id: turn() }, Some("x")), None);
 }
 
 #[test]
 fn a_notice_stays_on_one_short_line() {
-    let event = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None };
+    let event = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None };
     let title = format!("two\nlines\x1b[31m{}", "x".repeat(400));
 
     let text = line(&event, Some(&title)).unwrap();

@@ -47,7 +47,10 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
         conn.item(sub, &item(6, done)).await;
         conn.item(
             sub,
-            &item(7, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                7,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -82,7 +85,10 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
         let (sub, _) = conn.request().await;
         conn.item(
             sub,
-            &item(6, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                6,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -128,7 +134,10 @@ async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
         let (sub, _) = conn.request().await;
         conn.item(
             sub,
-            &item(6, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                6,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::Settings;
-use efr_conversation::{ConfigSource, ConversationConfig, HostInfo};
+use efr_conversation::{CompactionConfig, ConfigSource, ConversationConfig, HostInfo};
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
 
@@ -63,6 +63,8 @@ pub(crate) fn conversation_config(
     config.mode = settings.permissions.mode;
     config.models = effective_models(settings);
     config.max_output_tokens = settings.model.max_output_tokens;
+    config.compaction =
+        CompactionConfig::new(settings.compaction.auto, settings.compaction.auto_at);
     config.max_queued = settings.conversation.max_queued;
     config.approval_timeout = settings.conversation.approval_timeout_secs.map(Duration::from_secs);
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);

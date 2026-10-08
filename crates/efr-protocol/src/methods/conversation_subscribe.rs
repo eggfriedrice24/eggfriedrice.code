@@ -3,7 +3,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{ConversationId, ConversationSummary, EventEnvelope, PageCursor, Seq, TurnId};
+use crate::{
+    CompactionTrigger, ContextUse, ConversationId, ConversationSummary, EventEnvelope, PageCursor,
+    Seq, TurnId,
+};
 
 /// The params of `conversation.subscribe`, a streaming method.
 ///
@@ -114,6 +117,17 @@ pub enum DraftPart {
         /// How many bytes of input the model has written so far: of the JSON
         /// arguments, or of the text of a freeform tool such as `apply_patch`.
         bytes: u64,
+    },
+    /// How full the model's context is. The turn sends it before each model call, with
+    /// its estimate of the request, and after each call, with the count that the
+    /// provider reported. A client shows it as `ctx N%` while the turn runs.
+    Context(ContextUse),
+    /// The turn compacts the context before its next model call. A client shows
+    /// `compacting context` until the `conversation_compacted` event, the next
+    /// `context` draft or the end of the turn, whichever comes first.
+    Compacting {
+        /// What started the compaction: `auto` or `overflow`.
+        trigger: CompactionTrigger,
     },
 }
 

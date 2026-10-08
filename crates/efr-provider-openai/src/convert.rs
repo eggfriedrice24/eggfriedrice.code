@@ -103,7 +103,14 @@ pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> Response
     // and opencode removes it on that path ("Match codex cli").
     let max_output_tokens = match config.backend() {
         Backend::Subscription => None,
-        _ => request.max_output_tokens,
+        // NOTE: a model's own limit (an entry of `[openai] models`) wins over the
+        // request's, which is `[model] max_output_tokens` for every model.
+        _ => config
+            .models()
+            .iter()
+            .find(|model| model.id == request.model)
+            .and_then(|model| model.max_output_tokens)
+            .or(request.max_output_tokens),
     };
     ResponsesBody {
         model: request.model.clone(),

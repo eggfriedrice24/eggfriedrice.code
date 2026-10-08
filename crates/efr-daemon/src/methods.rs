@@ -33,6 +33,7 @@ mod admin_project_remove;
 mod admin_sandbox_check;
 mod admin_status;
 mod approval_respond;
+mod conversation_compact;
 mod conversation_diff;
 mod conversation_history;
 mod conversation_subscribe;
@@ -102,6 +103,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::AdminSandboxCheck(_) => ScopeName::Admin,
         Method::ConversationDiff(_) => ScopeName::Read,
         Method::PromptWithdraw(_) => ScopeName::Operate,
+        Method::ConversationCompact(_) => ScopeName::Operate,
     }
 }
 
@@ -278,6 +280,7 @@ impl Dispatcher for Methods {
                 Method::PromptWithdraw(params) => {
                     prompt_withdraw::handle(state, &context, params, &responder).await
                 }
+                Method::ConversationCompact(params) => conversation_compact::handle(&params),
             }
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))

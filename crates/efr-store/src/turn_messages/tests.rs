@@ -40,6 +40,7 @@ async fn finish_turn(writer: &WriterHandle, id: ConversationId, turn: u64, keep:
                         turn_id: testing::turn(turn),
                         usage: None,
                         changes: None,
+                        context: None,
                     },
                 )
                 .turn_messages(saved(id, turn, keep)),
@@ -114,7 +115,12 @@ async fn messages_are_saved_only_when_their_batch_commits() {
             Batch::new()
                 .event(
                     id,
-                    Event::TurnCompleted { turn_id: testing::turn(1), usage: None, changes: None },
+                    Event::TurnCompleted {
+                        turn_id: testing::turn(1),
+                        usage: None,
+                        changes: None,
+                        context: None,
+                    },
                 )
                 .turn_messages(saved(id, 1, 50)),
         )

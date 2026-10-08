@@ -9,11 +9,12 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
+use crate::compaction::is_zero_u64;
 use crate::{
-    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind,
-    ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch, Origin, PtyId, QuestionId,
-    ReportedFile, Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId,
-    TurnSettings, UserAuthorization, Verdict,
+    CallId, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings, ErrorBody,
+    ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch, Origin,
+    PtyId, QuestionId, ReportedFile, Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange,
+    TurnId, TurnSettings, UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -342,6 +343,14 @@ pub enum Event {
     TurnInterrupted {
         /// The turn.
         turn_id: TurnId,
+        /// The tokens that the turn used before it stopped, when the provider reported
+        /// them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<Usage>,
+        /// How full the model's context was when the turn stopped. Absent in turns
+        /// recorded before efr counted it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<ContextUse>,
     },
 
     /// A turn finished normally.
@@ -351,6 +360,10 @@ pub enum Event {
         /// The tokens that the turn used, when the provider reported them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Usage>,
+        /// How full the model's context was when the turn ended. Absent in turns
+        /// recorded before efr counted it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<ContextUse>,
         /// The files that the turn changed: its first snapshot against its last, in the
         /// turn's registered project, `$SCRATCH` and the registered projects that its
         /// calls wrote. Absent when nothing changed there. `conversation.diff` returns
@@ -365,6 +378,14 @@ pub enum Event {
         turn_id: TurnId,
         /// What went wrong.
         error: ErrorBody,
+        /// The tokens that the turn used before it failed, when the provider reported
+        /// them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        usage: Option<Usage>,
+        /// How full the model's context was when the turn failed. Absent in turns
+        /// recorded before efr counted it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<ContextUse>,
     },
 
     /// A turn that was running or waiting when the daemon stopped was cancelled at the
@@ -519,6 +540,12 @@ pub enum Event {
         files: Vec<ReportedFile>,
     },
 
+    /// efrd compacted the conversation's context: it pruned old tool output, wrote a
+    /// summary of the history before a cut, or both. The model's next request starts
+    /// from the compaction (the README of `efr-conversation`, section "Context"). Every
+    /// event stays in the log; `efr history` marks the place.
+    ConversationCompacted(Compaction),
+
     /// The sandbox probe's result changed to unavailable: `auto` turns run as
     /// `cautious` until it is available again.
     SandboxUnavailable {
@@ -575,7 +602,7 @@ impl Event {
             | Event::SteeringDelivered { turn_id, .. }
             | Event::SteeringWithdrawn { turn_id, .. }
             | Event::TurnInterruptRequested { turn_id, .. }
-            | Event::TurnInterrupted { turn_id }
+            | Event::TurnInterrupted { turn_id, .. }
             | Event::TurnCompleted { turn_id, .. }
             | Event::TurnFailed { turn_id, .. }
             | Event::TurnCancelled { turn_id }
@@ -585,6 +612,7 @@ impl Event {
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
             | Event::TurnSurfaceReport { turn_id, .. } => Some(*turn_id),
+            Event::ConversationCompacted(compaction) => compaction.turn_id,
             Event::ConversationCreated { .. }
             | Event::ShellStarted { .. }
             | Event::ShellExited { .. }
@@ -672,12 +700,42 @@ pub enum InputWait {
 }
 
 /// Tokens that a turn used, as the provider reported them.
+///
+/// `input_tokens`, `output_tokens`, `cached_input_tokens` and `reasoning_tokens` are
+/// sums over the model calls of the turn. `context_tokens` is not a sum: it is the size
+/// of the context at the last call.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Usage {
-    /// Tokens sent to the model.
+    /// Tokens sent to the model, cached ones included.
     pub input_tokens: u64,
-    /// Tokens the model produced.
+    /// Tokens the model produced, reasoning included.
     pub output_tokens: u64,
+    /// The part of `input_tokens` that the provider served from its prompt cache. Absent
+    /// when none, or when the provider did not say.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub cached_input_tokens: u64,
+    /// The part of `output_tokens` that the model spent on reasoning. Absent when none,
+    /// or when the provider did not say.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reasoning_tokens: u64,
+    /// The tokens in the context at the last model call: its input plus its output.
+    /// Absent when no call reported its usage, and in turns recorded before efr counted
+    /// it.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub context_tokens: u64,
+}
+
+impl Usage {
+    /// The usage of `input_tokens` and `output_tokens`, with the other counts zero.
+    pub const fn new(input_tokens: u64, output_tokens: u64) -> Self {
+        Usage {
+            input_tokens,
+            output_tokens,
+            cached_input_tokens: 0,
+            reasoning_tokens: 0,
+            context_tokens: 0,
+        }
+    }
 }
 
 #[cfg(test)]

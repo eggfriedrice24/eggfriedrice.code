@@ -5,7 +5,10 @@ use efr_protocol::Mode;
 use efr_stdx::env::Var;
 use pretty_assertions::assert_eq;
 
-use crate::{ConfigError, Location, Progress, ScreenChoice, Settings, Source, SudoCache};
+use crate::{
+    CompactionSettings, ConfigError, Location, ModelEntry, Progress, ScreenChoice, Settings,
+    Source, SudoCache,
+};
 
 const PATH: &str = "/home/u/.config/efr/config.toml";
 
@@ -93,7 +96,7 @@ fn the_file_sets_what_it_names() {
     assert_eq!(settings.openai.originator, "efr-dev");
     assert_eq!(
         settings.openai.models.as_deref(),
-        Some(&["gpt-6-sol".to_owned(), "gpt-5.5".to_owned()][..])
+        Some(&["gpt-6-sol".into(), "gpt-5.5".into()][..])
     );
     assert_eq!(settings.permissions.mode, Mode::Auto);
     assert_eq!(
@@ -195,6 +198,15 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         ("[conversation]\nupdate_interval_ms = 60001\n", "conversation.update_interval_ms"),
         ("[conversation]\ndraft_interval_ms = 1001\n", "conversation.draft_interval_ms"),
         ("[conversation]\ntty_idle_hours = 9000\n", "conversation.tty_idle_hours"),
+        ("[compaction]\nauto_at = 0\n", "compaction.auto_at"),
+        ("[compaction]\nauto_at = 100\n", "compaction.auto_at"),
+        ("[openai]\nmodels = [{ id = \"m\", context_window = 999 }]\n", "openai.models"),
+        ("[openai]\nmodels = [{ id = \"m\", max_output_tokens = 0 }]\n", "openai.models"),
+        (
+            "[openai]\nmodels = [{ id = \"m\", context_window = 8000, max_output_tokens = 8000 }]\n",
+            "openai.models",
+        ),
+        ("[openai]\nmodels = [{ id = \" \" }]\n", "openai.models"),
         ("[render]\ntheme = \"\"\n", "render.theme"),
         ("[render]\npalette = \"themes/efr.toml\"\n", "render.palette"),
         ("[render.colors]\naccent = \"gold\"\n", "render.colors.accent"),
@@ -515,7 +527,7 @@ fn an_override_of_each_kind_is_read_as_the_file_would_read_it() {
     settings.apply_override("model.max_output_tokens", "100", from).unwrap();
 
     assert!(!settings.shell.login);
-    assert_eq!(settings.openai.models, Some(vec!["gpt-5.5".to_owned(), "gpt-5.4".to_owned()]));
+    assert_eq!(settings.openai.models, Some(vec!["gpt-5.5".into(), "gpt-5.4".into()]));
     assert_eq!(settings.permissions.mode, Mode::Manual);
     assert_eq!(settings.model.max_output_tokens, Some(100));
 }
@@ -580,4 +592,33 @@ fn a_sandbox_key_takes_an_override_and_applies_live() {
         crate::kind("sandbox.write_projects"),
         Some(crate::Kind::Choice(vec!["turn".to_owned(), "named".to_owned(), "all".to_owned()]))
     );
+}
+
+#[test]
+fn a_model_entry_is_an_id_or_a_table_with_its_limits() {
+    let text = r#"
+        [openai]
+        models = ["gpt-5.4", { id = "gpt-next", context_window = 400000, max_output_tokens = 128000 }]
+    "#;
+
+    let settings = parse(text).unwrap();
+
+    let models = settings.openai.models.unwrap();
+    assert_eq!(models[0], ModelEntry::from("gpt-5.4"));
+    assert_eq!(models[0].context_window(), None);
+    assert_eq!(models[1].id(), "gpt-next");
+    assert_eq!(models[1].context_window(), Some(400_000));
+    assert_eq!(models[1].max_output_tokens(), Some(128_000));
+}
+
+#[test]
+fn compaction_is_on_at_76_percent_unless_the_file_says_otherwise() {
+    assert_eq!(parse("").unwrap().compaction, CompactionSettings::default());
+    assert!(CompactionSettings::default().auto);
+    assert_eq!(CompactionSettings::default().auto_at, 76);
+
+    let settings = parse("[compaction]\nauto = false\nauto_at = 60\n").unwrap();
+
+    assert!(!settings.compaction.auto);
+    assert_eq!(settings.compaction.auto_at, 60);
 }

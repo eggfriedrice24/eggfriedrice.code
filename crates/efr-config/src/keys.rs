@@ -12,8 +12,9 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    ConversationSettings, DiffColors, ModelSettings, OpenAiSettings, PermissionSettings,
-    RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings,
+    CompactionSettings, ConversationSettings, DiffColors, ModelSettings, OpenAiSettings,
+    PermissionSettings, RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
+    SnapshotSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -98,6 +99,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "permissions" => fields::<PermissionSettings>(),
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
+        "compaction" => fields::<CompactionSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
         "snapshot" => fields::<SnapshotSettings>(),
         "render" => fields::<RenderSettings>(),
@@ -219,10 +221,18 @@ fn kind_of(schema: &Json, node: &Json) -> Option<Kind> {
         Some("boolean") => Some(Kind::Boolean),
         Some("array") => {
             let items = node.get("items").map(|items| resolve(schema, items));
-            match items.and_then(|items| items.get("type")).and_then(Json::as_str) {
-                Some("string") => Some(Kind::List),
-                _ => Some(Kind::Rules),
-            }
+            // NOTE: an entry of `openai.models` is a string or a table. Such a list is
+            // still set from text as a list of strings; only an editor writes tables.
+            let takes_string = |items: &Json| {
+                items.get("type").and_then(Json::as_str) == Some("string")
+                    || items.get("anyOf").and_then(Json::as_array).is_some_and(|variants| {
+                        variants.iter().any(|variant| {
+                            resolve(schema, variant).get("type").and_then(Json::as_str)
+                                == Some("string")
+                        })
+                    })
+            };
+            if items.is_some_and(takes_string) { Some(Kind::List) } else { Some(Kind::Rules) }
         }
         _ => None,
     }

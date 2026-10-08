@@ -12,15 +12,15 @@ use crate::{
     AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalRespond,
-    ApprovalRespondResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
-    ConversationHistoryResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
-    ConversationsListResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
-    InputRespond, InputRespondResult, LeaseReport, LeaseReportResult, ModelsList, ModelsListResult,
-    PROTOCOL_VERSION, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
-    PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
-    PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult,
+    ApprovalRespondResult, ConversationCompact, ConversationCompactResult, ConversationDiff,
+    ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
+    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
+    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, ProjectsList,
+    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
+    PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId,
+    SandboxExplain, SandboxExplainResult, SandboxSurfaceRespond, SandboxSurfaceRespondResult,
+    ScopeName, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -115,6 +115,11 @@ pub fn document() -> Value {
         unary::<PromptWithdraw, PromptWithdrawResult>(
             &mut generator,
             "prompt.withdraw",
+            ScopeName::Operate,
+        ),
+        unary::<ConversationCompact, ConversationCompactResult>(
+            &mut generator,
+            "conversation.compact",
             ScopeName::Operate,
         ),
     ];

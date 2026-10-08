@@ -8,5 +8,14 @@
       "provider": "openai",
       "status": 502
     }
+  },
+  "usage": {
+    "input_tokens": 600,
+    "output_tokens": 0
+  },
+  "context": {
+    "tokens": 89000,
+    "limit": 206720,
+    "window": 272000
   }
 }

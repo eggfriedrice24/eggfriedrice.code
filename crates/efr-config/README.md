@@ -10,10 +10,13 @@ live in a dotfiles repository behind a symbolic link.
 Modules:
 
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
-  `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `SandboxSettings`,
-  `SnapshotSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
-  `ScreenChoice`, `SudoCache`, `WriteProjects` and the default constants
-  (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). The doc comment of a field
+  `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
+  `SandboxSettings`, `SnapshotSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `ScreenChoice`, `SudoCache`, `WriteProjects`, `ModelEntry` and the default constants
+  (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
+  `openai.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
+  max_output_tokens }` (`ModelLimits`); the key is still a list of strings for
+  `efr config set` and an override, and only an editor writes the tables. The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
   `validate` when it needs one, and its line in the example.
 - `tables/render`: `[render]` (`RenderSettings`): `theme` (`auto`, `AUTO_THEME`,
@@ -35,6 +38,11 @@ Modules:
   `.tmTheme` file (absolute, `~/...`, or relative to the theme file). `ThemeFile::load`
   reads and checks it like the config file, with its own errors (`ThemeRead`,
   `ThemeParse`, `ThemeInvalid`) that name the key and the place.
+- `tables/compaction`: `[compaction]` (`CompactionSettings`): `auto` (default
+  `true`) and `auto_at` (the trigger in percent of the model's window, 1 to 99,
+  `DEFAULT_AUTO_AT` 76). The daemon hands them to the conversations as
+  `efr_conversation::CompactionConfig`; the rules are in the README of
+  `efr-conversation`, section "Context".
 - `tables/sandbox`: `[sandbox]`, the keys of the `auto` sandbox (phase 1): the write
   roots, caches, masks, floors, environment and export lists, synced folders and the
   surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;

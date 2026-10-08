@@ -5,7 +5,10 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
-use crate::{PROVIDERS, RenderColors, SandboxSettings, Settings, SnapshotSettings};
+use crate::{
+    CompactionSettings, ModelEntry, PROVIDERS, RenderColors, SandboxSettings, Settings,
+    SnapshotSettings,
+};
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +29,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         permissions,
         shell,
         conversation,
+        compaction,
         sandbox,
         snapshot,
         render,
@@ -62,10 +66,8 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     }
 
     non_empty("openai.originator", &openai.originator, "a name such as efr")?;
-    if let Some(models) = &openai.models
-        && let Some(model) = models.iter().find(|model| model.trim().is_empty())
-    {
-        return Err(invalid("openai.models", text(model), "a list of model ids"));
+    for entry in openai.models.iter().flatten() {
+        check_model_entry(entry)?;
     }
     if let Some(url) = &openai.subscription_base_url {
         http_url("openai.subscription_base_url", url)?;
@@ -126,6 +128,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         "between 0 and 8760 (a year)",
     )?;
 
+    check_compaction(compaction)?;
     check_sandbox(sandbox)?;
     check_snapshot(snapshot)?;
 
@@ -158,6 +161,34 @@ pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 13]) -> Result
         }
         None => Ok(()),
     }
+}
+
+/// The checks of one entry of `[openai] models`.
+fn check_model_entry(entry: &ModelEntry) -> Result<(), Invalid> {
+    const EXPECTED: &str = "a list of model ids, or of tables { id, context_window, \
+                            max_output_tokens } with a window from 1000 to 100000000 and \
+                            an output limit from 1 to 1000000 below the window";
+    let id = entry.id();
+    if id.trim().is_empty() {
+        return Err(invalid("openai.models", text(id), EXPECTED));
+    }
+    let window = entry.context_window();
+    let output = entry.max_output_tokens().map(u64::from);
+    let window_fits = window.is_none_or(|window| (1_000..=100_000_000).contains(&window));
+    let output_fits = output.is_none_or(|output| (1..=1_000_000).contains(&output));
+    let output_below = match (window, output) {
+        (Some(window), Some(output)) => output < window,
+        _ => true,
+    };
+    if !(window_fits && output_fits && output_below) {
+        return Err(invalid("openai.models", text(id), EXPECTED));
+    }
+    Ok(())
+}
+
+/// The checks of `[compaction]`.
+fn check_compaction(compaction: &CompactionSettings) -> Result<(), Invalid> {
+    within("compaction.auto_at", u64::from(compaction.auto_at), 1..=99, "between 1 and 99")
 }
 
 /// The checks of `[snapshot]`, in the order of the table.

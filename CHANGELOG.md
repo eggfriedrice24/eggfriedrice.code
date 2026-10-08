@@ -97,6 +97,11 @@ into the GitHub release notes, and it stops when the section is missing.
   (`steering_delivered`). `efr history` shows a prompt that you took back as
   `withdrawn before it ran`, and steers that you took back as `took back a steer that
   the model did not read`.
+- An entry of `[openai] models` can be a table that gives the model's limits:
+  `{ id = "gpt-next", context_window = 400000, max_output_tokens = 128000 }`. An
+  entry can also name a built-in model to change its limits. `models.list` shows the
+  context window of each model that efr knows. On an API key, a model's own output
+  limit wins over `[model] max_output_tokens`.
 
 ### Changed
 
@@ -118,6 +123,9 @@ into the GitHub release notes, and it stops when the section is missing.
   guard runs git only for a git config that changed since the last call, reads no
   `*.sample` hook, and lists directories faster. In a copy of efr's own repository, the
   guard went from 15 ms to 6 ms per call.
+- When a request is too large for the model's context window, the turn fails with
+  `the request is larger than the model's context window`, and efr never sends that
+  request again as a retry. Before, it failed with the provider's own message.
 
 ### Fixed
 

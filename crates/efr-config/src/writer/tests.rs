@@ -87,7 +87,7 @@ fn a_key_of_a_missing_table_adds_the_table_and_a_top_level_key_stays_on_top() {
     );
     assert!(text.contains("\n[conversation]\nmax_queued = 4\n"), "{text}");
     assert_eq!(settings.conversation.max_queued, 4);
-    assert_eq!(settings.openai.models, Some(vec!["gpt-5.5".to_owned(), "gpt-5.4".to_owned()]));
+    assert_eq!(settings.openai.models, Some(vec!["gpt-5.5".into(), "gpt-5.4".into()]));
 }
 
 #[test]

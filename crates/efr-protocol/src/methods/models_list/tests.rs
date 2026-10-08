@@ -7,6 +7,7 @@ fn model(efforts: &[&str]) -> ModelInfo {
         default_effort: None,
         default: false,
         source: ModelSource::Builtin,
+        context_window: None,
     }
 }
 

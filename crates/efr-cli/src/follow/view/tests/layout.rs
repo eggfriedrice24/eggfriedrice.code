@@ -112,8 +112,8 @@ fn turn_started() -> Event {
 }
 
 fn turn_completed() -> Event {
-    let usage = Usage { input_tokens: 18_200, output_tokens: 1_100 };
-    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None }
+    let usage = Usage::new(18_200, 1_100);
+    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None, context: None }
 }
 
 /// A terminal's screen: the rows that the writes of a view leave on it. The escape
@@ -604,8 +604,13 @@ fn main_rs_diff() -> String {
 }
 
 fn turn_changed(changes: FileChanges) -> Event {
-    let usage = Usage { input_tokens: 18_200, output_tokens: 1_100 };
-    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: Some(changes) }
+    let usage = Usage::new(18_200, 1_100);
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: Some(usage),
+        changes: Some(changes),
+        context: None,
+    }
 }
 
 #[test]

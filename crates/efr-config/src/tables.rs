@@ -12,6 +12,7 @@ use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub(crate) mod compaction;
 pub(crate) mod render;
 pub(crate) mod sandbox;
 pub(crate) mod snapshot;
@@ -138,10 +139,13 @@ pub struct OpenAiSettings {
     /// The `originator` of the subscription login and of every subscription request.
     /// Needs a restart.
     pub originator: String,
-    /// Model ids added to the built-in model list, such as a new model before efr
-    /// knows it. A prompt may then name them; their efforts are not checked.
+    /// Models added to the built-in model list, such as a new model before efr knows
+    /// it. A prompt may then name them; their efforts are not checked. An entry is a
+    /// model id, or a table `{ id, context_window, max_output_tokens }` that also gives
+    /// the model's limits in tokens; a table may name a built-in model to change its
+    /// limits.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<Vec<String>>,
+    pub models: Option<Vec<ModelEntry>>,
     /// Replaces the subscription backend's base URL. Needs a restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription_base_url: Option<String>,
@@ -158,6 +162,79 @@ impl Default for OpenAiSettings {
             subscription_base_url: None,
             api_base_url: None,
         }
+    }
+}
+
+/// One entry of `[openai] models`: a model id, or a model id with its limits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum ModelEntry {
+    /// A model id, such as `gpt-5.5`.
+    Id(String),
+    /// A model id with its limits.
+    Model(ModelLimits),
+}
+
+/// A model of `[openai] models` with its limits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ModelLimits {
+    /// The model id, such as `gpt-5.5`.
+    pub id: String,
+    /// The model's context window in tokens, from 1000 to 100000000. Unset: efr's
+    /// built-in value for the model, else a default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    /// The most tokens one model call may produce, from 1 to 1000000. Unset:
+    /// `model.max_output_tokens`, else the provider's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+}
+
+impl ModelLimits {
+    /// The model `id` with no limits.
+    pub fn new(id: impl Into<String>) -> Self {
+        ModelLimits { id: id.into(), context_window: None, max_output_tokens: None }
+    }
+}
+
+impl ModelEntry {
+    /// The model id.
+    pub fn id(&self) -> &str {
+        match self {
+            ModelEntry::Id(id) => id,
+            ModelEntry::Model(model) => &model.id,
+        }
+    }
+
+    /// The model's context window in tokens, when the entry gives it.
+    pub fn context_window(&self) -> Option<u64> {
+        match self {
+            ModelEntry::Id(_) => None,
+            ModelEntry::Model(model) => model.context_window,
+        }
+    }
+
+    /// The most tokens one model call may produce, when the entry gives it.
+    pub fn max_output_tokens(&self) -> Option<u32> {
+        match self {
+            ModelEntry::Id(_) => None,
+            ModelEntry::Model(model) => model.max_output_tokens,
+        }
+    }
+}
+
+impl From<&str> for ModelEntry {
+    fn from(id: &str) -> Self {
+        ModelEntry::Id(id.to_owned())
+    }
+}
+
+impl From<ModelLimits> for ModelEntry {
+    fn from(model: ModelLimits) -> Self {
+        ModelEntry::Model(model)
     }
 }
 

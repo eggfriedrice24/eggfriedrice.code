@@ -220,8 +220,14 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   `login_completed` and makes the running provider forget its cached token.
 - `models.list` answers the effective model list of the latest settings
   (`providers.rs`, `effective_models`): the provider's built-in models with their
-  efforts and default effort, then the ids of `[openai] models` that the list does not
-  hold, with the default model marked.
+  efforts, default effort and context window, then the models of `[openai] models`
+  that the list does not hold, with the default model marked. A window that an entry
+  of `[openai] models` gives wins over the built-in one, and the provider gets the
+  entry's window and output limit too (`openai_config`).
+- `conversation.compact` (`methods/conversation_compact.rs`) is a stub: it answers
+  `invalid` and records nothing until the conversation can compact. The contract is in
+  the README of efr-conversation, section "Context". `settings.rs` hands
+  `[compaction]` to the conversations as `CompactionConfig`.
 - `admin.config_reload` reloads at once and answers with the outcome: applied, or the
   file's error with the old settings kept, and the keys that wait for a restart.
 - `projects.list`, `admin.project_add` and `admin.project_remove` (`projects.rs`) read

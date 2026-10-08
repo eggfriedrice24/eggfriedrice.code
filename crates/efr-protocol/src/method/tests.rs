@@ -6,11 +6,11 @@ use serde_json::json;
 use crate::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationDiff, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList,
-    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
-    WithdrawTarget,
+    ConversationCompact, ConversationDiff, ConversationHistory, ConversationId,
+    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList,
+    Origin, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite,
+    QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt,
+    TurnSettings, TurnSteer, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -251,6 +251,17 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 target: WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() },
             }),
             "prompt.withdraw",
+            ScopeName::Operate,
+            true,
+            false,
+        ),
+        (
+            Method::ConversationCompact(ConversationCompact {
+                command_id: command(),
+                conversation_id: conversation(),
+                focus: None,
+            }),
+            "conversation.compact",
             ScopeName::Operate,
             true,
             false,

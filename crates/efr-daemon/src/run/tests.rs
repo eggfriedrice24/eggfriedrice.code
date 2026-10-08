@@ -660,7 +660,7 @@ mod daemon {
         let before: ModelsListResult =
             client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
         let mut changed = crate::Settings::default();
-        changed.openai.models = Some(vec!["gpt-next".to_owned()]);
+        changed.openai.models = Some(vec!["gpt-next".into()]);
         changed.model.name = Some("gpt-6-sol".to_owned());
         daemon.settings.send_replace(std::sync::Arc::new(changed));
         let after: ModelsListResult =

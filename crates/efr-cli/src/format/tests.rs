@@ -425,7 +425,7 @@ fn sizes_count_in_thousands() {
 
 #[test]
 fn the_end_of_turn_line_leaves_out_what_is_not_known() {
-    let usage = Usage { input_tokens: 18_250, output_tokens: 1_100 };
+    let usage = Usage::new(18_250, 1_100);
     assert_eq!(
         turn_done(Some(Duration::from_secs(42)), Some(&usage)),
         "done in 42s, 18.2k tokens in, 1.1k out"

@@ -3,6 +3,7 @@
 //! Frames, the `Method` enum with one params type per method, results and stream items,
 //! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
 //! sandbox's launches, grants, exits and reports, the files a call or a turn changed,
+//! the context's use and its compactions,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -19,6 +20,7 @@
 
 mod capabilities;
 mod changes;
+mod compaction;
 mod error;
 mod event;
 #[cfg(test)]
@@ -43,12 +45,13 @@ pub use capabilities::Capabilities;
 pub use changes::{
     ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,
 };
+pub use compaction::{Compaction, CompactionTrigger, ContextUse};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, Usage};
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
-    CallId, CommandId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId, RequestId, Seq,
-    TurnId,
+    CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
+    RequestId, Seq, TurnId,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
@@ -60,6 +63,7 @@ pub use methods::admin_status::{
     AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
+pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
 pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_subscribe::{

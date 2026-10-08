@@ -3,7 +3,15 @@
   "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
   "usage": {
     "input_tokens": 1200,
-    "output_tokens": 340
+    "output_tokens": 340,
+    "cached_input_tokens": 1024,
+    "reasoning_tokens": 128,
+    "context_tokens": 89000
+  },
+  "context": {
+    "tokens": 89000,
+    "limit": 206720,
+    "window": 272000
   },
   "changes": {
     "files": [

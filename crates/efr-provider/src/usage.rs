@@ -43,10 +43,16 @@ impl AddAssign for TokenUsage {
 }
 
 impl From<TokenUsage> for efr_protocol::Usage {
-    /// The two totals the wire reports. The cached and reasoning parts are already
-    /// inside them.
+    /// The counts of `usage` as the wire reports them. `context_tokens` stays zero: a
+    /// sum of calls does not know the size of the last one, so the turn sets it.
     fn from(usage: TokenUsage) -> Self {
-        efr_protocol::Usage { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens }
+        efr_protocol::Usage {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cached_input_tokens: usage.cached_input_tokens,
+            reasoning_tokens: usage.reasoning_tokens,
+            context_tokens: 0,
+        }
     }
 }
 

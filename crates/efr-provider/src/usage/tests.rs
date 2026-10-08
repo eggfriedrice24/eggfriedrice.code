@@ -27,9 +27,18 @@ fn addition_saturates_instead_of_overflowing() {
 }
 
 #[test]
-fn converts_to_the_wire_totals() {
+fn converts_to_the_wire_counts_without_the_context() {
     let wire: efr_protocol::Usage = usage(2700, 100, 2224, 64).into();
-    assert_eq!(wire, efr_protocol::Usage { input_tokens: 2700, output_tokens: 100 });
+    assert_eq!(
+        wire,
+        efr_protocol::Usage {
+            input_tokens: 2700,
+            output_tokens: 100,
+            cached_input_tokens: 2224,
+            reasoning_tokens: 64,
+            context_tokens: 0,
+        }
+    );
 }
 
 #[test]

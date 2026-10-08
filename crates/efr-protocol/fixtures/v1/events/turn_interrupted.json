@@ -1,4 +1,13 @@
 {
   "kind": "turn_interrupted",
-  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002"
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "usage": {
+    "input_tokens": 900,
+    "output_tokens": 20
+  },
+  "context": {
+    "tokens": 89000,
+    "limit": 206720,
+    "window": 272000
+  }
 }

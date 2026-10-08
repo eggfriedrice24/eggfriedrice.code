@@ -49,8 +49,14 @@ async fn answer(
     let message =
         Event::AssistantMessageCompleted { turn_id: turn(), index: 0, text: reply.to_owned() };
     conn.item(sub, &item(11, message)).await;
-    conn.item(sub, &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }))
-        .await;
+    conn.item(
+        sub,
+        &item(
+            12,
+            Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+        ),
+    )
+    .await;
     conn.until_closed().await;
     params
 }
@@ -245,7 +251,10 @@ async fn a_queued_prompt_says_so_and_still_follows_its_turn() {
         conn.item(sub, &item(11, message)).await;
         conn.item(
             sub,
-            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                12,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -303,7 +312,10 @@ async fn on_a_terminal_the_reply_is_rendered() {
             .unwrap();
         conn.item(
             sub,
-            &item(14, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                14,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -385,7 +397,11 @@ async fn a_turn_without_a_login_says_how_to_log_in() {
         let (sub, _) = conn.request().await;
         let error =
             ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
-        conn.item(sub, &item(11, Event::TurnFailed { turn_id: turn(), error })).await;
+        conn.item(
+            sub,
+            &item(11, Event::TurnFailed { turn_id: turn(), error, usage: None, context: None }),
+        )
+        .await;
         conn.until_closed().await;
     };
     let line = command(&["send", "--", "hello"]);
@@ -661,7 +677,10 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
         let (sub, _) = conn.request().await;
         conn.item(
             sub,
-            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                12,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -699,7 +718,10 @@ async fn on_a_terminal_the_settings_note_is_dim() {
         Wait::new("the message").until(|| seen.stdout().contains("Restart")).await.unwrap();
         conn.item(
             sub,
-            &item(12, Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }),
+            &item(
+                12,
+                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -722,7 +744,7 @@ fn row_context(env: &TestEnv, keys: &Arc<ScriptedKeys>, dir: &std::path::Path) -
 }
 
 fn completed_turn() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
 }
 
 #[tokio::test]

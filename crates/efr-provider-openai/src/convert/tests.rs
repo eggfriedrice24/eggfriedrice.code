@@ -119,6 +119,21 @@ fn the_api_sends_the_output_limit_and_the_subscription_does_not() {
 }
 
 #[test]
+fn the_output_limit_of_a_configured_model_wins_over_the_request() {
+    let config = OpenAiConfig::api().with_models(vec![
+        efr_provider::ModelInfo::new("gpt-next").with_max_output_tokens(64_000),
+        efr_provider::ModelInfo::new("gpt-other"),
+    ]);
+    let mut request = Request::new("gpt-next");
+    request.max_output_tokens = Some(4096);
+    assert_eq!(body(&request, &config)["max_output_tokens"], json!(64_000));
+
+    let mut other = Request::new("gpt-other");
+    other.max_output_tokens = Some(4096);
+    assert_eq!(body(&other, &config)["max_output_tokens"], json!(4096));
+}
+
+#[test]
 fn a_model_outside_the_reasoning_families_asks_for_no_reasoning() {
     let body = body(&Request::new("gpt-4.1"), &OpenAiConfig::api());
     assert_eq!(body.get("reasoning"), None);

@@ -9,7 +9,8 @@
       ],
       "default_effort": "medium",
       "default": true,
-      "source": "builtin"
+      "source": "builtin",
+      "context_window": 272000
     },
     {
       "id": "gpt-5.5-preview",

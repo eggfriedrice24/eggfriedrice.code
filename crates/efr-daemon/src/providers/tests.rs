@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use efr_config::Settings;
+use efr_config::{ModelLimits, Settings};
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
 use efr_protocol::{ModelInfo, ModelSource};
@@ -52,7 +52,7 @@ fn the_model_is_the_configured_one_then_the_first_listed_then_the_default() {
     let mut config = Settings::default();
     assert_eq!(default_model(&config), efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL);
 
-    config.openai.models = Some(vec!["gpt-6-sol".to_owned(), "gpt-5.5".to_owned()]);
+    config.openai.models = Some(vec!["gpt-6-sol".into(), "gpt-5.5".into()]);
     assert_eq!(default_model(&config), "gpt-6-sol");
 
     config.model.name = Some("gpt-6-luna".to_owned());
@@ -71,7 +71,7 @@ fn the_effective_models_are_the_builtin_list_then_the_configured_ids() {
     assert_eq!(gpt_5_5.efforts, ["low", "medium", "high", "xhigh"]);
     assert_eq!(gpt_5_5.default_effort.as_deref(), Some("medium"));
 
-    config.openai.models = Some(vec!["gpt-next".to_owned(), "gpt-5.5".to_owned()]);
+    config.openai.models = Some(vec!["gpt-next".into(), "gpt-5.5".into()]);
     let models = effective_models(&config);
     assert_eq!(models.len(), builtin.len() + 1, "an id the list holds is not added again");
     let added = models.last().unwrap();
@@ -83,10 +83,39 @@ fn the_effective_models_are_the_builtin_list_then_the_configured_ids() {
             default_effort: None,
             default: true,
             source: ModelSource::Config,
+            context_window: None,
         },
         "the first configured id is the default when model.name is unset"
     );
     assert_eq!(models.iter().filter(|model| model.default).count(), 1);
+}
+
+#[test]
+fn a_configured_window_wins_over_the_built_in_one_and_reaches_the_provider() {
+    let mut config = Settings::default();
+    let builtin = effective_models(&config);
+    let gpt_5_5 = builtin.iter().find(|model| model.id == "gpt-5.5").unwrap();
+    assert_eq!(gpt_5_5.context_window, Some(272_000), "the built-in window is listed");
+
+    let mut wider = ModelLimits::new("gpt-5.5");
+    wider.context_window = Some(400_000);
+    let mut next = ModelLimits::new("gpt-next");
+    next.context_window = Some(1_000_000);
+    next.max_output_tokens = Some(64_000);
+    config.openai.models = Some(vec![wider.into(), next.into()]);
+    let models = effective_models(&config);
+
+    let window = |id: &str| models.iter().find(|model| model.id == id).unwrap().context_window;
+    assert_eq!(window("gpt-5.5"), Some(400_000));
+    assert_eq!(window("gpt-next"), Some(1_000_000));
+    assert_eq!(models.len(), builtin.len() + 1);
+
+    let provider = openai_config(OpenAiConfig::subscription(), &config.openai, None).unwrap();
+    let next = provider.models().iter().find(|model| model.id == "gpt-next").unwrap();
+    assert_eq!(next.context_window, Some(1_000_000));
+    assert_eq!(next.max_output_tokens, Some(64_000));
+    let gpt_5_5 = provider.models().iter().find(|model| model.id == "gpt-5.5").unwrap();
+    assert_eq!(gpt_5_5.context_window, Some(400_000));
 }
 
 #[test]
@@ -109,7 +138,7 @@ fn the_api_provider_lists_only_the_configured_ids() {
     config.model.provider = API.to_owned();
     assert!(effective_models(&config).is_empty());
 
-    config.openai.models = Some(vec!["gpt-4.1".to_owned()]);
+    config.openai.models = Some(vec!["gpt-4.1".into()]);
     assert_eq!(known_models(&config), ["gpt-4.1"]);
 }
 
@@ -117,7 +146,7 @@ fn the_api_provider_lists_only_the_configured_ids() {
 fn the_openai_settings_reach_the_provider_config() {
     let mut settings = Settings::default().openai;
     settings.originator = "efr-test".to_owned();
-    settings.models = Some(vec!["m1".to_owned(), "gpt-5.5".to_owned()]);
+    settings.models = Some(vec!["m1".into(), "gpt-5.5".into()]);
 
     let config =
         openai_config(OpenAiConfig::subscription(), &settings, Some("http://127.0.0.1:9/codex/"))

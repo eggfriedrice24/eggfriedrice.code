@@ -185,7 +185,9 @@ pub(crate) fn apply(
         }
         Event::TurnCompleted { turn_id, .. } => finish(conn, turn_id, TurnStatus::Completed, at)?,
         Event::TurnFailed { turn_id, .. } => finish(conn, turn_id, TurnStatus::Failed, at)?,
-        Event::TurnInterrupted { turn_id } => finish(conn, turn_id, TurnStatus::Interrupted, at)?,
+        Event::TurnInterrupted { turn_id, .. } => {
+            finish(conn, turn_id, TurnStatus::Interrupted, at)?
+        }
         Event::TurnCancelled { turn_id } => finish(conn, turn_id, TurnStatus::Cancelled, at)?,
         Event::PromptWithdrawn { turn_id, .. } => {
             finish(conn, turn_id, TurnStatus::Withdrawn, at)?;

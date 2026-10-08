@@ -1514,7 +1514,7 @@ impl TurnView {
             Event::PromptWithdrawn { turn_id, .. }
             | Event::TurnCompleted { turn_id, .. }
             | Event::TurnFailed { turn_id, .. }
-            | Event::TurnInterrupted { turn_id } => {
+            | Event::TurnInterrupted { turn_id, .. } => {
                 input.remove(*turn_id)?;
             }
             _ => return None,

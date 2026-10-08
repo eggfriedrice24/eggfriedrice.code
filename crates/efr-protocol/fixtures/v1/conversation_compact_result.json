@@ -1,0 +1,25 @@
+{
+  "seq": 50,
+  "compaction": {
+    "compaction_id": "019a9b1c-3d00-7a10-8b20-00000000000b",
+    "trigger": "manual",
+    "focus": "the journal cleanup",
+    "model": "gpt-5.5",
+    "window": 272000,
+    "limit": 206720,
+    "tokens_before": 231000,
+    "tokens_after": 24000,
+    "through_turn": "019a9b1c-3d00-7a10-8b20-000000000002",
+    "kept_turns": 3,
+    "pruned_outputs": 12,
+    "pruned_tokens": 41000,
+    "summary": "## Task and state\nFree space on /var.",
+    "usage": {
+      "input_tokens": 205000,
+      "output_tokens": 3200,
+      "cached_input_tokens": 198000,
+      "reasoning_tokens": 900,
+      "context_tokens": 208200
+    }
+  }
+}

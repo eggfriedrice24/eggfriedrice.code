@@ -297,6 +297,7 @@ pub(crate) fn models() -> ModelsListResult {
                 default_effort: Some("medium".to_owned()),
                 default: true,
                 source: ModelSource::Builtin,
+                context_window: None,
             },
             ModelInfo {
                 id: "gpt-5.4".to_owned(),
@@ -304,6 +305,7 @@ pub(crate) fn models() -> ModelsListResult {
                 default_effort: None,
                 default: false,
                 source: ModelSource::Builtin,
+                context_window: None,
             },
             ModelInfo {
                 id: "my-model".to_owned(),
@@ -311,6 +313,7 @@ pub(crate) fn models() -> ModelsListResult {
                 default_effort: None,
                 default: false,
                 source: ModelSource::Config,
+                context_window: None,
             },
         ],
     }

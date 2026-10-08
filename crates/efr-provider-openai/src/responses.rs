@@ -192,7 +192,7 @@ impl OpenAiProvider {
             }
         });
         let code = details.code.or(details.kind);
-        ProviderError::Api { status: Some(status.as_u16()), code, message }
+        ProviderError::api(Some(status.as_u16()), code, message)
     }
 }
 

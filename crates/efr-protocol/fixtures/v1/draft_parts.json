@@ -16,5 +16,15 @@
     "call": 0,
     "tool": "write_file",
     "bytes": 3277
+  },
+  {
+    "kind": "context",
+    "tokens": 89000,
+    "limit": 206720,
+    "window": 272000
+  },
+  {
+    "kind": "compacting",
+    "trigger": "auto"
   }
 ]

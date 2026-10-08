@@ -205,6 +205,8 @@ fn a_known_event_reads_back_as_itself() {
     let event = Event::TurnFailed {
         turn_id: turn(),
         error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
+        usage: None,
+        context: None,
     };
     let back: Event = serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
     assert_eq!(back, event);

@@ -142,6 +142,25 @@
       ],
       "type": "object"
     },
+    "CompactionSettings": {
+      "additionalProperties": false,
+      "description": "`[compaction]`: when efrd compacts the context of a conversation on its own. Every\nkey applies from the next turn.",
+      "properties": {
+        "auto": {
+          "default": true,
+          "description": "`true` compacts the context on its own when it reaches `auto_at`, before a\nmodel call, and the turn goes on. `false` compacts only when you run `,compact`\n(`efr compact`), and a request that does not fit in the model's window fails\nthe turn with a message that names `,compact`.",
+          "type": "boolean"
+        },
+        "auto_at": {
+          "default": 76,
+          "description": "The percent of the model's context window at which efr compacts on its own,\nfrom 1 to 99. `ctx 100%` in the status row means this point.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "ConversationSettings": {
       "additionalProperties": false,
       "description": "`[conversation]`: queues, approvals, streaming and terminals.",
@@ -281,6 +300,51 @@
         }
       ]
     },
+    "ModelEntry": {
+      "anyOf": [
+        {
+          "description": "A model id, such as `gpt-5.5`.",
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/ModelLimits",
+          "description": "A model id with its limits."
+        }
+      ],
+      "description": "One entry of `[openai] models`: a model id, or a model id with its limits."
+    },
+    "ModelLimits": {
+      "additionalProperties": false,
+      "description": "A model of `[openai] models` with its limits.",
+      "properties": {
+        "context_window": {
+          "description": "The model's context window in tokens, from 1000 to 100000000. Unset: efr's\nbuilt-in value for the model, else a default.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The model id, such as `gpt-5.5`.",
+          "type": "string"
+        },
+        "max_output_tokens": {
+          "description": "The most tokens one model call may produce, from 1 to 1000000. Unset:\n`model.max_output_tokens`, else the provider's default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
     "ModelSettings": {
       "additionalProperties": false,
       "description": "`[model]`: the provider, the default model of a turn and what each request carries.",
@@ -333,9 +397,9 @@
           ]
         },
         "models": {
-          "description": "Model ids added to the built-in model list, such as a new model before efr\nknows it. A prompt may then name them; their efforts are not checked.",
+          "description": "Models added to the built-in model list, such as a new model before efr knows\nit. A prompt may then name them; their efforts are not checked. An entry is a\nmodel id, or a table `{ id, context_window, max_output_tokens }` that also gives\nthe model's limits in tokens; a table may name a built-in model to change its\nlimits.",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/ModelEntry"
           },
           "type": [
             "array",
@@ -1059,6 +1123,14 @@
   "additionalProperties": false,
   "description": "The effective settings: the built-in defaults, then `config.toml`, then whatever\nenvironment variables and flags the program applies with\n[`apply_override`](Self::apply_override).\n\nA missing file is an empty one, so every value is its default. The fields are\npublic so a test can start from [`Settings::default`] and change what it needs; a\nchanged field keeps the source it had.",
   "properties": {
+    "compaction": {
+      "$ref": "#/$defs/CompactionSettings",
+      "default": {
+        "auto": true,
+        "auto_at": 76
+      },
+      "description": "When efrd compacts a conversation's context on its own."
+    },
     "conversation": {
       "$ref": "#/$defs/ConversationSettings",
       "default": {

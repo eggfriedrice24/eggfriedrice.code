@@ -115,7 +115,10 @@ async fn scene() -> Scene {
         .event(idle, created())
         .event(idle, queued(t3, 3))
         .event(idle, started(t3))
-        .event(idle, Event::TurnCompleted { turn_id: t3, usage: None, changes: None })
+        .event(
+            idle,
+            Event::TurnCompleted { turn_id: t3, usage: None, changes: None, context: None },
+        )
         .enqueue(NewOutboxItem::process_bound("notify", json!({})))
         .enqueue(NewOutboxItem::replay_safe("index", json!({})));
     let hwm = store.writer().append(batch).await.unwrap().last_seq();

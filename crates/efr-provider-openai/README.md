@@ -33,7 +33,9 @@ Modules:
   `stream: true`, `store: false`, the system prompt as `instructions`,
   `tool_choice: "auto"`, function tools with `strict: false`, and for reasoning models
   `reasoning: {effort, summary}` with `include: ["reasoning.encrypted_content"]`. The
-  subscription path sends no `max_output_tokens`, which that backend refuses. A
+  subscription path sends no `max_output_tokens`, which that backend refuses. The API
+  path sends the model's own limit from its entry in `[openai] models`, else the
+  request's. A
   freeform tool goes to a model that takes it as
   `{"type": "custom", name, description, "format": {"type": "grammar", syntax,
   definition}}`, and to any other model as a function tool with its function form. A
@@ -76,6 +78,9 @@ Failures:
 - a 429 is `RateLimited`, with the wait from `Retry-After`, from the subscription's
   `resets_at` (on the injected clock), or from the message; a 429 for a used-up quota
   or a plan without access is an `Api` error, because waiting does not help;
+- an error answer, as a response or as an event, goes through `ProviderError::api`:
+  the code `context_length_exceeded` and HTTP 413 are `ContextOverflow`, which no
+  retry sends again;
 - `response.failed` and `error` events end the stream with the provider's error;
   `response.incomplete` ends it as `MaxTokens` or `ContentFilter`, and a tool call
   cut off by the limit never ends, so a truncated command cannot run;

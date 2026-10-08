@@ -217,7 +217,7 @@ fn answer(turn_id: TurnId, text: &str) -> Event {
 }
 
 fn ended(turn_id: TurnId) -> Event {
-    Event::TurnCompleted { turn_id, usage: None, changes: None }
+    Event::TurnCompleted { turn_id, usage: None, changes: None, context: None }
 }
 
 /// The part of `text` after the last time it showed `marker`.
@@ -379,7 +379,11 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         let withdrawn = Event::PromptWithdrawn { turn_id: turn_2(), origin: Origin::Shell };
         conn.item(sub, &item(15, withdrawn)).await;
         conn.item(sub, &item(17, shell_completed(130))).await;
-        conn.item(sub, &item(18, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.item(
+            sub,
+            &item(18, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+        )
+        .await;
         shows(&seen, RESENT).await;
         // The steer runs as its own prompt now, which the view follows.
         conn.item(sub, &item(19, started(turn_3()))).await;
@@ -420,7 +424,11 @@ async fn esc_with_nothing_unread_ends_as_ctrl_c_does_and_the_text_shows_without_
             withdrawn_steers: Vec::new(),
         };
         conn.reply(id, &result).await;
-        conn.item(sub, &item(12, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.item(
+            sub,
+            &item(12, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+        )
+        .await;
         conn.until_closed().await;
     })
     .await;
@@ -456,7 +464,8 @@ async fn alt_up_takes_back_the_newest_queued_prompt() {
         conn.item(sub, &item(15, started(turn_2()))).await;
         conn.item(sub, &item(16, answer(turn_2(), "First done."))).await;
         shows(&seen, "First done.").await;
-        let done = Event::TurnCompleted { turn_id: turn_2(), usage: None, changes: None };
+        let done =
+            Event::TurnCompleted { turn_id: turn_2(), usage: None, changes: None, context: None };
         conn.item(sub, &item(17, done)).await;
         conn.until_closed().await;
     })
@@ -586,7 +595,11 @@ async fn esc_on_a_waiting_prompt_takes_back_the_newest_first_and_interrupts_one_
         };
         conn.reply(id, &result).await;
         conn.item(sub, &item(12, started(turn()))).await;
-        conn.item(sub, &item(15, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.item(
+            sub,
+            &item(15, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+        )
+        .await;
         conn.until_closed().await;
     })
     .await;

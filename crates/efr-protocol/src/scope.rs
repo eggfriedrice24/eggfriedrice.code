@@ -58,7 +58,7 @@ pub enum Origin {
 /// | Scope | Allows | Phone default |
 /// |---|---|---|
 /// | `read` | `hello`, list, subscribe, history, `lease.report`, `models.list`, `sandbox.explain` | yes |
-/// | `operate` | send and withdraw prompts, interrupt, steer | yes |
+/// | `operate` | send and withdraw prompts, interrupt, steer, compact the context | yes |
 /// | `approve` | answer approvals and quarantine questions | yes |
 /// | `terminal` | attach to, write to and resize a PTY | no, an explicit opt-in |
 /// | `admin` | status, login, config reload, the project registry, the sandbox check, and later enrollment and settings | never; Unix socket only |
@@ -70,7 +70,7 @@ pub enum Origin {
 pub enum ScopeName {
     /// List, subscribe and page history, and list the models.
     Read,
-    /// Send and withdraw prompts, interrupt and steer turns.
+    /// Send and withdraw prompts, interrupt and steer turns, compact the context.
     Operate,
     /// Answer approval requests.
     Approve,

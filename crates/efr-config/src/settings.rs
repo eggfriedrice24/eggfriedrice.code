@@ -13,9 +13,9 @@ use crate::keys::{self, Kind};
 use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
-    ConfigError, ConversationSettings, DEFAULT_LOG, Location, ModelSettings, OpenAiSettings,
-    PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings,
-    SnapshotSettings, Source,
+    CompactionSettings, ConfigError, ConversationSettings, DEFAULT_LOG, Location, ModelSettings,
+    OpenAiSettings, PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice,
+    ShellSettings, SnapshotSettings, Source,
 };
 
 /// The file name under the config root.
@@ -51,6 +51,8 @@ pub struct Settings {
     pub shell: ShellSettings,
     /// Queues, approvals, streaming and terminals.
     pub conversation: ConversationSettings,
+    /// When efrd compacts a conversation's context on its own.
+    pub compaction: CompactionSettings,
     /// The kernel sandbox of the `auto` mode.
     pub sandbox: SandboxSettings,
     /// efr's own snapshots, which show what a call and a turn changed in files.
@@ -72,6 +74,7 @@ impl Default for Settings {
             permissions: PermissionSettings::default(),
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
+            compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
             snapshot: SnapshotSettings::default(),
             render: RenderSettings::default(),

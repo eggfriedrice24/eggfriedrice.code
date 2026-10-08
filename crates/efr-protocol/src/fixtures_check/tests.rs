@@ -66,10 +66,11 @@ fn method_index(method: &Method) -> usize {
         Method::AdminSandboxCheck(_) => 22,
         Method::ConversationDiff(_) => 23,
         Method::PromptWithdraw(_) => 24,
+        Method::ConversationCompact(_) => 25,
     }
 }
 
-const METHOD_COUNT: usize = 25;
+const METHOD_COUNT: usize = 26;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -109,10 +110,11 @@ fn event_index(event: &Event) -> usize {
         Event::PromptWithdrawn { .. } => 32,
         Event::SteeringDelivered { .. } => 33,
         Event::SteeringWithdrawn { .. } => 34,
+        Event::ConversationCompacted(_) => 35,
     }
 }
 
-const EVENT_COUNT: usize = 35;
+const EVENT_COUNT: usize = 36;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -215,10 +217,12 @@ fn draft_part_index(part: &DraftPart) -> usize {
         DraftPart::Text { .. } => 0,
         DraftPart::Reasoning { .. } => 1,
         DraftPart::ToolInput { .. } => 2,
+        DraftPart::Context(_) => 3,
+        DraftPart::Compacting { .. } => 4,
     }
 }
 
-const DRAFT_PART_COUNT: usize = 3;
+const DRAFT_PART_COUNT: usize = 5;
 
 /// The position of a withdraw target in the enum, for the same purpose as
 /// `method_index`.

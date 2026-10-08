@@ -15,6 +15,9 @@
 //! - Every tool call passes `turn.rs`'s `authorize_tool_call`, the single permission
 //!   check point, where `efr_permissions::Engine::decide` answers Allow, Contain, Ask or
 //!   Deny.
+//! - The context ([`CompactionConfig`], [`ContextLimits`] and the constants beside
+//!   them): the trigger, the hard cap and the estimate of the compaction contract in
+//!   the README, section "Context".
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
 //!   `efr_tools::ToolRegistry`.
@@ -39,6 +42,7 @@
 mod actor;
 mod approvals;
 mod config;
+mod context;
 mod drafts;
 mod error;
 mod exit;
@@ -58,6 +62,11 @@ mod turn;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
+pub use context::{
+    BREAKER_TRIES, BYTES_PER_TOKEN, CompactionConfig, ContextLimits, DEFAULT_AUTO_AT,
+    DEFAULT_CONTEXT_WINDOW, HARD_CAP_PERCENT, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS,
+    PRUNED_OUTPUT_STUB, SUMMARY_MAX_OUTPUT_TOKENS, TAIL_TOKENS, estimate_tokens,
+};
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::ConversationError;
 pub use history::HistoryLimits;

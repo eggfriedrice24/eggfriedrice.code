@@ -40,6 +40,7 @@ fn model(id: &str, efforts: &[&str], default_effort: &str) -> ModelInfo {
         default_effort: Some(default_effort.to_owned()),
         default: id == "gpt-5.5",
         source: ModelSource::Builtin,
+        context_window: None,
     }
 }
 
@@ -215,6 +216,7 @@ fn a_model_whose_efforts_are_not_known_takes_any_effort_word() {
         default_effort: None,
         default: false,
         source: ModelSource::Config,
+        context_window: None,
     });
 
     let settings = resolve(

@@ -229,3 +229,23 @@ No protocol version has shipped yet.
   of each file in the order the call changed them, one after the other, each with its
   two header lines (`+++ /dev/null` for a deleted file), together at most 2000 lines.
   No member and no fixture changes.
+- Version 1, additive: the context window and its compaction. `usage` gains optional
+  `cached_input_tokens` and `reasoning_tokens` (sums over the turn's model calls,
+  parts of `input_tokens` and `output_tokens`) and `context_tokens` (the last model
+  call's input plus its output), each absent when zero. `turn_failed` and
+  `turn_interrupted` gain an optional `usage`. `turn_completed`, `turn_failed` and
+  `turn_interrupted` gain an optional `context` (`tokens`, `limit`, `window`): how
+  full the model's context was at the end, where `limit` is the point that a client
+  shows as 100%. A model of `models.list` gains an optional `context_window`. New draft
+  parts `context` (the same three members, before and after each model call) and
+  `compacting` (`trigger`). New event kind `conversation_compacted` (`compaction_id`,
+  optional `turn_id`, `trigger`: `auto`, `manual` or `overflow`, optional `focus`,
+  `model`, `window`, `limit`, `tokens_before`, `tokens_after`, `through_turn`,
+  optional `through_message`, `kept_turns`, optional `pruned_outputs`,
+  `pruned_tokens`, `summary` and `usage`). New method `conversation.compact` (scope
+  `operate`, a command id, `conversation_id`, optional `focus`) whose result has the
+  `seq` of the event and the `compaction`. The fixtures `draft_parts.json`,
+  `models_list_result.json`, `events/turn_completed.json`, `events/turn_failed.json`
+  and `events/turn_interrupted.json` now set the new members;
+  `conversation_compact_params.json`, `conversation_compact_result.json` and
+  `events/conversation_compacted.json` are new.

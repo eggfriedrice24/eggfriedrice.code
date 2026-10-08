@@ -268,8 +268,9 @@ fn fixture_events() -> Vec<(Option<efr_protocol::ConversationId>, efr_protocol::
             id,
             Event::TurnCompleted {
                 turn_id: crate::testing::turn(1),
-                usage: Some(Usage { input_tokens: 812, output_tokens: 64 }),
+                usage: Some(Usage::new(812, 64)),
                 changes: None,
+                context: None,
             },
         ),
         (None, Event::LoginCompleted { provider: "openai".to_owned() }),

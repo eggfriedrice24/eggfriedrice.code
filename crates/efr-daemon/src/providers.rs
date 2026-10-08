@@ -156,7 +156,14 @@ pub(crate) fn default_model(config: &Settings) -> String {
         .model
         .name
         .clone()
-        .or_else(|| config.openai.models.as_ref().and_then(|models| models.first().cloned()))
+        .or_else(|| {
+            config
+                .openai
+                .models
+                .as_ref()
+                .and_then(|models| models.first())
+                .map(|m| m.id().to_owned())
+        })
         .unwrap_or_else(|| efr_provider_openai::DEFAULT_SUBSCRIPTION_MODEL.to_owned())
 }
 
@@ -170,8 +177,9 @@ fn builtin_models(config: &Settings) -> Vec<ModelInfo> {
 }
 
 /// The effective model list of `config`, as `models.list` answers it and a turn checks
-/// against it: the built-in models of its provider, then each id of `[openai] models`
-/// that the built-in list does not hold, and the default model marked.
+/// against it: the built-in models of its provider, then each model of `[openai] models`
+/// that the built-in list does not hold, and the default model marked. A context window
+/// that an entry of `[openai] models` gives wins over the built-in one.
 pub(crate) fn effective_models(config: &Settings) -> Vec<WireModel> {
     let default = default_model(config);
     let builtin = builtin_models(config).into_iter().map(|model| WireModel {
@@ -180,18 +188,21 @@ pub(crate) fn effective_models(config: &Settings) -> Vec<WireModel> {
         efforts: model.efforts,
         default_effort: model.default_effort,
         source: ModelSource::Builtin,
+        context_window: model.context_window,
     });
     let mut models: Vec<WireModel> = builtin.collect();
-    for id in config.openai.models.iter().flatten() {
-        if models.iter().any(|model| model.id == *id) {
+    for entry in config.openai.models.iter().flatten() {
+        if let Some(model) = models.iter_mut().find(|model| model.id == entry.id()) {
+            model.context_window = entry.context_window().or(model.context_window);
             continue;
         }
         models.push(WireModel {
-            id: id.clone(),
+            id: entry.id().to_owned(),
             efforts: Vec::new(),
             default_effort: None,
-            default: *id == default,
+            default: entry.id() == default,
             source: ModelSource::Config,
+            context_window: entry.context_window(),
         });
     }
     models
@@ -256,8 +267,9 @@ impl ProviderFactory for CredentialProviders {
     }
 }
 
-/// `config` with the user's settings applied: the originator, the base URL and the ids
-/// of `[openai] models` added to the built-in list.
+/// `config` with the user's settings applied: the originator, the base URL and the
+/// models of `[openai] models` added to the built-in list, with the limits that an
+/// entry gives over the built-in ones.
 ///
 /// The reasoning effort is not set here: each turn sends its own in the request's
 /// `provider_options`, so a change of `[model] effort` reaches the next turn without a
@@ -274,9 +286,20 @@ pub(crate) fn openai_config(
     }
     if let Some(extra) = &settings.models {
         let mut models = config.models().to_vec();
-        for id in extra {
-            if !models.iter().any(|model| model.id == *id) {
-                models.push(ModelInfo::new(id));
+        for entry in extra {
+            let index = match models.iter().position(|model| model.id == entry.id()) {
+                Some(index) => index,
+                None => {
+                    models.push(ModelInfo::new(entry.id()));
+                    models.len() - 1
+                }
+            };
+            let model = &mut models[index];
+            if let Some(window) = entry.context_window() {
+                model.context_window = Some(window);
+            }
+            if let Some(tokens) = entry.max_output_tokens() {
+                model.max_output_tokens = Some(tokens);
             }
         }
         config = config.with_models(models);

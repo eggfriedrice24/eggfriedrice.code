@@ -88,3 +88,39 @@ fn decode_failures_chain_the_parser_error() {
     assert_eq!(error.to_string(), "the provider sent a response that could not be parsed");
     assert!(error.source().unwrap().to_string().contains("EOF"));
 }
+
+#[test]
+fn an_api_error_that_says_the_request_does_not_fit_is_a_context_overflow() {
+    let code = ProviderError::api(
+        None,
+        Some("context_length_exceeded".to_owned()),
+        "Your input exceeds the context window of this model.".to_owned(),
+    );
+    let status = ProviderError::api(Some(413), None, "Payload Too Large".to_owned());
+    let message = ProviderError::api(
+        Some(400),
+        Some("invalid_request_error".to_owned()),
+        "prompt is too long: 210000 tokens > 200000 maximum".to_owned(),
+    );
+
+    for error in [&code, &status, &message] {
+        assert!(error.is_context_overflow(), "{error:?}");
+        assert_eq!(error.to_string(), "the request is larger than the model's context window");
+    }
+    let ProviderError::ContextOverflow { status, code, message } = code else { unreachable!() };
+    assert_eq!(status, None);
+    assert_eq!(code.as_deref(), Some("context_length_exceeded"));
+    assert_eq!(message, "Your input exceeds the context window of this model.");
+}
+
+#[test]
+fn any_other_api_error_stays_an_api_error() {
+    let error = ProviderError::api(
+        Some(400),
+        Some("invalid_request_error".to_owned()),
+        "the prompt is too long for this tool".to_owned(),
+    );
+
+    assert!(!error.is_context_overflow());
+    assert!(matches!(error, ProviderError::Api { status: Some(400), .. }), "{error:?}");
+}
