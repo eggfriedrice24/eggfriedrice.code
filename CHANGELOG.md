@@ -18,7 +18,9 @@ into the GitHub release notes, and it stops when the section is missing.
   edits like a shell line (arrows, Home, End, Ctrl+A/E/U/W/K, Alt+B/F), Ctrl+J adds a
   newline, and a paste keeps its newlines. Keys that you type while the prompt goes
   out land in the row too. An approval takes only the keys that you type after it
-  shows: keys typed before it and the rest of a paste stay in the row.
+  shows: keys typed before it and the rest of a paste stay in the row. While the
+  output of a command shows a password prompt, the row hides, and what you type never
+  goes to the model as a steer.
   `render.turn_input = false` turns the row off.
 - Steers that the model did not read yet show above the status row as `↳ steer:`, and
   prompts that you queued as `↳ queued:`. When a model call reads a steer, it moves

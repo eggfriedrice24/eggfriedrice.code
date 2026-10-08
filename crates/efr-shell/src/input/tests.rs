@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 
 use super::{
     InputWatch, Look, Offer, Probe, Quiet, Waiting, check_answer, check_job, check_kind,
-    check_modes, look, looks_secret, question_prompt, secret_prompt, visible_prompt,
+    check_modes, look, question_prompt, secret_prompt, visible_prompt,
 };
 use crate::modes::{InputModes, Job};
 use crate::{RunMode, ShellError};
@@ -272,39 +272,6 @@ fn a_hidden_answer_needs_a_getpass_read_and_a_visible_one_takes_any_modes() {
     assert!(check_modes(ECHOING_RAW, true).is_err());
     for modes in [HIDDEN, COOKED, RAW, ECHOING_RAW] {
         check_modes(modes, false).unwrap();
-    }
-}
-
-#[test]
-fn a_prompt_that_names_a_secret_looks_secret_in_any_case() {
-    for line in [
-        "Password:",
-        "[sudo] password for u:",
-        "Enter passphrase for key '/home/u/.ssh/id_ed25519':",
-        "PASSCODE: ",
-        "Enter PIN for 'YubiKey':",
-        "pin:",
-        "Verification code: ",
-        "Enter the one-time code from your app:",
-        "One time code:",
-        "u@host's password: ",
-    ] {
-        assert!(looks_secret(line), "{line}");
-    }
-}
-
-#[test]
-fn a_prompt_that_names_no_secret_does_not_look_secret() {
-    for line in [
-        "Proceed with installation? [Y/n] ",
-        "PING example.org: continue? ",
-        "spinning up workers... ",
-        "pinned version 1.2? [y/N] ",
-        "Enter the code to continue: ",
-        "Name: ",
-        "",
-    ] {
-        assert!(!looks_secret(line), "{line}");
     }
 }
 

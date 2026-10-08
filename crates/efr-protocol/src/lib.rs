@@ -33,6 +33,7 @@ mod sandbox;
 pub mod schema;
 mod scope;
 mod screen;
+mod secret_prompt;
 mod secret_text;
 mod settings;
 mod shell_context;
@@ -98,6 +99,7 @@ pub use sandbox::summary::{BlockReason, Blocked, ReportedFile, SandboxSummary, S
 pub use sandbox::{BusKind, CacheMode, Grant, Launch, ModeFallback, NetworkMode};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
+pub use secret_prompt::looks_secret;
 pub use secret_text::SecretText;
 pub use settings::{EffectiveSettings, Mode, OverriddenSettings, TurnSettings};
 pub use shell_context::ShellContext;

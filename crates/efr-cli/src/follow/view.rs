@@ -53,7 +53,13 @@
 //! that ends without asking for a password the keys are kept again; after one that
 //! asked for a password, or after a manual answer line that may have held one, they are
 //! thrown away as before. Keys typed outside such a call stay typeahead for the user's
-//! shell.
+//! shell, or go to the input row.
+//!
+//! With the input row, a running call whose last line of output looks like a password
+//! prompt (`efr_protocol::looks_secret`) holds the keys the same way until the daemon
+//! reports its wait ([`Running::held`]): the daemon reports a wait only after a quiet
+//! time, and a password typed meanwhile must never land in the row or go as a steer. A
+//! new last line, or the call's end, lets them go, and the pending text is thrown away.
 //!
 //! Events change the view and collect committed output; they write no escape sequence.
 //! [`TurnView::frame`] turns what changed into one write: the committed output since the
@@ -98,7 +104,7 @@ use std::time::Duration;
 use efr_protocol::{
     ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
     ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange,
-    TurnId, TurnInterruptResult,
+    TurnId, TurnInterruptResult, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -331,6 +337,10 @@ struct Running {
     /// It asked for an answer that may be a password and still runs: keys are read and
     /// thrown away while it asks nothing.
     guarding: bool,
+    /// Its last line of output looks like a password prompt and no wait was reported
+    /// yet: with the input row, the keys wait in a line that is never shown or sent
+    /// ([`Ask::Retain`]), so a password typed now never lands in the row.
+    held: bool,
     /// What the user typed so far, for a visible answer only.
     typed: String,
     /// A call of the followed turn that takes a manual input, which may offer `Ctrl+\`
@@ -352,6 +362,7 @@ impl Running {
             wait: InputWait::None,
             asking: None,
             guarding: false,
+            held: false,
             typed: String::new(),
             takes_manual: false,
             activity: 0,
@@ -359,9 +370,9 @@ impl Running {
         }
     }
 
-    /// True while keys are read for it, to answer or to throw away.
+    /// True while keys are read for it, to answer, to hold or to throw away.
     fn reads_keys(&self) -> bool {
-        self.asking.is_some() || self.guarding
+        self.asking.is_some() || self.guarding || self.held
     }
 
     /// The call shows a sign of life: its silence starts again, and the line that
@@ -374,7 +385,9 @@ impl Running {
     /// True when the call takes a manual input, waits for nothing the daemon reported
     /// and nothing reads keys for it.
     fn quiet(&self) -> bool {
-        self.takes_manual && self.wait == InputWait::None && !self.reads_keys()
+        // NOTE: keys held for a prompt that looks like a password prompt still let the
+        // user type a manual answer for it.
+        self.takes_manual && self.wait == InputWait::None && self.asking.is_none() && !self.guarding
     }
 }
 
@@ -1674,13 +1687,30 @@ impl TurnView {
         Step::default()
     }
 
-    /// The output of call `call_id` grew and now ends in `tail`.
+    /// The output of call `call_id` grew and now ends in `tail`. With the input row,
+    /// a last line that looks like a password prompt holds the keys until the daemon
+    /// reports the wait ([`Running::held`]), and a new last line lets them go.
     fn output(&mut self, call_id: CallId, tail: &str) -> Step {
+        let free = self.input.is_some() && !self.question_pending();
+        let retained = self.retained == Some(call_id);
         let (running, settled) = self.running(call_id);
         running.tail = last_line(tail);
         running.lines = call::last_lines(tail);
         running.stirred();
-        Step { settled, ..self.commit(String::new()) }
+        let quiet = running.asking.is_none() && !running.guarding && !retained;
+        let hold = free && quiet && looks_secret(&running.tail);
+        let mut step = Step { settled, ..self.commit(String::new()) };
+        let Some(running) = self.running.as_mut() else {
+            return step;
+        };
+        if hold && !running.held {
+            running.held = true;
+            step.ask = Some(Ask::Retain(call_id));
+        } else if !hold && running.held {
+            running.held = false;
+            step.settled = true;
+        }
+        step
     }
 
     /// The call that may offer `Ctrl+\` once it has been silent long enough, with its
@@ -1833,6 +1863,7 @@ impl TurnView {
             return Step::default();
         };
         running.asking = Some(kind);
+        running.held = false;
         let prompt = format::one_line(&running.tail);
         let mut step = if self.terminal() {
             self.commit(String::new())

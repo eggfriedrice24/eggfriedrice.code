@@ -413,6 +413,16 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   sequence that the question cut. Before the keys go back to the row after an answer line, a call that
   asked for a password or the keys it kept, the reader throws away what is still
   unread (`KeyReader::flush`), so the rest of a password never lands in the row.
+- While the last line of a running call's output looks like a password prompt
+  (`efr_protocol::looks_secret`) and the daemon reported no wait yet, the keys do not
+  go to the row: they wait in a line that is never shown or sent, and Enter there
+  does nothing (`Ask::Retain`, as for a call allowed here). The row hides meanwhile.
+  The keys typed before the prompt showed stay the row's (the mark). A visible wait
+  of the call takes that line as its answer line (not shown when it looks secret); a
+  hidden wait, a new last line and the end of the call throw it away, zeroed. The
+  daemon reports a wait only after a quiet time (about 1 s for a hidden one), and the
+  output shows the prompt earlier, so without this a password typed at once would
+  land in the row, and Enter would send it as a steer.
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
   turns bracketed paste on again.
 - When `efr` ends, the text that is still in the row, with the keys that the reader

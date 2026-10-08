@@ -18,7 +18,8 @@
 //!
 //! Other control characters and escape sequences change nothing. The line holds no
 //! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
-//! prompt.
+//! prompt. The follow loop keeps the keys away from it while a call's output shows a
+//! password prompt.
 
 use efr_render::{WidthMethod, text_width};
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation as _};

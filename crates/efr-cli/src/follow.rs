@@ -647,16 +647,12 @@ impl Follower<'_> {
         match step.ask {
             Some(ask) => {
                 let (reader, before) = match self.keys.take() {
-                    // NOTE: keys typed while a call's prompt looks like a password
-                    // prompt may be the start of one: they wait in its pending line,
-                    // never in the row.
-                    Some((reader, Asking::Row)) if matches!(ask, Ask::Retain(_)) => {
-                        (reader, Some(Asking::Row))
-                    }
                     Some((mut reader, Asking::Row)) => {
                         // NOTE: the keys typed before the question are the row's, also
                         // those still in the terminal (the mark) and the rest of a
-                        // paste; a key that would send stays in the row instead.
+                        // paste; a key that would send stays in the row instead. So are
+                        // the keys typed before a password prompt showed: the user had
+                        // not seen it yet.
                         while let Some(key) = reader.queued() {
                             view.row_key(key);
                         }

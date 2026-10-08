@@ -104,7 +104,7 @@ and `D`, or the two sentinels):
   password prompt comes before the relay and is `Hidden`. A visible wait looks secret
   (`RunProgress::input_changed`'s `looks_secret`) when the terminal is not in line mode
   and the cursor's row names a password, a passphrase, a passcode, a PIN (as a word of
-  its own), a verification code or a one-time code, in any case (`input::looks_secret`),
+  its own), a verification code or a one-time code, in any case (`efr_protocol::looks_secret`),
   so a client hides what the user types; the answer still goes as a visible one, so the
   kind check below holds. A change of the flag alone is a change too.
 - A prompt that reads command lines (a shell's `$ `, a REPL's `>>> `) looks like a

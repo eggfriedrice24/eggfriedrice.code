@@ -49,7 +49,7 @@
 
 use std::time::Duration;
 
-use efr_protocol::{InputRespond, InputWait, ScreenSnapshot};
+use efr_protocol::{InputRespond, InputWait, ScreenSnapshot, looks_secret};
 use efr_screen::row_text;
 use jiff::Timestamp;
 
@@ -294,33 +294,12 @@ pub(crate) fn question_prompt(snapshot: &ScreenSnapshot) -> bool {
         || (spaced && (text.ends_with('?') || text.ends_with(':')))
 }
 
-/// What a prompt that asks for a secret says, in lower case. `pin` counts only as a
-/// word of its own, so `ping` or `spinning` do not.
-const SECRET_WORDS: &[&str] =
-    &["password", "passphrase", "passcode", "verification code", "one-time code", "one time code"];
-
 /// True when the cursor's row of `snapshot` reads like a prompt for a secret.
 pub(crate) fn secret_prompt(snapshot: &ScreenSnapshot) -> bool {
     snapshot
         .rows
         .get(usize::from(snapshot.cursor.row))
         .is_some_and(|row| looks_secret(&row_text(row)))
-}
-
-/// True when `line` reads like a prompt for a secret: it names a password, a
-/// passphrase, a passcode, a PIN, a verification code or a one-time code, in any case.
-/// A guess from the text that a program printed, so it only changes what a client
-/// shows, never where an answer goes.
-pub(crate) fn looks_secret(line: &str) -> bool {
-    let line = line.to_lowercase();
-    let starts_word =
-        |at: usize| !line[..at].chars().next_back().is_some_and(char::is_alphanumeric);
-    let ends_word = |at: usize| !line[at..].chars().next().is_some_and(char::is_alphanumeric);
-    let found = |word: &str, whole: bool| {
-        line.match_indices(word)
-            .any(|(at, _)| starts_word(at) && (!whole || ends_word(at + word.len())))
-    };
-    SECRET_WORDS.iter().any(|word| found(word, false)) || found("pin", true)
 }
 
 /// The wait a run reported last, so each change is reported once, and the job it

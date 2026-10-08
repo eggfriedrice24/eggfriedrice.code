@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespondResult, ConversationHistoryResult, ErrorBody, ErrorCode,
-    Event, InputRespondResult, InputWait, LateSteer, Method, Mode, Origin, PromptSend,
+    ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationHistoryResult, ErrorBody,
+    ErrorCode, Event, InputRespondResult, InputWait, LateSteer, Method, Mode, Origin, PromptSend,
     PromptSendResult, PromptWithdraw, PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq,
     ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
     TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
@@ -768,6 +768,77 @@ async fn after_a_password_the_keys_go_back_to_the_row_without_what_followed_it()
     result.unwrap();
     assert!(!out.contains("hunter"), "{}", readable(&out));
     assert_eq!(setup.handed_back().as_deref(), Some("ok"));
+}
+
+/// The review finding: a password typed for a prompt that the call's output showed,
+/// before the daemon reported the wait, landed in the row, and Enter sent it to the
+/// model as a steer. Now the keys wait for that prompt while its line shows: never
+/// shown, never sent, and thrown away when the prompt goes.
+#[tokio::test]
+async fn a_password_typed_before_the_wait_is_reported_never_reaches_the_row() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("git push"))).await;
+        let prompt = shell_output("Password for 'https://u@github.com': ");
+        conn.item(sub, &item(12, prompt)).await;
+        shows(&seen, "Password for").await;
+        keys.type_bytes(b"hunter2\r").await;
+        // The prompt goes without a wait: the keys go back to the row, without the
+        // password.
+        conn.item(sub, &item(13, shell_output("fatal: Authentication failed"))).await;
+        shows_where(&seen, |out| after(out, "Authentication failed").contains("enter steer")).await;
+        keys.type_bytes(b"ok").await;
+        shows(&seen, "\u{203a} ok").await;
+        conn.item(sub, &item(14, shell_completed(128))).await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        let rest = conn.until_closed().await;
+        assert!(
+            rest.iter().all(|frame| matches!(frame, ClientFrame::Cancel { .. })),
+            "no steer went out: {rest:?}"
+        );
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("hunter"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("ok"));
+}
+
+/// Keys typed while a password prompt shows start its answer when the daemon then
+/// reports a visible wait that looks secret, unshown, as for a call allowed here.
+#[tokio::test]
+async fn keys_held_for_a_password_prompt_start_its_secret_looking_answer() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo -k true"))).await;
+        conn.item(sub, &item(12, shell_output("[sudo] password for u: "))).await;
+        shows(&seen, "[sudo] password").await;
+        keys.type_bytes(b"hunter2\r").await;
+        let wait = Event::ToolCallInputChanged {
+            turn_id: turn(),
+            call_id: call(),
+            input: InputWait::Visible,
+            looks_secret: true,
+        };
+        conn.item(sub, &item(13, wait)).await;
+        shows(&seen, "starts with 7 characters typed ahead").await;
+        keys.press(b'\r').await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(14, shell_completed(0))).await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("hunter"), "{}", readable(&out));
+    assert_eq!(setup.handed_back(), None);
 }
 
 #[tokio::test]
