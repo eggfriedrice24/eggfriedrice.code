@@ -7,7 +7,10 @@ over a streaming `POST <base_url>/responses`, on one of two backends:
 
 - the ChatGPT subscription backend, `https://chatgpt.com/backend-api/codex`, with a
   token from the subscription login, the `chatgpt-account-id` header from the token's
-  account and the `originator` header (`efr` by default);
+  account and the `originator` header (`efr` by default). A request with a
+  `prompt_cache_key` also sends it as the `session-id` header, as Codex does with its
+  session id: that backend routes a request to its prompt cache by the header. The
+  conversation sends its id as the key on every request;
 - the public API, `https://api.openai.com/v1`, with an API key.
 
 Modules:
@@ -85,6 +88,12 @@ Failures:
   `response.incomplete` ends it as `MaxTokens` or `ContentFilter`, and a tool call
   cut off by the limit never ends, so a truncated command cannot run;
 - a stream that ends before `response.completed` ends with `ProviderError::Incomplete`.
+
+The usage of a finished response gives `input_tokens` (cached ones included),
+`output_tokens` (reasoning included), `input_tokens_details.cached_tokens` and
+`output_tokens_details.reasoning_tokens`; a missing or `null` part counts as zero. The
+tests check them on the recorded streams in `fixtures/responses/`, and the overflow on
+`context_length_exceeded.sse`, a 400 with that code and a 413.
 
 ## Tier
 

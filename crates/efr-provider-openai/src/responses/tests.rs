@@ -109,6 +109,96 @@ async fn a_subscription_request_carries_the_account_and_the_originator() {
 }
 
 #[tokio::test]
+async fn a_subscription_request_sends_its_cache_key_as_the_session_too() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .and(header("session-id", "0192f0c1-conversation"))
+        .respond_with(sse_response("plain_text.sse"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+    let mut request = request("Hi");
+    request.provider_options.insert("prompt_cache_key".to_owned(), json!("0192f0c1-conversation"));
+
+    setup.provider.complete(request).await.unwrap();
+
+    let body = body_of(&seen(&server).await[0]);
+    assert_eq!(body["prompt_cache_key"], json!("0192f0c1-conversation"));
+}
+
+#[tokio::test]
+async fn an_api_request_sends_its_cache_key_in_the_body_only() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(sse_response("plain_text.sse"))
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+    let mut request = request("Hi");
+    request.provider_options.insert("prompt_cache_key".to_owned(), json!("0192f0c1-conversation"));
+
+    setup.provider.complete(request).await.unwrap();
+
+    let seen = seen(&server).await;
+    assert_eq!(seen[0].headers.get("session-id"), None);
+    assert_eq!(body_of(&seen[0])["prompt_cache_key"], json!("0192f0c1-conversation"));
+}
+
+#[tokio::test]
+async fn a_request_too_large_for_the_window_is_an_overflow_and_is_sent_once() {
+    let refusals = [
+        ResponseTemplate::new(400).set_body_json(json!({
+            "error": {
+                "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+                "type": "invalid_request_error",
+                "param": "input",
+                "code": "context_length_exceeded",
+            },
+        })),
+        ResponseTemplate::new(413).set_body_string("Payload Too Large"),
+    ];
+    for refusal in refusals {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(SUBSCRIPTION_PATH))
+            .respond_with(refusal.clone())
+            .mount(&server)
+            .await;
+        let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+
+        let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+        assert!(error.is_context_overflow(), "{error:?}");
+        assert_eq!(seen(&server).await.len(), 1, "an overflow is never transient");
+        assert!(setup.clock.sleeps().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn a_stream_that_fails_for_the_window_is_an_overflow() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(sse_response("context_length_exceeded.sse"))
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    match error {
+        ProviderError::ContextOverflow { status: None, code, .. } => {
+            assert_eq!(code.as_deref(), Some("context_length_exceeded"));
+        }
+        other => panic!("not an overflow: {other:?}"),
+    }
+    assert_eq!(seen(&server).await.len(), 1);
+}
+
+#[tokio::test]
 async fn an_api_request_sends_neither_the_account_nor_the_originator() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

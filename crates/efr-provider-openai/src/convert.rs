@@ -133,6 +133,13 @@ pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> Response
     }
 }
 
+impl ResponsesBody {
+    /// The key that sends the request to its prompt cache, when the request names one.
+    pub(crate) fn prompt_cache_key(&self) -> Option<&str> {
+        self.prompt_cache_key.as_deref()
+    }
+}
+
 /// The request's `provider_options`, read leniently: a value of the wrong type counts as
 /// absent.
 struct Options<'a>(&'a Map<String, Value>);

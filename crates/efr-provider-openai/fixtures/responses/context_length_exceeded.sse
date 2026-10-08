@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_5f60718293a4b5c6d7e8f90a1b2c3d4e","object":"response","created_at":1791115500,"status":"in_progress","model":"gpt-5.5","output":[],"usage":null}}
+
+event: response.failed
+data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_5f60718293a4b5c6d7e8f90a1b2c3d4e","object":"response","created_at":1791115500,"status":"failed","background":false,"error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."},"usage":null,"metadata":{}}}
+

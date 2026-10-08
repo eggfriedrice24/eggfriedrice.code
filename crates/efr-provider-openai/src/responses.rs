@@ -32,6 +32,12 @@ const ACCOUNT_HEADER: &str = "chatgpt-account-id";
 /// `codex-rs/login/src/auth/default_client.rs`, `add_originator_header`).
 const ORIGINATOR_HEADER: &str = "originator";
 
+/// The header that gives the subscription backend the request's prompt cache key. The
+/// backend routes a request to its prompt cache by it (Codex
+/// `codex-rs/core/src/client.rs`, `responses_session_id`, and
+/// `codex-rs/codex-api/src/requests/headers.rs`, `build_session_headers`).
+const SESSION_HEADER: &str = "session-id";
+
 /// The response header that carries the server's id of the request, for the log.
 const REQUEST_ID_HEADER: &str = "x-request-id";
 
@@ -95,10 +101,15 @@ impl OpenAiProvider {
     /// each attempt, since only the token may change between attempts.
     fn unsigned(&self, request: &Request) -> Result<HttpRequest, HttpError> {
         let body = request_body(request, &self.config);
-        Ok(HttpRequest::post(&self.config.responses_url())?
+        let mut unsigned = HttpRequest::post(&self.config.responses_url())?
             .json(&body)?
-            .header(header::ACCEPT, HeaderValue::from_static("text/event-stream"))
-            .recorded())
+            .header(header::ACCEPT, HeaderValue::from_static("text/event-stream"));
+        if self.config.backend() == Backend::Subscription
+            && let Some(key) = body.prompt_cache_key()
+        {
+            unsigned = unsigned.header_text(HeaderName::from_static(SESSION_HEADER), key)?;
+        }
+        Ok(unsigned.recorded())
     }
 
     fn signed(
