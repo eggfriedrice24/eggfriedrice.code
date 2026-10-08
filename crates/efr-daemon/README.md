@@ -224,10 +224,18 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   that the list does not hold, with the default model marked. A window that an entry
   of `[openai] models` gives wins over the built-in one, and the provider gets the
   entry's window and output limit too (`openai_config`).
-- `conversation.compact` (`methods/conversation_compact.rs`) is a stub: it answers
-  `invalid` and records nothing until the conversation can compact. The contract is in
-  the README of efr-conversation, section "Context". `settings.rs` hands
-  `[compaction]` to the conversations as `CompactionConfig`.
+- `conversation.compact` (`methods/conversation_compact.rs`) answers a retried command
+  id from its receipt, else starts the conversation's actor when none runs and asks it
+  to compact: the actor writes the summary, records `conversation_compacted` with the
+  receipt and answers with its `seq` and the compaction. While a turn or another
+  compaction runs, and when nothing lies before the verbatim tail, the refusal is
+  `conflict` (kept as a receipt); a failed summary request has the code of the
+  provider's error (`unauthorized`, `busy`, `invalid` or `internal`) and its message
+  says why. The contract is in the README of efr-conversation, section "Context".
+  `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`. For
+  the fresh context block after a compaction, the toolbox names the running jobs of
+  the hidden shell (`Toolbox::jobs`, `tools/jobs.rs`): the command lines of the
+  shell's child processes from `/proc`, at most 10, each cut at 200 characters.
 - `admin.config_reload` reloads at once and answers with the outcome: applied, or the
   file's error with the old settings kept, and the keys that wait for a restart.
 - `projects.list`, `admin.project_add` and `admin.project_remove` (`projects.rs`) read

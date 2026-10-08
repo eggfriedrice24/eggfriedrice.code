@@ -340,16 +340,3 @@ fn sandbox_explain_needs_read_scope_only() {
         .unwrap();
     assert!(authorize(Origin::Shell, PeerSide::ModelSide, &respond).is_err());
 }
-
-#[test]
-fn conversation_compact_is_refused_until_the_conversation_can_compact() {
-    let params = ConversationCompact {
-        command_id: CommandId::from_uuid(id(1)),
-        conversation_id: ConversationId::from_uuid(id(2)),
-        focus: Some("the failing test".to_owned()),
-    };
-
-    let error = super::conversation_compact::handle(&params).unwrap_err();
-
-    assert!(matches!(error, DaemonError::InvalidParams { .. }), "{error:?}");
-}

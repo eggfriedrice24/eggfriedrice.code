@@ -497,6 +497,12 @@ impl DaemonError {
             error => {
                 let code = error.code();
                 let message = match &error {
+                    // NOTE: the provider's sentence says why a summary request failed
+                    // (a rate limit and when to retry, a refused login), as a failed turn
+                    // shows it.
+                    DaemonError::Conversation {
+                        source: conversation @ ConversationError::Summary { source: provider },
+                    } => format!("{conversation}: {provider}"),
                     // NOTE: a conversation error's own message is the useful sentence, and
                     // it never carries a secret or a source's text.
                     DaemonError::Conversation { source } => source.to_string(),
@@ -633,6 +639,23 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         ConversationError::RemoteSurfaceAnswer { .. } => ErrorCode::Forbidden,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
+        ConversationError::CompactionBusy { .. } | ConversationError::NothingToCompact { .. } => {
+            ErrorCode::Conflict
+        }
+        ConversationError::Summary { source } => summary_code(source),
+        _ => ErrorCode::Internal,
+    }
+}
+
+/// The wire code of a failed summary request: what a client can act on, as for a
+/// failed turn.
+fn summary_code(error: &ProviderError) -> ErrorCode {
+    match error {
+        ProviderError::Unauthorized | ProviderError::NotLoggedIn | ProviderError::Token { .. } => {
+            ErrorCode::Unauthorized
+        }
+        ProviderError::RateLimited { .. } => ErrorCode::Busy,
+        ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     }
 }

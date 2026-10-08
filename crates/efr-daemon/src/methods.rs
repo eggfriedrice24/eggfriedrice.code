@@ -280,7 +280,9 @@ impl Dispatcher for Methods {
                 Method::PromptWithdraw(params) => {
                     prompt_withdraw::handle(state, &context, params, &responder).await
                 }
-                Method::ConversationCompact(params) => conversation_compact::handle(&params),
+                Method::ConversationCompact(params) => {
+                    conversation_compact::handle(state, params, &responder).await
+                }
             }
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))

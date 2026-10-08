@@ -46,6 +46,7 @@ use crate::DaemonError;
 use crate::connections::Connections;
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
 
+mod jobs;
 mod settings_tool;
 mod snapshot;
 
@@ -521,6 +522,15 @@ impl Toolbox for DaemonToolbox {
             .await
             .ok()
             .map(|state| state.effective_cwd().to_path_buf())
+    }
+
+    async fn jobs(&self, conversation_id: ConversationId) -> Option<Vec<String>> {
+        // NOTE: no shell runs, so none of its jobs either.
+        let Ok(state) = self.shells.state(conversation_id).await else {
+            return Some(Vec::new());
+        };
+        let pid = state.pid;
+        tokio::task::spawn_blocking(move || jobs::of(Path::new("/proc"), pid)).await.ok().flatten()
     }
 
     async fn move_shell(&self, conversation_id: ConversationId, dir: &Path) {
