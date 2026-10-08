@@ -43,7 +43,10 @@
 //! ```
 //!
 //! A file write shows its diff above its result: the first lines of `render.diff_lines`
-//! in the `diff.*` roles after the bar, then a muted row that counts the rest. A call
+//! in the `diff.*` roles after the bar, then a muted row that counts the rest. A diff
+//! of several files, as an `apply_patch` call makes, shows one such block per file,
+//! each after a row that names the file (`format::patch`); the line of such a call
+//! goes on in the next row only between two files. A call
 //! that changed files and shows no diff, such as a shell call, gets one muted row of
 //! the files under its result, with the added lines in the `success` role and the
 //! removed lines in the `error` role.
@@ -51,7 +54,7 @@
 use std::time::Duration;
 
 use efr_protocol::{CallId, FileChanges};
-use efr_render::{RenderOptions, diff_rows, text_width};
+use efr_render::{RenderOptions, text_width};
 use jiff::Timestamp;
 
 use crate::follow::since_then;
@@ -86,10 +89,6 @@ const LIVE_LINES: usize = 3;
 
 /// What joins the parts of a result, such as `✗ exit 2 · 1.2s`.
 const JOIN: &str = " \u{b7} ";
-
-/// The fewest columns a row of a diff gets, so a very narrow screen still shows a few
-/// characters of each row.
-const MIN_DIFF_WIDTH: usize = 10;
 
 /// How a call ended, for its result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +234,8 @@ impl Call {
     }
 
     /// The rows that start the call's block: the mark and every line of what it does,
-    /// each line cut into rows of the width on a terminal, with their newlines.
+    /// each line cut into rows of the width on a terminal, with their newlines. A list,
+    /// such as the files of a patch, is cut only between two of its entries.
     pub(crate) fn header(&self, options: &RenderOptions) -> String {
         let columns = format::columns(options);
         let column = self.text_column();
@@ -244,6 +244,26 @@ impl Call {
         if self.text.lines.is_empty() {
             out.push_str(&format::paint(&self.text.name, Tone::Code, options));
             out.push('\n');
+            return out;
+        }
+        if !self.text.entries.is_empty() {
+            let rows = match columns {
+                Some((width, method)) => {
+                    let room = width.saturating_sub(column).max(1);
+                    format::patch::flow(&self.text.entries, room, method)
+                }
+                None => self.text.lines.clone(),
+            };
+            for (at, row) in rows.iter().enumerate() {
+                if at == 0 {
+                    let first = format!("{} {row}", self.text.name);
+                    out.push_str(&format::paint(&first, Tone::Code, options));
+                } else {
+                    out.push_str(&" ".repeat(column));
+                    out.push_str(&format::paint(row, Tone::Code, options));
+                }
+                out.push('\n');
+            }
             return out;
         }
         for (at, line) in self.text.lines.iter().enumerate() {
@@ -310,55 +330,31 @@ pub(crate) fn changes(changes: &FileChanges, options: &RenderOptions) -> String 
 }
 
 /// The rows of a file write's diff under the call's first rows: at most `limit` lines
-/// from the first hunk on, each after the bar, in the `diff.*` roles, then a muted
-/// `… N more lines` for the lines left out. The file headers stay out, because the call
-/// names the file; they only give the file's syntax colours, as `path`, the file that
-/// the call writes, does for a diff without them. On a terminal a line wider than the
-/// screen goes on in the next row at the same column after a muted `↩`, so nothing of
-/// it is cut; elsewhere each line is one row, without colour.
+/// of each file from its first hunk on, each after the bar, in the `diff.*` roles,
+/// then a muted `… N more lines` for the lines left out (`format::patch::rows`). The
+/// file headers stay out, because the call names the file; they only give the file's
+/// syntax colours, as `path`, the file that the call writes, does for a diff without
+/// them. A diff of several files, such as the one of an `apply_patch` call, shows one
+/// block per file, each after a row that names the file and says whether it is new,
+/// deleted or moved.
 pub(crate) fn diff(
     diff: &str,
     path: Option<&str>,
     limit: usize,
     options: &RenderOptions,
 ) -> String {
-    let parts = format::changes::diff_parts(diff);
-    let shown = parts.body.len().min(limit);
-    let hidden = parts.body.len() - shown + parts.cut;
-    let mut source: Vec<String> = parts.head.iter().map(|line| (*line).to_owned()).collect();
-    if let Some(path) = path.filter(|_| !parts.head.iter().any(|line| line.starts_with("--- "))) {
-        source.push(format!("--- a/{path}"));
-        source.push(format!("+++ b/{path}"));
+    let files = format::patch::file_diffs(diff);
+    if files.len() < 2 {
+        let parts = format::changes::diff_parts(diff);
+        return format::patch::rows(&parts, path, limit, BAR, options);
     }
-    let head = source.len();
-    source.extend(parts.body[..shown].iter().map(|line| (*line).to_owned()));
-    let mut text = source.join("\n");
-    text.push('\n');
-    let room = match format::columns(options) {
-        Some((width, method)) => {
-            let taken = text_width(BAR, method) + text_width(format::WORD_MARK, method);
-            width.saturating_sub(taken).max(MIN_DIFF_WIDTH)
-        }
-        None => usize::from(options.width()),
-    };
-    let options = options.clone().with_width(u16::try_from(room).unwrap_or(u16::MAX));
-    let bar = format::paint(BAR, Tone::Dim, &options);
     let mut out = String::new();
-    for rows in diff_rows(&text, &options).into_iter().skip(head) {
-        let last = rows.len().saturating_sub(1);
-        for (at, row) in rows.iter().enumerate() {
-            out.push_str(&bar);
-            out.push_str(row);
-            if at < last {
-                out.push_str(&format::paint(format::WORD_MARK, Tone::Dim, &options));
-            }
-            out.push('\n');
+    for file in &files {
+        let heading = file.file.heading(false);
+        if !heading.is_empty() {
+            out.push_str(&indented_pieces(&heading, options));
         }
-    }
-    if hidden > 0 {
-        out.push_str(&bar);
-        out.push_str(&format::paint(&format::changes::more_lines(hidden), Tone::Dim, &options));
-        out.push('\n');
+        out.push_str(&format::patch::rows(&file.parts, file.file.path(), limit, BAR, options));
     }
     out
 }

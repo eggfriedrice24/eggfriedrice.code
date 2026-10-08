@@ -55,6 +55,9 @@ pub(crate) enum Row {
     Text(Vec<(String, Tone)>),
     /// A diff preview, as the daemon sent it.
     Diff(String),
+    /// The diff of one file of a patch, as its headers, its lines and the daemon's line
+    /// `... N more lines`: its lines show without the headers.
+    FileDiff(String),
 }
 
 impl Row {
@@ -169,7 +172,27 @@ fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
                 out.push('\n');
             }
         }
+        Row::FileDiff(diff) => {
+            let parts = super::changes::diff_parts(diff);
+            out.push_str(&super::patch::rows(&parts, None, usize::MAX, BAR, options));
+        }
     }
+}
+
+/// The rows of the preview of an `apply_patch` call: for each file of the patch a row
+/// that names it, then its diff. The row of a file that the patch deletes or moves is
+/// in the `warning` role (`delete old.rs`, `move a.rs → b.rs`), and a new file's row
+/// starts with a muted `new`. Nothing of a diff is left out but what the daemon cut.
+pub(crate) fn patch_rows(diff: &str) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for file in super::patch::file_diffs(diff) {
+        let heading = file.file.heading(true);
+        if !heading.is_empty() {
+            rows.push(Row::Text(heading));
+        }
+        rows.push(Row::FileDiff(file.text()));
+    }
+    rows
 }
 
 /// `pieces` cut into rows after `before` columns, with `indent` more on each row after
@@ -203,6 +226,7 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
     let title = match tool {
         Some("shell") => "allow this command",
         Some("write_file") => "allow this write",
+        Some(super::patch::TOOL) => "allow this patch",
         Some("read_file") => "allow this read",
         Some("settings") => "allow this change of the settings",
         _ => "allow this call",

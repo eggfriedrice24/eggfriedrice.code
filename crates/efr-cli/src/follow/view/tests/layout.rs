@@ -712,3 +712,161 @@ fn a_whole_turn_that_writes_a_file_and_runs_a_command() {
         Sent(3_100, turn_changed(all)),
     ]));
 }
+
+/// A patch that updates two files, adds one, deletes one and moves one, as the model
+/// writes it for `apply_patch`.
+const PATCH: &str = "*** Begin Patch
+*** Update File: src/main.rs
+@@ fn main() {
+-    println!(\"old\");
++    println!(\"a new greeting that is much wider than forty columns\");
+*** Update File: src/lib.rs
+@@
++pub mod greet;
+*** Add File: notes.md
++# Notes
++
+*** Delete File: old.rs
+*** Update File: src/expr.rs
+*** Move to: src/expression.rs
+@@ pub fn parse
+-    let a = 1;
++    let a = 2;
+*** End Patch
+";
+
+/// The start of call `n` of `apply_patch` with `patch`, in the freeform form: the
+/// input is a JSON string with the text.
+fn apply_patch(n: u8, patch: &str) -> Event {
+    let mut event = started(n, "apply_patch", Value::String(patch.to_owned()), None);
+    if let Event::ToolCallStarted { freeform, .. } = &mut event {
+        *freeform = true;
+    }
+    event
+}
+
+/// The diff of `src/main.rs` that [`PATCH`] makes, 25 lines from its hunk on, as the
+/// daemon sends it for a file of a patch.
+fn patched_main_rs() -> String {
+    let mut diff = "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,24 @@\n fn main() {\n-    println!(\"old\");\n+    println!(\"a new greeting that is much wider than forty columns\");\n".to_owned();
+    for n in 1..=21 {
+        diff.push_str(&format!("+    step({n});\n"));
+    }
+    diff.push_str(" }\n");
+    diff
+}
+
+/// The diff of every file of [`PATCH`], in its order, with the line of the preview
+/// that marks a delete and a move when `preview`.
+fn patch_diff(preview: bool) -> String {
+    let mut diff = patched_main_rs();
+    diff.push_str(
+        "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,1 +1,2 @@\n pub mod parse;\n+pub mod greet;\n",
+    );
+    diff.push_str("--- /dev/null\n+++ b/notes.md\n@@ -0,0 +1,2 @@\n+# Notes\n+\n");
+    if preview {
+        diff.push_str("delete old.rs\n");
+    }
+    diff.push_str("--- a/old.rs\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-fn old() {}\n");
+    if preview {
+        diff.push_str("move src/expr.rs -> src/expression.rs\n");
+    }
+    diff.push_str("--- a/src/expr.rs\n+++ b/src/expression.rs\n@@ -1,3 +1,3 @@\n pub fn parse() {\n-    let a = 1;\n+    let a = 2;\n }\n");
+    diff
+}
+
+fn patch_changes() -> FileChanges {
+    let mut moved = file("src/expression.rs", ChangeKind::Renamed, 1, 1);
+    moved.from = Some("src/expr.rs".to_owned());
+    file_changes(
+        vec![
+            file("notes.md", ChangeKind::Added, 2, 0),
+            file("old.rs", ChangeKind::Deleted, 0, 1),
+            moved,
+            file("src/lib.rs", ChangeKind::Modified, 1, 0),
+            file("src/main.rs", ChangeKind::Modified, 22, 1),
+        ],
+        0,
+    )
+}
+
+fn patch_asked(n: u8) -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: id(n),
+        summary: "apply_patch: edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move \
+                  src/expr.rs"
+            .to_owned(),
+        diff_preview: Some(patch_diff(true)),
+        interactive: false,
+        exit: None,
+    }
+}
+
+#[test]
+fn a_patch_names_its_files_and_shows_one_diff_per_file() {
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, apply_patch(1, PATCH)),
+        Shot("running"),
+        Sent(40, changed(1, patch_changes(), Some(&patch_diff(false)))),
+    ]));
+}
+
+#[test]
+fn a_question_about_a_patch_shows_every_file_and_marks_a_delete_and_a_move() {
+    let resolved = Event::ApprovalResolved {
+        turn_id: turn(),
+        call_id: id(1),
+        decision: ApprovalDecision::Allow,
+        origin: Origin::Shell,
+    };
+    let shown = every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, apply_patch(1, PATCH)),
+        Sent(20, patch_asked(1)),
+        Shot("asked"),
+        Key(1, ApprovalDecision::Allow),
+        Sent(1_000, resolved),
+        Sent(1_100, changed(1, patch_changes(), Some(&patch_diff(false)))),
+    ]);
+    // Every line of every file shows in the question, the last step of `src/main.rs`
+    // too, and a delete and a move are in the `warning` role.
+    assert!(shown.contains("step(21);"), "{shown}");
+    assert!(shown.contains("\\e[1;33mdelete old.rs\\e[0m"), "{shown}");
+    assert!(
+        shown.contains("\\e[1;33mmove src/expr.rs \u{2192} src/expression.rs\\e[0m"),
+        "{shown}"
+    );
+    insta::assert_snapshot!(shown);
+}
+
+#[test]
+fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
+    let patch =
+        "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n+pub mod greet;\n*** End Patch\n";
+    let diff =
+        "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,1 +1,2 @@\n pub mod parse;\n+pub mod greet;\n";
+    let changes = file_changes(vec![file("src/lib.rs", ChangeKind::Modified, 1, 0)], 0);
+    let shown = play(
+        RenderOptions::new(80).with_colour(ColourMode::None),
+        Size { cols: 80, rows: 40 },
+        &[
+            Sent(0, turn_started()),
+            Sent(10, apply_patch(1, patch)),
+            Sent(40, changed(1, changes, Some(diff))),
+        ],
+    );
+    let block: Vec<&str> = shown.lines().skip(1).take(5).collect();
+    assert_eq!(
+        block,
+        [
+            "\\e[1m·\\e[0m apply_patch src/lib.rs +1",
+            "\\e[2m  │ \\e[0m@@ -1,1 +1,2 @@",
+            "\\e[2m  │ \\e[0m pub mod parse;",
+            "\\e[2m  │ \\e[0m\\e[1m+\\e[0mpub mod greet;",
+            "  ✓",
+        ],
+        "{shown}"
+    );
+}

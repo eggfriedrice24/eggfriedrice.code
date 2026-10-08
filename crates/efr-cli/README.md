@@ -155,8 +155,9 @@ Replies:
   and the call that it allowed.
 - A tool call is named by what it does: `$ cargo test` for a shell call, `read
   src/main.rs` and `write src/main.rs` for the file tools, `settings ...` for the
-  settings tool, `<tool>: <detail>` for any other. The block of a call starts with
-  `·` in the `accent` role and what the call does in the `code` role:
+  settings tool, `apply_patch <files>` for a patch, `<tool>: <detail>` for any other.
+  The block of a call starts with `·` in the `accent` role and what the call does in
+  the `code` role:
 
   ```text
   · $ cargo metadata --no-deps | jq -r '.packages[].name'
@@ -177,6 +178,17 @@ Replies:
   alone in the row) the row is cut inside a word: a muted `↩` ends it, and the word
   goes on in the next row at the same column, with no indent, so the rows show no
   space that the command does not have.
+- An `apply_patch` call never shows the text of its patch. Its line names each file of
+  the patch in the patch's order, with the lines that the patch adds and removes:
+  `apply_patch src/a.rs +3 −1, new notes.md +2, delete old.rs, move src/expr.rs →
+  src/expression.rs +1 −1`. The input is the patch text (a JSON string in the
+  freeform form, `freeform` on `tool_call_started`) or the member `input` of the
+  function form. Only the file lines (`*** Add File:`, `*** Delete File:`,
+  `*** Update File:`, `*** Move to:`) and the `+` and `-` lines count; the CLI does not
+  check the patch, the daemon does. The line goes on in the next row only between two
+  files, at the column of the first file and with no mark, because it is no command.
+  `efr history` shows the same line, and the live row of the running call cuts it with
+  `…`.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
   spinner (accent), the call (code) cut to the width with `…` at the cut, and from 1 s
   on how long it has run, such as `⠹ $ cargo test -p app  12s`; up to three more lines
@@ -205,6 +217,16 @@ Replies:
   (`diff --git`, `---`, `+++`) stay out, because the call names the file. A line wider
   than the screen goes on in the next row at the same column after a muted `↩`, so
   nothing of it is cut and the rows read back as the line (`efr_render::diff_rows`).
+  The diff of an `apply_patch` call holds the diffs of its files one after another,
+  in the order of the patch, each with its `---` and `+++` lines. The CLI cuts it at
+  each file (`format::patch::file_diffs`; the lines of a hunk are counted from its
+  header, so a removed line `-- note` stays in its hunk) and shows one diff block per
+  file, each after a row that names the file at the column of the result: the path
+  in the `code` role, after a muted `new`, `deleted` or `moved` (`moved a.rs →
+  b.rs`) when the headers say so (`/dev/null` on one side, or two paths). The
+  `render.diff_lines` rule and its `… N more lines` row apply to each file on its own.
+  A diff of one file shows as a write's diff, with no such row, because the call's
+  line names the file.
   A call that shows no diff and has `changes` (a shell call, or a write with
   `render.diff_lines = 0`) gets one muted row under its result, such as `changed
   src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)`: the first three files,
@@ -245,6 +267,14 @@ Replies:
   approval of the turn that the followed one waits behind starts `the running turn
   asks:`. A diff preview shows after the bar, rendered as a diff at the width less the
   bar.
+- The approval of an `apply_patch` call has the title `allow this patch`. Its preview
+  shows the diff of every file of the patch, none left out but what the daemon cut,
+  each after a row that names the file: the path, `new <path>` with `new` muted, and
+  `delete <path>` or `move <from> → <to>` whole in the `warning` role, because a "yes"
+  allows a delete or a move. The daemon marks them with a line `delete <path>` or
+  `move <from> -> <to>` before the diff of that file; the CLI reads the headers as
+  well. The rows of a diff are cut as in a call's block, with a muted `↩`, and the
+  file headers stay out.
 - A shell call's card shows each line of its command when the summary quotes exactly
   the command of the call's `tool_call_started`; what the summary says besides follows
   after `why:`. Any other summary shows as one plain row. Only a last line of plain
@@ -702,7 +732,17 @@ screen, a whole turn with prose, two calls and a question, a file write with its
 diff (a line wider than 40 columns, the `… N more lines` row, a diff that the daemon
 cut, and `render.diff_lines = 0`), a shell call's row of changed files (kinds, a
 rename, a binary file, the files left out), the line of a turn that changed files,
-and a whole turn that writes a file and runs a command. `format/changes/tests.rs`
+a whole turn that writes a file and runs a command, an `apply_patch` call of five
+files (its line, one diff block per file with the limit on each, a new, a deleted and
+a moved file), the question about that patch with every line of every file and the
+delete and the move in the `warning` role, and a patch of one file.
+`format/patch/tests.rs` checks the files and counts that the line of a patch reads
+(both forms of the input, markers with spaces, a path with an escape), the rows of
+the line, the split of a diff of several files (a removed line that looks like a
+header, a cut at the end, the marks of a preview, a move without a hunk) and the
+heading of each file. A view test shows `preparing apply_patch, 3.2 KB` from a draft,
+then the patch's line, and a history test shows the line of a patch in both forms and
+never its text. `format/changes/tests.rs`
 checks the rows, the turn line, the split of a diff and the list of `efr diff
 --stat`; `commands/diff/tests.rs` runs `efr diff` against a fake daemon (the
 conversation it picks, `--turn`, a terminal, a pipe, a turn that changed nothing, no

@@ -1,0 +1,738 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: shown
+---
+=== 40 columns, colour
+[asked]
+\e[1;33m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs,
+\e[2m│ \e[0m  notes.md; delete old.rs; move
+\e[2m│ \e[0m  src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m│ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that is\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[32m much wider than forty columns"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m17\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m18\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m19\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m20\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m21\e[0m);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m
+\e[2m│ \e[0m\e[1;33mdelete old.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+\e[2m│ \e[0m\e[1;33mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m│ \e[0m }
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1;33m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs,
+\e[2m│ \e[0m  notes.md; delete old.rs; move
+\e[2m│ \e[0m  src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m│ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that is\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[32m much wider than forty columns"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m17\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m18\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m19\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m20\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m21\e[0m);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m
+\e[2m│ \e[0m\e[1;33mdelete old.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+\e[2m│ \e[0m\e[1;33mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m│ \e[0m }
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 −1,\e[0m
+              \e[36msrc/lib.rs +1,\e[0m
+              \e[36mnew notes.md +2,\e[0m
+              \e[36mdelete old.rs,\e[0m
+              \e[36mmove src/expr.rs →\e[0m
+              \e[36msrc/expression.rs +1 −1\e[0m
+  \e[36msrc/main.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m  │ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that\e[0m \e[2m↩\e[0m
+\e[2m  │ \e[0m\e[32mis much wider than forty columns"\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m  │ \e[0m\e[2m… 6 more lines\e[0m
+  \e[36msrc/lib.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m  │ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+  \e[2mnew \e[0m\e[36mnotes.md\e[0m
+\e[2m  │ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m
+  \e[2mdeleted \e[0m\e[36mold.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m  │ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+  \e[2mmoved \e[0m\e[36msrc/expr.rs → src/expression.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m  │ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m  │ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m  │ \e[0m }
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 40 columns, NO_COLOR
+[asked]
+\e[1m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs,
+\e[2m│ \e[0m  notes.md; delete old.rs; move
+\e[2m│ \e[0m  src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m@@ -1,3 +1,24 @@
+\e[2m│ \e[0m fn main() {
+\e[2m│ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m│ \e[0m\e[1m+\e[0m    println!("a new greeting that is\e[2m↩\e[0m
+\e[2m│ \e[0m much wider than forty columns");
+\e[2m│ \e[0m\e[1m+\e[0m    step(1);
+\e[2m│ \e[0m\e[1m+\e[0m    step(2);
+\e[2m│ \e[0m\e[1m+\e[0m    step(3);
+\e[2m│ \e[0m\e[1m+\e[0m    step(4);
+\e[2m│ \e[0m\e[1m+\e[0m    step(5);
+\e[2m│ \e[0m\e[1m+\e[0m    step(6);
+\e[2m│ \e[0m\e[1m+\e[0m    step(7);
+\e[2m│ \e[0m\e[1m+\e[0m    step(8);
+\e[2m│ \e[0m\e[1m+\e[0m    step(9);
+\e[2m│ \e[0m\e[1m+\e[0m    step(10);
+\e[2m│ \e[0m\e[1m+\e[0m    step(11);
+\e[2m│ \e[0m\e[1m+\e[0m    step(12);
+\e[2m│ \e[0m\e[1m+\e[0m    step(13);
+\e[2m│ \e[0m\e[1m+\e[0m    step(14);
+\e[2m│ \e[0m\e[1m+\e[0m    step(15);
+\e[2m│ \e[0m\e[1m+\e[0m    step(16);
+\e[2m│ \e[0m\e[1m+\e[0m    step(17);
+\e[2m│ \e[0m\e[1m+\e[0m    step(18);
+\e[2m│ \e[0m\e[1m+\e[0m    step(19);
+\e[2m│ \e[0m\e[1m+\e[0m    step(20);
+\e[2m│ \e[0m\e[1m+\e[0m    step(21);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m@@ -1,1 +1,2 @@
+\e[2m│ \e[0m pub mod parse;
+\e[2m│ \e[0m\e[1m+\e[0mpub mod greet;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m@@ -0,0 +1,2 @@
+\e[2m│ \e[0m\e[1m+\e[0m# Notes
+\e[2m│ \e[0m\e[1m+\e[0m
+\e[2m│ \e[0m\e[1mdelete old.rs\e[0m
+\e[2m│ \e[0m@@ -1,1 +0,0 @@
+\e[2m│ \e[0m\e[1m-\e[0mfn old() {}
+\e[2m│ \e[0m\e[1mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m@@ -1,3 +1,3 @@
+\e[2m│ \e[0m pub fn parse() {
+\e[2m│ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m│ \e[0m }
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs,
+\e[2m│ \e[0m  notes.md; delete old.rs; move
+\e[2m│ \e[0m  src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m@@ -1,3 +1,24 @@
+\e[2m│ \e[0m fn main() {
+\e[2m│ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m│ \e[0m\e[1m+\e[0m    println!("a new greeting that is\e[2m↩\e[0m
+\e[2m│ \e[0m much wider than forty columns");
+\e[2m│ \e[0m\e[1m+\e[0m    step(1);
+\e[2m│ \e[0m\e[1m+\e[0m    step(2);
+\e[2m│ \e[0m\e[1m+\e[0m    step(3);
+\e[2m│ \e[0m\e[1m+\e[0m    step(4);
+\e[2m│ \e[0m\e[1m+\e[0m    step(5);
+\e[2m│ \e[0m\e[1m+\e[0m    step(6);
+\e[2m│ \e[0m\e[1m+\e[0m    step(7);
+\e[2m│ \e[0m\e[1m+\e[0m    step(8);
+\e[2m│ \e[0m\e[1m+\e[0m    step(9);
+\e[2m│ \e[0m\e[1m+\e[0m    step(10);
+\e[2m│ \e[0m\e[1m+\e[0m    step(11);
+\e[2m│ \e[0m\e[1m+\e[0m    step(12);
+\e[2m│ \e[0m\e[1m+\e[0m    step(13);
+\e[2m│ \e[0m\e[1m+\e[0m    step(14);
+\e[2m│ \e[0m\e[1m+\e[0m    step(15);
+\e[2m│ \e[0m\e[1m+\e[0m    step(16);
+\e[2m│ \e[0m\e[1m+\e[0m    step(17);
+\e[2m│ \e[0m\e[1m+\e[0m    step(18);
+\e[2m│ \e[0m\e[1m+\e[0m    step(19);
+\e[2m│ \e[0m\e[1m+\e[0m    step(20);
+\e[2m│ \e[0m\e[1m+\e[0m    step(21);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m@@ -1,1 +1,2 @@
+\e[2m│ \e[0m pub mod parse;
+\e[2m│ \e[0m\e[1m+\e[0mpub mod greet;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m@@ -0,0 +1,2 @@
+\e[2m│ \e[0m\e[1m+\e[0m# Notes
+\e[2m│ \e[0m\e[1m+\e[0m
+\e[2m│ \e[0m\e[1mdelete old.rs\e[0m
+\e[2m│ \e[0m@@ -1,1 +0,0 @@
+\e[2m│ \e[0m\e[1m-\e[0mfn old() {}
+\e[2m│ \e[0m\e[1mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m@@ -1,3 +1,3 @@
+\e[2m│ \e[0m pub fn parse() {
+\e[2m│ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m│ \e[0m }
+✓ allowed
+\e[1m·\e[0m apply_patch src/main.rs +1 −1,
+              src/lib.rs +1,
+              new notes.md +2,
+              delete old.rs,
+              move src/expr.rs →
+              src/expression.rs +1 −1
+  src/main.rs
+\e[2m  │ \e[0m@@ -1,3 +1,24 @@
+\e[2m  │ \e[0m fn main() {
+\e[2m  │ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that \e[2m↩\e[0m
+\e[2m  │ \e[0mis much wider than forty columns");
+\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
+\e[2m  │ \e[0m\e[2m… 6 more lines\e[0m
+  src/lib.rs
+\e[2m  │ \e[0m@@ -1,1 +1,2 @@
+\e[2m  │ \e[0m pub mod parse;
+\e[2m  │ \e[0m\e[1m+\e[0mpub mod greet;
+  \e[2mnew \e[0mnotes.md
+\e[2m  │ \e[0m@@ -0,0 +1,2 @@
+\e[2m  │ \e[0m\e[1m+\e[0m# Notes
+\e[2m  │ \e[0m\e[1m+\e[0m
+  \e[2mdeleted \e[0mold.rs
+\e[2m  │ \e[0m@@ -1,1 +0,0 @@
+\e[2m  │ \e[0m\e[1m-\e[0mfn old() {}
+  \e[2mmoved \e[0msrc/expr.rs → src/expression.rs
+\e[2m  │ \e[0m@@ -1,3 +1,3 @@
+\e[2m  │ \e[0m pub fn parse() {
+\e[2m  │ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m  │ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m  │ \e[0m }
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, colour
+[asked]
+\e[1;33m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m│ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m17\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m18\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m19\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m20\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m21\e[0m);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m
+\e[2m│ \e[0m\e[1;33mdelete old.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+\e[2m│ \e[0m\e[1;33mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m│ \e[0m }
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1;33m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m│ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m17\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m18\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m19\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m20\e[0m);
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m21\e[0m);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m
+\e[2m│ \e[0m\e[1;33mdelete old.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+\e[2m│ \e[0m\e[1;33mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m│ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m│ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m│ \e[0m }
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs,\e[0m
+              \e[36mmove src/expr.rs → src/expression.rs +1 −1\e[0m
+  \e[36msrc/main.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
+\e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
+\e[2m  │ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m1\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m2\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m3\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m4\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m5\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m6\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m7\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m8\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m9\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m10\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m11\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m12\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m13\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m14\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m15\e[0m);
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[36mstep\e[0m(\e[33m16\e[0m);
+\e[2m  │ \e[0m\e[2m… 6 more lines\e[0m
+  \e[36msrc/lib.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,1 +1,2 @@\e[0m
+\e[2m  │ \e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+  \e[2mnew \e[0m\e[36mnotes.md\e[0m
+\e[2m  │ \e[0m\e[36m@@ -0,0 +1,2 @@\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m
+  \e[2mdeleted \e[0m\e[36mold.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,1 +0,0 @@\e[0m
+\e[2m  │ \e[0m\e[1;31m-\e[0m\e[35mfn\e[0m \e[34mold\e[0m() {}
+  \e[2mmoved \e[0m\e[36msrc/expr.rs → src/expression.rs\e[0m
+\e[2m  │ \e[0m\e[36m@@ -1,3 +1,3 @@\e[0m
+\e[2m  │ \e[0m \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
+\e[2m  │ \e[0m\e[1;31m-\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
+\e[2m  │ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+\e[2m  │ \e[0m }
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, NO_COLOR
+[asked]
+\e[1m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m@@ -1,3 +1,24 @@
+\e[2m│ \e[0m fn main() {
+\e[2m│ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m│ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");
+\e[2m│ \e[0m\e[1m+\e[0m    step(1);
+\e[2m│ \e[0m\e[1m+\e[0m    step(2);
+\e[2m│ \e[0m\e[1m+\e[0m    step(3);
+\e[2m│ \e[0m\e[1m+\e[0m    step(4);
+\e[2m│ \e[0m\e[1m+\e[0m    step(5);
+\e[2m│ \e[0m\e[1m+\e[0m    step(6);
+\e[2m│ \e[0m\e[1m+\e[0m    step(7);
+\e[2m│ \e[0m\e[1m+\e[0m    step(8);
+\e[2m│ \e[0m\e[1m+\e[0m    step(9);
+\e[2m│ \e[0m\e[1m+\e[0m    step(10);
+\e[2m│ \e[0m\e[1m+\e[0m    step(11);
+\e[2m│ \e[0m\e[1m+\e[0m    step(12);
+\e[2m│ \e[0m\e[1m+\e[0m    step(13);
+\e[2m│ \e[0m\e[1m+\e[0m    step(14);
+\e[2m│ \e[0m\e[1m+\e[0m    step(15);
+\e[2m│ \e[0m\e[1m+\e[0m    step(16);
+\e[2m│ \e[0m\e[1m+\e[0m    step(17);
+\e[2m│ \e[0m\e[1m+\e[0m    step(18);
+\e[2m│ \e[0m\e[1m+\e[0m    step(19);
+\e[2m│ \e[0m\e[1m+\e[0m    step(20);
+\e[2m│ \e[0m\e[1m+\e[0m    step(21);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m@@ -1,1 +1,2 @@
+\e[2m│ \e[0m pub mod parse;
+\e[2m│ \e[0m\e[1m+\e[0mpub mod greet;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m@@ -0,0 +1,2 @@
+\e[2m│ \e[0m\e[1m+\e[0m# Notes
+\e[2m│ \e[0m\e[1m+\e[0m
+\e[2m│ \e[0m\e[1mdelete old.rs\e[0m
+\e[2m│ \e[0m@@ -1,1 +0,0 @@
+\e[2m│ \e[0m\e[1m-\e[0mfn old() {}
+\e[2m│ \e[0m\e[1mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m@@ -1,3 +1,3 @@
+\e[2m│ \e[0m pub fn parse() {
+\e[2m│ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m│ \e[0m }
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1m? allow this patch\e[0m
+\e[2m│ \e[0medit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+\e[2m│ \e[0msrc/main.rs
+\e[2m│ \e[0m@@ -1,3 +1,24 @@
+\e[2m│ \e[0m fn main() {
+\e[2m│ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m│ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");
+\e[2m│ \e[0m\e[1m+\e[0m    step(1);
+\e[2m│ \e[0m\e[1m+\e[0m    step(2);
+\e[2m│ \e[0m\e[1m+\e[0m    step(3);
+\e[2m│ \e[0m\e[1m+\e[0m    step(4);
+\e[2m│ \e[0m\e[1m+\e[0m    step(5);
+\e[2m│ \e[0m\e[1m+\e[0m    step(6);
+\e[2m│ \e[0m\e[1m+\e[0m    step(7);
+\e[2m│ \e[0m\e[1m+\e[0m    step(8);
+\e[2m│ \e[0m\e[1m+\e[0m    step(9);
+\e[2m│ \e[0m\e[1m+\e[0m    step(10);
+\e[2m│ \e[0m\e[1m+\e[0m    step(11);
+\e[2m│ \e[0m\e[1m+\e[0m    step(12);
+\e[2m│ \e[0m\e[1m+\e[0m    step(13);
+\e[2m│ \e[0m\e[1m+\e[0m    step(14);
+\e[2m│ \e[0m\e[1m+\e[0m    step(15);
+\e[2m│ \e[0m\e[1m+\e[0m    step(16);
+\e[2m│ \e[0m\e[1m+\e[0m    step(17);
+\e[2m│ \e[0m\e[1m+\e[0m    step(18);
+\e[2m│ \e[0m\e[1m+\e[0m    step(19);
+\e[2m│ \e[0m\e[1m+\e[0m    step(20);
+\e[2m│ \e[0m\e[1m+\e[0m    step(21);
+\e[2m│ \e[0m }
+\e[2m│ \e[0msrc/lib.rs
+\e[2m│ \e[0m@@ -1,1 +1,2 @@
+\e[2m│ \e[0m pub mod parse;
+\e[2m│ \e[0m\e[1m+\e[0mpub mod greet;
+\e[2m│ \e[0m\e[2mnew \e[0mnotes.md
+\e[2m│ \e[0m@@ -0,0 +1,2 @@
+\e[2m│ \e[0m\e[1m+\e[0m# Notes
+\e[2m│ \e[0m\e[1m+\e[0m
+\e[2m│ \e[0m\e[1mdelete old.rs\e[0m
+\e[2m│ \e[0m@@ -1,1 +0,0 @@
+\e[2m│ \e[0m\e[1m-\e[0mfn old() {}
+\e[2m│ \e[0m\e[1mmove src/expr.rs → src/expression.rs\e[0m
+\e[2m│ \e[0m@@ -1,3 +1,3 @@
+\e[2m│ \e[0m pub fn parse() {
+\e[2m│ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m│ \e[0m }
+✓ allowed
+\e[1m·\e[0m apply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs,
+              move src/expr.rs → src/expression.rs +1 −1
+  src/main.rs
+\e[2m  │ \e[0m@@ -1,3 +1,24 @@
+\e[2m  │ \e[0m fn main() {
+\e[2m  │ \e[0m\e[1m-\e[0m    println!("old");
+\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");
+\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
+\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
+\e[2m  │ \e[0m\e[2m… 6 more lines\e[0m
+  src/lib.rs
+\e[2m  │ \e[0m@@ -1,1 +1,2 @@
+\e[2m  │ \e[0m pub mod parse;
+\e[2m  │ \e[0m\e[1m+\e[0mpub mod greet;
+  \e[2mnew \e[0mnotes.md
+\e[2m  │ \e[0m@@ -0,0 +1,2 @@
+\e[2m  │ \e[0m\e[1m+\e[0m# Notes
+\e[2m  │ \e[0m\e[1m+\e[0m
+  \e[2mdeleted \e[0mold.rs
+\e[2m  │ \e[0m@@ -1,1 +0,0 @@
+\e[2m  │ \e[0m\e[1m-\e[0mfn old() {}
+  \e[2mmoved \e[0msrc/expr.rs → src/expression.rs
+\e[2m  │ \e[0m@@ -1,3 +1,3 @@
+\e[2m  │ \e[0m pub fn parse() {
+\e[2m  │ \e[0m\e[1m-\e[0m    let a = 1;
+\e[2m  │ \e[0m\e[1m+\e[0m    let a = 2;
+\e[2m  │ \e[0m }
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== not a terminal
+[asked]
+stdout:
+stderr:
+? allow this patch
+│ edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+│ src/main.rs
+│ @@ -1,3 +1,24 @@
+│  fn main() {
+│ -    println!("old");
+│ +    println!("a new greeting that is much wider than forty columns");
+│ +    step(1);
+│ +    step(2);
+│ +    step(3);
+│ +    step(4);
+│ +    step(5);
+│ +    step(6);
+│ +    step(7);
+│ +    step(8);
+│ +    step(9);
+│ +    step(10);
+│ +    step(11);
+│ +    step(12);
+│ +    step(13);
+│ +    step(14);
+│ +    step(15);
+│ +    step(16);
+│ +    step(17);
+│ +    step(18);
+│ +    step(19);
+│ +    step(20);
+│ +    step(21);
+│  }
+│ src/lib.rs
+│ @@ -1,1 +1,2 @@
+│  pub mod parse;
+│ +pub mod greet;
+│ new notes.md
+│ @@ -0,0 +1,2 @@
+│ +# Notes
+│ +
+│ delete old.rs
+│ @@ -1,1 +0,0 @@
+│ -fn old() {}
+│ move src/expr.rs → src/expression.rs
+│ @@ -1,3 +1,3 @@
+│  pub fn parse() {
+│ -    let a = 1;
+│ +    let a = 2;
+│  }
+│ y allow · n deny
+
+[end]
+stdout:
+stderr:
+? allow this patch
+│ edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
+│ src/main.rs
+│ @@ -1,3 +1,24 @@
+│  fn main() {
+│ -    println!("old");
+│ +    println!("a new greeting that is much wider than forty columns");
+│ +    step(1);
+│ +    step(2);
+│ +    step(3);
+│ +    step(4);
+│ +    step(5);
+│ +    step(6);
+│ +    step(7);
+│ +    step(8);
+│ +    step(9);
+│ +    step(10);
+│ +    step(11);
+│ +    step(12);
+│ +    step(13);
+│ +    step(14);
+│ +    step(15);
+│ +    step(16);
+│ +    step(17);
+│ +    step(18);
+│ +    step(19);
+│ +    step(20);
+│ +    step(21);
+│  }
+│ src/lib.rs
+│ @@ -1,1 +1,2 @@
+│  pub mod parse;
+│ +pub mod greet;
+│ new notes.md
+│ @@ -0,0 +1,2 @@
+│ +# Notes
+│ +
+│ delete old.rs
+│ @@ -1,1 +0,0 @@
+│ -fn old() {}
+│ move src/expr.rs → src/expression.rs
+│ @@ -1,3 +1,3 @@
+│  pub fn parse() {
+│ -    let a = 1;
+│ +    let a = 2;
+│  }
+│ y allow · n deny
+✓ allowed
+· apply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs, move src/expr.rs → src/expression.rs +1 −1
+  src/main.rs
+  │ @@ -1,3 +1,24 @@
+  │  fn main() {
+  │ -    println!("old");
+  │ +    println!("a new greeting that is much wider than forty columns");
+  │ +    step(1);
+  │ +    step(2);
+  │ +    step(3);
+  │ +    step(4);
+  │ +    step(5);
+  │ +    step(6);
+  │ +    step(7);
+  │ +    step(8);
+  │ +    step(9);
+  │ +    step(10);
+  │ +    step(11);
+  │ +    step(12);
+  │ +    step(13);
+  │ +    step(14);
+  │ +    step(15);
+  │ +    step(16);
+  │ … 6 more lines
+  src/lib.rs
+  │ @@ -1,1 +1,2 @@
+  │  pub mod parse;
+  │ +pub mod greet;
+  new notes.md
+  │ @@ -0,0 +1,2 @@
+  │ +# Notes
+  │ +
+  deleted old.rs
+  │ @@ -1,1 +0,0 @@
+  │ -fn old() {}
+  moved src/expr.rs → src/expression.rs
+  │ @@ -1,3 +1,3 @@
+  │  pub fn parse() {
+  │ -    let a = 1;
+  │ +    let a = 2;
+  │  }
+  ✓

@@ -23,6 +23,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 pub(crate) mod card;
 pub(crate) mod changes;
+pub(crate) mod patch;
 pub(crate) mod sandbox;
 
 /// Keys of a tool's input that best describe a call in one line, in order of
@@ -287,7 +288,8 @@ pub(crate) fn code_block(info: &str, body: &str) -> String {
     format!("{fence}{info}\n{body}{newline}{fence}\n")
 }
 
-/// A tool call in one line, such as `$ ls -la` or `read /etc/hosts`.
+/// A tool call in one line, such as `$ ls -la`, `read /etc/hosts` or `apply_patch
+/// src/a.rs +3 −1, src/b.rs +1`.
 ///
 /// A command of several lines shows its first line and how many lines follow, such as
 /// `$ cd src (and 2 more lines)`: lines joined by spaces would look like one command
@@ -308,14 +310,36 @@ pub(crate) fn columns(options: &RenderOptions) -> Option<(usize, WidthMethod)> {
 }
 
 /// The words that name a call of `tool`: `$` for a shell call, `read` and `write` for
-/// the file tools, `settings` for the settings tool, else the tool's name and a colon.
+/// the file tools, `settings` and `apply_patch` for those tools, else the tool's name
+/// and a colon.
 fn call_name(tool: &str) -> String {
     match tool {
         "shell" => "$".to_owned(),
         "read_file" => "read".to_owned(),
         "write_file" => "write".to_owned(),
         "settings" => "settings".to_owned(),
+        patch::TOOL => patch::TOOL.to_owned(),
         other => format!("{}:", one_line(other)),
+    }
+}
+
+/// What a call of `tool` with `input` does, before it is split into lines: the files of
+/// an `apply_patch` call with their counts, else the first of [`DETAIL_KEYS`] that the
+/// input has, else the input as JSON.
+fn call_detail(tool: &str, input: &Value) -> String {
+    if tool == patch::TOOL
+        && let Some(text) = patch::text(input)
+    {
+        return patch::summary(&patch::files(text));
+    }
+    match input {
+        Value::Object(members) => DETAIL_KEYS
+            .iter()
+            .find_map(|key| members.get(*key).and_then(Value::as_str))
+            .map_or_else(|| input.to_string(), str::to_owned),
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
     }
 }
 
@@ -329,15 +353,7 @@ pub(crate) struct CallLine {
 
 /// The line of a call of `tool` with `input`, such as `$ cargo test -p app`.
 pub(crate) fn call_line(tool: &str, input: &Value) -> CallLine {
-    let detail = match input {
-        Value::Object(members) => DETAIL_KEYS
-            .iter()
-            .find_map(|key| members.get(*key).and_then(Value::as_str))
-            .map_or_else(|| input.to_string(), str::to_owned),
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    };
+    let detail = call_detail(tool, input);
     let name = call_name(tool);
     let lines = command_lines(&detail);
     let (first, more) = match lines.split_first() {
@@ -372,27 +388,27 @@ impl CallLine {
 }
 
 /// What a call does, for the block of a call: the words that name it (`$`, `read`,
-/// `write`, `settings`, else the tool and a colon) and each line of what it does,
-/// safe to print. Nothing of it is ever left out.
+/// `write`, `settings`, `apply_patch`, else the tool and a colon) and each line of what
+/// it does, safe to print. Nothing of it is ever left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CallText {
     pub(crate) name: String,
     pub(crate) lines: Vec<String>,
+    /// The entries of a list that `lines` joins with `, `, such as the files of an
+    /// `apply_patch` call: a row of the call's block is cut only between two of them,
+    /// and with no mark, because the list is no command. Empty for other calls.
+    pub(crate) entries: Vec<String>,
 }
 
 /// The text of a call of `tool` with `input`, such as `$` and `cargo test -p app`.
 pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
-    let detail = match input {
-        Value::Object(members) => DETAIL_KEYS
-            .iter()
-            .find_map(|key| members.get(*key).and_then(Value::as_str))
-            .map_or_else(|| input.to_string(), str::to_owned),
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    };
+    let detail = call_detail(tool, input);
     let lines = command_lines(&detail).into_iter().map(command_line).collect();
-    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines }
+    let entries = match patch::text(input).filter(|_| tool == patch::TOOL) {
+        Some(text) => patch::entries(&patch::files(text)),
+        None => Vec::new(),
+    };
+    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines, entries }
 }
 
 /// What ends a row of a command that is cut after a space. The rows after it are

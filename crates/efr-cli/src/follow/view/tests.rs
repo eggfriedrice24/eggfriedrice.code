@@ -2004,6 +2004,37 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
 }
 
 #[test]
+fn a_patch_that_the_model_writes_shows_its_size_then_its_files() {
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.frame(SIZE, at(0));
+    // The draft of a freeform input counts the bytes of its text.
+    let input = DraftPart::ToolInput { call: 0, tool: "apply_patch".to_owned(), bytes: 3_277 };
+    view.draft(&draft(11, input), SIZE);
+    let preparing = view.frame(SIZE, at(10));
+    assert!(preparing.contains("preparing apply_patch, 3.2 KB"), "{}", readable(&preparing));
+    let patch = "*** Begin Patch\n*** Update File: src/a.rs\n@@\n-a\n+b\n+c\n*** Delete File: old.rs\n*** End Patch\n";
+    let started = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "apply_patch".to_owned(),
+        input: json!(patch),
+        freeform: true,
+        manual_input: false,
+        launch: None,
+    };
+    view.envelope(&sent(12, 20, started), SIZE, false);
+    let running = view.frame(SIZE, at(20));
+    // The running row is cut to the width of the screen.
+    assert!(
+        running.contains("apply_patch src/a.rs +2 \u{2212}1, delete ol\u{2026}"),
+        "{}",
+        readable(&running)
+    );
+    assert!(!running.contains("preparing") && !running.contains("Begin Patch"));
+}
+
+#[test]
 fn a_persisted_update_of_text_that_drafts_showed_keeps_the_newer_state() {
     let mut view = started_view(Look::default());
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);

@@ -78,7 +78,8 @@
 //! when the terminal draws one.
 //!
 //! What a call changed comes with its end: a file write shows the first lines of its
-//! diff in its block (`render.diff_lines`), and a call that changed files without a
+//! diff in its block (`render.diff_lines`), a patch the first lines of each file's
+//! diff, and a call that changed files without a
 //! diff shown gets one muted row of them under its result (`format::changes`). A turn
 //! that changed files ends with one muted line that counts them, right before the line
 //! of its time and tokens.
@@ -2214,8 +2215,12 @@ impl TurnView {
             };
             card = sandbox::exit_card(exit, record, self.home.as_deref(), subject);
         }
-        if let Some(diff) = request.diff {
-            card.rows.push(card::Row::Diff(diff.to_owned()));
+        // NOTE: a patch shows the diff of each of its files after a row that names it,
+        // so a delete or a move stands out before the user answers.
+        match (request.diff, tool) {
+            (Some(diff), Some(format::patch::TOOL)) => card.rows.extend(card::patch_rows(diff)),
+            (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
+            (None, _) => {}
         }
         if request.blocking {
             card.title = format!("{BLOCKING}{}", card.title);
@@ -2380,7 +2385,12 @@ impl TurnView {
         let limit = self.look.diff_lines;
         let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
         if let Some(diff) = diff {
-            block.push_str(&call::diff(diff, call.subject(), limit, &options));
+            // NOTE: the line of a patch's call is its files with their counts, no path:
+            // each file's diff names its own.
+            let patch =
+                self.tools.get(&call.call_id).is_some_and(|tool| tool == format::patch::TOOL);
+            let path = if patch { None } else { call.subject() };
+            block.push_str(&call::diff(diff, path, limit, &options));
         }
         block.push_str(&call.result(self.event_at, outcome, &options));
         if let Some(changes) = changed.changes.filter(|_| diff.is_none()) {

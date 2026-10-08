@@ -706,6 +706,72 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
+#[test]
+fn a_patch_shows_its_files_and_never_its_text() {
+    let other: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
+    let patch = "*** Begin Patch\n*** Update File: src/a.rs\n@@ fn main\n-    old();\n+    new();\n*** Add File: notes.md\n+# Notes\n*** Delete File: old.rs\n*** Update File: src/expr.rs\n*** Move to: src/expression.rs\n*** End Patch\n";
+    let started = |call_id, input, freeform| Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id,
+        tool: "apply_patch".to_owned(),
+        input,
+        manual_input: false,
+        launch: None,
+        freeform,
+    };
+    let completed = |call_id, is_error| Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id,
+        output: "Success.".to_owned(),
+        truncated: false,
+        is_error,
+        exit_code: None,
+        sandbox: None,
+        refusal: None,
+        changes: None,
+        diff: None,
+    };
+    let events = vec![
+        // The freeform form: the input is the text.
+        started(call(), json!(patch), true),
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "apply_patch: edit src/a.rs, notes.md; delete old.rs; move src/expr.rs"
+                .to_owned(),
+            diff_preview: Some("delete old.rs\n--- a/old.rs\n+++ /dev/null\n".to_owned()),
+            interactive: false,
+            exit: None,
+        },
+        Event::ApprovalResolved {
+            turn_id: turn(),
+            call_id: call(),
+            decision: ApprovalDecision::Allow,
+            origin: Origin::Shell,
+        },
+        completed(call(), false),
+        // The function form: the text is the member `input`.
+        started(
+            other,
+            json!({ "input": "*** Begin Patch\n*** Update File: src/b.rs\n+x\n*** End Patch\n" }),
+            false,
+        ),
+        completed(other, true),
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let terminal = show(&page, &RenderOptions::new(60));
+    let piped = show(&page, &RenderOptions::new(60).with_terminal(false));
+    assert!(!piped.contains("Begin Patch"), "{piped}");
+    assert!(
+        piped.contains(
+            "apply_patch src/a.rs +1 \u{2212}1, new notes.md +1, delete old.rs, move src/expr.rs \u{2192} src/expression.rs"
+        ),
+        "{piped}"
+    );
+    insta::assert_snapshot!(format!("{}---\n{piped}", readable(&terminal)));
+}
+
 /// What `efr history --verbose` without a conversation writes when the terminal is
 /// `tty` and the daemon lists `listed`; the history it asks for gets the sandbox's
 /// events.

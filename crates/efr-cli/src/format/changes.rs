@@ -210,8 +210,19 @@ pub(crate) struct DiffParts<'a> {
 /// `diff` split into its file headers, its lines and the lines that the daemon cut.
 /// Headers count only when every line before the first hunk is one.
 pub(crate) fn diff_parts(diff: &str) -> DiffParts<'_> {
-    let (diff, cut) = split_cut(diff);
-    let mut lines: Vec<&str> = diff.lines().collect();
+    parts_of(diff.lines().collect())
+}
+
+/// The `lines` of one file's diff split into its file headers, its lines and the lines
+/// that the daemon cut, as [`diff_parts`] splits a diff.
+pub(crate) fn parts_of(mut lines: Vec<&str>) -> DiffParts<'_> {
+    let mut cut = 0;
+    if let Some(last) = lines.iter().rposition(|line| !line.is_empty())
+        && let Some(count) = cut_lines(lines[last])
+    {
+        lines.truncate(last);
+        cut = count;
+    }
     let head = match lines.iter().position(|line| line.starts_with("@@")) {
         Some(at) if lines[..at].iter().all(|line| is_header(line)) => at,
         _ => 0,
@@ -220,7 +231,8 @@ pub(crate) fn diff_parts(diff: &str) -> DiffParts<'_> {
     DiffParts { head: lines, body, cut }
 }
 
-fn is_header(line: &str) -> bool {
+/// True for a line of a file header of a diff, such as `--- a/src/a.rs`.
+pub(crate) fn is_header(line: &str) -> bool {
     HEADER_LINES.iter().any(|start| line.starts_with(start))
 }
 

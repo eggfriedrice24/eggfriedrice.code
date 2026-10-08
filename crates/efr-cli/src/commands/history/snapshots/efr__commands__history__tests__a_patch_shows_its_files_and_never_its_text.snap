@@ -1,0 +1,17 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: "format!(\"{}---\\n{piped}\", readable(&terminal))"
+---
+\e[2mconversation 019a9b1c-3d00-7a10-8b20-000000000001\e[0m
+\e[2mapply_patch src/a.rs +1 −1, new notes.md +1, delete old.rs,…\e[0m
+\e[2mapproval needed: apply_patch: edit src/a.rs, notes.md; dele…\e[0m
+\e[2mallowed from the shell\e[0m
+\e[2mapply_patch src/b.rs +1\e[0m
+\e[2mapply_patch failed\e[0m
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+apply_patch src/a.rs +1 −1, new notes.md +1, delete old.rs, move src/expr.rs → src/expression.rs
+approval needed: apply_patch: edit src/a.rs, notes.md; delete old.rs; move src/expr.rs
+allowed from the shell
+apply_patch src/b.rs +1
+apply_patch failed
