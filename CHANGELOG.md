@@ -63,10 +63,11 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
-- efrd no longer loses a steer (`,!`) at the end of a turn. Before, efrd accepted a
-  steer after the last model call of the turn or after an interrupt request, and no
-  model call read it. Now efrd refuses such a steer with a conflict, and you can send
-  the text as a new prompt.
+- efrd no longer loses a steer at the end of a turn. Before, efrd accepted a steer
+  that came after the last model call of the turn or after an interrupt request, and
+  no model call read it. Now efrd never records such a steer. It refuses a steer from
+  `,!` with a conflict, so you can send the text as a new prompt. A steer from the
+  input row becomes a queued prompt.
 - efrd now ends a turn before it tells the clients that the turn ended. Before, a
   steer or an interrupt that you sent just after you saw the end could go to the
   ended turn, and a prompt could wait behind it. Now efrd refuses the steer and the
