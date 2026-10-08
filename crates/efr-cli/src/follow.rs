@@ -60,7 +60,10 @@
 //! interrupts as before and takes back what this view sent and the turn did not read,
 //! but only what the daemon names. The view follows each prompt that it queued after
 //! the turn before it, and the command ends when the last one ends. Text that is still
-//! in the row then goes back to the user's shell (`crate::draft`).
+//! in the row then goes back to the user's shell (`crate::draft`). When the connection
+//! ends, the view with the row connects again and subscribes after the last event that
+//! it showed, so the end events of a restarted daemon still reach it, and a request of
+//! the row whose answer was lost goes again with the same command id.
 
 mod view;
 
@@ -70,7 +73,7 @@ use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, InputRespond, InputRespondResult, LateSteer, Method, PromptSend,
+    ErrorCode, Event, InputRespond, InputRespondResult, LateSteer, Method, Origin, PromptSend,
     PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
@@ -78,6 +81,7 @@ use efr_protocol::{
 use efr_stdx::time::{Clock as _, Sleep};
 use futures::StreamExt as _;
 use jiff::Timestamp;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::answer::{AnswerLine, Edit};
@@ -101,12 +105,14 @@ pub(crate) struct Compose {
     pub(crate) settings: TurnSettings,
 }
 
-/// The input row of a followed turn: what it sends with, and its key reader, which
-/// started before the prompt went out, so keys typed meanwhile land in the row.
+/// The input row of a followed turn: what it sends with, its key reader, which
+/// started before the prompt went out, so keys typed meanwhile land in the row, and the
+/// origin that the command connected as, to connect again when the connection ends.
 #[derive(Debug)]
 pub(crate) struct Row {
     pub(crate) compose: Compose,
     pub(crate) reader: KeyReader,
+    pub(crate) origin: Origin,
 }
 
 /// How often in a row a subscription may fall behind before the command gives up.
@@ -118,6 +124,17 @@ const BLOCKING_PAGE: u32 = 500;
 /// How long a paste into the input row that a question cut may still go on into the
 /// row: a terminal sends a whole paste at once, so its end comes well within this.
 const PASTE_GRACE: Duration = Duration::from_secs(1);
+
+/// How often the view with the input row tries to connect again after its connection
+/// ended, such as while efrd restarts: with [`RECONNECT_PAUSE`], about 15 s.
+const RECONNECT_TRIES: u32 = 60;
+
+/// The pause between two tries to connect again.
+const RECONNECT_PAUSE: Duration = Duration::from_millis(250);
+
+/// How often in a row the view may subscribe again after the daemon ended its
+/// subscription or the connection, before the command gives up.
+const MAX_RECONNECTS: u32 = 3;
 
 /// How long Ctrl+C waits for the daemon to take the interrupt before the command ends
 /// anyway.
@@ -157,19 +174,21 @@ pub(crate) async fn follow(
     target: Target,
     row: Option<Row>,
 ) -> Result<(), CliError> {
-    let (compose, keys) = match row {
-        Some(Row { compose, reader }) if view.has_row() => {
-            (Some(compose), Some((reader, Asking::Row)))
+    let (compose, keys, origin) = match row {
+        Some(Row { compose, reader, origin }) if view.has_row() => {
+            (Some(compose), Some((reader, Asking::Row)), Some(origin))
         }
         Some(Row { reader, .. }) => {
             reader.stop().await;
-            (None, None)
+            (None, None, None)
         }
-        None => (None, None),
+        None => (None, None, None),
     };
     let mut follower = Follower {
         ctx,
-        client,
+        first: client,
+        again: None,
+        origin,
         target,
         last_seen: target.after,
         keys,
@@ -214,6 +233,10 @@ pub(crate) async fn follow(
             let step = view.note(&note, ctx.screen.size());
             follower.show(out, view, &step)?;
         }
+        if matches!(error, CliError::Client(error) if lost(error)) && view.give_back_pending() {
+            let step = view.note(GIVEN_BACK, ctx.screen.size());
+            follower.show(out, view, &step)?;
+        }
     }
     let text = view.row_text().to_owned();
     if let Some(note) = crate::draft::hand_back(ctx, &text).await {
@@ -249,7 +272,13 @@ struct TakenBack {
 
 struct Follower<'a> {
     ctx: &'a Context,
-    client: &'a Client,
+    /// The connection that the command made.
+    first: &'a Client,
+    /// The connection that the view made after the first one ended.
+    again: Option<Client>,
+    /// The origin to connect again as; `None` without the input row, which does not
+    /// connect again.
+    origin: Option<Origin>,
     target: Target,
     last_seen: Seq,
     /// Reads keys while an approval question or an input is pending, and for the whole
@@ -358,7 +387,7 @@ impl Follower<'_> {
             cursor: None,
             limit: Some(BLOCKING_PAGE),
         });
-        let page = match self.client.call::<ConversationHistoryResult>(method).await {
+        let page = match self.client().call::<ConversationHistoryResult>(method).await {
             Ok(page) => page,
             Err(error) => {
                 tracing::debug!(error = %error, "the approvals ahead of the prompt could not be read");
@@ -476,76 +505,175 @@ impl Follower<'_> {
         let mut resumes = self.ctx.resume.resumes();
         let mut ending = self.ctx.terminate.wait();
         let mut resubscribes = 0;
+        let mut reconnects = 0;
         loop {
-            let mut stream = self.subscribe().await?;
-            let resubscribe = loop {
-                self.watch_silence(view);
-                self.watch_tick(view);
-                tokio::select! {
-                    () = &mut interrupt => {
-                        // Ctrl+C clears the text of the input row first.
-                        if matches!(self.keys, Some((_, Asking::Row))) && view.row_clear() {
-                            interrupt = self.ctx.interrupt.wait();
-                            self.paint(out, view, false)?;
-                        } else {
-                            return Err(CliError::Interrupted);
-                        }
-                    }
-                    signal = &mut ending => {
-                        return Err(CliError::Ended { signal });
-                    }
-                    key = next_key(&mut self.keys) => {
-                        self.key(key, out, view).await?;
-                    }
-                    call_id = silent(&mut self.silence) => {
-                        self.silence = None;
-                        let step = view.silent(call_id, self.ctx.screen.size());
-                        self.apply(step, out, view, false).await?;
-                    }
-                    () = due(&mut self.frame) => {
-                        self.paint(out, view, false)?;
-                    }
-                    () = due(&mut self.tick) => {
-                        self.tick = None;
-                        self.paint(out, view, true)?;
-                    }
-                    Some(()) = resizes.next() => {
-                        self.paint(out, view, false)?;
-                    }
-                    Some(()) = resumes.next() => {
-                        view.resumed();
-                        if let Some((reader, _)) = &self.keys {
-                            reader.resumed();
-                        }
-                        self.paint(out, view, false)?;
-                    }
-                    () = pressed(&mut self.quit) => {
-                        self.quit = None;
-                        self.pressed(out, view).await?;
-                    }
-                    item = stream.next() => match item {
-                        Some(Ok(value)) => {
-                            resubscribes = 0;
-                            if let Some(end) = self.item(value, out, view).await? {
-                                return self.finished(end, view);
+            let again = match self.subscribe().await {
+                Ok(mut stream) => loop {
+                    self.watch_silence(view);
+                    self.watch_tick(view);
+                    tokio::select! {
+                        () = &mut interrupt => {
+                            // Ctrl+C clears the text of the input row first.
+                            if matches!(self.keys, Some((_, Asking::Row))) && view.row_clear() {
+                                interrupt = self.ctx.interrupt.wait();
+                                self.paint(out, view, false)?;
+                            } else {
+                                return Err(CliError::Interrupted);
                             }
                         }
-                        Some(Err(ClientError::Server { body })) if body.code == ErrorCode::Overflow => {
-                            break true;
+                        signal = &mut ending => {
+                            return Err(CliError::Ended { signal });
                         }
-                        Some(Err(ClientError::StreamOverflow { .. })) => break true,
-                        Some(Err(error)) => return Err(error.into()),
-                        None => return Err(CliError::SubscriptionEnded),
-                    },
-                }
+                        key = next_key(&mut self.keys) => {
+                            self.key(key, out, view).await?;
+                        }
+                        call_id = silent(&mut self.silence) => {
+                            self.silence = None;
+                            let step = view.silent(call_id, self.ctx.screen.size());
+                            self.apply(step, out, view, false).await?;
+                        }
+                        () = due(&mut self.frame) => {
+                            self.paint(out, view, false)?;
+                        }
+                        () = due(&mut self.tick) => {
+                            self.tick = None;
+                            self.paint(out, view, true)?;
+                        }
+                        Some(()) = resizes.next() => {
+                            self.paint(out, view, false)?;
+                        }
+                        Some(()) = resumes.next() => {
+                            view.resumed();
+                            if let Some((reader, _)) = &self.keys {
+                                reader.resumed();
+                            }
+                            self.paint(out, view, false)?;
+                        }
+                        () = pressed(&mut self.quit) => {
+                            self.quit = None;
+                            self.pressed(out, view).await?;
+                        }
+                        item = stream.next() => match item {
+                            Some(Ok(value)) => {
+                                resubscribes = 0;
+                                reconnects = 0;
+                                if let Some(end) = self.item(value, out, view).await? {
+                                    return self.finished(end, view);
+                                }
+                            }
+                            Some(Err(ClientError::Server { body })) if body.code == ErrorCode::Overflow => {
+                                break Again::Behind;
+                            }
+                            Some(Err(ClientError::StreamOverflow { .. })) => break Again::Behind,
+                            Some(Err(error)) if lost(&error) => break Again::Lost(error),
+                            Some(Err(error)) => return Err(error.into()),
+                            None => break Again::Ended,
+                        },
+                    }
+                },
+                Err(CliError::Client(error)) if lost(&error) => Again::Lost(error),
+                Err(error) => return Err(error),
             };
-            if resubscribe {
-                resubscribes += 1;
-                if resubscribes > MAX_RESUBSCRIBES {
-                    return Err(CliError::FellBehind { times: resubscribes });
+            let error = match again {
+                Again::Behind => {
+                    resubscribes += 1;
+                    if resubscribes > MAX_RESUBSCRIBES {
+                        return Err(CliError::FellBehind { times: resubscribes });
+                    }
+                    tracing::debug!(after = %self.last_seen, "the subscription fell behind; resuming");
+                    continue;
                 }
-                tracing::debug!(after = %self.last_seen, "the subscription fell behind; resuming");
+                // NOTE: without the input row, an end stays the command's error, as it
+                // was before the row. A daemon that stops ends its streams and then
+                // closes the connection: the view subscribes again, and that request
+                // fails once the connection is closed.
+                Again::Ended => {
+                    reconnects += 1;
+                    if self.origin.is_none() || reconnects > MAX_RECONNECTS {
+                        return Err(CliError::SubscriptionEnded);
+                    }
+                    continue;
+                }
+                Again::Lost(error) => error,
+            };
+            reconnects += 1;
+            if self.origin.is_none() || reconnects > MAX_RECONNECTS {
+                return Err(error.into());
             }
+            tracing::debug!(error = %error, "the connection to the daemon ended; connecting again");
+            let step = view.note(RECONNECTING, self.ctx.screen.size());
+            self.show(out, view, &step)?;
+            let connected = tokio::select! {
+                () = &mut interrupt => return Err(CliError::Interrupted),
+                signal = &mut ending => return Err(CliError::Ended { signal }),
+                connected = self.reconnect() => connected,
+            };
+            if !connected {
+                return Err(error.into());
+            }
+        }
+    }
+
+    /// The connection that requests go on: the one that the view made again, once it
+    /// had to, else the command's.
+    fn client(&self) -> &Client {
+        self.again.as_ref().unwrap_or(self.first)
+    }
+
+    /// Connects to the daemon again, as the command connected, up to
+    /// [`RECONNECT_TRIES`] times: efrd may be restarting. True when the view has a
+    /// connection that is open; nothing is done when it has one already.
+    async fn reconnect(&mut self) -> bool {
+        let Some(origin) = self.origin else {
+            return false;
+        };
+        if !self.client().is_closed() {
+            return true;
+        }
+        let tty = self.compose.as_ref().and_then(|compose| compose.context.tty.clone());
+        for _ in 0..RECONNECT_TRIES {
+            match self.ctx.connect(origin, tty.as_deref()).await {
+                Ok(client) => {
+                    self.again = Some(client);
+                    return true;
+                }
+                Err(error) => {
+                    tracing::debug!(error = %error, "connecting again failed");
+                    self.ctx.clock.sleep(RECONNECT_PAUSE).await;
+                }
+            }
+        }
+        false
+    }
+
+    /// Sends a request of the input row. When the connection ended, the view connects
+    /// again and sends the same request, with the same command id, so the daemon
+    /// answers from its receipt when it took the first one: the text never goes twice.
+    /// The daemon's refusal is the inner error; a connection that does not come back,
+    /// or Ctrl+C meanwhile, is the outer one.
+    async fn send<R: DeserializeOwned>(
+        &mut self,
+        method: Method,
+    ) -> Result<Result<R, efr_protocol::ErrorBody>, CliError> {
+        let first = self.client().call::<R>(method.clone()).await;
+        let answer = match first {
+            Err(error) if lost(&error) && self.origin.is_some() => {
+                tracing::debug!(error = %error, "a request of the input row lost its connection");
+                let mut interrupted = self.ctx.interrupt.wait();
+                let connected = tokio::select! {
+                    () = &mut interrupted => return Err(CliError::Interrupted),
+                    connected = self.reconnect() => connected,
+                };
+                if !connected {
+                    return Err(error.into());
+                }
+                self.client().call::<R>(method).await
+            }
+            answer => answer,
+        };
+        match answer {
+            Ok(result) => Ok(Ok(result)),
+            Err(error) => server_error(error).map(Err),
         }
     }
 
@@ -589,7 +717,7 @@ impl Follower<'_> {
             // daemon records them; an older daemon sends none.
             drafts: true,
         });
-        Ok(self.client.stream(method).await?)
+        Ok(self.client().stream(method).await?)
     }
 
     /// Shows one subscription item; the turn's end when it ended.
@@ -871,7 +999,12 @@ impl Follower<'_> {
                 settings: compose.settings,
             }),
         });
-        let note = match self.client.call::<TurnSteerResult>(method).await {
+        let answer = self.send::<TurnSteerResult>(method).await.inspect_err(|_| {
+            // NOTE: efrd did not come back, so nobody knows whether it took the steer;
+            // the text goes back to the user with the row rather than get lost.
+            view.row_append(&text);
+        })?;
+        let note = match answer {
             Ok(result) if result.queued => {
                 view.queued_prompt(result.turn_id, text, true);
                 None
@@ -880,14 +1013,13 @@ impl Follower<'_> {
                 view.steered(result.seq, text);
                 None
             }
-            Err(error) => {
+            Err(body) => {
                 view.row_append(&text);
-                Some(match server_error(error)? {
-                    body if body.code == ErrorCode::Conflict => {
-                        "not sent: the turn takes no more steers; press Tab to queue the text"
-                            .to_owned()
-                    }
-                    body => format!("not sent: {}", crate::format::one_line(&body.message)),
+                Some(if body.code == ErrorCode::Conflict {
+                    "not sent: the turn takes no more steers; press Tab to queue the text"
+                        .to_owned()
+                } else {
+                    format!("not sent: {}", crate::format::one_line(&body.message))
                 })
             }
         };
@@ -912,14 +1044,16 @@ impl Follower<'_> {
             last_command: compose.last_command.map(LastCommand::into_string),
             settings: compose.settings,
         });
-        let note = match self.client.call::<PromptSendResult>(method).await {
+        let answer = self.send::<PromptSendResult>(method).await.inspect_err(|_| {
+            view.row_append(&text);
+        })?;
+        let note = match answer {
             Ok(result) => {
                 view.queued_prompt(result.turn_id, text, false);
                 None
             }
-            Err(error) => {
+            Err(body) => {
                 view.row_append(&text);
-                let body = server_error(error)?;
                 Some(format!("not queued: {}", crate::format::one_line(&body.message)))
             }
         };
@@ -937,7 +1071,7 @@ impl Follower<'_> {
         let turn = view.turn();
         let method = self.interrupt_method(view, Unread::Resend, view.queued_turns());
         let size = self.ctx.screen.size();
-        let step = match self.client.call::<TurnInterruptResult>(method).await {
+        let step = match self.client().call::<TurnInterruptResult>(method).await {
             Ok(result) => {
                 self.escaped = Some(turn);
                 view.interrupt_result(&result, size)
@@ -1044,7 +1178,7 @@ impl Follower<'_> {
             TakeBack::Taken(prompt) => taken.followed = Some(prompt.text),
             TakeBack::Started(note) => {
                 let method = self.interrupt_method(view, unread, left);
-                match self.client.call::<TurnInterruptResult>(method).await {
+                match self.client().call::<TurnInterruptResult>(method).await {
                     Ok(result) => taken.interrupted = Some(result),
                     Err(error) => {
                         let body = server_error(error)?;
@@ -1089,7 +1223,7 @@ impl Follower<'_> {
             };
         }
         let method = self.interrupt_method(view, Unread::TakeBack, view.queued_turns());
-        match self.client.call::<TurnInterruptResult>(method).await {
+        match self.client().call::<TurnInterruptResult>(method).await {
             Ok(result) => {
                 view.taken_back(&result);
                 view.interrupted(stopped)
@@ -1135,7 +1269,7 @@ impl Follower<'_> {
             conversation_id: self.target.conversation,
             target: WithdrawTarget::Turn { turn_id: turn },
         });
-        match self.client.call::<PromptWithdrawResult>(method).await {
+        match self.client().call::<PromptWithdrawResult>(method).await {
             Ok(result) => Ok(TakeBack::Taken(result.withdrawn)),
             Err(error) => Ok(match server_error(error)? {
                 body if body.code == ErrorCode::Conflict => {
@@ -1190,7 +1324,7 @@ impl Follower<'_> {
             manual: kind.manual(),
         });
         let size = self.ctx.screen.size();
-        let step = match self.client.call::<InputRespondResult>(method).await {
+        let step = match self.client().call::<InputRespondResult>(method).await {
             Ok(_) => view.answer_sent(kind, size),
             // The command ended or stopped reading, or the call is gone: the daemon
             // wrote nothing.
@@ -1218,7 +1352,7 @@ impl Follower<'_> {
             call_id,
             decision,
         });
-        match self.client.call::<ApprovalRespondResult>(method).await {
+        match self.client().call::<ApprovalRespondResult>(method).await {
             Ok(_) => Ok(()),
             // Answered elsewhere first, or expired: the events say which.
             Err(ClientError::Server { body })
@@ -1248,7 +1382,7 @@ impl Follower<'_> {
             question_id,
             keep,
         });
-        match self.client.call::<SandboxSurfaceRespondResult>(method).await {
+        match self.client().call::<SandboxSurfaceRespondResult>(method).await {
             Ok(_) => Ok(()),
             // Answered elsewhere first, expired, or refused for this client: the events
             // say which, and the change stays in quarantine unless one says otherwise.
@@ -1373,6 +1507,28 @@ fn write(out: &mut Output, step: &Step) -> Result<(), CliError> {
     out.err(&step.err);
     out.out(&step.out)
 }
+
+/// Why the follow loop subscribes again.
+#[derive(Debug)]
+enum Again {
+    /// The subscription fell behind.
+    Behind,
+    /// The daemon ended the subscription.
+    Ended,
+    /// The connection ended.
+    Lost(ClientError),
+}
+
+/// True when `error` says that the connection ended, not that the daemon refused.
+fn lost(error: &ClientError) -> bool {
+    matches!(error, ClientError::Closed | ClientError::Io { .. })
+}
+
+/// The note while the view connects again.
+const RECONNECTING: &str = "the connection to efrd ended; connecting again";
+
+/// The note when the connection did not come back and what this view sent comes back.
+const GIVEN_BACK: &str = "efrd did not come back: what you queued or steered here goes back to your shell, because it may not run";
 
 /// How a prompt that `prompt.withdraw` was asked to take back fared.
 #[derive(Debug)]

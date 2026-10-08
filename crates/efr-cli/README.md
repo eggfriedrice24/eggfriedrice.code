@@ -423,6 +423,17 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   daemon reports a wait only after a quiet time (about 1 s for a hidden one), and the
   output shows the prompt earlier, so without this a password typed at once would
   land in the row, and Enter would send it as a steer.
+- When the connection to efrd ends while the row exists (efrd restarts, the socket
+  breaks), the view says so in a note, connects again as the command did (60 tries,
+  0.25 s apart), and subscribes after the last event that it showed. The
+  `turn_cancelled` events of a restarted efrd then put the texts of the cancelled
+  prompts and of the unread steers back into the row, as for any cancelled turn. A
+  steer or a prompt from the row whose answer was lost goes again with the same
+  command id, so efrd answers from its receipt when it took the first one, and the
+  text never goes twice. When efrd does not come back, the followed prompt that did
+  not start, the unread steers and the queued prompts of this view go back to the
+  shell with a note, because nothing says whether they will run. Without the row, a
+  connection that ends is the command's error, as before.
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
   turns bracketed paste on again.
 - When `efr` ends, the text that is still in the row, with the keys that the reader

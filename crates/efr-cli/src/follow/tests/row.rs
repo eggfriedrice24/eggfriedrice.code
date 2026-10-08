@@ -26,8 +26,8 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::keys::Keys as _;
 use crate::testing::{
-    Captured, Conn, ScriptedKeys, TestEnv, TestInterrupt, bare, call, capture, conversation, item,
-    turn,
+    Captured, Conn, FakeDaemon, ScriptedKeys, TestEnv, TestInterrupt, bare, call, capture,
+    conversation, item, turn,
 };
 
 /// Waits until stdout, without its escape sequences, holds `text`.
@@ -132,7 +132,7 @@ where
     let reader = setup.keys.keep().unwrap();
     let client = async {
         let client = ctx.connect(Origin::Shell, None).await.unwrap();
-        let row = Row { compose: compose(), reader };
+        let row = Row { compose: compose(), reader, origin: Origin::Shell };
         follow(ctx, &client, &mut out, &mut view, target(), Some(row)).await
     };
     let daemon = async { script(daemon.accept().await, seen).await };
@@ -875,4 +875,134 @@ async fn a_turn_that_ends_with_an_empty_row_writes_no_file() {
     .await;
     result.unwrap();
     assert!(!Path::new(&setup.draft_file()).parent().unwrap().exists());
+}
+
+/// Runs `follow` with the input row against a fake daemon that the script accepts on
+/// itself, so it can drop a connection and accept the next one, as efrd does when it
+/// restarts.
+async fn run_row_restarting<F>(
+    setup: &Setup,
+    ctx: &Context,
+    script: impl FnOnce(FakeDaemon, Captured) -> F,
+) -> (Result<(), CliError>, String)
+where
+    F: Future<Output = ()>,
+{
+    let daemon = setup.env.listen();
+    let (mut out, captured) = capture();
+    let seen = captured.clone();
+    let mut view = started_view().with_input();
+    let reader = setup.keys.keep().unwrap();
+    let client = async {
+        let client = ctx.connect(Origin::Shell, None).await.unwrap();
+        let row = Row { compose: compose(), reader, origin: Origin::Shell };
+        follow(ctx, &client, &mut out, &mut view, target(), Some(row)).await
+    };
+    let daemon = async { script(daemon, seen).await };
+    let (result, ()) = tokio::join!(client, daemon);
+    (result, bare(&captured.stdout()))
+}
+
+/// The review finding: when efrd restarted, only the text of the row went back to the
+/// shell. The prompts that the view queued and its unread steers were lost without a
+/// word, because the view never saw the `turn_cancelled` of the new efrd. Now the view
+/// connects again, and the cancelled turns put their texts back.
+#[tokio::test]
+async fn after_a_restart_of_efrd_the_cancelled_prompts_and_unread_steers_come_back() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, seen| async move {
+        let mut conn = daemon.accept().await;
+        let sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then write the tests", turn_2(), 11).await;
+        enter(&mut conn, &keys, "keep it small", 12).await;
+        // efrd stops: it ends the stream and closes the connection.
+        conn.end(sub).await;
+        drop(conn);
+        let mut conn = daemon.accept().await;
+        assert_eq!(conn.hello().tty.as_deref(), Some("/dev/pts/7"), "the same terminal");
+        let sub = subscribed(&mut conn, 10).await;
+        // The new efrd cancelled the running turn and the queued one.
+        conn.item(sub, &item(13, Event::TurnCancelled { turn_id: turn() })).await;
+        conn.item(sub, &item(14, Event::TurnCancelled { turn_id: turn_2() })).await;
+        conn.until_closed().await;
+        shows(&seen, "connecting again").await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::TurnCancelled)), "{result:?}");
+    assert!(out.contains("the connection to efrd ended; connecting again"), "{out}");
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small\nthen write the tests"));
+}
+
+/// The review finding: a steer whose answer was lost with the connection went back to
+/// the shell although efrd had recorded it, so it could go twice. Now the view connects
+/// again and sends the same request, and efrd answers from its receipt.
+#[tokio::test]
+async fn a_steer_whose_answer_was_lost_goes_again_with_the_same_command_id() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"use tabs\r").await;
+        let (_, first) = steer_request(&mut conn).await;
+        // efrd recorded the steer, and the connection broke before the answer.
+        drop(conn);
+        let mut conn = daemon.accept().await;
+        let (id, again) = steer_request(&mut conn).await;
+        assert_eq!(again.command_id, first.command_id, "a retry, which the receipt answers");
+        assert_eq!(again.text, "use tabs");
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(11), queued: false })
+            .await;
+        let sub = subscribed(&mut conn, 10).await;
+        let read = Event::SteeringDelivered { turn_id: turn(), steers: vec![Seq::new(11)] };
+        conn.item(sub, &item(12, read)).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("> use tabs"), "{out}");
+    assert_eq!(setup.handed_back(), None, "nothing goes back: efrd took the steer");
+}
+
+/// A clock whose sleeps never finish, except a frame's and the pause between two tries
+/// to connect again, so the tries run at once.
+#[derive(Debug)]
+struct RetryClock;
+
+impl efr_stdx::time::Clock for RetryClock {
+    fn now(&self) -> jiff::Timestamp {
+        crate::testing::now()
+    }
+
+    fn sleep(&self, duration: std::time::Duration) -> efr_stdx::time::Sleep {
+        if duration <= super::super::FRAME || duration == super::super::RECONNECT_PAUSE {
+            return Box::pin(std::future::ready(()));
+        }
+        Box::pin(std::future::pending())
+    }
+}
+
+/// When efrd does not come back, what the view queued and steered goes back to the
+/// shell with a note, because nothing says whether it will run.
+#[tokio::test]
+async fn when_efrd_does_not_come_back_what_the_view_sent_goes_back_to_the_shell() {
+    let setup = Setup::new();
+    let ctx = Context { clock: Arc::new(RetryClock), ..setup.context(true) };
+    let keys = Arc::clone(&setup.keys);
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then write the tests", turn_2(), 11).await;
+        enter(&mut conn, &keys, "keep it small", 12).await;
+        drop(daemon);
+        drop(conn);
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Client(_))), "{result:?}");
+    assert!(out.contains("efrd did not come back"), "{out}");
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small\nthen write the tests"));
 }

@@ -198,7 +198,7 @@ async fn send_and_follow(
     view.start();
     let target =
         Target { conversation: result.conversation_id, turn: result.turn_id, after: result.seq };
-    let row = reader.take().map(|reader| Row { compose, reader });
+    let row = reader.take().map(|reader| Row { compose, reader, origin });
     follow::follow(ctx, &client, out, &mut view, target, row).await
 }
 

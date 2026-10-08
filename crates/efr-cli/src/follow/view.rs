@@ -730,6 +730,30 @@ impl TurnView {
         self.note(RESENT, size)
     }
 
+    /// The connection to the daemon ended for good: the prompt that the view follows
+    /// and that did not start, the steers that no model call read and the prompts that
+    /// this view queued come back into the input row, oldest first, because nothing
+    /// says whether they will run. True when any came back.
+    pub(crate) fn give_back_pending(&mut self) -> bool {
+        let queued = self.queued;
+        let Some(input) = &mut self.input else {
+            return false;
+        };
+        let mut texts: Vec<String> = Vec::new();
+        if queued {
+            texts.extend(input.prompt.take());
+        }
+        texts.extend(input.take_unread());
+        while let Some(prompt) = input.next() {
+            texts.push(prompt.text);
+        }
+        for text in &texts {
+            input.line.append(text);
+        }
+        self.dirty = true;
+        !texts.is_empty()
+    }
+
     /// What an interrupt with Ctrl+C took back: the steers and the prompts that the
     /// daemon names come into the input row, in that order, and leave the lists. A
     /// steer that it does not name stays unread: a model call read it, or it stays

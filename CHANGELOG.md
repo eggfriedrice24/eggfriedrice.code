@@ -36,6 +36,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - Text that is still in the input row when `efr` ends goes back to your zsh command
   line as `, <text>`, so you can edit it and send it again. Without the zsh plugin,
   `efr` shows it as one muted line.
+- When efrd restarts while `efr` follows a turn with the input row, `efr` connects
+  again. Prompts that you queued and steers that the model did not read come back to
+  your command line when the restart cancelled them. A steer or a prompt whose answer
+  the restart lost is not sent twice.
 - The diff of each file write shows in its call block, in the diff colours: the first
   `render.diff_lines` lines (default 20), then a muted `… N more lines`. This works in
   every directory.
