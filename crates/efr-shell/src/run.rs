@@ -452,6 +452,19 @@ const BEFORE_LIMIT: usize = 8 * 1024;
 /// The launch error of a sandboxed run whose launcher wrote `started` but no result.
 const LAUNCHER_LOST: &str = "the launcher ended after the command started, without its result";
 
+/// The launcher's result for a sandboxed run that SIGINT or SIGQUIT ended before
+/// `started` and `result.json`: Ctrl+C or efr's interrupt came before the launcher
+/// caught the signal, or while the wrapper still ran in the shell. The user stopped
+/// the call; the sandbox did not fail, and no line ran. Nothing of the call ran yet, so
+/// the status is the trusted shell's own.
+fn interrupted_before_start(exit_code: Option<i32>) -> Option<SandboxResult> {
+    const SIGINT: i32 = 2;
+    const SIGQUIT: i32 = 3;
+    let signal = exit_code? - 128;
+    (signal == SIGINT || signal == SIGQUIT)
+        .then(|| SandboxResult { signal: Some(signal), ..SandboxResult::default() })
+}
+
 /// What a sandboxed run watches for its end (efr's auto spec, section 3.15).
 ///
 /// The sandboxed command shares the terminal, so it can print any mark, a fake `D`
@@ -751,7 +764,10 @@ impl MarkRun {
                 if facts.started {
                     return None;
                 }
-                (exit_code, at, Completion::SandboxFailed, None)
+                match interrupted_before_start(exit_code) {
+                    Some(result) => (exit_code, at, Completion::Finished, Some(Box::new(result))),
+                    None => (exit_code, at, Completion::SandboxFailed, None),
+                }
             }
             Check::Final { exit_code, at } => match &facts.result {
                 Some(result) if result.setup_error.is_none() && result.launch_error.is_none() => {
@@ -770,7 +786,10 @@ impl MarkRun {
                     };
                     (exit_code, at, Completion::SandboxFailed, Some(Box::new(lost)))
                 }
-                None => (exit_code, at, Completion::SandboxFailed, None),
+                None => match interrupted_before_start(exit_code) {
+                    Some(result) => (exit_code, at, Completion::Finished, Some(Box::new(result))),
+                    None => (exit_code, at, Completion::SandboxFailed, None),
+                },
             },
         };
         let keep = self.sandbox.as_ref().and_then(|watch| watch.keep).unwrap_or(u64::MAX);

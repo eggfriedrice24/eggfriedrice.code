@@ -45,7 +45,7 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | `src/fds.rs` | the only `unsafe` code: descriptor numbers the process does not own yet (ADR 0007) |
 | `src/real_fs.rs` | `FsView` over `openat2(RESOLVE_NO_SYMLINKS)` |
 | `src/os.rs` | the process, environment and time calls that `efr-stdx` routes elsewhere |
-| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored |
+| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call |
 | `src/bridge.rs` | the phase 2 seam |
 
 What the launcher writes, in order:
@@ -86,6 +86,16 @@ async runtime; it reads its own environment, which is the trusted shell's.
 - Nothing runs unsandboxed that efrd did not mark `unsandboxed` in the spec. A failure
   of any step before the child starts is a setup failure (exit status 125 and
   `setup_error`); the line never runs elsewhere.
+- Ctrl+C (SIGINT or SIGQUIT) during the setup is not a failure. The launcher catches
+  the signal first. When the signal comes before bwrap or the exit child starts, the
+  launcher does not start it. When the signal breaks the setup, the result has the
+  signal and no `setup_error`, and the status is 128 plus the signal (130 for
+  SIGINT). A signal that comes while bwrap or the exit child starts goes to the
+  call's process group again.
+- During a contained launch the launcher is a child subreaper. When a signal ends
+  bwrap before bwrap set the parent-death signal of the namespace's init, the init
+  becomes the launcher's child, and the launcher ends it with SIGKILL. Without this,
+  the init holds the pipes of the launch open, and the launcher waits forever.
 - Every bind source is opened with `openat2(RESOLVE_NO_SYMLINKS)`, one descriptor per
   bind, and the launcher clears `FD_CLOEXEC` on exactly the descriptors bwrap and the
   inner stage take; every other descriptor it inherited is close-on-exec.

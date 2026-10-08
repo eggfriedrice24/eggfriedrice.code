@@ -71,6 +71,12 @@ into the GitHub release notes, and it stops when the section is missing.
   steer or an interrupt that you sent just after you saw the end could go to the
   ended turn, and a prompt could wait behind it. Now efrd refuses the steer and the
   interrupt, and the prompt starts at once.
+- Ctrl+C while the auto sandbox starts a call now stops the call, with
+  status 130. Before, the call could fail with status 125 and the message "the sandbox
+  could not start", and efrd checked the sandbox again for no reason. A Ctrl+C that
+  came just before bwrap started was lost, and the command ran to its end.
+- The sandbox launcher no longer hangs when Ctrl+C ends bwrap while bwrap starts the
+  sandbox.
 
 ## [0.0.2] - 2026-10-08
 

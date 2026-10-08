@@ -16,7 +16,7 @@ use rustix::fs::{FlockOperation, Mode, OFlags};
 use rustix::io::Errno;
 
 use crate::error::SbxError;
-use crate::os;
+use crate::{os, signals};
 
 /// How long a launch waits for the lock of its conversation's layers.
 pub(crate) const LAYER_LOCK_WAIT: Duration = Duration::from_secs(5);
@@ -63,7 +63,12 @@ pub(crate) fn lock(dirs: &[PathBuf], wait: Duration) -> Result<Locked, SbxError>
         loop {
             match rustix::fs::flock(&fd, FlockOperation::NonBlockingLockExclusive) {
                 Ok(()) => break,
-                Err(Errno::WOULDBLOCK) if start.elapsed() < wait => os::sleep(RETRY),
+                // NOTE: Ctrl+C ends the wait; the launcher then reports the interrupt.
+                Err(Errno::WOULDBLOCK)
+                    if start.elapsed() < wait && signals::interrupted().is_none() =>
+                {
+                    os::sleep(RETRY);
+                }
                 Err(Errno::WOULDBLOCK) => return Ok(Locked::Busy { dir: dir.clone() }),
                 Err(Errno::INTR) => {}
                 Err(error) => return Err(SbxError::io("lock", dir, error.into())),

@@ -15,15 +15,18 @@ use super::Zsh;
 use crate::{CommandResult, NoProgress, RunRequest, SandboxRun};
 
 /// What the fake launcher does, from files that a test puts in the call dir:
-/// `fake-no-start` (it fails before it starts), `fake-apply` (it copies that file to
-/// `apply`), `fake-cwd` (the cwd of `result.json`), `fake-no-result` (it dies before
-/// its result) and `fake-interrupt` (it sends SIGINT to the shell as it ends).
+/// `fake-no-start` (it fails before it starts), `fake-sigint` (SIGINT kills it before
+/// it starts, as when Ctrl+C comes before the real launcher catches the signal),
+/// `fake-apply` (it copies that file to `apply`), `fake-cwd` (the cwd of
+/// `result.json`), `fake-no-result` (it dies before its result) and `fake-interrupt`
+/// (it sends SIGINT to the shell as it ends).
 const FAKE_LAUNCHER: &str = r#"#!/bin/sh
 # The fake efr-sbx of efr-shell's zsh tests. It records its arguments, runs the child
 # script directly as the fake bwrap does, and writes the launcher's files.
 dir=$3
 printf '%s\n' "$@" > "$dir/fake-args"
 if [ -e "$dir/fake-no-start" ]; then exit 125; fi
+if [ -e "$dir/fake-sigint" ]; then trap - INT; kill -INT $$; sleep 5; exit 99; fi
 : > "$dir/started"
 # The child's dir holds what the real launcher binds for it: the snapshot and the
 # line; the state of earlier calls is not under test here.

@@ -127,6 +127,13 @@ pub(crate) enum SbxError {
         source: io::Error,
     },
 
+    /// SIGINT or SIGQUIT came before the launcher started the call, so it did not.
+    #[error("signal {signal} stopped the call before it started")]
+    Interrupted {
+        /// The signal.
+        signal: i32,
+    },
+
     /// Something that a later phase builds.
     #[error("{what} comes in a later phase of the auto sandbox")]
     LaterPhase {

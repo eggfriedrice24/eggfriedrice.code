@@ -3,8 +3,8 @@ use efr_screen::ShellMarkScanner;
 use pretty_assertions::assert_eq;
 
 use super::{
-    CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputUpdate, RunRequest, marked_line,
-    screen_tail, timed_out,
+    CommandResult, Completion, Delimiter, MarkRun, MarkStep, OutputUpdate, RunRequest,
+    interrupted_before_start, marked_line, screen_tail, timed_out,
 };
 
 fn row(text: &str) -> RowCells {
@@ -146,4 +146,19 @@ fn other_runners_can_build_results() {
     assert_eq!(result.delimiter, Delimiter::Sentinel);
     assert_eq!(CommandResult::finished(None, "abc", "/").output_bytes, 3);
     assert_eq!(OutputUpdate::new(3, "abc").tail, "abc");
+}
+
+#[test]
+fn only_sigint_or_sigquit_before_the_start_is_an_interrupt() {
+    for (status, signal) in [(130, 2), (131, 3)] {
+        let result = interrupted_before_start(Some(status)).unwrap();
+        assert_eq!(result.signal, Some(signal));
+        assert_eq!(result.setup_error, None);
+        assert_eq!(result.status(), status);
+    }
+    // 125 is the wrapper's own refusal, 137 a launcher that SIGKILL ended (the out of
+    // memory killer, say): the sandbox failed.
+    for status in [None, Some(0), Some(1), Some(125), Some(127), Some(137)] {
+        assert_eq!(interrupted_before_start(status), None, "{status:?}");
+    }
 }

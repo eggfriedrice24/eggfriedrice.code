@@ -61,10 +61,12 @@ pub(crate) fn reserve_fds() -> Result<OwnedFd, SbxError> {
 }
 
 fn run(call_dir: &Path) -> Result<i32, SbxError> {
-    let reserved = reserve_fds()?;
     // The handlers only set a flag; holding them keeps the launcher alive through
-    // Ctrl+C so it can write the result.
+    // Ctrl+C so it can write the result. They come first, so that the window in which
+    // Ctrl+C ends the launcher itself is as short as it can be (efr-shell reports
+    // that case as an interrupt too).
     signals::catch_job_control()?;
+    let reserved = reserve_fds()?;
     let call = CallDir::open(call_dir)?;
     let result = match call.spec.launch {
         SpecLaunch::Contained => {
@@ -76,6 +78,10 @@ fn run(call_dir: &Path) -> Result<i32, SbxError> {
         }
         _ => setup_failure("this launcher does not know the spec's launch kind".to_owned()),
     };
+    let result = match signals::interrupted() {
+        Some(signal) if result.setup_error.is_some() => stopped_before_run(result, signal),
+        _ => result,
+    };
     call.dir.write_atomic(RESULT_FILE, &result.to_json()?)?;
     Ok(result.status())
 }
@@ -83,6 +89,27 @@ fn run(call_dir: &Path) -> Result<i32, SbxError> {
 /// A result for a call whose sandbox did not start.
 pub(crate) fn setup_failure(reason: String) -> SandboxResult {
     SandboxResult { setup_error: Some(reason), ..SandboxResult::default() }
+}
+
+/// The result of a call whose setup `signal` (SIGINT or SIGQUIT) broke or stopped:
+/// the user stopped the call, and the sandbox did not fail. The command did not run,
+/// and the status is 128 plus the signal, as for any job that Ctrl+C ends.
+pub(crate) fn stopped_before_run(result: SandboxResult, signal: i32) -> SandboxResult {
+    SandboxResult {
+        started: result.started,
+        signal: Some(signal),
+        timings: result.timings,
+        ..SandboxResult::default()
+    }
+}
+
+/// Fails with [`SbxError::Interrupted`] when SIGINT or SIGQUIT came: the launcher then
+/// does not start the call. It runs right before bwrap or the exit child starts.
+pub(crate) fn stop_if_interrupted() -> Result<(), SbxError> {
+    match signals::interrupted() {
+        Some(signal) => Err(SbxError::Interrupted { signal }),
+        None => Ok(()),
+    }
 }
 
 /// A result for a launcher error: a setup failure before `$CALL/started`, and after it
@@ -155,7 +182,10 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         }
     };
     timings.lap("layer_lock");
-    let outcome = launch::run(&launch, &mut || call.dir.touch(STARTED_FILE))?;
+    let outcome = launch::run(&launch, &mut || {
+        stop_if_interrupted()?;
+        call.dir.touch(STARTED_FILE)
+    })?;
     drop(layers_lock);
     timings.append(outcome.timings);
     let mut result = SandboxResult {

@@ -475,7 +475,7 @@ const RUNNING: &str = "efr-test-running";
 ///
 /// The signal waits for the command and not for a fixed time: bwrap's setup can take
 /// longer than any fixed time on a machine under load, and a SIGINT before the command
-/// starts is a setup failure (status 125), not an interrupted job.
+/// starts stops the call before it runs (the tests of the setup below).
 fn interrupted(fixture: &Fixture, line: &str) -> (Run, Duration) {
     let call_dir = fixture.prepare(&format!("print {RUNNING}; {line}"));
     let mut command = fixture.command(&call_dir, &fixture.project);
@@ -530,6 +530,98 @@ fn ctrl_c_reaches_child_while_launcher_catches() {
     assert!(result.started);
     assert_eq!(result.status(), 130, "{run:#?}");
     assert_eq!(result.setup_error, None);
+}
+
+/// Waits until the launcher `pid` catches SIGINT: from then on, SIGINT no longer ends
+/// the launcher itself.
+fn wait_for_the_handler(pid: u32) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+        let caught = status
+            .lines()
+            .find_map(|line| line.strip_prefix("SigCgt:"))
+            .and_then(|mask| u64::from_str_radix(mask.trim(), 16).ok())
+            .unwrap_or_default();
+        // Bit n - 1 of the mask is signal n; SIGINT is 2.
+        if caught & (1 << 1) != 0 {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the launcher never caught SIGINT: {status}");
+        std::thread::sleep(Duration::from_micros(200));
+    }
+}
+
+/// Starts the call of `call_dir` in a process group of its own, sends SIGINT to the
+/// group `after` the launcher caught it, and returns the run and the time from the
+/// signal to the end.
+fn interrupted_in_setup(fixture: &Fixture, call_dir: &Path, after: Duration) -> (Run, Duration) {
+    let mut command = fixture.command(call_dir, &fixture.project);
+    command.process_group(0);
+    let child = command.spawn().unwrap();
+    let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+    wait_for_the_handler(child.id());
+    std::thread::sleep(after);
+    let signalled = Instant::now();
+    rustix::process::kill_process_group(group, rustix::process::Signal::INT).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let spent = signalled.elapsed();
+    let status = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    (fixture.collect(call_dir, (status, stdout, stderr)), spent)
+}
+
+#[test]
+fn ctrl_c_while_the_launch_waits_stops_the_call_before_it_runs() {
+    // Another launch of the conversation holds its cache layers, so this one waits in
+    // its setup until Ctrl+C comes.
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let cache = fixture.home.join(".cache");
+    write(&cache.join("index"), "one\n");
+    fixture.cache(&cache);
+    let layers = fixture.spec.runtime.sandbox_dir.join("cache");
+    fs::create_dir_all(fixture.spec.caches[0].upper.parent().unwrap()).unwrap();
+    let held = fs::File::open(&layers).unwrap();
+    rustix::fs::flock(&held, rustix::fs::FlockOperation::LockExclusive).unwrap();
+    let marker = fixture.project.join("ran");
+    let call_dir = fixture.prepare(&format!(": > {}", q(&marker)));
+    let (run, spent) = interrupted_in_setup(&fixture, &call_dir, Duration::from_millis(20));
+    drop(held);
+    // The user stopped the call: status 130, not a setup failure (125).
+    run.expect_status(130);
+    let result = run.result();
+    assert_eq!(result.setup_error, None, "{run:#?}");
+    assert_eq!(result.signal, Some(2), "{run:#?}");
+    assert!(!result.started, "{run:#?}");
+    assert!(!call_dir.join("started").exists(), "bwrap started after Ctrl+C");
+    assert!(!marker.exists(), "the line ran after Ctrl+C");
+    // The wait for the layers ends at the signal, not after its 5 s.
+    assert!(spent < Duration::from_secs(4), "the launcher waited on: {spent:?}");
+}
+
+#[test]
+fn ctrl_c_at_any_moment_of_the_setup_is_an_interrupt() {
+    // Ctrl+C right after the launcher caught SIGINT, and then later and later, so that
+    // it comes in each step of the setup: the plan, bwrap's mounts, the inner stage and
+    // the child's start. Each time the user stopped the call; never a setup failure.
+    let ready = sandbox_or_skip!();
+    for launch in [SpecLaunch::Contained, SpecLaunch::Unsandboxed] {
+        let mut fixture = Fixture::new(&ready);
+        fixture.spec.launch = launch;
+        for step in 0..24_u64 {
+            // NOTE: a SIGINT that comes while the child zsh starts can be lost there,
+            // and the line then runs to its end; the sleep keeps that case short.
+            let call_dir = fixture.prepare("sleep 2");
+            let after = Duration::from_micros(step * 200);
+            let (run, spent) = interrupted_in_setup(&fixture, &call_dir, after);
+            let at = format!("{launch:?}, {after:?} after the handler");
+            assert_eq!(run.status, 130, "{at}: {run:#?}");
+            assert_eq!(run.result().setup_error, None, "{at}: {run:#?}");
+            assert!(spent < Duration::from_secs(10), "{at}: the launcher ran on: {spent:?}");
+        }
+    }
 }
 
 #[test]

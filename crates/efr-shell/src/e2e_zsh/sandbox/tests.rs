@@ -212,6 +212,31 @@ async fn interrupt_after_launcher_still_prints_end_mark() {
 }
 
 #[tokio::test]
+async fn a_launcher_that_sigint_ends_before_it_starts_reports_an_interrupt() {
+    let Some(zsh) =
+        Zsh::start_sandboxed("a_launcher_that_sigint_ends_before_it_starts_reports_an_interrupt")
+    else {
+        return;
+    };
+    // Ctrl+C or efr's interrupt can come before the launcher catches SIGINT. Then the
+    // signal ends it before it writes `started` or `result.json`: the user stopped the
+    // call, and the sandbox did not fail.
+    let run = zsh.prepare(1);
+    std::fs::write(run.dir.join("fake-sigint"), "").unwrap();
+    let result = zsh.run_sandboxed(&run, "touch never").await;
+    assert_eq!(result.completion, Completion::Finished, "{result:?}");
+    assert_eq!(result.exit_code, Some(130), "{result:?}");
+    let sandbox = result.sandbox.as_ref().unwrap();
+    assert_eq!(sandbox.signal, Some(2), "{result:?}");
+    assert!(sandbox.setup_error.is_none() && sandbox.launch_error.is_none(), "{result:?}");
+    assert!(!zsh.start_dir().join("never").exists(), "the line ran");
+
+    // The shell takes the next call.
+    let next = zsh.prepare(2);
+    assert_eq!(zsh.run_sandboxed(&next, "true").await.completion, Completion::Finished);
+}
+
+#[tokio::test]
 async fn apply_rejects_bad_names() {
     let Some(zsh) = Zsh::start_sandboxed("apply_rejects_bad_names") else {
         return;

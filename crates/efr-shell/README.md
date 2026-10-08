@@ -427,6 +427,12 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   no `started` file exists ends the run at once as `SandboxFailed`: the wrapper never
   ran the launcher. Anything else waits for the timeout. The facts are read after the
   chunk that carried the `D`, by the session's actor, with no other message between.
+- One exception: when the `D` has status 130 or 131 and no `started` file and no
+  `result.json` exist, SIGINT or SIGQUIT ended the launcher (or the wrapper) before
+  the launcher caught the signal. The user stopped the call, and the sandbox did not
+  fail: the run is `Finished`, and `CommandResult::sandbox` holds a result with the
+  signal and no setup error. Nothing of the call ran, so no sandboxed code can make
+  this status.
 - The marks between the run's `C` and its end mark are not applied to the shell's
   state: a fake `D`, `A` and `B` cannot make the shell look ready, and a fake OSC 7
   cannot move its directory. The state takes the held marks after all only when the

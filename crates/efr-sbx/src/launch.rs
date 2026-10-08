@@ -38,7 +38,7 @@ pub(crate) use self::status::{BwrapExit, Ending, ending, parse_status};
 use crate::error::SbxError;
 use crate::real_fs::RealFs;
 use crate::timings::Timings;
-use crate::{fds, os};
+use crate::{exit_child, fds, os, signals};
 
 /// The most bytes of bwrap's stderr and of its status stream that the launcher keeps.
 const MAX_SIDE_BYTES: usize = 64 * 1024;
@@ -145,6 +145,10 @@ pub(crate) fn run(
         let copy = stdout.try_clone().map_err(|error| SbxError::os("copy stdout", error))?;
         command.stdout(Stdio::from(copy));
     }
+    // NOTE: an init that bwrap leaves behind must become the launcher's child, so that
+    // end_orphans can end it (see there).
+    rustix::process::set_child_subreaper(Some(rustix::process::getpid()))
+        .map_err(|error| SbxError::os("become a child subreaper", error.into()))?;
     let spawned = command.spawn();
     // The launcher's copies of what bwrap took close now, so the readers see the end
     // of each pipe when the last process inside is gone.
@@ -155,6 +159,8 @@ pub(crate) fn run(
     });
     let mut child = spawned
         .map_err(|source| SbxError::Spawn { program: launch.spec.runtime.bwrap.clone(), source })?;
+    // NOTE: a SIGINT between the last check and the fork reached only the launcher.
+    signals::forward_interrupt();
     let stderr = child.stderr.take().map(OwnedFd::from);
     let records = reader("efr-sbx-records", records_read, launch.spec.limits.max_bytes)?;
     let errors = match stderr {
@@ -173,6 +179,7 @@ pub(crate) fn run(
         failed
     });
     let exit = child.wait().map_err(|error| SbxError::os("wait for bwrap", error))?;
+    end_orphans();
     timings.lap("child");
     // NOTE: the last reference to the call's mount namespace goes here, in a process
     // that is not exiting, so the kernel tears the overlays down before this returns.
@@ -198,6 +205,21 @@ pub(crate) fn run(
         None => ending(parse_status(&statuses), &String::from_utf8_lossy(&errors), bwrap),
     };
     Ok(Outcome { ending, records, timings: timings.into_steps() })
+}
+
+/// Ends what bwrap left behind once it exited. bwrap clones the namespace's init and
+/// only then sets the init's parent-death signal. When Ctrl+C ends bwrap in between,
+/// the init waits for bwrap forever: it is the init of its namespace, so it ignores
+/// every signal from outside but SIGKILL, and it holds the pipes of the launch open,
+/// so the launcher would never see their end. The launcher is a child subreaper, so
+/// such an init is its child now; SIGKILL ends it and every process in its namespace.
+/// After a normal end, bwrap leaves nothing, and this finds nothing.
+fn end_orphans() {
+    for (pid, _) in exit_child::descendants() {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
+    // Waits for each child until none is left (ECHILD).
+    while let Ok(Some(_)) = rustix::process::wait(rustix::process::WaitOptions::empty()) {}
 }
 
 /// The layer helper's handshake of one launch.

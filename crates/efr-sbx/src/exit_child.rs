@@ -31,6 +31,7 @@ use crate::finish::{self, FinalCwd};
 use crate::launch;
 use crate::os;
 use crate::real_fs::RealFs;
+use crate::signals;
 
 /// How long the descendants get between SIGTERM and SIGKILL.
 const GRACE: Duration = Duration::from_secs(2);
@@ -55,6 +56,7 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
     rustix::io::dup2(&records_write, &mut records_slot)
         .map_err(|error| SbxError::os("put the records pipe on fd 3", error.into()))?;
     drop(records_write);
+    call::stop_if_interrupted()?;
     call.dir.touch(STARTED_FILE)?;
     let spawned = os::command(&spec.runtime.zsh)
         .arg("-f")
@@ -67,6 +69,8 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
     drop(records_slot);
     let mut child =
         spawned.map_err(|source| SbxError::Spawn { program: spec.runtime.zsh.clone(), source })?;
+    // NOTE: a SIGINT between the last check and the fork reached only the launcher.
+    signals::forward_interrupt();
     let records = launch::reader("efr-sbx-records", records_read, spec.limits.max_bytes)?;
     let status = child.wait().map_err(|error| SbxError::os("wait for the exit child", error))?;
     let ending = end_descendants(&mut System { start: os::now() });
@@ -172,7 +176,7 @@ impl Processes for System {
 
 /// Every descendant of this process, as `(pid, name)`, found through the `children`
 /// lists of `/proc`.
-fn descendants() -> Vec<(Pid, String)> {
+pub(crate) fn descendants() -> Vec<(Pid, String)> {
     let mut found = Vec::new();
     let mut seen = BTreeSet::new();
     let mut todo = vec![rustix::process::getpid().as_raw_nonzero().get()];
