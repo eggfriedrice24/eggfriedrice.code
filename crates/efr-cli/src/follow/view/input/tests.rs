@@ -26,17 +26,21 @@ fn typed(text: &str) -> Input {
 #[test]
 fn an_empty_row_shows_the_hint_and_waits_after_the_mark() {
     let tail = Input::default().row(&plain(), 60);
-    assert_eq!(tail.text, format!("\u{203a} {HINT}\n"));
+    // The cursor waits on a blank cell and the hint starts after it, so a block cursor
+    // covers no letter of the hint. Typed text starts at the cursor.
+    assert_eq!(tail.text, format!("\u{203a}  {HINT}\n"));
     assert_eq!(tail.cursor, Some(Cursor { line: 0, column: 2 }));
+    assert_eq!(tail.text.chars().nth(2), Some(' '), "the cell under the cursor is blank");
+    assert_eq!(typed("a").row(&plain(), 60).text, "\u{203a} a\n");
     // In colour, the mark is in the accent role and the hint muted.
     let painted = Input::default().row(&RenderOptions::new(60), 60);
-    assert_eq!(readable(&painted.text), format!("\\e[33m\u{203a}\\e[0m \\e[2m{HINT}\\e[0m\n"));
+    assert_eq!(readable(&painted.text), format!("\\e[33m\u{203a}\\e[0m  \\e[2m{HINT}\\e[0m\n"));
 }
 
 #[test]
 fn the_hint_is_cut_to_a_narrow_screen() {
     let tail = Input::default().row(&plain(), 20);
-    assert_eq!(tail.text, "\u{203a} enter steer \u{b7} ta\u{2026}\n");
+    assert_eq!(tail.text, "\u{203a}  enter steer \u{b7} t\u{2026}\n");
 }
 
 #[test]

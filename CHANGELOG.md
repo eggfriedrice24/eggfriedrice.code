@@ -73,6 +73,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A long command no longer leaves a short first word alone in its row (`cp \`). A row
   breaks at a space only when it is at least half full; else it breaks inside the word
   with `↩`.
+- The hint of an empty input row starts one column after the cursor. Before, a block
+  cursor stood on the first letter of the hint and seemed to cover it. efr does not
+  change the cursor shape.
 
 ### Fixed
 

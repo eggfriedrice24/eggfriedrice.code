@@ -2,11 +2,12 @@
 //! steers that no model call read yet, and the prompts that this view queued.
 //!
 //! The row is the last part of the live zone, below the status row: `› ` and the text,
-//! or a muted hint while it is empty. A long text goes on in the next row, at most
-//! [`MAX_ROWS`] rows show, and the rows around the cursor are the ones that show. Above
-//! the status row, each unread steer shows as `↳ steer: <first line>` and each queued
-//! prompt as `↳ queued: <first line>`, muted. A steer that a model call read goes to the
-//! scrollback as the user's message, as `efr history` shows a prompt.
+//! or, while it is empty, a blank cell for the cursor and then a muted hint. A long
+//! text goes on in the next row, at most [`MAX_ROWS`] rows show, and the rows around
+//! the cursor are the ones that show. Above the status row, each unread steer shows as
+//! `↳ steer: <first line>` and each queued prompt as `↳ queued: <first line>`, muted. A
+//! steer that a model call read goes to the scrollback as the user's message, as
+//! `efr history` shows a prompt.
 
 use efr_protocol::{Seq, TurnId};
 use efr_render::RenderOptions;
@@ -161,8 +162,8 @@ impl Input {
         out
     }
 
-    /// The input row at `width`: `› ` and the text, or the hint while it is empty, and
-    /// the cursor in it.
+    /// The input row at `width`: `› ` and the text, or the hint one column after the
+    /// cursor while it is empty, and the cursor in it.
     pub(crate) fn row(&self, options: &RenderOptions, width: u16) -> Tail {
         // The mark and its blank, and one column for the cursor after the last
         // character of a full row.
@@ -170,8 +171,11 @@ impl Input {
         let method = options.width_method();
         let mark = format!("{} ", format::paint(MARK, Tone::Accent, options));
         if self.line.is_empty() {
-            let hint = format::cut(HINT, columns, method);
-            let text = format!("{mark}{}\n", format::paint(&hint, Tone::Dim, options));
+            // NOTE: the hint starts one column after the cursor. A block cursor on the
+            // first letter of the hint looks like it covers that letter, and the user
+            // keeps the cursor shape that they chose.
+            let hint = format::cut(HINT, columns.saturating_sub(1).max(1), method);
+            let text = format!("{mark} {}\n", format::paint(&hint, Tone::Dim, options));
             return Tail { text, cursor: Some(Cursor { line: 0, column: 2 }) };
         }
         let layout = self.line.layout(columns, method);

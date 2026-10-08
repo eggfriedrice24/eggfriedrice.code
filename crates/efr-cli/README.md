@@ -353,11 +353,13 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   timeout (0.1 s) is Esc. Bracketed paste is on while the row exists (`CSI ? 2004 h`)
   and off on every way out, a panic and SIGQUIT included (`TurnView::restore`).
 - The row is `› ` and the text, or the muted hint `enter steer · tab queue · esc
-  interrupt` while it is empty. A long text goes on in the next row, at a grapheme
-  cluster, by the width that the terminal counts; at most five rows show, the ones
-  around the cursor. The cursor waits in the row where the next character goes
-  (`live::Cursor`); the next frame starts there and moves up only over the rows above
-  it.
+  interrupt` while it is empty. The hint starts one column after the cursor, so the
+  cursor stays on a blank cell and does not cover a letter of the hint; efr never
+  changes the cursor shape. Typed text starts at the cursor. A long text goes on in
+  the next row, at a grapheme cluster, by the width that the terminal counts; at most
+  five rows show, the ones around the cursor. The cursor waits in the row where the
+  next character goes (`live::Cursor`); the next frame starts there and moves up only
+  over the rows above it.
 - `row.rs` edits the line: printable text and UTF-8, Backspace and Delete (one
   grapheme cluster), Left and Right, Home and End, Ctrl+A, Ctrl+E, Ctrl+U (to the start
   of the line), Ctrl+K (to its end), Ctrl+W (the word before the cursor), Alt+B and

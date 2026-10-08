@@ -4,7 +4,7 @@ expression: "shots.join(\"\\n\\n\")"
 ---
 [empty]
 • waiting for the model
-› ▏enter steer · tab queue · esc interrupt
+› ▏ enter steer · tab queue · esc interrupt
 
 [typed]
 • waiting for the model
