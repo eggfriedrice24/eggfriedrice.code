@@ -58,7 +58,7 @@ shipped binary.
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -211,7 +211,12 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
 - The model's context window and its compaction: the contract in
   `crates/efr-conversation/README.md`, section "Context"; the numbers in
-  `crates/efr-conversation/src/context.rs`; the wire types in
+  `crates/efr-conversation/src/context.rs`; pruning, the cut, the summary request and
+  its prompt (`compaction/prompt.md`) in `crates/efr-conversation/src/compaction.rs`;
+  the fresh context block in `crates/efr-conversation/src/fresh.rs`; the guards and the
+  compaction inside a turn in `crates/efr-conversation/src/turn/compact.rs`; the manual
+  one in `crates/efr-conversation/src/actor/compact.rs`; the newest compactions in
+  `crates/efr-store/src/compactions.rs`; the wire types in
   `crates/efr-protocol/src/compaction.rs`; `[compaction]` in
   `crates/efr-config/src/tables/compaction.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.

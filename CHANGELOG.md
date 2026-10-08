@@ -102,6 +102,24 @@ into the GitHub release notes, and it stops when the section is missing.
   entry can also name a built-in model to change its limits. `models.list` shows the
   context window of each model that efr knows. On an API key, a model's own output
   limit wins over `[model] max_output_tokens`.
+- efr compacts the context of a conversation before it fills the model's window. When
+  a request reaches `[compaction] auto_at` percent of the window (76 by default),
+  efrd first gives old tool outputs a short stub, when that frees at least 20000
+  tokens. When that is not enough, the conversation's own model writes a summary with
+  fixed sections: the task and its state, the decisions, the important details, the
+  files and places, the open work and the next step, the directories and the shell,
+  and the open system tasks. The next requests send a fresh block that efrd reads from
+  disk (your directory, the hidden shell's directory and its jobs, the git status and
+  the `AGENTS.md` files from the project root down), the summary, and the newest
+  messages word for word, about 20000 tokens. The turn goes on after the compaction.
+  `[compaction] auto = false` turns it off. All events stay in the log.
+- `efr compact [focus]`, and `,compact [focus]` in zsh, compact the context of the
+  terminal's conversation now. The focus words tell the summary what it must keep. A
+  manual compaction starts no turn, and a prompt that you send meanwhile waits for it.
+  While a turn runs, efr refuses it.
+- `efr history` shows a line where each compaction happened, such as `context
+  compacted (auto): 231k -> 24.0k tokens, kept 3 turns, summary 3.2k`. With
+  `--verbose` it also shows the summary.
 
 ### Changed
 
@@ -123,9 +141,13 @@ into the GitHub release notes, and it stops when the section is missing.
   guard runs git only for a git config that changed since the last call, reads no
   `*.sample` hook, and lists directories faster. In a copy of efr's own repository, the
   guard went from 15 ms to 6 ms per call.
-- When a request is too large for the model's context window, the turn fails with
-  `the request is larger than the model's context window`, and efr never sends that
-  request again as a retry. Before, it failed with the provider's own message.
+- When the model refuses a request as too large for its context window, efrd
+  compacts the context once and sends the request again. When the model refuses it
+  again, or when auto compaction is off, the turn fails with `the context is full:
+  281k of 272k tokens; run ,compact or start a new conversation`. efrd never sends a
+  request that it estimates above 95% of the window. After two compactions in a row
+  that leave the context too full, a turn stops compacting and says so. Before, the
+  turn failed with the provider's own message.
 
 ### Fixed
 
