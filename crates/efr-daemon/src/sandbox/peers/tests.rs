@@ -111,8 +111,14 @@ async fn hidden_shell_session_peer_gets_read_only() {
         leaders.extend(children(shell_pid));
         leaders.into_iter().find(|pid| super::session(*pid) == Some(*pid))
     });
+    // Wait until the double fork is done: the orphan's parent is outside the session.
+    // The subshell in the middle lives only for a moment. A test that takes any member
+    // whose parent is not the shell can take that subshell just as it ends, and then
+    // the check sees a gone process.
     let orphan = eventually(|| {
-        session_members(zsh).into_iter().find(|pid| super::parent(*pid) != Some(zsh))
+        session_members(zsh).into_iter().find(|pid| {
+            matches!(super::parent(*pid), Some(parent) if super::session(parent) != Some(zsh))
+        })
     });
     let own = std::process::id();
     assert_eq!(side(Some(orphan), &[zsh], own), PeerSide::ModelSide);
