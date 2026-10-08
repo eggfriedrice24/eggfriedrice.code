@@ -456,7 +456,8 @@ In a release build, it fails when a call in `auto` costs 40 ms more than a call 
 `cautious`, or when a call costs more than 250 ms. The turns in the two modes take
 turns, so both see the same load. A debug build compares the fastest call of each
 mode, because load delays some calls but never makes one faster: it fails when the
-fastest call in `auto` costs 75 ms more than the fastest call in `cautious`.
+fastest call in `auto`, from the project or from the home directory, costs 75 ms more
+than the fastest call in `cautious`.
 
 ## Settings
 
