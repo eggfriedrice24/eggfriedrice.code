@@ -168,9 +168,9 @@ pub struct OpenAiSettings {
     /// Replaces the public API's base URL. Needs a restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
-    /// How model calls reach OpenAI: `auto` uses a WebSocket for a model that prefers
-    /// one (every model of the built-in list) and HTTP for the others, `on` uses a
-    /// WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each
+    /// How model calls reach OpenAI: `auto` uses a WebSocket for each model that the
+    /// model catalog marks with `prefer_websockets` and HTTP for the other models, `on`
+    /// uses a WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each
     /// conversation, so a call skips the connection setup. A call that the WebSocket
     /// cannot serve goes over HTTP. Needs a restart.
     pub websocket: WebSocketChoice,

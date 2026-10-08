@@ -226,7 +226,8 @@ and `codex-rs/core/src/client.rs`, read on 2026-10-08):
 What efr does not copy:
 
 - Codex reads `supports_websockets` from the provider and keeps `prefer_websockets`
-  only in its bundled catalog; efr chooses per model from that catalog value.
+  only in its catalog; efr chooses per model from the `prefer_websockets` of its own
+  current catalog (fetched, cached or built in).
 - Codex retries a stream that failed after the server took it, and switches to HTTP
   only after its retries; efr never sends a call again once an answer has started, and
   goes over HTTP at once when the server did not take a call. Codex's switch lasts for

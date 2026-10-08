@@ -10,7 +10,8 @@ use super::IDLE;
 use crate::testing::{
     FakeTokens, FixedRng, ManualClock, ResponsesServer, Socket, Step, fixture, sse_events,
 };
-use crate::{OpenAiConfig, OpenAiProvider, WebSocketMode};
+use crate::{Backend, Catalog, Fetched, ModelCatalog, OpenAiConfig, OpenAiProvider, WebSocketMode};
+use efr_stdx::time::Clock as _;
 
 const KEY: &str = "0192f0c1-conversation";
 
@@ -410,6 +411,39 @@ async fn the_switch_and_the_model_choose_the_transport() {
         assert_eq!(setup.server.sockets().len(), usize::from(socket), "{case}");
         assert_eq!(setup.server.posts().len(), usize::from(!socket), "{case}");
     }
+}
+
+#[tokio::test]
+async fn the_catalogs_prefer_websockets_chooses_the_transport_from_the_next_call() {
+    let sockets = vec![Socket::serving(vec![vec![Step::Send(answer("resp_2", "Hi."))]])];
+    let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+    let catalog = ModelCatalog::new(Catalog::builtin(Backend::Subscription));
+    let provider = setup.provider.with_catalog(catalog.clone());
+    let fetch = |prefers: bool| {
+        let body = json!({"models": [{
+            "slug": "gpt-5.5", "visibility": "list", "priority": 1,
+            "supported_reasoning_levels": [], "prefer_websockets": prefers,
+        }]});
+        let (entries, _) = crate::catalog::entries_of(&body).unwrap();
+        let fetched = Catalog::from_backend(
+            Backend::Subscription,
+            "https://backend.test/codex",
+            entries,
+            None,
+            setup.clock.now(),
+        );
+        catalog.apply(Fetched::Changed(fetched), setup.clock.now());
+    };
+
+    fetch(false);
+    provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    assert_eq!(setup.server.posts().len(), 1, "the catalog says HTTP");
+    assert_eq!(setup.server.sockets().len(), 0);
+
+    fetch(true);
+    provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    assert_eq!(setup.server.posts().len(), 1);
+    assert_eq!(setup.server.sockets().len(), 1, "the new catalog says WebSocket");
 }
 
 #[tokio::test]

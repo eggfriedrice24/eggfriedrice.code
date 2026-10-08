@@ -421,7 +421,7 @@
         "websocket": {
           "$ref": "#/$defs/WebSocketChoice",
           "default": "auto",
-          "description": "How model calls reach OpenAI: `auto` uses a WebSocket for a model that prefers\none (every model of the built-in list) and HTTP for the others, `on` uses a\nWebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each\nconversation, so a call skips the connection setup. A call that the WebSocket\ncannot serve goes over HTTP. Needs a restart."
+          "description": "How model calls reach OpenAI: `auto` uses a WebSocket for each model that the\nmodel catalog marks with `prefer_websockets` and HTTP for the other models, `on`\nuses a WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each\nconversation, so a call skips the connection setup. A call that the WebSocket\ncannot serve goes over HTTP. Needs a restart."
         }
       },
       "type": "object"
