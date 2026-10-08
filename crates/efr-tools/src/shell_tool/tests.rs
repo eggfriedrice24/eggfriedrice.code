@@ -477,7 +477,12 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
     let conversation = ids().conversation_id;
     for (error, needle) in [
         (ShellError::Busy { conversation }, "nobody can clear it from here now"),
-        (ShellError::NotReady { conversation }, "nested_shell"),
+        (
+            ShellError::NotReady { conversation, fresh: false },
+            "an earlier command is still running",
+        ),
+        // No command ran in a new shell yet, so none can hold it.
+        (ShellError::NotReady { conversation, fresh: true }, "No command ran in this shell yet"),
         (ShellError::Exited { conversation, status: None }, "new shell"),
         (ShellError::InvalidCommand { reason: "it is empty" }, "it is empty"),
     ] {

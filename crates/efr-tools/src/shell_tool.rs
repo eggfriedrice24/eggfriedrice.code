@@ -446,12 +446,9 @@ impl Tool for ShellTool {
                  nobody can clear it from here now. The command was not run. Tell the user; \
                  a new conversation (,new in their terminal) gets a fresh shell.",
             )),
-            Err(ShellError::NotReady { .. }) => Ok(ToolResult::error(format!(
-                "The shell did not reach its prompt within {}s, so the command was not run: \
-                 an earlier command is still running. If it is a shell you started inside \
-                 this one (sudo -i, bash, ssh), call again with nested_shell set.",
-                timeout.as_secs()
-            ))),
+            Err(ShellError::NotReady { fresh, .. }) => {
+                Ok(ToolResult::error(not_ready_message(fresh, timeout)))
+            }
             Err(ShellError::Exited { .. }) => Ok(ToolResult::error(
                 "The shell exited while the command ran. The next call starts a new shell in \
                  the user's working directory; variables and the directory of the old one are \
@@ -462,6 +459,26 @@ impl Tool for ShellTool {
             ))),
             Err(source) => Err(ToolError::Shell { source }),
         }
+    }
+}
+
+/// The model's answer for a call whose shell did not reach a ready prompt within
+/// `timeout`, so the command was not run. `fresh` is true when no command ran in the
+/// shell yet: then no earlier command can hold it.
+pub fn not_ready_message(fresh: bool, timeout: Duration) -> String {
+    let seconds = timeout.as_secs();
+    if fresh {
+        format!(
+            "The shell did not show a ready prompt within {seconds}s, so the command was not \
+             run. No command ran in this shell yet: the user's startup files (.zshrc) may \
+             wait for input or draw a prompt that efr cannot read. Tell the user."
+        )
+    } else {
+        format!(
+            "The shell did not reach its prompt within {seconds}s, so the command was not \
+             run: an earlier command is still running. If it is a shell you started inside \
+             this one (sudo -i, bash, ssh), call again with nested_shell set."
+        )
     }
 }
 

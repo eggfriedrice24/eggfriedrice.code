@@ -46,7 +46,10 @@ prompts such as `sudo` stay visible.
   it grows (see "The live tail" below).
 - A run waits for the prompt: while the shell starts, while an earlier command still
   runs, and until the user answers what it asks; it fails with `NotReady` when the
-  prompt does not come before its timeout. A run that overlaps another run of the same
+  prompt does not come before its timeout. The wait for a new shell's first prompt is
+  not part of the timeout: its limit is `startup_timeout` (10 s), after which the
+  shell falls back to sentinels. `NotReady::fresh` says that no command was typed into
+  the shell yet, so no earlier command can hold it. A run that overlaps another run of the same
   conversation, or a shell at a continuation prompt, is `Busy`. A caller that drops
   the run's future (a turn the user interrupted) lets go of it: a run still waiting is
   never typed, and a typed one goes on without a caller until its `D`.

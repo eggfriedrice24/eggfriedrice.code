@@ -44,7 +44,7 @@ pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJour
 pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
-pub use shell_tool::ShellTool;
+pub use shell_tool::{ShellTool, not_ready_message};
 pub use tool::{
     AccessMode, NoOutput, PathAccess, Tool, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
     WrittenFile,

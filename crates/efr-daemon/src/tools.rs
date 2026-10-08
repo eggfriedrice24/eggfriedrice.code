@@ -32,11 +32,12 @@ use efr_protocol::{
 };
 use efr_provider::ToolDefinition;
 use efr_scope::Home;
-use efr_shell::ShellSessions;
+use efr_shell::{ShellError, ShellSessions};
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
     ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
+    not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -287,13 +288,10 @@ impl DaemonToolbox {
         };
         tracing::debug!(phase = "shell_free_wait", elapsed_ms = %watch, "phase=shell_free_wait elapsed_ms={}", watch);
         if let Some(timeout) = timeout
-            && free.is_err()
+            && let Err(error) = free
         {
-            return ToolOutcome::error(format!(
-                "The shell did not become free within {}s, so the command was not run: an \
-                 earlier command is still running in it.",
-                timeout.as_secs()
-            ));
+            let fresh = matches!(error, ShellError::NotReady { fresh: true, .. });
+            return ToolOutcome::error(not_ready_message(fresh, timeout));
         }
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
         let watch = Stopwatch::start();

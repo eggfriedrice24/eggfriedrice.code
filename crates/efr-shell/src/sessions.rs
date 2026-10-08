@@ -23,7 +23,7 @@ use crate::live_tail::{LiveTail, Step};
 use crate::modes::Terminal;
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
-use crate::run::{Progress, screen_tail, timed_out};
+use crate::run::{Progress, RunMode, screen_tail, timed_out};
 use crate::session::{
     Activity, Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
     SessionHandle, until,
@@ -183,7 +183,8 @@ impl ShellSessions {
     /// command still runs, and until the user answers what it asks. It fails with
     /// [`ShellError::NotReady`] when the prompt does not come before the timeout, and
     /// with [`ShellError::Busy`] when another run is under way or an unfinished line
-    /// waits at a continuation prompt.
+    /// waits at a continuation prompt. The timeout starts once a new shell has shown its
+    /// first prompt; that wait has its own limit, the config's `startup_timeout`.
     ///
     /// At the timeout the command keeps running; the result is
     /// [`Completion::FullScreen`] for a program on the alternate screen,
@@ -370,12 +371,7 @@ impl ShellSessions {
         let wait = async move {
             let _ = activity.wait_for(|activity| activity.free).await;
         };
-        self.inner
-            .deps
-            .clock
-            .timeout(timeout, wait)
-            .await
-            .map_err(|_| ShellError::NotReady { conversation })
+        self.inner.deps.clock.timeout(timeout, wait).await.map_err(|_| session.not_ready())
     }
 
     /// The screen of the conversation's shell, for attach snapshots.
@@ -535,7 +531,9 @@ impl ShellSessions {
         let (writer, writes) = mpsc::channel(WRITE_CAPACITY);
         let (inbox, messages) = mpsc::channel(INBOX_CAPACITY);
         let (life, lives) = watch::channel(Life::Running);
-        let (activity, activities) = watch::channel(Activity::default());
+        // A shell with the integration starts in `Phase::Starting`.
+        let (activity, activities) =
+            watch::channel(Activity { starting: integration, ..Activity::default() });
         let targets = ReaderTargets {
             pty_id,
             recording: Arc::clone(&deps.recording),
@@ -598,6 +596,13 @@ impl ShellSessions {
             sandbox::write_line(&run.dir, &request.command).await?;
         }
         let contained = request.sandbox.as_ref().is_some_and(SandboxRun::contained);
+        // NOTE: the wait for a new shell's first prompt is not the command's time: a
+        // big rc on a busy machine can take longer than a short timeout, and the model
+        // would read that its command never ran. The startup timeout limits this wait.
+        // A sentinel run does not wait for the prompt at all.
+        if request.mode != RunMode::Sentinel {
+            session.until_started().await;
+        }
         let id = self.inner.next_run.fetch_add(1, Ordering::Relaxed);
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
@@ -708,7 +713,7 @@ impl ShellSessions {
         end_watch(&mut watch, progress);
         match detached? {
             Detached::Gone => self.finished(session, answer.await).await,
-            Detached::Unstarted => Err(ShellError::NotReady { conversation: session.conversation }),
+            Detached::Unstarted => Err(session.not_ready()),
             Detached::Running { kept, range, last_output, cwd, delimiter } => {
                 // This task does not read the screen's events, so it may wait for a
                 // snapshot.
@@ -885,7 +890,7 @@ impl ShellSessions {
             }
             // The command ended between the look and the detach; it needs no stop.
             Detached::Gone => self.finished(session, answer.await).await,
-            Detached::Unstarted => Err(ShellError::NotReady { conversation }),
+            Detached::Unstarted => Err(session.not_ready()),
         }
     }
 

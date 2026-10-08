@@ -243,11 +243,15 @@ pub(crate) struct Activity {
     pub(crate) free: bool,
     /// A run of a call through the sandbox's launcher is active or was left running.
     pub(crate) sandboxed: bool,
+    /// The shell has shown no marked prompt yet, and its startup timeout has not passed.
+    pub(crate) starting: bool,
+    /// A command line was typed into the shell.
+    pub(crate) used: bool,
 }
 
 impl Default for Activity {
     fn default() -> Self {
-        Activity { free: true, sandboxed: false }
+        Activity { free: true, sandboxed: false, starting: false, used: false }
     }
 }
 
@@ -275,6 +279,8 @@ pub(crate) struct SessionCore {
     forget_warned: bool,
     /// A sandboxed run's end to check once the current chunk is read.
     check: Option<CheckOrder>,
+    /// A command line was typed into the shell.
+    used: bool,
     /// The marks that a sandboxed run held back from the state, newest last.
     held: VecDeque<ShellMarkKind>,
     observer: Arc<dyn ShellObserver>,
@@ -298,6 +304,7 @@ impl SessionCore {
             forget_pending: false,
             forget_warned: false,
             check: None,
+            used: false,
             held: VecDeque::new(),
             observer,
         }
@@ -323,6 +330,8 @@ impl SessionCore {
             free: self.is_free(),
             sandboxed: self.active.as_ref().is_some_and(|active| active.machine.sandboxed())
                 || self.orphan.as_ref().is_some_and(Machine::sandboxed),
+            starting: self.state.phase == Phase::Starting,
+            used: self.used,
         }
     }
 
@@ -532,6 +541,7 @@ impl SessionCore {
     }
 
     fn start(&mut self, order: RunOrder, delimiter: Delimiter) -> Vec<Bytes> {
+        self.used = true;
         // NOTE: only the integration binds the forget key, and only its prompt marks
         // say when to type it, so a shell without it keeps sudo's cache.
         if order.forget_credentials && !self.state.integration && !self.forget_warned {
@@ -1060,6 +1070,26 @@ impl SessionHandle {
 
     pub(crate) async fn write(&self, bytes: Bytes) -> Result<(), ShellError> {
         self.writer.send(bytes).await.map_err(|_| self.exited())
+    }
+
+    /// Waits until the shell has left its start: its first marked prompt came, or its
+    /// startup timeout passed and its runs fall back to sentinels. The actor's startup
+    /// timer is the limit of this wait. A shell that ends ends the wait too; a run then
+    /// fails as it would anyway.
+    pub(crate) async fn until_started(&self) {
+        let mut activity = self.activity.clone();
+        tokio::select! {
+            _ = activity.wait_for(|activity| !activity.starting) => {}
+            _ = self.ended() => {}
+        }
+    }
+
+    /// A [`ShellError::NotReady`] for this shell.
+    pub(crate) fn not_ready(&self) -> ShellError {
+        ShellError::NotReady {
+            conversation: self.conversation,
+            fresh: !self.activity.borrow().used,
+        }
     }
 
     /// Waits until the shell has ended and tells how.

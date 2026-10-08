@@ -84,12 +84,16 @@ pub enum ShellError {
         conversation: ConversationId,
     },
 
-    /// The shell did not reach a prompt before the run's timeout (it was starting, or an
-    /// earlier command still ran), so the command was never typed.
+    /// The shell did not reach a ready prompt before the run's timeout, so the command
+    /// was never typed. The wait for a new shell's first prompt does not count: it has
+    /// its own limit, the startup timeout.
     #[error("the hidden shell of conversation {conversation} did not reach a prompt in time")]
     NotReady {
         /// The conversation.
         conversation: ConversationId,
+        /// True when no command was typed into this shell yet, so no earlier command
+        /// held it: its prompt never became ready.
+        fresh: bool,
     },
 
     /// The conversation has no hidden shell.

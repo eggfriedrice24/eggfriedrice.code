@@ -77,6 +77,11 @@ into the GitHub release notes, and it stops when the section is missing.
   came just before bwrap started was lost, and the command ran to its end.
 - The sandbox launcher no longer hangs when Ctrl+C ends bwrap while bwrap starts the
   sandbox.
+- The time that a new hidden shell takes to show its first prompt no longer counts
+  against the `timeout_seconds` of a shell call. A slow `.zshrc` made short calls fail
+  with "an earlier command is still running", although no command ran. The startup
+  timeout (10 s) limits that wait now. When a new shell never shows a ready prompt,
+  the model reads that no command ran in it yet.
 
 ## [0.0.2] - 2026-10-08
 

@@ -141,7 +141,7 @@ async fn until_free_waits_for_a_run_left_running_and_times_out() {
         );
     harness.clock.wait_for_sleeps(1).await;
     harness.clock.advance(Duration::from_secs(5));
-    assert!(matches!(wait.await.unwrap(), Err(ShellError::NotReady { .. })));
+    assert!(matches!(wait.await.unwrap(), Err(ShellError::NotReady { fresh: false, .. })));
 
     // Its end frees the shell.
     let sessions = harness.sessions.clone();
@@ -253,12 +253,46 @@ async fn a_run_before_the_first_prompt_waits_for_it() {
 }
 
 #[tokio::test]
+async fn the_wait_for_a_new_shells_prompt_is_not_part_of_the_timeout() {
+    let harness = Harness::new(ZSH);
+    let run = spawn_run(&harness.sessions, request("true").with_timeout(Duration::from_secs(5)));
+    let mut terminal = harness.holder.terminal(0).await;
+    // Only the startup timer runs while the shell starts: the run's deadline waits for
+    // the first prompt.
+    harness.clock.wait_for_sleeps(1).await;
+    harness.clock.advance(Duration::from_secs(8));
+    terminal.print(b"a slow rc\r\n").await;
+    terminal.prompt().await;
+    assert_eq!(terminal.typed_line().await, b"\x1b[efr-clear~\x1b[200~true\x1b[201~\r");
+    // The startup timer and the run's own deadline, which starts now.
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(4));
+    terminal.run(b"", 0).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished, "{result:?}");
+    assert_eq!(result.exit_code, Some(0));
+}
+
+#[tokio::test]
+async fn a_new_shell_whose_prompt_never_gets_ready_is_not_ready_with_no_earlier_command() {
+    let harness = Harness::new(ZSH);
+    let run = spawn_run(&harness.sessions, request("true").with_timeout(Duration::from_secs(5)));
+    let mut terminal = harness.holder.terminal(0).await;
+    // The prompt starts but never takes input, and no command ran in this shell.
+    terminal.print(b"\x1b]133;A\x07").await;
+    harness.clock.wait_for_sleeps(2).await;
+    harness.clock.advance(Duration::from_secs(5));
+    let result = run.await.unwrap();
+    assert!(matches!(result, Err(ShellError::NotReady { fresh: true, .. })), "{result:?}");
+}
+
+#[tokio::test]
 async fn a_shell_without_marks_falls_back_to_sentinels_after_the_startup_timeout() {
     let harness = Harness::new(ZSH);
     let run = spawn_run(&harness.sessions, request("uname"));
     let mut terminal = harness.holder.terminal(0).await;
-    // The startup deadline and the run's own deadline.
-    harness.clock.wait_for_sleeps(2).await;
+    // The startup deadline; the run's own deadline starts after it.
+    harness.clock.wait_for_sleeps(1).await;
     harness.clock.advance(Duration::from_secs(10));
     let line = terminal.typed_line().await;
     let token = sentinel_token(&line);
@@ -1583,7 +1617,9 @@ async fn a_run_that_waits_for_the_prompt_is_not_kept_past_its_timeout() {
         tokio::spawn(
             async move { sessions.run_command(conversation(1), request, &mut listener).await },
         );
-    // No prompt comes: the startup timer and the deadline.
+    // A prompt starts but never takes input: the startup timer and the deadline.
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.print(b"\x1b]133;A\x07").await;
     harness.clock.wait_for_sleeps(2).await;
     harness.clock.advance(Duration::from_secs(5));
     let result = run.await.unwrap();
