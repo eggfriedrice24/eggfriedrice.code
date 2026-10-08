@@ -26,7 +26,12 @@ without undo).
 - `Snapshots::turn_diff`: a finished turn's changes and unified diff, for
   `conversation.diff`, with every root's paths under its prefix. When one root lies
   inside another, the files below the inner root come from the inner root alone, in
-  the list and in the patch, so each file shows once.
+  the list and in the patch, so each file shows once. A changed file that the ignore
+  rules name (a small ignored file that a snapshot took, such as `.env`) stays in the
+  list, but the patch holds only a line `<path>: ignored file, content not shown`: it
+  may hold secrets that nobody read in this turn, and every read-scope client and the
+  scrollback get the patch. `finish_turn` records these paths in the `efr-meta:` line
+  (`hidden`).
 - `Snapshots::gc`: the refs of the newest `keep_turns` turns of each conversation stay
   in each store (then `git prune` of loose objects older than an hour, and `git gc
   --auto`), and a store without a snapshot for `max_age` goes whole. The first tree of

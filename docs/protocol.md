@@ -176,7 +176,9 @@ No protocol version has shipped yet.
   optional `turn_id` (absent: the newest turn of the conversation that started and
   ended, not a cancelled one) and a `stat`
   flag, false when absent; its result has the `turn_id`,
-  the `changes` and, without `stat`, the unified `diff`, at most 20000 lines. The
+  the `changes` and, without `stat`, the unified `diff`, at most 20000 lines, where a
+  changed ignored file such as `.env` has only a line `<path>: ignored file, content
+  not shown`. The
   fixtures `events/tool_call_completed.json` and `events/turn_completed.json` now set
   the new members; `conversation_diff_params.json` and `conversation_diff_result.json`
   are new.

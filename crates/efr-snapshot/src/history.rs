@@ -25,6 +25,15 @@ pub struct TurnDiff {
     pub diff: Option<String>,
 }
 
+/// What a turn's commits record in their `efr-meta:` line.
+#[derive(Debug, Clone, Default)]
+struct Meta {
+    /// The prefix of the root's paths.
+    shown: String,
+    /// The changed paths that are ignored, whose content the diff leaves out.
+    hidden: Vec<String>,
+}
+
 /// One store that holds snapshots of a conversation.
 #[derive(Debug, Clone)]
 struct Holder {
@@ -67,7 +76,7 @@ impl Snapshots {
             let base = format!("refs/efr/{conversation}/{name}");
             let pre = format!("{base}/pre");
             let post = format!("{base}/post");
-            let prefix = self.shown_of(&holder.store, &pre).await?;
+            let Meta { shown: prefix, hidden } = self.meta_of(&holder.store, &pre).await?;
             let changes = self.diff_trees(&holder.store, &pre, &post).await?;
             if with_diff && !changes.is_empty() {
                 let src = format!("--src-prefix=a/{prefix}");
@@ -89,20 +98,38 @@ impl Snapshots {
                 .map(OsString::from)
                 .collect();
                 // NOTE: the files below a deeper root come from that root's patch, as
-                // `changes::merge` lists them.
+                // `changes::merge` lists them. An ignored file, such as `.env`, may
+                // hold secrets that nobody read in this turn, so its content stays
+                // out of a diff that any read-scope client and the scrollback get.
                 let deeper = changes::deeper_roots(holder.store.root(), &roots);
-                if !deeper.is_empty() {
+                let left_out: Vec<&Path> = deeper
+                    .iter()
+                    .map(PathBuf::as_path)
+                    .chain(hidden.iter().map(Path::new))
+                    .collect();
+                if !left_out.is_empty() {
                     args.push("--".into());
-                    for below in deeper {
+                    for path in &left_out {
                         let mut spec = OsString::from(":(exclude,literal)");
-                        spec.push(below.as_os_str());
+                        spec.push(path.as_os_str());
                         args.push(spec);
                     }
                 }
-                let patch = self
+                let mut patch = self
                     .runner()
                     .checked(&holder.store, "diff-tree", &args, Run::default())
                     .await?;
+                for change in &changes {
+                    let named = |path: &str| hidden.iter().any(|hidden| hidden == path);
+                    let below =
+                        deeper.iter().any(|below| Path::new(&change.path).starts_with(below));
+                    if !below && (named(&change.path) || change.from.as_deref().is_some_and(named))
+                    {
+                        let note =
+                            format!("{prefix}{}: ignored file, content not shown\n", change.path);
+                        patch.extend_from_slice(note.as_bytes());
+                    }
+                }
                 patches.push((prefix.clone(), patch));
             }
             shown.push(Shown { root: holder.store.root().to_path_buf(), shown: prefix, changes });
@@ -117,19 +144,26 @@ impl Snapshots {
         Ok(Some(TurnDiff { turn_id: wanted, changes, diff }))
     }
 
-    /// The prefix that the turn's first commit in `store` recorded for its paths.
-    async fn shown_of(&self, store: &Store, pre: &str) -> Result<String, SnapshotError> {
+    /// What the turn's first commit in `store` recorded: the prefix of its paths and
+    /// its ignored changed paths.
+    async fn meta_of(&self, store: &Store, pre: &str) -> Result<Meta, SnapshotError> {
         let out = self
             .runner()
             .checked(store, "cat-file", &["cat-file", "commit", pre], Run::default())
             .await?;
         let text = String::from_utf8_lossy(&out);
-        let shown = text
+        let meta = text
             .lines()
             .find_map(|line| line.strip_prefix("efr-meta: "))
             .and_then(|meta| serde_json::from_str::<serde_json::Value>(meta).ok())
-            .and_then(|meta| meta.get("shown").and_then(|shown| shown.as_str()).map(str::to_owned));
-        Ok(shown.unwrap_or_else(|| format!("{}/", store.root().display())))
+            .unwrap_or_default();
+        let shown = meta.get("shown").and_then(|shown| shown.as_str()).map(str::to_owned);
+        let hidden = meta
+            .get("hidden")
+            .and_then(|hidden| hidden.as_array())
+            .map(|paths| paths.iter().filter_map(|path| path.as_str()).map(str::to_owned).collect())
+            .unwrap_or_default();
+        Ok(Meta { shown: shown.unwrap_or_else(|| format!("{}/", store.root().display())), hidden })
     }
 
     /// The stores with refs of `conversation`, with the turns of each.

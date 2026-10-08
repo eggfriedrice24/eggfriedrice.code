@@ -277,7 +277,7 @@ pub(crate) fn by_size(root: &Path, changed: Vec<String>, max_file_bytes: u64) ->
 
 /// Splits `paths` into the ignored ones and the rest, by the ignore rules alone (`git
 /// check-ignore --no-index`), because a path of the index is never ignored otherwise.
-async fn split_ignored(
+pub(crate) async fn split_ignored(
     runner: &Runner,
     store: &Store,
     root: &Path,

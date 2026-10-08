@@ -86,6 +86,16 @@ impl CallSnapshot {
     }
 }
 
+/// What [`Snapshots::keep_turn`] keeps of a turn in one store.
+#[derive(Debug, Clone, Copy)]
+struct Kept<'a> {
+    conversation: ConversationId,
+    turn: TurnId,
+    pre: &'a str,
+    post: &'a str,
+    hidden: &'a [String],
+}
+
 /// One root of a running turn and its first tree.
 #[derive(Debug, Clone)]
 struct TurnRoot {
@@ -311,15 +321,23 @@ impl Snapshots {
             async move {
                 let root = turn_root.root;
                 let post = self.snap(root.path(), &limits, true).await?;
-                if let Err(error) =
-                    self.keep_turn(root.path(), root.shown(), conversation, turn, &turn_root.pre, &post).await
-                {
+                let changes = if post == turn_root.pre {
+                    Some(Vec::new())
+                } else {
+                    self.compare(root.path(), &turn_root.pre, &post).await
+                };
+                let hidden = match &changes {
+                    Some(changes) if !changes.is_empty() => self.ignored(root.path(), changes).await,
+                    _ => Vec::new(),
+                };
+                let kept = Kept { conversation, turn, pre: &turn_root.pre, post: &post, hidden: &hidden };
+                if let Err(error) = self.keep_turn(root.path(), root.shown(), kept).await {
                     tracing::warn!(error = %efr_stdx::with_causes(&error), root = %root.path().display(), "the snapshots of a turn could not be kept");
                 }
-                if post == turn_root.pre {
+                let changes = changes?;
+                if changes.is_empty() {
                     return None;
                 }
-                let changes = self.compare(root.path(), &turn_root.pre, &post).await?;
                 Some(Shown { root: root.path().to_path_buf(), shown: root.shown, changes })
             }
         }))
@@ -521,17 +539,36 @@ impl Snapshots {
             .await
     }
 
+    /// The paths of `changes` (and where a renamed file was) that the ignore rules of
+    /// `root` name now: a snapshot took them as small ignored files, such as `.env`,
+    /// and `turn_diff` shows them without their content. Empty, with a line in the
+    /// log, when git cannot tell.
+    async fn ignored(&self, root: &Path, changes: &[RootChange]) -> Vec<String> {
+        let store = Store::new(self.dir(), root);
+        let paths: Vec<String> = changes
+            .iter()
+            .flat_map(|change| std::iter::once(change.path.clone()).chain(change.from.clone()))
+            .collect();
+        match capture::split_ignored(self.runner(), &store, root, paths).await {
+            Ok((ignored, _)) => ignored,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), root = %root.display(), "the ignored files of a turn could not be found");
+                Vec::new()
+            }
+        }
+    }
+
     /// Writes the commits of the turn's first and last trees of `root` and points
-    /// `refs/efr/<conversation>/<turn>/pre` and `/post` at them.
+    /// `refs/efr/<conversation>/<turn>/pre` and `/post` at them. The `efr-meta:` line
+    /// of both holds the root, the prefix of its paths, the project's `HEAD` and the
+    /// changed paths that are ignored (`hidden`).
     async fn keep_turn(
         &self,
         root: &Path,
         shown: &str,
-        conversation: ConversationId,
-        turn: TurnId,
-        pre: &str,
-        post: &str,
+        kept: Kept<'_>,
     ) -> Result<(), SnapshotError> {
+        let Kept { conversation, turn, pre, post, hidden } = kept;
         let store = Store::new(self.dir(), root);
         let slot = self.slot(root);
         let _turn = slot.enter().await;
@@ -548,6 +585,7 @@ impl Snapshots {
             "shown": shown,
             "head": head,
             "at": now.to_string(),
+            "hidden": hidden,
         });
         let pre_message = format!("efr turn {turn} pre\n\nefr-meta: {meta}\n");
         let pre_commit = self.commit(&store, pre, None, pre_message, &time).await?;

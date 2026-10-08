@@ -23,7 +23,8 @@ into the GitHub release notes, and it stops when the section is missing.
   conversation or your editor saved at the same time.
 - `efr diff` prints what a turn changed: by default the last turn of this terminal's
   conversation, `--turn <id>` for another, `--stat` for the list of files. In a pipe it
-  writes the plain diff.
+  writes the plain diff. An ignored file such as `.env` shows in the list, but its
+  content stays out of the diff.
 - efr's own snapshot store: one bare git repository per registered project or
   `$SCRATCH` below the data directory. It never writes the project's `.git` or index.
   The `[snapshot]` table sets it (`snapshot.enabled`, size limits, `keep_turns`,

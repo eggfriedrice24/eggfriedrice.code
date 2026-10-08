@@ -104,3 +104,29 @@ async fn a_file_of_two_nested_roots_shows_once_in_the_diff() {
     assert_eq!(diff.matches("diff --git ").count(), 2, "{diff}");
     assert_eq!(diff.matches("+new\n").count(), 1, "{diff}");
 }
+
+#[tokio::test]
+async fn the_diff_of_a_turn_lists_an_ignored_file_without_its_content() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join(".gitignore"), ".env\nlocal/\n");
+    write(&dir.join(".env"), "TOKEN=old-secret\n");
+    write(&dir.join("local/key"), "KEY=old\n");
+    write(&dir.join("a.txt"), "a\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join(".env"), "TOKEN=new-secret\n");
+    write(&dir.join("local/key"), "KEY=new\n");
+    write(&dir.join("a.txt"), "b\n");
+    world.snapshots.after_call(call, limits()).await.unwrap();
+    world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
+
+    let found = world.snapshots.turn_diff(conversation(1), None, true, 100).await.unwrap().unwrap();
+    let paths: Vec<&str> = found.changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, [".env", "a.txt", "local/key"], "the list keeps the ignored files");
+    let diff = found.diff.unwrap();
+    assert!(!diff.contains("secret") && !diff.contains("KEY="), "{diff}");
+    assert!(diff.contains("+b\n"), "{diff}");
+    assert!(diff.contains(".env: ignored file, content not shown\n"), "{diff}");
+    assert!(diff.contains("local/key: ignored file, content not shown\n"), "{diff}");
+}
