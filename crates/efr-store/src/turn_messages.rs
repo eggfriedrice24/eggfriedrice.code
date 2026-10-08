@@ -10,7 +10,7 @@
 //!
 //! The table is not a projection: the event log cannot rebuild it. It is bounded per
 //! conversation to the newest turns that the history may carry. A compaction with a
-//! summary also drops the turns before its cut ([`forget_compacted`]): the summary
+//! summary also drops the turns before its cut (`forget_compacted`): the summary
 //! takes their place in every later request.
 
 use efr_protocol::{Compaction, ConversationId, Seq, TurnId};

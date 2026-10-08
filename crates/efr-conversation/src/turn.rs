@@ -36,9 +36,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
-
 use efr_protocol::{
     ApprovalDecision, CallId, CompactionTrigger, ConversationId, EffectiveSettings, ErrorBody,
     ErrorCode, Event, InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext,
@@ -52,6 +50,8 @@ use efr_store::{Batch, Committed};
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 use tracing::Instrument as _;
+
+pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::compact::{Compacted, Guard};
