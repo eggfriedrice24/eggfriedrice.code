@@ -441,7 +441,8 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   prompts and of the unread steers back into the row, as for any cancelled turn. A
   steer or a prompt from the row whose answer was lost goes again with the same
   command id, so efrd answers from its receipt when it took the first one, and the
-  text never goes twice. When efrd does not come back, the followed prompt that did
+  text never goes twice. Ctrl+C, SIGTERM and SIGHUP stop the wait for efrd at once,
+  and the text of that steer or prompt goes back to the shell. When efrd does not come back, the followed prompt that did
   not start, the unread steers and the queued prompts of this view go back to the
   shell with a note, because nothing says whether they will run. Without the row, a
   connection that ends is the command's error, as before.

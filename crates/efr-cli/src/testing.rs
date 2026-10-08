@@ -548,7 +548,8 @@ impl Resize for TestResize {
     }
 }
 
-/// A SIGTERM that the test triggers. A trigger before anyone waits is kept.
+/// A SIGTERM that the test triggers. Every future that waits for it gets it, as each
+/// handler of a real signal does, and a trigger before anyone waits is kept.
 #[derive(Debug, Default)]
 pub(crate) struct TestTerminate(Arc<Notify>);
 
@@ -557,6 +558,7 @@ impl TestTerminate {
     pub(crate) const SIGTERM: i32 = 15;
 
     pub(crate) fn trigger(&self) {
+        self.0.notify_waiters();
         self.0.notify_one();
     }
 }

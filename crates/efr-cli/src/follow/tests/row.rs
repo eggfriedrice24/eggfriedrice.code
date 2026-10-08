@@ -1115,6 +1115,32 @@ impl efr_stdx::time::Clock for RetryClock {
     }
 }
 
+/// The review finding: while a steer waited for efrd to come back, SIGTERM and SIGHUP
+/// did nothing for up to 15 s. They end the command at once now, and the text of the
+/// steer goes back to the shell.
+#[tokio::test]
+async fn sigterm_while_a_steer_waits_for_efrd_to_come_back_ends_at_once() {
+    let setup = Setup::new();
+    let terminate = Arc::new(crate::testing::TestTerminate::default());
+    let ctx = Context { terminate: terminate.clone(), ..setup.context(true) };
+    let keys = Arc::clone(&setup.keys);
+    let (result, _) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"keep it small\r").await;
+        let (_, params) = steer_request(&mut conn).await;
+        assert_eq!(params.text, "keep it small");
+        drop(conn);
+        // NOTE: the listener stays and accepts nothing, so the next connection waits
+        // for its hello until the signal ends the command.
+        terminate.trigger();
+        drop(daemon);
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Ended { .. })), "{result:?}");
+    assert_eq!(setup.handed_back().as_deref(), Some("keep it small"));
+}
+
 /// When efrd does not come back, what the view queued and steered goes back to the
 /// shell with a note, because nothing says whether it will run.
 #[tokio::test]

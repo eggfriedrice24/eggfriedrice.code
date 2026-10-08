@@ -667,7 +667,7 @@ impl Follower<'_> {
     /// again and sends the same request, with the same command id, so the daemon
     /// answers from its receipt when it took the first one: the text never goes twice.
     /// The daemon's refusal is the inner error; a connection that does not come back,
-    /// or Ctrl+C meanwhile, is the outer one.
+    /// or Ctrl+C, SIGTERM or SIGHUP meanwhile, is the outer one.
     async fn send<R: DeserializeOwned>(
         &mut self,
         method: Method,
@@ -677,8 +677,10 @@ impl Follower<'_> {
             Err(error) if lost(&error) && self.origin.is_some() => {
                 tracing::debug!(error = %error, "a request of the input row lost its connection");
                 let mut interrupted = self.ctx.interrupt.wait();
+                let mut ending = self.ctx.terminate.wait();
                 let connected = tokio::select! {
                     () = &mut interrupted => return Err(CliError::Interrupted),
+                    signal = &mut ending => return Err(CliError::Ended { signal }),
                     connected = self.reconnect() => connected,
                 };
                 if !connected {
