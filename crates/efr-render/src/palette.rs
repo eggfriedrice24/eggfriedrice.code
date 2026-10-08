@@ -192,6 +192,15 @@ impl Palette {
         let style = Style { fg: colour, ..look.always };
         if colour.is_none() { style.patch(look.without_colour) } else { style }
     }
+
+    /// The colour of `role` in colour mode `mode` without the attributes it always has;
+    /// without a colour, the attributes it has in place of one.
+    pub(crate) fn tint(&self, role: Role, mode: ColourMode) -> Style {
+        match reduce_colour(self.colour(role), mode) {
+            Some(colour) => Style { fg: Some(colour), ..Style::PLAIN },
+            None => Style::PLAIN.patch(role.default_look().without_colour),
+        }
+    }
 }
 
 #[cfg(test)]

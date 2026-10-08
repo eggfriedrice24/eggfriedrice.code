@@ -24,6 +24,9 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   `with_width` makes the same options for a new width after a resize.
 - `Role` and `Palette`: every colour goes through a role. `RenderOptions::paint` and
   `RenderOptions::sgr` give the CLI the same roles for its own lines.
+  `RenderOptions::tint` gives the colour of a role without its attributes (the
+  `warning` colour without bold), for the CLI's context gauge, whose colour changes
+  with its level.
 - `text_width` and `display_width`: the columns of text (painted text without its
   escape sequences) by code point or by grapheme cluster.
 

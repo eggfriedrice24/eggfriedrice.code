@@ -296,6 +296,18 @@ impl RenderOptions {
         wrap_sgr(self.role_style(role), text)
     }
 
+    /// `text` in the colour of `role` alone, followed by a reset: without the attributes
+    /// that the role always has, such as the bold of `warning`. Without a colour, the
+    /// attributes that the role has in place of one, such as the bold of `error`. For a
+    /// gauge whose colour changes with its level and must not shout. `text` stays as it
+    /// is when the output is not a terminal; the caller makes it safe first.
+    pub fn tint(&self, role: Role, text: &str) -> String {
+        if !self.terminal {
+            return text.to_owned();
+        }
+        wrap_sgr(self.palette.tint(role, self.colour), text)
+    }
+
     /// The SGR parameters of `role`, such as `2` or `1;33`, to write as
     /// `ESC [ <parameters> m` before text in that role; `None` when the role is plain
     /// here or the output is not a terminal.

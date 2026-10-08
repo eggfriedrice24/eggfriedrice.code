@@ -131,6 +131,25 @@ fn paint_wraps_text_in_the_role_or_leaves_it() {
 }
 
 #[test]
+fn tint_paints_the_colour_of_a_role_without_its_attributes() {
+    let options = RenderOptions::new(80);
+    assert_eq!(options.tint(Role::Warning, "ctx 60%"), "\x1b[33mctx 60%\x1b[0m");
+    assert_eq!(options.tint(Role::Success, "ctx 4%"), "\x1b[32mctx 4%\x1b[0m");
+    assert_eq!(options.tint(Role::Error, "ctx 95%"), "\x1b[31mctx 95%\x1b[0m");
+    let own = Palette::new().with(Role::Warning, Colour::Rgb(1, 2, 3));
+    let truecolor = RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(own);
+    assert_eq!(truecolor.tint(Role::Warning, "x"), "\x1b[38;2;1;2;3mx\x1b[0m");
+    // Without colour, a role keeps what stands in for its colour, and nothing else.
+    let none = RenderOptions::new(80).with_colour(ColourMode::None);
+    assert_eq!(none.tint(Role::Warning, "ctx 60%"), "ctx 60%");
+    assert_eq!(none.tint(Role::Success, "ctx 4%"), "ctx 4%");
+    assert_eq!(none.tint(Role::Error, "ctx 95%"), "\x1b[1mctx 95%\x1b[0m");
+    assert_eq!(none.tint(Role::Muted, "dim"), "\x1b[2mdim\x1b[0m");
+    let piped = RenderOptions::new(80).with_terminal(false);
+    assert_eq!(piped.tint(Role::Error, "ctx 95%"), "ctx 95%");
+}
+
+#[test]
 fn the_style_of_a_role_is_what_the_renderer_paints() {
     let palette = Palette::new().with(Role::Code, Colour::Rgb(1, 2, 3));
     assert_eq!(palette.style(Role::Code, ColourMode::TrueColor), Style::fg(Colour::Rgb(1, 2, 3)));
