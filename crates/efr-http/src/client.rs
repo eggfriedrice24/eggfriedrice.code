@@ -11,6 +11,7 @@ use futures::TryStreamExt as _;
 
 use crate::recorder::{ExchangeId, Record, Recorder, record_body};
 use crate::retry::HttpAttempt;
+use crate::websocket::{self, WebSocket};
 use crate::{ByteStream, HttpError, HttpRequest, HttpResponse, RetryPolicy, redact};
 
 /// Settings for [`HttpClient::new`].
@@ -57,6 +58,9 @@ impl Default for HttpConfig {
 #[derive(Clone)]
 pub struct HttpClient {
     inner: reqwest::Client,
+    /// The same settings over HTTP/1.1 only, for WebSocket handshakes: a server that
+    /// picks HTTP/2 through ALPN cannot upgrade the connection.
+    http1: reqwest::Client,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
     recorder: Option<Arc<dyn Recorder>>,
@@ -71,16 +75,20 @@ impl HttpClient {
         clock: Arc<dyn Clock>,
         rng: Arc<dyn Rng>,
     ) -> Result<Self, HttpError> {
-        let inner = reqwest::Client::builder()
-            .tls_backend_rustls()
-            .user_agent(config.user_agent.as_str())
-            .connect_timeout(config.connect_timeout)
-            .read_timeout(config.read_timeout)
-            .pool_idle_timeout(config.pool_idle_timeout)
-            .build()
-            .map_err(|source| HttpError::BuildClient { source })?;
+        let builder = || {
+            reqwest::Client::builder()
+                .tls_backend_rustls()
+                .user_agent(config.user_agent.as_str())
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.read_timeout)
+                .pool_idle_timeout(config.pool_idle_timeout)
+        };
+        let inner = builder().build().map_err(|source| HttpError::BuildClient { source })?;
+        let http1 =
+            builder().http1_only().build().map_err(|source| HttpError::BuildClient { source })?;
         Ok(HttpClient {
             inner,
+            http1,
             clock,
             rng,
             recorder: None,
@@ -145,6 +153,32 @@ impl HttpClient {
             body = record_body(body, Arc::clone(recorder), exchange);
         }
         Ok(HttpResponse::new(status, headers, url, body, self.max_body_bytes))
+    }
+
+    /// Opens a WebSocket to `request`'s URL with its headers: the opening handshake of
+    /// RFC 6455 as an HTTP/1.1 `GET`, over the client's TLS stack. The method and the
+    /// body of `request` are not used; its deadline, when set, limits the handshake.
+    ///
+    /// Fails with [`HttpError::UpgradeRefused`] when the server answers with any status
+    /// but `101 Switching Protocols`, and with [`HttpError::Handshake`] when its answer
+    /// does not accept the handshake key. The handshake is never sent twice and never
+    /// recorded.
+    pub async fn websocket(&self, request: &HttpRequest) -> Result<WebSocket, HttpError> {
+        let url = websocket::redacted_url(request);
+        let key = websocket::handshake_key(&*self.rng);
+        let headers = websocket::handshake_headers(request, &key)?;
+        let mut builder = self.http1.get(request.url().clone()).headers(headers);
+        if let Some(deadline) = request.deadline() {
+            builder = builder.timeout(deadline);
+        }
+        let response = builder.send().await.map_err(|source| send_error(url.clone(), source))?;
+        let headers = response.headers().clone();
+        websocket::check_answer(&url, response.status(), &headers, &key)?;
+        let upgraded = response.upgrade().await.map_err(|source| HttpError::Upgrade {
+            url: url.clone(),
+            source: source.without_url(),
+        })?;
+        Ok(websocket::start(url, headers, upgraded))
     }
 
     /// Sends `request` and sends it again while `policy` says so, waiting on the

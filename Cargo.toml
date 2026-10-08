@@ -85,9 +85,15 @@ hyper-util = { version = "0.1.21", default-features = false, features = ["client
 http-body-util = { version = "0.1.5", default-features = false }
 http = { version = "1.5.0", default-features = false, features = ["std"] }
 url = { version = "2.5.8", default-features = false, features = ["std"] }
+# The Responses WebSocket transport (efr-http/src/websocket.rs): frames over the
+# connection that reqwest upgrades, so the socket keeps the one rustls stack. Without
+# its default `simd` feature and without `upgrade`, it pulls no hyper of its own.
+fastwebsockets = { version = "0.10.0", default-features = false, features = ["unstable-split"] }
 
 # Credentials and crypto
 sha2 = { version = "0.11.0", default-features = false, features = ["alloc"] }
+# The Sec-WebSocket-Accept check of a WebSocket handshake (RFC 6455, section 4.2.2).
+sha1 = { version = "0.11.0", default-features = false }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "sys_rng"] }
 secrecy = { version = "0.10.3", default-features = false }

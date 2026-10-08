@@ -6,6 +6,9 @@
 //!   the injected `efr_stdx::time::Clock` so tests never sleep.
 //! - [`SseDecoder`] and [`SseStream`]: server-sent events over a byte stream, for the
 //!   streaming Responses API.
+//! - [`WebSocket`]: a WebSocket client connection that
+//!   [`HttpClient::websocket`] opens over the same TLS stack, for the Responses API's
+//!   WebSocket transport.
 //! - [`UnixClient`]: HTTP/1.1 over a Unix socket through hyper, for tailscaled's
 //!   LocalAPI at the phone milestone.
 //! - [`redact`]: header and URL redaction for logs, errors and transcripts.
@@ -35,6 +38,7 @@ mod sse;
 #[cfg(test)]
 mod testing;
 mod unix;
+mod websocket;
 
 pub use bytes::Bytes;
 pub use client::{HttpClient, HttpConfig};
@@ -47,3 +51,4 @@ pub use retry::{Decision, Outcome, RetryPolicy, Retryable, is_retryable_status, 
 pub use sse::{SseDecoder, SseEvent, SseStream};
 pub use unix::UnixClient;
 pub use url::Url;
+pub use websocket::{WebSocket, WsMessage, websocket_accept};

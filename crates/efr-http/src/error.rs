@@ -121,6 +121,52 @@ pub enum HttpError {
         limit: usize,
     },
 
+    /// A WebSocket handshake got an answer other than `101 Switching Protocols`. The
+    /// server did not open a socket and did not act on a message.
+    #[error("the server at {url} refused the websocket upgrade with {status}")]
+    UpgradeRefused {
+        /// The redacted URL.
+        url: String,
+        /// The status of the answer.
+        status: http::StatusCode,
+    },
+
+    /// A WebSocket handshake got a `101` answer that does not follow RFC 6455.
+    #[error("the websocket handshake with {url} failed: {problem}")]
+    Handshake {
+        /// The redacted URL.
+        url: String,
+        /// What is wrong with the answer.
+        problem: &'static str,
+    },
+
+    /// The connection of an accepted WebSocket handshake could not be taken over.
+    #[error("could not take over the websocket connection to {url}")]
+    Upgrade {
+        /// The redacted URL.
+        url: String,
+        /// The error from reqwest, without its URL.
+        #[source]
+        source: reqwest::Error,
+    },
+
+    /// A WebSocket frame could not be read or written.
+    #[error("the websocket connection to {url} failed")]
+    WebSocket {
+        /// The redacted URL.
+        url: String,
+        /// The error from the frame codec.
+        #[source]
+        source: fastwebsockets::WebSocketError,
+    },
+
+    /// A message was sent on a WebSocket that is closed.
+    #[error("the websocket connection to {url} is closed")]
+    WebSocketClosed {
+        /// The redacted URL.
+        url: String,
+    },
+
     /// The Unix socket could not be opened.
     #[error("could not connect to the socket {}", .socket.display())]
     UnixConnect {
