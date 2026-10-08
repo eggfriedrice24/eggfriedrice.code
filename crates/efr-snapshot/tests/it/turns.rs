@@ -1,5 +1,7 @@
 //! A turn's first and last snapshots, its refs and its diff.
 
+use std::fs;
+
 use efr_protocol::ChangeKind;
 use pretty_assertions::assert_eq;
 
@@ -132,6 +134,39 @@ async fn the_diff_of_a_turn_lists_an_ignored_file_without_its_content() {
 }
 
 #[tokio::test]
+async fn an_ignored_file_made_between_two_turns_is_in_the_first_snapshot_of_the_next() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join(".gitignore"), ".env*\nlocal/\n");
+    write(&dir.join("local/key"), "KEY=1\n");
+    write(&dir.join("a.txt"), "a\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "b\n");
+    world.snapshots.after_call(call, limits()).await.unwrap();
+    world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
+
+    // NOTE: no file of the index and no ignore rule changes; only the scan sees these.
+    write(&dir.join(".env.local"), "TOKEN=1\n");
+    write(&dir.join("local/other"), "KEY=2\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    fs::remove_file(dir.join("local/other")).unwrap();
+    let changes = world.snapshots.after_call(call, limits()).await.unwrap();
+    let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["local/other"], "the call deleted a file that its snapshot took");
+    let changes = world.snapshots.finish_turn(turn(2), limits()).await.unwrap();
+    let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["local/other"], "the turn did not make .env.local");
+
+    let pre = format!("refs/efr/{}/{}/pre", conversation(1), turn(2));
+    let tree = tree_of(&world.only_store(), &home, &pre).await;
+    let names: Vec<&str> = tree.keys().map(String::as_str).collect();
+    assert_eq!(names, [".env.local", ".gitignore", "a.txt", "local/key", "local/other"]);
+}
+
+#[tokio::test]
 async fn the_first_call_of_a_turn_in_an_unchanged_root_runs_only_the_two_listings() {
     let world = World::with_git_log();
     let home = world.home();
@@ -160,4 +195,37 @@ async fn the_first_call_of_a_turn_in_an_unchanged_root_runs_only_the_two_listing
     let tree = tree_of(&world.only_store(), &home, &pre).await;
     let names: Vec<&str> = tree.keys().map(String::as_str).collect();
     assert_eq!(names, [".env", ".gitignore", "a.txt", "vendor/notes.md"]);
+}
+
+#[tokio::test]
+async fn a_new_ignore_rule_takes_effect_at_the_next_turn() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join(".gitignore"), "local/\n");
+    write(&dir.join("a.txt"), "a\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    assert_eq!(world.snapshots.finish_turn(turn(1), limits()).await, None);
+
+    // NOTE: a file above the limit of untracked files, which only the ignored scan
+    // takes; first under a rule that does not name it, then under one that does.
+    fs::write(dir.join("dump.sql"), vec![b'x'; 4096]).unwrap();
+    let call =
+        world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(2), limits()).await;
+    let pre = format!("refs/efr/{}/{}/pre", conversation(1), turn(2));
+    let tree = tree_of(&world.only_store(), &home, &pre).await;
+    assert!(!tree.contains_key("dump.sql"), "a large untracked file stays out");
+
+    write(&dir.join(".gitignore"), "local/\n*.sql\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(3), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(3), limits()).await;
+    let pre = format!("refs/efr/{}/{}/pre", conversation(1), turn(3));
+    let tree = tree_of(&world.only_store(), &home, &pre).await;
+    assert!(tree.contains_key("dump.sql"), "a small ignored file comes in: {tree:?}");
 }

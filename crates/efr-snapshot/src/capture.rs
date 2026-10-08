@@ -9,9 +9,10 @@
 //! are added,
 //! literally ([`stage`]), and `write-tree` writes the tree when one is needed
 //! ([`write_tree`]). With the ignored files of
-//! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories,
-//! and the small ones outside build and dependency directories and outside nested
-//! repositories are added too.
+//! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories
+//! at the same time as the first, and the small ones outside build and dependency
+//! directories and outside nested repositories are added too. In a root where nothing
+//! changed, these two runs are all that the first snapshot of a turn costs.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -122,16 +123,32 @@ pub(crate) async fn stage(
     let now = SystemTime::from(runner.clock().now());
     runner.blocking(&root, move || stamped.stamp(now)).await?;
 
-    let work = Run { work_tree: Some(&root), ..Run::default() };
-    let listed = runner
-        .checked(
+    // NOTE: both listings only read the root and the index, so they run together, and
+    // the scan of the ignored files adds no git run to the time of the snapshot.
+    let scan_ignored = ignored && limits.ignored_small;
+    let (listed, ignored_listed) = tokio::join!(
+        runner.checked(
             store,
             "ls-files",
             &["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"],
-            work,
-        )
-        .await?;
-    let listing = parse_listing(&listed);
+            Run { work_tree: Some(&root), ..Run::default() },
+        ),
+        async {
+            if !scan_ignored {
+                return Ok(Vec::new());
+            }
+            runner
+                .checked(
+                    store,
+                    "ls-files",
+                    &["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"],
+                    Run { work_tree: Some(&root), ..Run::default() },
+                )
+                .await
+        },
+    );
+    let listing = parse_listing(&listed?);
+    let ignored_listed = ignored_listed?;
     let entries = store.index_entries().unwrap_or(0);
     if entries + listing.others.len() as u64 > limits.max_files {
         return Ok(Staged::Skipped("the root has more files than snapshot.max_files"));
@@ -157,16 +174,8 @@ pub(crate) async fn stage(
     paths.extend(others);
 
     let mut forced = Vec::new();
-    if ignored && limits.ignored_small {
-        let listed = runner
-            .checked(
-                store,
-                "ls-files",
-                &["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"],
-                Run { work_tree: Some(&root), ..Run::default() },
-            )
-            .await?;
-        let entries: Vec<String> = listed
+    if scan_ignored {
+        let entries: Vec<String> = ignored_listed
             .split(|byte| *byte == 0)
             .filter_map(|entry| std::str::from_utf8(entry).ok())
             .filter(|entry| !entry.is_empty())
