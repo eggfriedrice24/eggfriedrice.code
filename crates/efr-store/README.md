@@ -25,8 +25,11 @@ across a restart:
 - `events`: the append-only event log. `read_after(seq, limit)` and the per
   conversation reads return `EventEnvelope`s; a kind this build does not know reads
   back as `Event::Unknown`.
-- `conversations`, `approvals`, `shells`: projections of the log for listing and
-  paging, rebuilt from the events by `WriterHandle::rebuild_projections`. A turn ends
+- `conversations`, `approvals`, `shells`, `compactions`: projections of the log for
+  listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
+  `compactions::latest` reads the newest `conversation_compacted` with a summary and
+  the newest of any kind with a query of their own, so the page of newest events never
+  decides what the model sees. A turn ends
   with `turn_completed`, `turn_failed`, `turn_interrupted`, `turn_cancelled` or, for
   a queued prompt that the user took back before it started, `prompt_withdrawn`
   (status `withdrawn`), so a restart never cancels a withdrawn prompt again.
@@ -41,7 +44,10 @@ across a restart:
   event that ends the turn (`Batch::turn_messages`), keeps the newest turns of the
   conversation that the history may carry, and `of_conversation` reads them back, so
   a conversation that goes on after a restart sends the same request. They are not a
-  projection: a rebuild leaves them alone.
+  projection: a rebuild leaves them alone. A `conversation_compacted` with a summary
+  drops, in its own batch, the saved turns before its cut, and its `through_turn` too
+  when the cut covers that whole turn: the summary takes their place in every later
+  request. A compaction that only pruned drops nothing.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

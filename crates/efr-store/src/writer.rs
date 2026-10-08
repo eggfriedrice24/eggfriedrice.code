@@ -10,7 +10,7 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use efr_protocol::{EventEnvelope, Seq};
+use efr_protocol::{Event, EventEnvelope, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
 use rusqlite::{Connection, TransactionBehavior};
@@ -213,6 +213,11 @@ impl WriterState {
             let envelope = EventEnvelope { seq: Seq::new(next), conversation_id, at, event };
             events::insert(&tx, &envelope)?;
             projection::apply(&tx, &envelope)?;
+            if let (Some(conversation_id), Event::ConversationCompacted(compaction)) =
+                (envelope.conversation_id, &envelope.event)
+            {
+                turn_messages::forget_compacted(&tx, conversation_id, compaction)?;
+            }
             envelopes.push(envelope);
         }
         for receipt in &batch.receipts {

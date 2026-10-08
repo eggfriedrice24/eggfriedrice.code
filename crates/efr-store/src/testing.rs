@@ -122,6 +122,29 @@ pub(crate) fn started(turn: u64, cwd: &str) -> Event {
     }
 }
 
+/// The compaction `n` of a conversation, whose cut is after the whole turn `through`
+/// (inside it, before message `message`, when given), with a summary when `summary`.
+pub(crate) fn compacted(n: u64, through: u64, message: Option<u32>, summary: bool) -> Event {
+    Event::ConversationCompacted(efr_protocol::Compaction {
+        compaction_id: id(6, n),
+        turn_id: None,
+        trigger: efr_protocol::CompactionTrigger::Manual,
+        focus: None,
+        model: "test-model".to_owned(),
+        window: 272_000,
+        limit: 206_720,
+        tokens_before: 230_000,
+        tokens_after: 20_000,
+        through_turn: turn(through),
+        through_message: message,
+        kept_turns: 1,
+        pruned_outputs: if summary { 0 } else { 3 },
+        pruned_tokens: if summary { 0 } else { 30_000 },
+        summary: summary.then(|| format!("## Task and state\nsummary {n}")),
+        usage: None,
+    })
+}
+
 /// Runs `f` on the writer's connection.
 pub(crate) async fn on_writer<T: Send + 'static>(
     writer: &WriterHandle,

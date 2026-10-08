@@ -9,10 +9,12 @@
 //! to which model is the conversation's decision.
 //!
 //! The table is not a projection: the event log cannot rebuild it. It is bounded per
-//! conversation to the newest turns that the history may carry.
+//! conversation to the newest turns that the history may carry. A compaction with a
+//! summary also drops the turns before its cut ([`forget_compacted`]): the summary
+//! takes their place in every later request.
 
-use efr_protocol::{ConversationId, Seq, TurnId};
-use rusqlite::{Connection, params};
+use efr_protocol::{Compaction, ConversationId, Seq, TurnId};
+use rusqlite::{Connection, OptionalExtension as _, params};
 use serde_json::Value;
 
 use crate::{StoreError, sql};
@@ -103,6 +105,39 @@ pub(crate) fn save(
              SELECT DISTINCT turn_seq FROM turn_messages WHERE conversation_id = ?1 \
              ORDER BY turn_seq DESC LIMIT ?2))",
         params![conversation_id, i64::try_from(item.keep).unwrap_or(i64::MAX)],
+    )?;
+    Ok(())
+}
+
+/// Drops the saved messages that no request needs after `compaction` of
+/// `conversation_id`: the turns before its cut, and its `through_turn` too when the cut
+/// covers that whole turn. Only a compaction with a summary drops anything; after a
+/// pruning alone, the history still sends every turn. Runs in the batch that records
+/// the compaction, after the projections, so the `turns` row of `through_turn` says
+/// where that turn stands in the log. A turn that the projection does not know drops
+/// nothing.
+pub(crate) fn forget_compacted(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    compaction: &Compaction,
+) -> Result<(), StoreError> {
+    if compaction.summary.is_none() {
+        return Ok(());
+    }
+    let through = compaction.through_turn.to_string();
+    let bound: Option<i64> = conn
+        .query_row("SELECT last_seq FROM turns WHERE id = ?1", [&through], |row| row.get(0))
+        .optional()?;
+    let Some(bound) = bound else {
+        return Ok(());
+    };
+    // NOTE: the turns of a conversation never overlap, so a turn that ended before the
+    // newest event of `through_turn` came before that turn; a running `through_turn` has
+    // saved nothing yet.
+    conn.execute(
+        "DELETE FROM turn_messages WHERE conversation_id = ?1 AND (turn_seq < ?2 OR (?3 AND \
+         turn_id = ?4))",
+        params![conversation_id.to_string(), bound, compaction.through_message.is_none(), through],
     )?;
     Ok(())
 }

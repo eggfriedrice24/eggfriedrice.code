@@ -49,13 +49,14 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 5, backup: None });
+    assert_eq!(report, MigrationReport { from: 0, to: 6, backup: None });
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 5);
+    assert_eq!(Migrations::version(&conn).unwrap(), 6);
     assert_eq!(
         tables(&conn),
         [
             "approvals",
+            "compactions",
             "conversations",
             "events",
             "outbox",
@@ -75,7 +76,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 5, to: 5, backup: None });
+    assert_eq!(report, MigrationReport { from: 6, to: 6, backup: None });
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -95,8 +96,8 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(report, MigrationReport { from: 2, to: 5, backup: Some(backup.clone()) });
-    assert_eq!(Migrations::version(&conn).unwrap(), 5);
+    assert_eq!(report, MigrationReport { from: 2, to: 6, backup: Some(backup.clone()) });
+    assert_eq!(Migrations::version(&conn).unwrap(), 6);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -140,7 +141,7 @@ fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
     conn.pragma_update(None, "user_version", 9).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 5 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 6 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -245,6 +246,8 @@ fn every_fixture_database_migrates_to_the_latest_version() {
         }
         let saved = crate::turn_messages::of_conversation(&conn, fixture_conversation()).unwrap();
         assert_eq!(saved.len(), usize::from(version >= 5), "efr.sqlite.{version}");
+        let compactions = crate::compactions::latest(&conn, fixture_conversation()).unwrap();
+        assert_eq!(compactions.newest.is_some(), version >= 6, "efr.sqlite.{version}");
     }
 }
 
@@ -418,6 +421,9 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
         50,
     );
     store.writer().append(rest.turn_messages(messages)).await.unwrap();
+    // NOTE: a pruning alone, so the saved messages of the turn stay.
+    let pruned = crate::testing::compacted(1, 1, None, false);
+    store.writer().append(Batch::new().event(id, pruned)).await.unwrap();
     let recordings = crate::recording::Recordings::new(
         recordings,
         store.writer().clone(),

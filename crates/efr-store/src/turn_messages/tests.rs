@@ -141,3 +141,77 @@ async fn a_projection_rebuild_leaves_the_messages_alone() {
 
     assert_eq!(read(&writer, id).await.len(), 1);
 }
+
+/// The saved turns of `id`, by number.
+async fn kept(writer: &WriterHandle, id: ConversationId) -> Vec<TurnId> {
+    read(writer, id).await.iter().map(|turn| turn.turn_id).collect()
+}
+
+#[tokio::test]
+async fn a_summary_drops_the_turns_before_its_cut_and_the_whole_turn_it_covers() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    for turn in 1..=3 {
+        finish_turn(&writer, id, turn, 50).await;
+    }
+
+    writer.append(Batch::new().event(id, testing::compacted(1, 2, None, true))).await.unwrap();
+
+    assert_eq!(kept(&writer, id).await, [testing::turn(3)]);
+}
+
+#[tokio::test]
+async fn a_cut_inside_a_turn_keeps_that_turn_for_its_tail() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    for turn in 1..=3 {
+        finish_turn(&writer, id, turn, 50).await;
+    }
+
+    writer.append(Batch::new().event(id, testing::compacted(1, 2, Some(1), true))).await.unwrap();
+
+    assert_eq!(kept(&writer, id).await, [testing::turn(2), testing::turn(3)]);
+}
+
+#[tokio::test]
+async fn a_pruning_alone_drops_no_turn() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    for turn in 1..=2 {
+        finish_turn(&writer, id, turn, 50).await;
+    }
+
+    writer.append(Batch::new().event(id, testing::compacted(1, 2, None, false))).await.unwrap();
+
+    assert_eq!(kept(&writer, id).await, [testing::turn(1), testing::turn(2)]);
+}
+
+#[tokio::test]
+async fn a_compaction_inside_the_running_turn_drops_every_earlier_turn() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let (one, two) = (testing::conversation(1), testing::conversation(2));
+    writer
+        .append(Batch::new().event(one, testing::created(None)).event(two, testing::created(None)))
+        .await
+        .unwrap();
+    finish_turn(&writer, two, 9, 50).await;
+    for turn in 1..=2 {
+        finish_turn(&writer, one, turn, 50).await;
+    }
+    writer
+        .append(
+            Batch::new()
+                .event(one, testing::queued(3, "go on"))
+                .event(one, testing::started(3, "/")),
+        )
+        .await
+        .unwrap();
+
+    writer.append(Batch::new().event(one, testing::compacted(1, 3, Some(2), true))).await.unwrap();
+
+    assert_eq!(kept(&writer, one).await, []);
+    assert_eq!(kept(&writer, two).await, [testing::turn(9)], "another conversation keeps its own");
+}

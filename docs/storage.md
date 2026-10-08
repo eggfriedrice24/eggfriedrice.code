@@ -72,9 +72,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   so a subscriber can resume from `after_seq` without the projections. The payload is
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
-- Projections `conversations`, `turns`, `approvals`, `shells` are rebuilt from events
-  by `cargo xtask rebuild-projections`, and a test asserts the rebuild matches. They
-  serve listing and paging; they are not a second source of truth.
+- Projections `conversations`, `turns`, `approvals`, `shells`, `compactions` are
+  rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
+  rebuild matches. They serve listing and paging; they are not a second source of
+  truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
   `command_id` returns the stored result; a rejected one stays rejected; nothing is
   replayed automatically after a reconnect.
@@ -88,7 +89,12 @@ conversations or the daemon's socket. The config root stays readable and read-on
   batch of the turn's terminal event (`turn_seq` is its sequence number); each
   conversation keeps its newest `history.max_turns` turns. Not a projection: the log
   cannot rebuild it, so a rebuild leaves it alone and it has no foreign key to
-  `turns`.
+  `turns`. A `conversation_compacted` with a summary deletes the rows of the turns
+  before its cut in the same batch.
+- `compactions(seq, conversation_id, compaction_id, has_summary, compaction JSON)`:
+  one row per `conversation_compacted` event, a projection. A turn reads the newest
+  row with a summary and the newest row of any kind with a query of their own, never
+  from the page of newest events.
 
 ## Migrations
 
@@ -98,8 +104,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
 - Before migrating, the daemon copies the database to `backups/`. The socket opens only
   after migrations finish.
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
-  `0003_receipts_outbox.sql`, `0004_shells_recordings.sql` and
-  `0005_turn_messages.sql`. The devices and scopes
+  `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
+  `0005_turn_messages.sql` and `0006_compactions.sql`. The devices and scopes
   table waits for the phone milestone, because a forward-only migration makes an unused
   table permanent.
 - A migration never edits an earlier file. New columns use `ALTER TABLE ... ADD COLUMN`

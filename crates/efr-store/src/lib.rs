@@ -1,9 +1,9 @@
 //! The only SQLite owner in efr.
 //!
 //! The store keeps the append-only event log, the projections derived from it
-//! (conversations, turns, approvals, shells), command receipts, the outbox, the exact
-//! messages of recent turns with the provider's own items, and the index and segment
-//! files of PTY recordings. One writer actor owns the only
+//! (conversations, turns, approvals, shells, compactions), command receipts, the
+//! outbox, the exact messages of recent turns with the provider's own items, and the
+//! index and segment files of PTY recordings. One writer actor owns the only
 //! read-write connection and commits every write; read-only connections serve reads
 //! through `spawn_blocking`.
 //!
@@ -23,6 +23,7 @@
 #![warn(missing_docs)]
 
 pub mod approvals;
+pub mod compactions;
 pub mod conversations;
 pub mod db;
 mod error;
