@@ -9,7 +9,7 @@
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationId,
@@ -130,6 +130,10 @@ fn envelopes(item: ConversationSubscribeItem) -> Vec<EventEnvelope> {
 /// interrupts the program, takes the snapshot after the call and writes the events.
 /// No sleep of the daemon ends soon while it does that work, so the clock stays where
 /// the run stopped the command, also on a machine under load.
+///
+/// The wait has a bound in real time too, [`REAL_TIME_LIMIT`]: a daemon that hangs with
+/// no deadline of its own never moves the clock, and the test fails with the events it
+/// saw, long before nextest ends it.
 async fn events_while_time_passes(
     daemon: &TestDaemon,
     stream: &mut ItemStream<ConversationSubscribeItem>,
@@ -137,6 +141,7 @@ async fn events_while_time_passes(
     mut stop: impl FnMut(&Event) -> bool,
 ) -> Vec<EventEnvelope> {
     let step = Duration::from_secs(1);
+    let started = Instant::now();
     let mut seen = Vec::new();
     let mut moved = 0;
     loop {
@@ -152,6 +157,12 @@ async fn events_while_time_passes(
                 }
             }
             () = idle() => {
+                let waited = started.elapsed();
+                assert!(
+                    waited < REAL_TIME_LIMIT,
+                    "the end did not come in {waited:?} of real time ({moved}s on the \
+                     daemon's clock): {seen:#?}"
+                );
                 let clock = daemon.clock();
                 let soon = clock.now().checked_add(step).unwrap();
                 if clock.next_deadline().is_some_and(|deadline| deadline <= soon) {
@@ -163,6 +174,13 @@ async fn events_while_time_passes(
         }
     }
 }
+
+/// How long [`events_while_time_passes`] may take in real time. A whole test of this
+/// module takes less than 0.1 s on an idle machine, and each wait only a part of it:
+/// the daemon interrupts a program, takes a snapshot and writes some events. The limit
+/// is more than a hundred times that, for a machine under heavy load, and a quarter of
+/// nextest's limit for the whole test (60 s), so the test fails with what it saw.
+const REAL_TIME_LIMIT: Duration = Duration::from_secs(15);
 
 /// The events of `stream` while the daemon's clock moves `seconds` seconds, one second
 /// each time nothing comes for a while.
