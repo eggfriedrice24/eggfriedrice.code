@@ -209,6 +209,10 @@ pub struct ToolRequirements {
     /// How long the call may wait for its command, for a tool that runs one. The daemon
     /// waits no longer than this for the hidden shell before it plans a sandboxed call.
     pub timeout: Option<Duration>,
+    /// True when the call deletes or moves a file (a delete or a move of
+    /// `apply_patch`). Undo cannot bring such a file back yet, so the engine asks for it
+    /// in every mode. The paths it touches are declared as writes too.
+    pub destructive: bool,
 }
 
 impl ToolRequirements {
@@ -313,6 +317,13 @@ impl ToolRequirements {
         self.timeout = Some(timeout);
         self
     }
+
+    /// Sets whether the call deletes or moves a file.
+    #[must_use]
+    pub fn with_destructive(mut self, destructive: bool) -> Self {
+        self.destructive = destructive;
+        self
+    }
 }
 
 impl fmt::Debug for ToolRequirements {
@@ -326,6 +337,7 @@ impl fmt::Debug for ToolRequirements {
             .field("needs", &self.needs)
             .field("nested", &self.nested)
             .field("timeout", &self.timeout)
+            .field("destructive", &self.destructive)
             .finish()
     }
 }
@@ -362,25 +374,41 @@ pub struct ToolResult {
     /// launcher lost after it started the command, or a survivor of an approved exit.
     /// The daemon closes that shell, and the next call starts a new one.
     pub shell_tainted: bool,
-    /// The file that a file tool wrote and what the write changed in it; `None` for
-    /// other tools and for a write that failed.
-    pub written: Option<WrittenFile>,
+    /// The files that a file tool changed and what it changed in each, in the order
+    /// it changed them; empty for other tools and for a call that changed nothing.
+    pub written: Vec<WrittenFile>,
 }
 
-/// The file that a file tool wrote, and what the write changed in it.
+/// A file that a file tool changed, and what it changed in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WrittenFile {
-    /// The file, absolute.
+    /// The file, absolute: where it is after the call, or where it was for a delete.
     pub path: PathBuf,
-    /// True when the write created the file.
-    pub created: bool,
+    /// What happened to it.
+    pub kind: WrittenKind,
     /// True when the file held bytes that are not UTF-8 text before the write, so no
     /// diff and no line counts are made.
     pub binary: bool,
-    /// The diff of the write and its line counts: at most
+    /// The diff of the change and its line counts: at most
     /// [`MAX_CALL_DIFF_LINES`](efr_protocol::MAX_CALL_DIFF_LINES) lines. `None` for a
     /// binary file and for a write that left the content as it was.
     pub diff: Option<WrittenDiff>,
+}
+
+/// What a file tool did to one file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WrittenKind {
+    /// No file was there; the call created it.
+    Created,
+    /// The call replaced the content of a file that was there.
+    Changed,
+    /// The call removed the file.
+    Deleted,
+    /// The call moved the file here from `from`, maybe with a new content.
+    Moved {
+        /// Where the file was, absolute.
+        from: PathBuf,
+    },
 }
 
 impl ToolResult {
@@ -394,7 +422,7 @@ impl ToolResult {
             sandbox: None,
             sandbox_failed: false,
             shell_tainted: false,
-            written: None,
+            written: Vec::new(),
         }
     }
 
@@ -445,9 +473,9 @@ impl ToolResult {
         self
     }
 
-    /// Sets the file that a file tool wrote.
+    /// Sets the files that a file tool changed.
     #[must_use]
-    pub fn with_written(mut self, written: Option<WrittenFile>) -> Self {
+    pub fn with_written(mut self, written: Vec<WrittenFile>) -> Self {
         self.written = written;
         self
     }

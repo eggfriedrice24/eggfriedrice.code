@@ -14,17 +14,21 @@
 //!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes, and
 //!   previews a write as a bounded unified diff for its approval
 //!   ([`Tool::preview`], [`unified_diff`], which the daemon's settings tool shows
-//!   too). A write reports the file it wrote ([`WrittenFile`]) with its diff and line
-//!   counts ([`written_diff`], [`WrittenDiff`]), which the call shows after it ran.
+//!   too). A write reports the files it changed ([`WrittenFile`], [`WrittenKind`])
+//!   with their diffs and line counts ([`written_diff`], [`WrittenDiff`]), which the
+//!   call shows after it ran.
+//! - [`ApplyPatchTool`]: edits files with a patch on the engine of `efr-patch`, all or
+//!   nothing, and marks a delete or a move as destructive in its requirements.
 //! - [`ToolContext`] and [`CallIds`]: where a call runs.
 //! - [`truncate_middle`]: head and tail with a marker, [`DEFAULT_OUTPUT_LIMIT`]
 //!   (32 KiB) unless a tool says otherwise.
 //!
-//! Allowed dependencies: `efr-shell`, `efr-scope` (the home directory), `efr-protocol`
-//! and `efr-stdx`. What does not belong here: permissions. Tools declare, the
+//! Allowed dependencies: `efr-shell`, `efr-scope` (the home directory), `efr-patch`
+//! (the patch engine), `efr-protocol` and `efr-stdx`. What does not belong here: permissions. Tools declare, the
 //! permission engine (`efr-permissions`) decides, and `efr-conversation` enforces, at
 //! its single check point; `xtask/src/deps.rs` forbids `efr-tools -> efr-permissions`.
 
+mod apply_patch;
 mod context;
 mod diff;
 mod error;
@@ -39,6 +43,7 @@ mod testing;
 mod tool;
 mod write_file;
 
+pub use apply_patch::ApplyPatchTool;
 pub use context::{CallIds, ToolContext};
 pub use diff::{MAX_WRITTEN_BYTES, WrittenDiff, unified_diff, written_diff};
 pub use error::ToolError;
@@ -49,6 +54,6 @@ pub use registry::ToolRegistry;
 pub use shell_tool::{ShellTool, not_ready_message};
 pub use tool::{
     AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,
-    ToolRequirements, ToolResult, ToolSpec, WrittenFile, freeform_text,
+    ToolRequirements, ToolResult, ToolSpec, WrittenFile, WrittenKind, freeform_text,
 };
 pub use write_file::WriteFileTool;

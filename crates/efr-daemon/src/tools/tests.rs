@@ -168,13 +168,39 @@ fn a_freeform_spec_becomes_a_freeform_definition_with_the_same_function_form() {
 }
 
 #[test]
-fn the_model_is_offered_the_shell_the_two_file_tools_and_the_settings() {
+fn the_model_is_offered_the_shell_the_file_tools_and_the_settings() {
     let home = tempfile::tempdir().unwrap();
     let definitions = toolbox(home.path()).definitions();
 
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, ["shell", "read_file", "write_file", "settings"]);
+    assert_eq!(names, ["shell", "read_file", "write_file", "apply_patch", "settings"]);
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
+    let patch = &definitions[3];
+    assert_eq!(patch.grammar, Some(efr_provider::ToolGrammar::lark(efr_patch_grammar())));
+}
+
+/// The grammar that `apply_patch` sends, as its spec gives it.
+fn efr_patch_grammar() -> String {
+    use efr_tools::Tool as _;
+    match efr_tools::ApplyPatchTool::new().spec().grammar {
+        Some(efr_tools::ToolGrammar::Lark(grammar)) => grammar,
+        None => panic!("apply_patch is a freeform tool"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs the efr-patch engine; the merge of the engine enables it"]
+async fn a_patch_declares_every_path_as_a_write_and_a_delete_as_destructive() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    let text = "*** Begin Patch\n*** Delete File: old.rs\n*** End Patch\n";
+
+    let requirements = toolbox.requirements(&call("apply_patch", json!(text), home.path())).await;
+
+    assert_eq!(
+        requirements,
+        Ok(Requirements::none().with_write(home.path().join("old.rs")).with_destructive())
+    );
 }
 
 #[tokio::test]
@@ -279,7 +305,8 @@ fn every_declared_requirement_is_copied() {
         .with_command("make")
         .with_command_dir("/srv/app")
         .with_network(true)
-        .with_interactive(true);
+        .with_interactive(true)
+        .with_destructive(true);
 
     assert_eq!(
         permission_requirements(declared),
@@ -291,6 +318,7 @@ fn every_declared_requirement_is_copied() {
             .with_command_dir("/srv/app")
             .with_network()
             .with_interactive()
+            .with_destructive()
     );
 }
 

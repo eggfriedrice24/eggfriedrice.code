@@ -1261,6 +1261,7 @@ name = "efr-tools"
 version = "0.0.2"
 dependencies = [
  "async-trait",
+ "efr-patch",
  "efr-protocol",
  "efr-scope",
  "efr-shell",

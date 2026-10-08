@@ -58,9 +58,9 @@ async fn a_write_reports_its_diff_and_line_counts() {
         )
         .await
         .unwrap();
-    let written = result.written.unwrap();
+    let written = result.written.into_iter().next().unwrap();
     assert_eq!(written.path, path);
-    assert!(!written.created && !written.binary);
+    assert!(written.kind == crate::WrittenKind::Changed && !written.binary);
     let diff = written.diff.unwrap();
     assert_eq!((diff.added, diff.removed), (2, 1));
     assert!(diff.text.contains("\n-two\n+2\n three\n+four\n"), "{}", diff.text);
@@ -73,7 +73,7 @@ async fn a_write_reports_its_diff_and_line_counts() {
         )
         .await
         .unwrap();
-    assert_eq!(same.written.unwrap().diff, None, "no change, no diff");
+    assert_eq!(same.written[0].diff, None, "no change, no diff");
 }
 
 #[tokio::test]
@@ -84,7 +84,7 @@ async fn a_write_over_binary_bytes_has_no_diff() {
         .invoke(fixture.context(), json!({"path": "blob", "content": "text\n"}), &mut NoOutput)
         .await
         .unwrap();
-    let written = result.written.unwrap();
+    let written = result.written.into_iter().next().unwrap();
     assert!(written.binary);
     assert_eq!(written.diff, None);
 }

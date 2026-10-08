@@ -55,7 +55,11 @@ pub(crate) const OS: &str = "TestOS";
 ///   prompt, waits for hidden input, takes an answer and prints `ok`, yielding between
 ///   the steps, and `relay-password` does the same with a visible wait that looks
 ///   secret; a command that starts with `sudo ` may wait for input at the terminal;
-/// - `hang {}` declares nothing, signals [`FakeToolbox::hang_started`] and never ends.
+/// - `hang {}` declares nothing, signals [`FakeToolbox::hang_started`] and never ends;
+/// - `apply_patch`, a freeform tool, declares the path of each `*** Add File:`,
+///   `*** Update File:`, `*** Delete File:` and `*** Move to:` line of its text as a
+///   write, marks a delete or a move as destructive, as the real tool does, and
+///   answers `patched`.
 ///
 /// A `shell` input may also declare `reads` and `writes` (lists of paths), `network`,
 /// `nested_shell` and `needs`, as the real shell tool does. The command `plant-hook`
@@ -121,6 +125,11 @@ impl FakeToolbox {
             tool("shell", "Runs a command.", json!({"command": {"type": "string"}})),
             tool("hang", "Never ends.", json!({})),
             ToolDefinition::freeform("note", "Takes a note.", ToolGrammar::lark("start: /.+/")),
+            ToolDefinition::freeform(
+                "apply_patch",
+                "Edits files.",
+                ToolGrammar::lark("start: /(.|\\n)+/"),
+            ),
         ]
     }
 
@@ -215,6 +224,27 @@ impl Toolbox for FakeToolbox {
                 Ok(requirements)
             }
             "hang" | "note" => Ok(Requirements::none()),
+            "apply_patch" => {
+                let text = call.input.as_str().ok_or("the input is not a patch")?;
+                let mut requirements = Requirements::none();
+                for line in text.lines() {
+                    let marks = [
+                        ("*** Add File: ", false),
+                        ("*** Update File: ", false),
+                        ("*** Delete File: ", true),
+                        ("*** Move to: ", true),
+                    ];
+                    for (mark, destructive) in marks {
+                        if let Some(path) = line.strip_prefix(mark) {
+                            requirements = requirements.with_write(path);
+                            if destructive {
+                                requirements = requirements.with_destructive();
+                            }
+                        }
+                    }
+                }
+                Ok(requirements)
+            }
             other => Err(format!("no tool is named {other:?}")),
         }
     }
@@ -249,6 +279,7 @@ impl Toolbox for FakeToolbox {
         match call.name.as_str() {
             "read_file" => ToolOutcome::ok(format!("contents of {path}")),
             "note" => ToolOutcome::ok(format!("noted {}", call.input.as_str().unwrap_or("?"))),
+            "apply_patch" => ToolOutcome::ok("patched"),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
             "shell" if call.input["command"] == "ask-password" => {
                 out.update("pw: ", 4);

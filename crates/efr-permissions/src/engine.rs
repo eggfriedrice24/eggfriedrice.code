@@ -36,6 +36,11 @@ use crate::{
 /// declared only by the settings tool) needs approval in every mode, whatever the
 /// rules say, and is denied for a remote origin.
 ///
+/// A delete or a move of a file ([`Requirements::destructive`](crate::Requirements))
+/// needs approval in every mode, `auto` too, and from every origin, whatever the rules
+/// say, until undo can bring the file back. Its paths are judged as writes as well, so
+/// a denied path stays denied.
+///
 /// A command line is judged one simple command at a time, and its effect is the
 /// strictest of theirs, so a line is allowed only when every simple command in it is.
 /// A line that cannot be split (a command substitution, an output redirection to a
@@ -263,6 +268,17 @@ impl Engine {
             let subject =
                 Subject::Settings { summary: change.summary.clone(), loosens: change.loosens };
             reasons.push(Reason { subject, effect, cause });
+        }
+        if requirements.destructive {
+            // NOTE: no rule is read and no mode lets it run freely: undo cannot bring a
+            // deleted or a moved file back yet (phase 4 of the auto spec), so a person
+            // approves each one. The paths are judged as writes on their own reasons,
+            // so a path that is denied stays denied.
+            reasons.push(Reason {
+                subject: Subject::Destructive,
+                effect: Effect::Ask,
+                cause: Cause::Destructive,
+            });
         }
         if auto {
             let found = match &requirements.command {

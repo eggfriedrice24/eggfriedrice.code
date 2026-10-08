@@ -49,7 +49,7 @@ shipped binary.
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
-| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
+| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file and apply_patch tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client; the model catalog, which also says which models take freeform (`custom`) tools; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
@@ -206,6 +206,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
   `crates/efr-provider-openai/src/models.rs` (`takes_freeform_tools`), the `custom`
   items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
-  `apply_patch`: `crates/efr-patch/`; the tool's contract: `crates/efr-tools/README.md`.
+  `apply_patch`: `crates/efr-patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
+  and its contract in `crates/efr-tools/README.md`; the question for each delete and
+  move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

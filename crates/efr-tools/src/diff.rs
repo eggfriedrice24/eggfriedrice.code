@@ -109,19 +109,41 @@ pub fn written_diff(
     if old == Some(new) {
         return None;
     }
-    let lines = Lines::new(old, new);
-    let mut text = header(path, old.is_some());
+    change_diff(old.map(|old| (path, old)), Some((path, new)), max_lines).map(|(diff, _)| diff)
+}
+
+/// The diff of one file of a call that may also delete or move it: from `old`, its
+/// path and text before the call (`None` for a new file), to `new`, its path and text
+/// after it (`None` for a deleted file). The header names both paths, `/dev/null` for
+/// the side that is missing. The lines are cut as [`written_diff`] cuts them. The
+/// second value is the number of diff lines shown below the header. `None` when the
+/// path and the text stay the same, or when both sides are missing.
+pub(crate) fn change_diff(
+    old: Option<(&Path, &str)>,
+    new: Option<(&Path, &str)>,
+    max_lines: usize,
+) -> Option<(WrittenDiff, usize)> {
+    if old.is_none() && new.is_none() || old == new {
+        return None;
+    }
+    let from =
+        old.map_or_else(|| "/dev/null".to_owned(), |(path, _)| format!("a{}", path.display()));
+    let to = new.map_or_else(|| "/dev/null".to_owned(), |(path, _)| format!("b{}", path.display()));
+    let lines = Lines::new(old.map(|(_, text)| text), new.map_or("", |(_, text)| text));
+    let mut text = format!("--- {from}\n+++ {to}\n");
     let mut bytes = 0;
-    for (shown, line) in lines.lines.iter().enumerate() {
+    let mut shown = lines.lines.len();
+    for (at, line) in lines.lines.iter().enumerate() {
         bytes += line.len() + 1;
-        if shown == max_lines || bytes > MAX_WRITTEN_BYTES {
-            let _ = writeln!(text, "... {} more lines", lines.lines.len() - shown);
+        if at == max_lines || bytes > MAX_WRITTEN_BYTES {
+            let _ = writeln!(text, "... {} more lines", lines.lines.len() - at);
+            shown = at;
             break;
         }
         text.push_str(line);
         text.push('\n');
     }
-    Some(WrittenDiff { text, added: lines.added, removed: lines.removed })
+    Some((WrittenDiff { text, added: lines.added, removed: lines.removed }, shown))
 }
 
 /// The two header lines of a diff of `path`.

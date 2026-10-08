@@ -12,6 +12,15 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
+- The model edits files with a new `apply_patch` tool. One patch adds, changes,
+  deletes or moves one or more files, and it changes all of them or none: when a part
+  does not match, the model gets the nearest lines of the file and no file changes.
+  The call shows the diff of each file. A change or a new file in the turn's project
+  or in `$SCRATCH` needs no approval, as for `write_file`. A delete or a move always
+  asks, also in `auto`, because undo cannot bring the file back yet. The question
+  shows the diff of every file and marks each delete and move. The models that take
+  freeform tools get the tool with its grammar. The system prompt tells the model to
+  use it, and not `sed -i` or a whole-file write, for an edit.
 - An input row below a running turn, in the terminal that follows it. Type there while
   the turn runs: Enter steers the turn, Tab queues the text as a prompt behind it, Esc
   interrupts it and Alt+Up takes back the newest prompt that you queued there. The row

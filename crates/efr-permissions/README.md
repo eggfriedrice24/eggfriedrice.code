@@ -44,7 +44,9 @@ Modules:
 - `request`: `DecisionInput`, `Requirements` (paths with `Access`: `Read`, `ReadTree`
   for a path read with everything below it, or `Write`; a command line and the
   directory it starts in; network; interactive; a `SettingsChange`, which only the
-  daemon's settings tool declares; the shell tool's `needs` and `nested_shell`; and
+  daemon's settings tool declares; `destructive`, for a call that deletes or moves a
+  file (a delete or a move of `apply_patch`); the shell tool's `needs` and
+  `nested_shell`; and
   `CallFacts`, the facts about the line's files and programs that the daemon collects
   for the `auto` mode) and `ConversationPolicy` (the
   conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
@@ -141,6 +143,11 @@ proptest property:
   remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
+- A delete or a move of a file (`Requirements::destructive`) asks in every mode,
+  also in `auto`, from every origin and also when every rule allows everything, on
+  its own reason (`Subject::Destructive`, `Cause::Destructive`), until undo can bring
+  the file back. Its paths are judged as writes on their own reasons, so a denied path
+  stays denied (`src/engine/tests/destructive.rs`).
 - A change of efr's settings (the settings tool) asks in every mode, also in `auto`
   and also when every rule allows everything; no rule is read for it. A turn from a
   remote origin is denied it. `Engine::names_secrets` says whether a rule's resource

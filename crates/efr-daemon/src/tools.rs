@@ -35,8 +35,8 @@ use efr_scope::Home;
 use efr_shell::{ShellError, ShellSessions};
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
-    AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
-    ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec, WriteFileTool,
+    AccessMode, ApplyPatchTool, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext,
+    ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec, WriteFileTool,
     WriteJournal, not_ready_message,
 };
 use serde_json::Value;
@@ -57,7 +57,13 @@ pub(crate) use snapshot::CallSnapshots;
 pub(crate) const SANDBOX_NOT_STARTED: &str =
     "[the sandbox could not start: this efrd does not run the sandbox. The command did not run.]";
 
-/// The registry of milestone 1: the shell, `read_file` and `write_file`.
+/// The tools that write files in the daemon, outside the hidden shell: they take the
+/// plan lock of their projects and the turn's first snapshot before they write.
+const FILE_WRITERS: [&str; 2] = [WriteFileTool::NAME, ApplyPatchTool::NAME];
+
+/// The registry: the shell, `read_file`, `write_file` and `apply_patch`. A provider
+/// sends `apply_patch` in its freeform form to a model that takes it, and in its
+/// function form to every other model.
 pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonError> {
     let mut registry = ToolRegistry::new();
     let shell = ShellTool::new(Arc::new(shells.clone()));
@@ -67,6 +73,11 @@ pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonErr
         .map_err(|source| DaemonError::Tool { source })?;
     registry
         .register(Arc::new(WriteFileTool::new()))
+        .map_err(|source| DaemonError::Tool { source })?;
+    // NOTE: a delete or a move of a patch declares itself destructive, and the engine
+    // asks about it in every mode (`efr_permissions::Requirements::destructive`).
+    registry
+        .register(Arc::new(ApplyPatchTool::new()))
         .map_err(|source| DaemonError::Tool { source })?;
     Ok(registry)
 }
@@ -140,8 +151,8 @@ impl DaemonToolbox {
         self.snapshots.as_ref()?.after_call(before).await
     }
 
-    /// Before a `write_file` call: the turn's first snapshot of the root that holds
-    /// its target.
+    /// Before a `write_file` or `apply_patch` call: the turn's first snapshot of each
+    /// root that holds one of its targets.
     async fn snapshot_before_write(&self, call: &ToolCall) {
         let Some(snapshots) = &self.snapshots else { return };
         let context = self.context(&call.context);
@@ -240,11 +251,11 @@ impl DaemonToolbox {
         Some(facts::collect(&input, sandbox.git(), &self.home).await)
     }
 
-    /// Takes the plan lock of the projects that a `write_file` call writes, for the
-    /// write; `None` for another tool or without a sandbox.
+    /// Takes the plan lock of the projects that a `write_file` or `apply_patch` call
+    /// writes, for the write; `None` for another tool or without a sandbox.
     async fn lock_write(&self, call: &ToolCall) -> Option<lock::PlanGuard> {
         let (sandbox, _) = self.sandbox.as_ref()?;
-        if call.name != WriteFileTool::NAME {
+        if !FILE_WRITERS.contains(&call.name.as_str()) {
             return None;
         }
         let context = self.context(&call.context);
@@ -470,7 +481,7 @@ impl Toolbox for DaemonToolbox {
         let _writing = self.lock_write(&call).await;
         let shell = call.name == ShellTool::NAME;
         let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
-        if call.name == WriteFileTool::NAME {
+        if FILE_WRITERS.contains(&call.name.as_str()) {
             self.snapshot_before_write(&call).await;
         }
         let context = self.context(&call.context);
@@ -485,7 +496,7 @@ impl Toolbox for DaemonToolbox {
                 Ok(result) => {
                     let written = result.written.clone();
                     let mut outcome = outcome(result);
-                    if let (Some(written), Some(snapshots)) = (written, &self.snapshots) {
+                    if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
                         let (changes, diff) = snapshots.written(&call_context, &written);
                         outcome = outcome.with_changes(changes).with_diff(diff);
                     }
@@ -624,6 +635,9 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     }
     if declared.nested {
         requirements = requirements.with_nested();
+    }
+    if declared.destructive {
+        requirements = requirements.with_destructive();
     }
     requirements
 }

@@ -223,3 +223,9 @@ No protocol version has shipped yet.
   input as text. The `tool_input` draft part counts the bytes of that text in
   `bytes`. The new fixture `events/tool_call_started_freeform.json` sets the flag;
   `events/tool_call_started.json` does not change.
+- Version 1, additive: a file tool's call can change several files. The `changes` of
+  `tool_call_completed` list every file of an `apply_patch` call, with `deleted` for
+  a deleted file and `renamed` (and `from`) for a moved one. Its `diff` holds the diff
+  of each file in the order the call changed them, one after the other, each with its
+  two header lines (`+++ /dev/null` for a deleted file), together at most 2000 lines.
+  No member and no fixture changes.

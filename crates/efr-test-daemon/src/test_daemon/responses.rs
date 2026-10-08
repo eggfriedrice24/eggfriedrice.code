@@ -131,6 +131,57 @@ impl ResponsesAnswer {
         ResponsesAnswer::new(200, sse_body(events))
     }
 
+    /// A 200 answer that asks for one call of the freeform (`custom`) tool `name` with
+    /// the text `input`, streamed as Codex's server streams it: the item added, the
+    /// text in two deltas that name the item, the text done, the item done.
+    pub fn custom_tool_call(call_id: &str, name: &str, input: &str) -> Self {
+        let id = "0123456789abcdef0123456789abcdef";
+        let item_id = format!("ctc_{id}");
+        let item = |status: &str, input: &str| {
+            serde_json::json!({
+                "id": item_id, "type": "custom_tool_call", "status": status,
+                "call_id": call_id, "name": name, "input": input,
+            })
+        };
+        let response = |status: &str, output: Value| {
+            serde_json::json!({
+                "id": format!("resp_{id}"), "object": "response", "created_at": 1_791_115_200,
+                "status": status, "model": "gpt-5.5", "output": output,
+                "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
+            })
+        };
+        let middle = input.char_indices().nth(input.chars().count() / 2).map_or(0, |(at, _)| at);
+        let (head, tail) = input.split_at(middle);
+        let delta = |delta: &str| serde_json::json!({ "item_id": item_id, "output_index": 0, "delta": delta });
+        let events = [
+            (
+                "response.created",
+                serde_json::json!({ "response": response("in_progress", serde_json::json!([])) }),
+            ),
+            (
+                "response.output_item.added",
+                serde_json::json!({ "output_index": 0, "item": item("in_progress", "") }),
+            ),
+            ("response.custom_tool_call_input.delta", delta(head)),
+            ("response.custom_tool_call_input.delta", delta(tail)),
+            (
+                "response.custom_tool_call_input.done",
+                serde_json::json!({ "item_id": item_id, "output_index": 0, "input": input }),
+            ),
+            (
+                "response.output_item.done",
+                serde_json::json!({ "output_index": 0, "item": item("completed", input) }),
+            ),
+            (
+                "response.completed",
+                serde_json::json!({
+                    "response": response("completed", serde_json::json!([item("completed", input)]))
+                }),
+            ),
+        ];
+        ResponsesAnswer::new(200, sse_body(events))
+    }
+
     /// The answer a `provider_sse` text stands for. A first line `: status <code>`, a
     /// comment that any SSE reader skips, sets the status and is dropped; otherwise
     /// the status is 200.

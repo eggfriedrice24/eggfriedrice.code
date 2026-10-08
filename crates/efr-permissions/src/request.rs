@@ -52,6 +52,11 @@ pub struct Requirements {
     /// tool declares. It asks in every mode and is denied for a remote origin, whatever
     /// the rules say.
     pub settings: Option<SettingsChange>,
+    /// True when the call deletes or moves a file, as a delete or a move of
+    /// `apply_patch` does. Undo cannot bring such a file back yet, so the call asks in
+    /// every mode, `auto` too, whatever the rules say. Its paths are judged as writes
+    /// as well.
+    pub destructive: bool,
     /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
     /// Each entry is an exit that asks; outside `auto` it is ignored.
     pub needs: Option<Needs>,
@@ -119,6 +124,12 @@ impl Requirements {
         self
     }
 
+    /// Marks the call as one that deletes or moves a file.
+    pub fn with_destructive(mut self) -> Self {
+        self.destructive = true;
+        self
+    }
+
     /// Sets what the model asks for beyond the `auto` sandbox.
     pub fn with_needs(mut self, needs: Needs) -> Self {
         self.needs = Some(needs);
@@ -144,6 +155,7 @@ impl Requirements {
             && !self.network
             && !self.interactive
             && self.settings.is_none()
+            && !self.destructive
             && self.needs.as_ref().is_none_or(Needs::is_empty)
             && !self.nested
     }

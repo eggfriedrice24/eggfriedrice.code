@@ -114,6 +114,24 @@ pub enum ToolError {
         source: StdxError,
     },
 
+    /// Removing the file failed.
+    #[error("could not remove {}", .path.display())]
+    Remove {
+        /// The path.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// The text of an `apply_patch` call is not a patch.
+    #[error("the input of the apply_patch tool is not a valid patch")]
+    Patch {
+        /// What is wrong with it.
+        #[source]
+        source: efr_patch::PatchError,
+    },
+
     /// The original of a file could not be recorded in the write journal, so the file
     /// was not written.
     #[error("could not record the original of {} before writing it", .path.display())]

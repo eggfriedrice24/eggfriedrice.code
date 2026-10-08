@@ -1,6 +1,6 @@
 [package]
 name = "efr-tools"
-description = "The tools the model calls in efr: the Tool trait, the registry, and the shell, read_file and write_file tools"
+description = "The tools the model calls in efr: the Tool trait, the registry, and the shell, read_file, write_file and apply_patch tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,7 @@ doctest = false
 
 [dependencies]
 async-trait.workspace = true
+efr-patch.workspace = true
 efr-protocol.workspace = true
 efr-scope.workspace = true
 efr-shell.workspace = true

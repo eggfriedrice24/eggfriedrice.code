@@ -26,7 +26,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
-  one function call sent whole) and keeps every request,
+  one function call sent whole, `ResponsesAnswer::custom_tool_call` one call of a
+  freeform tool whose text streams in two deltas) and keeps every request,
   `Authorization` header included (never shown by `Debug`).
 - `pty_script`: `FakePtyHolder`, a `PtyHolder` whose masters are socketpairs. The test
   takes the other end of the n-th spawned PTY as a `FakeTerminal`, reads what the

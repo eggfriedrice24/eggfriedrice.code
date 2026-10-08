@@ -16,7 +16,7 @@ use crate::paths::{check_real, resolve};
 use crate::tool::parse_input;
 use crate::{
     FileSnapshot, JournalEntry, Original, Tool, ToolContext, ToolError, ToolOutputSink,
-    ToolRequirements, ToolResult, ToolSpec, WrittenFile,
+    ToolRequirements, ToolResult, ToolSpec, WrittenFile, WrittenKind,
 };
 
 /// The largest file `write_file` replaces: its original must fit in the journal.
@@ -130,7 +130,7 @@ impl Tool for WriteFileTool {
         blocking(&path, move || write(&target, input.content.as_bytes(), mode, owner)).await?;
         let verb = if created { "created" } else { "replaced" };
         Ok(ToolResult::ok(format!("{verb} {} ({bytes} bytes)", path.display()))
-            .with_written(Some(written)))
+            .with_written(vec![written]))
     }
 }
 
@@ -147,14 +147,17 @@ fn written(path: &Path, original: &Original, content: &str) -> WrittenFile {
     let diff = if binary { None } else { diff::written_diff(path, old, content, max_lines) };
     WrittenFile {
         path: path.to_path_buf(),
-        created: matches!(original, Original::Missing),
+        kind: match original {
+            Original::Missing => WrittenKind::Created,
+            _ => WrittenKind::Changed,
+        },
         binary,
         diff,
     }
 }
 
 /// Runs `job` on the blocking pool.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     path: &Path,
     job: impl FnOnce() -> Result<T, ToolError> + Send + 'static,
 ) -> Result<T, ToolError> {
@@ -203,7 +206,7 @@ fn snapshot(home: &Home, path: &Path) -> Result<FileSnapshot, ToolError> {
 
 /// Writes `content` to `path` atomically with `mode`, creating missing parents, and
 /// gives the file back to `owner` when there was one.
-fn write(
+pub(crate) fn write(
     path: &Path,
     content: &[u8],
     mode: u32,

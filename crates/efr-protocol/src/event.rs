@@ -237,17 +237,19 @@ pub enum Event {
         /// denied or that no answer reached.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         refusal: Option<String>,
-        /// The files that the call changed: for a file tool, the file it wrote; for a
-        /// `shell` call, what changed in the turn's registered project, `$SCRATCH` and,
+        /// The files that the call changed: for a file tool, the files it wrote, deleted
+        /// or moved; for a `shell` call, what changed in the turn's registered project, `$SCRATCH` and,
         /// in `auto`, the registered projects that the line names, as efr's own
         /// snapshots before and after the call show it. Absent when nothing changed
         /// there, for a tool that cannot write, and when efr took no snapshot.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         changes: Option<FileChanges>,
-        /// The unified diff of a file tool's write, at most
+        /// The unified diff of a file tool's call: the diff of each file it changed, in
+        /// the order it changed them, one after the other, each with its two header
+        /// lines (`/dev/null` for a new or a deleted file), together at most
         /// [`MAX_CALL_DIFF_LINES`](crate::MAX_CALL_DIFF_LINES) lines and then a line
-        /// `... N more lines`. Absent for other tools, for a binary file and when the
-        /// content did not change.
+        /// `... N more lines`. Absent for other tools, for a binary file and when no
+        /// content changed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
     },

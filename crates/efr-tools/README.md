@@ -2,7 +2,8 @@
 
 ## Purpose
 
-The tools the model calls, and the registry that offers them.
+The tools the model calls, and the registry that offers them: `shell`,
+`read_file`, `write_file` and `apply_patch`.
 
 - `Tool`: `spec()` (a `ToolSpec`: name, description and the input's JSON Schema,
   generated with schemars from the input type, without `$schema` and `title`; or,
@@ -13,7 +14,8 @@ The tools the model calls, and the registry that offers them.
   its approval; none by default) and `invoke(ctx, input, out)`.
 - `ToolRequirements`: every path a call touches with its `AccessMode` (read, read with
   everything below, or write), the command line it runs, whether it talks to the
-  network or may wait for input at the terminal, and, for the shell tool, the model's
+  network or may wait for input at the terminal, whether it deletes or moves a file
+  (`destructive`, which `apply_patch` sets), and, for the shell tool, the model's
   `needs` (`efr_protocol::Needs`) and whether the line goes to a nested shell
   (`nested`), which the engine reads in the `auto` mode. The daemon adds the facts
   about the line's files and programs (`efr_permissions::CallFacts`) when it copies
@@ -33,10 +35,11 @@ The tools the model calls, and the registry that offers them.
   line added for a new file), at most 200 lines and 16 KiB, with a line that says
   how much is left out. `unified_diff` is that diff, public so the daemon's settings
   tool shows a change of `config.toml` the same way. After a write, the result's
-  `written` (`WrittenFile`) names the file and holds `written_diff`'s diff of the
-  write (at most `MAX_CALL_DIFF_LINES` lines and 256 KiB, then `... N more lines`) with
-  the counts of added and removed lines; a file that held bytes that are not UTF-8
-  text is `binary` and gets no diff.
+  `written` lists each file the call changed (`WrittenFile`): its path, what happened
+  to it (`WrittenKind`: created, changed, deleted, or moved with the path it came
+  from) and `written_diff`'s diff of the change (at most `MAX_CALL_DIFF_LINES` lines
+  and 256 KiB, then `... N more lines`) with the counts of added and removed lines; a
+  file that held bytes that are not UTF-8 text is `binary` and gets no diff.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
   the home directory (`efr_scope::Home`), the clock, the write journal,
@@ -147,10 +150,10 @@ The tools:
   `MemoryJournal` keeps them in memory. No content hash is taken yet: `blake3` comes
   with the undo command.
 
-- `ApplyPatchTool` (`apply_patch`), not built yet: its contract is in the section
-  "The apply_patch tool" below.
+- `ApplyPatchTool` (`apply_patch`) edits files with a patch: the section "The
+  apply_patch tool" below.
 
-Both file tools refuse a path that goes through a symbolic link, and name the real
+The file tools refuse a path that goes through a symbolic link, and name the real
 path in the error, because the permission engine judged the path as written: a
 second call with the real path is judged on its own. A home reached through a link
 (`/home` to `/var/home`) is not refused, since the engine knows both forms of it.
@@ -169,7 +172,7 @@ seen.
 
 `ApplyPatchTool` edits files with a patch in the `apply_patch` format of Codex, so
 the model stops rewriting whole files or using `sed -i`. The engine is `efr-patch`;
-this tool does the IO around it. `write_file` stays.
+this tool does the IO around it (`src/apply_patch.rs`). `write_file` stays.
 
 Definition:
 
@@ -186,7 +189,7 @@ Definition:
   patch is plain text and not JSON (in the function form, the whole patch goes in
   `input`), and says that paths are relative to the working directory or absolute.
 - The input is `freeform_text(input)`. Any other input is `ToolError::InvalidInput`.
-- When the daemon registers the tool, `efr_config::DEFAULT_SYSTEM_PROMPT`
+- The daemon registers the tool after `write_file`. `efr_config::DEFAULT_SYSTEM_PROMPT`
   (`efr-config/src/tables.rs`) tells the model to edit files with `apply_patch`, and
   never with `sed -i`, `perl -pi` or a `write_file` of the whole file for a small
   change.
@@ -194,7 +197,8 @@ Definition:
 Requirements (pure, like every `requirements`):
 
 - The tool parses the patch with `efr_patch::parse`. A parse error is the `Err`
-  that the model reads: the line and the problem.
+  that the model reads (`ToolError::Patch`): the line and the problem. An input that
+  is not text is `ToolError::InvalidInput`.
 - It resolves each path lexically as `write_file` does (`paths::resolve`: `~`,
   relative to the user's working directory, `.` and `..` folded), with
   `Patch::map_paths`.
@@ -202,17 +206,20 @@ Requirements (pure, like every `requirements`):
   an update, of an add and of a delete, and both the source and the target of a
   move. So in a registered project an update or an add is routine exactly where a
   `write_file` of the same path is routine today.
-- A delete or a move (`Operation::is_destructive`) also sets a new flag,
-  `ToolRequirements::destructive`. The daemon copies it to a new
+- A delete or a move (`Operation::is_destructive`) also sets
+  `ToolRequirements::destructive`. The daemon copies it to
   `efr_permissions::Requirements::destructive`, and the engine answers `Ask` for it
-  in every mode, `auto` too, whatever the rules say, until undo exists (phase 4 of
-  the auto spec). The tool must not be registered before the engine asks for it.
+  in every mode, `auto` too, and from every origin, whatever the rules say, until
+  undo exists (phase 4 of the auto spec).
 
 Preview (the approval card): the unified diff of every file of the patch, none left
-out, each file within the bounds of `written_diff`. A delete and a move have a
-header line that says so, such as `delete src/old.rs` and
-`move src/a.rs -> src/b.rs`, so the card can mark them. A patch that does not
-apply has no preview; its call fails when it runs.
+out, each file within the bounds of `written_diff` (`MAX_CALL_DIFF_LINES` lines and
+256 KiB), with absolute paths as `write_file`'s preview has them. A delete and a move
+have a header line before their diff that says so, such as
+`delete /home/u/p/old.rs` and `move /home/u/p/a.rs -> /home/u/p/b.rs`, so the card
+can mark them. After 4 MiB of preview, the files that follow are only counted
+(`[... N more files of the patch]`), so the event stays far below the frame limit. A
+patch that does not apply has no preview; its call fails when it runs.
 
 Invoke, all or nothing:
 
@@ -228,9 +235,11 @@ Invoke, all or nothing:
    group of an existing file, gives a new file mode 0644 and creates missing parent
    directories. A delete removes the file. A move writes the target, then removes
    the source.
-4. When a write fails, restore every file that the call already changed from the
-   journal's snapshots, in reverse order, and fail with the error. The result says
-   that no file was changed, or names a file that could not be restored.
+4. When a journal entry or a write fails, restore every file that the call already
+   changed from the snapshots that the tool took in step 1 (the same originals that
+   went to the journal), in reverse order, and fail with the error. The result says
+   that no file was changed, or names a file that could not be restored. A parent
+   directory that the call made stays.
 
 Result:
 
@@ -243,11 +252,13 @@ Result:
   request for more context or an `@@` line, then `No file was changed.`, so the
   model can correct the patch and try again. An add of a file that exists is
   `PatchError::Exists`: the model updates the file instead, or deletes it first.
-- `ToolResult` carries every file that the call wrote, as `write_file` carries its
-  one file: `written` becomes a list of `WrittenFile`, which also says whether a
-  file was deleted or moved (and from where). The daemon turns the list into the
-  `changes` and the `diff` of `tool_call_completed`, the diff of every file in patch
-  order, so the CLI shows one diff block per file.
+- `ToolResult::written` lists every file that the call changed, in patch order: a
+  `WrittenFile` whose `WrittenKind` says whether the file was created, changed,
+  deleted or moved (and from where). Their diffs together stay within
+  `MAX_CALL_DIFF_LINES` lines: a file after the limit has its header and
+  `... N more lines`. The daemon turns the list into the `changes` and the `diff` of
+  `tool_call_completed`, the diff of every file in patch order, one after the other,
+  so the CLI shows one diff block per file.
 
 ## Tier
 
@@ -257,8 +268,8 @@ Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.
 
 `efr-shell` (the `CommandRunner` trait and its request and result types),
 `efr-scope` (`Home`, the home directory in both forms), `efr-patch` (the patch
-engine of `apply_patch`; allowed, not used yet), `efr-protocol` (ids, `Scope`,
-`Origin`) and `efr-stdx` (`Clock`, atomic writes). `xtask/src/deps.rs` holds the
+engine of `apply_patch`), `efr-protocol` (ids, `Scope`, `Origin`) and `efr-stdx`
+(`Clock`, atomic writes). `xtask/src/deps.rs` holds the
 allowlist and forbids `efr-tools -> efr-permissions`, directly or through any chain.
 
 Third-party crates: `schemars`, `serde` and `serde_json` (inputs and schemas), `tokio`
@@ -281,7 +292,10 @@ cargo nextest run -p efr-tools
 ```
 
 The file tools run against temporary directories (a home and a working directory,
-with symbolic links made where a test needs one); the shell tool runs against a fake
+with symbolic links made where a test needs one). The tests of `apply_patch` run on
+the engine of `efr-patch` once it is built, and until then on a small stand-in
+(`src/apply_patch/tests/stand_in.rs`) that applies the same patches; the tests of
+tolerant matching are ignored until the engine is built; the shell tool runs against a fake
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
 shell, uses the network or touches the user's home.

@@ -73,7 +73,9 @@ Some floors hold in every mode, whatever the rules say:
 - the rules of a conversation only make a decision stricter;
 - no tool writes efr's config; see "Config protection";
 - a change of efr's settings through the settings tool asks, and a turn from the
-  phone cannot make one; see "The settings tool".
+  phone cannot make one; see "The settings tool";
+- a delete or a move of a file through `apply_patch` asks, also in `auto`, because
+  undo cannot bring the file back yet; see "Edits with apply_patch".
 
 ## Path classes
 
@@ -502,6 +504,27 @@ file you can; that is why such a command asks.
 You change the file yourself, in your editor or with `efr config`, or you approve a
 change of the settings tool. The daemon reads the links in the directory each time it
 builds the engine.
+
+## Edits with apply_patch
+
+The model edits files with its `apply_patch` tool: one patch adds, changes, deletes
+or moves one or more files. The patch changes all its files or none. When a hunk does
+not match, or a write fails, no file stays changed.
+
+- Every file of the patch counts as a write, both paths of a move too. The path rules
+  decide them as they decide a `write_file`: a change or a new file in `$SCRATCH` or
+  in the turn's registered project runs without a question in `cautious` and in
+  `auto`, and a change elsewhere asks. A secret or efr's config is denied.
+- A delete or a move asks in every mode, also in `auto`, from every surface, and also
+  when a rule of yours allows the write. No rule can turn the question into an allow.
+  The question says `delete or move files`. Undo cannot bring the file back yet; when
+  it can, this question goes.
+- The question shows the unified diff of every file of the patch. A line
+  `delete <path>` or `move <from> -> <to>` comes before the diff of a delete or a move.
+- `apply_patch` runs in the daemon, outside the `auto` sandbox, as `read_file` and
+  `write_file` do. It refuses a path through a symbolic link and names the real path,
+  and it refuses a file over 16 MiB, a binary file and anything that is not a regular
+  file.
 
 ## The settings tool
 

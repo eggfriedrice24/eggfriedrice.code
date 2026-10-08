@@ -672,6 +672,98 @@ async fn the_scope_of_each_turn_decides_and_a_registered_project_writes_freely()
     h.finish();
 }
 
+/// A setup whose working directory is a registered project, in `mode`.
+fn project_setup(mode: Mode) -> Setup {
+    let mut setup = Setup::new();
+    let project = ProjectId::from_uuid(efr_stdx::id::uuid_v7(
+        &setup.clock,
+        &efr_test_support::TestRng::new(3),
+    ));
+    setup.project = Some((project, setup.cwd.clone()));
+    setup.scope = std::mem::take(&mut setup.scope).with(
+        setup.cwd.clone(),
+        Derivation { scope: Scope::Project(project), basis: Basis::Registered, repo: None },
+    );
+    setup.config.mode = mode;
+    setup
+}
+
+#[tokio::test]
+async fn a_patch_that_edits_a_project_file_runs_at_once_in_auto() {
+    let setup = project_setup(Mode::Auto);
+    let mut state = setup.live_state(&setup.cwd, "fix main");
+    state.mode = Mode::Auto;
+    let text = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n-a\n+b\n*** End Patch\n",
+        setup.cwd.join("main.rs").display()
+    );
+    let first = setup.prompt(&state, "fix main");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&freeform_answer("call_1", "apply_patch", &text)),
+        expect_request(request(vec![
+            first,
+            freeform_message("call_1", "apply_patch", &text),
+            result_message("call_1", "patched", false),
+        ])),
+        answer(&text_answer("Fixed.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("fix main").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(h.toolbox.invoked(), vec![("apply_patch".to_owned(), json!(text))]);
+    assert_eq!(h.toolbox.ran()[0].launch, Launch::Direct, "a file tool runs in the daemon");
+    let events = h.events().await;
+    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_patch_that_deletes_a_project_file_asks_even_in_auto() {
+    let setup = project_setup(Mode::Auto);
+    let mut state = setup.live_state(&setup.cwd, "drop old");
+    state.mode = Mode::Auto;
+    let text = format!(
+        "*** Begin Patch\n*** Delete File: {}\n*** End Patch\n",
+        setup.cwd.join("old.rs").display()
+    );
+    let first = setup.prompt(&state, "drop old");
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&freeform_answer("call_1", "apply_patch", &text)),
+        expect_request(request(vec![
+            first,
+            freeform_message("call_1", "apply_patch", &text),
+            result_message("call_1", "patched", false),
+        ])),
+        answer(&text_answer("Removed.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("drop old").await;
+    let call_id = h.wait_approval().await;
+    assert!(h.toolbox.invoked().is_empty(), "nothing runs before the answer");
+    h.answer(call_id, ApprovalDecision::Allow).await;
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(h.toolbox.invoked(), vec![("apply_patch".to_owned(), json!(text))]);
+    let events = h.events().await;
+    assert_eq!(
+        find(&events, |e| matches!(e, Event::ApprovalRequested { .. })),
+        Event::ApprovalRequested {
+            turn_id: sent.turn_id,
+            call_id,
+            summary: "apply_patch: delete or move files".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+        }
+    );
+    h.finish();
+}
+
 #[tokio::test]
 async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() {
     let setup = Setup::new();

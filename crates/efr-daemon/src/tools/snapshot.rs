@@ -3,8 +3,8 @@
 //!
 //! The roots of a call are the turn's registered project and `$SCRATCH`, in every
 //! mode, and in `auto` the registered projects that the line names (the plan's project
-//! roots). A file tool's write snapshots the root that holds its target before it
-//! writes, so the turn's first snapshot is there; its own change comes from its diff,
+//! roots). A file tool's write snapshots the roots that hold its targets before it
+//! writes, so the turn's first snapshot is there; its own changes come from its diffs,
 //! in every directory. Nothing outside these roots is snapshotted.
 
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use efr_protocol::{ChangeKind, ConversationId, FileChange, FileChanges, Scope, T
 use efr_scope::Home;
 use efr_snapshot::{CallSnapshot, Limits, Root, Snapshots, shown_prefix};
 use efr_stdx::time::Stopwatch;
-use efr_tools::WrittenFile;
+use efr_tools::{WrittenFile, WrittenKind};
 use tokio::sync::watch;
 
 /// One MiB.
@@ -154,30 +154,53 @@ impl CallSnapshots {
         changes
     }
 
-    /// The change and the diff of a file tool's write, with the file's path as a
-    /// client shows it. Nothing when the content did not change.
+    /// The changes and the diff of a file tool's call, with each file's path as a
+    /// client shows it: the diffs of the files in the order the call changed them, one
+    /// after the other. A file whose content did not change, and that was not deleted
+    /// or moved, is left out; nothing at all when no file is left.
     pub(crate) fn written(
         &self,
         call: &CallContext,
-        written: &WrittenFile,
+        written: &[WrittenFile],
     ) -> (Option<FileChanges>, Option<String>) {
-        let shown = self.shown_path(call, &written.path);
-        let kind = if written.created { ChangeKind::Added } else { ChangeKind::Modified };
-        let change = |added: usize, removed: usize, binary: bool| FileChange {
-            path: shown.clone(),
-            kind,
-            from: None,
-            added: u32::try_from(added).unwrap_or(u32::MAX),
-            removed: u32::try_from(removed).unwrap_or(u32::MAX),
-            binary,
-        };
-        if written.binary {
-            return (Some(FileChanges::from_files(vec![change(0, 0, true)])), None);
+        let mut files = Vec::new();
+        let mut text = String::new();
+        for file in written {
+            let shown = self.shown_path(call, &file.path);
+            let (kind, from) = match &file.kind {
+                WrittenKind::Created => (ChangeKind::Added, None),
+                WrittenKind::Deleted => (ChangeKind::Deleted, None),
+                WrittenKind::Moved { from } => (ChangeKind::Renamed, Some(from.as_path())),
+                WrittenKind::Changed => (ChangeKind::Modified, None),
+            };
+            let from_shown = from.map(|from| self.shown_path(call, from));
+            let change = |added: usize, removed: usize, binary: bool| FileChange {
+                path: shown.clone(),
+                kind,
+                from: from_shown.clone(),
+                added: u32::try_from(added).unwrap_or(u32::MAX),
+                removed: u32::try_from(removed).unwrap_or(u32::MAX),
+                binary,
+            };
+            if file.binary {
+                files.push(change(0, 0, true));
+                continue;
+            }
+            match &file.diff {
+                Some(diff) => {
+                    files.push(change(diff.added, diff.removed, false));
+                    let old = (from.unwrap_or(&file.path), from_shown.as_deref().unwrap_or(&shown));
+                    text.push_str(&with_shown_header(&diff.text, old, (&file.path, &shown)));
+                }
+                None if kind == ChangeKind::Modified => {}
+                None => files.push(change(0, 0, false)),
+            }
         }
-        let Some(diff) = &written.diff else { return (None, None) };
-        let file = change(diff.added, diff.removed, false);
-        let text = with_shown_header(&diff.text, &written.path, &shown);
-        (Some(FileChanges::from_files(vec![file])), Some(text))
+        if files.is_empty() {
+            return (None, None);
+        }
+        let diff = (!text.is_empty()).then_some(text);
+        (Some(FileChanges::from_files(files)), diff)
     }
 
     /// `path` as a client shows it: relative to the turn's project root, under
@@ -200,23 +223,26 @@ impl CallSnapshots {
     }
 }
 
-/// The diff `text` of a write of `path` with its two header lines naming `shown`, in
-/// git's `a/` and `b/` form.
-fn with_shown_header(text: &str, path: &Path, shown: &str) -> String {
-    let name = shown.trim_start_matches('/');
-    let old = format!("--- a{}\n", path.display());
-    let new = format!("+++ b{}\n", path.display());
+/// The diff `text` of a change with its two header lines naming the shown paths, in
+/// git's `a/` and `b/` form: `old` is the file's path before the change and how a
+/// client shows it, `new` the same after it. A `/dev/null` side stays as it is.
+fn with_shown_header(text: &str, old: (&Path, &str), new: (&Path, &str)) -> String {
+    let old_line = format!("--- a{}\n", old.0.display());
+    let new_line = format!("+++ b{}\n", new.0.display());
     let mut rest = text;
     let mut out = String::with_capacity(text.len());
-    if let Some(after) = rest.strip_prefix(old.as_str()) {
-        out.push_str(&format!("--- a/{name}\n"));
+    if let Some(after) = rest.strip_prefix(old_line.as_str()) {
+        out.push_str(&format!("--- a/{}\n", old.1.trim_start_matches('/')));
         rest = after;
     } else if let Some(after) = rest.strip_prefix("--- /dev/null\n") {
         out.push_str("--- /dev/null\n");
         rest = after;
     }
-    if let Some(after) = rest.strip_prefix(new.as_str()) {
-        out.push_str(&format!("+++ b/{name}\n"));
+    if let Some(after) = rest.strip_prefix(new_line.as_str()) {
+        out.push_str(&format!("+++ b/{}\n", new.1.trim_start_matches('/')));
+        rest = after;
+    } else if let Some(after) = rest.strip_prefix("+++ /dev/null\n") {
+        out.push_str("+++ /dev/null\n");
         rest = after;
     }
     out.push_str(rest);

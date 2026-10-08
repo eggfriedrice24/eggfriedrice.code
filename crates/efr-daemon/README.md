@@ -336,7 +336,8 @@ spec; `docs/sandbox.md` for the user's view):
   `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>` (0700) with `spec.json` and `nonce`
   (0600). The toolbox (`tools.rs`) hands the run to the shell tool and lets the lock go
   once the launcher wrote `started`, so a call that runs on past its timeout blocks
-  no other plan and no `write_file`, which takes the same lock for its own write.
+  no other plan and no `write_file` or `apply_patch`, which take the same lock for
+  their own writes.
   Before `prepare`, the toolbox waits until the conversation's shell has no other run
   (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
   a command still running holds no lock while it waits.
@@ -366,9 +367,14 @@ spec; `docs/sandbox.md` for the user's view):
   in every mode, and in `auto` the registered projects that the line names (the
   plan's project roots; that snapshot is taken under the plan lock). Nothing outside
   these roots is snapshotted, git repository or not.
-- A `write_file` call: the tool's own diff and line counts (`efr_tools::WrittenFile`)
-  go to `tool_call_completed` as `changes` and `diff`, in every directory. Before it
-  writes into a root, the turn gets its first snapshot of that root.
+- A `write_file` or `apply_patch` call: the tool's own diffs and line counts (the
+  `efr_tools::WrittenFile` of each file it changed) go to `tool_call_completed` as
+  `changes` and `diff`, in every directory. A created file is `added`, a deleted one
+  `deleted` and a moved one `renamed` with the path it came from. The diff holds the
+  diff of each file in the order the call changed them, one after the other, with
+  each header naming the shown paths (`/dev/null` for the side that is missing).
+  Before the call writes into a root, the turn gets its first snapshot of that
+  root.
 - At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the
   refs `refs/efr/<conversation>/<turn>/pre` and `/post`, and the turn's changes for
   `turn_completed`.

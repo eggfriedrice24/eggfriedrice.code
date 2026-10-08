@@ -7,6 +7,7 @@
 // clippy treat its helpers as test code, as it does for unit tests.
 #![cfg(test)]
 
+mod apply_patch;
 mod approvals;
 mod backtrace;
 mod drafts;

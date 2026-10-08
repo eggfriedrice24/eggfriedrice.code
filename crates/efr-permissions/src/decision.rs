@@ -70,7 +70,8 @@ impl Decision {
     }
 
     /// One reason per requirement, in the order the requirements were declared, then
-    /// the reasons for an interactive call and for a change of efr's settings.
+    /// the reasons for an interactive call, for a change of efr's settings and for a
+    /// delete or a move.
     pub fn reasons(&self) -> &[Reason] {
         &self.reasons
     }
@@ -136,6 +137,8 @@ pub enum Subject {
         /// True when the change loosens permissions.
         loosens: bool,
     },
+    /// The call deletes or moves a file, which undo cannot bring back yet.
+    Destructive,
     /// An action of the call that leaves the `auto` sandbox: an exit.
     Exit {
         /// The exit.
@@ -220,6 +223,9 @@ pub enum Cause {
         /// The origin.
         origin: Origin,
     },
+    /// The call deletes or moves a file. Undo cannot bring the file back yet, so the
+    /// user approves it, in every mode and whatever the rules say.
+    Destructive,
     /// The call declared nothing that needs a decision.
     NoRequirements,
     /// The `auto` sandbox holds what the requirement does, so the call runs contained
@@ -308,6 +314,10 @@ impl fmt::Display for Reason {
                 ", because a turn from {} may read efr's settings but not change them",
                 origin_name(*origin)
             ),
+            Cause::Destructive => f.write_str(
+                ", because undo cannot bring the file back yet, so the user approves each \
+                 delete and move",
+            ),
             Cause::NoRequirements => Ok(()),
             Cause::Contained => f.write_str(", because the auto sandbox holds it"),
             Cause::Exit { kind } if kind.is_floor() => {
@@ -338,6 +348,7 @@ impl fmt::Display for Subject {
             Subject::Settings { summary, loosens: true } => {
                 write!(f, "change settings: {summary} (loosens permissions)")
             }
+            Subject::Destructive => f.write_str("delete or move files"),
             Subject::Exit { need } => write!(f, "exit {need}"),
             Subject::NestedShell => f.write_str("a nested shell"),
             Subject::Nothing => f.write_str("no requirements"),
