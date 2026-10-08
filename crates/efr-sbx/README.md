@@ -125,8 +125,13 @@ the behaviour tests, the probe, the launch cost and the corpus run) drive the re
 launcher with real bwrap, Landlock and seccomp. They read the launcher from
 `EFR_TEST_SBX_BIN` and run `efr-sbx probe` first; without the variable, or when the
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
-`just test-sandbox` builds the launcher, probes, sets `EFR_TEST_SBX_BIN` and
-`EFR_TEST_SBX_REQUIRE=1`, and then a skip fails. It also runs efr-shell's behaviour
+`just test-sandbox` builds the launcher, copies it to a private dir in the target dir,
+probes, sets `EFR_TEST_SBX_BIN` to the copy and `EFR_TEST_SBX_REQUIRE=1`, and then a
+skip fails. The tests run the copy, because another cargo command in the same target
+dir can link a new `target/debug/efr-sbx` while a test runs it. The probe tests take
+`EFR_TEST_SBX_BIN` too; without it they run the launcher that cargo built with them
+(`CARGO_BIN_EXE_efr-sbx`), and then no other cargo command may build in that target
+dir during the run. It also runs efr-shell's behaviour
 tests on this launcher (`e2e_zsh::launcher`) and fails when they skip on a ready
 machine. Every test call runs efr-shell's own `assets/zsh/efr-child.zsh` and
 `assets/efr-editor`, the files that efrd installs. Every fixture lives in the target

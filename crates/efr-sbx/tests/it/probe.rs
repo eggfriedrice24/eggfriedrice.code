@@ -10,9 +10,15 @@ use efr_sandbox::{ProbeFailure, ProbeReport};
 
 use crate::support::{command, sandbox_or_skip, target_tmp};
 
-/// The launcher cargo built with this test binary.
+/// The launcher of `EFR_TEST_SBX_BIN`, else the one cargo built with this test binary.
+///
+/// NOTE: `just test-sandbox` sets the variable to a private copy, because another cargo
+/// command in the same target dir can link a new `target/debug/efr-sbx` while a test
+/// runs it. Without the variable, a run of these tests must not share its target dir
+/// with a build of efr-sbx.
 fn launcher() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_efr-sbx"))
+    crate::support::env_var("EFR_TEST_SBX_BIN")
+        .map_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_efr-sbx")), PathBuf::from)
 }
 
 fn probe(args: &[&str]) -> ProbeReport {

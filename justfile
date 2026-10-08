@@ -126,12 +126,21 @@ test-sandbox:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "test-sandbox: building efr-sbx"
-    bin="$(cargo build -p efr-sbx --message-format=json-render-diagnostics \
+    built="$(cargo build -p efr-sbx --message-format=json-render-diagnostics \
         | sed -nE 's/.*"executable":"([^"]*\/efr-sbx)".*/\1/p' | tail -n1)"
-    if [[ -z "$bin" || ! -x "$bin" ]]; then
+    if [[ -z "$built" || ! -x "$built" ]]; then
         echo "test-sandbox: cargo built no efr-sbx binary" >&2
         exit 1
     fi
+    # The tests run a private copy of the launcher: another cargo command in the same
+    # target dir (the builds below, or one in another terminal) can link a new
+    # target/debug/efr-sbx while a test runs it. The copy stays in the target dir,
+    # never below /tmp, which the sandbox replaces with its private tmp.
+    private="$(mktemp -d "$(dirname "$built")/sbx-test.XXXXXX")"
+    trap 'rm -rf "$private"' EXIT
+    bin="$private/efr-sbx"
+    cp "$built" "$bin"
+    echo "test-sandbox: the tests run a copy of the launcher: $bin"
     # The probe's fake call lives in the target dir: never below /tmp, which the
     # sandbox replaces with its private tmp.
     probe_dir="$(dirname "$bin")/sbx-probe"
