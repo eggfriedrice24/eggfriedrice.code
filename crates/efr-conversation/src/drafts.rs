@@ -8,6 +8,8 @@
 //! subscribers. The channel carries `efr-protocol` types only, because this crate
 //! must not know the transport.
 
+use std::sync::{Mutex, PoisonError};
+
 use efr_protocol::{ConversationId, DraftPart, Seq, TurnId};
 use tokio::sync::broadcast;
 
@@ -34,4 +36,50 @@ pub struct ConversationDraft {
 /// receiver for each subscriber that asked for drafts.
 pub fn draft_channel() -> broadcast::Sender<ConversationDraft> {
     broadcast::channel(DRAFT_CAPACITY).0
+}
+
+/// The status of a conversation's running turn that a client which attaches while the
+/// turn runs must see at once, not only at the next draft: the newest `context` draft,
+/// and the `compacting` draft while a compaction runs. The other drafts are lost to a
+/// late listener, as before.
+#[derive(Debug, Default)]
+pub(crate) struct LiveStatus {
+    held: Mutex<Held>,
+}
+
+#[derive(Debug, Default)]
+struct Held {
+    context: Option<ConversationDraft>,
+    compacting: Option<ConversationDraft>,
+}
+
+impl LiveStatus {
+    /// Keeps `draft` when it is part of the status. A `context` draft ends a
+    /// compaction, as it does for a client.
+    pub(crate) fn hold(&self, draft: &ConversationDraft) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        match draft.part {
+            DraftPart::Context(_) => {
+                held.context = Some(draft.clone());
+                held.compacting = None;
+            }
+            DraftPart::Compacting { .. } => held.compacting = Some(draft.clone()),
+            _ => {}
+        }
+    }
+
+    /// The turn ended, or a compaction did: `compacting` only, or the whole status.
+    pub(crate) fn clear(&self, compacting_only: bool) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.compacting = None;
+        if !compacting_only {
+            held.context = None;
+        }
+    }
+
+    /// The drafts of the status, in the order a client must apply them.
+    pub(crate) fn drafts(&self) -> Vec<ConversationDraft> {
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.context.iter().chain(held.compacting.iter()).cloned().collect()
+    }
 }

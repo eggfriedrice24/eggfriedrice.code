@@ -41,8 +41,8 @@ use efr_store::events;
 use efr_store::turn_messages::{self, TurnMessages};
 
 use crate::ConversationError;
-use crate::compaction::{Cut, Placed, Window, summary_message};
-use crate::context::PRUNED_OUTPUT_STUB;
+use crate::compaction::{Cut, Placed, Window, gap_note, summary_message};
+use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB};
 
 /// What the model reads for a tool call whose result was never recorded, as when the
 /// daemon stopped while the call ran or waited for approval.
@@ -68,6 +68,22 @@ impl HistoryLimits {
     /// Limits with the given values.
     pub fn new(max_turns: usize, max_events: u32, max_bytes: usize) -> Self {
         HistoryLimits { max_turns, max_events, max_bytes }
+    }
+
+    /// These limits for a model with a window of `window` tokens. Compaction, not the
+    /// safety net, must make room, so the net never leaves out turns that the window
+    /// can hold: the byte limit is at least twice the window at [`BYTES_PER_TOKEN`]
+    /// (the estimate and the model's count differ), and the turn limit at least the
+    /// event limit, because each turn has at least one event in the page.
+    pub fn for_window(self, window: u64) -> Self {
+        let bytes = window.saturating_mul(2 * BYTES_PER_TOKEN);
+        let bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
+        let turns = usize::try_from(self.max_events).unwrap_or(usize::MAX);
+        HistoryLimits {
+            max_turns: self.max_turns.max(turns),
+            max_events: self.max_events,
+            max_bytes: self.max_bytes.max(bytes),
+        }
     }
 }
 
@@ -212,7 +228,12 @@ impl Snapshot {
     /// no summary covers (the most turns, the bytes, or a start that fell out of the
     /// page), the head ends with a user message that says how many
     /// ([`omitted_note`]), and a `warn` line gives the count, so neither the model nor
-    /// the log loses them without a trace.
+    /// the log loses them without a trace. The summary's own gaps, what it never saw,
+    /// follow it as a note too ([`gap_note`]).
+    ///
+    /// A tool result whose call is not in the window (a cut whose place no longer
+    /// matches a turn rebuilt from its events) is left out, because a provider refuses
+    /// a result without its call.
     pub(crate) fn window(
         &self,
         current: Option<TurnId>,
@@ -305,6 +326,7 @@ impl Snapshot {
         turns.drain(..first);
         let omitted = out_of_page + skip + first;
         let mut placed: Vec<Placed> = turns.into_iter().flatten().collect();
+        drop_orphan_results(&mut placed);
 
         // NOTE: a pruning newer than the summary holds for the results before its cut;
         // an older one lies before the summary's cut.
@@ -326,6 +348,9 @@ impl Snapshot {
         if let Some((_, summary)) = summary {
             head.extend(fresh.map(Message::user));
             head.push(summary_message(summary));
+            head.extend(self.summary().and_then(|compaction| {
+                gap_note(compaction.omitted_turns, compaction.omitted_messages)
+            }));
         }
         if omitted > 0 {
             tracing::warn!(
@@ -337,7 +362,35 @@ impl Snapshot {
             );
             head.push(Message::user(omitted_note(omitted)));
         }
-        Window { head, placed }
+        Window { head, placed, omitted: u32::try_from(omitted).unwrap_or(u32::MAX) }
+    }
+}
+
+/// Leaves out each tool result of `placed` whose call is not in `placed`, and a
+/// message that holds nothing else.
+fn drop_orphan_results(placed: &mut Vec<Placed>) {
+    let calls: HashSet<String> = placed
+        .iter()
+        .flat_map(|placed| &placed.message.content)
+        .filter_map(|block| match block {
+            ContentBlock::ToolCall { call_id, .. } => Some(call_id.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut dropped = 0_usize;
+    placed.retain_mut(|item| {
+        let before = item.message.content.len();
+        item.message.content.retain(|block| {
+            !matches!(block, ContentBlock::ToolResult { call_id, .. } if !calls.contains(call_id))
+        });
+        let gone = before - item.message.content.len();
+        dropped += gone;
+        // NOTE: a message that held only such results goes; an empty message that the
+        // model sent, such as one with only reasoning, stays.
+        gone == 0 || !item.message.content.is_empty()
+    });
+    if dropped > 0 {
+        tracing::warn!(dropped, "the history leaves out tool results whose call it does not hold");
     }
 }
 

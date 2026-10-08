@@ -8,11 +8,13 @@ use efr_test_support::{Record, TestRng};
 use pretty_assertions::assert_eq;
 
 use crate::ConversationError;
-use crate::compaction::{request_tokens, summary_message, summary_request};
+use crate::compaction::{dropped_note, gap_note, request_tokens, summary_message, summary_request};
 use crate::testing::{
     Harness, MODEL, SUMMARY, Setup, TRIGGER, WINDOW, answer, compacting, compactions, done,
-    expect_request, fresh, hold, request, run_two_big_turns, text_answer, two_big_turns,
+    expect_request, failure, fresh, hold, request, run_two_big_turns, text_answer, two_big_turns,
 };
+
+const OVERFLOW: &str = r#"{"kind": "api", "code": "context_length_exceeded", "message": "Your input exceeds the context window of this model."}"#;
 
 const FOCUS: &str = "the failing test";
 
@@ -68,6 +70,8 @@ async fn a_manual_compaction_summarizes_with_the_focus_and_starts_no_turn() {
         kept_turns: 1,
         pruned_outputs: 0,
         pruned_tokens: 0,
+        omitted_turns: 0,
+        omitted_messages: 0,
         summary: Some(SUMMARY.to_owned()),
         usage: None,
     };
@@ -128,6 +132,39 @@ async fn a_prompt_sent_during_a_manual_compaction_waits_for_it() {
 }
 
 #[tokio::test]
+async fn a_retry_of_the_running_compaction_waits_for_its_answer() {
+    let setup = compacting();
+    let (mut records, _, _) = manual_records(&setup);
+    records.push(hold());
+    let held = records.len();
+    records.push(answer(&text_answer(SUMMARY)));
+    let mut h = setup.start(records).await;
+    run_two_big_turns(&mut h).await;
+
+    let params = params(&mut h, Some(FOCUS));
+    let handle = h.handle.clone();
+    let first = tokio::spawn({
+        let params = params.clone();
+        async move { handle.compact(params).await }
+    });
+    while !h.handle.state().await.expect("state").compacting {
+        tokio::task::yield_now().await;
+    }
+    let mut retry = Box::pin(h.handle.compact(params));
+    assert!(futures::poll!(&mut retry).is_pending(), "the retry waits");
+    // NOTE: the actor answers in order, so the retry has reached it after this answer.
+    assert!(h.handle.state().await.expect("state").compacting);
+    h.provider.handled_through(held);
+
+    let first = first.await.expect("the task").expect("compacted");
+    let retry = retry.await.expect("the same answer");
+
+    assert_eq!(retry, first);
+    assert_eq!(compactions(&h).await.len(), 1);
+    h.finish();
+}
+
+#[tokio::test]
 async fn a_manual_compaction_is_refused_while_a_turn_runs() {
     let setup = compacting();
     let state = setup.live_state(&setup.cwd, "first");
@@ -169,5 +206,65 @@ async fn a_conversation_whose_history_fits_in_the_tail_has_nothing_to_compact() 
 
     assert!(matches!(refused, Err(ConversationError::NothingToCompact { .. })), "{refused:?}");
     assert_eq!(h.events().await.len(), before, "nothing is recorded");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_summary_cut_off_at_the_output_limit_records_nothing() {
+    let setup = compacting();
+    let (mut records, _, _) = manual_records(&setup);
+    records.push(answer(&[
+        ProviderEvent::TextDelta { text: "## Task and state\nRead the big".to_owned() },
+        done(StopReason::MaxTokens, None),
+    ]));
+    let mut h = setup.start(records).await;
+    run_two_big_turns(&mut h).await;
+    let before = h.events().await.len();
+
+    let params = params(&mut h, Some(FOCUS));
+    let refused = h.handle.compact(params).await;
+
+    assert!(matches!(refused, Err(ConversationError::IncompleteSummary)), "{refused:?}");
+    assert_eq!(h.events().await.len(), before, "nothing is recorded");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_summary_request_that_does_not_fit_leaves_out_the_oldest_messages_and_says_so() {
+    let setup = compacting();
+    let state = setup.live_state(&setup.cwd, "one");
+    let (mut records, history) = two_big_turns(&setup);
+    let base = request(Vec::new());
+    let mut fitting = vec![dropped_note(1)];
+    fitting.extend(history[1..].iter().cloned());
+    let after = vec![
+        fresh(&setup),
+        summary_message(SUMMARY),
+        gap_note(0, 1).expect("a note"),
+        history[2].clone(),
+        history[3].clone(),
+    ];
+    let mut next = after.clone();
+    next.push(setup.prompt(&state, "three"));
+    records.extend([
+        expect_request(summary_request(&base, history.clone(), None)),
+        failure(serde_json::from_str(OVERFLOW).expect("json")),
+        expect_request(summary_request(&base, fitting, None)),
+        answer(&text_answer(SUMMARY)),
+        expect_request(request(next)),
+        answer(&text_answer("ok 3")),
+    ]);
+    let mut h = setup.start(records).await;
+    run_two_big_turns(&mut h).await;
+
+    let params = params(&mut h, None);
+    let result = h.handle.compact(params).await.expect("compacted");
+
+    assert_eq!((result.compaction.omitted_turns, result.compaction.omitted_messages), (0, 1));
+    assert_eq!(result.compaction.tokens_after, request_tokens(&request(after)));
+    // The next turn rebuilds the note from the compaction in the store.
+    let three = h.prompt("three").await.turn_id;
+    let end = h.wait_end(three).await;
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
     h.finish();
 }

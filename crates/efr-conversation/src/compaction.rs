@@ -11,14 +11,15 @@ use std::collections::HashSet;
 
 use efr_protocol::{CompactionTrigger, TurnId};
 use efr_provider::{
-    CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, TokenUsage,
+    CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, StopReason,
+    TokenUsage,
 };
 use futures::StreamExt as _;
 use tracing::Instrument as _;
 
 use crate::context::{
     ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
-    SUMMARY_MAX_OUTPUT_TOKENS, TAIL_TOKENS, estimate_tokens,
+    SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens,
 };
 use crate::interrupt::Interrupt;
 
@@ -52,6 +53,9 @@ pub(crate) struct Window {
     pub(crate) head: Vec<Message>,
     /// The messages of the turns, each with its place, oldest first.
     pub(crate) placed: Vec<Placed>,
+    /// The earlier turns that the history leaves out and that no summary covers (the
+    /// safety net of the history limits); the head says so to the model.
+    pub(crate) omitted: u32,
 }
 
 impl Window {
@@ -237,6 +241,37 @@ pub(crate) fn summary_message(summary: &str) -> Message {
     Message::user(format!("{SUMMARY_OPEN}\n{}\n{SUMMARY_CLOSE}", summary.trim()))
 }
 
+/// The user message after the summary that says what the summary never saw: `turns`
+/// earlier turns that the history had left out, and `messages` of the oldest messages
+/// that did not fit in the summary request. `None` when it saw everything.
+pub(crate) fn gap_note(turns: u32, messages: u32) -> Option<Message> {
+    let count = |n: u32, what: &str| match n {
+        0 => None,
+        1 => Some(format!("1 earlier {what}")),
+        n => Some(format!("{n} earlier {what}s")),
+    };
+    let parts: Vec<String> =
+        [count(turns, "turn"), count(messages, "message")].into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| {
+        Message::user(format!(
+            "The summary leaves out {}: they did not fit in the model's context.",
+            parts.join(" and ")
+        ))
+    })
+}
+
+/// What the summary request holds in place of the `dropped` oldest messages that did
+/// not fit in it.
+pub(crate) fn dropped_note(dropped: usize) -> Message {
+    if dropped == 1 {
+        Message::user("1 earlier message is omitted: it did not fit in this request.")
+    } else {
+        Message::user(format!(
+            "{dropped} earlier messages are omitted: they did not fit in this request."
+        ))
+    }
+}
+
 /// The text of the summary request's last message: the prompt, and the user's focus
 /// when a manual compaction names one.
 pub(crate) fn summary_prompt(focus: Option<&str>) -> String {
@@ -248,7 +283,8 @@ pub(crate) fn summary_prompt(focus: Option<&str>) -> String {
 
 /// The summary request: `base` (the model, the system prompt, the tools and the
 /// options of the turn, so the request hits the prompt cache) with `messages` and the
-/// summary prompt as the last message, and the summary's output limit.
+/// summary prompt as the last message, and the summary's output limit plus room for
+/// the model's reasoning, which the Responses API counts in the same limit.
 pub(crate) fn summary_request(
     base: &Request,
     messages: Vec<Message>,
@@ -261,9 +297,21 @@ pub(crate) fn summary_request(
         system: base.system.clone(),
         messages,
         tools: base.tools.clone(),
-        max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS),
+        max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS + SUMMARY_REASONING_TOKENS),
         provider_options: base.provider_options.clone(),
     }
+}
+
+/// The summary request of `messages` (the head first), without the `dropped` oldest
+/// messages after the head, which a note replaces.
+fn summary_of(job: &Job<'_>, messages: &[Message], dropped: usize) -> Request {
+    let head = job.window.head.len().min(messages.len());
+    let mut sent = messages[..head].to_vec();
+    if dropped > 0 {
+        sent.push(dropped_note(dropped));
+    }
+    sent.extend(messages[head.saturating_add(dropped).min(messages.len())..].iter().cloned());
+    summary_request(job.base, sent, job.focus)
 }
 
 /// `base` with the messages of `window`.
@@ -298,6 +346,9 @@ pub(crate) enum Outcome {
         tail: usize,
         /// The pruning that the summary request used, when it needed one to fit.
         pruned: Option<Pruning>,
+        /// The oldest messages before the cut that the summary request left out because
+        /// they did not fit in the model's context.
+        omitted: u32,
     },
     /// Nothing lies before the shortest tail, so a compaction frees no room.
     Nothing,
@@ -305,16 +356,26 @@ pub(crate) enum Outcome {
     Failed(ProviderError),
     /// The model answered the summary request without text.
     Empty,
+    /// The model stopped the summary before its end: it reached the output limit, or
+    /// the provider stopped it for its content.
+    Incomplete(StopReason),
     /// The user interrupted the turn during the summary call.
     Interrupted,
 }
 
 /// Runs the steps of one compaction: prune, and summarize when pruning frees too little,
-/// leaves the context at or above the trigger, or the compaction is manual.
+/// leaves the context at or above the trigger, or the compaction is manual or follows
+/// an overflow.
 pub(crate) async fn run(job: Job<'_>) -> Outcome {
     let pruning = prune(&job.window.placed);
-    if job.trigger != CompactionTrigger::Manual && pruning.worth_it() {
-        let pruned = Window { head: job.window.head.clone(), placed: pruning.placed.clone() };
+    // NOTE: after an overflow the estimate has just counted too low, so it cannot show
+    // that pruning alone makes the request fit; only a summary can.
+    if job.trigger == CompactionTrigger::Auto && pruning.worth_it() {
+        let pruned = Window {
+            head: job.window.head.clone(),
+            placed: pruning.placed.clone(),
+            omitted: job.window.omitted,
+        };
         if request_tokens(&with_window(job.base, &pruned)) < job.limits.trigger {
             return Outcome::Pruned(pruning);
         }
@@ -325,48 +386,85 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     }
     // NOTE: the history as the last request sent it hits the prompt cache. Only a
     // request that would not fit sends the pruned copy; a refused request did not fit.
-    let mut request = summary_request(job.base, job.window.messages(), job.focus);
+    let overflow = job.trigger == CompactionTrigger::Overflow;
+    let mut messages = job.window.messages();
     let mut used = None;
-    let too_large = job.trigger == CompactionTrigger::Overflow
-        || request_tokens(&request) > job.limits.hard_cap;
+    let too_large =
+        overflow || request_tokens(&summary_of(&job, &messages, 0)) > job.limits.hard_cap;
     if too_large && pruning.outputs > 0 {
-        let pruned = Window { head: job.window.head.clone(), placed: pruning.placed.clone() };
-        request = summary_request(job.base, pruned.messages(), job.focus);
+        let pruned = Window {
+            head: job.window.head.clone(),
+            placed: pruning.placed.clone(),
+            omitted: job.window.omitted,
+        };
+        messages = pruned.messages();
         used = Some(pruning.clone());
     }
+    let mut dropped = 0;
+    if overflow {
+        // NOTE: a summary request at least as large as the request that the provider
+        // refused is refused too, so its oldest messages go before the first try.
+        let refused = request_tokens(&with_window(job.base, job.window));
+        if request_tokens(&summary_of(&job, &messages, 0)) >= refused {
+            dropped = shrink(&job, &messages, 0, refused).unwrap_or(0);
+        }
+    }
+    let mut request = summary_of(&job, &messages, dropped);
     let mut answer = summarize(job.provider, request.clone(), job.interrupt).await;
     if matches!(&answer, Answer::Failed(error) if error.is_context_overflow()) {
         // NOTE: the summary request itself did not fit: the oldest messages go, never
         // the head with an earlier summary, and the rest is summarized.
-        if let Some(smaller) = without_oldest(&request, job.window.head.len(), job.limits) {
-            answer = summarize(job.provider, smaller, job.interrupt).await;
+        if let Some(fewer) = shrink(&job, &messages, dropped, request_tokens(&request)) {
+            dropped = fewer;
+            request = summary_of(&job, &messages, dropped);
+            answer = summarize(job.provider, request, job.interrupt).await;
         }
     }
+    // NOTE: the messages after the tail's start stay word for word; only those before
+    // it are lost to the summary.
+    let omitted = u32::try_from(dropped.min(tail)).unwrap_or(u32::MAX);
     match answer {
+        Answer::Done {
+            stop: stop @ (StopReason::MaxTokens | StopReason::ContentFilter), ..
+        } => Outcome::Incomplete(stop),
         Answer::Done { text, .. } if text.trim().is_empty() => Outcome::Empty,
-        Answer::Done { text, usage } => {
-            Outcome::Summarized { summary: text.trim().to_owned(), usage, tail, pruned: used }
+        Answer::Done { text, usage, .. } => {
+            if omitted > 0 {
+                tracing::warn!(
+                    omitted,
+                    "the summary leaves out the oldest messages: they did not fit in the model's context"
+                );
+            }
+            Outcome::Summarized {
+                summary: text.trim().to_owned(),
+                usage,
+                tail,
+                pruned: used,
+                omitted,
+            }
         }
         Answer::Failed(error) => Outcome::Failed(error),
         Answer::Interrupted => Outcome::Interrupted,
     }
 }
 
-/// `request` without its oldest messages after the first `head`, until its estimate is
-/// below the trigger; the remaining messages never start with tool results. `None`
-/// when nothing can go.
-fn without_oldest(request: &Request, head: usize, limits: ContextLimits) -> Option<Request> {
-    let (keep, rest) = request.messages.split_at(head.min(request.messages.len()));
-    // The last message is the summary prompt, which always stays.
-    let movable = rest.len().saturating_sub(1);
-    for drop in 1..=movable {
-        if rest.get(drop).is_some_and(is_results) {
+/// How many of the oldest messages after the head of `messages` the summary request
+/// must leave out, more than `dropped`, to fit after the provider refused a request
+/// estimated at `refused` tokens. The provider counts more tokens than the estimate,
+/// so the target is the trigger scaled by what the refusal shows: below `refused`
+/// times the trigger over the window. The messages after the note never start with tool
+/// results. `None` when nothing more can go.
+fn shrink(job: &Job<'_>, messages: &[Message], dropped: usize, refused: u64) -> Option<usize> {
+    let limits = job.limits;
+    let target = limits.trigger.min(refused.saturating_mul(limits.trigger) / limits.window.max(1));
+    let head = job.window.head.len().min(messages.len());
+    let movable = messages.len() - head;
+    for drop in dropped.saturating_add(1)..=movable {
+        if messages.get(head + drop).is_some_and(is_results) {
             continue;
         }
-        let messages: Vec<Message> = keep.iter().chain(&rest[drop..]).cloned().collect();
-        let smaller = Request { messages, ..request.clone() };
-        if request_tokens(&smaller) < limits.trigger || drop == movable {
-            return Some(smaller);
+        if drop == movable || request_tokens(&summary_of(job, messages, drop)) < target {
+            return Some(drop);
         }
     }
     None
@@ -374,7 +472,7 @@ fn without_oldest(request: &Request, head: usize, limits: ContextLimits) -> Opti
 
 /// How the summary call ended.
 enum Answer {
-    Done { text: String, usage: Option<TokenUsage> },
+    Done { text: String, usage: Option<TokenUsage>, stop: StopReason },
     Failed(ProviderError),
     Interrupted,
 }
@@ -434,7 +532,11 @@ async fn stream_summary(
         }
     }
     match builder.finish() {
-        Ok(completion) => Answer::Done { text: completion.message.text(), usage: completion.usage },
+        Ok(completion) => Answer::Done {
+            text: completion.message.text(),
+            usage: completion.usage,
+            stop: completion.stop_reason,
+        },
         Err(error) => Answer::Failed(error),
     }
 }

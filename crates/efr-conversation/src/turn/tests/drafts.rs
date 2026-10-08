@@ -277,3 +277,30 @@ async fn a_turn_that_nobody_follows_live_sets_no_draft_timer() {
     h.wait_end(sent.turn_id).await;
     h.finish();
 }
+
+#[tokio::test]
+async fn a_client_that_attaches_during_a_call_gets_the_context_at_once() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "think");
+    let first = request(vec![setup.prompt(&state, "think")]);
+    let estimate = request_tokens(&first);
+    let records = vec![
+        expect_request(first),
+        answer(&[text("one")]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+    ];
+    let mut h = setup.start(records).await;
+    assert!(h.handle.live_drafts().is_empty(), "no turn runs");
+
+    let sent = h.prompt("think").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+
+    // Nobody listened when the turn sent its estimate, and the status still has it.
+    let held: Vec<DraftPart> = h.handle.live_drafts().into_iter().map(|d| d.part).collect();
+    assert_eq!(held, [DraftPart::Context(unknown_window().gauge(estimate))]);
+    h.provider.handled_through(3);
+    h.wait_end(sent.turn_id).await;
+    assert!(h.handle.live_drafts().is_empty(), "an ended turn has no status");
+    h.finish();
+}

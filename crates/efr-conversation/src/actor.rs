@@ -31,6 +31,7 @@
 //! ([`completed_result`]) when it answers a retry.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod compact;
@@ -53,6 +54,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tracing::Instrument as _;
 
 use crate::approvals::Approvals;
+use crate::drafts::{ConversationDraft, LiveStatus};
 use crate::fresh::Fresh;
 use crate::history::CachedTurn;
 use crate::questions::Questions;
@@ -93,11 +95,15 @@ pub struct ConversationActor {
     compacting: Option<Compacting>,
 }
 
-/// A manual compaction in its task, and the caller that waits for its answer.
+/// A manual compaction in its task, and the callers that wait for its answer.
 #[derive(Debug)]
 struct Compacting {
     task: JoinHandle<compact::Compacted>,
     reply: Reply<ConversationCompactResult>,
+    /// The command that started it.
+    command_id: CommandId,
+    /// The retries of the same command that came while it ran.
+    retries: Vec<Reply<ConversationCompactResult>>,
 }
 
 /// A cheap, cloneable handle to a conversation's actor.
@@ -105,6 +111,7 @@ struct Compacting {
 pub struct ConversationHandle {
     conversation_id: ConversationId,
     mailbox: mpsc::Sender<Message>,
+    status: Arc<LiveStatus>,
 }
 
 /// What a conversation is doing.
@@ -274,7 +281,10 @@ impl ConversationActor {
             scratch,
             approvals: Approvals::default(),
             questions: Questions::default(),
+            misses: AtomicU32::new(0),
+            status: Arc::default(),
         });
+        let status = Arc::clone(&shared.status);
         let actor = ConversationActor {
             shared,
             mailbox,
@@ -288,7 +298,7 @@ impl ConversationActor {
         };
         let span = tracing::info_span!("conversation", conversation_id = %conversation_id);
         tokio::spawn(actor.run().instrument(span));
-        ConversationHandle { conversation_id, mailbox: sender }
+        ConversationHandle { conversation_id, mailbox: sender, status }
     }
 
     async fn run(mut self) {
@@ -798,6 +808,14 @@ impl ConversationActor {
             let _ = reply.send(Err(error));
             return;
         }
+        // NOTE: a retry of the running command, as after a dropped connection, waits
+        // for its answer: a refusal would be final and would throw the summary away.
+        if let Some(compacting) =
+            self.compacting.as_mut().filter(|compacting| compacting.command_id == params.command_id)
+        {
+            compacting.retries.push(reply);
+            return;
+        }
         // NOTE: the actor starts a queued prompt at once when nothing runs, so a queue
         // that is not empty means a turn or a compaction runs.
         if self.running.is_some() || self.compacting.is_some() {
@@ -805,10 +823,11 @@ impl ConversationActor {
             let _ = reply.send(Err(ConversationError::CompactionBusy { conversation_id }));
             return;
         }
+        let command_id = params.command_id;
         let job =
             compact::run(Arc::clone(&self.shared), params, self.cache.clone(), self.fresh.clone());
         let task = tokio::spawn(job.in_current_span());
-        self.compacting = Some(Compacting { task, reply });
+        self.compacting = Some(Compacting { task, reply, command_id, retries: Vec::new() });
     }
 
     /// Answers the caller of the manual compaction that ended, keeps its fresh block,
@@ -822,6 +841,10 @@ impl ConversationActor {
                 if let Some(fresh) = compacted.fresh {
                     self.fresh = Some(fresh);
                 }
+                if compacted.result.is_ok() {
+                    // NOTE: the user made room; the next turn may compact on its own.
+                    self.shared.misses.store(0, Ordering::Release);
+                }
                 compacted.result
             }
             Err(error) => {
@@ -831,6 +854,12 @@ impl ConversationActor {
         };
         if let Err(error) = &answer {
             tracing::info!(error = %error, "the manual compaction did not compact");
+        }
+        for retry in compacting.retries {
+            let _ = retry.send(match &answer {
+                Ok(result) => Ok(result.clone()),
+                Err(error) => Err(error.again()),
+            });
         }
         let _ = compacting.reply.send(answer);
         self.start_next();
@@ -908,6 +937,9 @@ impl ConversationActor {
             // that waits; it is rare enough to log rather than start a turn.
             tracing::warn!(turn_id = %running.turn_id, "steering waited when the turn ended");
         }
+        // NOTE: before the end is recorded, so a client that attaches after the end
+        // never gets the status of the ended turn.
+        self.shared.status.clear(false);
         match ended {
             Ok(mut end) => {
                 self.record_end(std::mem::take(&mut end.record)).await;
@@ -1086,6 +1118,13 @@ impl ConversationHandle {
     /// The conversation.
     pub fn id(&self) -> ConversationId {
         self.conversation_id
+    }
+
+    /// The status drafts of the running turn, for a client that attaches while it
+    /// runs: its newest `context` draft, then its `compacting` draft while it compacts.
+    /// Empty when no turn runs or the turn has sent neither yet.
+    pub fn live_drafts(&self) -> Vec<ConversationDraft> {
+        self.status.drafts()
     }
 
     /// Sends a prompt. It runs at once when the conversation is idle and queues behind

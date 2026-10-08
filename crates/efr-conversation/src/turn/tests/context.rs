@@ -253,6 +253,55 @@ async fn an_auto_compaction_that_frees_nothing_lets_the_turn_go_on_under_the_har
 }
 
 #[tokio::test]
+async fn the_breaker_stays_open_from_turn_to_turn_while_the_context_is_over_the_trigger() {
+    let mut setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "hello");
+    let first = request(vec![setup.prompt(&state, "hello")]);
+    // At 80% of the window, past the trigger; nothing lies before the tail, so each
+    // compaction is a miss.
+    let limits = with_window(&mut setup, request_tokens(&first) * 100 / 80);
+    let second = request(vec![
+        Message::user("hello"),
+        Message::assistant("Hi."),
+        setup.prompt(&state, "again"),
+    ]);
+    let third = request(vec![
+        Message::user("hello"),
+        Message::assistant("Hi."),
+        Message::user("again"),
+        Message::assistant("Hi again."),
+        setup.prompt(&state, "more"),
+    ]);
+    assert!(request_tokens(&third) <= limits.hard_cap);
+    let records = vec![
+        expect_request(first),
+        answer(&text_answer("Hi.")),
+        expect_request(second),
+        answer(&text_answer("Hi again.")),
+        expect_request(third),
+        answer(&text_answer("Still here.")),
+    ];
+    let mut receiver = setup.drafts.subscribe();
+    let mut h = setup.start(records).await;
+
+    let mut tries = Vec::new();
+    for text in ["hello", "again", "more"] {
+        let sent = h.prompt(text).await;
+        h.wait_end(sent.turn_id).await;
+        let mut compacting = 0;
+        while let Ok(draft) = receiver.try_recv() {
+            if matches!(draft.part, DraftPart::Compacting { .. }) {
+                compacting += 1;
+            }
+        }
+        tries.push(compacting);
+    }
+
+    assert_eq!(tries, [1, 1, 0], "two misses open the breaker for the next turns");
+    h.finish();
+}
+
+#[tokio::test]
 async fn an_auto_compaction_that_frees_nothing_above_the_hard_cap_fails_the_turn() {
     let mut setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "hello");
@@ -295,9 +344,49 @@ async fn an_overflow_with_auto_compaction_off_fails_the_turn_at_once() {
 }
 
 #[tokio::test]
-async fn the_history_tells_the_model_how_many_turns_it_leaves_out() {
+async fn the_safety_net_scales_with_the_window_and_never_drops_turns_below_the_trigger() {
+    // The default limits (50 turns, 512 KiB) on a window of 272000 tokens: one prompt
+    // of 600 KB is about 150000 tokens, below the trigger of 206720, and a limit of one
+    // turn is lower than the turns that the window holds.
     let mut setup = Setup::new();
+    let limits = with_window(&mut setup, 272_000);
     setup.config.history = HistoryLimits::new(1, 4096, 512 * 1024);
+    let big = format!("first\n{}", "x".repeat(600_000));
+    let state = setup.live_state(&setup.cwd, &big);
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, &big)])),
+        answer(&text_answer("One.")),
+        expect_request(request(vec![
+            Message::user(big.clone()),
+            Message::assistant("One."),
+            setup.prompt(&state, "second"),
+        ])),
+        answer(&text_answer("Two.")),
+        expect_request(request(vec![
+            Message::user(big.clone()),
+            Message::assistant("One."),
+            Message::user("second"),
+            Message::assistant("Two."),
+            setup.prompt(&state, "third"),
+        ])),
+        answer(&text_answer("Three.")),
+    ];
+    assert!(request_tokens(&request(vec![Message::user(big.clone())])) < limits.trigger);
+    let mut h = setup.start(records).await;
+
+    for text in [big.as_str(), "second", "third"] {
+        let sent = h.prompt(text).await;
+        h.wait_end(sent.turn_id).await;
+    }
+
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_history_tells_the_model_how_many_turns_it_leaves_out() {
+    // A page of 6 events holds the second turn's start but not the first's.
+    let mut setup = Setup::new();
+    setup.config.history = HistoryLimits::new(50, 6, 512 * 1024);
     let state = setup.live_state(&setup.cwd, "first");
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "first")])),

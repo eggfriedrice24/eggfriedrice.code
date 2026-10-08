@@ -70,7 +70,8 @@ pub use config::{ConfigSource, ConversationConfig, ConversationDeps, Conversatio
 pub use context::{
     BREAKER_TRIES, BYTES_PER_TOKEN, CompactionConfig, ContextLimits, DEFAULT_AUTO_AT,
     DEFAULT_CONTEXT_WINDOW, HARD_CAP_PERCENT, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS,
-    PRUNED_OUTPUT_STUB, SUMMARY_MAX_OUTPUT_TOKENS, TAIL_TOKENS, estimate_tokens,
+    PRUNED_OUTPUT_STUB, SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS,
+    estimate_tokens,
 };
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::ConversationError;

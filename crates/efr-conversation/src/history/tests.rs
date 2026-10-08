@@ -16,8 +16,9 @@ use serde_json::json;
 
 use super::{
     CachedTurn, HistoryLimits, ModelKey, Snapshot, UNFINISHED_CALL, close_open_calls, decode,
-    rebuild,
+    drop_orphan_results, rebuild,
 };
+use crate::compaction::Placed;
 
 fn turn(seed: u64) -> TurnId {
     TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
@@ -911,4 +912,49 @@ fn a_freeform_call_is_rebuilt_as_a_freeform_call() {
             Message::new(Role::User, vec![tool_result(c1, "Success. Deleted: a.txt")]),
         ]
     );
+}
+
+#[test]
+fn a_result_whose_call_the_window_does_not_hold_is_left_out() {
+    let t = turn(9);
+    let result = |id: &str| ContentBlock::ToolResult {
+        call_id: id.to_owned(),
+        output: "out".to_owned(),
+        is_error: false,
+    };
+    let at = |index: u32, message: Message| Placed { turn: t, index, message };
+    let call_b = Message::new(
+        Role::Assistant,
+        vec![ContentBlock::ToolCall {
+            call_id: "b".to_owned(),
+            name: "shell".to_owned(),
+            input: json!({"command": "ls"}),
+            freeform: false,
+        }],
+    );
+    // The cut left out the call of "a" but kept its result, as after a rebuild whose
+    // places moved; the reasoning-only message stays as the model sent it.
+    let reasoning = Message::new(Role::Assistant, Vec::new());
+    let mut placed = vec![
+        at(3, Message::new(Role::User, vec![result("a")])),
+        at(4, reasoning.clone()),
+        at(5, call_b.clone()),
+        at(6, Message::new(Role::User, vec![result("a"), result("b")])),
+    ];
+
+    drop_orphan_results(&mut placed);
+
+    let messages: Vec<Message> = placed.into_iter().map(|placed| placed.message).collect();
+    assert_eq!(messages, [reasoning, call_b, Message::new(Role::User, vec![result("b")])]);
+}
+
+#[test]
+fn the_safety_net_scales_with_the_window() {
+    let limits = HistoryLimits::default().for_window(272_000);
+
+    assert_eq!(limits.max_bytes, 272_000 * 8);
+    assert_eq!(limits.max_turns, 4096);
+    assert_eq!(limits.max_events, 4096);
+    let small = HistoryLimits::new(50, 4096, 64 * 1024 * 1024).for_window(1_000);
+    assert_eq!(small.max_bytes, 64 * 1024 * 1024, "a larger limit stays");
 }

@@ -120,7 +120,12 @@ into the GitHub release notes, and it stops when the section is missing.
   disk (your directory, the hidden shell's directory and its jobs, the git status and
   the `AGENTS.md` files from the project root down), the summary, and the newest
   messages word for word, about 20000 tokens. The turn goes on after the compaction.
-  `[compaction] auto = false` turns it off. All events stay in the log.
+  `[compaction] auto = false` turns it off. All events stay in the log. The history
+  keeps every earlier turn that the model's window can hold, so the compaction makes
+  room, not a limit of turns or bytes. A summary that the model cuts off at its output
+  limit never replaces the history. When the history does not fit in the summary
+  request, its oldest messages go, and the summary, the compaction's line and the log
+  say how many.
 - `efr` shows how full the model's context is. The status row of a running turn, and
   the line of a running command, end with `ctx 43%`, and the end-of-turn line reads
   `done in 42s, ctx 43% (89k/206k), 1.1k out`. 100% is the point where efr compacts
@@ -129,12 +134,14 @@ into the GitHub release notes, and it stops when the section is missing.
   `compacting context`. Each compaction leaves one dim line, such as `context
   compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`, or a line that
   says that the context is full and what to do. `efr history` shows the same line at
-  the place of each compaction, and `--verbose` adds the summary.
+  the place of each compaction, and `--verbose` adds the summary. A client that
+  attaches while a turn runs shows the field at once.
 - `efr compact [focus]` and `,compact [focus]` compact the context of a conversation
   now, between turns: efr writes a summary of the earlier turns and keeps the newest
   turns word for word. The focus says what the summary must keep. It starts no turn,
   and a prompt that you send meanwhile waits for it. While a turn runs, efr refuses
-  it. The plugin hands the focus to `efr` in its environment, as it does a prompt.
+  it. A retry of the same command waits for the compaction that runs. The plugin
+  hands the focus to `efr` in its environment, as it does a prompt.
 
 ### Changed
 
@@ -163,9 +170,12 @@ into the GitHub release notes, and it stops when the section is missing.
   again, when auto compaction is off, or when the request stays above the cap, the turn
   fails with a message that names the cause, the size and the way out, such as `the
   context is still full after a compaction: the model refused about 281k of 272k
-  tokens; run ,compact or start a new conversation`. After two compactions in a row
-  that leave the context too full, a turn stops compacting and says so. Before, the
-  turn failed with the provider's own message.
+  tokens; run ,compact or start a new conversation`. When the compaction fails, the
+  message also says why, such as `the compaction failed (the provider is rate limiting
+  requests)`. After two compactions in a row that leave the context too full, efr
+  stops compacting on its own and says so, also in the next turns, until the context
+  is below the trigger again or you run `,compact`. Before, the turn failed with the
+  provider's own message.
 - When the history of a long conversation leaves out earlier turns, the model reads
   `3 earlier turns are omitted.` first, and efrd logs a warning. Before, the turns
   went without a trace.

@@ -2,6 +2,7 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId};
 use efr_provider::ProviderError;
@@ -208,15 +209,26 @@ pub enum ConversationError {
     /// The summary request of a compaction failed; nothing was recorded.
     #[error("the summary request of the compaction failed")]
     Summary {
-        /// The provider's error.
+        /// The provider's error, shared with the retries of the same command.
         #[source]
-        source: ProviderError,
+        source: Arc<ProviderError>,
     },
+
+    /// A manual compaction failed with an error that only its first caller gets, such
+    /// as a store error; a retry of the same command that waited for it gets this.
+    /// Nothing was recorded.
+    #[error("the compaction of this command failed; nothing was recorded")]
+    CompactionFailed,
 
     /// The model answered the summary request of a compaction without text; nothing was
     /// recorded.
     #[error("the model wrote no summary")]
     EmptySummary,
+
+    /// The model stopped the summary of a compaction before its end: it reached the
+    /// output limit, or the provider stopped it for its content. Nothing was recorded.
+    #[error("the summary was cut off before its end")]
+    IncompleteSummary,
 
     /// The conversation's actor has stopped, so it takes no more requests.
     #[error("the conversation actor has stopped")]
@@ -259,6 +271,26 @@ fn invalid_setting(
 }
 
 impl ConversationError {
+    /// This error once more, for a retry of the same command that waited for it: the
+    /// same variant when it can be copied, else [`CompactionFailed`](Self::CompactionFailed).
+    pub(crate) fn again(&self) -> Self {
+        match self {
+            ConversationError::NothingToCompact { conversation_id } => {
+                ConversationError::NothingToCompact { conversation_id: *conversation_id }
+            }
+            ConversationError::Summary { source } => {
+                ConversationError::Summary { source: Arc::clone(source) }
+            }
+            ConversationError::EmptySummary => ConversationError::EmptySummary,
+            ConversationError::IncompleteSummary => ConversationError::IncompleteSummary,
+            ConversationError::DuplicateCommand { receipt } => {
+                ConversationError::DuplicateCommand { receipt: receipt.clone() }
+            }
+            ConversationError::Stopped => ConversationError::Stopped,
+            _ => ConversationError::CompactionFailed,
+        }
+    }
+
     /// The store's error, with a duplicate command id and an approval that is no
     /// longer pending turned into the variants the caller acts on.
     pub(crate) fn from_store(source: StoreError) -> Self {

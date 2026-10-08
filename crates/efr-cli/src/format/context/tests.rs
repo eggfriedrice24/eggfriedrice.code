@@ -75,6 +75,8 @@ fn each_compaction_has_its_line() {
         usage: None,
         pruned_outputs: 12,
         pruned_tokens: 48_000,
+        omitted_turns: 0,
+        omitted_messages: 0,
         kept_turns: 1,
         ..compaction(Auto, 180_200)
     };
@@ -90,6 +92,13 @@ fn each_compaction_has_its_line() {
         compacted(&compaction(Overflow, 206_720)),
         compacted(&compaction(Manual, 240_000)),
         compacted(&Compaction { kept_turns: 0, ..compaction(Manual, 19_000) }),
+        compacted(&Compaction { omitted_messages: 40, ..compaction(Auto, 24_100) }),
+        compacted(&Compaction {
+            omitted_turns: 1,
+            omitted_messages: 1,
+            tokens_before: 281_300,
+            ..compaction(Overflow, 24_100)
+        }),
     ];
     assert_eq!(
         lines,
@@ -103,6 +112,8 @@ fn each_compaction_has_its_line() {
             "context full: compaction did not free enough room (still 206k); run ,compact or efr new",
             "context full: compaction did not free enough room (still 240k); run efr new",
             "context compacted (efr compact): 231k -> 19k tokens, summary 3.2k",
+            "context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k (left out 40 messages)",
+            "context full: the request was 281k of 272k tokens; compacted and retried (left out 1 turn and 1 message)",
         ]
     );
 }

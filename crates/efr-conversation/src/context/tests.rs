@@ -113,6 +113,25 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         "no call of the newest turn reported a count"
     );
     assert_eq!(context_base(&[]), None);
+    assert_eq!(
+        context_base(&[
+            envelope(1, ended(800)),
+            envelope(2, Event::TurnCancelled { turn_id: turn })
+        ]),
+        None,
+        "a cancelled turn, as after a restart, is in no count"
+    );
+    let started = Event::TurnStarted {
+        turn_id: turn,
+        cwd: "/home/u".into(),
+        scope: efr_protocol::Scope::Machine,
+        settings: None,
+    };
+    assert_eq!(
+        context_base(&[envelope(1, ended(800)), envelope(2, started)]),
+        None,
+        "a turn without an end is in no count"
+    );
 }
 
 #[test]
@@ -121,6 +140,16 @@ fn a_full_context_names_the_cause_and_the_way_out() {
 
     let refused = context_full(Full::Refused, 281_000, &limits);
     let cap = context_full(Full::Cap, 260_000, &limits);
+    let failed = context_full(
+        Full::CompactionFailed {
+            refused: false,
+            failure: Some("the provider is rate limiting requests".to_owned()),
+        },
+        260_000,
+        &limits,
+    );
+    let failed_refused =
+        context_full(Full::CompactionFailed { refused: true, failure: None }, 281_000, &limits);
 
     assert_eq!(refused.code, ErrorCode::Internal);
     assert_eq!(
@@ -136,6 +165,17 @@ fn a_full_context_names_the_cause_and_the_way_out() {
         cap.message,
         "the context is full: about 260k of 272k tokens, above the cap of 258k; run ,compact \
          or start a new conversation"
+    );
+    assert_eq!(
+        failed.message,
+        "the context is full and the compaction failed (the provider is rate limiting \
+         requests): about 260k of 272k tokens, above the cap of 258k; run ,compact or start a \
+         new conversation"
+    );
+    assert_eq!(
+        failed_refused.message,
+        "the context is full and the compaction failed: the model refused about 281k of 272k \
+         tokens; run ,compact or start a new conversation"
     );
 }
 

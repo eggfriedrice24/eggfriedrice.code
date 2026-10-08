@@ -81,8 +81,12 @@ async fn compact(
         },
         None => None,
     };
+    let context_window =
+        config.models.iter().find(|info| info.id == model).and_then(|info| info.context_window);
+    let limits = ContextLimits::new(context_window, config.compaction);
     let key = ModelKey::new(shared.deps.provider.id().clone(), model.clone());
-    let window = snapshot.window(None, cache, &key, config.history, head.as_deref());
+    let history = config.history.for_window(limits.window);
+    let window = snapshot.window(None, cache, &key, history, head.as_deref());
     let provider_options =
         crate::turn::provider_options(&config, effort.as_deref(), shared.conversation_id);
     let base = Request {
@@ -93,9 +97,6 @@ async fn compact(
         max_output_tokens: config.max_output_tokens,
         provider_options,
     };
-    let context_window =
-        config.models.iter().find(|info| info.id == model).and_then(|info| info.context_window);
-    let limits = ContextLimits::new(context_window, config.compaction);
     let tokens_before = request_tokens(&with_window(&base, &window));
     let job = Job {
         provider: &*shared.deps.provider,
@@ -107,18 +108,26 @@ async fn compact(
         interrupt: None,
     };
     let compaction_id = CompactionId::from_uuid(uuid_v7(&*shared.deps.clock, &*shared.deps.rng));
-    let (summary, usage, tail, pruned) = match compaction::run(job).await {
-        Outcome::Summarized { summary, usage, tail, pruned } => (summary, usage, tail, pruned),
+    let (summary, usage, tail, pruned, omitted) = match compaction::run(job).await {
+        Outcome::Summarized { summary, usage, tail, pruned, omitted } => {
+            (summary, usage, tail, pruned, omitted)
+        }
         Outcome::Nothing => return Err(ConversationError::NothingToCompact { conversation_id }),
-        Outcome::Failed(source) => return Err(ConversationError::Summary { source }),
+        Outcome::Failed(source) => {
+            return Err(ConversationError::Summary { source: Arc::new(source) });
+        }
         Outcome::Empty => return Err(ConversationError::EmptySummary),
+        Outcome::Incomplete(stop) => {
+            tracing::warn!(?stop, "the summary was cut off; nothing was compacted");
+            return Err(ConversationError::IncompleteSummary);
+        }
         Outcome::Pruned(_) | Outcome::Interrupted => {
             unreachable!("a manual compaction always summarizes and has no interrupt")
         }
     };
     let text = read_fresh(&shared.deps, conversation_id, &cwd, logged_shell_cwd).await;
     let new_fresh = Fresh { compaction_id, text };
-    let Some(built) = summarized(&window, &new_fresh, summary, usage, tail, pruned) else {
+    let Some(built) = summarized(&window, &new_fresh, summary, usage, tail, pruned, omitted) else {
         return Err(ConversationError::NothingToCompact { conversation_id });
     };
     let compaction = Compaction {
@@ -136,6 +145,8 @@ async fn compact(
         kept_turns: built.kept_turns,
         pruned_outputs: built.pruned_outputs,
         pruned_tokens: built.pruned_tokens,
+        omitted_turns: built.omitted_turns,
+        omitted_messages: built.omitted_messages,
         summary: built.summary,
         usage: built.usage.map(wire_usage),
     };

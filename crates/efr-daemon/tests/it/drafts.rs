@@ -40,6 +40,8 @@ struct Streamer {
     hold_end: bool,
     end: Arc<Notify>,
     sent: Sent,
+    /// Notified when the turn calls the model.
+    called: Arc<Notify>,
 }
 
 impl Streamer {
@@ -52,6 +54,7 @@ impl Streamer {
             hold_end: false,
             end: Arc::new(Notify::new()),
             sent: Arc::default(),
+            called: Arc::new(Notify::new()),
         })
     }
 
@@ -75,6 +78,7 @@ impl Provider for Streamer {
     }
 
     async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+        self.called.notify_one();
         let go = Arc::clone(&self.go);
         let end_gate = self.hold_end.then(|| Arc::clone(&self.end));
         let gap = self.gap;
@@ -239,13 +243,14 @@ async fn drafts_reach_a_subscriber_that_asked_and_no_other() {
     model.go.notify_one();
 
     let mut with = Seen::after(with_hwm);
-    with.read(&mut with_stream, |seen| seen.drafts > 0).await;
+    // NOTE: the status of the turn may come first; the text drafts are the point here.
+    with.read(&mut with_stream, |seen| !seen.texts.is_empty()).await;
     model.end.notify_one();
     with.read(&mut with_stream, |_| false).await;
     let without = read_turn(&mut without_stream, without_hwm).await;
 
     assert_eq!(without.drafts, 0, "no drafts without the parameter");
-    assert!(with.drafts > 0, "drafts with the parameter");
+    assert!(!with.texts.is_empty(), "drafts with the parameter");
     // NOTE: the turn records its start while the test subscribes, so the start can come
     // between the two subscriptions. Each one gets the events after its own start, so
     // the two get the same events after the later start.
@@ -261,6 +266,25 @@ async fn drafts_reach_a_subscriber_that_asked_and_no_other() {
         end = at + delta.len();
     }
     drop((with_stream, without_stream, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_subscriber_that_attaches_during_a_model_call_gets_the_context_at_once() {
+    let model = Streamer::held(words(4));
+    let (daemon, client, conversation_id) = prompted(&model, 0).await;
+    model.called.notified().await;
+
+    let (mut stream, _) = subscribe(&client, conversation_id, true).await;
+
+    let first = stream.next().await.unwrap().unwrap();
+    let ConversationSubscribeItem::Draft(draft) = first else {
+        panic!("the status of the running turn comes first: {first:?}");
+    };
+    assert!(matches!(draft.draft, DraftPart::Context(_)), "{draft:?}");
+    model.go.notify_one();
+    model.end.notify_one();
+    drop((stream, client));
     daemon.stop().await.unwrap();
 }
 

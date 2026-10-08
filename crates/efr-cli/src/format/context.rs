@@ -136,9 +136,10 @@ pub(crate) fn after(compaction: &Compaction) -> ContextUse {
 ///
 /// - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`, with
 ///   `(efr compact)` for a manual one and `pruned 12 outputs` in place of the summary
-///   when pruning alone made room;
+///   when pruning alone made room, and `(left out 2 turns and 40 messages)` after the
+///   summary for what it never saw, because it did not fit;
 /// - `context full: the request was 281k of 272k tokens; compacted and retried` for an
-///   overflow;
+///   overflow, with the same note of what the summary never saw;
 /// - `context full: compaction did not free enough room (still 240k); run ,compact or
 ///   efr new` when the context is still at or above its limit after it, a miss of the
 ///   breaker. After a manual compaction only `efr new` helps.
@@ -153,9 +154,10 @@ pub(crate) fn compacted(compaction: &Compaction) -> String {
     }
     if compaction.trigger == CompactionTrigger::Overflow {
         return format!(
-            "context full: the request was {} of {} tokens; compacted and retried",
+            "context full: the request was {} of {} tokens; compacted and retried{}",
             count(compaction.tokens_before),
-            count(compaction.window)
+            count(compaction.window),
+            left_out(compaction)
         );
     }
     let by = if manual { "efr compact" } else { "auto" };
@@ -182,7 +184,20 @@ pub(crate) fn compacted(compaction: &Compaction) -> String {
         (None, 1) => line.push_str(", pruned 1 output"),
         (None, outputs) => line.push_str(&format!(", pruned {outputs} outputs")),
     }
+    line.push_str(&left_out(compaction));
     line
+}
+
+/// What the summary of `compaction` never saw, because it did not fit, such as
+/// ` (left out 2 turns and 40 messages)`; empty when it saw everything.
+fn left_out(compaction: &Compaction) -> String {
+    let parts: Vec<String> =
+        [(compaction.omitted_turns, "turn"), (compaction.omitted_messages, "message")]
+            .into_iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, what)| if n == 1 { format!("1 {what}") } else { format!("{n} {what}s") })
+            .collect();
+    if parts.is_empty() { String::new() } else { format!(" (left out {})", parts.join(" and ")) }
 }
 
 /// The line of a compaction (see [`compacted`]) with its newline: muted on a terminal,

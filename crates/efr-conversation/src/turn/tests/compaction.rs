@@ -8,7 +8,7 @@ use efr_test_support::Record;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use crate::compaction::{request_tokens, summary_message};
+use crate::compaction::{dropped_note, gap_note, request_tokens, summary_message};
 use crate::context::{PRUNED_OUTPUT_STUB, kilo};
 use crate::testing::{
     HARD_CAP, MODEL, SUMMARY, SUMMARY_2, Setup, TRIGGER, WINDOW, answer, big_file, big_text,
@@ -122,6 +122,8 @@ async fn an_auto_compaction_at_the_trigger_summarizes_and_the_turn_goes_on() {
             kept_turns: 1,
             pruned_outputs: 0,
             pruned_tokens: 0,
+            omitted_turns: 0,
+            omitted_messages: 0,
             summary: Some(SUMMARY.to_owned()),
             usage: None,
         }
@@ -197,21 +199,26 @@ async fn after_a_restart_the_request_is_rebuilt_from_the_compaction_and_the_tail
 const OVERFLOW: &str = r#"{"kind": "api", "code": "context_length_exceeded", "message": "Your input exceeds the context window of this model."}"#;
 
 /// The records of a third turn whose first request the provider refuses as too large.
+/// The summary request of the same history would be refused too, so it leaves out the
+/// oldest message, and the history after the compaction says so.
 fn overflow_records(setup: &Setup) -> (Vec<Record>, Request, Vec<Message>) {
     let state = setup.live_state(&setup.cwd, "one");
     let (mut records, history) = two_big_turns(setup);
     let mut first = history;
     first.push(setup.prompt(&state, "three"));
+    let mut fitting = vec![dropped_note(1)];
+    fitting.extend(first[1..].iter().cloned());
     let after = vec![
         fresh(setup),
         summary_message(SUMMARY),
+        gap_note(0, 1).expect("a note"),
         Message::assistant("ok 2"),
         setup.prompt(&state, "three"),
     ];
     records.extend([
         expect_request(request(first.clone())),
         failure(serde_json::from_str(OVERFLOW).expect("json")),
-        expect_request(summary(first.clone())),
+        expect_request(summary(fitting)),
         answer(&text_answer(SUMMARY)),
         expect_request(request(after.clone())),
     ]);
@@ -239,6 +246,7 @@ async fn an_overflow_compacts_once_and_sends_the_call_again() {
     assert_eq!(compaction.tokens_after, request_tokens(&request(after)));
     assert_eq!((compaction.through_turn, compaction.through_message), (two, Some(1)));
     assert_eq!(compaction.kept_turns, 2);
+    assert_eq!((compaction.omitted_turns, compaction.omitted_messages), (0, 1));
     h.finish();
 }
 
@@ -416,5 +424,93 @@ async fn a_pruning_that_frees_enough_compacts_without_a_summary() {
     assert_eq!(compaction.tokens_before, request_tokens(&before));
     assert_eq!(compaction.tokens_after, request_tokens(&request(messages)));
     assert_eq!((compaction.through_turn, compaction.through_message), (go, Some(7)));
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_failed_summary_above_the_hard_cap_names_the_failure_and_its_cause() {
+    let setup = compacting();
+    let state = setup.live_state(&setup.cwd, "hello");
+    let input = big_file(&setup, 400_000);
+    let output = big_text(400_000);
+    let call = tool_message("call_1", "read_file", &input);
+    let result = result_message("call_1", &output, false);
+    let first = vec![Message::user("hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
+    let mut refused = first.clone();
+    refused.extend([call, result]);
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hello")])),
+        answer(&text_answer("hi")),
+        expect_request(request(first)),
+        answer(&tool_answer("call_1", "read_file", &input)),
+        expect_request(summary(refused.clone())),
+        failure(json!({ "kind": "rate_limited", "retry_after_ms": 11_000 })),
+    ];
+    assert!(request_tokens(&request(refused.clone())) > HARD_CAP);
+    let mut h = setup.start(records).await;
+    let hello = h.prompt("hello").await.turn_id;
+    h.wait_end(hello).await;
+
+    let go = h.prompt("go").await.turn_id;
+    let end = h.wait_end(go).await;
+
+    let Event::TurnFailed { error, .. } = end else {
+        panic!("the turn fails: {end:?}");
+    };
+    assert!(
+        error.message.starts_with("the context is full and the compaction failed (the provider"),
+        "{}",
+        error.message
+    );
+    assert!(error.message.contains("above the cap of 95k"), "{}", error.message);
+    assert!(compactions(&h).await.is_empty());
+    h.finish();
+}
+
+#[tokio::test]
+async fn after_an_overflow_pruning_alone_is_not_trusted_and_a_summary_follows() {
+    let setup = compacting();
+    let state = setup.live_state(&setup.cwd, "go");
+    let input = big_file(&setup, 80_000);
+    let output = big_text(80_000);
+    let ids = ["call_1", "call_2", "call_3"];
+    let mut messages = vec![setup.prompt(&state, "go")];
+    let mut records = Vec::new();
+    for id in ids {
+        records.push(expect_request(request(messages.clone())));
+        records.push(answer(&tool_answer(id, "read_file", &input)));
+        messages.push(tool_message(id, "read_file", &input));
+        messages.push(result_message(id, &output, false));
+    }
+    // The estimate is below the trigger, and the provider refuses it all the same.
+    let refused = request(messages.clone());
+    assert!(request_tokens(&refused) < TRIGGER);
+    let mut pruned = messages.clone();
+    for at in [2, 4] {
+        pruned[at] = result_message(ids[at / 2 - 1], PRUNED_OUTPUT_STUB, false);
+    }
+    let after =
+        vec![fresh(&setup), summary_message(SUMMARY), messages[5].clone(), messages[6].clone()];
+    records.extend([
+        expect_request(refused.clone()),
+        failure(serde_json::from_str(OVERFLOW).expect("json")),
+        expect_request(summary(pruned)),
+        answer(&text_answer(SUMMARY)),
+        expect_request(request(after)),
+        answer(&text_answer("done")),
+    ]);
+    let mut h = setup.start(records).await;
+
+    let go = h.prompt("go").await.turn_id;
+    let end = h.wait_end(go).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    let compacted = compactions(&h).await;
+    let [compaction] = compacted.as_slice() else {
+        panic!("one compaction: {compacted:?}");
+    };
+    assert_eq!(compaction.trigger, CompactionTrigger::Overflow);
+    assert_eq!(compaction.summary.as_deref(), Some(SUMMARY));
+    assert_eq!(compaction.pruned_outputs, 2);
     h.finish();
 }

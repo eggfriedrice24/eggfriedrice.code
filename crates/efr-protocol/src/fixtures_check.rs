@@ -185,6 +185,8 @@ fn compaction() -> Compaction {
         kept_turns: 3,
         pruned_outputs: 12,
         pruned_tokens: 41_000,
+        omitted_turns: 0,
+        omitted_messages: 0,
         summary: Some("## Task and state\nFree space on /var.".into()),
         usage: Some(Usage {
             input_tokens: 205_000,

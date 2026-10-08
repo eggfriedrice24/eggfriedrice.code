@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use efr_protocol::{ConversationId, DraftPart, TurnId};
@@ -17,7 +18,8 @@ fn drafter() -> (Drafter, broadcast::Sender<ConversationDraft>, CompletionBuilde
     let sender = draft_channel();
     let conversation_id: ConversationId = CONVERSATION.parse().unwrap();
     let turn_id: TurnId = TURN.parse().unwrap();
-    let drafter = Drafter::new(sender.clone(), conversation_id, turn_id, Duration::ZERO);
+    let drafter =
+        Drafter::new(sender.clone(), Arc::default(), conversation_id, turn_id, Duration::ZERO);
     (drafter, sender, CompletionBuilder::new())
 }
 

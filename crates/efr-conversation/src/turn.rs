@@ -37,6 +37,7 @@ mod stream;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
@@ -63,6 +64,7 @@ use self::stream::Response;
 use crate::approvals::{self, Approvals};
 use crate::compaction::{Placed, Window, with_window};
 use crate::context::{self, Meter};
+use crate::drafts::LiveStatus;
 use crate::exit::{self, TurnExits};
 use crate::fresh::Fresh;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
@@ -113,6 +115,12 @@ pub(crate) struct Shared {
     pub(crate) scratch: Mutex<Scratch>,
     pub(crate) approvals: Approvals,
     pub(crate) questions: Questions,
+    /// The compactions in a row that missed, carried from turn to turn so that the
+    /// breaker stays open until the context is below the trigger again.
+    pub(crate) misses: AtomicU32,
+    /// The context and compacting drafts of the running turn, for a client that
+    /// attaches while it runs.
+    pub(crate) status: Arc<LiveStatus>,
 }
 
 /// A prompt that waits for its turn, or runs as one.
@@ -262,7 +270,9 @@ struct Turn {
     /// The newest estimate of a request.
     estimated: Option<u64>,
     /// The compactions in a row that left the context at or above the trigger, or freed
-    /// nothing; at [`BREAKER_TRIES`](crate::BREAKER_TRIES) the turn stops compacting.
+    /// nothing, in this turn and the turns before it; at
+    /// [`BREAKER_TRIES`](crate::BREAKER_TRIES) the turn stops compacting until the
+    /// context is below the trigger again.
     misses: u32,
     /// The fresh context block of the newest compaction: the actor's, or the one this
     /// turn read or made.
@@ -325,10 +335,12 @@ impl Turn {
         let scratch = config.scratch_root.clone();
         let drafter = Drafter::new(
             shared.deps.drafts.clone(),
+            Arc::clone(&shared.status),
             shared.conversation_id,
             spec.turn_id,
             config.draft_interval,
         );
+        let misses = shared.misses.load(Ordering::Acquire);
         Turn {
             shared,
             config,
@@ -347,7 +359,7 @@ impl Turn {
             call_usage: None,
             meter: Meter::default(),
             estimated: None,
-            misses: 0,
+            misses,
             fresh,
             logged_shell_cwd: None,
             user_messages: Vec::new(),
@@ -439,13 +451,11 @@ impl Turn {
             Some(compaction) => Some(self.fresh_for(compaction.compaction_id).await),
             None => None,
         };
-        let mut window = snapshot.window(
-            Some(turn_id),
-            cache,
-            &self.model_key(),
-            config.history,
-            fresh.as_deref(),
-        );
+        // NOTE: the safety net of the history scales with the model's window, so a
+        // compaction, not the net, makes room.
+        let history = config.history.for_window(self.limits().window);
+        let mut window =
+            snapshot.window(Some(turn_id), cache, &self.model_key(), history, fresh.as_deref());
         let prompt = Message::new(
             Role::User,
             vec![
@@ -547,6 +557,7 @@ impl Turn {
         let conversation_id = self.shared.conversation_id;
         // NOTE: no model call reads steering from here on, so a steer is late.
         self.control.steering.close();
+        self.shared.misses.store(self.misses, Ordering::Release);
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
         // interrupted or failed turn too; only a completed turn reports the changes.
         let watch = Stopwatch::start();

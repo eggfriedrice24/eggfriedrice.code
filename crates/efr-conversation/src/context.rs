@@ -33,8 +33,14 @@ pub const PRUNE_KEEP_TOKENS: u64 = 40_000;
 /// The budget of the verbatim tail that a summary keeps after it.
 pub const TAIL_TOKENS: u64 = 20_000;
 
-/// The most tokens that the summary request may produce.
+/// The most tokens that the summary itself may have.
 pub const SUMMARY_MAX_OUTPUT_TOKENS: u32 = 8_000;
+
+/// The room for the model's reasoning in the summary request. The Responses API counts
+/// reasoning in `max_output_tokens`, so the request's limit is
+/// [`SUMMARY_MAX_OUTPUT_TOKENS`] plus this; a summary that reaches the limit is cut
+/// off and fails the compaction.
+pub const SUMMARY_REASONING_TOKENS: u32 = 24_000;
 
 /// The compactions in a row, inside one turn, that may leave the context above the
 /// trigger before the turn stops compacting.
@@ -184,13 +190,16 @@ impl Meter {
 }
 
 /// The context at the end of the newest turn of `page`, the base of the next turn's
-/// estimate. `None` when a compaction came after it, or when the newest ended turn has
-/// no `context` (a turn from before efr counted it, or one that ended before it sent
-/// anything), or no real count (no call of it reported its usage): its messages are
-/// then not in any count, and an estimate is no base.
+/// estimate. `None` when a compaction came after it, when the newest turn was
+/// cancelled or has no end (its messages are in the history, but in no count), or when
+/// the newest ended turn has no `context` (a turn from before efr counted it, or one
+/// that ended before it sent anything) or no real count (no call of it reported its
+/// usage): its messages are then not in any count, and an estimate is no base.
 pub(crate) fn context_base(page: &[EventEnvelope]) -> Option<u64> {
     page.iter().rev().find_map(|envelope| match &envelope.event {
-        Event::ConversationCompacted(_) => Some(None),
+        Event::ConversationCompacted(_)
+        | Event::TurnCancelled { .. }
+        | Event::TurnStarted { .. } => Some(None),
         Event::TurnCompleted { context, usage, .. }
         | Event::TurnFailed { context, usage, .. }
         | Event::TurnInterrupted { context, usage, .. } => {
@@ -202,14 +211,16 @@ pub(crate) fn context_base(page: &[EventEnvelope]) -> Option<u64> {
 }
 
 /// Why a turn's context does not fit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Full {
     /// The next request is estimated above the hard cap, and the turn cannot compact.
     Cap,
     /// The provider refused the request, and auto compaction is off.
     Refused,
-    /// The provider refused the request, and the compaction to make room failed.
-    CompactionFailed,
+    /// The compaction to make room failed: after the provider refused the request
+    /// (`refused`), or before a request above the hard cap. `failure` is why the
+    /// summary failed, in one sentence; `None` when nothing lay before the tail.
+    CompactionFailed { refused: bool, failure: Option<String> },
     /// The compactions of this turn did not free enough room.
     Breaker,
     /// The provider refused the request again after a compaction.
@@ -228,9 +239,19 @@ pub(crate) fn context_full(why: Full, tokens: u64, limits: &ContextLimits) -> Er
         Full::Refused => {
             format!("the context is full: the model refused about {size} of {window} tokens")
         }
-        Full::CompactionFailed => format!(
-            "the context is full and the compaction failed: the model refused about {size} of {window} tokens"
-        ),
+        Full::CompactionFailed { refused, failure } => {
+            let failed = match failure {
+                Some(failure) => {
+                    format!("the context is full and the compaction failed ({failure})")
+                }
+                None => "the context is full and the compaction failed".to_owned(),
+            };
+            if refused {
+                format!("{failed}: the model refused about {size} of {window} tokens")
+            } else {
+                format!("{failed}: about {size} of {window} tokens, above the cap of {cap}")
+            }
+        }
         Full::Breaker => format!(
             "the context is full: compaction did not free enough room (still about {size} of {window} tokens)"
         ),

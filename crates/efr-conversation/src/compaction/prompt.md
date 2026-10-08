@@ -6,6 +6,7 @@ Rules:
 - Keep paths, commands, values, names and error texts exact.
 - Quote each instruction and preference that the user gave in the chat, word for word.
 - When an earlier summary is in the conversation, carry its facts forward. Remove only what is no longer true.
+- When the conversation says that earlier turns or messages are omitted, say so under the first heading.
 - Write at most about 2000 words.
 - Do not call tools. Answer with the summary only.
 

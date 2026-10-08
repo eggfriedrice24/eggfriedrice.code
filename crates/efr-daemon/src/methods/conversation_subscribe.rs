@@ -23,9 +23,11 @@
 //! that is already waiting, so a draft never overtakes an event that the turn recorded
 //! before it. It drops a draft that the turn made before an event that the subscriber
 //! already got and that ends what the draft shows (`assistant_message_completed`,
-//! `tool_call_started`, the end of a turn). A draft goes through the queue's lossy
-//! room: a full room drops the draft, and a draft channel that left this subscriber
-//! behind drops the oldest drafts. Neither closes the subscription.
+//! `tool_call_started`, the end of a turn). The drafts start with the status of the
+//! running turn (`ConversationHandle::live_drafts`), so a client that attaches during
+//! a long model call or a compaction shows it at once. A draft goes through the queue's
+//! lossy room: a full room drops the draft, and a draft channel that left this
+//! subscriber behind drops the oldest drafts. Neither closes the subscription.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -138,7 +140,15 @@ pub(crate) async fn handle(
     if params.drafts {
         // NOTE: subscribed after the read, so every draft that comes is newer than the
         // start. Without drafts the feed drops, and the live side never waits for it.
-        let _ = feed.send(DraftFeed { receiver: state.drafts.subscribe() });
+        let receiver = state.drafts.subscribe();
+        // NOTE: read after the subscription, so no status draft falls between the two;
+        // one that comes twice shows the same status again.
+        let held = state
+            .conversations
+            .live(conversation_id)
+            .map(|handle| handle.live_drafts())
+            .unwrap_or_default();
+        let _ = feed.send(DraftFeed { receiver, held });
     }
     for item in start.items {
         responder.item(&item).await?;
@@ -168,6 +178,10 @@ pub(crate) struct Start {
 #[derive(Debug)]
 struct DraftFeed {
     receiver: broadcast::Receiver<ConversationDraft>,
+    /// The status of the running turn (its newest `context` draft, and `compacting`
+    /// while it compacts), so a subscriber that attaches during a long model call or a
+    /// compaction shows it at once.
+    held: Vec<ConversationDraft>,
 }
 
 /// The live side of one subscription.
@@ -207,7 +221,15 @@ impl Live {
                 batch = self.committed.recv() => Step::Batch(batch),
                 fed = &mut feed, if feed_open => {
                     feed_open = false;
-                    self.drafts = fed.ok().map(|DraftFeed { receiver }| receiver);
+                    let Ok(DraftFeed { receiver, held }) = fed else {
+                        continue;
+                    };
+                    self.drafts = Some(receiver);
+                    for draft in held {
+                        if !self.forward_draft(draft) {
+                            return;
+                        }
+                    }
                     continue;
                 }
                 draft = next_draft(self.drafts.as_mut()) => Step::Draft(draft),

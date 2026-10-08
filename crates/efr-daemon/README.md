@@ -208,7 +208,10 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   it also forwards the drafts of the running turn (`State::drafts`, a broadcast from
   the turns): after the commits that wait, through the queue's lossy room of 16. It
   drops a draft that is older than an event it sent that ends what the draft shows. A
-  draft never closes the subscription.
+  draft never closes the subscription. The drafts start with the status of the
+  running turn (`ConversationHandle::live_drafts`: its newest `context` draft, and
+  `compacting` while it compacts), so a client that attaches during a long model call
+  shows the gauge at once.
 - `pty.attach` registers for live output, then sends the output after `since_seq` from
   the recording (a gap of at most 1 MiB) or a screen snapshot plus what was recorded
   after it. The replay sends each size that the recording holds as `resized` at its
@@ -542,8 +545,9 @@ The `drafts` module checks the drafts end to end with a model that streams text:
 a subscriber that asked gets them, each after the events that its `after_seq` names;
 the log is the same with and without them; with the test clock following real time,
 a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
-interval); and a subscriber on a raw socket that does not read loses drafts but keeps
-its subscription and gets every event.
+interval); a subscriber that attaches during a model call gets the turn's `context`
+draft first; and a subscriber on a raw socket that does not read loses drafts but
+keeps its subscription and gets every event.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

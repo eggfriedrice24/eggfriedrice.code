@@ -139,9 +139,9 @@ where the user went; without such a move the shell stays where the model left it
 request:
 
 1. the system prompt (the static rules, `ConversationConfig::system_prompt`);
-2. bounded history (`HistoryLimits`: 50 turns, 4096 events, 512 KiB of message JSON),
-   each earlier turn from the actor's cache or the saved turn messages, else rebuilt
-   from its events;
+2. bounded history (`HistoryLimits`: 50 turns, 4096 events, 512 KiB of message JSON,
+   scaled to the model's window, see "Context"), each earlier turn from the actor's
+   cache or the saved turn messages, else rebuilt from its events;
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
@@ -347,8 +347,9 @@ Before each model call, the turn estimates the context of the request (`Meter` i
   plus the output of the last call. At the start of a turn it is the `context.tokens`
   of the newest ended turn in the log, and the new prompt is added to it. The log
   holds it, so it survives a restart;
-- without one (the first turn, the first call after a compaction, or a newest ended
-  turn without `context`, without a real count in its `usage`, or with a
+- without one (the first turn, the first call after a compaction, a newest turn that
+  was cancelled or has no end, as after a daemon restart, or a newest ended turn
+  without `context`, without a real count in its `usage`, or with a
   `conversation_compacted` after it):
   `estimate_tokens` of the JSON of the whole request (system prompt, tool definitions
   and messages).
@@ -373,16 +374,25 @@ rather than late.
 4. The breaker: a compaction whose `tokens_after` is at or above the trigger counts as
    a miss, and so does a compaction that frees nothing and records nothing (nothing
    lies before the tail, or the summary request fails). After `BREAKER_TRIES` (2)
-   misses in a row in one turn, the turn makes no more auto or overflow compactions.
-   It goes on while its requests fit under the hard cap. The client shows the breaker
+   misses in a row, the turn makes no more auto or overflow compactions. It goes on
+   while its requests fit under the hard cap. The count of misses carries from turn
+   to turn (the actor keeps it in memory), so a context that stays above the trigger
+   does not pay for two summaries at the start of each turn. It goes back to 0 when a
+   compaction brings the context below the trigger, when a guard finds the estimate
+   below the trigger, and after a manual compaction. The client shows the breaker
    line (see "Display").
-5. The safety net of `HistoryLimits` stays. When it leaves out earlier turns that ran
-   and that no summary covers (past the most turns or the most bytes, or a turn whose
-   start fell out of the event page), the history gets a user message `N earlier turns
-   are omitted.` (`1 earlier turn is omitted.` for one) after the summary, or first
-   when there is no summary, and the daemon logs one `warn` line with the count. It
-   never leaves out turns without that note. A turn that never started, such as one
-   whose settings failed, is no omitted turn.
+5. The safety net of `HistoryLimits` stays, scaled to the model's window
+   (`HistoryLimits::for_window`): the byte limit is at least twice the window at 4
+   bytes a token, and the turn limit at least the event limit. So the net never
+   leaves out turns that the window can hold, and the compaction, not the net, makes
+   room. When it still leaves out earlier turns that ran and that no summary covers
+   (past the most turns or the most bytes, or a turn whose start fell out of the event
+   page), the history gets a user message `N earlier turns are omitted.` (`1 earlier
+   turn is omitted.` for one) after the summary, or first when there is no summary,
+   and the daemon logs one `warn` line with the count. It never leaves out turns
+   without that note. A turn that never started, such as one whose settings failed, is
+   no omitted turn. A summary written while turns were omitted records their count
+   (`omitted_turns`), see "Storage".
 
 The turn sends the `compacting` draft before each compaction, records
 `conversation_compacted` itself, drops the base of its estimate, counts the misses of
@@ -401,24 +411,44 @@ manual compaction runs them between turns.
    is longer than `PRUNED_OUTPUT_STUB` that stub as its output. When this frees fewer than
    `PRUNE_MIN_TOKENS` (20000), do not prune: a new cache prefix costs more than it
    saves. When it frees enough and the estimate is then below the trigger, the
-   compaction ends here, with no summary (an auto or overflow compaction only). The
-   cut is the place after the newest pruned result.
+   compaction ends here, with no summary (an auto compaction only). After an overflow
+   the estimate has just counted too low, so it cannot show that pruning is enough: a
+   summary always follows. The cut is the place after the newest pruned result.
 2. Summarize. Send one summary request:
    - the same system prompt and the same tool definitions as the turn;
    - the history as the last request sent it, so the request hits the prompt cache.
-     Only when that request would pass the hard cap does it send the pruned history;
+     Only when that request would pass the hard cap, or after an overflow, does it
+     send the pruned history;
    - as the last message, a user message with the summary prompt (below) and, for a
      manual compaction with `focus`, the line `Keep in the summary: <focus>`;
-   - `max_output_tokens` of `SUMMARY_MAX_OUTPUT_TOKENS` (8000). The subscription
-     backend refuses that member, so there the prompt alone asks for the length.
+   - `max_output_tokens` of `SUMMARY_MAX_OUTPUT_TOKENS` (8000) for the summary plus
+     `SUMMARY_REASONING_TOKENS` (24000) for the model's reasoning, which the Responses
+     API counts in the same limit. The subscription backend refuses that member, so
+     there the prompt alone asks for the length. On the API backend, a `max_output_tokens`
+     in the model's entry of `[openai] models` wins over it. So the 8000 is a budget
+     that the prompt asks for, not a cap that efr can make the provider keep.
 
-   When the provider refuses the summary request itself as too large, the oldest
-   messages after the fresh block and the earlier summary go (never a tool result
-   without its call), until the estimate is below the trigger, and the request goes
-   once more.
+   Some messages do not fit in the summary request. Then the oldest messages after the
+   fresh block and the earlier summary go (never so that a tool result comes first),
+   and one user message in their place says `N earlier messages are omitted: they did
+   not fit in this request.` The provider counts more tokens than the estimate, so
+   the target is the trigger scaled by what a refusal shows: below the estimate of
+   the refused request times the trigger over the window. This happens:
+
+   - after an overflow, before the first try, when the summary request is not smaller
+     than the request that the provider refused (pruning freed nothing), because the
+     provider would refuse it too;
+   - when the provider refuses the summary request itself as too large; then the
+     request goes once more.
+
+   The messages before the cut that the summary never saw are counted in
+   `omitted_messages`, and the daemon logs one `warn` line with the count.
 
    The answer's text is the summary. Tool calls in the answer are ignored. An answer
-   without text fails the compaction. The summary covers the whole history it saw,
+   without text fails the compaction, and so does an answer that the provider cut
+   off (it reached the output limit, or the provider stopped it for its content): a
+   summary that stops in the middle of its sections never replaces the history. The
+   summary covers the whole history it saw,
    the tail too: the tail repeats the newest part word for word, and the summary must
    stand alone. An earlier summary is part of that history, so each summary carries
    the one before it forward.
@@ -431,8 +461,8 @@ manual compaction runs them between turns.
 4. Record `conversation_compacted` (`Compaction`), see "Storage". `tokens_after` is the
    estimate of the rebuilt request.
 
-A compaction that fails (the summary request fails, or its answer has no text)
-records nothing. An auto compaction that fails lets the turn go on when the request
+A compaction that fails (the summary request fails, or its answer has no text or was
+cut off) records nothing. An auto compaction that fails lets the turn go on when the request
 fits under the hard cap; else the turn fails.
 
 ### The summary prompt and its record
@@ -466,8 +496,9 @@ the event's `compaction_id`, `model`, time and conversation id.
 - `conversation_compacted` holds the whole compaction (`efr_protocol::Compaction`): its
   id, the turn that ran it (absent for a manual one), `trigger`, `focus`, `model`,
   `window`, `limit`, `tokens_before`, `tokens_after`, the cut (`through_turn`,
-  `through_message`), `kept_turns`, `pruned_outputs`, `pruned_tokens`, `summary` and
-  the `usage` of the summary request.
+  `through_message`), `kept_turns`, `pruned_outputs`, `pruned_tokens`, what the
+  summary never saw (`omitted_turns`, `omitted_messages`), `summary` and the `usage`
+  of the summary request.
 - The store keeps every compaction in the `compactions` projection
   (`efr_store::compactions`). A turn reads the newest compaction with a summary and the
   newest compaction of any kind with their own query (`compactions::latest`), never
@@ -495,10 +526,16 @@ A request after a compaction with a summary has these parts, in this order:
    every request until the next compaction sends the same bytes. After a daemon
    restart, the next turn reads it from disk again;
 3. the summary, one user message: `<conversation-summary>`, the summary text,
-   `</conversation-summary>`;
+   `</conversation-summary>`; when the summary never saw some turns or messages
+   (`omitted_turns`, `omitted_messages`), one more user message after it says so:
+   `The summary leaves out 2 earlier turns and 40 earlier messages: they did not fit
+   in the model's context.`
 4. the verbatim tail: the messages after the cut, from the turn's messages (the
    actor's cache or `turn_messages`), with the stub in each tool result before the cut
-   of a newer prune-only compaction;
+   of a newer prune-only compaction. A tool result whose call is not in the history
+   is left out (a `warn` line gives the count): a turn rebuilt from its events can
+   have other places than its transcript had, and a provider refuses a result
+   without its call;
 5. the new turn: its preamble and prompt, or, inside a turn, the rest of that turn.
 
 Parts 1 to 3 stay the same until the next compaction, so the request prefix stays
@@ -513,11 +550,12 @@ history as before, with the stub in each pruned result.
 - While a turn of the conversation runs, or another compaction does, it is refused
   with `conflict` (`ConversationError::CompactionBusy`). efrd does not wait for the
   turn: the turn compacts on its own when it needs to, and a wait would hold the client
-  for an unknown time.
+  for an unknown time. A retry with the command id of the compaction that runs, as
+  after a dropped connection, is no other compaction: it waits for the same answer.
 - When nothing lies before the cut, it is refused with `conflict`
   (`ConversationError::NothingToCompact`). A summary request that fails is
-  `ConversationError::Summary`, an answer without text `EmptySummary`; neither records
-  anything.
+  `ConversationError::Summary`, an answer without text `EmptySummary`, an answer that
+  was cut off `IncompleteSummary`; none records anything.
 - Otherwise the actor runs the steps above as its one job, in a task of its own
   (`actor/compact.rs`), so it keeps answering, and `ConversationState::compacting` is
   true. A prompt that arrives meanwhile waits in the queue (its result says `queued`)
@@ -540,7 +578,12 @@ A turn that fails for its context records `turn_failed` with code `internal`, da
   of 258k; run ,compact or start a new conversation`;
 - a refusal with auto off: `the context is full: the model refused about 281k of 272k
   tokens; run ,compact or start a new conversation`;
-- a refusal whose compaction failed: `the context is full and the compaction failed:
+- a refusal whose compaction failed: `the context is full and the compaction failed
+  (<why>): the model refused about 281k of 272k tokens; ...`, where `<why>` is the
+  sentence of the provider's error (such as `the provider is rate limiting requests`)
+  or of the summary's failure, and is left out when nothing lay before the tail;
+- a request above the hard cap whose auto compaction failed: `the context is full and
+  the compaction failed (<why>): about 260k of 272k tokens, above the cap of 258k;
   ...`;
 - a refusal or a request above the hard cap after the breaker: `the context is full:
   compaction did not free enough room (still about 240k of 272k tokens); ...`;
@@ -564,11 +607,15 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
   today's line.
 - After a `compacting` draft the status row says `compacting context`, until the
   `conversation_compacted` event, the next `context` draft or the end of the turn.
+- A client that subscribes while a turn runs gets the turn's newest `context` draft
+  (and its `compacting` draft while it compacts) first, so the gauge shows at once,
+  not only at the next model call (`ConversationHandle::live_drafts`).
 - Each `conversation_compacted` prints one muted line, wrapped at the width so that
   its way out is never cut off:
   - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`
     (`(efr compact)` for a manual one; `pruned 12 outputs` in place of the summary
-    for a prune-only one);
+    for a prune-only one; `(left out 2 turns and 40 messages)` at the end when the
+    summary never saw them, also on the overflow line);
   - for trigger `overflow`: `context full: the request was 281k of 272k tokens;
     compacted and retried`;
   - when `tokens_after` is at or above `limit` (a breaker miss): `context full:
@@ -643,13 +690,17 @@ sequence numbers), a steer that a model call read, and a refused interrupt that
 changes nothing. The context tests (`turn/tests/context.rs`) cover the sums and the
 last call's count on the end event, the `context` drafts, the estimate of the next turn
 from the end of the last, the cache key, the hard cap with auto off, and the note for
-omitted turns. The compaction tests (`turn/tests/compaction.rs`,
+omitted turns, the safety net that scales with the window, a newest turn that has no
+end, and the breaker that stays open from turn to turn. The compaction tests (`turn/tests/compaction.rs`,
 `actor/tests/compact.rs`, `compaction/tests.rs`) use a model with a window of 100000
 tokens, big prompts and big reads: an auto compaction at the trigger that goes on with
 the turn, the request of the next turn (an insta snapshot of its shape) and the same
 request after a restart, an overflow that compacts once and sends the call again, a
-second overflow and an overflow with auto off that fail the turn, a failed summary
-under and above the hard cap, the breaker, a pruning without a summary that the next
+second overflow and an overflow with auto off that fail the turn, a summary after an
+overflow even when pruning looks enough, a failed summary under and above the hard
+cap (with the provider's sentence), a summary request that leaves out its oldest
+messages and the note that the next turn rebuilds, a summary cut off at the output
+limit, a retry of the running manual compaction, the breaker, a pruning without a summary that the next
 turn rebuilds, a manual compaction with a focus, a prompt that waits for it, and its
 refusals; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
 rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests

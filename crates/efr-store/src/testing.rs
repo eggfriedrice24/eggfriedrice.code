@@ -140,6 +140,8 @@ pub(crate) fn compacted(n: u64, through: u64, message: Option<u32>, summary: boo
         kept_turns: 1,
         pruned_outputs: if summary { 0 } else { 3 },
         pruned_tokens: if summary { 0 } else { 30_000 },
+        omitted_turns: 0,
+        omitted_messages: 0,
         summary: summary.then(|| format!("## Task and state\nsummary {n}")),
         usage: None,
     })

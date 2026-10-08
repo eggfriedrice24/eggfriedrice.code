@@ -9,6 +9,7 @@
 //! the channel, the drafter sends nothing and its positions stay, so the first draft
 //! to a new listener carries everything since the last one sent.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -19,6 +20,7 @@ use tokio::sync::broadcast;
 
 use super::coalesce::Coalescer;
 use crate::ConversationDraft;
+use crate::drafts::LiveStatus;
 
 /// What goes between the reasoning of two model calls of one turn.
 const REASONING_BREAK: &str = "\n\n";
@@ -38,6 +40,8 @@ struct ToolInput {
 #[derive(Debug)]
 pub(super) struct Drafter {
     sender: broadcast::Sender<ConversationDraft>,
+    /// The status that a client which attaches late sees at once.
+    status: Arc<LiveStatus>,
     conversation_id: ConversationId,
     turn_id: TurnId,
     coalescer: Coalescer,
@@ -66,12 +70,14 @@ pub(super) struct Drafter {
 impl Drafter {
     pub(super) fn new(
         sender: broadcast::Sender<ConversationDraft>,
+        status: Arc<LiveStatus>,
         conversation_id: ConversationId,
         turn_id: TurnId,
         interval: Duration,
     ) -> Self {
         Drafter {
             sender,
+            status,
             conversation_id,
             turn_id,
             coalescer: Coalescer::new(interval),
@@ -217,28 +223,49 @@ impl Drafter {
     }
 
     /// Sends how full the context is, at once: before a model call with the estimate,
-    /// after it with the provider's count.
+    /// after it with the provider's count. The status keeps it for a client that
+    /// attaches later.
     pub(super) fn context(&self, context: ContextUse) {
-        self.emit(DraftPart::Context(context));
+        let draft = self.draft(DraftPart::Context(context));
+        self.status.hold(&draft);
+        self.send_draft(draft);
     }
 
-    /// Sends that the turn compacts its context now.
+    /// Sends that the turn compacts its context now. The status keeps it until the
+    /// next `context` draft or [`compacted`](Self::compacted).
     pub(super) fn compacting(&self, trigger: CompactionTrigger) {
-        self.emit(DraftPart::Compacting { trigger });
+        let draft = self.draft(DraftPart::Compacting { trigger });
+        self.status.hold(&draft);
+        self.send_draft(draft);
+    }
+
+    /// The compaction ended without a draft after it, as when the turn ends.
+    pub(super) fn compacted(&self) {
+        self.status.clear(true);
     }
 
     fn emit(&self, part: DraftPart) {
         // NOTE: without a receiver a send fails and costs nothing; the parts that the
-        // drafter holds back stay for the next listener, and these are not held.
+        // drafter holds back stay for the next listener.
         if self.sender.receiver_count() == 0 {
             return;
         }
-        let draft = ConversationDraft {
+        self.send_draft(self.draft(part));
+    }
+
+    fn draft(&self, part: DraftPart) -> ConversationDraft {
+        ConversationDraft {
             conversation_id: self.conversation_id,
             turn_id: self.turn_id,
             after_seq: Seq::new(self.recorded.load(Ordering::Acquire)),
             part,
-        };
+        }
+    }
+
+    fn send_draft(&self, draft: ConversationDraft) {
+        if self.sender.receiver_count() == 0 {
+            return;
+        }
         // A receiver that went away in the meantime is no error: drafts are best effort.
         let _ = self.sender.send(draft);
     }

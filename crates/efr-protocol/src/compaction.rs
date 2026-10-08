@@ -90,6 +90,16 @@ pub struct Compaction {
     /// The estimated tokens that the pruning freed. Absent when none.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub pruned_tokens: u64,
+    /// The earlier turns that the history had left out before the compaction (the
+    /// safety net of the history limits), so the summary never saw them. Absent when
+    /// none.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub omitted_turns: u32,
+    /// The oldest messages before the cut that the summary request left out, because
+    /// they did not fit in the model's context, so the summary never saw them. Absent
+    /// when none.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub omitted_messages: u32,
     /// The summary that replaces the history before the cut. Absent when pruning alone
     /// freed enough room.
     #[serde(default, skip_serializing_if = "Option::is_none")]

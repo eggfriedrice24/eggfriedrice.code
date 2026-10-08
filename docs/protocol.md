@@ -242,7 +242,8 @@ No protocol version has shipped yet.
   optional `turn_id`, `trigger`: `auto`, `manual` or `overflow`, optional `focus`,
   `model`, `window`, `limit`, `tokens_before`, `tokens_after`, `through_turn`,
   optional `through_message`, `kept_turns`, optional `pruned_outputs`,
-  `pruned_tokens`, `summary` and `usage`). New method `conversation.compact` (scope
+  `pruned_tokens`, `omitted_turns` and `omitted_messages` (what the summary never
+  saw, absent when zero), `summary` and `usage`). New method `conversation.compact` (scope
   `operate`, a command id, `conversation_id`, optional `focus`) whose result has the
   `seq` of the event and the `compaction`. The fixtures `draft_parts.json`,
   `models_list_result.json`, `events/turn_completed.json`, `events/turn_failed.json`

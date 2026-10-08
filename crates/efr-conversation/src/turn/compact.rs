@@ -17,8 +17,8 @@ use efr_stdx::id::uuid_v7;
 use super::stream::Response;
 use super::{Ending, Turn, context_tokens, provider_failure};
 use crate::compaction::{
-    self, Job, Outcome, Pruning, Window, cut_before, request_tokens, summary_message, turn_count,
-    with_window,
+    self, Job, Outcome, Pruning, Window, cut_before, gap_note, request_tokens, summary_message,
+    turn_count, with_window,
 };
 use crate::context::{BREAKER_TRIES, ContextLimits, Full, context_full};
 use crate::fresh::{self, Fresh};
@@ -36,13 +36,14 @@ pub(super) enum Guard {
 }
 
 /// What a compaction inside the turn did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Compacted {
     /// It recorded `conversation_compacted`; the window is the new one.
     Done,
-    /// It freed nothing and recorded nothing: nothing lay before the tail, or the
-    /// summary request failed. The window is as it was.
-    NotDone,
+    /// It freed nothing and recorded nothing. The window is as it was. `failure` is
+    /// why the summary failed, in one sentence; `None` when nothing lay before the
+    /// tail.
+    NotDone { failure: Option<String> },
     /// The user interrupted the turn during the summary call.
     Interrupted,
 }
@@ -107,17 +108,27 @@ impl Turn {
         let limits = self.limits();
         let mut estimate = self.estimate(&with_window(base, window));
         let full = estimate >= limits.trigger || estimate > limits.hard_cap;
+        if !full {
+            // NOTE: the context is below the trigger again, as after a manual
+            // compaction or with a model of a larger window: the breaker closes.
+            self.misses = 0;
+        }
+        let mut failure = None;
         if full && self.may_compact() {
             match self.compact(CompactionTrigger::Auto, estimate, window, base).await? {
                 Compacted::Done => estimate = self.estimate(&with_window(base, window)),
-                Compacted::NotDone => {}
+                Compacted::NotDone { failure: failed } => failure = failed,
                 Compacted::Interrupted => return Ok(Guard::Interrupted),
             }
         }
         if estimate <= limits.hard_cap {
             return Ok(Guard::Send { estimate });
         }
-        let why = if limits.auto && !self.may_compact() { Full::Breaker } else { Full::Cap };
+        let why = match failure {
+            Some(failure) => Full::CompactionFailed { refused: false, failure: Some(failure) },
+            None if limits.auto && !self.may_compact() => Full::Breaker,
+            None => Full::Cap,
+        };
         tracing::warn!(
             tokens = estimate,
             hard_cap = limits.hard_cap,
@@ -152,7 +163,9 @@ impl Turn {
         self.catch_up(window);
         match self.compact(CompactionTrigger::Overflow, refused, window, base).await? {
             Compacted::Done => {}
-            Compacted::NotDone => return stop(Full::CompactionFailed),
+            Compacted::NotDone { failure } => {
+                return stop(Full::CompactionFailed { refused: true, failure });
+            }
             Compacted::Interrupted => return Ok(Recovered::Stop(Ending::Interrupted)),
         }
         let request = with_window(base, window);
@@ -206,10 +219,14 @@ impl Turn {
         };
         let compaction_id =
             CompactionId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
+        let mut failure = None;
         let built = match compaction::run(job).await {
-            Outcome::Interrupted => return Ok(Compacted::Interrupted),
+            Outcome::Interrupted => {
+                self.drafter.compacted();
+                return Ok(Compacted::Interrupted);
+            }
             Outcome::Pruned(pruning) => pruned(window, pruning),
-            Outcome::Summarized { summary, usage, tail, pruned } => {
+            Outcome::Summarized { summary, usage, tail, pruned, omitted } => {
                 let text = read_fresh(
                     &self.shared.deps,
                     self.shared.conversation_id,
@@ -218,7 +235,7 @@ impl Turn {
                 )
                 .await;
                 let fresh = Fresh { compaction_id, text };
-                let built = summarized(window, &fresh, summary, usage, tail, pruned);
+                let built = summarized(window, &fresh, summary, usage, tail, pruned, omitted);
                 self.fresh = Some(fresh);
                 built
             }
@@ -231,16 +248,24 @@ impl Turn {
             }
             Outcome::Failed(error) => {
                 tracing::warn!(?trigger, error = %error, "the summary request failed; nothing was compacted");
+                failure = Some(error.to_string());
                 None
             }
             Outcome::Empty => {
                 tracing::warn!(?trigger, "the summary request gave no text; nothing was compacted");
+                failure = Some(ConversationError::EmptySummary.to_string());
+                None
+            }
+            Outcome::Incomplete(stop) => {
+                tracing::warn!(?trigger, ?stop, "the summary was cut off; nothing was compacted");
+                failure = Some(ConversationError::IncompleteSummary.to_string());
                 None
             }
         };
+        self.drafter.compacted();
         let Some(built) = built else {
             self.miss(tokens_before, limits);
-            return Ok(Compacted::NotDone);
+            return Ok(Compacted::NotDone { failure });
         };
         let tokens_after = request_tokens(&with_window(base, &built.window));
         let compaction = Compaction {
@@ -258,6 +283,8 @@ impl Turn {
             kept_turns: built.kept_turns,
             pruned_outputs: built.pruned_outputs,
             pruned_tokens: built.pruned_tokens,
+            omitted_turns: built.omitted_turns,
+            omitted_messages: built.omitted_messages,
             summary: built.summary,
             usage: built.usage.map(wire_usage),
         };
@@ -331,6 +358,8 @@ pub(crate) struct Built {
     pub(crate) kept_turns: u32,
     pub(crate) pruned_outputs: u32,
     pub(crate) pruned_tokens: u64,
+    pub(crate) omitted_turns: u32,
+    pub(crate) omitted_messages: u32,
     pub(crate) summary: Option<String>,
     pub(crate) usage: Option<TokenUsage>,
 }
@@ -340,18 +369,26 @@ fn pruned(window: &Window, pruning: Pruning) -> Option<Built> {
     let cut = pruning.cut?;
     let kept_turns = turn_count(&pruning.placed[pruning.after.min(pruning.placed.len())..]);
     Some(Built {
-        window: Window { head: window.head.clone(), placed: pruning.placed },
+        window: Window {
+            head: window.head.clone(),
+            placed: pruning.placed,
+            omitted: window.omitted,
+        },
         cut,
         kept_turns,
         pruned_outputs: pruning.outputs,
         pruned_tokens: pruning.tokens,
+        omitted_turns: 0,
+        omitted_messages: 0,
         summary: None,
         usage: None,
     })
 }
 
-/// The window after a summary: the fresh block, the summary, then the verbatim tail
-/// from `window.placed[tail]`.
+/// The window after a summary: the fresh block, the summary and the note of what it
+/// never saw, then the verbatim tail from `window.placed[tail]`. The turns that
+/// `window` left out, and the `omitted` oldest messages that the summary request left
+/// out, are the summary's gaps.
 pub(crate) fn summarized(
     window: &Window,
     fresh: &Fresh,
@@ -359,18 +396,22 @@ pub(crate) fn summarized(
     usage: Option<TokenUsage>,
     tail: usize,
     pruned: Option<Pruning>,
+    omitted: u32,
 ) -> Option<Built> {
     let cut = cut_before(&window.placed, tail)?;
     let placed = window.placed[tail..].to_vec();
-    let head = vec![Message::user(fresh.text.clone()), summary_message(&summary)];
+    let mut head = vec![Message::user(fresh.text.clone()), summary_message(&summary)];
+    head.extend(gap_note(window.omitted, omitted));
     let (pruned_outputs, pruned_tokens) =
         pruned.map_or((0, 0), |pruning| (pruning.outputs, pruning.tokens));
     Some(Built {
         kept_turns: turn_count(&placed),
-        window: Window { head, placed },
+        window: Window { head, placed, omitted: 0 },
         cut,
         pruned_outputs,
         pruned_tokens,
+        omitted_turns: window.omitted,
+        omitted_messages: omitted,
         summary: Some(summary),
         usage,
     })
