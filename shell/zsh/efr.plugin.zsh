@@ -6,6 +6,10 @@
 #                  the next `,` line starts it
 #   ,! <text>      steer the running turn instead of queueing (from another terminal;
 #                  the input row below steers from this one)
+#   ,compact [focus]
+#                  compact the context of this terminal's conversation now: efr writes
+#                  a summary of the older history and keeps the newest messages; the
+#                  words say what the summary must keep. It starts no turn.
 #   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious
 #                  or auto; without a value, show it with its source and the
 #                  choices; `default` lets the config decide again
@@ -32,8 +36,8 @@
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
 # and in history, except that a sticky prompt gets the robot in front and an unknown
 # `,word` line gets a blank after its `,` (`,!word` one after its `,!`). The accept-line widget saves the prompt text, and `,`,
-# `,new` and `,!` are aliases whose expansion ends in a comment marker, so zsh reads
-# the rest of the line as a comment; the commands then take the saved text. The two
+# `,new`, `,!` and `,compact` are aliases whose expansion ends in a comment marker, so
+# zsh reads the rest of the line as a comment; the commands then take the saved text. The two
 # options this needs (interactive_comments on, bang_hist off) hold for that one line
 # only. A prompt that spans several lines falls back to a quoted rewrite, because a
 # comment ends at the first newline.
@@ -43,8 +47,9 @@
 #
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND and the prompt as
-# EFR_PROMPT. Any local user can read a command line in /proc/<pid>/cmdline, while
-# /proc/<pid>/environ is readable only by this user. The terminal's turn settings go
+# EFR_PROMPT (the focus of `,compact` too). Any local user can read a command line in
+# /proc/<pid>/cmdline, while /proc/<pid>/environ is readable only by this user. The
+# terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
 #
 # While efr follows a turn at a terminal, the keys go to an input row below the turn
@@ -207,12 +212,12 @@ _efr_alias_sticky_word() {
   [[ ${aliases[$REPLY]-} == "$_efr_sticky_alias" ]] || alias -- "$REPLY=$_efr_sticky_alias"
 }
 
-# Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,!`, `,` or
-# the sticky word.
+# Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,!`,
+# `,compact`, `,` or the sticky word.
 _efr_command_pattern() {
   local word=
   _efr_sticky_word && word="|${(b)REPLY}"
-  REPLY=",new|,!|,$word"
+  REPLY=",new|,!|,compact|,$word"
 }
 
 # True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, the sticky
@@ -457,6 +462,17 @@ function ,! {
   _efr_call "$REPLY" '' "$text" send --steer
 }
 
+# Compacts the context of this terminal's conversation now, through `efr compact`. The
+# words are the focus: what the summary must keep. The focus goes to efr in EFR_PROMPT,
+# as a prompt does, never in its arguments.
+function ,compact {
+  emulate -L zsh
+  _efr_prompt_text "$@"
+  local text=$REPLY
+  _efr_available || { _efr_missing; return 127 }
+  EFR_PROMPT=$text efr compact
+}
+
 # --- turn settings ----------------------------------------------------------------
 
 function ,mode {
@@ -673,7 +689,7 @@ _efr_one_edit() {
 
 # Sets REPLY to a hint when the first word of the line $1 is a typo of a plugin
 # command's `,` word, such as `,moed` for `,mode`: one edit away from `,mode`,
-# `,model` or `,effort`, or the letters of `,new` in another order. Only the order
+# `,model`, `,effort` or `,compact`, or the letters of `,new` in another order. Only the order
 # counts for the short `,new`, because one edit from it is also the start of a prompt
 # such as `,now`.
 # A word that zsh could run is no typo. Returns 1 for any other line.
@@ -684,7 +700,7 @@ _efr_mistyped_command() {
   whence -- ",$word" >/dev/null && return 1
   # `model` first: `,modl` is one edit from both, and more likely `,model` with a
   # letter lost.
-  for name in model mode effort; do
+  for name in model mode effort compact; do
     if _efr_one_edit $word $name; then
       meant=$name
       break
@@ -986,7 +1002,7 @@ autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
 # Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
 # not expand an alias again inside its own expansion, so `,` reaches the function.
-alias ,=', #' ,new=',new #'
+alias ,=', #' ,new=',new #' ,compact=',compact #'
 alias ',!=,! #'
 _efr_alias_sticky_word
 # A shell that ran a version before PREDISPLAY still has its indicator in PROMPT.

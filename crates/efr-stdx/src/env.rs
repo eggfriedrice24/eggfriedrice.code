@@ -63,8 +63,8 @@ pub enum Var {
     /// `EFR_LAST_COMMAND`: the last command line of the user's shell, which the zsh
     /// plugin hands to `efr send` and `efr new`. Private: see [`Var::PRIVATE`].
     LastCommand,
-    /// `EFR_PROMPT`: the prompt that the zsh plugin hands to `efr send` and `efr new`.
-    /// Private: see [`Var::PRIVATE`].
+    /// `EFR_PROMPT`: the prompt that the zsh plugin hands to `efr send` and `efr new`,
+    /// and the focus it hands to `efr compact`. Private: see [`Var::PRIVATE`].
     Prompt,
     /// `EFR_TERMINAL_BG`: `dark` or `light`, the background of the terminal, for
     /// `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads and

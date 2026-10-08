@@ -1,6 +1,6 @@
 //! The command line: what `efr` accepts, as clap derive types.
 //!
-//! The zsh plugin is the main caller, so its three calls are the contract this file
+//! The zsh plugin is the main caller, so its four calls are the contract this file
 //! must keep. The plugin passes the shell context, the last command line and the prompt
 //! in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`, so that no other user can
 //! read them in the command line:
@@ -8,6 +8,7 @@
 //! - `efr send`
 //! - `efr send --steer` (without `EFR_LAST_COMMAND`)
 //! - `efr new`
+//! - `efr compact` (only `EFR_PROMPT`, which holds the focus)
 //!
 //! The flags `--context-json` and `--last-command` and the prompt words do the same by
 //! hand, and each wins over its variable.
@@ -32,7 +33,7 @@ use efr_protocol::{ConversationId, Mode, TurnId};
     version,
     about = "Talk to the efr daemon: send prompts, follow replies, check status",
     long_about = None,
-    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new` and `,! <text>`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
+    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>` and `,compact [focus]`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -52,6 +53,11 @@ pub(crate) enum Command {
     History(HistoryArgs),
     /// Show what the last turn changed in the files of its project and $SCRATCH.
     Diff(DiffArgs),
+    /// Compact the context of this terminal's conversation now.
+    ///
+    /// efr writes a summary of the older history and keeps the newest messages. It
+    /// starts no turn.
+    Compact(CompactArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
     Settings(TurnSettingsArgs),
@@ -250,6 +256,20 @@ pub(crate) struct DiffArgs {
     /// List the files that changed, with their counts of lines, instead of the diff.
     #[arg(long)]
     pub(crate) stat: bool,
+}
+
+/// The arguments of `efr compact`.
+#[derive(Debug, Args)]
+pub(crate) struct CompactArgs {
+    /// Compact this conversation: its id, or the start of it. Without it, the active
+    /// conversation of the terminal on stdin.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+
+    /// What the summary must keep, in your words; the words are joined with spaces
+    /// [env: EFR_PROMPT]
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "FOCUS")]
+    pub(crate) focus: Vec<String>,
 }
 
 /// The providers `efr login` knows.

@@ -690,7 +690,7 @@ fn e2e_the_rewrite_quotes_only_plugin_lines() {
         return;
     }
     let calls = run(r#"
-        for line in ',new start over?' '  ,! use the *other* file' ',new' 'ls -l *.rs' ',newline'; do
+        for line in ',new start over?' '  ,! use the *other* file' ',new' 'ls -l *.rs' ',newline' ',compact keep *.rs?'; do
           _efr_rewrite_line "$line"
           efr rewritten "$REPLY"
         done
@@ -704,8 +704,36 @@ fn e2e_the_rewrite_quotes_only_plugin_lines() {
             ",new",
             "ls -l *.rs",
             ",newline",
+            r",compact keep\ \*.rs\?",
         ]
     );
+}
+
+#[test]
+fn e2e_compact_hands_its_focus_over_in_the_environment() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        ,compact keep the s3cret-focus
+        ,compact
+    "#);
+    assert_eq!(args(&calls), [vec!["compact"], vec!["compact"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("keep the s3cret-focus"));
+    assert!(!calls[0].cmdline.contains("s3cret"), "readable by every user: {:?}", calls[0]);
+    assert_eq!(calls[1].prompt.as_deref(), Some(""), "no focus");
+}
+
+#[test]
+fn e2e_a_compact_focus_with_shell_syntax_reaches_efr_as_typed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(&home, &[",compact keep the *.rs list; and 'quotes'?"]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["compact"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("keep the *.rs list; and 'quotes'?"));
 }
 
 #[test]
@@ -1406,8 +1434,9 @@ fn e2e_a_comma_word_with_a_bang_steers_and_a_typo_of_a_command_stays_on_the_line
     }
     let home = Home::new();
     // Ctrl+U clears the line that the typo left, so the next line starts empty.
-    let screen = type_lines(&home, &[",moed auto", "\x15,!stop now", ",now what"]);
+    let screen = type_lines(&home, &[",moed auto", "\x15,compcat", "\x15,!stop now", ",now what"]);
     assert!(screen.contains("efr: ,moed is no command; did you mean ,mode?"), "{screen}");
+    assert!(screen.contains("efr: ,compcat is no command; did you mean ,compact?"), "{screen}");
     let calls = home.calls();
     assert_eq!(args(&calls), [vec!["send", "--steer"], vec!["send"]]);
     assert_eq!(calls[0].prompt.as_deref(), Some("stop now"));

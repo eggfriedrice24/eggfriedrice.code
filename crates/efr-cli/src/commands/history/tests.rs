@@ -880,3 +880,52 @@ async fn history_verbose_is_a_flag() {
     assert!(stdout.contains("exit requested: privilege (predicted from the line)"), "{stdout}");
     assert!(stdout.contains("  program sudo /usr/bin/sudo\n"), "{stdout}");
 }
+
+#[test]
+fn a_compaction_marks_its_place_and_verbose_shows_its_summary() {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
+    let compaction = efr_protocol::Compaction {
+        compaction_id: "019a9b1c-3d00-7a10-8b20-0000000000c3".parse().unwrap(),
+        turn_id: None,
+        trigger: efr_protocol::CompactionTrigger::Manual,
+        focus: Some("the disk".to_owned()),
+        model: "gpt-5.5".to_owned(),
+        window: 272_000,
+        limit: 206_720,
+        tokens_before: 140_000,
+        tokens_after: 19_000,
+        through_turn: turn(),
+        through_message: None,
+        kept_turns: 1,
+        pruned_outputs: 0,
+        pruned_tokens: 0,
+        summary: Some("## Task and state\nFree space on /var.".to_owned()),
+        usage: None,
+    };
+    let events = vec![
+        Event::PromptQueued {
+            turn_id: turn(),
+            command_id,
+            text: "free space".to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: TurnSettings::default(),
+            steers: Vec::new(),
+        },
+        Event::ConversationCompacted(compaction),
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home: None });
+
+    let line = "context compacted (efr compact): 140k -> 19.0k tokens, kept 1 turn, summary 10";
+    assert!(plain.contains(line), "{plain}");
+    assert!(!plain.contains("Free space on /var."), "{plain}");
+    assert!(verbose.contains(line), "{verbose}");
+    assert!(verbose.contains("  ## Task and state\n  Free space on /var.\n"), "{verbose}");
+}

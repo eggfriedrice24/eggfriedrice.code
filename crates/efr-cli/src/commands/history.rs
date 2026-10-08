@@ -426,6 +426,17 @@ impl<'a> Transcript<'a> {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
+            // NOTE: the mark of the place where the model's history now starts; the
+            // events before it stay, and `--verbose` shows the summary that replaced
+            // them.
+            Event::ConversationCompacted(compaction) => {
+                self.note(&format::compaction::compacted(compaction));
+                if let Some(summary) = compaction.summary.as_deref().filter(|_| self.verbose) {
+                    let lines: Vec<String> =
+                        format::lines(summary).lines().map(|line| format!("  {line}")).collect();
+                    self.dim_lines(&lines);
+                }
+            }
             Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
             Event::SteeringWithdrawn { steers, .. } => {
                 let what = if steers.len() == 1 { "a steer" } else { "steers" };

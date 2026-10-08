@@ -23,6 +23,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 pub(crate) mod card;
 pub(crate) mod changes;
+pub(crate) mod compaction;
 pub(crate) mod patch;
 pub(crate) mod sandbox;
 

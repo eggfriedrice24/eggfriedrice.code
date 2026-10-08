@@ -1,6 +1,7 @@
 //! One module per command. Each one parses nothing and decides little: it turns its
 //! arguments into protocol calls, and the replies into text for `output`.
 
+pub(crate) mod compact;
 pub(crate) mod config;
 pub(crate) mod diff;
 pub(crate) mod history;

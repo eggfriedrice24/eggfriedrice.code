@@ -135,6 +135,10 @@ pub(crate) enum CliError {
     #[error("efr send --steer needs --conversation, or a shell context with a tty")]
     SteerNeedsConversation,
 
+    /// `efr compact` cannot tell which conversation to compact.
+    #[error("efr compact needs --conversation, or a terminal on stdin")]
+    CompactNeedsConversation,
+
     /// The terminal has no active conversation to steer.
     #[error("no conversation is active in {tty}")]
     NoActiveConversation { tty: String },
@@ -253,6 +257,7 @@ impl CliError {
             | CliError::EmptyPrompt
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
+            | CliError::CompactNeedsConversation
             | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
