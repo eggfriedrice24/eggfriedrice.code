@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::future::{pending, ready};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -412,6 +412,9 @@ pub(crate) struct ScriptedKeys {
     discards: Mutex<Vec<Arc<dyn Fn() -> bool + Send + Sync>>>,
     /// How many readers kept the typeahead ([`Keys::keep`]).
     kept: AtomicUsize,
+    /// The readers act as ones with a thread: the test sends [`Read::Marked`] and
+    /// [`Read::Flushed`] where the thread would.
+    threaded: AtomicBool,
     started: Notify,
 }
 
@@ -430,6 +433,19 @@ impl ScriptedKeys {
     /// Presses Esc alone.
     pub(crate) async fn press_esc(&self) {
         self.send(Read::Key(Key::Esc)).await;
+    }
+
+    /// Keys whose readers act as ones with a thread ([`ScriptedKeys::marked`]).
+    pub(crate) fn threaded() -> ScriptedKeys {
+        let keys = ScriptedKeys::default();
+        keys.threaded.store(true, Ordering::SeqCst);
+        keys
+    }
+
+    /// Sends what the thread sends after a mark: every key sent before was typed
+    /// before it.
+    pub(crate) async fn marked(&self) {
+        self.send(Read::Marked).await;
     }
 
     async fn send(&self, read: Read) {
@@ -483,7 +499,11 @@ impl Keys for ScriptedKeys {
     fn start(&self) -> Result<KeyReader, CliError> {
         let (sender, keys) = mpsc::channel(8);
         self.senders.lock().unwrap().push(sender);
-        let reader = KeyReader::from_channel(keys);
+        let reader = if self.threaded.load(Ordering::SeqCst) {
+            KeyReader::from_channel_confirming(keys)
+        } else {
+            KeyReader::from_channel(keys)
+        };
         self.discards.lock().unwrap().push(reader.discard_flag());
         self.started.notify_one();
         Ok(reader)

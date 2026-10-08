@@ -597,6 +597,27 @@ impl TurnView {
         action
     }
 
+    /// True while a bracketed paste into the input row has started and not ended.
+    pub(crate) fn row_pasting(&self) -> bool {
+        self.input.as_ref().is_some_and(|input| input.line.pasting())
+    }
+
+    /// The keys come back to the input row after a question: an escape sequence that
+    /// was cut by the question is dropped, and a paste goes on.
+    pub(crate) fn row_resumed(&mut self) {
+        if let Some(input) = &mut self.input {
+            input.line.drop_partial();
+        }
+    }
+
+    /// Ends a paste into the input row whose end did not come in time.
+    pub(crate) fn row_end_paste(&mut self) {
+        if let Some(input) = &mut self.input {
+            input.line.end_paste();
+            self.dirty = true;
+        }
+    }
+
     /// The text of the input row; empty without one.
     pub(crate) fn row_text(&self) -> &str {
         self.input.as_ref().map_or("", |input| input.line.text())

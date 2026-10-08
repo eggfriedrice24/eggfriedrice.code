@@ -404,9 +404,13 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   that one; an earlier failure is a note. Steers that no model call read when their
   turn ended, and a queued prompt that a restart cancelled, come back into the row.
 - A question, an answer line and the keys that an allowed call keeps take the keys
-  first: the row hides, keeps its text, and comes back after. Keys that the reader
-  queued before the question go into the row; a key among them that would send stays
-  text there. Before the keys go back to the row after an answer line, a call that
+  first: the row hides, keeps its text, and comes back after. The keys typed before
+  the question appeared go into the row: those that the reader queued, and those still
+  in the terminal, which the key thread reads and then marks (`KeyReader::mark`,
+  `FIONREAD`). A paste that the question cut goes on into the row until its end, for
+  at most 1 s; then the row ends it with the text that came. A key among them that
+  would send stays text there. When the keys come back, the row drops an escape
+  sequence that the question cut. Before the keys go back to the row after an answer line, a call that
   asked for a password or the keys it kept, the reader throws away what is still
   unread (`KeyReader::flush`), so the rest of a password never lands in the row.
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame

@@ -654,6 +654,90 @@ async fn a_question_takes_the_keys_and_the_row_keeps_its_text() {
     assert_eq!(setup.handed_back().as_deref(), Some("draft!"));
 }
 
+/// An approval of the followed turn for `call()`.
+fn approval() -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: call(),
+        summary: "run rm -rf build".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+    }
+}
+
+/// Reads the answer to the approval and checks that it is `decision`.
+async fn approval_answer(conn: &mut Conn, decision: ApprovalDecision) {
+    let (id, method) = conn.request().await;
+    let Method::ApprovalRespond(params) = method else {
+        panic!("expected approval.respond, got {}", method.name());
+    };
+    assert_eq!(params.decision, decision);
+    conn.reply(id, &ApprovalRespondResult { seq: Seq::new(12) }).await;
+}
+
+/// The review finding: the keys still on their way when a question appeared answered
+/// it. Now the keys typed before it (until the mark) go to the row, and a key that
+/// would send stays text there.
+#[tokio::test]
+async fn keys_typed_before_a_question_go_to_the_row_and_never_answer_it() {
+    let mut setup = Setup::new();
+    setup.keys = Arc::new(ScriptedKeys::threaded());
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "draft").await;
+        conn.item(sub, &item(11, approval())).await;
+        shows(&seen, "y allow").await;
+        // Typed before the question appeared: the row's.
+        keys.type_bytes(b" no\r").await;
+        keys.marked().await;
+        keys.press(b'y').await;
+        approval_answer(&mut conn, ApprovalDecision::Allow).await;
+        keys.type_bytes(b"!").await;
+        shows(&seen, "\u{203a} draft no!").await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(setup.handed_back().as_deref(), Some("draft no!"));
+}
+
+/// The review finding: a question that came in the middle of a paste took the rest of
+/// the paste, and the row stayed in the paste for good. Now the rest of the paste goes
+/// to the row, and the question takes the keys after it.
+#[tokio::test]
+async fn a_paste_that_a_question_cuts_goes_on_into_the_row() {
+    let mut setup = Setup::new();
+    setup.keys = Arc::new(ScriptedKeys::threaded());
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"\x1b[200~say y").await;
+        conn.item(sub, &item(11, approval())).await;
+        shows(&seen, "y allow").await;
+        keys.marked().await;
+        // The rest of the paste: its `n` and its newline deny and send nothing.
+        keys.type_bytes(b"es\nor no\x1b[201~").await;
+        keys.press(b'y').await;
+        approval_answer(&mut conn, ApprovalDecision::Allow).await;
+        // Enter steers again once the keys are back: the row left the paste.
+        keys.press(b'\r').await;
+        let (id, params) = steer_request(&mut conn).await;
+        assert_eq!(params.text, "say yes\nor no");
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(13), queued: false })
+            .await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
 #[tokio::test]
 async fn after_a_password_the_keys_go_back_to_the_row_without_what_followed_it() {
     let setup = Setup::new();

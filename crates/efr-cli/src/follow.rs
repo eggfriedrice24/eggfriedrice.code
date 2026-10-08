@@ -51,7 +51,8 @@
 //!
 //! With the input row ([`Row`]), the key thread runs for the whole turn and the keys go
 //! to the row whenever nothing else takes them: a question, an answer line, or the keys
-//! that a call allowed here keeps. Enter steers the followed turn (`turn.steer`, which
+//! that a call allowed here keeps. The keys typed before a question appeared stay the
+//! row's ([`KeyReader::mark`]), and so does the rest of a paste that the question cut. Enter steers the followed turn (`turn.steer`, which
 //! the daemon queues as a prompt when it comes too late), Tab queues a prompt
 //! (`prompt.send`), Esc interrupts the turn and takes back what this view sent and the
 //! turn did not read (`turn.interrupt`), and Alt+Up takes back the newest prompt that
@@ -114,6 +115,10 @@ const MAX_RESUBSCRIBES: u32 = 8;
 /// The events read to find the approvals that a queued prompt waits behind.
 const BLOCKING_PAGE: u32 = 500;
 
+/// How long a paste into the input row that a question cut may still go on into the
+/// row: a terminal sends a whole paste at once, so its end comes well within this.
+const PASTE_GRACE: Duration = Duration::from_secs(1);
+
 /// How long Ctrl+C waits for the daemon to take the interrupt before the command ends
 /// anyway.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -175,6 +180,7 @@ pub(crate) async fn follow(
         last_frame: None,
         frame: None,
         tick: None,
+        paste_until: None,
     };
     // The first frame shows the status row and the notes before the first event.
     let result = match follower.paint(out, view, false) {
@@ -265,6 +271,9 @@ struct Follower<'a> {
     frame: Option<Sleep>,
     /// The time until the next tick of the status row, while it runs.
     tick: Option<Sleep>,
+    /// A question took the keys while a paste into the row went on: until this time,
+    /// the rest of the paste still goes into the row.
+    paste_until: Option<Timestamp>,
 }
 
 /// What the keys being read answer.
@@ -638,12 +647,22 @@ impl Follower<'_> {
         match step.ask {
             Some(ask) => {
                 let (reader, before) = match self.keys.take() {
+                    // NOTE: keys typed while a call's prompt looks like a password
+                    // prompt may be the start of one: they wait in its pending line,
+                    // never in the row.
+                    Some((reader, Asking::Row)) if matches!(ask, Ask::Retain(_)) => {
+                        (reader, Some(Asking::Row))
+                    }
                     Some((mut reader, Asking::Row)) => {
-                        // NOTE: the keys typed before the question are the row's; a key
-                        // that would send stays in the row instead.
+                        // NOTE: the keys typed before the question are the row's, also
+                        // those still in the terminal (the mark) and the rest of a
+                        // paste; a key that would send stays in the row instead.
                         while let Some(key) = reader.queued() {
                             view.row_key(key);
                         }
+                        reader.mark();
+                        self.paste_until =
+                            view.row_pasting().then(|| self.ctx.clock.now() + PASTE_GRACE);
                         (reader, Some(Asking::Row))
                     }
                     Some((reader, before)) => (reader, Some(before)),
@@ -700,6 +719,13 @@ impl Follower<'_> {
         if matches!(asking, Asking::Row) {
             self.keys = Some((reader, Asking::Row));
             return self.row_key(key, out, view).await;
+        }
+        // NOTE: a key typed before the question appeared, or the rest of a paste that
+        // it cut, is the row's: it never answers the question, and it never sends.
+        if reader.before_mark() || self.pasting(view) {
+            view.row_key(key);
+            self.keys = Some((reader, asking));
+            return self.schedule(out, view);
         }
         // A line or a question reads bytes; Esc alone is the escape byte there.
         let key = key.byte();
@@ -781,14 +807,33 @@ impl Follower<'_> {
     /// Nothing asks for keys any more: they go back to the input row, after the keys
     /// that may be the rest of a password are thrown away. Without the row, the reader
     /// stops.
-    async fn release(&mut self, mut reader: KeyReader, before: &Asking, view: &TurnView) {
+    async fn release(&mut self, mut reader: KeyReader, before: &Asking, view: &mut TurnView) {
         if self.compose.is_some() && view.has_row() {
             if before.guards() {
                 reader.flush();
             }
+            view.row_resumed();
+            self.paste_until = None;
             self.keys = Some((reader, Asking::Row));
         } else {
             stop(reader, before).await;
+        }
+    }
+
+    /// True while the rest of a paste into the row that a question cut still goes to
+    /// the row. A paste whose end did not come in time ends there.
+    fn pasting(&mut self, view: &mut TurnView) -> bool {
+        if !view.row_pasting() {
+            self.paste_until = None;
+            return false;
+        }
+        match self.paste_until {
+            Some(until) if self.ctx.clock.now() < until => true,
+            _ => {
+                view.row_end_paste();
+                self.paste_until = None;
+                false
+            }
         }
     }
 
@@ -1261,7 +1306,11 @@ fn take_over(
         }
         (before, ask) => {
             // A running reader is kept, so echo never comes back between two questions.
-            if before.is_some() && !matches!(ask, Ask::Retain(_)) {
+            // NOTE: the row's keys before the question are told apart by the mark.
+            if before.is_some()
+                && !matches!(before, Some(Asking::Row))
+                && !matches!(ask, Ask::Retain(_))
+            {
                 reader.discard_queued();
             }
             let asking = match ask {

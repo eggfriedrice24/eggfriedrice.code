@@ -17,7 +17,9 @@ into the GitHub release notes, and it stops when the section is missing.
   interrupts it and Alt+Up takes back the newest prompt that you queued there. The row
   edits like a shell line (arrows, Home, End, Ctrl+A/E/U/W/K, Alt+B/F), Ctrl+J adds a
   newline, and a paste keeps its newlines. Keys that you type while the prompt goes
-  out land in the row too. `render.turn_input = false` turns the row off.
+  out land in the row too. An approval takes only the keys that you type after it
+  shows: keys typed before it and the rest of a paste stay in the row.
+  `render.turn_input = false` turns the row off.
 - Steers that the model did not read yet show above the status row as `↳ steer:`, and
   prompts that you queued as `↳ queued:`. When a model call reads a steer, it moves
   into the reply as your message. A steer that comes too late for its turn waits in

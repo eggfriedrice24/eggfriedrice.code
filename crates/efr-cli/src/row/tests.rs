@@ -272,3 +272,29 @@ proptest! {
         assert!(layout.cursor_row < layout.rows.len());
     }
 }
+
+#[test]
+fn a_cut_sequence_is_dropped_and_a_paste_goes_on_or_ends_with_its_text() {
+    // An escape sequence that a question cut: the next key starts afresh.
+    let mut line = typed(b"ab\x1b[");
+    line.drop_partial();
+    assert_eq!(feed(&mut line, b"\r"), [Action::Steer], "Enter steers again");
+    assert_eq!(line.text(), "ab");
+
+    // A paste goes on after the question.
+    let mut line = typed(b"\x1b[200~one");
+    assert!(line.pasting());
+    line.drop_partial();
+    assert!(line.pasting());
+    assert_eq!(feed(&mut line, b"\ntwo\x1b[201~"), []);
+    assert!(!line.pasting());
+    assert_eq!(line.text(), "one\ntwo");
+
+    // A paste whose end never comes ends with the text that came, also a part of the
+    // end that turned out to be text.
+    let mut line = typed(b"\x1b[200~one\x1b[2");
+    line.end_paste();
+    assert!(!line.pasting());
+    assert_eq!(line.text(), "one[2", "control characters stay out, as in a paste");
+    assert_eq!(feed(&mut line, b"\r"), [Action::Steer]);
+}

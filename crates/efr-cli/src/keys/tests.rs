@@ -270,6 +270,56 @@ async fn a_flush_throws_away_what_was_typed_and_reads_on() {
     reader.stop().await;
 }
 
+/// A mark keeps what was typed: the keys that wait in the queue and in the terminal
+/// come first and count as typed before it, and only the keys after it do not.
+#[tokio::test]
+async fn a_mark_keeps_what_was_typed_and_tells_it_from_what_comes_after() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let mut reader = full_reader(&master, slave, &probe).await;
+
+    reader.mark();
+    for _ in 0..2 * KEY_QUEUE {
+        assert_eq!(reader.next().await, Some(Key::Byte(b'x')), "every key typed before");
+        assert!(reader.before_mark());
+    }
+    Wait::new("the mark")
+        .until(|| {
+            let _ = reader.queued();
+            !reader.before_mark()
+        })
+        .await
+        .unwrap();
+    rustix::io::write(&master, b"y").unwrap();
+    assert_eq!(reader.next().await, Some(Key::Byte(b'y')));
+    assert!(!reader.before_mark(), "typed after the mark");
+    reader.stop().await;
+}
+
+/// A reader without a thread marks nothing, unless its test confirms the mark.
+#[tokio::test]
+async fn a_mark_of_a_reader_without_a_thread_waits_for_its_confirmation() {
+    let (sender, keys) = mpsc::channel(4);
+    let mut plain = KeyReader::from_channel(keys);
+    plain.mark();
+    sender.send(byte(b'a')).await.unwrap();
+    assert_eq!(plain.next().await, Some(Key::Byte(b'a')));
+    assert!(!plain.before_mark());
+    plain.stop().await;
+
+    let (sender, keys) = mpsc::channel(4);
+    let mut confirming = KeyReader::from_channel_confirming(keys);
+    confirming.mark();
+    sender.send(byte(b'a')).await.unwrap();
+    sender.send(Read::Marked).await.unwrap();
+    sender.send(byte(b'b')).await.unwrap();
+    assert_eq!(confirming.next().await, Some(Key::Byte(b'a')));
+    assert!(confirming.before_mark());
+    assert_eq!(confirming.next().await, Some(Key::Byte(b'b')));
+    assert!(!confirming.before_mark());
+    confirming.stop().await;
+}
+
 #[tokio::test]
 async fn a_flush_of_a_reader_without_a_thread_drops_its_queue() {
     let (sender, keys) = mpsc::channel(4);

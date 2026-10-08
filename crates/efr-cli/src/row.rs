@@ -141,6 +141,29 @@ impl RowLine {
         self.cursor = self.text.len();
     }
 
+    /// True while a bracketed paste has started and not ended.
+    pub(crate) fn pasting(&self) -> bool {
+        matches!(self.state, State::Paste { .. })
+    }
+
+    /// Drops an escape sequence or a character that has not arrived whole: the keys
+    /// went elsewhere meanwhile, so the rest of it will not come. A paste goes on.
+    pub(crate) fn drop_partial(&mut self) {
+        if !self.pasting() {
+            self.state = State::Plain;
+        }
+        self.utf8.clear();
+    }
+
+    /// Ends a bracketed paste whose end did not come: the text so far is added.
+    pub(crate) fn end_paste(&mut self) {
+        if let State::Paste { mut text, matched } = std::mem::take(&mut self.state) {
+            text.extend_from_slice(&PASTE_END[..matched]);
+            let pasted = pasted_text(&text);
+            self.insert(&pasted);
+        }
+    }
+
     /// Takes one key.
     pub(crate) fn key(&mut self, key: Key) -> Action {
         let byte = match (key, &self.state) {
