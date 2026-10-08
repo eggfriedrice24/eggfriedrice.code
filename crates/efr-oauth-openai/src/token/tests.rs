@@ -194,9 +194,13 @@ async fn a_success_body_without_an_access_token_is_a_decode_error() {
 
 #[tokio::test]
 async fn an_unreachable_endpoint_is_a_request_error() {
-    // A port that was free a moment ago; wiremock keeps its servers in a pool, so a
-    // dropped mock server would still answer.
-    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    // The socket binds a port but does not listen, so the kernel refuses each connection
+    // to it. While the socket lives, no other test can bind its port. A released port is
+    // not safe: another test can bind it at once and answer. A dropped mock server is not
+    // safe either, because wiremock keeps its servers in a pool and they still answer.
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind(std::net::SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    let port = socket.local_addr().unwrap().port();
     let config =
         OAuthConfig { issuer: format!("http://127.0.0.1:{port}"), ..OAuthConfig::default() };
     let refresh_token = SecretString::from("rt-old");

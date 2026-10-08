@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -8,7 +9,7 @@ use pretty_assertions::assert_eq;
 use secrecy::SecretString;
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpSocket};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -40,6 +41,17 @@ fn url(server: &MockServer, path: &str) -> String {
 
 async fn requests_seen(server: &MockServer) -> usize {
     server.received_requests().await.unwrap().len()
+}
+
+/// Reserves a local address that refuses each connection. The socket binds a port but
+/// does not listen, so the kernel refuses each connection to it. While the socket lives,
+/// no other test can bind its port. Do not bind a port and release it: another test can
+/// bind the same port at once and answer the request.
+fn refusing_address() -> (TcpSocket, SocketAddr) {
+    let socket = TcpSocket::new_v4().unwrap();
+    socket.bind(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    let address = socket.local_addr().unwrap();
+    (socket, address)
 }
 
 #[test]
@@ -290,10 +302,7 @@ async fn a_failed_tls_handshake_is_a_connect_error_and_a_post_is_retried() {
 
 #[tokio::test]
 async fn a_refused_connection_is_transient_and_retried_even_for_a_post() {
-    // Bind and release a port so that nothing listens on it.
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    drop(listener);
+    let (_socket, address) = refusing_address();
     let (client, clock) = client();
     let request = HttpRequest::post(&format!("http://{address}/v1/models?api_key=sk-1")).unwrap();
     let error = client.send_with_retry(&request, &policy(2)).await.unwrap_err();
@@ -396,9 +405,7 @@ async fn an_unrecorded_request_stays_out_of_the_recorder() {
 
 #[tokio::test]
 async fn a_failed_recorded_request_is_recorded_as_failed() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    drop(listener);
+    let (_socket, address) = refusing_address();
     let log = Arc::new(Log::default());
     let (client, _clock) = client();
     let client = client.with_recorder(log.clone());
