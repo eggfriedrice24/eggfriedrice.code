@@ -71,7 +71,7 @@ impl Root {
 /// snapshots after it.
 #[derive(Debug, Clone, Default)]
 pub struct CallSnapshot {
-    before: Vec<(Root, String)>,
+    before: Vec<(Root, String, Pin)>,
 }
 
 impl CallSnapshot {
@@ -86,6 +86,7 @@ impl CallSnapshot {
 struct TurnRoot {
     root: Root,
     pre: String,
+    _pin: Pin,
 }
 
 /// The roots of a running turn.
@@ -96,16 +97,55 @@ struct TurnRecord {
 }
 
 /// One store in this process: the gate that lets one snapshot, commit or collection of
-/// the store run at a time, and the tree of its index at its last snapshot.
+/// the store run at a time, the tree of its index at its last snapshot, and the trees
+/// that running turns and calls still need ([`Pin`]).
 #[derive(Debug)]
 pub(crate) struct Slot {
     gate: tokio::sync::Semaphore,
     tree: Mutex<Option<String>>,
+    live: Mutex<Vec<String>>,
 }
 
 impl Default for Slot {
     fn default() -> Self {
-        Slot { gate: tokio::sync::Semaphore::new(1), tree: Mutex::new(None) }
+        Slot {
+            gate: tokio::sync::Semaphore::new(1),
+            tree: Mutex::new(None),
+            live: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+/// A tree of a store that a running turn (its first tree) or a running call (its tree
+/// before) still needs. No ref names such a tree, and once the index moves on, the
+/// index no longer reaches it either, so the collector's prune could remove its
+/// objects; the collector pins every live tree under a ref first. Dropping the pin
+/// ends the need.
+#[derive(Debug)]
+pub(crate) struct Pin {
+    slot: Arc<Slot>,
+    tree: String,
+}
+
+impl Pin {
+    fn new(slot: Arc<Slot>, tree: &str) -> Pin {
+        slot.lock_live().push(tree.to_owned());
+        Pin { slot, tree: tree.to_owned() }
+    }
+}
+
+impl Clone for Pin {
+    fn clone(&self) -> Pin {
+        Pin::new(Arc::clone(&self.slot), &self.tree)
+    }
+}
+
+impl Drop for Pin {
+    fn drop(&mut self) {
+        let mut live = self.slot.lock_live();
+        if let Some(at) = live.iter().position(|tree| tree == &self.tree) {
+            live.swap_remove(at);
+        }
     }
 }
 
@@ -122,6 +162,18 @@ impl Slot {
 
     pub(crate) fn set_tree(&self, tree: Option<String>) {
         *self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tree;
+    }
+
+    /// The trees that running turns and calls still need, each once, sorted.
+    pub(crate) fn live_trees(&self) -> Vec<String> {
+        let mut trees = self.lock_live().clone();
+        trees.sort();
+        trees.dedup();
+        trees
+    }
+
+    fn lock_live(&self) -> MutexGuard<'_, Vec<String>> {
+        self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -185,7 +237,8 @@ impl Snapshots {
             if first {
                 self.add_to_turn(conversation, turn, &root, &tree);
             }
-            Some((root, tree))
+            let pin = Pin::new(self.slot(root.path()), &tree);
+            Some((root, tree, pin))
         }))
         .await;
         CallSnapshot { before: taken.into_iter().flatten().collect() }
@@ -194,12 +247,15 @@ impl Snapshots {
     /// Snapshots the roots of `call` again after the call and lists what changed.
     /// `None` when nothing changed or nothing could be compared.
     pub async fn after_call(&self, call: CallSnapshot, limits: Limits) -> Option<FileChanges> {
-        let compared =
-            futures::future::join_all(call.before.into_iter().map(|(root, before)| async move {
-                let changes = self.changes_since(root.path(), &before, &limits).await?;
+        let compared = futures::future::join_all(call.before.into_iter().map(
+            |(root, before, pin)| async move {
+                let changes = self.changes_since(root.path(), &before, &limits).await;
+                drop(pin);
+                let changes = changes?;
                 Some(Shown { root: root.path().to_path_buf(), shown: root.shown, changes })
-            }))
-            .await;
+            },
+        ))
+        .await;
         changes::merge(compared.into_iter().flatten().collect())
     }
 
@@ -261,7 +317,8 @@ impl Snapshots {
         let record =
             turns.entry(turn).or_insert_with(|| TurnRecord { conversation, roots: Vec::new() });
         if !record.roots.iter().any(|known| known.root.path() == root.path()) {
-            record.roots.push(TurnRoot { root: root.clone(), pre: tree.to_owned() });
+            let pin = Pin::new(self.slot(root.path()), tree);
+            record.roots.push(TurnRoot { root: root.clone(), pre: tree.to_owned(), _pin: pin });
         }
     }
 

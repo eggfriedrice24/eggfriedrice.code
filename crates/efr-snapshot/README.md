@@ -27,7 +27,9 @@ without undo).
   `conversation.diff`, with every root's paths under its prefix.
 - `Snapshots::gc`: the refs of the newest `keep_turns` turns of each conversation stay
   in each store (then `git prune` of loose objects older than an hour, and `git gc
-  --auto`), and a store without a snapshot for `max_age` goes whole.
+  --auto`), and a store without a snapshot for `max_age` goes whole. The first tree of
+  a running turn and the tree before a running call reach no ref yet, so the prune
+  runs with them pinned under `refs/efr-live/<tree>`.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of

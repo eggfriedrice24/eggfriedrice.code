@@ -58,3 +58,60 @@ async fn a_store_without_a_snapshot_for_too_long_is_deleted() {
     write(&dir.join("a.txt"), "1\n");
     assert!(world.snapshots.after_call(call, limits()).await.is_some());
 }
+
+/// Sets the time of every loose object of the store at `git_dir` far back, so `git
+/// prune --expire=1.hour.ago` may remove what nothing reaches.
+fn age_objects(git_dir: &std::path::Path) {
+    let old = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(946_684_800);
+    let mut stack = vec![git_dir.join("objects")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(path);
+            } else {
+                std::fs::File::open(&path).unwrap().set_modified(old).unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_collection_keeps_the_trees_of_a_running_turn_and_call() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "0\n");
+    write(&dir.join("b.txt"), "only before the long turn\n");
+    // A long turn of conversation 2: its first tree holds the old b.txt, and the index
+    // moves past it.
+    let long =
+        world.snapshots.before_call(conversation(2), turn(10), vec![root(&dir)], limits()).await;
+    write(&dir.join("b.txt"), "changed\n");
+    world.snapshots.after_call(long, limits()).await.unwrap();
+    // A long call of the same turn, whose tree before still holds c.txt.
+    write(&dir.join("c.txt"), "only before the long call\n");
+    let call =
+        world.snapshots.before_call(conversation(2), turn(10), vec![root(&dir)], limits()).await;
+    // Conversation 1 has more turns than the collector keeps, so it prunes.
+    for n in 1..=2 {
+        let short =
+            world.snapshots.before_call(conversation(1), turn(n), vec![root(&dir)], limits()).await;
+        std::fs::remove_file(dir.join("c.txt")).ok();
+        write(&dir.join("a.txt"), &format!("{n}\n"));
+        world.snapshots.after_call(short, limits()).await;
+        world.snapshots.finish_turn(turn(n), limits()).await.unwrap();
+    }
+    age_objects(&world.only_store());
+
+    let report = world.snapshots.gc(1, KEEP_LONG).await;
+    assert_eq!(report.refs_deleted, 2);
+
+    let changes = world.snapshots.after_call(call, limits()).await.unwrap();
+    let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt", "c.txt"], "the call's tree before is still there");
+    let turn = world.snapshots.finish_turn(turn(10), limits()).await.unwrap();
+    let paths: Vec<&str> = turn.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt", "b.txt"], "the turn's first tree is still there");
+    let diff = world.snapshots.turn_diff(conversation(2), None, true, 100).await.unwrap().unwrap();
+    assert!(diff.diff.unwrap().contains("-only before the long turn\n"));
+}

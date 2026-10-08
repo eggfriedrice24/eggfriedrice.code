@@ -4,7 +4,8 @@
 //!   store; older refs are deleted, then `git prune` removes the loose objects that no
 //!   ref and no index entry reaches any more (older than an hour, so a snapshot that is
 //!   being written keeps its objects), and `git gc --auto` packs the rest when there
-//!   are many.
+//!   are many. The trees that a running turn or call still needs reach no ref yet, so
+//!   they are pinned under `refs/efr-live/<tree>` while the prune runs.
 //! - Age: a store whose last snapshot is older than `max_age` (the root file's time,
 //!   which each snapshot touches at most once an hour) is deleted whole: its
 //!   repository, its index and its root file.
@@ -18,6 +19,9 @@ use crate::history::stores;
 use crate::runner::Run;
 use crate::snapshots::Snapshots;
 use crate::store::Store;
+
+/// The refs that pin the trees of running turns and calls during a collection.
+const LIVE_REFS: &str = "refs/efr-live/";
 
 /// What one collection did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -74,7 +78,8 @@ impl Snapshots {
             {
                 tracing::warn!(root = %store.root().display(), "removed a lock that a killed git left in a snapshot store");
             }
-            match self.trim_refs(&store, keep_turns).await {
+            let live = slot.live_trees();
+            match self.trim_refs(&store, keep_turns, &live).await {
                 Ok(deleted) => report.refs_deleted += deleted,
                 Err(error) => {
                     tracing::warn!(error = %efr_stdx::with_causes(&error), root = %store.root().display(), "old snapshots could not be deleted");
@@ -85,18 +90,30 @@ impl Snapshots {
     }
 
     /// Deletes the refs of all but the newest `keep_turns` turns of each conversation
-    /// in `store`, and the objects that nothing reaches any more.
-    async fn trim_refs(&self, store: &Store, keep_turns: usize) -> Result<usize, SnapshotError> {
+    /// in `store`, and the objects that nothing reaches any more except the `live`
+    /// trees.
+    async fn trim_refs(
+        &self,
+        store: &Store,
+        keep_turns: usize,
+        live: &[String],
+    ) -> Result<usize, SnapshotError> {
         let out = self
             .runner()
             .checked(
                 store,
                 "for-each-ref",
-                &["for-each-ref", "--format=%(refname)", "refs/efr/"],
+                &["for-each-ref", "--format=%(refname)", "refs/efr/", LIVE_REFS],
                 Run::default(),
             )
             .await?;
         let text = String::from_utf8_lossy(&out);
+        let pins: Vec<String> = live.iter().map(|tree| format!("{LIVE_REFS}{tree}")).collect();
+        // NOTE: a pin that a stop of efrd left behind goes with the next collection.
+        let leftover: Vec<&str> = text
+            .lines()
+            .filter(|name| name.starts_with(LIVE_REFS) && !pins.iter().any(|pin| pin == name))
+            .collect();
         // conversation -> turn -> its refs
         let mut by_conversation: BTreeMap<&str, BTreeMap<&str, Vec<&str>>> = BTreeMap::new();
         for name in text.lines() {
@@ -119,7 +136,11 @@ impl Snapshots {
         if doomed.is_empty() {
             return Ok(0);
         }
-        let commands: String = doomed.iter().map(|name| format!("delete {name}\n")).collect();
+        let mut commands: String =
+            doomed.iter().chain(&leftover).map(|name| format!("delete {name}\n")).collect();
+        for (pin, tree) in pins.iter().zip(live) {
+            commands.push_str(&format!("update {pin} {tree}\n"));
+        }
         self.runner()
             .checked(
                 store,
@@ -140,6 +161,17 @@ impl Snapshots {
                 Run::default(),
             )
             .await?;
+        if !pins.is_empty() {
+            let unpin: String = pins.iter().map(|pin| format!("delete {pin}\n")).collect();
+            self.runner()
+                .checked(
+                    store,
+                    "update-ref",
+                    &["update-ref", "--stdin"],
+                    Run { stdin: Some(unpin.into_bytes()), ..Run::default() },
+                )
+                .await?;
+        }
         Ok(doomed.len())
     }
 }
