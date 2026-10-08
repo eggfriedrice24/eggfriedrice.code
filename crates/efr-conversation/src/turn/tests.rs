@@ -1140,7 +1140,7 @@ async fn steering_reaches_the_model_at_its_next_step() {
         text: "also empty the trash".to_owned(),
         if_late: None,
     };
-    let steered = h.handle.steer(steer).await.expect("steer accepted");
+    let steered = h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
     assert_eq!(steered.turn_id, sent.turn_id);
     h.provider.handled_through(3);
     h.wait_end(sent.turn_id).await;
@@ -1154,10 +1154,17 @@ async fn steering_reaches_the_model_at_its_next_step() {
             "assistant_message_updated",
             "turn_steered",
             "assistant_message_completed",
+            "steering_delivered",
             "assistant_message_updated",
             "assistant_message_completed",
             "turn_completed",
         ])
+    );
+    let events = h.events().await;
+    assert_eq!(
+        find(&events, |e| matches!(e, Event::SteeringDelivered { .. })),
+        Event::SteeringDelivered { turn_id: sent.turn_id, steers: vec![steered.seq] },
+        "the call that sends the steer names its turn_steered event"
     );
     h.finish();
 }
@@ -1208,7 +1215,7 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
         text: "also empty the trash".to_owned(),
         if_late: None,
     };
-    h.handle.steer(steer).await.expect("steer accepted");
+    h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
     h.provider.handled_through(3);
     h.wait_end(sent.turn_id).await;
     let second = h.prompt("next").await;

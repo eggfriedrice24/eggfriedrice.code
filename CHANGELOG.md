@@ -29,6 +29,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `$SCRATCH` below the data directory. It never writes the project's `.git` or index.
   The `[snapshot]` table sets it (`snapshot.enabled`, size limits, `keep_turns`,
   `max_age_days`).
+- efrd has the parts that the input row of a turn needs. A steer that comes too late
+  for the running turn can become a queued prompt (`turn.steer` with `if_late`). You
+  can take back a prompt that waits in the queue before it starts (`prompt.withdraw`).
+  An interrupt can take back the queued prompts of one terminal and send its unread
+  steers again as one new prompt, which runs next. efrd records when a model call
+  reads a steer (`steering_delivered`). `efr history` shows a prompt that you took
+  back as `withdrawn before it ran`.
 
 ### Changed
 
@@ -38,11 +45,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
-- A steer (`,!`) sent as a turn ends no longer gets lost. Before, efrd could accept it
-  for a turn that had already made its last model call, so the model never read it.
-  Now efrd refuses it with a conflict, and you can send the text as a new prompt. A
-  steer or an interrupt that you send after you see the end of a turn is refused too,
-  and a prompt that you send then starts at once.
+- efrd no longer loses a steer (`,!`) at the end of a turn. Before, efrd accepted a
+  steer after the last model call of the turn or after an interrupt request, and no
+  model call read it. Now efrd refuses such a steer with a conflict, and you can send
+  the text as a new prompt.
+- efrd now ends a turn before it tells the clients that the turn ended. Before, a
+  steer or an interrupt that you sent just after you saw the end could go to the
+  ended turn, and a prompt could wait behind it. Now efrd refuses the steer and the
+  interrupt, and the prompt starts at once.
 
 ## [0.0.2] - 2026-10-08
 

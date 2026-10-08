@@ -2,6 +2,10 @@
 //!
 //! The request is recorded at once (`turn_interrupt_requested`); the turn records
 //! `turn_interrupted` when the model's stream and any running command have stopped.
+//! Esc in the input row of a turn also lists the prompts that its view queued
+//! (`withdraw`) and its unread steers (`resend_steers`): the conversation withdraws
+//! those prompts and sends those steers again as one prompt that runs next, in the
+//! step and the append that record the request, so no queued prompt starts in between.
 
 use efr_conversation::ConversationError;
 use efr_protocol::TurnInterrupt;
@@ -25,10 +29,19 @@ pub(crate) async fn handle(
         return Ok(());
     }
     let conversation_id = params.conversation_id;
+    // NOTE: unread steers sent again become a prompt that this client follows, so the
+    // notices wait for it, as for `prompt.send`.
+    let mut prompting =
+        (!params.resend_steers.is_empty()).then(|| state.connections.prompting(context.conn_id()));
     let outcome = match state.conversations.live(conversation_id) {
         Some(handle) => match handle.interrupt(params, context.surface()).await {
-            Ok(result) => Ok(serde_json::to_value(result)
-                .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?),
+            Ok(result) => {
+                if let (Some(_), Some(prompting)) = (&result.resent, prompting.as_mut()) {
+                    prompting.sent_to(conversation_id);
+                }
+                Ok(serde_json::to_value(result)
+                    .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?)
+            }
             Err(ConversationError::DuplicateCommand { receipt }) => {
                 receipts::replay(METHOD, *receipt)
             }

@@ -26,7 +26,10 @@ across a restart:
   conversation reads return `EventEnvelope`s; a kind this build does not know reads
   back as `Event::Unknown`.
 - `conversations`, `approvals`, `shells`: projections of the log for listing and
-  paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
+  paging, rebuilt from the events by `WriterHandle::rebuild_projections`. A turn ends
+  with `turn_completed`, `turn_failed`, `turn_interrupted`, `turn_cancelled` or, for
+  a queued prompt that the user took back before it started, `prompt_withdrawn`
+  (status `withdrawn`), so a restart never cancels a withdrawn prompt again.
 - `receipts`: one receipt per command id. A duplicate command id returns the stored
   outcome, and a rejected command stays rejected. A receipt records the sequence
   number of its batch's last event, or of the event that `NewReceipt::seq_of_event`

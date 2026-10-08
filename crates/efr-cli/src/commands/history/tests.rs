@@ -482,6 +482,30 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
 }
 
 #[test]
+fn a_withdrawn_prompt_says_that_it_never_ran() {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let events = vec![
+        Event::PromptQueued {
+            turn_id: turn(),
+            command_id,
+            text: "later".to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: TurnSettings::default(),
+            steers: Vec::new(),
+        },
+        Event::PromptWithdrawn { turn_id: turn(), origin: Origin::Shell },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+    let shown =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
+    assert!(shown.contains("later"), "{shown}");
+    assert!(shown.contains("withdrawn before it ran"), "{shown}");
+}
+
+#[test]
 fn a_command_of_several_lines_never_shows_as_one_line() {
     let other: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
     let started = |call_id, command: &str| Event::ToolCallStarted {

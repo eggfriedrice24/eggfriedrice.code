@@ -19,6 +19,8 @@ use crate::testing::{
 };
 use crate::{ConversationError, ConversationStart};
 
+mod turn_input;
+
 #[tokio::test]
 async fn a_second_prompt_queues_behind_the_running_turn() {
     let setup = Setup::new();
@@ -218,7 +220,7 @@ async fn steering_or_interrupting_without_a_running_turn_is_refused() {
         text: "more".to_owned(),
         if_late: None,
     };
-    let steered = h.handle.steer(steer).await;
+    let steered = h.handle.steer(steer, Origin::Shell).await;
     assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
     let interrupt = TurnInterrupt {
         command_id: h.command_id(),
@@ -270,7 +272,7 @@ async fn a_request_for_another_turn_or_conversation_is_refused() {
         text: "more".to_owned(),
         if_late: None,
     };
-    let wrong = h.handle.steer(steer).await;
+    let wrong = h.handle.steer(steer, Origin::Shell).await;
     assert!(matches!(wrong, Err(ConversationError::WrongConversation { .. })), "{wrong:?}");
     h.handle.shutdown().await.expect("the actor stops");
 }
@@ -370,7 +372,7 @@ async fn a_steer_after_the_last_model_call_is_refused_and_never_recorded() {
         text: "and in French".to_owned(),
         if_late: None,
     };
-    let steered = h.handle.steer(steer).await;
+    let steered = h.handle.steer(steer, Origin::Shell).await;
     h.toolbox.end_released.notify_one();
 
     assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
@@ -487,7 +489,7 @@ fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
             text: "more".to_owned(),
             if_late: None,
         };
-        let steered = h.handle.steer(steer).await;
+        let steered = h.handle.steer(steer, Origin::Shell).await;
         assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
         let interrupt = TurnInterrupt {
             command_id: h.command_id(),

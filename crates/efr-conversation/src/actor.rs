@@ -12,20 +12,28 @@
 //! a client sends after it sees the end finds no running turn: a steer or an interrupt
 //! is refused, and a prompt starts at once.
 //!
+//! A steer is late when the running turn will make no more model calls: its steering
+//! closed, an interrupt was asked for, it names another turn, or no turn runs. A late
+//! steer is never recorded as `turn_steered`; with `if_late` it becomes a queued prompt
+//! in the same step. Queued prompts can be withdrawn until they start. An interrupt can
+//! withdraw queued prompts and send the unread steers again as a new prompt, all in the
+//! step that records `turn_interrupt_requested`, so no queued prompt starts in between.
+//!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
 //! runs twice. A result that reports a sequence number is stored without it; the store
 //! records the number with the receipt, and the daemon completes the result from it
-//! when it answers a retry.
+//! ([`completed_result`]) when it answers a retry.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use efr_protocol::{
-    ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, ErrorBody,
-    ErrorCode, Event, Mode, Origin, PromptSend, PromptSendResult, QuestionId,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult,
+    ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, EffectiveSettings,
+    ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin, PromptSend, PromptSendResult,
+    PromptWithdraw, PromptWithdrawResult, QuestionId, ResentSteers, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -40,7 +48,8 @@ use crate::approvals::Approvals;
 use crate::history::CachedTurn;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
-use crate::settings::{self, Place};
+use crate::settings;
+use crate::steer::Reservation;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
 use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart};
 
@@ -52,6 +61,7 @@ const TURN_STEER: &str = "turn.steer";
 const TURN_INTERRUPT: &str = "turn.interrupt";
 const APPROVAL_RESPOND: &str = "approval.respond";
 const SURFACE_RESPOND: &str = "sandbox.surface_respond";
+const PROMPT_WITHDRAW: &str = "prompt.withdraw";
 
 /// The actor of one conversation. It runs in its own task; the
 /// [`ConversationHandle`] that [`spawn`](Self::spawn) returns is the only way to reach
@@ -95,6 +105,77 @@ struct Running {
     turn_id: TurnId,
     task: JoinHandle<TurnEnd>,
     control: Control,
+    /// The prompt of the turn. Unread steers that an interrupt sends again take its
+    /// context and settings.
+    spec: TurnSpec,
+    /// Set once `turn_interrupt_requested` is recorded: a steer after it is late.
+    interrupt_requested: bool,
+}
+
+/// Where a recorded prompt joins the queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueueEnd {
+    /// It runs next: the unread steers of an interrupted turn.
+    Front,
+    /// It waits behind the others.
+    Back,
+}
+
+/// A prompt to record and queue: from `prompt.send`, from a late steer, or from the
+/// unread steers of an interrupted turn.
+///
+/// `Debug` leaves out the last command, which can hold a secret.
+struct NewPrompt {
+    command_id: CommandId,
+    text: String,
+    origin: Origin,
+    context: Option<ShellContext>,
+    /// Only for the turn's preamble; never recorded.
+    last_command: Option<String>,
+    settings: TurnSettings,
+    /// The steers that an interrupt sends again as this prompt.
+    steers: Vec<Seq>,
+}
+
+impl std::fmt::Debug for NewPrompt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // NOTE: last_command is deliberately missing; see the type's doc comment.
+        f.debug_struct("NewPrompt")
+            .field("command_id", &self.command_id)
+            .field("text", &self.text)
+            .field("origin", &self.origin)
+            .field("context", &self.context)
+            .field("settings", &self.settings)
+            .field("steers", &self.steers)
+            .finish_non_exhaustive()
+    }
+}
+
+impl NewPrompt {
+    /// The `prompt_queued` event of this prompt as the turn `turn_id`.
+    fn event(&self, turn_id: TurnId) -> Event {
+        Event::PromptQueued {
+            turn_id,
+            command_id: self.command_id,
+            text: self.text.clone(),
+            origin: self.origin,
+            context: self.context.clone(),
+            settings: self.settings.clone(),
+            steers: self.steers.clone(),
+        }
+    }
+
+    /// The prompt as the turn `turn_id` runs it.
+    fn into_spec(self, turn_id: TurnId) -> TurnSpec {
+        TurnSpec {
+            turn_id,
+            text: self.text,
+            origin: self.origin,
+            context: self.context,
+            last_command: self.last_command,
+            settings: self.settings,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -116,12 +197,18 @@ enum Request {
     },
     Steer {
         params: TurnSteer,
+        origin: Origin,
         reply: Reply<TurnSteerResult>,
     },
     Interrupt {
         params: TurnInterrupt,
         origin: Origin,
         reply: Reply<TurnInterruptResult>,
+    },
+    Withdraw {
+        params: PromptWithdraw,
+        origin: Origin,
+        reply: Reply<PromptWithdrawResult>,
     },
     Approval {
         params: ApprovalRespond,
@@ -212,11 +299,14 @@ impl ConversationActor {
             Request::Prompt { params, origin, reply } => {
                 let _ = reply.send(self.prompt(*params, origin).await);
             }
-            Request::Steer { params, reply } => {
-                let _ = reply.send(self.steer(params).await);
+            Request::Steer { params, origin, reply } => {
+                let _ = reply.send(self.steer(params, origin).await);
             }
             Request::Interrupt { params, origin, reply } => {
                 let _ = reply.send(self.interrupt(params, origin).await);
+            }
+            Request::Withdraw { params, origin, reply } => {
+                let _ = reply.send(self.withdraw(params, origin).await);
             }
             Request::Approval { params, origin, reply } => {
                 let _ = reply.send(self.respond(params, origin).await);
@@ -240,6 +330,39 @@ impl ConversationActor {
         origin: Origin,
     ) -> Result<PromptSendResult, ConversationError> {
         self.check_conversation(params.conversation_id)?;
+        let effective = self.admit(&params.settings, origin)?;
+        let turn_id = self.new_turn_id();
+        let queued = self.running.is_some() || !self.queue.is_empty();
+        let prompt = NewPrompt {
+            command_id: params.command_id,
+            text: params.text,
+            origin,
+            context: params.context,
+            last_command: params.last_command,
+            settings: params.settings,
+            steers: Vec::new(),
+        };
+        let (events, index) = self.queued_events(turn_id, &prompt);
+        let result = PromptSendResult {
+            conversation_id: self.conversation_id(),
+            turn_id,
+            seq: Seq::ZERO,
+            queued,
+            settings: Some(effective),
+        };
+        let receipt = receipt(prompt.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
+        let committed = self.append(events, receipt).await?;
+        self.enqueue(turn_id, prompt, QueueEnd::Back);
+        Ok(PromptSendResult { seq: seq_of(&committed, index), ..result })
+    }
+
+    /// Checks, before anything is recorded, that a prompt with `settings` from
+    /// `origin` may queue: the queue has room, and the settings can work.
+    fn admit(
+        &self,
+        settings: &TurnSettings,
+        origin: Origin,
+    ) -> Result<EffectiveSettings, ConversationError> {
         let config = self.shared.config.current();
         let limit = config.max_queued;
         if self.queue.len() >= limit {
@@ -253,67 +376,114 @@ impl ConversationActor {
         // when it also knows its project.
         let sandbox = self.shared.deps.sandbox.borrow().clone();
         let engine = Arc::clone(&self.shared.deps.engine.borrow());
-        let place =
-            Place { sandbox: &sandbox, project_root: None, home: engine.locations().home() };
-        let effective = settings::resolve(&params.settings, &config, origin, place)?;
-        let turn_id = TurnId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
-        let queued = self.running.is_some() || !self.queue.is_empty();
+        let place = settings::Place {
+            sandbox: &sandbox,
+            project_root: None,
+            home: engine.locations().home(),
+        };
+        settings::resolve(settings, &config, origin, place)
+    }
+
+    fn new_turn_id(&self) -> TurnId {
+        TurnId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng))
+    }
+
+    /// The events that record `prompt` as the turn `turn_id`, with
+    /// `conversation_created` first for a conversation that is not recorded yet, and
+    /// the index of `prompt_queued` among them.
+    fn queued_events(&self, turn_id: TurnId, prompt: &NewPrompt) -> (Vec<Event>, usize) {
         let mut events = Vec::with_capacity(2);
         if let ConversationStart::New { origin, tty } = &self.start {
             events.push(Event::ConversationCreated { origin: *origin, tty: tty.clone() });
         }
         let index = events.len();
-        events.push(Event::PromptQueued {
-            turn_id,
-            command_id: params.command_id,
-            text: params.text.clone(),
-            origin,
-            context: params.context.clone(),
-            settings: params.settings.clone(),
-            steers: Vec::new(),
-        });
-        let result = PromptSendResult {
-            conversation_id: self.conversation_id(),
-            turn_id,
-            seq: Seq::ZERO,
-            queued,
-            settings: Some(effective),
-        };
-        let receipt = receipt(params.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
-        let committed = self.append(events, receipt).await?;
+        events.push(prompt.event(turn_id));
+        (events, index)
+    }
+
+    /// Takes a recorded prompt into the queue, and starts it when nothing runs.
+    fn enqueue(&mut self, turn_id: TurnId, prompt: NewPrompt, end: QueueEnd) {
         self.start = ConversationStart::Existing;
-        self.queue.push_back(TurnSpec {
-            turn_id,
+        let spec = prompt.into_spec(turn_id);
+        match end {
+            QueueEnd::Front => self.queue.push_front(spec),
+            QueueEnd::Back => self.queue.push_back(spec),
+        }
+        self.start_next();
+    }
+
+    /// Records a steer for the running turn, or, when the steer is late, refuses it or
+    /// turns it into a queued prompt as `if_late` says. A late steer is never recorded
+    /// as `turn_steered`.
+    async fn steer(
+        &mut self,
+        params: TurnSteer,
+        origin: Origin,
+    ) -> Result<TurnSteerResult, ConversationError> {
+        self.check_conversation(Some(params.conversation_id))?;
+        let late = match self.reserve_steer(params.turn_id) {
+            Ok((turn_id, reservation)) => {
+                let event = Event::TurnSteered { turn_id, text: params.text.clone() };
+                let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: false };
+                let receipt = receipt(params.command_id, TURN_STEER, &result)?;
+                let committed = self.append(vec![event], receipt).await?;
+                let seq = committed.last_seq();
+                reservation.push(seq, params.text);
+                return Ok(TurnSteerResult { seq, ..result });
+            }
+            Err(late) => late,
+        };
+        let (context, last_command, settings) = match params.if_late {
+            None => return Err(late),
+            Some(LateSteer::Queue { context, last_command, settings }) => {
+                (context, last_command, settings)
+            }
+            Some(_) => return Err(ConversationError::Unsupported { what: "if_late" }),
+        };
+        self.admit(&settings, origin)?;
+        let turn_id = self.new_turn_id();
+        let prompt = NewPrompt {
+            command_id: params.command_id,
             text: params.text,
             origin,
-            context: params.context,
-            last_command: params.last_command,
-            settings: params.settings,
-        });
-        self.start_next();
-        Ok(PromptSendResult { seq: seq_of(&committed, index), ..result })
-    }
-
-    async fn steer(&mut self, params: TurnSteer) -> Result<TurnSteerResult, ConversationError> {
-        self.check_conversation(Some(params.conversation_id))?;
-        let turn_id = self.running_turn(params.turn_id)?;
-        // NOTE: a turn that made its last model call reads no more steering; the
-        // steer is refused rather than recorded and never read.
-        let reservation =
-            self.running.as_ref().and_then(|running| running.control.steering.reserve());
-        let Some(reservation) = reservation else {
-            return Err(ConversationError::NoRunningTurn {
-                conversation_id: self.conversation_id(),
-            });
+            context,
+            last_command,
+            settings,
+            steers: Vec::new(),
         };
-        let event = Event::TurnSteered { turn_id, text: params.text.clone() };
-        let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: false };
-        let receipt = receipt(params.command_id, TURN_STEER, &result)?;
-        let committed = self.append(vec![event], receipt).await?;
-        reservation.push(params.text);
-        Ok(TurnSteerResult { seq: committed.last_seq(), ..result })
+        let (events, index) = self.queued_events(turn_id, &prompt);
+        let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: true };
+        let receipt = receipt(prompt.command_id, TURN_STEER, &result)?.seq_of_event(index);
+        let committed = self.append(events, receipt).await?;
+        self.enqueue(turn_id, prompt, QueueEnd::Back);
+        Ok(TurnSteerResult { seq: seq_of(&committed, index), ..result })
     }
 
+    /// A place for a steer in the running turn, or the error that refuses a late
+    /// steer: no turn runs, the request names another turn, an interrupt was asked
+    /// for, or the turn made its last model call.
+    fn reserve_steer(
+        &self,
+        requested: Option<TurnId>,
+    ) -> Result<(TurnId, Reservation), ConversationError> {
+        let turn_id = self.running_turn(requested)?;
+        let no_turn =
+            || ConversationError::NoRunningTurn { conversation_id: self.conversation_id() };
+        let Some(running) = self.running.as_ref() else {
+            return Err(no_turn());
+        };
+        // NOTE: a turn that is being interrupted, or that made its last model call,
+        // reads no more steering; recording the steer would leave it never read.
+        if running.interrupt_requested {
+            return Err(no_turn());
+        }
+        let reservation = running.control.steering.reserve().ok_or_else(no_turn)?;
+        Ok((turn_id, reservation))
+    }
+
+    /// Asks the running turn to stop. In the same step and the same append, it
+    /// withdraws the listed queued prompts and sends the listed unread steers again
+    /// as a new prompt that runs next, so no queued prompt starts in between.
     async fn interrupt(
         &mut self,
         params: TurnInterrupt,
@@ -321,15 +491,152 @@ impl ConversationActor {
     ) -> Result<TurnInterruptResult, ConversationError> {
         self.check_conversation(Some(params.conversation_id))?;
         let turn_id = self.running_turn(params.turn_id)?;
-        let event = Event::TurnInterruptRequested { turn_id, origin };
-        let result =
-            TurnInterruptResult { turn_id, seq: Seq::ZERO, resent: None, withdrawn: Vec::new() };
-        let receipt = receipt(params.command_id, TURN_INTERRUPT, &result)?;
-        let committed = self.append(vec![event], receipt).await?;
-        if let Some(running) = &self.running {
+        let Some(running) = self.running.as_ref() else {
+            return Err(ConversationError::NoRunningTurn {
+                conversation_id: self.conversation_id(),
+            });
+        };
+        let withdrawn: Vec<(TurnId, String)> = self
+            .queue
+            .iter()
+            .filter(|spec| params.withdraw.contains(&spec.turn_id))
+            .map(|spec| (spec.turn_id, spec.text.clone()))
+            .collect();
+        // NOTE: taken out before the append, so the turn cannot read them while it
+        // runs; they go back when the append fails.
+        let steers = running.control.steering.take_unread(&params.resend_steers);
+        let resend = (!steers.is_empty()).then(|| {
+            let prompt = NewPrompt {
+                command_id: params.command_id,
+                text: steers.iter().map(|steer| steer.text.as_str()).collect::<Vec<_>>().join("\n"),
+                origin,
+                context: running.spec.context.clone(),
+                last_command: running.spec.last_command.clone(),
+                settings: running.spec.settings.clone(),
+                steers: steers.iter().map(|steer| steer.seq).collect(),
+            };
+            (self.new_turn_id(), prompt)
+        });
+        let mut events = vec![Event::TurnInterruptRequested { turn_id, origin }];
+        events.extend(
+            withdrawn
+                .iter()
+                .map(|(turn_id, _)| Event::PromptWithdrawn { turn_id: *turn_id, origin }),
+        );
+        events.extend(resend.as_ref().map(|(turn_id, prompt)| prompt.event(*turn_id)));
+        let result = TurnInterruptResult {
+            turn_id,
+            seq: Seq::ZERO,
+            resent: resend.as_ref().map(|(turn_id, prompt)| ResentSteers {
+                turn_id: *turn_id,
+                seq: Seq::ZERO,
+                steers: prompt.steers.clone(),
+            }),
+            withdrawn: withdrawn
+                .iter()
+                .map(|(turn_id, text)| WithdrawnPrompt {
+                    turn_id: *turn_id,
+                    seq: Seq::ZERO,
+                    text: text.clone(),
+                })
+                .collect(),
+        };
+        let committed = match receipt(params.command_id, TURN_INTERRUPT, &result) {
+            Ok(receipt) => self.append(events, receipt.seq_of_event(0)).await,
+            Err(error) => Err(error),
+        };
+        let committed = match committed {
+            Ok(committed) => committed,
+            Err(error) => {
+                if let Some(running) = &self.running {
+                    running.control.steering.put_back(steers);
+                }
+                return Err(error);
+            }
+        };
+        if let Some(running) = &mut self.running {
+            running.interrupt_requested = true;
             running.control.interrupt.raise();
         }
-        Ok(TurnInterruptResult { seq: committed.last_seq(), ..result })
+        self.queue.retain(|spec| !withdrawn.iter().any(|(turn_id, _)| *turn_id == spec.turn_id));
+        let seq = seq_of(&committed, 0);
+        let withdrawn = result
+            .withdrawn
+            .into_iter()
+            .enumerate()
+            .map(|(at, prompt)| WithdrawnPrompt { seq: seq_of(&committed, at + 1), ..prompt })
+            .collect::<Vec<_>>();
+        let resent = result
+            .resent
+            .map(|resent| ResentSteers { seq: seq_of(&committed, withdrawn.len() + 1), ..resent });
+        if let Some((turn_id, prompt)) = resend {
+            // NOTE: in front of the queue, so the steers run next, as the user typed
+            // them before what waits.
+            self.enqueue(turn_id, prompt, QueueEnd::Front);
+        }
+        Ok(TurnInterruptResult { turn_id, seq, resent, withdrawn })
+    }
+
+    /// Takes one queued prompt out of the queue before it starts.
+    async fn withdraw(
+        &mut self,
+        params: PromptWithdraw,
+        origin: Origin,
+    ) -> Result<PromptWithdrawResult, ConversationError> {
+        self.check_conversation(Some(params.conversation_id))?;
+        let position = match &params.target {
+            WithdrawTarget::Turn { turn_id } => {
+                match self.queue.iter().position(|spec| spec.turn_id == *turn_id) {
+                    Some(position) => position,
+                    None => return Err(self.not_waiting(*turn_id).await),
+                }
+            }
+            WithdrawTarget::NewestFromTty { tty } => self
+                .queue
+                .iter()
+                .rposition(|spec| {
+                    spec.context.as_ref().and_then(|context| context.tty.as_deref())
+                        == Some(tty.as_str())
+                })
+                .ok_or_else(|| ConversationError::NoQueuedPrompt { tty: tty.clone() })?,
+            _ => return Err(ConversationError::Unsupported { what: "withdraw target" }),
+        };
+        let (turn_id, text) = match self.queue.get(position) {
+            Some(spec) => (spec.turn_id, spec.text.clone()),
+            None => unreachable!("the position was found in the queue in this step"),
+        };
+        let event = Event::PromptWithdrawn { turn_id, origin };
+        let result =
+            PromptWithdrawResult { withdrawn: WithdrawnPrompt { turn_id, seq: Seq::ZERO, text } };
+        let receipt = receipt(params.command_id, PROMPT_WITHDRAW, &result)?;
+        let committed = self.append(vec![event], receipt).await?;
+        // NOTE: the actor answers one request at a time and starts a queued turn only
+        // between requests, so the prompt is still at `position`.
+        self.queue.remove(position);
+        let withdrawn = WithdrawnPrompt { seq: committed.last_seq(), ..result.withdrawn };
+        Ok(PromptWithdrawResult { withdrawn })
+    }
+
+    /// Why the prompt of `turn_id` cannot be withdrawn: it no longer waits, or this
+    /// conversation never queued it.
+    async fn not_waiting(&self, turn_id: TurnId) -> ConversationError {
+        let conversation_id = self.conversation_id();
+        if self.running.as_ref().is_some_and(|running| running.turn_id == turn_id) {
+            return ConversationError::PromptNotWaiting { turn_id };
+        }
+        let found = self
+            .shared
+            .deps
+            .readers
+            .with(move |conn| efr_store::conversations::turn(conn, turn_id))
+            .await;
+        match found {
+            Ok(Some(turn)) if turn.conversation_id == conversation_id => {
+                ConversationError::PromptNotWaiting { turn_id }
+            }
+            Ok(_) => ConversationError::UnknownTurn { conversation_id, turn_id },
+            Err(source) => ConversationError::from_store(source),
+        }
     }
 
     async fn respond(
@@ -437,9 +744,10 @@ impl ConversationActor {
         };
         let turn_id = spec.turn_id;
         let control = Control::new();
-        let turn = turn::run(Arc::clone(&self.shared), spec, control.clone(), self.cache.clone());
+        let turn =
+            turn::run(Arc::clone(&self.shared), spec.clone(), control.clone(), self.cache.clone());
         let task = tokio::spawn(turn.in_current_span());
-        self.running = Some(Running { turn_id, task, control });
+        self.running = Some(Running { turn_id, task, control, spec, interrupt_requested: false });
     }
 
     /// Clears the running turn, then records its end. The order matters: a client
@@ -528,8 +836,9 @@ async fn turn_end(running: &mut Option<Running>) -> Result<TurnEnd, JoinError> {
     }
 }
 
-/// The receipt of a command whose result is `result`, stored without its `seq`, which
-/// the store records with the receipt.
+/// The receipt of a command whose result is `result`, stored without its sequence
+/// numbers: the store records the number of one event with the receipt, and
+/// [`completed_result`] puts them all back.
 fn receipt<T: Serialize>(
     command_id: CommandId,
     method: &'static str,
@@ -539,8 +848,64 @@ fn receipt<T: Serialize>(
         .map_err(|source| ConversationError::EncodeReceipt { method, source })?;
     if let Value::Object(members) = &mut value {
         members.remove("seq");
+        for nested in [RESENT, WITHDRAWN] {
+            match members.get_mut(nested) {
+                Some(Value::Object(item)) => {
+                    item.remove("seq");
+                }
+                Some(Value::Array(items)) => {
+                    for item in items.iter_mut().filter_map(Value::as_object_mut) {
+                        item.remove("seq");
+                    }
+                }
+                _ => {}
+            }
+        }
     }
     Ok(NewReceipt::accepted(command_id, method, value))
+}
+
+/// The member of a `turn.interrupt` result that names the resent steers.
+const RESENT: &str = "resent";
+/// The member of a `turn.interrupt` or `prompt.withdraw` result that names the
+/// withdrawn prompts.
+const WITHDRAWN: &str = "withdrawn";
+
+/// The first answer of a command of `method`, from the result that its receipt stored
+/// and the receipt's sequence number `seq`.
+///
+/// A stored result has no sequence numbers. The receipt keeps the number of one event
+/// of its batch, and the events of a batch have consecutive numbers, so the others
+/// follow from where the actor put them: a `turn.interrupt` batch holds
+/// `turn_interrupt_requested` (`seq`), then one `prompt_withdrawn` per withdrawn prompt,
+/// then the `prompt_queued` of the resent steers; `prompt.withdraw` reports only its
+/// `prompt_withdrawn` (`seq`), in `withdrawn`; every other result reports `seq` at the
+/// top.
+pub fn completed_result(method: &str, mut result: Value, seq: Seq) -> Value {
+    let Value::Object(members) = &mut result else {
+        return result;
+    };
+    let number = |offset: usize| Value::from(seq.get().saturating_add(offset as u64));
+    if method == PROMPT_WITHDRAW {
+        if let Some(Value::Object(withdrawn)) = members.get_mut(WITHDRAWN) {
+            withdrawn.insert("seq".to_owned(), number(0));
+        }
+        return result;
+    }
+    members.insert("seq".to_owned(), number(0));
+    if method == TURN_INTERRUPT {
+        let mut count = 0;
+        if let Some(Value::Array(withdrawn)) = members.get_mut(WITHDRAWN) {
+            for item in withdrawn.iter_mut().filter_map(Value::as_object_mut) {
+                count += 1;
+                item.insert("seq".to_owned(), number(count));
+            }
+        }
+        if let Some(Value::Object(resent)) = members.get_mut(RESENT) {
+            resent.insert("seq".to_owned(), number(count + 1));
+        }
+    }
+    result
 }
 
 /// The sequence number of the batch's event at `index`.
@@ -566,13 +931,35 @@ impl ConversationHandle {
         self.request(|reply| Request::Prompt { params: Box::new(params), origin, reply }).await
     }
 
-    /// Adds guidance to the running turn; the model reads it at its next step.
-    pub async fn steer(&self, params: TurnSteer) -> Result<TurnSteerResult, ConversationError> {
-        self.request(|reply| Request::Steer { params, reply }).await
+    /// Adds guidance to the running turn; the model reads it at its next step. A late
+    /// steer, one that no model call of the turn would read, is refused with
+    /// `NoRunningTurn` or `TurnMismatch`, or becomes a queued prompt from `origin` when
+    /// the params' `if_late` asks for it.
+    pub async fn steer(
+        &self,
+        params: TurnSteer,
+        origin: Origin,
+    ) -> Result<TurnSteerResult, ConversationError> {
+        self.request(|reply| Request::Steer { params, origin, reply }).await
+    }
+
+    /// Takes a queued prompt back before it starts and records `prompt_withdrawn`. A
+    /// prompt that started, ended or was withdrawn is `PromptNotWaiting`; a turn that
+    /// this conversation never queued is `UnknownTurn`, and a terminal without a queued
+    /// prompt is `NoQueuedPrompt`.
+    pub async fn withdraw(
+        &self,
+        params: PromptWithdraw,
+        origin: Origin,
+    ) -> Result<PromptWithdrawResult, ConversationError> {
+        self.request(|reply| Request::Withdraw { params, origin, reply }).await
     }
 
     /// Asks the running turn to stop. The request is recorded at once; the turn records
-    /// `turn_interrupted` when the model's stream has actually stopped.
+    /// `turn_interrupted` when the model's stream has actually stopped. In the same
+    /// append, it withdraws the queued prompts that the params' `withdraw` lists, and
+    /// sends the unread steers that `resend_steers` lists again as one prompt that runs
+    /// next.
     pub async fn interrupt(
         &self,
         params: TurnInterrupt,

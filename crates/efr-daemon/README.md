@@ -170,13 +170,22 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 (`Origin::Phone`, the tailnet listener of a later milestone) holds `read`, `operate` and
 `approve`.
 
-- Writes (`prompt.send`, `turn.interrupt`, `turn.steer`, `approval.respond`) answer a
-  retried command id from its receipt. A refusal a retry cannot change (`invalid`,
+- Writes (`prompt.send`, `prompt.withdraw`, `turn.interrupt`, `turn.steer`,
+  `approval.respond`) answer a retried command id from its receipt. A refusal a retry cannot change (`invalid`,
   `not_found`, `conflict`) is kept as a rejected receipt; a busy or failed one is not.
-- `prompt.withdraw` (`methods/prompt_withdraw.rs`) is a stub: it refuses every request
-  with `invalid` and records nothing. `turn.steer` ignores `if_late`, and
-  `turn.interrupt` ignores `resend_steers` and `withdraw`. The README of efr-protocol
-  holds the contract that replaces this.
+- The input row of a turn in `efr` (the contract is in the README of efr-protocol):
+  `turn.steer` with `if_late: {kind: "queue"}` turns a late steer into a queued prompt
+  in the conversation's step that finds it late, with no `turn_steered`; a conversation
+  without a live actor gets one for that. Without `if_late` a late steer is a
+  conflict, as before. `prompt.withdraw` (`methods/prompt_withdraw.rs`) takes a queued
+  prompt back by its turn or as the newest of a terminal: `conflict` when it no longer
+  waits, `not_found` for a turn the conversation never queued or a terminal with no
+  queued prompt. `turn.interrupt` with `withdraw` and `resend_steers` withdraws those
+  prompts and sends the unread steers again as one prompt that runs next, in the one
+  append that records the request. A retry of either answers from its receipt with
+  every sequence number, also those inside the result
+  (`efr_conversation::completed_result`). A late steer that became a prompt and resent
+  steers hold the notices of the terminal, as `prompt.send` does.
 - `prompt.send` routes to the named conversation, to a new one with `new_conversation`
   (`,new`), or to the active conversation of the prompt's terminal (the context's tty,
   else the hello's), starting one when the terminal has none. The terminal's
@@ -484,7 +493,7 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`, `sandbox`, `drafts`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`, `drafts`, `turn_input`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -492,6 +501,12 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `turn_input` module holds each turn in a model that waits for the test: a late
+steer that becomes a prompt (also for a conversation with no live actor after a
+restart), withdraws by terminal and by turn with their refusals, the interrupt of Esc
+with a steer and a queued prompt, and a retry of each that answers from its receipt
+with the same sequence numbers.
 
 The `drafts` module checks the drafts end to end with a model that streams text: only
 a subscriber that asked gets them, each after the events that its `after_seq` names;

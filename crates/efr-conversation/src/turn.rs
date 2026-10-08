@@ -82,7 +82,8 @@ const REASONING_EFFORT: &str = "reasoning_effort";
 const NOT_RUN: &str = "The user interrupted the turn before this call ran.";
 
 /// What the model reads for a call that was running when the user interrupted the turn.
-const STOPPED: &str = "The user interrupted the turn while this call ran; it was stopped.";
+pub(crate) const STOPPED: &str =
+    "The user interrupted the turn while this call ran; it was stopped.";
 
 /// What the model reads for a call whose approval request expired unanswered.
 const EXPIRED: &str = "The approval request expired before the user answered; the call did \
@@ -395,9 +396,17 @@ impl Turn {
             if self.control.interrupt.is_raised() {
                 return Ok(Ending::Interrupted);
             }
-            for text in self.control.steering.take() {
-                self.user_messages.push(text.clone());
-                self.push(&mut messages, Message::user(text));
+            let steers = self.control.steering.take();
+            if !steers.is_empty() {
+                // NOTE: recorded before the call that sends them, so a client moves
+                // them into the conversation, and an interrupt no longer sends them
+                // again as a new prompt.
+                let seqs = steers.iter().map(|steer| steer.seq).collect();
+                self.record(vec![Event::SteeringDelivered { turn_id, steers: seqs }]).await?;
+            }
+            for steer in steers {
+                self.user_messages.push(steer.text.clone());
+                self.push(&mut messages, Message::user(steer.text));
             }
             let request = Request {
                 model: settings.model.clone(),
@@ -453,7 +462,7 @@ impl Turn {
     async fn finish(mut self, ending: Ending) -> TurnEnd {
         let turn_id = self.turn_id();
         let conversation_id = self.shared.conversation_id;
-        // NOTE: no model call reads steering from here on, so the actor refuses it.
+        // NOTE: no model call reads steering from here on, so a steer is late.
         self.control.steering.close();
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
         // interrupted or failed turn too; only a completed turn reports the changes.

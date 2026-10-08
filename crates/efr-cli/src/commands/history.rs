@@ -355,6 +355,7 @@ impl<'a> Transcript<'a> {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
+            Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
             _ => {}
         }
     }

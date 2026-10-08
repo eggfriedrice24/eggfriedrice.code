@@ -56,7 +56,7 @@ mod testing;
 mod toolbox;
 mod turn;
 
-pub use actor::{ConversationActor, ConversationHandle, ConversationState};
+pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::ConversationError;

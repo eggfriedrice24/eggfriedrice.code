@@ -1,10 +1,11 @@
 //! Command receipts on the daemon's side: answering a retried write from its receipt,
 //! and recording a refusal so that a retry gets the same one.
 //!
-//! The conversation stores an accepted command's result without its `seq`, and the
-//! store records the number with the receipt, so the stored result plus `receipt.seq`
-//! is the first answer exactly. A refused command gets its receipt here, because the
-//! daemon owns the mapping to wire errors.
+//! The conversation stores an accepted command's result without its sequence numbers,
+//! and the store records the number of one event with the receipt, so the stored
+//! result completed from `receipt.seq` (`efr_conversation::completed_result`) is the
+//! first answer exactly. A refused command gets its receipt here, because the daemon
+//! owns the mapping to wire errors.
 
 use efr_protocol::{CommandId, ErrorCode, ErrorFrame};
 use efr_store::receipts::{NewReceipt, Receipt, ReceiptOutcome};
@@ -32,12 +33,12 @@ pub(crate) fn replay(method: &'static str, receipt: Receipt) -> Result<Value, Da
         });
     }
     match receipt.outcome {
-        ReceiptOutcome::Accepted { mut result } => {
-            if let (Value::Object(members), Some(seq)) = (&mut result, receipt.seq) {
-                members.insert("seq".to_owned(), Value::from(seq.get()));
-            }
-            Ok(result)
-        }
+        // NOTE: the conversation knows where each event of its batch is, so it puts the
+        // sequence numbers back, also those inside the result.
+        ReceiptOutcome::Accepted { result } => match receipt.seq {
+            Some(seq) => Ok(efr_conversation::completed_result(method, result, seq)),
+            None => Ok(result),
+        },
         ReceiptOutcome::Rejected { error } => Err(DaemonError::Rejected { body: error }),
     }
 }

@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, ConversationSummary, Event, EventEnvelope, TurnId};
+use efr_protocol::{ConversationId, ConversationSummary, Event, EventEnvelope, Seq, TurnId};
 use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_store::Readers;
 use efr_store::conversations::{self, Turn};
@@ -159,10 +159,16 @@ impl Snapshot {
     ) -> Vec<Message> {
         let mut by_turn: HashMap<TurnId, Vec<&Event>> = HashMap::new();
         let mut started: HashSet<TurnId> = HashSet::new();
+        let resent = resent_steers(&self.page);
         for envelope in &self.page {
             let Some(turn_id) = envelope.event.turn_id() else {
                 continue;
             };
+            // NOTE: an interrupt sent these steers again as a prompt of their own, which
+            // the history holds; no model call of this turn read them.
+            if resent.contains(&envelope.seq) {
+                continue;
+            }
             if matches!(envelope.event, Event::TurnStarted { .. }) {
                 started.insert(turn_id);
             }
@@ -196,6 +202,18 @@ impl Snapshot {
         turns.drain(..first);
         turns.into_iter().flatten().collect()
     }
+}
+
+/// The `turn_steered` events of `page` that an interrupt sent again as a prompt (the
+/// `steers` of a `prompt_queued`).
+pub(crate) fn resent_steers(page: &[EventEnvelope]) -> HashSet<Seq> {
+    page.iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::PromptQueued { steers, .. } => Some(steers.iter().copied()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
 }
 
 /// A turn's saved messages as the cache holds them, or `None` when they cannot be read

@@ -311,6 +311,56 @@ async fn only_finished_turns_other_than_the_current_one_count() {
     );
 }
 
+/// An interrupt sent an unread steer again as a prompt of its own: the rebuilt history
+/// holds it once, as that prompt, and not as a steer of the turn that never read it.
+#[tokio::test]
+async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
+    let (a, b, current) = (turn(2), turn(3), turn(4));
+    // NOTE: seq 1 is conversation_created, 2 and 3 queue and start `a`, 4 is the steer.
+    let mut resent = whole_turn(
+        b,
+        "only the parser",
+        vec![completed(b, 0, "Parser fixed.")],
+        Event::TurnCompleted { turn_id: b, usage: None, changes: None },
+    );
+    if let Event::PromptQueued { steers, .. } = &mut resent[0] {
+        *steers = vec![efr_protocol::Seq::new(4)];
+    }
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "fix the build",
+            vec![
+                Event::TurnSteered { turn_id: a, text: "only the parser".to_owned() },
+                Event::TurnInterruptRequested { turn_id: a, origin: Origin::Shell },
+            ],
+            Event::TurnInterrupted { turn_id: a },
+        ),
+        resent,
+    ])
+    .await;
+    let page = snapshot(&store, HistoryLimits::default()).await;
+    assert!(
+        page.page
+            .iter()
+            .any(|e| e.seq == efr_protocol::Seq::new(4)
+                && matches!(e.event, Event::TurnSteered { .. })),
+        "the steer has the seq that the prompt names"
+    );
+
+    let history =
+        page.history(current, &HashMap::new(), &key("replay", "m"), HistoryLimits::default());
+
+    assert_eq!(
+        history,
+        vec![
+            Message::user("fix the build"),
+            Message::user("only the parser"),
+            Message::assistant("Parser fixed."),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
     let (a, c) = (turn(2), call(3));

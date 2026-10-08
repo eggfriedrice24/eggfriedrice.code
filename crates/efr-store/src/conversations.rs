@@ -39,11 +39,13 @@ pub enum TurnStatus {
     Interrupted,
     /// Running when the daemon stopped, and cancelled at the next start.
     Cancelled,
+    /// Taken back by the user before it started (`prompt_withdrawn`); it never runs.
+    Withdrawn,
 }
 
 impl TurnStatus {
     /// Every status.
-    pub const ALL: [TurnStatus; 7] = [
+    pub const ALL: [TurnStatus; 8] = [
         TurnStatus::Queued,
         TurnStatus::Held,
         TurnStatus::Running,
@@ -51,6 +53,7 @@ impl TurnStatus {
         TurnStatus::Failed,
         TurnStatus::Interrupted,
         TurnStatus::Cancelled,
+        TurnStatus::Withdrawn,
     ];
 
     /// The name stored in the `status` column, such as `running`.
@@ -63,6 +66,7 @@ impl TurnStatus {
             TurnStatus::Failed => "failed",
             TurnStatus::Interrupted => "interrupted",
             TurnStatus::Cancelled => "cancelled",
+            TurnStatus::Withdrawn => "withdrawn",
         }
     }
 
@@ -74,6 +78,7 @@ impl TurnStatus {
                 | TurnStatus::Failed
                 | TurnStatus::Interrupted
                 | TurnStatus::Cancelled
+                | TurnStatus::Withdrawn
         )
     }
 
@@ -182,6 +187,9 @@ pub(crate) fn apply(
         Event::TurnFailed { turn_id, .. } => finish(conn, turn_id, TurnStatus::Failed, at)?,
         Event::TurnInterrupted { turn_id } => finish(conn, turn_id, TurnStatus::Interrupted, at)?,
         Event::TurnCancelled { turn_id } => finish(conn, turn_id, TurnStatus::Cancelled, at)?,
+        Event::PromptWithdrawn { turn_id, .. } => {
+            finish(conn, turn_id, TurnStatus::Withdrawn, at)?;
+        }
         _ => {}
     }
 

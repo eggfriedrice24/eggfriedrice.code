@@ -204,6 +204,37 @@ fn the_user_messages_end_with_the_turn_s_own_prompt() {
 }
 
 #[test]
+fn a_withdrawn_prompt_and_a_steer_sent_again_count_once_or_not_at_all() {
+    let clock = TestClock::new();
+    let turn = |seed| TurnId::from_uuid(uuid_v7(&clock, &TestRng::new(seed)));
+    let (first, withdrawn, resent, current) = (turn(1), turn(2), turn(3), turn(5));
+    let at = |seq: u64, event: Event| EventEnvelope { seq: Seq::new(seq), ..envelope(event) };
+    let prompt = |turn_id, text: &str, steers: Vec<Seq>| Event::PromptQueued {
+        turn_id,
+        command_id: efr_protocol::CommandId::from_uuid(uuid_v7(&clock, &TestRng::new(4))),
+        text: text.to_owned(),
+        origin: Origin::Shell,
+        context: None,
+        settings: efr_protocol::TurnSettings::default(),
+        steers,
+    };
+    let page = vec![
+        at(1, prompt(first, "fix the build", Vec::new())),
+        at(2, prompt(withdrawn, "never mind", Vec::new())),
+        at(3, Event::TurnSteered { turn_id: first, text: "only the parser".to_owned() }),
+        at(4, Event::TurnInterruptRequested { turn_id: first, origin: Origin::Shell }),
+        at(5, Event::PromptWithdrawn { turn_id: withdrawn, origin: Origin::Shell }),
+        at(6, prompt(resent, "only the parser", vec![Seq::new(3)])),
+        at(7, prompt(current, "now push it", Vec::new())),
+    ];
+
+    assert_eq!(
+        user_messages(&page, current),
+        vec!["fix the build", "only the parser", "now push it"]
+    );
+}
+
+#[test]
 fn the_user_messages_drop_the_oldest_first() {
     let max = ExitRecord::MAX_USER_MESSAGES_BYTES;
     let old = "o".repeat(max / 2);

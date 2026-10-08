@@ -260,11 +260,23 @@ impl TurnExits {
 }
 
 /// The user messages of the conversation up to the turn `turn_id`, from the events of
-/// `page`: each prompt and each steering text, oldest first.
+/// `page`: each prompt and each steering text, oldest first. A prompt that the user
+/// withdrew is left out, and so is a steer that an interrupt sent again as a prompt,
+/// which counts once, as that prompt.
 pub(crate) fn user_messages(page: &[EventEnvelope], turn_id: TurnId) -> Vec<String> {
+    let withdrawn: std::collections::HashSet<TurnId> = page
+        .iter()
+        .filter_map(|envelope| match envelope.event {
+            Event::PromptWithdrawn { turn_id, .. } => Some(turn_id),
+            _ => None,
+        })
+        .collect();
+    let resent = crate::history::resent_steers(page);
     let mut messages = Vec::new();
     for envelope in page {
         match &envelope.event {
+            Event::PromptQueued { turn_id: prompt, .. } if withdrawn.contains(prompt) => {}
+            Event::TurnSteered { .. } if resent.contains(&envelope.seq) => {}
             Event::PromptQueued { turn_id: prompt, text, .. } => {
                 messages.push(text.clone());
                 // NOTE: prompts queued behind this turn are not part of what the user

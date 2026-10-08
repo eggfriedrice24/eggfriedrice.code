@@ -15,10 +15,11 @@ use async_trait::async_trait;
 use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CacheMode, CallId, ChangeKind, CommandId, ConversationId,
-    EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait, Mode, Needs,
-    NetworkMode, Origin, OverriddenSettings, ProjectId, PromptSend, PromptSendResult, QuestionId,
-    ReportedFile, SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext,
-    SurfaceChange, TurnId, TurnSettings,
+    EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait, LateSteer, Mode,
+    Needs, NetworkMode, Origin, OverriddenSettings, ProjectId, PromptSend, PromptSendResult,
+    PromptWithdraw, QuestionId, ReportedFile, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    Seq, ShellContext, SurfaceChange, TurnId, TurnInterrupt, TurnSettings, TurnSteer,
+    WithdrawTarget,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
 use efr_scope::{Derivation, Home};
@@ -586,6 +587,65 @@ impl Harness {
             context: Some(ShellContext::new(cwd)),
             last_command: None,
             settings: TurnSettings::default(),
+        }
+    }
+
+    /// Sends `text` from the shell of the terminal `tty` in the test's working
+    /// directory.
+    pub(crate) async fn prompt_from(&mut self, tty: &str, text: &str) -> PromptSendResult {
+        let cwd = self.cwd.clone();
+        let mut params = self.prompt_params(&cwd, text);
+        if let Some(context) = params.context.as_mut() {
+            context.tty = Some(tty.to_owned());
+        }
+        self.handle.send_prompt(params, Origin::Shell).await.expect("prompt accepted")
+    }
+
+    /// A steer of `text` for `turn_id`. With `queue`, a late steer becomes a prompt from
+    /// the shell in the test's working directory, as Enter in the input row sends it.
+    pub(crate) fn steer_params(
+        &mut self,
+        turn_id: Option<TurnId>,
+        text: &str,
+        queue: bool,
+    ) -> TurnSteer {
+        let if_late = queue.then(|| LateSteer::Queue {
+            context: Some(ShellContext::new(&self.cwd)),
+            last_command: None,
+            settings: TurnSettings::default(),
+        });
+        TurnSteer {
+            command_id: self.command_id(),
+            conversation_id: self.conversation_id,
+            turn_id,
+            text: text.to_owned(),
+            if_late,
+        }
+    }
+
+    /// An interrupt of `turn_id` that sends the steers `resend` again and withdraws the
+    /// prompts of `withdraw`, as Esc in the input row sends it.
+    pub(crate) fn interrupt_params(
+        &mut self,
+        turn_id: Option<TurnId>,
+        resend: Vec<Seq>,
+        withdraw: Vec<TurnId>,
+    ) -> TurnInterrupt {
+        TurnInterrupt {
+            command_id: self.command_id(),
+            conversation_id: self.conversation_id,
+            turn_id,
+            resend_steers: resend,
+            withdraw,
+        }
+    }
+
+    /// A withdraw of the queued prompt that `target` names.
+    pub(crate) fn withdraw_params(&mut self, target: WithdrawTarget) -> PromptWithdraw {
+        PromptWithdraw {
+            command_id: self.command_id(),
+            conversation_id: self.conversation_id,
+            target,
         }
     }
 

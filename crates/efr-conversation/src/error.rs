@@ -59,6 +59,38 @@ pub enum ConversationError {
         requested: TurnId,
     },
 
+    /// The prompt of this turn no longer waits in the queue: it started, ended or was
+    /// withdrawn, so it cannot be withdrawn.
+    #[error("the prompt of the turn {turn_id} no longer waits in the queue")]
+    PromptNotWaiting {
+        /// The turn of the prompt.
+        turn_id: TurnId,
+    },
+
+    /// The conversation never queued a prompt for this turn.
+    #[error("the conversation {conversation_id} has no turn {turn_id}")]
+    UnknownTurn {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The turn the request named.
+        turn_id: TurnId,
+    },
+
+    /// The request asks for a choice that this build does not know, such as a kind of
+    /// `if_late` or of a withdraw target from a newer protocol.
+    #[error("this daemon does not support this {what}")]
+    Unsupported {
+        /// What the request chose, such as `"withdraw target"`.
+        what: &'static str,
+    },
+
+    /// No prompt from this terminal waits in the queue.
+    #[error("no prompt from the terminal {tty} waits in the queue")]
+    NoQueuedPrompt {
+        /// The terminal the request named.
+        tty: String,
+    },
+
     /// No turn of this conversation waits for an answer about this call: it was never
     /// asked here, it is answered already, or it expired.
     #[error("the call {call_id} has no pending approval")]

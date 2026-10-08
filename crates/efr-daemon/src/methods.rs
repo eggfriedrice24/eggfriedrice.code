@@ -227,7 +227,9 @@ impl Dispatcher for Methods {
                 Method::TurnInterrupt(params) => {
                     turn_interrupt::handle(state, &context, params, &responder).await
                 }
-                Method::TurnSteer(params) => turn_steer::handle(state, params, &responder).await,
+                Method::TurnSteer(params) => {
+                    turn_steer::handle(state, &context, params, &responder).await
+                }
                 Method::ApprovalRespond(params) => {
                     approval_respond::handle(state, &context, params, &responder).await
                 }
@@ -273,7 +275,9 @@ impl Dispatcher for Methods {
                 Method::ConversationDiff(params) => {
                     conversation_diff::handle(state, &context, params, &responder).await
                 }
-                Method::PromptWithdraw(params) => prompt_withdraw::handle(&params),
+                Method::PromptWithdraw(params) => {
+                    prompt_withdraw::handle(state, &context, params, &responder).await
+                }
             }
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))

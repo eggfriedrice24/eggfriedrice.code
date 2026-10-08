@@ -267,8 +267,37 @@ fn turn_status_names_round_trip_and_finished_ones_are_marked() {
     assert!(TurnStatus::from_column("paused").is_err());
     let finished: Vec<TurnStatus> =
         TurnStatus::ALL.into_iter().filter(|status| status.is_finished()).collect();
-    use TurnStatus::{Cancelled, Completed, Failed, Interrupted};
-    assert_eq!(finished, [Completed, Failed, Interrupted, Cancelled]);
+    use TurnStatus::{Cancelled, Completed, Failed, Interrupted, Withdrawn};
+    assert_eq!(finished, [Completed, Failed, Interrupted, Cancelled, Withdrawn]);
+}
+
+#[tokio::test]
+async fn a_withdrawn_prompt_ends_its_turn_and_is_never_unfinished() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer
+        .append(
+            Batch::new()
+                .event(id, testing::created(None))
+                .event(id, testing::queued(1, "running"))
+                .event(id, testing::started(1, "/"))
+                .event(id, testing::queued(2, "taken back"))
+                .event(
+                    id,
+                    Event::PromptWithdrawn { turn_id: testing::turn(2), origin: Origin::Shell },
+                ),
+        )
+        .await
+        .unwrap();
+
+    let all = on_writer(&writer, move |conn| turns(conn, id)).await.unwrap();
+    let unfinished = on_writer(&writer, unfinished_turns).await.unwrap();
+
+    assert_eq!(all[1].status, TurnStatus::Withdrawn);
+    assert!(all[1].started_at.is_none() && all[1].ended_at.is_some());
+    assert_eq!(all[1].last_seq, Seq::new(5));
+    let unfinished: Vec<TurnId> = unfinished.iter().map(|turn| turn.id).collect();
+    assert_eq!(unfinished, [testing::turn(1)], "a restart never cancels a withdrawn prompt");
 }
 
 #[tokio::test]

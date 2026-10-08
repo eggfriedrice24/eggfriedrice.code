@@ -31,16 +31,41 @@ turns.
   from a remote origin runs with at most `cautious`. The turn sends its model, its
   effort as `provider_options["reasoning_effort"]`, and its mode in the permission
   engine's `DecisionInput` and as a line of the preamble.
-- `steer` records `turn_steered`; the turn sends the text to the model before its next
-  model call, and a turn that would end with steering waiting makes one more call.
-  When the turn has made its last model call, or ends another way, it closes its
-  steering, and a later `steer` gets `NoRunningTurn`. The turn waits for a steer that
-  the actor is recording at that moment and reads it, so the user never gets an answer
-  for guidance that no model call reads.
+- `steer` records `turn_steered`. Before its next model call the turn records
+  `steering_delivered` with the seqs of the steers it takes, then sends their texts to
+  the model. A turn that would end with steering waiting makes one more call. A steer
+  is late when no model call of the turn would read it: the turn made its last model
+  call and closed its steering, an interrupt was asked for, the steer names another
+  turn, or no turn runs. A late steer is never recorded as `turn_steered`. Without
+  `if_late` it gets `NoRunningTurn` (or `TurnMismatch`). With `if_late: queue` the
+  actor records it as `prompt_queued` in the same step, with the steer's command id,
+  the origin of the caller and the context and settings of `if_late`, and the result
+  says `queued`. The turn waits for a steer that the actor is recording at that moment
+  and reads it, so a steer is either read or late, never lost.
 - `interrupt` is two-phase: the actor records `turn_interrupt_requested`, the turn
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only
-  then records `turn_interrupted`.
+  then records `turn_interrupted`. Esc in the input row of `efr` lists the prompts that
+  its view queued (`withdraw`) and its unread steers (`resend_steers`). In the step and
+  the append that record `turn_interrupt_requested`, the actor withdraws the listed
+  prompts that still wait (`prompt_withdrawn` each, in queue order) and takes the
+  listed steers that no model call took yet out of the turn's steering. It records
+  them as one `prompt_queued` (texts joined by newlines, `steers` set, the context,
+  settings and last command of the interrupted turn's prompt) that runs next, before
+  the prompts that wait. Prompts and steers that are not listed stay as they are, so
+  those of other terminals stay queued. A steer that the turn took for a model call
+  counts as read, also when the interrupt stops that call.
+- `withdraw` takes one queued prompt back, by its turn or as the newest prompt of a
+  terminal, and records `prompt_withdrawn`, the last event of that turn. The actor
+  starts a queued turn only between requests, so a prompt either starts or is
+  withdrawn. A prompt that started, ended or was withdrawn is `PromptNotWaiting`; a turn
+  that the conversation never queued is `UnknownTurn`; a terminal with no queued
+  prompt is `NoQueuedPrompt`.
+- The receipt of a result with sequence numbers inside it (`turn.interrupt`,
+  `prompt.withdraw`) is stored without them. The events of a batch have consecutive
+  numbers, so `completed_result` puts them back from the receipt's seq.
+- The rebuilt history and the user messages of an exit record leave out a steer that
+  an interrupt sent again (it counts once, as its prompt) and a withdrawn prompt.
 - An approval's summary names the tool and what needs approval, the command line
   first. When some simple commands of a line of several ask, a second line names them,
   such as `asks for: hostnamectl, systemctl --failed`: each by its program and at most
@@ -297,7 +322,14 @@ and `after_seq`, coalescing on the clock, the same log with and without a listen
 timer without one), a queued second prompt, receipts and
 the refusals, a steer after the last model call, and the requests of a client that has
 just seen the end of a turn (`actor/tests.rs` holds the turn's task after its work
-with a tracing layer, so an end recorded too early shows every time). The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
+with a tracing layer, so an end recorded too early shows every time). The input row
+of a turn (`actor/tests/turn_input.rs`) holds turns with gates, not time: a steer
+after an interrupt, a steer as steering closes, a late steer with no running turn,
+withdraws by turn and by terminal with their refusals, a withdraw just before and just
+after the queued prompt would start, an interrupt that withdraws and resends in one
+append (with the prompt of another terminal left queued and a retry that gets the same
+sequence numbers), a steer that a model call read, and a refused interrupt that
+changes nothing. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,

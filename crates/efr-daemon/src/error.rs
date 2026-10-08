@@ -621,10 +621,15 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         ConversationError::Store { source } => store_code(source),
         ConversationError::DuplicateCommand { .. }
         | ConversationError::NoRunningTurn { .. }
-        | ConversationError::TurnMismatch { .. } => ErrorCode::Conflict,
-        ConversationError::WrongConversation { .. } => ErrorCode::Invalid,
+        | ConversationError::TurnMismatch { .. }
+        | ConversationError::PromptNotWaiting { .. } => ErrorCode::Conflict,
+        ConversationError::WrongConversation { .. } | ConversationError::Unsupported { .. } => {
+            ErrorCode::Invalid
+        }
         ConversationError::ApprovalNotPending { .. }
-        | ConversationError::QuestionNotPending { .. } => ErrorCode::NotFound,
+        | ConversationError::QuestionNotPending { .. }
+        | ConversationError::UnknownTurn { .. }
+        | ConversationError::NoQueuedPrompt { .. } => ErrorCode::NotFound,
         ConversationError::RemoteSurfaceAnswer { .. } => ErrorCode::Forbidden,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
