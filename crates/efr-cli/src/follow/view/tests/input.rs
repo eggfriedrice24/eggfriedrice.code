@@ -2,16 +2,16 @@
 //! cursor waits, what waits for the turn above the status row, the steer that a model
 //! call read, and the prompt that the view follows after the turn.
 
-use efr_protocol::{Event, EventEnvelope, Scope, Seq, TurnId, TurnInterruptResult};
+use efr_protocol::{Event, EventEnvelope, ResentSteers, Scope, Seq, TurnId, TurnInterruptResult};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 
-use super::super::{Look, TurnEnd, TurnView};
+use super::super::{Look, RESENT, TurnEnd, TurnView};
 use super::at;
 use crate::keys::Key;
 use crate::row::Action;
 use crate::terminal::Size;
-use crate::testing::{Grid, turn};
+use crate::testing::{Grid, call, turn};
 
 const SIZE: Size = Size { cols: 50, rows: 20 };
 
@@ -142,6 +142,113 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
     insta::assert_snapshot!(format!(
         "[waiting]\n{waiting}\n\n[running]\n{running}\n\n[end]\n{last}"
     ));
+}
+
+#[test]
+fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
+    let (mut view, mut grid) = row_view();
+    let started = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: "/home/user/project".into(),
+        scope: Scope::Machine,
+        settings: None,
+    };
+    event(&mut view, 10, 0, started);
+    view.steered(Seq::new(11), "look at the logs first".to_owned());
+    let running = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: serde_json::json!({ "command": "sleep 60" }),
+        manual_input: false,
+        launch: None,
+    };
+    event(&mut view, 12, 100, running);
+    screen(&mut view, &mut grid, 100);
+    // Esc: the result comes back while the call still runs.
+    let result = TurnInterruptResult {
+        turn_id: turn(),
+        seq: Seq::new(13),
+        resent: Some(ResentSteers {
+            turn_id: turn_2(),
+            seq: Seq::new(14),
+            steers: vec![Seq::new(11)],
+        }),
+        withdrawn: Vec::new(),
+        withdrawn_steers: Vec::new(),
+    };
+    view.interrupt_result(&result, SIZE);
+    let waiting = screen(&mut view, &mut grid, 200);
+    assert!(!waiting.contains(RESENT), "the stopped call comes first: {waiting}");
+    let stopped = Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: String::new(),
+        truncated: false,
+        is_error: true,
+        exit_code: Some(130),
+        sandbox: None,
+        refusal: None,
+        changes: None,
+        diff: None,
+    };
+    event(&mut view, 15, 300, stopped);
+    let envelope = EventEnvelope {
+        seq: Seq::new(16),
+        conversation_id: None,
+        at: at(400),
+        event: Event::TurnInterrupted { turn_id: turn() },
+    };
+    let step = view.envelope(&envelope, SIZE, true);
+    assert_eq!(step.end, None, "the steer runs next as a prompt");
+    assert_eq!(view.turn(), turn_2());
+    let shown = screen(&mut view, &mut grid, 400);
+    let call_at = shown.find("$ sleep 60").expect(&shown);
+    let end_at = shown.find("interrupted after").expect(&shown);
+    let note_at = shown.find(RESENT).expect(&shown);
+    assert!(call_at < end_at && end_at < note_at, "{shown}");
+    assert_eq!(shown.matches(RESENT).count(), 1, "{shown}");
+}
+
+#[test]
+fn the_note_of_a_resend_comes_at_once_when_the_turn_already_ended() {
+    let (mut view, mut grid) = row_view();
+    let started = Event::TurnStarted {
+        turn_id: turn(),
+        cwd: "/home/user/project".into(),
+        scope: Scope::Machine,
+        settings: None,
+    };
+    event(&mut view, 10, 0, started);
+    view.steered(Seq::new(11), "look at the logs first".to_owned());
+    let resent = Event::PromptQueued {
+        turn_id: turn_2(),
+        command_id: "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap(),
+        text: "look at the logs first".to_owned(),
+        origin: efr_protocol::Origin::Shell,
+        context: None,
+        settings: efr_protocol::TurnSettings::default(),
+        steers: vec![Seq::new(11)],
+    };
+    event(&mut view, 13, 0, resent);
+    event(&mut view, 14, 100, Event::TurnInterrupted { turn_id: turn() });
+    assert_eq!(view.turn(), turn_2());
+    let result = TurnInterruptResult {
+        turn_id: turn(),
+        seq: Seq::new(12),
+        resent: Some(ResentSteers {
+            turn_id: turn_2(),
+            seq: Seq::new(13),
+            steers: vec![Seq::new(11)],
+        }),
+        withdrawn: Vec::new(),
+        withdrawn_steers: Vec::new(),
+    };
+    view.interrupt_result(&result, SIZE);
+    let shown = screen(&mut view, &mut grid, 200);
+    let end_at = shown.find("interrupted after").expect(&shown);
+    let note_at = shown.find(RESENT).expect(&shown);
+    assert!(end_at < note_at, "{shown}");
 }
 
 #[test]

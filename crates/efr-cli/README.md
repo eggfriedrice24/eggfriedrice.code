@@ -379,12 +379,13 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   sends them), and the prompts that it queued (`withdraw`). The prompts that the
   daemon took back come into the row after its text; the steers that it sent again
   become a prompt that runs next, with the note `interrupted to send your message`.
-  When the followed prompt still waits behind another turn, Esc takes it back with
-  `prompt.withdraw` instead, with the prompts after it: the newest first and the
-  followed one last, so none of them can start in between. When the followed one
-  started meanwhile (`conflict`), Esc interrupts it as above. A turn that Esc stopped,
-  and after which nothing runs, ends the command as Ctrl+C does (exit 130, no
-  message).
+  The note waits for the end of the interrupted turn, so it comes after the call that
+  Esc stopped and after the line of the end. When the followed prompt still waits
+  behind another turn, Esc takes it back with `prompt.withdraw` instead, with the
+  prompts after it: the newest first and the followed one last, so none of them can
+  start in between. When the followed one started meanwhile (`conflict`), Esc
+  interrupts it as above. A turn that Esc stopped, and after which nothing runs, ends
+  the command as Ctrl+C does (exit 130, no message).
 - Ctrl+C with text in the row clears the text. On an empty row it interrupts the turn
   and ends the command as before. It sends the unread steers of this view as
   `withdraw_steers` and the prompts that it queued as `withdraw`, which would run with
@@ -715,7 +716,8 @@ character and every row fits); `follow/view/input/tests.rs` the row, the hint, t
 five rows and the lines of what waits; `live/tests.rs` the cursor in the tail and a
 tick above it on a simulated screen (`testing::Grid`); `follow/view/tests/input.rs`
 snapshots the live zone with the row, a steer that a model call read and a queued
-prompt that the view follows. `follow/tests/row.rs` runs the follow loop with the row
+prompt that the view follows, and checks that the note of a resend comes after the
+call that Esc stopped. `follow/tests/row.rs` runs the follow loop with the row
 against a fake daemon: the params of Enter, Tab, Esc, Alt+Up and Ctrl+C, a late steer,
 the prompts that the view follows, a question and a password that take the keys, the
 cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.

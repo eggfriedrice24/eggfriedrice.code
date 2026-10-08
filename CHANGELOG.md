@@ -76,6 +76,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - The hint of an empty input row starts one column after the cursor. Before, a block
   cursor stood on the first letter of the hint and seemed to cover it. efr does not
   change the cursor shape.
+- The note `interrupted to send your message` now comes after the call that Esc
+  stopped and after the end of the interrupted turn. Before, it came above the
+  stopped call.
 
 ### Fixed
 

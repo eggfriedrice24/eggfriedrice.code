@@ -509,6 +509,10 @@ pub(crate) struct TurnView {
     input: Option<Input>,
     /// This view asked to interrupt the followed turn (Esc).
     interrupting: bool,
+    /// The interrupt of this view sent its unread steers again: the note that says so
+    /// waits for the end of the followed turn, so that it comes after what the turn
+    /// still shows, such as the call that the interrupt stopped.
+    resent_note: bool,
 }
 
 impl TurnView {
@@ -559,6 +563,7 @@ impl TurnView {
             event_seq: None,
             input: None,
             interrupting: false,
+            resent_note: false,
         }
     }
 
@@ -714,10 +719,15 @@ impl TurnView {
 
     /// What an interrupt from the input row (Esc) did: the prompts it took back come
     /// into the row, and the unread steers that it sent again are now a prompt that
-    /// runs next, which this view follows, with a note that says so.
+    /// runs next, which this view follows, with a note that says so. The note comes
+    /// at the end of the interrupted turn, after the call that the interrupt stopped;
+    /// when that turn already ended, it comes now.
     pub(crate) fn interrupt_result(&mut self, result: &TurnInterruptResult, size: Size) -> Step {
+        let following = result.turn_id == self.turn && !self.ended;
         // The interrupt is this view's own: its request needs no note.
-        self.interrupting = true;
+        if following {
+            self.interrupting = true;
+        }
         for withdrawn in &result.withdrawn {
             self.withdrawn(withdrawn.turn_id, &withdrawn.text);
         }
@@ -726,6 +736,10 @@ impl TurnView {
         };
         if let Some(input) = &mut self.input {
             input.resent(resent.turn_id, &resent.steers);
+        }
+        if following {
+            self.resent_note = true;
+            return self.commit(String::new());
         }
         self.note(RESENT, size)
     }
@@ -2252,6 +2266,11 @@ impl TurnView {
         if next.is_some() {
             notes.extend(ended_note(&end));
         }
+        // The steers that this view's interrupt sent again run next: the note says so
+        // after all that the interrupted turn showed, in the order that it happened.
+        if std::mem::take(&mut self.resent_note) {
+            notes.push(RESENT.to_owned());
+        }
         for note in &notes {
             let noted = self.note(note, size);
             step.out.push_str(&noted.out);
@@ -2293,6 +2312,7 @@ impl TurnView {
         self.started_at = None;
         self.draft_boundary = None;
         self.interrupting = false;
+        self.resent_note = false;
         if let Some(input) = &mut self.input {
             input.prompt = Some(next.text);
         }

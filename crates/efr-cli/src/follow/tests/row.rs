@@ -30,6 +30,9 @@ use crate::testing::{
     conversation, item, turn,
 };
 
+/// The note when Esc sent the unread steers again as a new prompt.
+const RESENT: &str = "interrupted to send your message";
+
 /// Waits until stdout, without its escape sequences, holds `text`.
 async fn shows(seen: &Captured, text: &str) {
     shows_where(seen, |shown| shown.contains(text)).await;
@@ -333,14 +336,16 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
     let keys = Arc::clone(&setup.keys);
     let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
-        enter(&mut conn, &keys, "look at the logs first", 11).await;
-        tab(&mut conn, &keys, "then fix the bug", turn_2(), 12).await;
+        conn.item(sub, &item(11, shell_started("sleep 60"))).await;
+        shows(&seen, "$ sleep 60").await;
+        enter(&mut conn, &keys, "look at the logs first", 12).await;
+        tab(&mut conn, &keys, "then fix the bug", turn_2(), 13).await;
         keys.type_bytes(b"half typed").await;
         shows(&seen, "half typed").await;
         keys.press_esc().await;
         let (id, params) = interrupt_request(&mut conn).await;
         assert_eq!(params.turn_id, Some(turn()));
-        assert_eq!(params.resend_steers, [Seq::new(11)]);
+        assert_eq!(params.resend_steers, [Seq::new(12)]);
         let compose = compose();
         let resend_as = LateSteer::Queue {
             context: Some(compose.context),
@@ -352,35 +357,44 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         assert_eq!(params.withdraw, [turn_2()]);
         let result = TurnInterruptResult {
             turn_id: turn(),
-            seq: Seq::new(13),
+            seq: Seq::new(14),
             resent: Some(ResentSteers {
                 turn_id: turn_3(),
-                seq: Seq::new(15),
-                steers: vec![Seq::new(11)],
+                seq: Seq::new(16),
+                steers: vec![Seq::new(12)],
             }),
             withdrawn: vec![WithdrawnPrompt {
                 turn_id: turn_2(),
-                seq: Seq::new(14),
+                seq: Seq::new(15),
                 text: "then fix the bug".to_owned(),
             }],
             withdrawn_steers: Vec::new(),
         };
         conn.reply(id, &result).await;
-        shows(&seen, "interrupted to send your message").await;
         shows(&seen, "  then fix the bug").await;
+        // The same frame shows the result: the note waits for the stopped call.
+        assert!(!bare(&seen.stdout()).contains(RESENT), "{}", bare(&seen.stdout()));
         let requested = Event::TurnInterruptRequested { turn_id: turn(), origin: Origin::Shell };
-        conn.item(sub, &item(13, requested)).await;
+        conn.item(sub, &item(14, requested)).await;
         let withdrawn = Event::PromptWithdrawn { turn_id: turn_2(), origin: Origin::Shell };
-        conn.item(sub, &item(14, withdrawn)).await;
-        conn.item(sub, &item(16, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.item(sub, &item(15, withdrawn)).await;
+        conn.item(sub, &item(17, shell_completed(130))).await;
+        conn.item(sub, &item(18, Event::TurnInterrupted { turn_id: turn() })).await;
+        shows(&seen, RESENT).await;
         // The steer runs as its own prompt now, which the view follows.
-        conn.item(sub, &item(17, started(turn_3()))).await;
+        conn.item(sub, &item(19, started(turn_3()))).await;
         shows(&seen, "> look at the logs first").await;
-        conn.item(sub, &item(18, ended(turn_3()))).await;
+        conn.item(sub, &item(20, ended(turn_3()))).await;
         conn.until_closed().await;
     })
     .await;
     result.unwrap();
+    // In the order that it happened: the stopped call, the end of its turn, the note.
+    let call_at = out.rfind("$ sleep 60").unwrap();
+    let end_at = out.find("interrupted").unwrap();
+    let note_at = out.find(RESENT).unwrap();
+    assert!(call_at < end_at && end_at < note_at, "{}", readable(&out));
+    assert_eq!(out.matches(RESENT).count(), 1, "{}", readable(&out));
     assert!(!after(&out, "> look at the logs first").contains("\u{21b3}"), "{}", readable(&out));
     assert!(!out.contains("interrupt requested"), "its own request needs no note: {out}");
     assert_eq!(setup.handed_back().as_deref(), Some("half typed\nthen fix the bug"));
