@@ -2,11 +2,13 @@
 //! to, how far its recording reaches, how much input it took, and the live fan-out of
 //! its output to `pty.attach` streams.
 //!
-//! The recording sink reports every chunk here after the chunk is stored, so a client
-//! that registers before it reads the recording misses nothing: a chunk is either in
-//! what it read or offered to it live, or both, and the attach handler drops the
-//! overlap by offset. Each attached client has its own bounded queue; a full queue
-//! closes that client's stream with `overflow` and never slows the shell.
+//! The recording sink reports every chunk and every new size here after it stored it, so
+//! a client that registers before it reads the recording misses nothing: a step is
+//! either in what it read or offered to it live, or both. The registration returns the
+//! [`AttachMark`] of that moment, and the attach handler replays the recording only up
+//! to it: what comes after, the client gets live, so nothing comes twice. Each attached
+//! client has its own bounded queue; a full queue closes that client's stream with
+//! `overflow` and never slows the shell.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,14 +40,29 @@ pub(crate) enum PtyDelivery {
     Overflowed,
 }
 
+/// How far the steps offered before a client registered reach: every output byte
+/// before `end`, and the first `sizes_at_end` sizes at `end`. Everything else the client
+/// gets live.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct AttachMark {
+    pub(crate) end: u64,
+    pub(crate) sizes_at_end: u32,
+}
+
 /// The live side of one attached client.
 #[derive(Debug)]
 pub(crate) struct AttachReceiver {
     rx: mpsc::Receiver<PtyLive>,
     overflowed: Arc<AtomicBool>,
+    mark: AttachMark,
 }
 
 impl AttachReceiver {
+    /// What was offered before this client registered.
+    pub(crate) fn mark(&self) -> AttachMark {
+        self.mark
+    }
+
     /// The next step, or `None` once the shell exited and everything queued was read.
     pub(crate) async fn recv(&mut self) -> Option<PtyDelivery> {
         match self.rx.recv().await {
@@ -85,9 +102,21 @@ struct Entry {
     pid: Option<u32>,
     /// The recording offset after the last stored byte.
     end: u64,
+    /// The sizes stored at `end`.
+    sizes_at_end: u32,
     /// Bytes typed into the PTY through `pty.write`.
     input: u64,
     attached: Vec<AttachSender>,
+}
+
+impl Entry {
+    /// Moves the end to `end` when that is further.
+    fn advance(&mut self, end: u64) {
+        if end > self.end {
+            self.end = end;
+            self.sizes_at_end = 0;
+        }
+    }
 }
 
 /// What the idle collector sees of one PTY.
@@ -115,6 +144,7 @@ impl Ptys {
             conversation,
             pid,
             end: 0,
+            sizes_at_end: 0,
             input: 0,
             attached: Vec::new(),
         });
@@ -143,11 +173,6 @@ impl Ptys {
         self.lock().len()
     }
 
-    /// The recording offset after the last stored byte of `pty_id`.
-    pub(crate) fn end(&self, pty_id: PtyId) -> Option<u64> {
-        self.lock().get(&pty_id).map(|entry| entry.end)
-    }
-
     /// The bytes `data`, stored at offset `start`, go to every attached client.
     pub(crate) fn recorded(&self, pty_id: PtyId, start: u64, data: Bytes) {
         let mut entries = self.lock();
@@ -155,7 +180,7 @@ impl Ptys {
             return;
         };
         let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
-        entry.end = entry.end.max(start.saturating_add(len));
+        entry.advance(start.saturating_add(len));
         let live = PtyLive::Output { start, data };
         entry.attached.retain(|client| client.offer(live.clone()));
     }
@@ -167,13 +192,17 @@ impl Ptys {
         }
     }
 
-    /// `pty_id` took `size`; attached clients learn at the current offset.
-    pub(crate) fn resized(&self, pty_id: PtyId, size: Size) {
+    /// `pty_id` took `size`, stored at recording offset `at`; attached clients learn it.
+    pub(crate) fn resized(&self, pty_id: PtyId, at: u64, size: Size) {
         let mut entries = self.lock();
         let Some(entry) = entries.get_mut(&pty_id) else {
             return;
         };
-        let live = PtyLive::Resized { at: entry.end, size };
+        entry.advance(at);
+        if at == entry.end {
+            entry.sizes_at_end = entry.sizes_at_end.saturating_add(1);
+        }
+        let live = PtyLive::Resized { at, size };
         entry.attached.retain(|client| client.offer(live.clone()));
     }
 
@@ -185,7 +214,8 @@ impl Ptys {
         let (tx, rx) = mpsc::channel(ATTACH_QUEUE);
         let overflowed = Arc::new(AtomicBool::new(false));
         entry.attached.push(AttachSender { tx, overflowed: Arc::clone(&overflowed) });
-        Some(AttachReceiver { rx, overflowed })
+        let mark = AttachMark { end: entry.end, sizes_at_end: entry.sizes_at_end };
+        Some(AttachReceiver { rx, overflowed, mark })
     }
 
     /// The activity of every running PTY, for the idle collector.

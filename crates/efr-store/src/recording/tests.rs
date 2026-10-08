@@ -69,9 +69,129 @@ async fn appended_bytes_read_back_with_their_offsets_and_times() {
                 RecordedChunk { seq: Seq::new(0), at: t0, data: b"hello ".to_vec() },
                 RecordedChunk { seq: Seq::new(6), at: t1, data: b"world".to_vec() },
             ],
+            resizes: vec![],
         }
     );
     assert_eq!(range.bytes(), b"hello world");
+}
+
+const WIDE: Size = Size { cols: 120, rows: 40 };
+const NARROW: Size = Size { cols: 80, rows: 24 };
+
+/// The offsets and sizes of a range's resizes.
+fn sizes(range: &RecordedRange) -> Vec<(u64, Size)> {
+    range.resizes.iter().map(|resize| (resize.seq.get(), resize.size)).collect()
+}
+
+#[tokio::test]
+async fn sizes_read_back_at_their_offsets_between_the_chunks() {
+    let setup = setup().await;
+    let pty = testing::pty(1);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+
+    writer.append(b"hello ").await.unwrap();
+    setup.clock.advance(Duration::from_millis(10));
+    let wide = writer.resize(WIDE).await.unwrap();
+    let t_wide = micros(setup.clock.now());
+    writer.append(b"world").await.unwrap();
+    let narrow = writer.resize(NARROW).await.unwrap();
+
+    assert_eq!((wide, narrow, writer.end_seq()), (Seq::new(6), Seq::new(11), Seq::new(11)));
+    let all = setup.recordings.read_range(pty, Seq::ZERO, END).await.unwrap();
+    assert_eq!(all.bytes(), b"hello world", "a size takes no stream bytes");
+    assert_eq!((all.start, all.end), (Seq::new(0), Seq::new(11)));
+    assert_eq!(sizes(&all), [(6, WIDE), (11, NARROW)]);
+    assert_eq!(all.resizes[0].at, t_wide);
+    // A size belongs to a range that starts at its offset, not to one that ends there.
+    let from_six = setup.recordings.read_range(pty, Seq::new(6), END).await.unwrap();
+    assert_eq!(sizes(&from_six), [(6, WIDE), (11, NARROW)]);
+    let before = setup.recordings.read_range(pty, Seq::ZERO, Seq::new(6)).await.unwrap();
+    assert_eq!(sizes(&before), []);
+    let after = setup.recordings.read_range(pty, Seq::new(7), END).await.unwrap();
+    assert_eq!(sizes(&after), [(11, NARROW)]);
+}
+
+#[tokio::test]
+async fn a_size_at_the_end_of_a_segment_reads_from_the_next_offset() {
+    let mut setup = setup().await;
+    // Two 30-byte chunks and a size (92 + 20 bytes) fit; the next chunk does not.
+    setup.recordings = setup.recordings.clone().with_segment_limit(120);
+    let pty = testing::pty(1);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    writer.append(&[1; 30]).await.unwrap();
+    writer.append(&[2; 30]).await.unwrap();
+    writer.resize(WIDE).await.unwrap();
+    writer.append(&[3; 30]).await.unwrap();
+
+    let starts: Vec<u64> =
+        setup.segments(pty).await.iter().map(|segment| segment.start_seq.get()).collect();
+    assert_eq!(starts, [0, 60]);
+    assert_eq!(fs::metadata(setup.file(pty, 0)).unwrap().len(), 112);
+    let range = setup.recordings.read_range(pty, Seq::new(60), END).await.unwrap();
+    assert_eq!(sizes(&range), [(60, WIDE)]);
+    assert_eq!(range.bytes(), vec![3; 30]);
+}
+
+#[tokio::test]
+async fn a_size_that_does_not_fit_starts_the_next_segment() {
+    let mut setup = setup().await;
+    setup.recordings = setup.recordings.clone().with_segment_limit(100);
+    let pty = testing::pty(1);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    writer.append(&[1; 30]).await.unwrap();
+    writer.append(&[2; 30]).await.unwrap();
+    writer.resize(WIDE).await.unwrap();
+
+    let starts: Vec<u64> =
+        setup.segments(pty).await.iter().map(|segment| segment.start_seq.get()).collect();
+    assert_eq!(starts, [0, 60]);
+    assert_eq!(fs::metadata(setup.file(pty, 60)).unwrap().len(), 20);
+    let range = setup.recordings.read_range(pty, Seq::ZERO, END).await.unwrap();
+    assert_eq!(sizes(&range), [(60, WIDE)]);
+}
+
+#[tokio::test]
+async fn a_segment_of_sizes_alone_never_rotates() {
+    // A rotation there would start a segment at the same offset, which the index
+    // cannot hold.
+    let mut setup = setup().await;
+    setup.recordings = setup.recordings.clone().with_segment_limit(40);
+    let pty = testing::pty(1);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    for _ in 0..3 {
+        writer.resize(WIDE).await.unwrap();
+    }
+    writer.append(&[1; 30]).await.unwrap();
+    writer.append(&[2; 30]).await.unwrap();
+    drop(writer);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    writer.resize(NARROW).await.unwrap();
+    writer.append(b"next").await.unwrap();
+
+    let starts: Vec<u64> =
+        setup.segments(pty).await.iter().map(|segment| segment.start_seq.get()).collect();
+    assert_eq!(starts, [0, 30, 60]);
+    let range = setup.recordings.read_range(pty, Seq::ZERO, END).await.unwrap();
+    assert_eq!(sizes(&range), [(0, WIDE), (0, WIDE), (0, WIDE), (60, NARROW)]);
+    assert_eq!(range.end, Seq::new(64));
+}
+
+#[tokio::test]
+async fn a_new_writer_continues_after_sizes() {
+    let setup = setup().await;
+    let pty = testing::pty(1);
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    writer.append(b"ab").await.unwrap();
+    writer.resize(WIDE).await.unwrap();
+    writer.close().await.unwrap();
+
+    let mut writer = setup.recordings.start(pty).await.unwrap();
+    assert_eq!(writer.end_seq(), Seq::new(2), "a size takes no stream bytes");
+    writer.append(b"c").await.unwrap();
+
+    let range = setup.recordings.read_range(pty, Seq::ZERO, END).await.unwrap();
+    assert_eq!(range.bytes(), b"abc");
+    assert_eq!(sizes(&range), [(2, WIDE)]);
 }
 
 #[tokio::test]

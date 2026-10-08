@@ -6,6 +6,8 @@
 //! marks that bound a command's output, so [`Recordings::read_range`] can slice any
 //! command's output back out. Every chunk carries the time it was read
 //! (`format.rs` has the layout), and a segment rotates before it would pass 8 MiB.
+//! The recording also holds each new size of the PTY at its offset, so a client that
+//! resumes `pty.attach` learns the sizes it missed.
 //!
 //! The daemon's `RecordingSink` holds one [`RecordingWriter`] per PTY. The writer
 //! adds a segment's index row before it creates the file and closes the row after the
@@ -19,7 +21,7 @@ use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{PtyId, Seq};
+use efr_protocol::{PtyId, Seq, Size};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
 use rusqlite::{Connection, Row, params};
@@ -85,6 +87,10 @@ pub struct RecordedRange {
     /// The bytes as the chunks they were recorded in, clipped to the range, in order.
     /// A gap between two chunks means bytes are missing from the recording.
     pub chunks: Vec<RecordedChunk>,
+    /// The new sizes of the PTY with offsets in the range, in the order they were
+    /// recorded. A size at offset `n` came after the chunks before `n` and before the
+    /// chunks from `n` on.
+    pub resizes: Vec<RecordedResize>,
 }
 
 impl RecordedRange {
@@ -104,6 +110,18 @@ pub struct RecordedChunk {
     pub at: Timestamp,
     /// The bytes.
     pub data: Vec<u8>,
+}
+
+/// A new size of the PTY, as the recording holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecordedResize {
+    /// The stream offset from which output assumes the size.
+    pub seq: Seq,
+    /// When the PTY took the size, to the microsecond.
+    pub at: Timestamp,
+    /// The size.
+    pub size: Size,
 }
 
 impl Recordings {
@@ -139,8 +157,8 @@ impl Recordings {
     }
 
     /// The bytes of `pty_id` with stream offsets in `start..end`, as far as the
-    /// recording holds them. Pass `Seq::new(u64::MAX)` as `end` for everything after
-    /// `start`.
+    /// recording holds them, and the sizes recorded at those offsets. Pass
+    /// `Seq::new(u64::MAX)` as `end` for everything after `start`.
     pub async fn read_range(
         &self,
         pty_id: PtyId,
@@ -237,7 +255,8 @@ pub(crate) fn create_dir(root: &Path, pty_id: PtyId) -> Result<(), StoreError> {
 }
 
 /// Reads the part of `segments` in `start..end`. Segments are contiguous, so a
-/// segment covers the offsets up to the next segment's start.
+/// segment covers the offsets up to the next segment's start, and a size at that start
+/// can still be at its end.
 fn read_segments(
     root: &Path,
     segments: &[Segment],
@@ -246,10 +265,11 @@ fn read_segments(
 ) -> Result<RecordedRange, StoreError> {
     let held_from = segments.first().map_or(0, |segment| segment.start_seq.get());
     let mut chunks = Vec::new();
+    let mut resizes = Vec::new();
     for (index, segment) in segments.iter().enumerate() {
         let segment_start = segment.start_seq.get();
         let next_start = segments.get(index + 1).map(|next| next.start_seq.get());
-        if next_start.is_some_and(|next| next <= start) {
+        if next_start.is_some_and(|next| next < start) {
             continue;
         }
         if segment_start >= end {
@@ -269,12 +289,21 @@ fn read_segments(
         })?;
         let mut seq = segment_start;
         for chunk in &parsed.chunks {
+            let at = || {
+                Timestamp::from_microsecond(chunk.at_micros).map_err(|_| {
+                    StoreError::CorruptRecording { path: path.clone(), offset: chunk.offset as u64 }
+                })
+            };
+            if let format::ChunkKind::Resize { cols, rows } = chunk.kind {
+                if (start..end).contains(&seq) {
+                    let size = Size { cols, rows };
+                    resizes.push(RecordedResize { seq: Seq::new(seq), at: at()?, size });
+                }
+                continue;
+            }
             let data = file.get(chunk.data.clone()).unwrap_or_default();
             if let Some((from, part)) = format::clip(seq, data, start, end) {
-                let at = Timestamp::from_microsecond(chunk.at_micros).map_err(|_| {
-                    StoreError::CorruptRecording { path: path.clone(), offset: chunk.offset as u64 }
-                })?;
-                chunks.push(RecordedChunk { seq: Seq::new(from), at, data: part.to_vec() });
+                chunks.push(RecordedChunk { seq: Seq::new(from), at: at()?, data: part.to_vec() });
             }
             seq += data.len() as u64;
             if seq >= end {
@@ -285,7 +314,7 @@ fn read_segments(
     let range_start = chunks.first().map_or(start.max(held_from), |chunk| chunk.seq.get());
     let range_end =
         chunks.last().map_or(range_start, |chunk| chunk.seq.get() + chunk.data.len() as u64);
-    Ok(RecordedRange { start: Seq::new(range_start), end: Seq::new(range_end), chunks })
+    Ok(RecordedRange { start: Seq::new(range_start), end: Seq::new(range_end), chunks, resizes })
 }
 
 struct RawSegment {

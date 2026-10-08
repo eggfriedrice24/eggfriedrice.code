@@ -9,8 +9,10 @@ use crate::{Base64Bytes, PtyId, ScreenSnapshot, Seq, Size};
 /// byte offsets in the PTY's recording.
 ///
 /// With `since_seq`, the stream starts with the output after that offset, if the
-/// recording still holds it. Otherwise it starts with a screen snapshot. Live output
-/// follows either way. Attaching is idempotent and never changes the PTY.
+/// recording still holds it, with each size that the PTY took from that offset on as
+/// `resized` at its place. Otherwise it starts with a screen snapshot, which has the
+/// size. Live output follows either way. Attaching is idempotent and never changes the
+/// PTY.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PtyAttach {
     /// The PTY to watch.

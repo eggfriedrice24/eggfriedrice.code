@@ -211,8 +211,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   draft never closes the subscription.
 - `pty.attach` registers for live output, then sends the output after `since_seq` from
   the recording (a gap of at most 1 MiB) or a screen snapshot plus what was recorded
-  after it; live output follows with any overlap cut by offset. `pty.resize` refuses a
-  size without rows or columns and clamps a huge one.
+  after it. The replay sends each size that the recording holds as `resized` at its
+  place, and it stops at the mark of the registration (`ptys::AttachMark`): live steps
+  follow from there, so none comes twice. `pty.resize` refuses a size without rows or
+  columns, clamps a huge one, and stores the new size in the recording
+  (`StoreRecording::resized`) before attached clients hear it.
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed` and makes the running provider forget its cached token.
 - `models.list` answers the effective model list of the latest settings

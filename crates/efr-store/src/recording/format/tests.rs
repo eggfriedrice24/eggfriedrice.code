@@ -87,6 +87,48 @@ fn garbage_where_a_header_belongs_is_corruption_at_its_offset() {
 }
 
 #[test]
+fn a_size_chunk_parses_back_and_takes_no_stream_bytes() {
+    let mut file = file_of(&[(1, b"abc")]);
+    encode_resize(2, 120, 40, &mut file);
+    encode(3, b"de", &mut file);
+
+    let parsed = parse(&file).unwrap();
+
+    assert_eq!(parsed.valid_len, file.len());
+    let kinds: Vec<ChunkKind> = parsed.chunks.iter().map(|chunk| chunk.kind).collect();
+    assert_eq!(
+        kinds,
+        [ChunkKind::Output, ChunkKind::Resize { cols: 120, rows: 40 }, ChunkKind::Output]
+    );
+    assert_eq!(parsed.chunks[1].at_micros, 2);
+    assert_eq!(parsed.stream_len(), 5);
+    assert_eq!(file.len(), 2 * HEADER_LEN + 5 + RESIZE_CHUNK_LEN);
+}
+
+#[test]
+fn every_cut_of_a_size_chunk_is_a_torn_tail() {
+    let mut file = file_of(&[(1, b"abc")]);
+    let whole = file.len();
+    encode_resize(2, 80, 24, &mut file);
+    for cut in whole..file.len() {
+        let parsed = parse(&file[..cut]).unwrap();
+        assert_eq!((parsed.chunks.len(), parsed.valid_len), (1, whole), "cut at {cut}");
+    }
+}
+
+#[test]
+fn a_size_chunk_of_another_length_is_corruption() {
+    let mut file = file_of(&[(1, b"abc")]);
+    let offset = file.len();
+    let mut size = Vec::new();
+    encode_resize(2, 80, 24, &mut size);
+    size[4] = 5;
+    size.push(0);
+    file.extend_from_slice(&size);
+    assert_eq!(parse(&file), Err(offset));
+}
+
+#[test]
 fn fits_keeps_a_segment_within_its_limit() {
     let chunk_cost = (HEADER_LEN + 10) as u64;
     // An empty segment always takes a chunk, even past a tiny limit.

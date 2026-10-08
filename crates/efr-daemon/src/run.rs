@@ -536,6 +536,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         readers,
         drafts,
         recordings,
+        recording: Arc::clone(&recording),
         conversations: Conversations::new(Arc::new(live_settings), conversation_deps, ttys),
         connections,
         shells,

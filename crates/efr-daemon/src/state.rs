@@ -24,6 +24,7 @@ use crate::providers::Providers;
 use crate::ptys::Ptys;
 use crate::reload::Reloads;
 use crate::sandbox::SandboxService;
+use crate::shells::StoreRecording;
 use crate::telemetry::LogFilter;
 
 /// The parent of every conversation's `$SCRATCH`, under the data directory.
@@ -68,6 +69,8 @@ pub(crate) struct State {
     /// receiver for each subscriber that asked for drafts; nothing stores them.
     pub(crate) drafts: broadcast::Sender<ConversationDraft>,
     pub(crate) recordings: Recordings,
+    /// The writer side of the recordings: `pty.resize` stores each new size there.
+    pub(crate) recording: Arc<StoreRecording>,
     pub(crate) conversations: Conversations,
     pub(crate) connections: Arc<Connections>,
     pub(crate) shells: ShellSessions,

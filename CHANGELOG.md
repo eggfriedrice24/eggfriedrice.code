@@ -109,6 +109,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - A `TRAPINT` or `TRAPQUIT` function no longer lets a line of the auto mode go on after
   Ctrl+C or Ctrl+\. Before, such a function of your shell, or one that an earlier call
   made, could catch the signal in the child shell of the call.
+- A client that resumes `pty.attach` with `since_seq` now gets each new size that the
+  PTY took while the client was away, as `resized` at its place in the output. Before,
+  the recording did not keep sizes, so the client got the output only. The recording
+  keeps the sizes now, and older recordings still read.
 - The time that a new hidden shell takes to show its first prompt no longer counts
   against the `timeout_seconds` of a shell call. A slow `.zshrc` made short calls fail
   with "an earlier command is still running", although no command ran. The startup

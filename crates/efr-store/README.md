@@ -50,8 +50,9 @@ across a restart:
   `recordings/<pty_id>/<start_seq>.rec`, each chunk behind a 16-byte header with a
   timestamp, rotated at 8 MiB, indexed in `recording_segments`. Offsets are stream
   sequence numbers: byte `n` of a PTY's output has `Seq` `n`, which is what
-  `pty.attach(since_seq)` and the shell marks use. `Recordings::read_range` slices
-  them.
+  `pty.attach(since_seq)` and the shell marks use. `RecordingWriter::resize` stores a
+  new size of the PTY at the current offset; it takes no stream bytes.
+  `Recordings::read_range` slices the bytes and returns the sizes in the range.
 - `Store` and `StoreConfig`: open, back up, migrate and start the writer and readers
   in one call.
 

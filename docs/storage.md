@@ -109,8 +109,11 @@ conversations or the daemon's socket. The config root stays readable and read-on
 ## Recording format
 
 Each PTY's output is appended to segment files where the byte offset is the stream
-sequence. Every chunk has a 16-byte header with a timestamp, followed by the raw bytes.
-A segment rotates at 8 MiB. `pty.attach(since_seq)` and the shell tool's output slices
+sequence. Every chunk has a 16-byte header with a kind and a timestamp, followed by its
+bytes: kind 1 holds raw output bytes, kind 2 holds a new size of the PTY (columns and
+rows) at the offset of the next output byte, and takes no stream bytes. A recording
+from before kind 2 reads as before. A segment rotates at 8 MiB; a segment that holds
+sizes alone never rotates. `pty.attach(since_seq)` and the shell tool's output slices
 read through `efr_store::recording::read_range(pty_id, start, end)`. Shell marks carry
 recording offsets, so the output of one command is the range between its OSC 133 `C`
 and `D` marks.

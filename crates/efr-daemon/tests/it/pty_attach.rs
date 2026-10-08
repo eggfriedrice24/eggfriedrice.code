@@ -111,6 +111,65 @@ async fn pty_write_reaches_the_shell_and_pty_resize_the_holder_and_the_watchers(
     replay.stop().await.unwrap();
 }
 
+async fn resize(replay: &Replay, size: Size) {
+    let params = PtyResize { pty_id: pty_id(replay), size };
+    let _: PtyResizeResult = replay.client().call(Method::PtyResize(params)).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_resume_replays_the_resizes_it_missed_at_their_place() {
+    let mut replay = Replay::run("pty_attach_since_seq").await.unwrap();
+    let printed = printed();
+    let end = printed.len() as u64;
+    let wide = Size { cols: 120, rows: 40 };
+    let narrow = Size { cols: 90, rows: 20 };
+
+    // While no client is attached: a resize, output, and another resize.
+    resize(&replay, wide).await;
+    replay.terminal("shell").await.unwrap().print(b"more\r\n").await.unwrap();
+    // The output is stored before the second resize: a client that resumes after the
+    // first resize gets it.
+    let mut after_first = attach(&replay, Some(end)).await;
+    assert_eq!(next(&mut after_first, "the first resize").await, resized(end, wide));
+    assert_eq!(output(&mut after_first, end, 6).await, b"more\r\n");
+    drop(after_first);
+    resize(&replay, narrow).await;
+
+    // A client that resumes from the middle gets the output and both resizes in the order
+    // of the recording.
+    let middle = PROMPT.len() as u64;
+    let mut resumed = attach(&replay, Some(middle)).await;
+    assert_eq!(
+        output(&mut resumed, middle, printed.len() - PROMPT.len()).await,
+        &printed[PROMPT.len()..]
+    );
+    assert_eq!(next(&mut resumed, "the first resize").await, resized(end, wide));
+    assert_eq!(output(&mut resumed, end, 6).await, b"more\r\n");
+    assert_eq!(next(&mut resumed, "the second resize").await, resized(end + 6, narrow));
+
+    // Live steps follow, each once.
+    resize(&replay, wide).await;
+    assert_eq!(next(&mut resumed, "a live resize").await, resized(end + 6, wide));
+    replay.terminal("shell").await.unwrap().print(b"last\r\n").await.unwrap();
+    assert_eq!(output(&mut resumed, end + 6, 6).await, b"last\r\n");
+
+    // A fresh attach starts with the screen at its size, not with the resizes.
+    let mut fresh = attach(&replay, None).await;
+    match next(&mut fresh, "the screen").await {
+        PtyAttachItem::Snapshot { seq, snapshot } => {
+            assert_eq!(seq.get(), end + 12);
+            assert_eq!(snapshot.size, wide);
+        }
+        other => panic!("an attach without since_seq starts with the screen: {other:?}"),
+    }
+    drop((resumed, fresh));
+    replay.stop().await.unwrap();
+}
+
+fn resized(seq: u64, size: Size) -> PtyAttachItem {
+    PtyAttachItem::Resized { seq: Seq::new(seq), size }
+}
+
 #[tokio::test]
 async fn attaching_to_a_pty_that_does_not_exist_is_not_found() {
     let replay = Replay::run("single_turn_text").await.unwrap();

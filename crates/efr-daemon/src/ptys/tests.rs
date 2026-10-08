@@ -2,7 +2,7 @@ use bytes::Bytes;
 use efr_protocol::{ConversationId, PtyId, Size};
 use pretty_assertions::assert_eq;
 
-use crate::ptys::{ATTACH_QUEUE, PtyActivity, PtyDelivery, PtyLive, Ptys};
+use crate::ptys::{ATTACH_QUEUE, AttachMark, PtyActivity, PtyDelivery, PtyLive, Ptys};
 
 fn pty(n: u128) -> PtyId {
     PtyId::from_uuid(uuid::Uuid::from_u128(n))
@@ -19,7 +19,7 @@ async fn attached_clients_get_output_and_resizes_in_order() {
     let mut client = ptys.attach(pty(1)).unwrap();
 
     ptys.recorded(pty(1), 0, Bytes::from_static(b"$ "));
-    ptys.resized(pty(1), Size { cols: 80, rows: 24 });
+    ptys.resized(pty(1), 2, Size { cols: 80, rows: 24 });
     ptys.recorded(pty(1), 2, Bytes::from_static(b"ls"));
 
     assert_eq!(
@@ -34,7 +34,25 @@ async fn attached_clients_get_output_and_resizes_in_order() {
         client.recv().await,
         Some(PtyDelivery::Live(PtyLive::Output { start: 2, data: Bytes::from_static(b"ls") }))
     );
-    assert_eq!(ptys.end(pty(1)), Some(4));
+    assert_eq!(ptys.attach(pty(1)).unwrap().mark().end, 4);
+}
+
+#[test]
+fn the_mark_of_an_attach_counts_the_output_and_the_sizes_at_its_end() {
+    let ptys = Ptys::default();
+    ptys.started(pty(1), conversation(1), None);
+    let size = Size { cols: 80, rows: 24 };
+    let mark = |ptys: &Ptys| ptys.attach(pty(1)).unwrap().mark();
+
+    assert_eq!(mark(&ptys), AttachMark { end: 0, sizes_at_end: 0 });
+    ptys.resized(pty(1), 0, size);
+    assert_eq!(mark(&ptys), AttachMark { end: 0, sizes_at_end: 1 });
+    ptys.recorded(pty(1), 0, Bytes::from_static(b"$ "));
+    ptys.resized(pty(1), 2, size);
+    ptys.resized(pty(1), 2, size);
+    assert_eq!(mark(&ptys), AttachMark { end: 2, sizes_at_end: 2 });
+    ptys.recorded(pty(1), 2, Bytes::from_static(b"ls"));
+    assert_eq!(mark(&ptys), AttachMark { end: 4, sizes_at_end: 0 });
 }
 
 #[tokio::test]

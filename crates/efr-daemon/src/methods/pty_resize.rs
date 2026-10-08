@@ -40,7 +40,9 @@ pub(crate) async fn handle(
         }
         Err(error) => return Err(error.into()),
     }
-    state.ptys.resized(pty_id, size);
+    // NOTE: through the recording, so that a client that resumes pty.attach later
+    // learns the size at its place in the output.
+    state.recording.resized(pty_id, size).await;
     responder.item(&PtyResizeResult { size }).await?;
     Ok(())
 }

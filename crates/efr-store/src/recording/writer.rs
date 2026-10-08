@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{PtyId, Seq};
+use efr_protocol::{PtyId, Seq, Size};
 use efr_stdx::time::Clock;
 
 use super::{Recordings, Segment, format};
@@ -66,7 +66,9 @@ impl RecordingWriter {
         let start_seq = last.start_seq.get();
         let (segment, stream_len) = writer.open_segment(start_seq).await?;
         writer.end_seq = start_seq + stream_len;
-        let full = segment.file_len >= writer.limit;
+        // NOTE: a segment of sizes alone never rotates: its successor would start at
+        // the same offset, and the index holds one segment per offset.
+        let full = segment.file_len >= writer.limit && stream_len > 0;
         writer.segment = Some(segment);
         if full {
             writer.rotate().await?;
@@ -98,7 +100,11 @@ impl RecordingWriter {
         let at = sql::micros(self.clock.now());
         let mut offset = 0;
         while offset < bytes.len() {
-            let file_len = self.segment()?.file_len;
+            // A segment of sizes alone counts as empty, so that it never rotates.
+            let file_len = match self.segment()? {
+                segment if segment.start_seq == self.end_seq => 0,
+                segment => segment.file_len,
+            };
             let take = format::fits(file_len, self.limit, bytes.len() - offset);
             if take == 0 {
                 self.rotate().await?;
@@ -118,6 +124,30 @@ impl RecordingWriter {
             offset += take;
         }
         Ok(first)
+    }
+
+    /// Records that the PTY took `size` now, at the stream offset of the next byte, and
+    /// returns that offset. The size takes no stream bytes. The segment rotates first
+    /// when the size chunk would take it past its limit and it holds stream bytes.
+    pub async fn resize(&mut self, size: Size) -> Result<Seq, StoreError> {
+        let at = sql::micros(self.clock.now());
+        let segment = self.segment()?;
+        let cost = format::RESIZE_CHUNK_LEN as u64;
+        if segment.start_seq < self.end_seq && segment.file_len + cost > self.limit {
+            self.rotate().await?;
+        }
+        let mut segment = self.take_segment()?;
+        let (segment, written) = tokio::task::spawn_blocking(move || {
+            let mut buf = Vec::with_capacity(format::RESIZE_CHUNK_LEN);
+            format::encode_resize(at, size.cols, size.rows, &mut buf);
+            let written = segment.write_encoded(&buf);
+            (segment, written)
+        })
+        .await
+        .map_err(|_| StoreError::TaskPanicked { task: "recording" })?;
+        self.segment = Some(segment);
+        written?;
+        Ok(Seq::new(self.end_seq))
     }
 
     /// Flushes the open segment, records its size and closes it in the index, and
@@ -210,7 +240,12 @@ impl OpenSegment {
         let chunks = data.len().div_ceil(format::MAX_CHUNK);
         let mut buf = Vec::with_capacity(data.len() + chunks * format::HEADER_LEN);
         format::encode(at_micros, data, &mut buf);
-        if let Err(source) = self.file.write_all(&buf) {
+        self.write_encoded(&buf)
+    }
+
+    /// Appends whole chunks.
+    fn write_encoded(&mut self, buf: &[u8]) -> Result<(), StoreError> {
+        if let Err(source) = self.file.write_all(buf) {
             // A partial chunk in the middle of the file would hide every chunk after
             // it, so the file goes back to its last whole chunk.
             let _ = self.file.set_len(self.file_len);
