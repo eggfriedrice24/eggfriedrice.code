@@ -509,7 +509,8 @@ builds the engine.
 
 The model edits files with its `apply_patch` tool: one patch adds, changes, deletes
 or moves one or more files. The patch changes all its files or none. When a hunk does
-not match, or a write fails, no file stays changed.
+not match, when a write fails, or when you interrupt the turn while the patch writes,
+no file stays changed.
 
 - Every file of the patch counts as a write, both paths of a move too. The path rules
   decide them as they decide a `write_file`: a change or a new file in `$SCRATCH` or

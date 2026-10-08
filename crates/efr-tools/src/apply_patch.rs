@@ -6,14 +6,17 @@
 //! the patch first and refuses a path through a link, anything that is not a regular
 //! file, a file over 16 MiB and a binary file. Only when every hunk matches does it
 //! write: for each change it records the originals in the write journal, then writes
-//! atomically. When a write fails, it puts back every file that it changed before, so
-//! a patch over several files changes all of them or none.
+//! atomically. When a write fails, or the user interrupts the turn while it writes, it
+//! puts back every file that it changed before, so a patch over several files changes
+//! all of them or none.
 
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read as _};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use efr_patch::{ChangeKind, FileChange, NearLine, Operation, Patch, PatchError};
@@ -25,8 +28,8 @@ use crate::diff::{UNCHANGED, change_diff};
 use crate::paths::{check_real, resolve};
 use crate::write_file::{blocking, write};
 use crate::{
-    FileSnapshot, JournalEntry, Original, Tool, ToolContext, ToolError, ToolGrammar,
-    ToolOutputSink, ToolRequirements, ToolResult, ToolSpec, WrittenFile, WrittenKind,
+    CallIds, FileSnapshot, JournalEntry, Original, Tool, ToolContext, ToolError, ToolGrammar,
+    ToolOutputSink, ToolRequirements, ToolResult, ToolSpec, WriteJournal, WrittenFile, WrittenKind,
     freeform_text,
 };
 
@@ -222,67 +225,180 @@ impl Tool for ApplyPatchTool {
             Err(error) => return Ok(ToolResult::error(failure(&error, &planned.patch))),
         };
         let written = written(&changes, &originals);
+        let summary = success(&changes, &planned);
 
-        // NOTE: the paths are put back in reverse order of their first change, so a
-        // path that two changes touched gets its original, not a state in between.
-        let mut touched: Vec<PathBuf> = Vec::new();
-        for change in &changes {
-            if let Err(error) = write_change(&ctx, change, &originals, &mut touched).await {
-                let restore = touched.clone();
-                let snapshots: Vec<FileSnapshot> =
-                    restore.iter().rev().map(|path| originals.snapshot(path)).collect();
-                let unrestored = blocking(&ctx.cwd, move || Ok(restore_all(&snapshots)))
-                    .await
-                    .unwrap_or(touched);
-                return Ok(ToolResult::error(write_failure(&error, &unrestored)));
-            }
+        // NOTE: the writes run in a task of their own, which the call only waits for.
+        // When the user interrupts the turn, the call's future is dropped; the guard
+        // then tells the task to stop, and the task puts back every file that it
+        // changed, so an interrupt never leaves a patch half applied.
+        let stop = Arc::new(AtomicBool::new(false));
+        let _stop_on_drop = StopOnDrop(Arc::clone(&stop));
+        let cwd = ctx.cwd.clone();
+        let task = tokio::spawn(write_all(Writer::new(&ctx), changes, originals, stop));
+        match task.await {
+            Ok(Ok(())) => Ok(ToolResult::ok(summary).with_written(written)),
+            Ok(Err(failure)) => Ok(ToolResult::error(failure)),
+            Err(_) => Err(ToolError::Interrupted { path: cwd }),
         }
-        Ok(ToolResult::ok(success(&changes, &planned)).with_written(written))
+    }
+}
+
+/// Sets its flag when it is dropped: when the call's future is dropped before the
+/// writes end, the task of the writes sees the flag.
+struct StopOnDrop(Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// What the task of the writes needs of the call's context.
+struct Writer {
+    journal: Arc<dyn WriteJournal>,
+    ids: CallIds,
+    cwd: PathBuf,
+}
+
+impl Writer {
+    fn new(ctx: &ToolContext) -> Self {
+        Writer { journal: Arc::clone(&ctx.journal), ids: ctx.ids, cwd: ctx.cwd.clone() }
+    }
+}
+
+/// What the writes changed so far, so that they can be put back.
+#[derive(Debug, Default)]
+struct Done {
+    /// Each path in the order of its first change. A path goes in before anything is
+    /// written there.
+    paths: Vec<PathBuf>,
+    /// Each directory that the writes made, a parent before its children.
+    dirs: Vec<PathBuf>,
+}
+
+/// Makes every change, in order, or none. When a journal entry or a write fails, or
+/// when `stop` is set (the call was interrupted), it puts back every file that it
+/// changed and removes the directories that it made, and returns what the model
+/// reads.
+async fn write_all(
+    writer: Writer,
+    changes: Vec<FileChange>,
+    originals: Originals,
+    stop: Arc<AtomicBool>,
+) -> Result<(), String> {
+    let mut done = Done::default();
+    let mut failed = None;
+    for change in &changes {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
+        if let Err(error) = write_change(&writer, change, &originals, &mut done).await {
+            failed = Some(error);
+            break;
+        }
+    }
+    let stopped = stop.load(Ordering::SeqCst);
+    if failed.is_none() && !stopped {
+        return Ok(());
+    }
+    // NOTE: the paths are put back in reverse order of their first change, so a path
+    // that two changes touched gets its original, not a state in between.
+    let snapshots: Vec<FileSnapshot> =
+        done.paths.iter().rev().map(|path| originals.snapshot(path)).collect();
+    let paths = done.paths.clone();
+    let dirs = done.dirs;
+    let unrestored =
+        blocking(&writer.cwd, move || Ok(restore_all(&snapshots, &dirs))).await.unwrap_or(paths);
+    match failed {
+        Some(error) => Err(write_failure(&error, &unrestored)),
+        None => {
+            // NOTE: nobody reads this answer: the call's future is gone. `restore_all`
+            // has logged each file that it could not put back.
+            tracing::debug!(
+                unrestored = unrestored.len(),
+                "apply_patch was interrupted and put its files back"
+            );
+            Err("The call was interrupted.".to_owned())
+        }
     }
 }
 
 /// Records the originals of `change` in the journal, then makes the change. Each path
-/// goes into `touched` before anything is written there.
+/// goes into `done` before anything is written there, and each directory that the
+/// change makes once it is made.
 async fn write_change(
-    ctx: &ToolContext,
+    writer: &Writer,
     change: &FileChange,
     originals: &Originals,
-    touched: &mut Vec<PathBuf>,
+    done: &mut Done,
 ) -> Result<(), ToolError> {
     let mut paths = vec![change.path.clone()];
     if let ChangeKind::Moved { to, .. } = &change.kind {
         paths.push(to.clone());
     }
     for path in &paths {
-        ctx.journal.record(JournalEntry::new(ctx.ids, originals.snapshot(path))).await?;
+        writer.journal.record(JournalEntry::new(writer.ids, originals.snapshot(path))).await?;
     }
     for path in paths {
-        if !touched.contains(&path) {
-            touched.push(path);
+        if !done.paths.contains(&path) {
+            done.paths.push(path);
         }
     }
     let change = change.clone();
-    let source = originals.snapshot(&change.path);
-    blocking(&ctx.cwd, move || make_change(&change, &source)).await
+    // NOTE: a content that a move of the patch brought from another path keeps the
+    // mode and the owner of the file it came from.
+    let source = originals.snapshot(change.from.as_deref().unwrap_or(&change.path));
+    let (dirs, made) = tokio::task::spawn_blocking(move || make_change(&change, &source))
+        .await
+        .map_err(|_| ToolError::Interrupted { path: writer.cwd.clone() })?;
+    done.dirs.extend(dirs);
+    made
 }
 
-/// Makes one change. A new content keeps the mode and the owner of `source`, the
-/// file's original (of the source of a move), or gets mode 0644 for a new file.
-fn make_change(change: &FileChange, source: &FileSnapshot) -> Result<(), ToolError> {
+/// Makes one change, and returns the directories that it made, a parent first, with
+/// whether the change succeeded. A new content keeps the mode and the owner of
+/// `source`, the original of the file that the content continues, or gets mode 0644
+/// for a new file.
+fn make_change(
+    change: &FileChange,
+    source: &FileSnapshot,
+) -> (Vec<PathBuf>, Result<(), ToolError>) {
     let (mode, owner) = match &source.original {
         Original::File { mode, uid, gid, .. } => (*mode, Some((*uid, *gid))),
         _ => (NEW_FILE_MODE, None),
     };
-    match &change.kind {
+    let target = match &change.kind {
+        ChangeKind::Moved { to, .. } => to.as_path(),
+        _ => change.path.as_path(),
+    };
+    // NOTE: the directories are looked for before the write, which makes them, so a
+    // write that fails after it made them still reports them.
+    let dirs = missing_dirs(target);
+    let made = match &change.kind {
         ChangeKind::Added { content } | ChangeKind::Updated { content } => {
             write(&change.path, content.as_bytes(), mode, owner)
         }
         ChangeKind::Deleted => remove(&change.path),
         ChangeKind::Moved { to, content } => {
-            write(to, content.as_bytes(), mode, owner)?;
-            remove(&change.path)
+            write(to, content.as_bytes(), mode, owner).and_then(|()| remove(&change.path))
         }
+    };
+    (dirs, made)
+}
+
+/// The directories above `path` that do not exist, the top one first.
+fn missing_dirs(path: &Path) -> Vec<PathBuf> {
+    let mut missing = Vec::new();
+    let mut dir = path.parent();
+    while let Some(at) = dir {
+        if at.as_os_str().is_empty() || fs::symlink_metadata(at).is_ok() {
+            break;
+        }
+        missing.push(at.to_path_buf());
+        dir = at.parent();
     }
+    missing.reverse();
+    missing
 }
 
 /// Removes the file at `path`.
@@ -290,9 +406,9 @@ fn remove(path: &Path) -> Result<(), ToolError> {
     fs::remove_file(path).map_err(|source| ToolError::Remove { path: path.to_path_buf(), source })
 }
 
-/// Puts back each snapshot, in order, and returns the paths that could not be put
-/// back.
-fn restore_all(snapshots: &[FileSnapshot]) -> Vec<PathBuf> {
+/// Puts back each snapshot, in order, then removes each of `dirs` that is empty, the
+/// last one first, and returns the paths that could not be put back.
+fn restore_all(snapshots: &[FileSnapshot], dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut failed = Vec::new();
     for snapshot in snapshots {
         let restored = match &snapshot.original {
@@ -309,6 +425,15 @@ fn restore_all(snapshots: &[FileSnapshot]) -> Vec<PathBuf> {
         if let Err(error) = restored {
             tracing::warn!(path = %snapshot.path.display(), error = %efr_stdx::with_causes(&error), "apply_patch could not put a file back");
             failed.push(snapshot.path.clone());
+        }
+    }
+    for dir in dirs.iter().rev() {
+        // NOTE: a directory that holds a file now (one that could not be put back, or
+        // one that another program wrote) stays.
+        if let Err(error) = fs::remove_dir(dir)
+            && error.kind() != ErrorKind::NotFound
+        {
+            tracing::debug!(dir = %dir.display(), %error, "apply_patch kept a directory that it made");
         }
     }
     failed
@@ -446,7 +571,10 @@ fn success(changes: &[FileChange], planned: &Planned) -> String {
     let mut deleted = Vec::new();
     let mut moved = Vec::new();
     for change in changes {
-        let path = planned.shown(&change.path);
+        let mut path = planned.shown(&change.path);
+        if let Some(from) = &change.from {
+            path = format!("{path} (from {})", planned.shown(from));
+        }
         match &change.kind {
             ChangeKind::Updated { .. } => updated.push(path),
             ChangeKind::Added { .. } => added.push(path),

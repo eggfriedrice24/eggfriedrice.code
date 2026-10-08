@@ -15,6 +15,7 @@ into the GitHub release notes, and it stops when the section is missing.
 - The model edits files with a new `apply_patch` tool. One patch adds, changes,
   deletes or moves one or more files, and it changes all of them or none: when a part
   does not match, the model gets the nearest lines of the file and no file changes.
+  When you interrupt the turn while the patch writes, efr puts every file back.
   The call shows the diff of each file. A change or a new file in the turn's project
   or in `$SCRATCH` needs no approval, as for `write_file`. A delete or a move always
   asks, also in `auto`, because undo cannot bring the file back yet. The question

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use efr_patch::{ChangeKind, FileChange, NearLine, Patch, PatchError};
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -300,7 +301,7 @@ async fn a_failure_after_some_writes_puts_every_file_back() {
     );
     assert_eq!(read(&cwd.join("a.txt")), "one\ntwo\nthree\n");
     assert_eq!(std::fs::metadata(cwd.join("a.txt")).unwrap().permissions().mode() & 0o7777, 0o640);
-    assert!(!cwd.join("new/c.txt").exists());
+    assert!(!cwd.join("new").exists(), "the directory that the call made is gone too");
     assert_eq!(read(&cwd.join("d.txt")), "gone\n");
     assert_eq!(read(&cwd.join("e.txt")), "import os\nrun()\n");
     assert!(!cwd.join("f.txt").exists());
@@ -342,7 +343,7 @@ fn putting_back_restores_content_and_mode_and_removes_a_new_file() {
         FileSnapshot::new(cwd.join("never-made.txt"), Original::Missing),
     ];
 
-    let failed = restore_all(&snapshots);
+    let failed = restore_all(&snapshots, &[]);
 
     assert!(failed.is_empty(), "{failed:?}");
     assert!(!cwd.join("new.txt").exists());
@@ -351,6 +352,104 @@ fn putting_back_restores_content_and_mode_and_removes_a_new_file() {
         std::fs::metadata(cwd.join("kept.txt")).unwrap().permissions().mode() & 0o7777,
         0o600
     );
+}
+
+#[test]
+fn putting_back_removes_the_empty_directories_that_the_call_made() {
+    let fixture = Fixture::new();
+    let cwd = fixture.cwd();
+    std::fs::create_dir_all(cwd.join("made/deep")).unwrap();
+    std::fs::write(cwd.join("made/deep/new.txt"), "x\n").unwrap();
+    std::fs::create_dir_all(cwd.join("kept")).unwrap();
+    std::fs::write(cwd.join("kept/other.txt"), "written by another program\n").unwrap();
+    let snapshots = [FileSnapshot::new(cwd.join("made/deep/new.txt"), Original::Missing)];
+    let dirs = [cwd.join("made"), cwd.join("made/deep"), cwd.join("kept")];
+
+    let failed = restore_all(&snapshots, &dirs);
+
+    assert!(failed.is_empty(), "{failed:?}");
+    assert!(!cwd.join("made").exists());
+    assert_eq!(read(&cwd.join("kept/other.txt")), "written by another program\n");
+}
+
+/// A journal that holds the entry `stop_at` (from 1) until `release` is notified,
+/// and notifies `reached` when it gets there.
+#[derive(Debug, Default)]
+struct GateJournal {
+    stop_at: usize,
+    seen: AtomicUsize,
+    reached: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl WriteJournal for GateJournal {
+    async fn record(&self, _entry: JournalEntry) -> Result<(), ToolError> {
+        if self.seen.fetch_add(1, Ordering::SeqCst) + 1 == self.stop_at {
+            self.reached.notify_one();
+            self.release.notified().await;
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn an_interrupt_during_the_writes_puts_every_file_back() {
+    let fixture = Fixture::new();
+    let cwd = fixture.cwd();
+    std::fs::write(cwd.join("a.txt"), "one\n").unwrap();
+    std::fs::write(cwd.join("b.txt"), "two\n").unwrap();
+    let journal = Arc::new(GateJournal { stop_at: 2, ..GateJournal::default() });
+    let mut ctx = fixture.context();
+    ctx.journal = Arc::clone(&journal) as Arc<dyn WriteJournal>;
+    let input = patch(
+        "*** Update File: a.txt\n@@\n-one\n+ONE\n\
+         *** Add File: new/deep/c.txt\n+c\n\
+         *** Update File: b.txt\n@@\n-two\n+TWO\n",
+    );
+
+    // The turn drops the call's future when the user interrupts it, as here: the
+    // journal holds the entry of the second file, after the first one was written.
+    let tool = tool();
+    let mut out = NoOutput;
+    tokio::select! {
+        result = tool.invoke(ctx, input, &mut out) => panic!("the call ended: {result:?}"),
+        () = journal.reached.notified() => {}
+    }
+    assert_eq!(read(&cwd.join("a.txt")), "ONE\n", "the first file was written");
+    journal.release.notify_one();
+
+    // NOTE: the task of the writes ends on its own once the call's future is gone, so
+    // nothing can await it.
+    Wait::new("a.txt put back").until(|| read(&cwd.join("a.txt")) == "one\n").await.unwrap();
+    Wait::new("new/ removed").until(|| !cwd.join("new").exists()).await.unwrap();
+    assert_eq!(read(&cwd.join("b.txt")), "two\n");
+}
+
+#[tokio::test]
+async fn a_moved_file_keeps_its_mode_when_moves_are_chained() {
+    let fixture = Fixture::new();
+    let cwd = fixture.cwd();
+    std::fs::write(cwd.join("a.sh"), "script\n").unwrap();
+    std::fs::set_permissions(cwd.join("a.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(cwd.join("c.sh"), "other\n").unwrap();
+    std::fs::set_permissions(cwd.join("c.sh"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    let input = patch(
+        "*** Update File: a.sh\n*** Move to: b.sh\n\
+         *** Update File: c.sh\n*** Move to: a.sh\n",
+    );
+
+    let result = tool().invoke(fixture.context(), input, &mut NoOutput).await.unwrap();
+
+    assert_eq!(
+        result.output,
+        "Success. Updated: a.sh (from c.sh); Added: b.sh (from a.sh); Deleted: c.sh"
+    );
+    let mode =
+        |name: &str| std::fs::metadata(cwd.join(name)).unwrap().permissions().mode() & 0o7777;
+    assert_eq!((read(&cwd.join("b.sh")), mode("b.sh")), ("script\n".to_owned(), 0o755));
+    assert_eq!((read(&cwd.join("a.sh")), mode("a.sh")), ("other\n".to_owned(), 0o644));
+    assert!(!cwd.join("c.sh").exists());
 }
 
 #[tokio::test]

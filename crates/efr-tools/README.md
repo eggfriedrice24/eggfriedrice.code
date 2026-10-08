@@ -234,19 +234,27 @@ Invoke, all or nothing:
    write nothing when the journal fails; then write. An add or an update writes
    atomically with `efr_stdx::fs::write_atomic`, keeps the mode, the owner and the
    group of an existing file, gives a new file mode 0644 and creates missing parent
-   directories. A delete removes the file. A move writes the target, then removes
-   the source.
+   directories. A content that a move brought from another path
+   (`FileChange::from`, as in a chain of moves) keeps the mode and the owner of the
+   file it came from. A delete removes the file. A move writes the target, then
+   removes the source.
 4. When a journal entry or a write fails, restore every file that the call already
    changed from the snapshots that the tool took in step 1 (the same originals that
-   went to the journal), in reverse order, and fail with the error. The result says
-   that no file was changed, or names a file that could not be restored. A parent
-   directory that the call made stays.
+   went to the journal), in reverse order, remove the empty directories that the call
+   made, and fail with the error. The result says that no file was changed, or names
+   a file that could not be restored.
+5. Steps 3 and 4 run in a task of their own (`tokio::spawn`), which the call only
+   waits for. When the user interrupts the turn, the turn drops the call's future;
+   a guard then tells the task to stop. The task stops before its next change and
+   restores every file as in step 4, so an interrupt never leaves a patch half
+   applied.
 
 Result:
 
 - Success, short: `Success. Updated: a.rs, b.rs; Added: c.rs; Deleted: d.rs;
   Moved: e.rs -> f.rs`, with each group left out when empty and the paths as the
-  patch wrote them.
+  patch wrote them. A content that a move brought from another path names it, such
+  as `Added: b.sh (from a.sh)`.
 - Failure: the error in one sentence, then for `PatchError::NoMatch` and
   `PatchError::NoAnchor` the hunk's anchors and the nearest lines of the file with
   their numbers, for `PatchError::Ambiguous` the line numbers of the matches and a
