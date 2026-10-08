@@ -1064,6 +1064,84 @@ async fn after_a_restart_of_efrd_the_cancelled_prompts_and_unread_steers_come_ba
     assert_eq!(setup.handed_back().as_deref(), Some("keep it small\nthen write the tests"));
 }
 
+/// The review finding: the end of the stream and the loss of the connection of one
+/// restart both counted against the limit, so two restarts before a new event ended
+/// the command. Each restart counts once now.
+#[tokio::test]
+async fn two_restarts_of_efrd_before_a_new_event_keep_the_view() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let (result, _) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        let mut sub = subscribed(&mut conn, 10).await;
+        for _ in 0..2 {
+            // efrd stops: it ends the stream and closes the connection.
+            conn.end(sub).await;
+            drop(conn);
+            conn = daemon.accept().await;
+            sub = subscribed(&mut conn, 10).await;
+        }
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+/// The review finding: when efrd ended the subscription for good, the command ended
+/// without giving back what the view had sent, which nothing says will run.
+#[tokio::test]
+async fn when_efrd_ends_the_subscription_for_good_what_the_view_sent_goes_back() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        let mut sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then write the tests", turn_2(), 11).await;
+        for _ in 0..3 {
+            conn.end(sub).await;
+            sub = subscribed(&mut conn, 10).await;
+        }
+        conn.end(sub).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::SubscriptionEnded)), "{result:?}");
+    assert!(out.contains("goes back to your shell"), "{out}");
+    assert_eq!(setup.handed_back().as_deref(), Some("then write the tests"));
+}
+
+/// The review finding: a daemon of another protocol after an upgrade made the view try
+/// to connect again 60 times. It gives up at once, and what the view sent goes back.
+#[tokio::test]
+async fn a_daemon_of_another_protocol_ends_the_tries_to_connect_again_at_once() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let json = ctx.dirs.daemon_json_path();
+    let socket = setup.env.socket();
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "then write the tests", turn_2(), 11).await;
+        let info = serde_json::json!({
+            "pid": 1,
+            "socket": socket,
+            "protocol": efr_protocol::PROTOCOL_VERSION + 1,
+            "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+        });
+        std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+        std::fs::write(&json, info.to_string()).unwrap();
+        drop(conn);
+        drop(daemon);
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Client(_))), "{result:?}");
+    assert!(out.contains("efrd did not come back"), "{out}");
+    assert_eq!(setup.handed_back().as_deref(), Some("then write the tests"));
+}
+
 /// The review finding: a steer whose answer was lost with the connection went back to
 /// the shell although efrd had recorded it, so it could go twice. Now the view connects
 /// again and sends the same request, and efrd answers from its receipt.

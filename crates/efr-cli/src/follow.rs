@@ -250,7 +250,11 @@ pub(crate) async fn follow(
                 follower.show(out, view, &step)?;
             }
         }
-        if matches!(error, CliError::Client(error) if lost(error)) && view.give_back_pending() {
+        // NOTE: a daemon that ended the subscription for good also leaves unknown what
+        // runs.
+        let gone = matches!(error, CliError::Client(error) if lost(error))
+            || matches!(error, CliError::SubscriptionEnded);
+        if gone && view.give_back_pending() {
             let step = view.note(GIVEN_BACK, ctx.screen.size());
             follower.show(out, view, &step)?;
         }
@@ -523,6 +527,7 @@ impl Follower<'_> {
         let mut ending = self.ctx.terminate.wait();
         let mut resubscribes = 0;
         let mut reconnects = 0;
+        let mut ends = 0;
         loop {
             let again = match self.subscribe().await {
                 Ok(mut stream) => loop {
@@ -574,6 +579,7 @@ impl Follower<'_> {
                             Some(Ok(value)) => {
                                 resubscribes = 0;
                                 reconnects = 0;
+                                ends = 0;
                                 if let Some(end) = self.item(value, out, view).await? {
                                     return self.finished(end, view);
                                 }
@@ -603,10 +609,11 @@ impl Follower<'_> {
                 // NOTE: without the input row, an end stays the command's error, as it
                 // was before the row. A daemon that stops ends its streams and then
                 // closes the connection: the view subscribes again, and that request
-                // fails once the connection is closed.
+                // fails once the connection is closed. The end and that loss are one
+                // restart, so each counts against a limit of its own.
                 Again::Ended => {
-                    reconnects += 1;
-                    if self.origin.is_none() || reconnects > MAX_RECONNECTS {
+                    ends += 1;
+                    if self.origin.is_none() || ends > MAX_RECONNECTS {
                         return Err(CliError::SubscriptionEnded);
                     }
                     continue;
@@ -653,6 +660,11 @@ impl Follower<'_> {
                 Ok(client) => {
                     self.again = Some(client);
                     return true;
+                }
+                // NOTE: a daemon of another protocol answers the same way to every try.
+                Err(error @ CliError::Client(ClientError::ProtocolMismatch { .. })) => {
+                    tracing::debug!(error = %error, "connecting again cannot work");
+                    return false;
                 }
                 Err(error) => {
                     tracing::debug!(error = %error, "connecting again failed");

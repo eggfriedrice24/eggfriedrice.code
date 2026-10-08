@@ -442,10 +442,14 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   steer or a prompt from the row whose answer was lost goes again with the same
   command id, so efrd answers from its receipt when it took the first one, and the
   text never goes twice. Ctrl+C, SIGTERM and SIGHUP stop the wait for efrd at once,
-  and the text of that steer or prompt goes back to the shell. When efrd does not come back, the followed prompt that did
-  not start, the unread steers and the queued prompts of this view go back to the
-  shell with a note, because nothing says whether they will run. Without the row, a
-  connection that ends is the command's error, as before.
+  and the text of that steer or prompt goes back to the shell. A restart ends the
+  stream and then the connection; the end and the loss count against limits of their
+  own (3 each, until the next event), so a restart counts once. A daemon of another
+  protocol stops the tries at once. When efrd does not come back, or ends the
+  subscription for good, the followed prompt that did not start, the unread steers
+  and the queued prompts of this view go back to the shell with a note, because
+  nothing says whether they will run. Without the row, a connection that ends is the
+  command's error, as before.
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
   turns bracketed paste on again.
 - When `efr` ends, the text that is still in the row, with the keys that the reader

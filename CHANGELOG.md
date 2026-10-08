@@ -48,7 +48,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - When efrd restarts while `efr` follows a turn with the input row, `efr` connects
   again. Prompts that you queued and steers that the model did not read come back to
   your command line when the restart cancelled them. A steer or a prompt whose answer
-  the restart lost is not sent twice.
+  the restart lost is not sent twice. When efrd does not come back, they come back
+  too. SIGTERM and SIGHUP end `efr` at once also while it connects again.
 - The diff of each file write shows in its call block, in the diff colours: the first
   `render.diff_lines` lines (default 20), then a muted `… N more lines`. This works in
   every directory.
