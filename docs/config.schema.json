@@ -417,6 +417,11 @@
             "string",
             "null"
           ]
+        },
+        "websocket": {
+          "$ref": "#/$defs/WebSocketChoice",
+          "default": "auto",
+          "description": "How model calls reach OpenAI: `auto` uses a WebSocket for a model that prefers\none (every model of the built-in list) and HTTP for the others, `on` uses a\nWebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each\nconversation, so a call skips the connection setup. A call that the WebSocket\ncannot serve goes over HTTP. Needs a restart."
         }
       },
       "type": "object"
@@ -1097,6 +1102,26 @@
       "description": "Where a command must run for a [`CommandPattern`] to match it: below a directory,\nin the turn's registered project, or in the conversation's `$SCRATCH`.\n\nIn the configuration it is one string: `\"project\"`, `\"scratch\"`, or a directory that\nis absolute or starts with `~`.",
       "type": "string"
     },
+    "WebSocketChoice": {
+      "description": "Whether model calls go over the Responses WebSocket transport.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Follow the model: a model that prefers WebSockets uses one, any other model\nuses HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "on",
+          "description": "Every model uses a WebSocket.",
+          "type": "string"
+        },
+        {
+          "const": "off",
+          "description": "Every model uses HTTP.",
+          "type": "string"
+        }
+      ]
+    },
     "WriteProjects": {
       "description": "Which registered projects a call of the `auto` mode may write.",
       "oneOf": [
@@ -1157,7 +1182,8 @@
     "openai": {
       "$ref": "#/$defs/OpenAiSettings",
       "default": {
-        "originator": "efr"
+        "originator": "efr",
+        "websocket": "auto"
       },
       "description": "The OpenAI providers."
     },

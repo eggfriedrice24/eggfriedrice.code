@@ -38,7 +38,7 @@ shipped binary.
 | `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
 | `efr-holder` | lib | 1 | the `PtyHolder` trait and holder wire types; no IO, no unsafe | `efr-protocol`, `efr-stdx` |
-| `efr-http` | lib | 1 | the reqwest client, SSE parser, Unix-socket HTTP client, header redaction | `efr-stdx` |
+| `efr-http` | lib | 1 | the reqwest client, SSE parser, WebSocket client, Unix-socket HTTP client, header redaction | `efr-stdx` |
 | `efr-screen` | lib | 1 | the `Screen` trait, `ScreenActor` and `ScreenHandle`, the OSC 133 and OSC 7 scanner, the conformance suite | `efr-protocol`, `efr-stdx` |
 | `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages, function and freeform tool definitions | `efr-protocol`, `efr-stdx` |
 | `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider`, `Wait` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
@@ -50,7 +50,7 @@ shipped binary.
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file and apply_patch tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-openai` | lib | 2 | the Responses API client; the model catalog (the fetch from the backend, its cache file and the built-in table), which also says which models take freeform (`custom`) tools; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table), which also says which models take freeform (`custom`) tools and prefer WebSockets; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
@@ -224,5 +224,12 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider-openai/src/models.rs`; when efrd fetches, the effective model
   list, the default model and the windows of `[openai] models` in
   `crates/efr-daemon/src/catalog.rs`.
+- The Responses WebSocket transport: the contract in
+  `crates/efr-provider-openai/README.md`, section "WebSocket transport"; the
+  connection of each conversation and the fallback to HTTP in
+  `crates/efr-provider-openai/src/websocket.rs`; incremental input in
+  `crates/efr-provider-openai/src/websocket/continuation.rs`; the WebSocket client in
+  `crates/efr-http/src/websocket.rs`; `[openai] websocket` in
+  `crates/efr-config/src/tables.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

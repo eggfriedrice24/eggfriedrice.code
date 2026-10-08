@@ -108,9 +108,10 @@ the old settings stay, the error (with its line, column and key) is kept for
 `conversation.tty_idle_hours` gets the notice "efr: config.toml has an error; the old
 settings stay: ...", once per new error. A valid file is laid over the running settings
 with `Settings::reloaded`: a restart key (`screen`, `model.provider`,
-`openai.originator`, `openai.subscription_base_url`, `openai.api_base_url`) keeps its
-running value and is listed in `restart_needed` (and in the notice "efr: restart efrd
-to apply: ..."), and a value from `EFR_LOG`, `EFR_SCREEN` or a flag still wins. Then
+`openai.originator`, `openai.subscription_base_url`, `openai.api_base_url`,
+`openai.websocket`) keeps its running value and is listed in `restart_needed` (and in
+the notice "efr: restart efrd to apply: ..."), and a value from `EFR_LOG`,
+`EFR_SCREEN` or a flag still wins. Then
 the appliers take the new values:
 
 - the settings watch: the next turn's model, effort, system prompt, output limit and

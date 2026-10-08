@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use efr_config::{OpenAiSettings, Settings};
+use efr_config::{OpenAiSettings, Settings, WebSocketChoice};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
@@ -29,7 +29,9 @@ use efr_protocol::ProviderStatus;
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderId, StaticToken, TokenSource,
 };
-use efr_provider_openai::{Catalog, CatalogClient, ModelCatalog, OpenAiConfig, OpenAiProvider};
+use efr_provider_openai::{
+    Catalog, CatalogClient, ModelCatalog, OpenAiConfig, OpenAiProvider, WebSocketMode,
+};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
@@ -253,9 +255,9 @@ impl ProviderFactory for CredentialProviders {
     }
 }
 
-/// `config` with the user's settings applied: the originator, the base URL and the
-/// models of `[openai] models`, laid over the catalog with the limits that an entry
-/// gives.
+/// `config` with the user's settings applied: the originator, the base URL, the
+/// transport of `[openai] websocket` and the models of `[openai] models`, laid over the
+/// catalog with the limits that an entry gives.
 ///
 /// The reasoning effort is not set here: each turn sends its own in the request's
 /// `provider_options`, so a change of `[model] effort` reaches the next turn without a
@@ -266,7 +268,10 @@ pub(crate) fn openai_config(
     base_url: Option<&str>,
 ) -> Result<OpenAiConfig, DaemonError> {
     let invalid = |source| DaemonError::OpenAi { source };
-    let mut config = config.with_originator(&settings.originator).map_err(invalid)?;
+    let mut config = config
+        .with_originator(&settings.originator)
+        .map_err(invalid)?
+        .with_websocket(websocket_mode(settings.websocket));
     if let Some(base_url) = base_url {
         config = config.with_base_url(base_url).map_err(invalid)?;
     }
@@ -283,6 +288,15 @@ pub(crate) fn openai_config(
         config = config.with_models(models);
     }
     Ok(config)
+}
+
+/// The provider's transport for the choice of `[openai] websocket`.
+fn websocket_mode(choice: WebSocketChoice) -> WebSocketMode {
+    match choice {
+        WebSocketChoice::On => WebSocketMode::On,
+        WebSocketChoice::Off => WebSocketMode::Off,
+        _ => WebSocketMode::Auto,
+    }
 }
 
 /// The API key of the `openai-api` credential, read at each request so a key saved

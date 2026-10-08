@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     CompactionSettings, ConfigError, Location, ModelEntry, Progress, ScreenChoice, Settings,
-    Source, SudoCache,
+    Source, SudoCache, WebSocketChoice,
 };
 
 const PATH: &str = "/home/u/.config/efr/config.toml";
@@ -62,6 +62,7 @@ fn the_file_sets_what_it_names() {
         [openai]
         originator = "efr-dev"
         models = ["gpt-6-sol", "gpt-5.5"]
+        websocket = "off"
 
         [permissions]
         mode = "auto"
@@ -94,6 +95,7 @@ fn the_file_sets_what_it_names() {
     assert_eq!(settings.model.effort.as_deref(), Some("high"));
     assert_eq!(settings.model.max_output_tokens, Some(4096));
     assert_eq!(settings.openai.originator, "efr-dev");
+    assert_eq!(settings.openai.websocket, WebSocketChoice::Off);
     assert_eq!(
         settings.openai.models.as_deref(),
         Some(&["gpt-6-sol".into(), "gpt-5.5".into()][..])

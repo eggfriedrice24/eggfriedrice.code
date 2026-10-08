@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use efr_config::{ModelLimits, Settings};
+use efr_config::{ModelLimits, Settings, WebSocketChoice};
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
-use efr_provider_openai::{Backend, Catalog, OpenAiConfig};
+use efr_provider_openai::{Backend, Catalog, OpenAiConfig, WebSocketMode};
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
@@ -79,6 +79,21 @@ fn the_openai_settings_reach_the_provider_config() {
     assert_eq!(config.models()[1].context_window, Some(1_000_000));
     assert_eq!(config.models()[1].max_output_tokens, Some(64_000));
     assert_eq!(config.reasoning_effort(), None, "each turn sends its own effort");
+}
+
+#[test]
+fn the_websocket_switch_reaches_the_provider_config() {
+    let mut settings = Settings::default().openai;
+    let mode = |settings: &efr_config::OpenAiSettings| {
+        openai_config(OpenAiConfig::subscription(), settings, None).unwrap().websocket()
+    };
+
+    assert_eq!(settings.websocket, WebSocketChoice::Auto);
+    assert_eq!(mode(&settings), WebSocketMode::Auto);
+    settings.websocket = WebSocketChoice::On;
+    assert_eq!(mode(&settings), WebSocketMode::On);
+    settings.websocket = WebSocketChoice::Off;
+    assert_eq!(mode(&settings), WebSocketMode::Off);
 }
 
 #[test]

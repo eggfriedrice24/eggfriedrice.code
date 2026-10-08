@@ -30,6 +30,7 @@ pub const RESTART_KEYS: &[&str] = &[
     "openai.originator",
     "openai.subscription_base_url",
     "openai.api_base_url",
+    "openai.websocket",
 ];
 
 /// What a key holds, as the JSON schema says.

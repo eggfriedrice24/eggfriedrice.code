@@ -17,6 +17,7 @@ openai.originator = "efr"  # default
 openai.models = (built in)  # default
 openai.subscription_base_url = (unset)  # default
 openai.api_base_url = (unset)  # default
+openai.websocket = "auto"  # default
 permissions.mode = "cautious"  # default
 permissions.secret_paths = []  # default
 permissions.rules = []  # default

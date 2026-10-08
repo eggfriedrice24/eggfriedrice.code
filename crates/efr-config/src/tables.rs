@@ -82,6 +82,21 @@ impl ScreenChoice {
     }
 }
 
+/// Whether model calls go over the Responses WebSocket transport.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum WebSocketChoice {
+    /// Follow the model: a model that prefers WebSockets uses one, any other model
+    /// uses HTTP.
+    #[default]
+    Auto,
+    /// Every model uses a WebSocket.
+    On,
+    /// Every model uses HTTP.
+    Off,
+}
+
 /// What a hidden shell does with sudo's cached credentials after a call that ran sudo
 /// or doas.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -153,6 +168,12 @@ pub struct OpenAiSettings {
     /// Replaces the public API's base URL. Needs a restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
+    /// How model calls reach OpenAI: `auto` uses a WebSocket for a model that prefers
+    /// one (every model of the built-in list) and HTTP for the others, `on` uses a
+    /// WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each
+    /// conversation, so a call skips the connection setup. A call that the WebSocket
+    /// cannot serve goes over HTTP. Needs a restart.
+    pub websocket: WebSocketChoice,
 }
 
 impl Default for OpenAiSettings {
@@ -162,6 +183,7 @@ impl Default for OpenAiSettings {
             models: None,
             subscription_base_url: None,
             api_base_url: None,
+            websocket: WebSocketChoice::Auto,
         }
     }
 }
