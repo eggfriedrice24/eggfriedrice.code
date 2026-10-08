@@ -1187,7 +1187,47 @@ const ROUNDS: u128 = 3;
 /// same load as the other two: their fastest call stayed at 25 to 27 ms, as the
 /// project's did, also next to the daemon's, the shell's and the CLI's tests at 64
 /// threads.
+///
+/// A slower machine is another matter: in the sandbox job of CI, a VM in a VM, every
+/// new process is slower, also when nothing else runs. There the fastest call cost
+/// 26.7 ms in `cautious` and 111.9 ms in `auto`, 85 ms apart, with no change in efr.
+/// So the bound grows with the fastest call in `cautious` above
+/// [`DEBUG_CAUTIOUS_FASTEST`]: by [`DEBUG_SLOWER_MACHINE_FACTOR`] times the excess (see
+/// [`debug_auto_adds_at_most`]). Load leaves the fastest call in `cautious` at 5 to 8
+/// ms, so the bound stays at 75 ms on a developer's machine, also under load.
 const DEBUG_AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(75);
+
+/// The fastest call in `cautious` on a developer's machine in a debug build, idle or
+/// under load (5 to 8 ms; see [`DEBUG_AUTO_ADDS_AT_MOST`]).
+const DEBUG_CAUTIOUS_FASTEST: Duration = Duration::from_millis(8);
+
+/// How much more a slower machine adds to the fastest call in `auto` than to the fastest
+/// call in `cautious`. In the CI VM, `cautious` got about 21 ms slower and `auto` about
+/// 59 ms slower than on a developer's machine: a call in `auto` starts about three
+/// times the processes. With 3, the bound in that VM is about 131 ms: the 85 ms that
+/// efr adds there passes, and a change that adds 60 ms to every call in `auto` still
+/// fails.
+const DEBUG_SLOWER_MACHINE_FACTOR: u32 = 3;
+
+/// The bound of the debug build for this run, from its fastest call in `cautious`.
+fn debug_auto_adds_at_most(fastest_cautious: Duration) -> Duration {
+    let slower = fastest_cautious.saturating_sub(DEBUG_CAUTIOUS_FASTEST);
+    DEBUG_AUTO_ADDS_AT_MOST + slower * DEBUG_SLOWER_MACHINE_FACTOR
+}
+
+#[test]
+fn the_debug_bound_grows_only_on_a_slower_machine_and_still_catches_a_fixed_cost() {
+    let bound = |cautious_ms: f64| {
+        debug_auto_adds_at_most(Duration::from_secs_f64(cautious_ms / 1000.0)).as_secs_f64()
+            * 1000.0
+    };
+    assert_eq!(bound(5.0), 75.0, "a developer's machine keeps 75 ms");
+    assert_eq!(bound(8.0), 75.0);
+    // The run of CI's sandbox job that failed with the fixed bound: 111.9 against 26.7.
+    let vm = bound(26.7);
+    assert!(111.9 - 26.7 < vm, "the VM's own cost passes: {vm:.1} ms");
+    assert!(111.9 + 60.0 - 26.7 > vm, "60 ms more per call still fails: {vm:.1} ms");
+}
 
 /// The debug lines of efr's crates in this process, for the bench's `phase` lines.
 fn debug_log() -> Arc<std::sync::Mutex<Vec<u8>>> {
@@ -1500,6 +1540,7 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     // NOTE: a debug build runs the launcher and the daemon several times slower, so
     // only a release build holds the fixed bounds; a debug build compares the modes.
     if cfg!(debug_assertions) {
+        let bound = ms(debug_auto_adds_at_most(Duration::from_secs_f64(fastest_cautious / 1000.0)));
         // NOTE: the turns from the home dir (no project, the $SCRATCH root) are bound too:
         // a cost that only that path adds would pass the project's calls.
         for (place, fastest_auto, auto_calls) in [
@@ -1508,11 +1549,11 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
         ] {
             let added = fastest_auto - fastest_cautious;
             assert!(
-                added < ms(DEBUG_AUTO_ADDS_AT_MOST),
+                added < bound,
                 "the fastest call in auto from {place} cost {added:.1} ms more than in \
                  cautious ({fastest_auto:.1} against {fastest_cautious:.1} ms); at most \
-                 {:.1} ms: auto {auto_calls:?}, cautious {cautious_calls:?}",
-                ms(DEBUG_AUTO_ADDS_AT_MOST)
+                 {bound:.1} ms on this machine: auto {auto_calls:?}, cautious \
+                 {cautious_calls:?}"
             );
         }
     } else {
