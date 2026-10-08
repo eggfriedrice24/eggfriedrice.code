@@ -12,6 +12,25 @@ leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions 
 # build with the features of the whole workspace, not only those the four turn on.
 shell_tests := "package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)"
 
+# The host cache of the Docker gates (test-shell-ubuntu, test-sandbox-ubuntu and
+# test-sandbox-vm). Every checkout shares the cargo registry and git dirs below
+# ci_cache, but each checkout has its own target dir. Each gate mounts its checkout at
+# the same path in the container, so cargo cannot tell two checkouts apart: with one
+# target dir, a gate in one worktree could run the stale test binaries of another. The
+# main checkout keeps ci_cache/target. A linked worktree (git worktree add) gets
+# ci_cache/target-<id>, where <id> is the first 12 hex digits of the SHA-256 of its
+# path. Remove a target-<id> dir when you remove its worktree.
+ci_cache := `printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"`
+ci_target := ci_cache / ```
+    dir="$(git rev-parse --absolute-git-dir 2>/dev/null || true)"
+    common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [[ -z "$dir" || "$dir" == "$common" ]]; then
+        echo target
+    else
+        echo "target-$(pwd -P | sha256sum | cut -c1-12)"
+    fi
+```
+
 # List the recipes.
 default:
     @just --list
@@ -104,16 +123,18 @@ test-shell-ubuntu:
     docker build -t "$image" --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
         --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
         - < .github/ubuntu-shell.Dockerfile
-    # The registry and the target directory stay on the host between runs; the target
-    # directory is apart from target/, because the container links against another libc.
-    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
-    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
-    echo "test-shell-ubuntu: running the shell job's tests, cached in $cache"
+    # The registry and the target directory stay on the host between runs (ci_cache and
+    # ci_target above); the target directory is apart from target/, because the
+    # container links against another libc.
+    cache="{{ ci_cache }}"
+    target="{{ ci_target }}"
+    mkdir -p "$cache/registry" "$cache/git" "$target"
+    echo "test-shell-ubuntu: running the shell job's tests, cached in $cache, target dir $target"
     docker run --rm --init \
         -v "$PWD:/home/runner/work/efr" \
         -v "$cache/registry:/home/runner/.cargo/registry" \
         -v "$cache/git:/home/runner/.cargo/git" \
-        -v "$cache/target:/home/runner/target" \
+        -v "$target:/home/runner/target" \
         -e CARGO_TARGET_DIR=/home/runner/target \
         -e CARGO_TERM_COLOR=always -e INSTA_UPDATE=no -e EFR_TEST_ZSH=1 \
         -w /home/runner/work/efr "$image" \
@@ -195,16 +216,17 @@ test-sandbox-ubuntu:
     docker build -t "$image" --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
         --build-arg TOOLCHAIN="$toolchain" --build-arg NEXTEST="$nextest" \
         - < .github/ubuntu-shell.Dockerfile
-    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
-    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
-    echo "test-sandbox-ubuntu: running the sandbox tests, cached in $cache"
+    cache="{{ ci_cache }}"
+    target="{{ ci_target }}"
+    mkdir -p "$cache/registry" "$cache/git" "$target"
+    echo "test-sandbox-ubuntu: running the sandbox tests, cached in $cache, target dir $target"
     docker run --rm --init \
         --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
         --security-opt systempaths=unconfined \
         -v "$PWD:/home/runner/work/efr" \
         -v "$cache/registry:/home/runner/.cargo/registry" \
         -v "$cache/git:/home/runner/.cargo/git" \
-        -v "$cache/target:/home/runner/target" \
+        -v "$target:/home/runner/target" \
         -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
         -w /home/runner/work/efr "$image" bash -euo pipefail -c '
             cargo build -p efr-sbx
@@ -247,14 +269,15 @@ test-sandbox-vm:
     echo "test-sandbox-vm: building efr-sandbox-vm (QEMU, virtme-ng, the kernel)"
     docker build -t efr-sandbox-vm --build-arg BASE=efr-shell-ubuntu \
         -f .github/sandbox-vm.Dockerfile .github
-    cache="${XDG_CACHE_HOME:-$HOME/.cache}/efr-ci"
-    mkdir -p "$cache/registry" "$cache/git" "$cache/target"
-    echo "test-sandbox-vm: running the sandbox job's step, cached in $cache"
+    cache="{{ ci_cache }}"
+    target="{{ ci_target }}"
+    mkdir -p "$cache/registry" "$cache/git" "$target"
+    echo "test-sandbox-vm: running the sandbox job's step, cached in $cache, target dir $target"
     docker run --rm --init --device /dev/kvm --group-add "$(stat -c %g /dev/kvm)" \
         -v "$PWD:/home/runner/work/efr" \
         -v "$cache/registry:/home/runner/.cargo/registry" \
         -v "$cache/git:/home/runner/.cargo/git" \
-        -v "$cache/target:/home/runner/target" \
+        -v "$target:/home/runner/target" \
         -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
         -w /home/runner/work/efr efr-sandbox-vm bash -euo pipefail -c '
             out=/home/runner/target/sandbox-vm
