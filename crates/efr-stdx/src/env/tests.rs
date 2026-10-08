@@ -146,6 +146,7 @@ fn all_lists_every_variant() {
         Var::LastCommand,
         Var::Prompt,
         Var::TerminalBg,
+        Var::DraftFile,
     ];
     for var in every {
         match var {
@@ -165,7 +166,8 @@ fn all_lists_every_variant() {
             | Var::Context
             | Var::LastCommand
             | Var::Prompt
-            | Var::TerminalBg => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
+            | Var::TerminalBg
+            | Var::DraftFile => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
         }
     }
     assert_eq!(every.len(), Var::ALL.len());

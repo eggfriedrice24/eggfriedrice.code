@@ -87,6 +87,7 @@ table names the same set. An empty value counts as unset.
 | `EFR_LAST_COMMAND` | Private. The last command line of the user's shell, from the zsh plugin to `efr send` and `efr new`. |
 | `EFR_PROMPT` | Private. The prompt that the zsh plugin hands to `efr send` and `efr new`. |
 | `EFR_TERMINAL_BG` | `dark` or `light`: the background of the terminal, for `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads (OSC 11) and sets it; set it by hand to skip the question. |
+| `EFR_DRAFT_FILE` | An absolute path. `efr send` and `efr new` write the text that is still in the input row of a turn there when they end. The zsh plugin sets it and puts the text back on the command line. |
 
 A flag accepts `1`, `true`, `yes` or `on` for on and `0`, `false`, `no` or `off` for
 off, in any letter case. Any other value is an error.

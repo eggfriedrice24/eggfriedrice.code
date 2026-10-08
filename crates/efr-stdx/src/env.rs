@@ -66,6 +66,10 @@ pub enum Var {
     /// `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads and
     /// sets it; the user can set it by hand.
     TerminalBg,
+    /// `EFR_DRAFT_FILE`: an absolute path where `efr send` and `efr new` write the text
+    /// that is still in the input row of a turn when they end. The zsh plugin sets it
+    /// and puts the text back on the command line.
+    DraftFile,
 }
 
 impl Var {
@@ -88,6 +92,7 @@ impl Var {
         Var::LastCommand,
         Var::Prompt,
         Var::TerminalBg,
+        Var::DraftFile,
     ];
 
     /// The variables that carry what the user typed from the zsh plugin to `efr`.
@@ -124,6 +129,7 @@ impl Var {
             Var::LastCommand => "EFR_LAST_COMMAND",
             Var::Prompt => "EFR_PROMPT",
             Var::TerminalBg => "EFR_TERMINAL_BG",
+            Var::DraftFile => "EFR_DRAFT_FILE",
         }
     }
 }
