@@ -25,6 +25,7 @@ fn queued(turn: TurnId, n: u128) -> Event {
         origin: Origin::Shell,
         context: None,
         settings: efr_protocol::TurnSettings::default(),
+        steers: Vec::new(),
     }
 }
 
@@ -256,6 +257,7 @@ async fn terminal_scene() -> (TestStore, ConversationId, [TurnId; 3], Seq) {
                 origin: Origin::Shell,
                 context: None,
                 settings: efr_protocol::TurnSettings::default(),
+                steers: Vec::new(),
             },
         );
     let hwm = store.writer().append(batch).await.unwrap().last_seq();

@@ -43,6 +43,7 @@ mod lease_report;
 mod models_list;
 mod projects_list;
 mod prompt_send;
+mod prompt_withdraw;
 mod pty_attach;
 mod pty_resize;
 mod pty_write;
@@ -100,6 +101,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
         Method::AdminSandboxCheck(_) => ScopeName::Admin,
         Method::ConversationDiff(_) => ScopeName::Read,
+        Method::PromptWithdraw(_) => ScopeName::Operate,
     }
 }
 
@@ -271,6 +273,7 @@ impl Dispatcher for Methods {
                 Method::ConversationDiff(params) => {
                     conversation_diff::handle(state, &context, params, &responder).await
                 }
+                Method::PromptWithdraw(params) => prompt_withdraw::handle(&params),
             }
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))

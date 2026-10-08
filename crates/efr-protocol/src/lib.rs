@@ -75,13 +75,16 @@ pub use methods::models_list::{
 };
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};
+pub use methods::prompt_withdraw::{
+    PromptWithdraw, PromptWithdrawResult, WithdrawTarget, WithdrawnPrompt,
+};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
 pub use methods::sandbox_explain::{SandboxExplain, SandboxExplainResult, SandboxPathRole};
 pub use methods::sandbox_surface_respond::{SandboxSurfaceRespond, SandboxSurfaceRespondResult};
-pub use methods::turn_interrupt::{TurnInterrupt, TurnInterruptResult};
-pub use methods::turn_steer::{TurnSteer, TurnSteerResult};
+pub use methods::turn_interrupt::{ResentSteers, TurnInterrupt, TurnInterruptResult};
+pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{

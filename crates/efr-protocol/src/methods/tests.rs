@@ -4,9 +4,10 @@ use serde_json::json;
 use crate::{
     AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
     ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
-    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, Mode, ModelInfo,
-    ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend,
-    PromptSendResult, RootSource, Seq, TurnSettings,
+    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, LateSteer, Mode,
+    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo,
+    PromptSend, PromptSendResult, PromptWithdraw, RootSource, Seq, ShellContext, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -362,4 +363,91 @@ fn a_project_without_a_name_is_its_id_and_root() {
         json!({ "id": "019a9b1c-3d00-7a10-8b20-000000000008", "root": "/etc/nixos" })
     );
     assert_eq!(serde_json::from_value::<ProjectInfo>(value).unwrap(), project);
+}
+
+#[test]
+fn a_steer_from_before_if_late_parses_as_one_that_is_refused_when_late() {
+    let old = json!({ "command_id": COMMAND, "conversation_id": CONVERSATION, "text": "also" });
+    let steer: TurnSteer = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(steer.if_late, None);
+    assert_eq!(serde_json::to_value(&steer).unwrap(), old, "no if_late is written");
+}
+
+#[test]
+fn a_late_steer_that_queues_carries_what_a_prompt_carries() {
+    let value = json!({
+        "command_id": COMMAND,
+        "conversation_id": CONVERSATION,
+        "text": "also",
+        "if_late": { "kind": "queue", "context": { "pwd": "/tmp" }, "settings": { "mode": "auto" } },
+    });
+    let steer: TurnSteer = serde_json::from_value(value.clone()).unwrap();
+    let Some(LateSteer::Queue { context, last_command, settings }) = &steer.if_late else {
+        panic!("{steer:?}");
+    };
+    assert_eq!(context.as_ref().map(|context| context.pwd.as_path()), Some("/tmp".as_ref()));
+    assert_eq!(*last_command, None);
+    assert_eq!(settings.mode, Some(Mode::Auto));
+    assert_eq!(serde_json::to_value(&steer).unwrap(), value);
+    let bare: LateSteer = serde_json::from_value(json!({ "kind": "queue" })).unwrap();
+    assert_eq!(
+        bare,
+        LateSteer::Queue { context: None, last_command: None, settings: TurnSettings::default() }
+    );
+}
+
+#[test]
+fn a_late_steer_hides_the_last_command_from_debug() {
+    let late = LateSteer::Queue {
+        context: Some(ShellContext::new("/tmp")),
+        last_command: Some("export TOKEN=hunter2".to_owned()),
+        settings: TurnSettings::default(),
+    };
+    let text = format!("{late:?}");
+    assert!(!text.contains("hunter2"), "{text}");
+    assert!(text.contains("/tmp"), "{text}");
+}
+
+#[test]
+fn a_steer_result_says_queued_only_when_the_steer_became_a_prompt() {
+    let old = json!({ "turn_id": TURN, "seq": 45 });
+    let result: TurnSteerResult = serde_json::from_value(old.clone()).unwrap();
+    assert!(!result.queued);
+    assert_eq!(serde_json::to_value(&result).unwrap(), old, "no queued flag is written");
+    let queued = TurnSteerResult { queued: true, ..result };
+    assert_eq!(serde_json::to_value(&queued).unwrap()["queued"], json!(true));
+}
+
+#[test]
+fn an_interrupt_from_before_esc_resends_and_withdraws_nothing() {
+    let old = json!({ "command_id": COMMAND, "conversation_id": CONVERSATION, "turn_id": TURN });
+    let interrupt: TurnInterrupt = serde_json::from_value(old.clone()).unwrap();
+    assert!(interrupt.resend_steers.is_empty());
+    assert!(interrupt.withdraw.is_empty());
+    assert_eq!(serde_json::to_value(&interrupt).unwrap(), old, "no empty lists are written");
+    let old_result = json!({ "turn_id": TURN, "seq": 44 });
+    let result: TurnInterruptResult = serde_json::from_value(old_result.clone()).unwrap();
+    assert_eq!(result.resent, None);
+    assert!(result.withdrawn.is_empty());
+    assert_eq!(serde_json::to_value(&result).unwrap(), old_result);
+}
+
+#[test]
+fn a_withdraw_names_its_target_by_kind() {
+    let by_tty = json!({
+        "command_id": COMMAND,
+        "conversation_id": CONVERSATION,
+        "target": { "kind": "newest_from_tty", "tty": "/dev/pts/3" },
+    });
+    let withdraw: PromptWithdraw = serde_json::from_value(by_tty.clone()).unwrap();
+    assert_eq!(withdraw.target, WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() });
+    assert_eq!(serde_json::to_value(&withdraw).unwrap(), by_tty);
+    let no_target = json!({ "command_id": COMMAND, "conversation_id": CONVERSATION });
+    assert!(serde_json::from_value::<PromptWithdraw>(no_target).is_err());
+    let unknown = json!({
+        "command_id": COMMAND,
+        "conversation_id": CONVERSATION,
+        "target": { "kind": "oldest" },
+    });
+    assert!(serde_json::from_value::<PromptWithdraw>(unknown).is_err());
 }

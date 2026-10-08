@@ -1,4 +1,18 @@
 {
   "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
-  "seq": 44
+  "seq": 44,
+  "resent": {
+    "turn_id": "019a9b1c-3d00-7a10-8b20-00000000000a",
+    "seq": 48,
+    "steers": [
+      45
+    ]
+  },
+  "withdrawn": [
+    {
+      "turn_id": "019a9b1c-3d00-7a10-8b20-00000000000a",
+      "seq": 47,
+      "text": "then clean up the old logs"
+    }
+  ]
 }

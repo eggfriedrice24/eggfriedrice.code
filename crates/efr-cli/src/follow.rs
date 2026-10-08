@@ -166,6 +166,8 @@ async fn interrupt(ctx: &Context, client: &Client, target: Target) -> Result<(),
         command_id: ctx.command_id(),
         conversation_id: target.conversation,
         turn_id: Some(target.turn),
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     });
     let call = client.call::<TurnInterruptResult>(method);
     match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {

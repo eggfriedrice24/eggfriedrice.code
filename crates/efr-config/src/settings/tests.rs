@@ -256,6 +256,18 @@ fn motion_the_turn_summary_and_the_progress_bar_are_on_or_auto_until_the_file_sa
 }
 
 #[test]
+fn the_input_row_of_a_turn_is_on_until_the_file_turns_it_off() {
+    let settings = parse("").unwrap();
+    assert!(settings.render.turn_input);
+    assert_eq!(settings.source("render.turn_input"), Source::Default);
+    let settings = parse("[render]\nturn_input = false\n").unwrap();
+    assert!(!settings.render.turn_input);
+    assert_eq!(settings.source("render.turn_input"), Source::File);
+    let error = parse("[render]\nturn_input = \"yes\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("render.turn_input"));
+}
+
+#[test]
 fn auto_picks_from_a_dark_and_a_light_theme_that_have_defaults() {
     let settings = parse("").unwrap();
     assert_eq!(settings.render.theme, None);

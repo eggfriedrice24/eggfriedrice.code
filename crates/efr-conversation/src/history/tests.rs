@@ -231,6 +231,7 @@ fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Even
             origin: Origin::Shell,
             context: None,
             settings: TurnSettings::default(),
+            steers: Vec::new(),
         },
         Event::TurnStarted {
             turn_id: t,
@@ -285,6 +286,7 @@ async fn only_finished_turns_other_than_the_current_one_count() {
                 origin: Origin::Shell,
                 context: None,
                 settings: TurnSettings::default(),
+                steers: Vec::new(),
             },
             Event::TurnStarted {
                 turn_id: current,

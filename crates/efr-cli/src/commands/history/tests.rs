@@ -50,6 +50,7 @@ fn events() -> Vec<EventEnvelope> {
                 origin: Origin::Shell,
                 context: None,
                 settings: TurnSettings::default(),
+                steers: Vec::new(),
             },
         ),
         envelope(
@@ -301,6 +302,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
                 origin: Origin::Shell,
                 context: None,
                 settings: TurnSettings::default(),
+                steers: Vec::new(),
             },
         )
     };

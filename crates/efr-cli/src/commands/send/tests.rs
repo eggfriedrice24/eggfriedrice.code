@@ -443,7 +443,8 @@ async fn steer_finds_the_terminals_conversation_across_pages() {
         conn.reply(id, &second).await;
         let (id, method) = conn.request().await;
         let Method::TurnSteer(params) = method else { panic!("expected turn.steer") };
-        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30), queued: false })
+            .await;
         conn.until_closed().await;
         params
     };
@@ -475,7 +476,8 @@ async fn steer_takes_its_text_and_terminal_from_the_plugins_variables() {
         conn.reply(id, &list).await;
         let (id, method) = conn.request().await;
         let Method::TurnSteer(params) = method else { panic!("expected turn.steer") };
-        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30), queued: false })
+            .await;
         conn.until_closed().await;
         params
     };
@@ -513,7 +515,8 @@ async fn steer_with_a_conversation_needs_no_lookup() {
         let mut conn = daemon.accept().await;
         let (id, method) = conn.request().await;
         assert!(matches!(method, Method::TurnSteer(ref p) if p.conversation_id == conversation()));
-        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30), queued: false })
+            .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
@@ -604,7 +607,8 @@ async fn a_steer_ignores_the_settings_variables() {
         let mut conn = daemon.accept().await;
         let (id, method) = conn.request().await;
         assert!(matches!(method, Method::TurnSteer(_)), "{}", method.name());
-        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30) }).await;
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30), queued: false })
+            .await;
         conn.until_closed().await;
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);

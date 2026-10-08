@@ -54,6 +54,7 @@ fn the_render_keys_hold_one_colour_key_per_role() {
         "turn_summary",
         "diff_lines",
         "progress",
+        "turn_input",
     ]
     .map(|key| format!("render.{key}"))
     .into();
@@ -66,6 +67,7 @@ fn the_render_keys_hold_one_colour_key_per_role() {
     assert_eq!(kind("render.palette"), Some(Kind::String));
     assert_eq!(kind("render.motion"), Some(Kind::Boolean));
     assert_eq!(kind("render.turn_summary"), Some(Kind::Boolean));
+    assert_eq!(kind("render.turn_input"), Some(Kind::Boolean));
     let choices = ["auto", "on", "off"].map(str::to_owned).to_vec();
     assert_eq!(kind("render.progress"), Some(Kind::Choice(choices)));
 }

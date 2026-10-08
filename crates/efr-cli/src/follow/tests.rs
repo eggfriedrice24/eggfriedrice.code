@@ -520,7 +520,16 @@ async fn ctrl_c_interrupts_the_turn_and_keeps_what_arrived() {
         };
         assert_eq!(params.conversation_id, conversation());
         assert_eq!(params.turn_id, Some(turn()));
-        conn.reply(id, &TurnInterruptResult { turn_id: turn(), seq: Seq::new(12) }).await;
+        conn.reply(
+            id,
+            &TurnInterruptResult {
+                turn_id: turn(),
+                seq: Seq::new(12),
+                resent: None,
+                withdrawn: Vec::new(),
+            },
+        )
+        .await;
         conn.until_closed().await;
     })
     .await;
@@ -1683,8 +1692,16 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
                 Out::CtrlC => {
                     interrupt.trigger();
                     let (id, _) = request_after_cancels(&mut conn).await;
-                    conn.reply(id, &TurnInterruptResult { turn_id: turn(), seq: Seq::new(12) })
-                        .await;
+                    conn.reply(
+                        id,
+                        &TurnInterruptResult {
+                            turn_id: turn(),
+                            seq: Seq::new(12),
+                            resent: None,
+                            withdrawn: Vec::new(),
+                        },
+                    )
+                    .await;
                 }
                 Out::Ended => conn.end(sub).await,
                 Out::Sigterm => terminate.trigger(),

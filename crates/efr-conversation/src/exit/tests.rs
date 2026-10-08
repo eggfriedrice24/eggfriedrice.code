@@ -186,6 +186,7 @@ fn the_user_messages_end_with_the_turn_s_own_prompt() {
             origin: Origin::Shell,
             context: None,
             settings: efr_protocol::TurnSettings::default(),
+            steers: Vec::new(),
         })
     };
     let page = vec![

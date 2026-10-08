@@ -613,6 +613,11 @@
           "description": "The theme that `theme = \"auto\"` takes on a light background.",
           "type": "string"
         },
+        "turn_input": {
+          "default": true,
+          "description": "An input row below the status row while a turn runs, when the terminal is\ninteractive. Enter steers the turn, Tab queues a prompt behind it and Esc\ninterrupts it. `false` shows no input row: keys typed during a turn go to the\nshell's next prompt.",
+          "type": "boolean"
+        },
         "turn_summary": {
           "default": true,
           "description": "One muted line at the end of each turn: how long it took and the tokens it\nused, such as `done in 42s, 18.2k tokens in, 1.1k out`.",
@@ -1104,6 +1109,7 @@
         "progress": "auto",
         "theme_dark": "catppuccin-mocha",
         "theme_light": "catppuccin-latte",
+        "turn_input": true,
         "turn_summary": true
       },
       "description": "How `efr` shows replies."

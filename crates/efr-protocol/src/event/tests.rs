@@ -63,6 +63,7 @@ fn a_prompt_queued_event_never_contains_the_last_command() {
         origin: Origin::Shell,
         context: prompt.context.clone(),
         settings: prompt.settings.clone(),
+        steers: Vec::new(),
     };
     let envelope = EventEnvelope {
         seq: Seq::new(1),
@@ -120,11 +121,12 @@ fn a_prompt_queued_event_from_before_turn_settings_still_parses_without_settings
         "origin": "shell",
     });
     let event: Event = serde_json::from_value(old.clone()).unwrap();
-    let Event::PromptQueued { settings, .. } = &event else {
+    let Event::PromptQueued { settings, steers, .. } = &event else {
         panic!("{event:?}");
     };
     assert!(settings.is_empty());
-    assert_eq!(serde_json::to_value(&event).unwrap(), old, "no settings are written");
+    assert!(steers.is_empty());
+    assert_eq!(serde_json::to_value(&event).unwrap(), old, "no settings or steers are written");
 }
 
 #[test]
@@ -141,6 +143,7 @@ fn a_prompt_queued_event_keeps_the_settings_the_prompt_asked_for() {
         origin: Origin::Shell,
         context: None,
         settings: settings.clone(),
+        steers: Vec::new(),
     };
     let value = serde_json::to_value(&event).unwrap();
     assert_eq!(value["settings"], json!({ "mode": "auto", "model": "gpt-5.4", "effort": "high" }));

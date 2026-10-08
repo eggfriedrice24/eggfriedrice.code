@@ -270,6 +270,7 @@ impl ConversationActor {
             origin,
             context: params.context.clone(),
             settings: params.settings.clone(),
+            steers: Vec::new(),
         });
         let result = PromptSendResult {
             conversation_id: self.conversation_id(),
@@ -306,7 +307,7 @@ impl ConversationActor {
             });
         };
         let event = Event::TurnSteered { turn_id, text: params.text.clone() };
-        let result = TurnSteerResult { turn_id, seq: Seq::ZERO };
+        let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: false };
         let receipt = receipt(params.command_id, TURN_STEER, &result)?;
         let committed = self.append(vec![event], receipt).await?;
         reservation.push(params.text);
@@ -321,7 +322,8 @@ impl ConversationActor {
         self.check_conversation(Some(params.conversation_id))?;
         let turn_id = self.running_turn(params.turn_id)?;
         let event = Event::TurnInterruptRequested { turn_id, origin };
-        let result = TurnInterruptResult { turn_id, seq: Seq::ZERO };
+        let result =
+            TurnInterruptResult { turn_id, seq: Seq::ZERO, resent: None, withdrawn: Vec::new() };
         let receipt = receipt(params.command_id, TURN_INTERRUPT, &result)?;
         let committed = self.append(vec![event], receipt).await?;
         if let Some(running) = &self.running {

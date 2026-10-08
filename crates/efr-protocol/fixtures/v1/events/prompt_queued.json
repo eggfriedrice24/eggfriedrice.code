@@ -18,5 +18,8 @@
     "mode": "auto",
     "model": "gpt-5.4",
     "effort": "high"
-  }
+  },
+  "steers": [
+    45
+  ]
 }

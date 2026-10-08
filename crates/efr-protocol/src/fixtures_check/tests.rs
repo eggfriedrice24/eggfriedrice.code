@@ -7,9 +7,11 @@ use pretty_assertions::assert_eq;
 use super::{
     FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples, grant_samples,
     input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
+    withdraw_target_samples,
 };
 use crate::{
     DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource,
+    WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -63,10 +65,11 @@ fn method_index(method: &Method) -> usize {
         Method::SandboxSurfaceRespond(_) => 21,
         Method::AdminSandboxCheck(_) => 22,
         Method::ConversationDiff(_) => 23,
+        Method::PromptWithdraw(_) => 24,
     }
 }
 
-const METHOD_COUNT: usize = 24;
+const METHOD_COUNT: usize = 25;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -103,10 +106,12 @@ fn event_index(event: &Event) -> usize {
         Event::TurnSurfaceReport { .. } => 29,
         Event::SandboxUnavailable { .. } => 30,
         Event::Unknown { .. } => 31,
+        Event::PromptWithdrawn { .. } => 32,
+        Event::SteeringDelivered { .. } => 33,
     }
 }
 
-const EVENT_COUNT: usize = 32;
+const EVENT_COUNT: usize = 34;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -213,6 +218,17 @@ fn draft_part_index(part: &DraftPart) -> usize {
 }
 
 const DRAFT_PART_COUNT: usize = 3;
+
+/// The position of a withdraw target in the enum, for the same purpose as
+/// `method_index`.
+fn withdraw_target_index(target: &WithdrawTarget) -> usize {
+    match target {
+        WithdrawTarget::Turn { .. } => 0,
+        WithdrawTarget::NewestFromTty { .. } => 1,
+    }
+}
+
+const WITHDRAW_TARGET_COUNT: usize = 2;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -339,6 +355,12 @@ fn every_grant_and_launch_has_a_sample() {
 fn every_draft_part_has_a_sample() {
     let covered: Vec<usize> = draft_part_samples().iter().map(draft_part_index).collect();
     assert_eq!(covered, (0..DRAFT_PART_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_withdraw_target_has_a_sample() {
+    let covered: Vec<usize> = withdraw_target_samples().iter().map(withdraw_target_index).collect();
+    assert_eq!(covered, (0..WITHDRAW_TARGET_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

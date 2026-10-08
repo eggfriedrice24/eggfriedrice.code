@@ -7,7 +7,7 @@ use crate::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalRespond, CommandId, ConversationDiff, ConversationHistory,
     ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, ModelsList,
-    ProjectsList, PromptSend, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
+    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
     SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
 };
 
@@ -97,6 +97,9 @@ pub enum Method {
     /// `conversation.diff`: what a turn changed in files.
     #[serde(rename = "conversation.diff")]
     ConversationDiff(ConversationDiff),
+    /// `prompt.withdraw`: take back a prompt that waits in the queue.
+    #[serde(rename = "prompt.withdraw")]
+    PromptWithdraw(PromptWithdraw),
 }
 
 impl Method {
@@ -128,6 +131,7 @@ impl Method {
             Method::SandboxSurfaceRespond(_) => "sandbox.surface_respond",
             Method::AdminSandboxCheck(_) => "admin.sandbox_check",
             Method::ConversationDiff(_) => "conversation.diff",
+            Method::PromptWithdraw(_) => "prompt.withdraw",
         }
     }
 
@@ -141,6 +145,7 @@ impl Method {
             Method::TurnSteer(params) => Some(params.command_id),
             Method::ApprovalRespond(params) => Some(params.command_id),
             Method::SandboxSurfaceRespond(params) => Some(params.command_id),
+            Method::PromptWithdraw(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -190,7 +195,8 @@ impl Method {
             | Method::SandboxExplain(_)
             | Method::SandboxSurfaceRespond(_)
             | Method::AdminSandboxCheck(_)
-            | Method::ConversationDiff(_) => false,
+            | Method::ConversationDiff(_)
+            | Method::PromptWithdraw(_) => false,
         }
     }
 }
@@ -213,9 +219,10 @@ impl ScopeName {
             | Method::ProjectsList(_)
             | Method::SandboxExplain(_)
             | Method::ConversationDiff(_) => ScopeName::Read,
-            Method::PromptSend(_) | Method::TurnInterrupt(_) | Method::TurnSteer(_) => {
-                ScopeName::Operate
-            }
+            Method::PromptSend(_)
+            | Method::PromptWithdraw(_)
+            | Method::TurnInterrupt(_)
+            | Method::TurnSteer(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

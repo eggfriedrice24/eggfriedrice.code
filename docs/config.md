@@ -140,6 +140,7 @@ How `efr` shows replies.
 | `turn_summary` | `true` | client | One muted line at the end of each turn: how long it took and the tokens it used, such as `done in 42s, 18.2k tokens in, 1.1k out`. |
 | `diff_lines` | `20` | client | The lines of a file tool's diff that a call shows after it ran, from 0 to 1000; a muted line then says how many more there are. 0 shows no diff. `efr diff` shows all of a turn's diff. |
 | `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux, GNU screen or zellij), `on` or `off`. |
+| `turn_input` | `true` | client | An input row below the status row while a turn runs, when the terminal is interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts it. `false` shows no input row: keys typed during a turn go to the shell's next prompt. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |
 | `colors.muted` | unset | client | Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim. |
 | `colors.accent` | unset | client | The spinner and the colour of headings. Unset: slot 3 (yellow). |

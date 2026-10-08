@@ -63,6 +63,7 @@ render.motion = true  # default
 render.turn_summary = true  # default
 render.diff_lines = 20  # default
 render.progress = "auto"  # default
+render.turn_input = true  # default
 render.colors.text = (unset)  # default
 render.colors.muted = (unset)  # default
 render.colors.accent = (unset)  # default

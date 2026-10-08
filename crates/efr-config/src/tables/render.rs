@@ -147,6 +147,11 @@ pub struct RenderSettings {
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
     /// inside tmux, GNU screen or zellij), `on` or `off`.
     pub progress: Progress,
+    /// An input row below the status row while a turn runs, when the terminal is
+    /// interactive. Enter steers the turn, Tab queues a prompt behind it and Esc
+    /// interrupts it. `false` shows no input row: keys typed during a turn go to the
+    /// shell's next prompt.
+    pub turn_input: bool,
     /// The colour of each role. A role set here wins over the palette file, and the
     /// palette file over the terminal's 16 colours.
     pub colors: RenderColors,
@@ -163,6 +168,7 @@ impl Default for RenderSettings {
             turn_summary: true,
             diff_lines: 20,
             progress: Progress::Auto,
+            turn_input: true,
             colors: RenderColors::default(),
         }
     }

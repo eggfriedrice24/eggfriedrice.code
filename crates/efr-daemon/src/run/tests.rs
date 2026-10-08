@@ -239,6 +239,7 @@ mod daemon {
             conversation_id: sent.conversation_id,
             turn_id: None,
             text: "faster".to_owned(),
+            if_late: None,
         });
         let first = client.call::<serde_json::Value>(steer.clone()).await.unwrap_err();
         let again = client.call::<serde_json::Value>(steer).await.unwrap_err();

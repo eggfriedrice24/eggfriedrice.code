@@ -28,17 +28,18 @@ use crate::{
     DaemonRoots, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
     EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
     GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond, InputRespondResult, InputWait,
-    JudgeKind, Judgement, Launch, LeaseReport, LeaseReportResult, Method, Mode, ModeFallback,
-    ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
-    ProjectsListResult, PromptSend, PromptSendResult, ProviderStatus, PtyAttach, PtyAttachItem,
-    PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile,
-    RequestId, Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
-    UserAuthorization, Verdict,
+    JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult, Method, Mode,
+    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact, ProjectId,
+    ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile, RequestId, ResentSteers,
+    Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, Usage, UserAuthorization, Verdict, WithdrawTarget,
+    WithdrawnPrompt,
 };
 
 /// The directory of the frozen fixtures.
@@ -104,7 +105,25 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("grants.json", &grant_samples()));
     fixtures.push(fixture("launches.json", &launch_samples()));
     fixtures.push(fixture("draft_parts.json", &draft_part_samples()));
+    fixtures.push(fixture("withdraw_targets.json", &withdraw_target_samples()));
     fixtures
+}
+
+/// One sample of every kind of target of `prompt.withdraw`.
+pub(crate) fn withdraw_target_samples() -> Vec<WithdrawTarget> {
+    vec![
+        WithdrawTarget::Turn { turn_id: queued_turn_id() },
+        WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() },
+    ]
+}
+
+/// A prompt that `prompt.withdraw` or `turn.interrupt` took back.
+fn withdrawn_prompt() -> WithdrawnPrompt {
+    WithdrawnPrompt {
+        turn_id: queued_turn_id(),
+        seq: Seq::new(47),
+        text: "then clean up the old logs".to_owned(),
+    }
 }
 
 /// One sample of every kind of draft part.
@@ -133,6 +152,11 @@ fn conversation_id() -> ConversationId {
 
 fn turn_id() -> TurnId {
     parse("019a9b1c-3d00-7a10-8b20-000000000002")
+}
+
+/// A second turn: one that waits in the queue behind [`turn_id`].
+fn queued_turn_id() -> TurnId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000a")
 }
 
 fn command_id() -> CommandId {
@@ -454,12 +478,19 @@ pub(crate) fn method_samples() -> Vec<Method> {
             command_id: command_id(),
             conversation_id: conversation_id(),
             turn_id: Some(turn_id()),
+            resend_steers: vec![Seq::new(45)],
+            withdraw: vec![queued_turn_id()],
         }),
         Method::TurnSteer(TurnSteer {
             command_id: command_id(),
             conversation_id: conversation_id(),
             turn_id: Some(turn_id()),
             text: "check the journal too".into(),
+            if_late: Some(LateSteer::Queue {
+                context: Some(shell_context()),
+                last_command: Some("du -sh /var/log".into()),
+                settings: turn_settings(),
+            }),
         }),
         Method::ApprovalRespond(ApprovalRespond {
             command_id: command_id(),
@@ -515,6 +546,11 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: Some(conversation_id()),
             turn_id: Some(turn_id()),
             stat: true,
+        }),
+        Method::PromptWithdraw(PromptWithdraw {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            target: WithdrawTarget::Turn { turn_id: queued_turn_id() },
         }),
     ]
 }
@@ -649,11 +685,24 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture(
             "turn_interrupt_result.json",
-            &TurnInterruptResult { turn_id: turn_id(), seq: Seq::new(44) },
+            &TurnInterruptResult {
+                turn_id: turn_id(),
+                seq: Seq::new(44),
+                resent: Some(ResentSteers {
+                    turn_id: queued_turn_id(),
+                    seq: Seq::new(48),
+                    steers: vec![Seq::new(45)],
+                }),
+                withdrawn: vec![withdrawn_prompt()],
+            },
         ),
         fixture(
             "turn_steer_result.json",
-            &TurnSteerResult { turn_id: turn_id(), seq: Seq::new(45) },
+            &TurnSteerResult { turn_id: queued_turn_id(), seq: Seq::new(49), queued: true },
+        ),
+        fixture(
+            "prompt_withdraw_result.json",
+            &PromptWithdrawResult { withdrawn: withdrawn_prompt() },
         ),
         fixture("approval_respond_result.json", &ApprovalRespondResult { seq: Seq::new(46) }),
         fixture(
@@ -882,7 +931,9 @@ pub(crate) fn event_samples() -> Vec<Event> {
             origin: Origin::Shell,
             context: Some(shell_context()),
             settings: turn_settings(),
+            steers: vec![Seq::new(45)],
         },
+        Event::PromptWithdrawn { turn_id: queued_turn_id(), origin: Origin::Shell },
         Event::PromptHeld { turn_id: turn_id() },
         Event::TurnStarted {
             turn_id: turn_id(),
@@ -980,6 +1031,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
         },
         Event::ApprovalExpired { turn_id: turn_id(), call_id: call_id() },
         Event::TurnSteered { turn_id: turn_id(), text: "check the journal too".into() },
+        Event::SteeringDelivered { turn_id: turn_id(), steers: vec![Seq::new(45), Seq::new(46)] },
         Event::TurnInterruptRequested { turn_id: turn_id(), origin: Origin::Cli },
         Event::TurnInterrupted { turn_id: turn_id() },
         Event::TurnCompleted {

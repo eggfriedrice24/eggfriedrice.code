@@ -16,10 +16,11 @@ use crate::{
     ConversationHistoryResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
     ConversationsListResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
     InputRespond, InputRespondResult, LeaseReport, LeaseReportResult, ModelsList, ModelsListResult,
-    PROTOCOL_VERSION, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PtyAttach,
-    PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, SandboxExplain,
-    SandboxExplainResult, SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName,
-    TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
+    PROTOCOL_VERSION, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
+    PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
+    PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -110,6 +111,11 @@ pub fn document() -> Value {
             &mut generator,
             "conversation.diff",
             ScopeName::Read,
+        ),
+        unary::<PromptWithdraw, PromptWithdrawResult>(
+            &mut generator,
+            "prompt.withdraw",
+            ScopeName::Operate,
         ),
     ];
     let frames = json!({

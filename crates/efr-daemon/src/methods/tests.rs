@@ -3,8 +3,9 @@ use efr_protocol::{
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
     InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
-    ProjectsList, PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer,
+    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt,
+    TurnSteer, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -52,12 +53,19 @@ fn every_method() -> Vec<Method> {
             last_command: None,
             settings: efr_protocol::TurnSettings::default(),
         }),
-        Method::TurnInterrupt(TurnInterrupt { command_id, conversation_id, turn_id: None }),
+        Method::TurnInterrupt(TurnInterrupt {
+            command_id,
+            conversation_id,
+            turn_id: None,
+            resend_steers: Vec::new(),
+            withdraw: Vec::new(),
+        }),
         Method::TurnSteer(TurnSteer {
             command_id,
             conversation_id,
             turn_id: None,
             text: "x".to_owned(),
+            if_late: None,
         }),
         Method::ApprovalRespond(ApprovalRespond {
             command_id,
@@ -95,13 +103,18 @@ fn every_method() -> Vec<Method> {
             keep: false,
         }),
         Method::AdminSandboxCheck(AdminSandboxCheck::default()),
+        Method::PromptWithdraw(PromptWithdraw {
+            command_id,
+            conversation_id,
+            target: WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() },
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 23, "one request per method");
+    assert_eq!(methods.len(), 24, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -138,6 +151,7 @@ fn the_scope_table_is_the_designed_one() {
             ("sandbox.explain", ScopeName::Read),
             ("sandbox.surface_respond", ScopeName::Approve),
             ("admin.sandbox_check", ScopeName::Admin),
+            ("prompt.withdraw", ScopeName::Operate),
         ]
     );
 }

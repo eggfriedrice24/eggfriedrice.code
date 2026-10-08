@@ -173,6 +173,10 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 - Writes (`prompt.send`, `turn.interrupt`, `turn.steer`, `approval.respond`) answer a
   retried command id from its receipt. A refusal a retry cannot change (`invalid`,
   `not_found`, `conflict`) is kept as a rejected receipt; a busy or failed one is not.
+- `prompt.withdraw` (`methods/prompt_withdraw.rs`) is a stub: it refuses every request
+  with `invalid` and records nothing. `turn.steer` ignores `if_late`, and
+  `turn.interrupt` ignores `resend_steers` and `withdraw`. The README of efr-protocol
+  holds the contract that replaces this.
 - `prompt.send` routes to the named conversation, to a new one with `new_conversation`
   (`,new`), or to the active conversation of the prompt's terminal (the context's tty,
   else the hello's), starting one when the terminal has none. The terminal's

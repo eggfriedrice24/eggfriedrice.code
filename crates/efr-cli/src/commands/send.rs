@@ -194,6 +194,7 @@ async fn steer(
         conversation_id,
         turn_id: None,
         text,
+        if_late: None,
     });
     let _: TurnSteerResult = client.call(method).await?;
     let size = ctx.screen.size();

@@ -18,6 +18,7 @@ fn prompt(turn: u64, text: &str) -> Event {
         origin: Origin::Shell,
         context: Some(ShellContext::new("/etc/nixos")),
         settings: TurnSettings::default(),
+        steers: Vec::new(),
     }
 }
 

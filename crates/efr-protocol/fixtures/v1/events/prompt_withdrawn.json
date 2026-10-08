@@ -1,5 +1,5 @@
 {
+  "kind": "prompt_withdrawn",
   "turn_id": "019a9b1c-3d00-7a10-8b20-00000000000a",
-  "seq": 49,
-  "queued": true
+  "origin": "shell"
 }

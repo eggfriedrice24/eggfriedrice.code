@@ -557,6 +557,8 @@ async fn a_turn_from_the_phone_asks_before_reading_outside_scratch() {
         command_id: h.command_id(),
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     };
     h.handle.interrupt(interrupt, Origin::Phone).await.expect("interrupt accepted");
     h.wait_end(sent.turn_id).await;
@@ -648,6 +650,8 @@ async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() 
         command_id: h.command_id(),
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     };
     let requested = h.handle.interrupt(interrupt, Origin::Shell).await.expect("interrupt accepted");
     assert_eq!(requested.turn_id, sent.turn_id);
@@ -694,6 +698,8 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
         command_id: h.command_id(),
         conversation_id: h.conversation_id,
         turn_id: None,
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     };
     h.handle.interrupt(interrupt, Origin::Shell).await.expect("interrupt accepted");
     h.wait_end(sent.turn_id).await;
@@ -1132,6 +1138,7 @@ async fn steering_reaches_the_model_at_its_next_step() {
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         text: "also empty the trash".to_owned(),
+        if_late: None,
     };
     let steered = h.handle.steer(steer).await.expect("steer accepted");
     assert_eq!(steered.turn_id, sent.turn_id);
@@ -1199,6 +1206,7 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         text: "also empty the trash".to_owned(),
+        if_late: None,
     };
     h.handle.steer(steer).await.expect("steer accepted");
     h.provider.handled_through(3);

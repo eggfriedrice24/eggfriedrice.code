@@ -8,8 +8,9 @@ use crate::{
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationDiff, ConversationHistory, ConversationId, ConversationSubscribe,
     ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList,
-    PromptSend, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
     SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
+    WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -99,6 +100,8 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 command_id: command(),
                 conversation_id: conversation(),
                 turn_id: None,
+                resend_steers: Vec::new(),
+                withdraw: Vec::new(),
             }),
             "turn.interrupt",
             ScopeName::Operate,
@@ -111,6 +114,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 conversation_id: conversation(),
                 turn_id: None,
                 text: "use journalctl".to_owned(),
+                if_late: None,
             }),
             "turn.steer",
             ScopeName::Operate,
@@ -236,6 +240,17 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             "conversation.diff",
             ScopeName::Read,
             false,
+            false,
+        ),
+        (
+            Method::PromptWithdraw(PromptWithdraw {
+                command_id: command(),
+                conversation_id: conversation(),
+                target: WithdrawTarget::NewestFromTty { tty: "/dev/pts/3".to_owned() },
+            }),
+            "prompt.withdraw",
+            ScopeName::Operate,
+            true,
             false,
         ),
     ]

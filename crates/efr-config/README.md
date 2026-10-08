@@ -22,7 +22,8 @@ Modules:
   (the path of a theme file), `motion` (the spinner and the band over the state of the status row),
   `turn_summary` (the line at the end of each turn), `diff_lines` (the lines of a file
   tool's diff that a call shows; 0 shows none), `progress` (`Progress`: `auto`,
-  `on` or `off`, for the progress bar of the terminal's tab) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
+  `on` or `off`, for the progress bar of the terminal's tab), `turn_input` (the input
+  row of a running turn: Enter steers, Tab queues, Esc interrupts) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
   `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
   (`ColorValue`) is `"#rrggbb"`, an ANSI slot from 0 to 15 (a number or one or two
   digits in a string), or a lowercase name of the 16 colours, also as

@@ -216,6 +216,7 @@ async fn steering_or_interrupting_without_a_running_turn_is_refused() {
         conversation_id: h.conversation_id,
         turn_id: None,
         text: "more".to_owned(),
+        if_late: None,
     };
     let steered = h.handle.steer(steer).await;
     assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
@@ -223,6 +224,8 @@ async fn steering_or_interrupting_without_a_running_turn_is_refused() {
         command_id: h.command_id(),
         conversation_id: h.conversation_id,
         turn_id: None,
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     };
     let interrupted = h.handle.interrupt(interrupt, Origin::Shell).await;
     assert!(matches!(interrupted, Err(ConversationError::NoRunningTurn { .. })));
@@ -249,6 +252,8 @@ async fn a_request_for_another_turn_or_conversation_is_refused() {
         command_id: h.command_id(),
         conversation_id: h.conversation_id,
         turn_id: Some(other_turn),
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     };
     let mismatch = h.handle.interrupt(interrupt, Origin::Shell).await;
     assert!(
@@ -263,6 +268,7 @@ async fn a_request_for_another_turn_or_conversation_is_refused() {
         conversation_id: other,
         turn_id: None,
         text: "more".to_owned(),
+        if_late: None,
     };
     let wrong = h.handle.steer(steer).await;
     assert!(matches!(wrong, Err(ConversationError::WrongConversation { .. })), "{wrong:?}");
@@ -362,6 +368,7 @@ async fn a_steer_after_the_last_model_call_is_refused_and_never_recorded() {
         conversation_id: h.conversation_id,
         turn_id: Some(sent.turn_id),
         text: "and in French".to_owned(),
+        if_late: None,
     };
     let steered = h.handle.steer(steer).await;
     h.toolbox.end_released.notify_one();
@@ -478,6 +485,7 @@ fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
             conversation_id: h.conversation_id,
             turn_id: None,
             text: "more".to_owned(),
+            if_late: None,
         };
         let steered = h.handle.steer(steer).await;
         assert!(matches!(steered, Err(ConversationError::NoRunningTurn { .. })), "{steered:?}");
@@ -485,6 +493,8 @@ fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
             command_id: h.command_id(),
             conversation_id: h.conversation_id,
             turn_id: None,
+            resend_steers: Vec::new(),
+            withdraw: Vec::new(),
         };
         let interrupted = h.handle.interrupt(interrupt, Origin::Shell).await;
         assert!(

@@ -44,6 +44,8 @@ async fn interrupting_a_conversation_with_no_running_turn_is_a_conflict() {
         command_id: command_id(3),
         conversation_id: replay.conversation().unwrap(),
         turn_id: None,
+        resend_steers: Vec::new(),
+        withdraw: Vec::new(),
     });
     let refused = replay.client().call::<Value>(again).await;
 

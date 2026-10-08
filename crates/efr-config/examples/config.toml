@@ -260,6 +260,11 @@
 # GNU screen or zellij), on or off.
 # progress = "auto"
 
+# An input row below the status row while a turn runs, when the terminal is
+# interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts
+# it. false shows no input row: keys typed during a turn go to the shell's next prompt.
+# turn_input = true
+
 [render.colors]
 # The colour of each role: "#rrggbb", an ANSI slot from 0 to 15, or one of the 16
 # names, such as "yellow" or "bright-blue". A role set here wins over the palette file,

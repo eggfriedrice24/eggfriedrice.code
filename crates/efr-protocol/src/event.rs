@@ -72,6 +72,22 @@ pub enum Event {
         /// prompt runs with them too. Absent means none.
         #[serde(default, skip_serializing_if = "TurnSettings::is_empty")]
         settings: TurnSettings,
+        /// The `turn_steered` events whose text this prompt carries, when an interrupt
+        /// sent unread steers again as a prompt (`turn.interrupt` with
+        /// `resend_steers`). A client shows those steers as this prompt from now on.
+        /// Absent means none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        steers: Vec<Seq>,
+    },
+
+    /// A waiting prompt was taken out of the queue (`prompt.withdraw`, or
+    /// `turn.interrupt` with `withdraw`). Its turn never starts, and this is the turn's
+    /// last event.
+    PromptWithdrawn {
+        /// The turn of the withdrawn prompt.
+        turn_id: TurnId,
+        /// The surface that withdrew it.
+        origin: Origin,
     },
 
     /// A queued prompt was held after a daemon restart. Only logs from earlier daemons
@@ -277,6 +293,17 @@ pub enum Event {
         turn_id: TurnId,
         /// The guidance.
         text: String,
+    },
+
+    /// A model call of the turn read these steers: the daemon records it before or
+    /// with the model call that sends them to the model. A client moves each steer
+    /// from its unread list into the conversation. A steer that no
+    /// `steering_delivered` names was never read by the model.
+    SteeringDelivered {
+        /// The turn.
+        turn_id: TurnId,
+        /// The `turn_steered` events that the call read, in sequence order.
+        steers: Vec<Seq>,
     },
 
     /// The user asked to interrupt the turn. The turn ends with
@@ -508,6 +535,7 @@ impl Event {
     pub fn turn_id(&self) -> Option<TurnId> {
         match self {
             Event::PromptQueued { turn_id, .. }
+            | Event::PromptWithdrawn { turn_id, .. }
             | Event::PromptHeld { turn_id }
             | Event::TurnStarted { turn_id, .. }
             | Event::ScopeChanged { turn_id, .. }
@@ -521,6 +549,7 @@ impl Event {
             | Event::ApprovalResolved { turn_id, .. }
             | Event::ApprovalExpired { turn_id, .. }
             | Event::TurnSteered { turn_id, .. }
+            | Event::SteeringDelivered { turn_id, .. }
             | Event::TurnInterruptRequested { turn_id, .. }
             | Event::TurnInterrupted { turn_id }
             | Event::TurnCompleted { turn_id, .. }

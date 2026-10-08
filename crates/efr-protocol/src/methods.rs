@@ -31,6 +31,7 @@ pub(crate) mod lease_report;
 pub(crate) mod models_list;
 pub(crate) mod projects_list;
 pub(crate) mod prompt_send;
+pub(crate) mod prompt_withdraw;
 pub(crate) mod pty_attach;
 pub(crate) mod pty_resize;
 pub(crate) mod pty_write;

@@ -182,3 +182,30 @@ No protocol version has shipped yet.
   fixtures `events/tool_call_completed.json` and `events/turn_completed.json` now set
   the new members; `conversation_diff_params.json` and `conversation_diff_result.json`
   are new.
+- Version 1, additive: steer, queue and withdraw from the input row of a turn.
+  `turn.steer` takes an optional `if_late` object, absent by default: `{kind: "queue"}`
+  with an optional `context`, `last_command` and `settings`, as in `prompt.send`. A
+  steer is late when the turn makes no more model calls: the model answered without a
+  tool call, an interrupt was requested, `turn_id` names a turn that does not run, or
+  no turn runs. Without `if_late` a late steer gets `conflict`, as before. With it, the
+  daemon records `prompt_queued` (with the steer's `command_id`) instead of
+  `turn_steered`, and the result has `queued: true`, the new `turn_id` and the `seq` of
+  `prompt_queued`. A late steer is never recorded as `turn_steered`. The `turn.steer`
+  result gains `queued`, false when absent. New event kind `steering_delivered`
+  (`turn_id` and the `steers`, the seqs of the `turn_steered` events that a model call
+  read). New method `prompt.withdraw` (scope `operate`, a write with a `command_id`;
+  params `conversation_id` and a `target`: `{kind: "turn", turn_id}` or
+  `{kind: "newest_from_tty", tty}`) whose result has the `withdrawn` prompt (`turn_id`,
+  `seq` of the event, `text`); a prompt that started gets `conflict`, and a target
+  without a waiting prompt gets `not_found`. New event kind `prompt_withdrawn`
+  (`turn_id`, `origin`), the last event of a turn that never started. `turn.interrupt`
+  takes optional `resend_steers` (seqs of unread `turn_steered` events to send again
+  as one prompt that runs next) and `withdraw` (turns of queued prompts to withdraw),
+  both done in the step that records `turn_interrupt_requested`; its result gains an
+  optional `resent` (`turn_id`, `seq`, `steers`) and `withdrawn`, absent when empty.
+  The `prompt_queued` event gains `steers`, absent when empty: the steers whose text it
+  carries. The fixtures `turn_steer_params.json`, `turn_steer_result.json`,
+  `turn_interrupt_params.json`, `turn_interrupt_result.json` and
+  `events/prompt_queued.json` now set the new members; `prompt_withdraw_params.json`,
+  `prompt_withdraw_result.json`, `events/steering_delivered.json`,
+  `events/prompt_withdrawn.json` and `withdraw_targets.json` are new.
