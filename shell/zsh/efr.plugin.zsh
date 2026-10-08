@@ -71,6 +71,7 @@ zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME 2>/dev/null
 zmodload -F zsh/stat b:zstat 2>/dev/null
+zmodload -F zsh/system p:sysparams 2>/dev/null
 autoload -Uz add-zsh-hook
 
 typeset -g _efr_sticky=0
@@ -264,20 +265,37 @@ _efr_call() {
     EFR_DRAFT_FILE=$draft efr "$@"
 }
 
-# The name of this shell's draft files: the pid and the time the plugin loaded, so a
-# later shell that gets the same pid never takes a file of this one.
-typeset -g _efr_draft_name="$$.${${EPOCHREALTIME-}/./}"
-[[ $_efr_draft_name == *. ]] && _efr_draft_name+="$RANDOM$RANDOM"
-typeset -gi _efr_draft_count=0
+# The pid namespace of this shell, by the inode of its link in /proc; empty when it
+# cannot be read. A shell in a container (distrobox, toolbox) shares the runtime dir
+# with the host but has pids of its own.
+typeset -g _efr_pid_ns=
+() {
+  local -a ino
+  zstat -A ino +inode /proc/self/ns/pid 2>/dev/null && _efr_pid_ns=$ino[1]
+}
+
+# The name of this shell's draft files: the pid, the time the plugin loaded and the
+# pid namespace, so a later shell that gets the same pid never takes a file of this
+# one. Sourcing the plugin again in the same shell keeps the name, so a run that
+# started before still leaves its file where the prompt looks.
+if [[ ${_efr_draft_name-} != "$$".* ]]; then
+  typeset -g _efr_draft_name="$$.${${EPOCHREALTIME-}/./}"
+  [[ $_efr_draft_name == *. ]] && _efr_draft_name+="$RANDOM$RANDOM"
+  _efr_draft_name+=".${_efr_pid_ns:-0}"
+  typeset -gi _efr_draft_count=0
+fi
 
 # Sets REPLY to the file where efr leaves the text that was still in the input row of a
 # turn when it ended: a new file for each efr run, named after this shell, in the drafts
 # directory of the runtime root (see _efr_runtime_root), which efr creates with mode
-# 0700. Two runs before the next prompt do not overwrite each other. Returns 1 without
-# a root.
+# 0700. Two runs before the next prompt do not overwrite each other: a run in a
+# subshell, such as in a pipeline, counts in a copy of the count, so its name also
+# holds the pid of that subshell. Returns 1 without a root.
 _efr_draft_file() {
   _efr_runtime_root || return 1
   REPLY=$REPLY/drafts/$_efr_draft_name.$(( ++_efr_draft_count ))
+  [[ -n ${sysparams[pid]-} && ${sysparams[pid]} != $$ ]] && REPLY+=.${sysparams[pid]}
+  return 0
 }
 
 # Puts the text that efr handed back on the command line as a prompt: `, ` and the
@@ -300,15 +318,20 @@ _efr_take_draft() {
 }
 
 # Removes the draft files of shells that are gone, such as a terminal that closed while
-# efr followed a turn: no prompt of theirs comes again to take them.
+# efr followed a turn: no prompt of theirs comes again to take them. Only the files of
+# shells in this pid namespace: kill cannot see a shell of another one, which may still
+# wait for its file.
 _efr_clean_drafts() {
   emulate -L zsh
-  local REPLY file pid
+  local REPLY file
+  local -a parts
+  [[ -n $_efr_pid_ns ]] || return 0
   _efr_runtime_root || return 0
   for file in $REPLY/drafts/*(N.); do
-    pid=${${file:t}%%.*}
-    [[ $pid == <-> && $pid != $$ ]] || continue
-    kill -0 $pid 2>/dev/null || zf_rm -f -- $file 2>/dev/null
+    parts=(${(s:.:)file:t})
+    (( $#parts >= 4 )) && [[ $parts[1] == <-> && $parts[1] != $$ ]] || continue
+    [[ $parts[3] == $_efr_pid_ns ]] || continue
+    kill -0 $parts[1] 2>/dev/null || zf_rm -f -- $file 2>/dev/null
   done
 }
 

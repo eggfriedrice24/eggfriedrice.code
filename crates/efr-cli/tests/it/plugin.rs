@@ -926,7 +926,7 @@ fn e2e_drafts_of_two_runs_both_come_back_and_those_of_gone_shells_go() {
     let drafts = home.path().join("efr").join("drafts");
     std::fs::create_dir_all(&drafts).unwrap();
     // A shell that is gone: a pid that no process has, as a fresh pid never reaches it.
-    let gone = drafts.join("4194303.1700000000123456.1");
+    let gone = drafts.join(format!("4194303.1700000000123456.{}.1", pid_namespace()));
     std::fs::write(&gone, "old text").unwrap();
     let script = r#"
         print -rn -- 'first' > $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1
@@ -937,6 +937,67 @@ fn e2e_drafts_of_two_runs_both_come_back_and_those_of_gone_shells_go() {
     "#;
     assert_eq!(run_in(&home, script), "[, first\nsecond]\n");
     assert!(!gone.exists(), "the file of a gone shell goes when a plugin loads");
+}
+
+/// The inode of this process's pid namespace, as the plugin names it.
+fn pid_namespace() -> u64 {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata("/proc/self/ns/pid").unwrap().ino()
+}
+
+/// The review finding: a shell in a container shares the runtime dir but has pids of
+/// its own, so the plugin of a host shell took its live shells for gone and removed
+/// their files. Files of another pid namespace stay, as do files of the old name.
+#[test]
+fn e2e_the_drafts_of_shells_in_another_pid_namespace_stay() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let drafts = home.path().join("efr").join("drafts");
+    std::fs::create_dir_all(&drafts).unwrap();
+    let other = pid_namespace() + 1;
+    let container = drafts.join(format!("4194303.1700000000123456.{other}.1"));
+    let old = drafts.join("4194303.1700000000123456.1");
+    for file in [&container, &old] {
+        std::fs::write(file, "text").unwrap();
+    }
+    let name = run_in(&home, "print -r -- $_efr_draft_name\n");
+    assert!(name.trim().ends_with(&format!(".{}", pid_namespace())), "{name}");
+    assert!(container.exists(), "a shell of another pid namespace may still wait for it");
+    assert!(old.exists(), "a file without a namespace is never taken for a gone shell's");
+}
+
+/// The review finding: sourcing the plugin again gave the shell a new name, so a run in
+/// the background left its text where no prompt looked, and two runs in subshells both
+/// counted from the same count and wrote the same file.
+#[test]
+fn e2e_a_new_source_keeps_the_name_and_a_run_in_a_subshell_gets_a_file_of_its_own() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let script = format!(
+        r#"
+        before=$_efr_draft_name
+        source {plugin}
+        [[ $_efr_draft_name == $before ]] && print -r -- same
+        _efr_draft_file && print -r -- ${{REPLY:t}}
+        ( _efr_draft_file && print -r -- ${{REPLY:t}} )
+        ( _efr_draft_file && print -r -- ${{REPLY:t}} )
+        print -r -- end
+        "#,
+        plugin = plugin().display()
+    );
+    let out = run_in(&home, &script);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.first(), Some(&"same"), "{out}");
+    assert_eq!(lines.len(), 5, "{out}");
+    let files = &lines[1..4];
+    assert!(files[0].ends_with(".1"), "{out}");
+    assert!(files[1].contains(".2."), "the subshell counts on from the shell: {out}");
+    assert!(files[2].contains(".2."), "a subshell's count stays in it: {out}");
+    assert_ne!(files[1], files[2], "two subshells never share a file: {out}");
 }
 
 #[test]

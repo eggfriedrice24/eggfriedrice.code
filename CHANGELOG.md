@@ -40,7 +40,11 @@ into the GitHub release notes, and it stops when the section is missing.
   is lost.
 - Text that is still in the input row when `efr` ends goes back to your zsh command
   line as `, <text>`, so you can edit it and send it again. Without the zsh plugin,
-  `efr` shows it as one muted line.
+  `efr` shows it as one muted line. Each `efr` run gets a file of its own, so the
+  texts of two runs before the next prompt both come back, also from a pipeline or
+  after you source the plugin again. A new shell removes only the files of gone
+  shells in its own pid namespace, so a shell in a container (distrobox, toolbox)
+  keeps its text.
 - When efrd restarts while `efr` follows a turn with the input row, `efr` connects
   again. Prompts that you queued and steers that the model did not read come back to
   your command line when the restart cancelled them. A steer or a prompt whose answer
