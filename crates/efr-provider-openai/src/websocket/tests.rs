@@ -512,3 +512,35 @@ async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_cal
     assert_eq!(third.message.text(), "Fresh.");
     assert_eq!(sockets.len(), 2);
 }
+
+#[tokio::test]
+async fn a_connection_that_breaks_after_the_request_went_out_fails_the_call_without_http() {
+    let socket = Socket::serving(vec![vec![Step::Drop]]);
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    let events = collect(setup.provider.stream(request("gpt-5.5", "hi")).await.unwrap()).await;
+
+    assert_eq!(events.len(), 1);
+    let error = events[0].as_ref().unwrap_err();
+    assert!(error.starts_with("Transport"), "{error}");
+    // The server may have started the model, so the call does not go out again.
+    assert_eq!(setup.server.sockets()[0].messages.len(), 1);
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_server_that_says_nothing_after_the_request_fails_the_call_at_the_read_timeout() {
+    let socket = Socket::serving(vec![vec![Step::Hang]]);
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    let silence = async {
+        eventually(|| setup.clock.waits_for(super::READ_TIMEOUT)).await;
+        setup.clock.advance(super::READ_TIMEOUT);
+    };
+    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-5.5", "hi")), silence);
+    let events = collect(stream.unwrap()).await;
+
+    assert_eq!(events.len(), 1);
+    assert!(events[0].as_ref().unwrap_err().starts_with("Transport"), "{events:?}");
+    assert!(setup.server.posts().is_empty());
+}

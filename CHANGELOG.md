@@ -18,9 +18,10 @@ into the GitHub release notes, and it stops when the section is missing.
   connection that had no call for 30 seconds, efr sends a ping. When the connection
   died during a sleep of the computer or a change of network, the call goes over
   HTTP after at most 5 seconds. While the connection
-  holds the previous answer, a call sends only its new input. A call that the
-  WebSocket cannot serve goes over HTTP, so a WebSocket failure never fails a turn
-  that HTTP could serve. When you interrupt a turn, efr stops the answer on the
+  holds the previous answer, a call sends only its new input. A call that the server
+  did not take on the WebSocket goes over HTTP. A call whose request went out and
+  whose connection then broke or went silent fails as on HTTP and does not go out
+  again, because the model may already run. When you interrupt a turn, efr stops the answer on the
   connection and keeps the connection for the next call. The new key
   `[openai] websocket` chooses the transport: `auto` (the default) uses a WebSocket for each
   model that the model catalog marks with `prefer_websockets` and HTTP for the other

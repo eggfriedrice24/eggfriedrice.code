@@ -289,7 +289,9 @@ impl Request<'_> {
     }
 
     /// Ends a request that failed with a refusal before the server took it, or with
-    /// `failed` after.
+    /// `failed` after. Only for a failure that shows that the server did not act on
+    /// the request when no answer has started: the server's own close or a message
+    /// that breaks the protocol.
     async fn fail(&self, reason: String, pause: bool, failed: ProviderError) -> Served {
         self.retire();
         if self.accepted {
@@ -297,6 +299,16 @@ impl Request<'_> {
         } else {
             self.deliver(Delivery::Refused(Refusal { reason, pause })).await;
         }
+        Served::Dead
+    }
+
+    /// Ends a request with `failed`, also before the server took it. For a failure
+    /// after the request went out that does not show whether the server acted on it:
+    /// a broken connection or a timeout. The server may then run the model, so the
+    /// call must not go out again, as on the HTTP path (`efr_http::RetryPolicy`).
+    async fn lose(&self, failed: ProviderError) -> Served {
+        self.retire();
+        self.deliver(Delivery::Failed(failed)).await;
         Served::Dead
     }
 }
@@ -321,12 +333,15 @@ async fn serve(
     match Clock::timeout(&clock, limits.send, socket.send_text(message)).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
+            // NOTE: the writer reports an error only for a frame that it could not
+            // write whole, and the server acts on no part of a frame.
             let reason = format!("the request could not be sent: {error}");
             return request.fail(reason, false, transport(error)).await;
         }
         Err(_) => {
-            let reason = "the request could not be sent in time".to_owned();
-            return request.fail(reason, true, ProviderError::Incomplete).await;
+            // NOTE: the frame stays in the writer's queue and may still go out.
+            let url = socket.url().to_owned();
+            return request.lose(transport(HttpError::Timeout { url })).await;
         }
     }
     let mut drain: Option<Sleep> = None;
@@ -358,18 +373,11 @@ async fn serve(
                 let failed = ProviderError::InvalidStream { problem: "a binary websocket message" };
                 return request.fail(reason, true, failed).await;
             }
-            Ok(Some(Err(error))) => {
-                let reason = format!("the websocket failed: {error}");
-                return request.fail(reason, false, transport(error)).await;
-            }
-            Ok(None) => {
-                let reason = "the websocket ended".to_owned();
-                return request.fail(reason, false, ProviderError::Incomplete).await;
-            }
+            Ok(Some(Err(error))) => return request.lose(transport(error)).await,
+            Ok(None) => return request.lose(ProviderError::Incomplete).await,
             Err(_) => {
                 let url = socket.url().to_owned();
-                let reason = "the server sent nothing in time".to_owned();
-                return request.fail(reason, false, transport(HttpError::Timeout { url })).await;
+                return request.lose(transport(HttpError::Timeout { url })).await;
             }
         };
         let event: Value = match serde_json::from_str(&text) {

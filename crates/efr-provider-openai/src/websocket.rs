@@ -21,9 +21,11 @@
 //! request (it sends an `error` event or closes the connection before the first event
 //! of an answer). The server has then not started an answer, so the HTTP request is the
 //! first and only model call. After a failure that says that WebSockets do not work
-//! now, every call goes over HTTP for [`PAUSE`]. Once the server has started an answer,
-//! a failure is the call's failure, exactly as on the HTTP path, because sending the
-//! call again could run the model twice.
+//! now, every call goes over HTTP for [`PAUSE`]. Once the request has gone out, a
+//! failure that does not show that the server refused it (a broken connection, a
+//! connection that ends without a close, or a timeout) is the call's failure, exactly
+//! as on the HTTP path, because the server may have acted on it and sending the call
+//! again could run the model twice.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -238,8 +240,9 @@ impl Sockets {
                     return Attempt::Http(reason);
                 }
                 Some(Delivery::Failed(error)) => {
-                    // NOTE: the task fails a request this way only after the server took
-                    // it, which it reports as an event first.
+                    // NOTE: the server took the request, or it may have: the connection
+                    // broke or went silent after the request went out. The call fails
+                    // as on the HTTP path and does not go out again.
                     return Attempt::Answered(Box::pin(stream::iter([Err(error)])));
                 }
                 None => return Attempt::Http("the websocket task ended".to_owned()),

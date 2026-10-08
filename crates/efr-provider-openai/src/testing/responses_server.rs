@@ -26,6 +26,8 @@ pub(crate) enum Step {
     AfterNext(Vec<Value>),
     /// Closes the connection.
     Close,
+    /// Drops the connection without a close frame, as a connection that breaks.
+    Drop,
     /// Stops reading and sending but keeps the connection open, as a connection that
     /// died without a close: a ping gets no pong.
     Hang,
@@ -240,6 +242,7 @@ async fn serve(
                     let _ = socket.write_frame(Frame::close(1011, b"going away")).await;
                     return;
                 }
+                Step::Drop => return,
                 Step::Hang => {
                     let _socket = socket;
                     std::future::pending::<()>().await;

@@ -181,24 +181,30 @@ sends `{"type": "response.interrupt", "response_id", "mode": "discard_partial_it
 and reads until the answer ends (`response.incomplete`), at most 10 seconds, so the
 connection is clean for the next call. It closes when the answer does not end in time.
 
-Fallback to HTTP: a call that the socket cannot serve goes over HTTP, so a failed
-WebSocket never fails a call that HTTP could serve:
+Fallback to HTTP: a call goes over HTTP when the server certainly did not act on its
+request, so the HTTP request is the first and only model call:
 
 - the connection cannot be opened, or the server refuses the upgrade;
 - a connection that had no call for 30 seconds does not answer its ping;
+- the request could not be written whole;
 - the server does not take the call: it sends an `error` event, or closes the
-  connection, before the first event of an answer (`response.*`). The server has then
-  started no answer, so the HTTP request is the first and only model call.
+  connection with a close frame, before the first event of an answer (`response.*`).
 
 After a failure that says that WebSockets do not work now (a refused upgrade, a failed
 handshake, an `error` event other than a refused token, a rate limit,
 `previous_response_not_found` or `websocket_connection_limit_reached`), every call goes
 over HTTP for 5 minutes. A closed stale connection does not pause them.
 
-Once the server has started an answer, a failure is the call's failure, as on the HTTP
-path: a close or a lost connection is `ProviderError::Incomplete` or a transport error,
-and the server's `error` and `response.failed` events map as they do over HTTP. The
-call is not sent again, because the model may have run.
+Once the request has gone out, a failure that does not show that the server refused
+it is the call's failure, also before the first event of an answer: a broken
+connection, a connection that ends without a close frame, no event for 300 seconds, or
+a request that could not be sent in 30 seconds. The server may have taken the request,
+so the call is not sent again, as on the HTTP path, where `efr_http::RetryPolicy` does
+not send a `POST` again after a broken connection or a timeout. Once the server has
+started an answer, every failure is the call's failure: a close or a lost connection is
+`ProviderError::Incomplete` or a transport error, and the server's `error` and
+`response.failed` events map as they do over HTTP. The call is not sent again, because
+the model may have run.
 
 Timeouts: 15 seconds for the handshake, 5 seconds for the pong of the ping before a
 call after 30 quiet seconds, 300 seconds of silence inside an answer (the HTTP
@@ -386,8 +392,9 @@ expects it and also answers `POST /responses`: every fixture streams the same ev
 over both transports, the handshake headers and the `response.create` body, the reuse
 of a connection with only the new items, the whole input after a changed setting or a
 compaction, the interrupt, the fallback to HTTP on a refused upgrade, a close and an
-`error` event before the answer, the failure of a close after the answer started, a
-lost previous answer, the idle close, the ping before a call after a quiet spell
+`error` event before the answer, the failure of a close after the answer started, the
+failure of a broken connection and of a silent server after the request went out
+(with no HTTP request), a lost previous answer, the idle close, the ping before a call after a quiet spell
 (answered, and not answered by a connection that hangs), and the switch with the catalog's
 `prefer_websockets`. `continuation` tests check when a call may send only its new
 items. The fixtures are hand-written in the Responses wire format, since the tests
