@@ -102,6 +102,13 @@ into the GitHub release notes, and it stops when the section is missing.
   came just before bwrap started was lost, and the command ran to its end.
 - The sandbox launcher no longer hangs when Ctrl+C ends bwrap while bwrap starts the
   sandbox.
+- Ctrl+\ (SIGQUIT) now stops a shell call of the auto mode, as Ctrl+C does. Before,
+  the child shell of the call ignored it. A Ctrl+\ during the line stopped only the
+  running command, and the rest of the line ran. A Ctrl+\ just before the line was
+  lost, and the line ran.
+- A `TRAPINT` or `TRAPQUIT` function no longer lets a line of the auto mode go on after
+  Ctrl+C or Ctrl+\. Before, such a function of your shell, or one that an earlier call
+  made, could catch the signal in the child shell of the call.
 - The time that a new hidden shell takes to show its first prompt no longer counts
   against the `timeout_seconds` of a shell call. A slow `.zshrc` made short calls fail
   with "an earlier command is still running", although no command ran. The startup

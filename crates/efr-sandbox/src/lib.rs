@@ -78,7 +78,7 @@ pub use spec::{
     RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
     layer_name,
 };
-pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, SandboxCwd, SandboxState, quote};
+pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{
     ConfigLister, GitDirTarget, MAX_SURFACE_FILE, SCAN_SKIP, ScanLimits, SurfaceManifest,
     SurfaceRule, check_surface, report_file, scan_git_dirs,

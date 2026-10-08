@@ -340,8 +340,10 @@ _efr_hs_sbx_snapshot() {
   builtin local file=$_efr_hs_sbx_dir/snapshot.zsh
   (( _efr_hs_sbx_stale )) || [[ ! -f $file ]] || return 0
   builtin local -a names stubs on off
-  # Not efr's own functions, of this file or of the user's efr plugin.
-  names=(${(k)functions:#(_efr?*|compinit)})
+  # Not efr's own functions, of this file or of the user's efr plugin. Not TRAPINT and
+  # TRAPQUIT either: while the child replays the snapshot, one that returns 0 would
+  # catch Ctrl+C, and the line would run after it.
+  names=(${(k)functions:#(_efr?*|compinit|TRAPINT|TRAPQUIT)})
   # Not the functions named _* that zsh has not loaded yet: compinit marks about 900
   # completion functions so, a child shell has no completion, and the child of every
   # call spent milliseconds to replay them and to compare them after the line.

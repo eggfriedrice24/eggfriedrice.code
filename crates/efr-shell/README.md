@@ -428,6 +428,14 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of
   `efr_sandbox::parse_records` on descriptor 3: the cwd, changed and removed exports,
   functions and aliases, and the status.
+- Ctrl+C (SIGINT) and Ctrl+\ (SIGQUIT) stop the child's line, also before it starts.
+  Until the line starts, a trap of `efr-child.zsh` notes the signal: a zsh that is not
+  interactive ignores SIGQUIT, and a `TRAPINT` or `TRAPQUIT` function can catch a
+  signal and let the shell go on. After the snapshot and the state, the script sets
+  its traps again, which removes such a function. The gate before the line gives both
+  signals their default action, and the child ends with 128 plus the signal when one
+  came; the line does not run. The snapshot leaves out `TRAPINT` and `TRAPQUIT`, and the
+  sandbox state never keeps them.
 - The run ends only on facts that sandboxed code cannot make: the end mark with the
   call's nonce, a `D` after it, the shell's own process group in the terminal's
   foreground (`PtyHolder::foreground`), and the launcher's `started` and `result.json`.

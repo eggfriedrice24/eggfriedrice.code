@@ -16,6 +16,8 @@ fn functions_and_exports_stay_and_dropped_names_never_enter() {
         functions: vec![
             ("deactivate".to_owned(), "unset VIRTUAL_ENV".to_owned()),
             ("_efr_hs_sbx".to_owned(), "evil".to_owned()),
+            ("TRAPINT".to_owned(), "return 0".to_owned()),
+            ("TRAPQUIT".to_owned(), "return 0".to_owned()),
         ],
         aliases: vec![("ll".to_owned(), "ls -l".to_owned())],
         ..Records::default()
@@ -25,7 +27,7 @@ fn functions_and_exports_stay_and_dropped_names_never_enter() {
 
     state.apply(&Records {
         unsets: vec!["VIRTUAL_ENV".to_owned()],
-        removed_functions: vec!["deactivate".to_owned()],
+        removed_functions: vec!["deactivate".to_owned(), "TRAPINT".to_owned()],
         removed_aliases: vec!["ll".to_owned()],
         ..Records::default()
     });
@@ -33,6 +35,8 @@ fn functions_and_exports_stay_and_dropped_names_never_enter() {
     assert!(state.unsets.contains("VIRTUAL_ENV"));
     assert!(state.functions.is_empty());
     assert!(state.removed_functions.contains("deactivate"));
+    // The trap functions of the signals that stop a call never enter the state.
+    assert!(!state.removed_functions.contains("TRAPINT"));
 
     let back = SandboxState::from_json(&state.to_json().unwrap()).unwrap();
     assert_eq!(back, state);

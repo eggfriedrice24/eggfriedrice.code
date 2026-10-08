@@ -74,7 +74,8 @@ impl fmt::Debug for SandboxState {
 impl SandboxState {
     /// Lays one call's records over the state. A name of
     /// [`OVERLAY_DENY`](crate::OVERLAY_DENY) or a name that is not a shell name never
-    /// enters it; names of efr's own functions (`_efr_*`) neither.
+    /// enters it; names of efr's own functions (`_efr_*`) and the trap functions of
+    /// [`STOP_TRAPS`] neither.
     pub fn apply(&mut self, records: &Records) {
         for (name, value) in &records.exports {
             if is_variable_name(name) && !overlay_denied(name) {
@@ -89,13 +90,13 @@ impl SandboxState {
             }
         }
         for (name, body) in &records.functions {
-            if shell_word(name) {
+            if kept_function(name) {
                 self.removed_functions.remove(name);
                 self.functions.insert(name.clone(), body.clone());
             }
         }
         for name in &records.removed_functions {
-            if shell_word(name) {
+            if kept_function(name) {
                 self.functions.remove(name);
                 self.removed_functions.insert(name.clone());
             }
@@ -173,6 +174,18 @@ impl SandboxState {
         }
         serde_json::from_slice(bytes).map_err(|source| SandboxError::Json { what: "state", source })
     }
+}
+
+/// The trap functions of the signals that stop a call. A call never leaves them to the
+/// next ones: a `TRAPINT` that returns 0 would catch Ctrl+C while the next call's child
+/// shell replays the state, and the line would run. The child shell removes them after
+/// the replay all the same.
+pub const STOP_TRAPS: &[&str] = &["TRAPINT", "TRAPQUIT"];
+
+/// True for a function name that the state keeps: a [`shell_word`], and not one of
+/// [`STOP_TRAPS`].
+fn kept_function(name: &str) -> bool {
+    shell_word(name) && !STOP_TRAPS.contains(&name)
 }
 
 /// True for a function or alias name that the state keeps: no NUL, no newline, not

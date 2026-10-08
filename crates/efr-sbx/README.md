@@ -62,6 +62,8 @@ What the launcher writes, in order:
 The child shell's contract (efr-shell's `assets/zsh/efr-child.zsh` keeps it):
 `zsh -f efr-child.zsh DIR`, where `DIR` holds `snapshot.zsh`, `state.zsh` (contained
 calls only) and `line`; the records go to fd 3 in the format of the spec's section 6.2.
+SIGINT or SIGQUIT at any time before the line ends the child with 128 plus the signal,
+and the line does not run; during the line, either signal ends the child.
 Contained calls get `DIR = $XDG_RUNTIME_DIR/efr-sbx` inside the sandbox; the exit child
 gets `$CALL/exit-child` with copies of the snapshot and the line.
 

@@ -23,6 +23,40 @@
 # efr-sbx treats them as untrusted data: it checks every name and value again, and a
 # stream without its end record keeps nothing. The report is written by an EXIT trap,
 # so it also comes after `exit N`.
+#
+# Ctrl+C (SIGINT) and Ctrl+\ (SIGQUIT) must stop the line, also when they come before
+# it starts. A zsh that is not interactive ignores SIGQUIT, and a TRAPINT or TRAPQUIT
+# function of the snapshot or the state can catch a signal and let the shell go on. So
+# until the line starts, a trap of this script only notes the signal. Before the line,
+# the gate gives both signals their default action and ends the shell with 128 plus the
+# signal when one came; a signal after the gate ends the shell and the line.
+
+# The signal that came before the line, or 0.
+builtin typeset -gi _efr_child_stop=0
+
+# Notes SIGINT and SIGQUIT in _efr_child_stop. Setting the traps also removes a TRAPINT
+# or TRAPQUIT function. The functions of this script are defined before the snapshot
+# and the state, so that their aliases do not change them.
+_efr_child_note_signals() {
+  # The traps stay after the function, also when the snapshot set LOCAL_TRAPS.
+  builtin setopt local_options
+  builtin unsetopt local_traps
+  builtin trap '_efr_child_stop=2' INT
+  builtin trap '_efr_child_stop=3' QUIT
+}
+
+# The gate before the line: from here, SIGINT and SIGQUIT have their default action and
+# end this shell. A signal that came before is in _efr_child_stop; then the shell ends
+# with 128 plus the signal, and the line never runs.
+_efr_child_gate() {
+  builtin setopt local_options
+  builtin unsetopt local_traps
+  builtin trap - INT QUIT
+  (( _efr_child_stop )) && builtin exit $(( 128 + _efr_child_stop ))
+  return 0
+}
+
+_efr_child_note_signals
 
 builtin typeset -g _efr_child_dir=${1-}
 builtin zmodload zsh/parameter
@@ -31,6 +65,10 @@ builtin zmodload zsh/parameter
   builtin source -- $_efr_child_dir/snapshot.zsh
 [[ -n $_efr_child_dir && -r $_efr_child_dir/state.zsh ]] &&
   builtin source -- $_efr_child_dir/state.zsh
+
+# NOTE: again after the snapshot and the state, which can define TRAPINT or TRAPQUIT,
+# and before the start lists below, so the records do not report those as removed.
+_efr_child_note_signals
 
 # Names that change in every shell or that efr sets; they are never reported.
 builtin typeset -ga _efr_child_skip
@@ -113,6 +151,8 @@ _efr_child_records() {
 }
 
 builtin trap '_efr_child_records $?' EXIT
+
+_efr_child_gate
 
 # The line runs at the top level, as it would at a prompt, with the user's options
 # from the snapshot.

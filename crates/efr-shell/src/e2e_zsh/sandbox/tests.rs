@@ -1,6 +1,7 @@
 //! The zsh tests of efr's auto spec, section 16.2, over a real zsh and the fake
 //! launcher.
 
+use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 
 use efr_sandbox::{RecordLimits, Records, SandboxState, parse_records};
@@ -387,6 +388,9 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
     // A completion function that zsh has not loaded yet stays out; a loaded `_*` helper
     // and another function that is not loaded yet stay in.
     zsh.run_plain("autoload -Uz _mine_stub zmv; _mine_helper() { print -r -- helped }").await;
+    // The trap function of a signal that stops a call stays out: in the child, it could
+    // catch Ctrl+\ while the child replays the snapshot.
+    zsh.run_plain("TRAPQUIT() { return 0 }").await;
     let first = zsh.prepare(1);
     let result = zsh
         .run_sandboxed(&first, "greet you; ll; [[ abc == a(#c1)bc ]] && print -r -- globbed")
@@ -397,6 +401,7 @@ async fn the_snapshot_carries_the_shells_functions_aliases_and_options() {
     assert!(!text.contains("_efr_hs_"), "efr's own functions are in the snapshot");
     assert!(!text.contains("_mine_stub"), "{text}");
     assert!(text.contains("_mine_helper") && text.contains("zmv"), "{text}");
+    assert!(!text.contains("TRAPQUIT"), "{text}");
 
     // No other line ran since: the snapshot is not written again.
     std::fs::write(&snapshot, format!("{text}\n# kept\n")).unwrap();
@@ -516,6 +521,42 @@ async fn the_child_reports_the_state_its_line_leaves() {
     .unwrap();
     let output = run_child(&child, &dir).await;
     assert_eq!(String::from_utf8_lossy(&output.stdout), "no-greet\nno-gone\nodd\n", "{output:?}");
+}
+
+#[tokio::test]
+async fn a_signal_before_or_during_the_line_stops_it() {
+    let Some(zsh) = Zsh::start_sandboxed("a_signal_before_or_during_the_line_stops_it") else {
+        return;
+    };
+    // The integration files are installed with the first shell.
+    zsh.run_plain("true").await;
+    let child = zsh.root.path().join("zsh").join(crate::integration::CHILD_FILE);
+    let dir = zsh.dir("child");
+    // The child replays the snapshot last before the line, so a signal that the snapshot
+    // sends to its own shell comes in that window every time. A zsh that is not
+    // interactive ignores SIGQUIT: the line ran after Ctrl+\ there.
+    std::fs::write(dir.join("line"), "print -r -- ran").unwrap();
+    for (signal, status) in [("INT", 130), ("QUIT", 131)] {
+        let snapshot = format!("ulimit -c 0\nbuiltin kill -s {signal} $$\n");
+        std::fs::write(dir.join("snapshot.zsh"), snapshot).unwrap();
+        let output = run_child(&child, &dir).await;
+        assert_eq!(output.status.code(), Some(status), "{signal}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "", "{signal}: the line ran");
+        let records = std::fs::read(dir.join("records")).unwrap();
+        let records = parse_records(&records, &RecordLimits::default()).unwrap();
+        assert_eq!(records.status, Some(status), "{signal}");
+    }
+
+    // During the line, either signal ends the shell, also when the snapshot or the state
+    // has a trap function that returns 0 and so would let the line go on.
+    std::fs::write(dir.join("snapshot.zsh"), "ulimit -c 0\nTRAPINT() { return 0 }\n").unwrap();
+    std::fs::write(dir.join("state.zsh"), "TRAPQUIT() { return 0 }\n").unwrap();
+    for (signal, number) in [("INT", 2), ("QUIT", 3)] {
+        std::fs::write(dir.join("line"), format!("kill -s {signal} $$; print -r -- ran")).unwrap();
+        let output = run_child(&child, &dir).await;
+        assert_eq!(output.status.signal(), Some(number), "{signal}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "", "{signal}: the line went on");
+    }
 }
 
 /// Runs the child script as `efr-sbx` does, with the records on descriptor 3.

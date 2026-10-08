@@ -610,16 +610,67 @@ fn ctrl_c_at_any_moment_of_the_setup_is_an_interrupt() {
     for launch in [SpecLaunch::Contained, SpecLaunch::Unsandboxed] {
         let mut fixture = Fixture::new(&ready);
         fixture.spec.launch = launch;
+        let marker = fixture.project.join("ran");
         for step in 0..24_u64 {
-            // NOTE: a SIGINT that comes while the child zsh starts can be lost there,
-            // and the line then runs to its end; the sleep keeps that case short.
-            let call_dir = fixture.prepare("sleep 2");
+            let call_dir = fixture.prepare(&format!("sleep 2; : > {}", q(&marker)));
             let after = Duration::from_micros(step * 200);
             let (run, spent) = interrupted_in_setup(&fixture, &call_dir, after);
             let at = format!("{launch:?}, {after:?} after the handler");
             assert_eq!(run.status, 130, "{at}: {run:#?}");
             assert_eq!(run.result().setup_error, None, "{at}: {run:#?}");
             assert!(spent < Duration::from_secs(10), "{at}: the launcher ran on: {spent:?}");
+            assert!(!marker.exists(), "{at}: the line ran to its end: {run:#?}");
+        }
+    }
+}
+
+/// Writes the conversation's `snapshot.zsh`, which the child shell replays last before
+/// the line: a hook that runs in the window between the child's start and its line.
+fn snapshot(fixture: &Fixture, text: &str) {
+    let path = fixture.spec.runtime.shell_dir.join("snapshot.zsh");
+    write(&path, text);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[test]
+fn a_signal_right_before_the_line_stops_it() {
+    // The snapshot sends the signal to its own shell, so the signal comes after the child
+    // started and before its line, every time. A zsh that is not interactive ignores
+    // SIGQUIT: the line ran after Ctrl+\ there.
+    let ready = sandbox_or_skip!();
+    for launch in [SpecLaunch::Contained, SpecLaunch::Unsandboxed] {
+        for (signal, status) in [("INT", 130), ("QUIT", 131)] {
+            let mut fixture = Fixture::new(&ready);
+            fixture.spec.launch = launch;
+            snapshot(&fixture, &format!("ulimit -c 0\nbuiltin kill -s {signal} $$\n"));
+            let marker = fixture.project.join("ran");
+            let run = fixture.run(&format!(": > {}", q(&marker)));
+            let at = format!("{launch:?}, SIG{signal}");
+            assert_eq!(run.status, status, "{at}: {run:#?}");
+            assert_eq!(run.result().setup_error, None, "{at}: {run:#?}");
+            assert!(!marker.exists(), "{at}: the line ran");
+        }
+    }
+}
+
+#[test]
+fn a_signal_during_the_line_stops_the_rest_of_it() {
+    // A trap function that returns 0 would let the line go on after the signal: from the
+    // snapshot, or from the state that an earlier contained call left.
+    let ready = sandbox_or_skip!();
+    for launch in [SpecLaunch::Contained, SpecLaunch::Unsandboxed] {
+        for (signal, status) in [("INT", 130), ("QUIT", 131)] {
+            let mut fixture = Fixture::new(&ready);
+            fixture.spec.launch = launch;
+            snapshot(&fixture, "ulimit -c 0\nTRAPINT() { return 0 }\n");
+            if launch == SpecLaunch::Contained {
+                fixture.run("TRAPQUIT() { return 0 }").expect_status(0);
+            }
+            let marker = fixture.project.join("ran");
+            let run = fixture.run(&format!("kill -s {signal} $$; : > {}", q(&marker)));
+            let at = format!("{launch:?}, SIG{signal}");
+            assert_eq!(run.status, status, "{at}: {run:#?}");
+            assert!(!marker.exists(), "{at}: the line went on");
         }
     }
 }
