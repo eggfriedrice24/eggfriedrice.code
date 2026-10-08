@@ -3,7 +3,7 @@
 //! the exit child and setup failures.
 
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead as _, BufReader, Read};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -466,31 +466,55 @@ fn approved_sudo_runs_in_exit_child_with_relay() {
     assert!(run.stdout.contains("fake sudo ran pacman -Syu with hunter2"), "{run:#?}");
 }
 
-/// Starts the launcher in a process group of its own, sends SIGINT to the group after
-/// `after`, and returns the run.
-fn interrupted(fixture: &Fixture, line: &str, after: Duration) -> (Run, Duration) {
-    let call_dir = fixture.prepare(line);
+/// The line that the sandboxed command prints before the line of a test runs.
+const RUNNING: &str = "efr-test-running";
+
+/// Starts the launcher in a process group of its own with a command that prints
+/// [`RUNNING`] and then runs `line`. Sends SIGINT to the group when that line comes on
+/// the launcher's stdout, and returns the run and the time from the signal to the end.
+///
+/// The signal waits for the command and not for a fixed time: bwrap's setup can take
+/// longer than any fixed time on a machine under load, and a SIGINT before the command
+/// starts is a setup failure (status 125), not an interrupted job.
+fn interrupted(fixture: &Fixture, line: &str) -> (Run, Duration) {
+    let call_dir = fixture.prepare(&format!("print {RUNNING}; {line}"));
     let mut command = fixture.command(&call_dir, &fixture.project);
     command.process_group(0);
-    let start = Instant::now();
-    let child = command.spawn().unwrap();
+    let mut child = command.spawn().unwrap();
     let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
-    std::thread::sleep(after);
+    let mut stderr = child.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text
+    });
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut before = String::new();
+    loop {
+        let mut row = String::new();
+        let read = stdout.read_line(&mut row).unwrap();
+        assert_ne!(read, 0, "the command ended before it ran: {before:?}");
+        if row.trim_end() == RUNNING {
+            break;
+        }
+        before.push_str(&row);
+    }
+    let signalled = Instant::now();
     rustix::process::kill_process_group(group, rustix::process::Signal::INT).unwrap();
-    let output = child.wait_with_output().unwrap();
-    let spent = start.elapsed();
-    let status = output.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    (fixture.collect(&call_dir, (status, stdout, stderr)), spent)
+    let mut rest = String::new();
+    stdout.read_to_string(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    let spent = signalled.elapsed();
+    let status = status.code().unwrap_or(-1);
+    let stdout = before + &rest;
+    (fixture.collect(&call_dir, (status, stdout, errors.join().unwrap())), spent)
 }
 
 #[test]
 fn ctrl_c_interrupts_sandboxed_job() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);
-    let (run, spent) =
-        interrupted(&fixture, "sleep 30; print not-reached", Duration::from_millis(800));
+    let (run, spent) = interrupted(&fixture, "sleep 30; print not-reached");
     assert!(spent < Duration::from_secs(10), "the job ran on: {spent:?}");
     assert!(!run.stdout.contains("not-reached"));
     run.expect_status(130);
@@ -500,7 +524,7 @@ fn ctrl_c_interrupts_sandboxed_job() {
 fn ctrl_c_reaches_child_while_launcher_catches() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);
-    let (run, _) = interrupted(&fixture, "sleep 30", Duration::from_millis(800));
+    let (run, _) = interrupted(&fixture, "sleep 30");
     // The launcher lived through SIGINT and wrote the result after the child died.
     let result = run.result();
     assert!(result.started);
