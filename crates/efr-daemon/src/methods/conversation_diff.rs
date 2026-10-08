@@ -1,13 +1,15 @@
 //! `conversation.diff`: what a turn changed in files, from efr's own snapshot store.
 
 use efr_protocol::{ConversationDiff, ConversationDiffResult, MAX_TURN_DIFF_LINES};
+use efr_store::conversations::TurnStatus;
 use efr_transport::{ConnectionContext, Responder};
 
 use crate::DaemonError;
 use crate::state::State;
 
-/// Answers with the changes of the named turn, else of the conversation's newest
-/// finished turn. A turn without snapshots changed no files, so its list is empty.
+/// Answers with the changes of the named turn, else of the conversation's newest turn
+/// that ran and ended ([`shown_by_default`]). A turn without snapshots changed no
+/// files, so its list is empty.
 pub(crate) async fn handle(
     state: &State,
     context: &ConnectionContext,
@@ -53,7 +55,7 @@ pub(crate) async fn handle(
             turns
                 .iter()
                 .rev()
-                .find(|turn| turn.status.is_finished())
+                .find(|turn| shown_by_default(turn.status, turn.started_at.is_some()))
                 .map(|turn| turn.id)
                 .ok_or(DaemonError::NoFinishedTurn { conversation_id })?
         }
@@ -78,3 +80,14 @@ pub(crate) async fn handle(
     responder.item(&result).await?;
     Ok(())
 }
+
+/// True for a turn that `conversation.diff` shows when no turn is named: one that
+/// started and ended. A cancelled turn is left out: a queued prompt that a restart
+/// cancelled never ran, and a running turn that a restart cancelled kept no snapshots,
+/// so either one would hide the changes of the turn before it.
+fn shown_by_default(status: TurnStatus, started: bool) -> bool {
+    started && status.is_finished() && status != TurnStatus::Cancelled
+}
+
+#[cfg(test)]
+mod tests;
