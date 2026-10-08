@@ -222,3 +222,42 @@ async fn a_connection_that_drops_ends_with_an_error() {
     assert!(matches!(error, HttpError::WebSocket { .. }), "{error:?}");
     assert!(socket.next().await.is_none());
 }
+
+#[tokio::test]
+async fn a_ping_ends_with_its_pong() {
+    let (url, _head) = serve(Answer::Accept, |mut socket| async move {
+        // An unrelated pong answers nothing; the pong with the ping's payload does.
+        let ping = socket.read_frame().await.unwrap();
+        assert_eq!(ping.opcode, OpCode::Ping);
+        let payload = ping.payload.to_vec();
+        socket.write_frame(Frame::pong(b"heartbeat".to_vec().into())).await.unwrap();
+        socket.write_frame(text_frame("between")).await.unwrap();
+        socket.write_frame(Frame::pong(payload.into())).await.unwrap();
+        // Hold the connection open until the client goes.
+        let _ = socket.read_frame().await;
+    })
+    .await;
+
+    let mut socket = client().websocket(&HttpRequest::get(&url).unwrap()).await.unwrap();
+
+    socket.ping().await.unwrap();
+    assert_eq!(socket.next().await.unwrap().unwrap(), WsMessage::Text("between".to_owned()));
+}
+
+#[tokio::test]
+async fn a_ping_fails_when_the_connection_ends_before_the_pong() {
+    let (url, _head) = serve(Answer::Accept, |mut socket| async move {
+        let ping = socket.read_frame().await.unwrap();
+        assert_eq!(ping.opcode, OpCode::Ping);
+        drop(socket);
+    })
+    .await;
+
+    let socket = client().websocket(&HttpRequest::get(&url).unwrap()).await.unwrap();
+
+    let error = socket.ping().await.unwrap_err();
+    assert!(matches!(error, HttpError::WebSocketClosed { .. }), "{error:?}");
+    // The reader has stopped, so a later ping fails at once.
+    let error = socket.ping().await.unwrap_err();
+    assert!(matches!(error, HttpError::WebSocketClosed { .. }), "{error:?}");
+}

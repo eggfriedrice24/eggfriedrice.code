@@ -5,14 +5,16 @@
 //! configuration, timeouts and `User-Agent` as every other request. reqwest hands over
 //! the upgraded connection, and `fastwebsockets` reads and writes the frames on it.
 //!
-//! A [`WebSocket`] runs two small tasks: a reader that collects whole messages and
-//! answers pings, and a writer that sends the frames in order. Its methods only talk to
+//! A [`WebSocket`] runs two small tasks: a reader that collects whole messages, answers
+//! pings and hands each pong to its [`WebSocket::ping`], and a writer that sends the
+//! frames in order. Its methods only talk to
 //! those tasks over channels, so [`WebSocket::next`] can be cancelled at any point
 //! without losing a frame: the frame parser itself is not safe to cancel, and it never
 //! runs inside a caller's `select!`. Dropping the `WebSocket` stops both tasks, which
 //! closes the connection.
 
 use std::fmt;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -77,8 +79,36 @@ pub struct WebSocket {
     headers: HeaderMap,
     incoming: mpsc::Receiver<Result<WsMessage, HttpError>>,
     outgoing: mpsc::Sender<Outgoing>,
+    pings: Arc<Mutex<Pings>>,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
+}
+
+/// The pings that wait for their pong. A ping's payload is its number, so a pong names
+/// the ping it answers.
+#[derive(Default)]
+struct Pings {
+    /// The number of the next ping.
+    next: u64,
+    /// The pings without a pong yet, by number. `None` once the reader has stopped, so
+    /// no pong can come.
+    waiting: Option<Vec<(u64, oneshot::Sender<()>)>>,
+}
+
+impl Pings {
+    fn lock(pings: &Mutex<Pings>) -> std::sync::MutexGuard<'_, Pings> {
+        pings.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Ends the wait of ping `number` and of every older ping: a server may answer only
+    /// the newest of several pings (RFC 6455, section 5.5.3).
+    fn answer(&mut self, number: u64) {
+        if let Some(waiting) = self.waiting.as_mut() {
+            for (_, done) in waiting.extract_if(.., |(waits, _)| *waits <= number) {
+                let _ = done.send(());
+            }
+        }
+    }
 }
 
 /// A frame for the writer, with where to report the result.
@@ -110,6 +140,30 @@ impl WebSocket {
             Ok(Err(source)) => Err(HttpError::WebSocket { url: self.url.clone(), source }),
             Err(_) => Err(closed()),
         }
+    }
+
+    /// Sends a ping and waits for its pong, which shows that the server still reads and
+    /// answers. Fails when the connection is closed or ends before the pong. The wait
+    /// has no limit of its own: the caller bounds it.
+    pub async fn ping(&self) -> Result<(), HttpError> {
+        let (done, pong) = oneshot::channel();
+        let number = {
+            let mut pings = Pings::lock(&self.pings);
+            let number = pings.next;
+            pings.next += 1;
+            match pings.waiting.as_mut() {
+                Some(waiting) => {
+                    // NOTE: a caller that stopped waiting leaves its entry behind.
+                    waiting.retain(|(_, done)| !done.is_closed());
+                    waiting.push((number, done));
+                }
+                None => return Err(HttpError::WebSocketClosed { url: self.url.clone() }),
+            }
+            number
+        };
+        let payload = Payload::Owned(number.to_be_bytes().to_vec());
+        self.send(Frame::new(true, OpCode::Ping, None, payload)).await?;
+        pong.await.map_err(|_| HttpError::WebSocketClosed { url: self.url.clone() })
     }
 
     /// The next message, or `None` once the connection has ended and every message was
@@ -216,14 +270,18 @@ pub(crate) fn start(url: String, headers: HeaderMap, upgraded: Upgraded) -> WebS
     read.set_max_message_size(MAX_MESSAGE);
     let (incoming_tx, incoming) = mpsc::channel(INCOMING);
     let (outgoing, outgoing_rx) = mpsc::channel(OUTGOING);
-    let reader = tokio::spawn(read_loop(
-        FragmentCollectorRead::new(read),
-        incoming_tx,
-        outgoing.clone(),
-        url.clone(),
-    ));
+    let pings = Arc::new(Mutex::new(Pings { next: 0, waiting: Some(Vec::new()) }));
+    let reader = tokio::spawn({
+        let read = FragmentCollectorRead::new(read);
+        let (outgoing, url, pings) = (outgoing.clone(), url.clone(), Arc::clone(&pings));
+        async move {
+            read_loop(read, incoming_tx, outgoing, url, &pings).await;
+            // NOTE: no pong can come now; dropping the waiters fails their pings.
+            Pings::lock(&pings).waiting = None;
+        }
+    });
     let writer = tokio::spawn(write_loop(write, outgoing_rx));
-    WebSocket { url, headers, incoming, outgoing, reader, writer }
+    WebSocket { url, headers, incoming, outgoing, pings, reader, writer }
 }
 
 async fn read_loop(
@@ -231,6 +289,7 @@ async fn read_loop(
     incoming: mpsc::Sender<Result<WsMessage, HttpError>>,
     outgoing: mpsc::Sender<Outgoing>,
     url: String,
+    pings: &Mutex<Pings>,
 ) {
     // NOTE: the parser asks for the pong to a ping and the echo of a close through this
     // closure; the writer task sends them in order with everything else.
@@ -255,9 +314,17 @@ async fn read_loop(
                 },
                 OpCode::Binary => Ok(WsMessage::Binary(Bytes::from(frame.payload.to_vec()))),
                 OpCode::Close => Ok(close_message(&frame.payload)),
-                // Pings are answered by the parser; pongs and continuation frames carry
-                // nothing for the caller.
-                OpCode::Ping | OpCode::Pong | OpCode::Continuation => continue,
+                OpCode::Pong => {
+                    // NOTE: a pong that names no ping of ours is allowed as a heartbeat
+                    // (RFC 6455, section 5.5.3) and answers nothing.
+                    if let Ok(number) = <[u8; 8]>::try_from(&frame.payload[..]) {
+                        Pings::lock(pings).answer(u64::from_be_bytes(number));
+                    }
+                    continue;
+                }
+                // Pings are answered by the parser; continuation frames carry nothing
+                // for the caller.
+                OpCode::Ping | OpCode::Continuation => continue,
             },
             Err(source) => Err(HttpError::WebSocket { url: url.clone(), source }),
         };

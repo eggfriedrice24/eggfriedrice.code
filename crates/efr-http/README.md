@@ -28,7 +28,10 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   reqwest client with the same settings over HTTP/1.1 only (a server that picks HTTP/2
   cannot upgrade), checks `Sec-WebSocket-Accept`, and hands the upgraded connection to
   `fastwebsockets`. A reader task collects whole messages and answers pings, a writer
-  task sends frames in order, so `WebSocket::next` is safe to cancel. The handshake
+  task sends frames in order, so `WebSocket::next` is safe to cancel.
+  `WebSocket::ping` sends a ping whose payload is its number and waits for the pong
+  with that number (or a newer one); it fails when the connection ends first, and the
+  caller bounds the wait. The handshake
   key comes from the injected `Rng`. The handshake is never retried and never
   recorded.
 - `unix`: `UnixClient`, HTTP/1.1 over a Unix socket with hyper and hyper-util, for
