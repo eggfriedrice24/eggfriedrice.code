@@ -131,6 +131,7 @@ impl Provider for RunsOneCommand {
                 Ok(ProviderEvent::ToolCallStart {
                     call_id: call_id.clone(),
                     name: "shell".to_owned(),
+                    freeform: false,
                 }),
                 Ok(ProviderEvent::ToolCallEnd { call_id, arguments }),
                 Ok(ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None }),
@@ -180,6 +181,7 @@ impl Provider for CallsOneTool {
                 Ok(ProviderEvent::ToolCallStart {
                     call_id: call_id.clone(),
                     name: self.name.clone(),
+                    freeform: false,
                 }),
                 Ok(ProviderEvent::ToolCallEnd { call_id, arguments: self.arguments.to_string() }),
                 Ok(ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None }),

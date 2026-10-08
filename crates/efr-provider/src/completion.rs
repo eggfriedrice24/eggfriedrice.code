@@ -47,7 +47,8 @@ impl Completion {
 /// - a tool call takes its place in the message at its `ToolCallStart` and its input
 ///   from the complete arguments of its `ToolCallEnd`: empty arguments become `{}`, and
 ///   arguments that are not JSON are kept as a JSON string for the tool layer to
-///   report;
+///   report; a freeform call keeps its text as a JSON string, as it came, empty or
+///   not;
 /// - the last `Usage` counts; `Raw` events are ignored, even after `Done`;
 /// - a call that starts twice, arguments or an end for a call that is not open, a
 ///   second `Done`, or any other event after `Done` is
@@ -64,7 +65,7 @@ pub struct CompletionBuilder {
 #[derive(Debug)]
 enum Slot {
     Block(ContentBlock),
-    Call { call_id: String, name: String, input: Option<Value> },
+    Call { call_id: String, name: String, freeform: bool, input: Option<Value> },
 }
 
 impl CompletionBuilder {
@@ -88,7 +89,7 @@ impl CompletionBuilder {
         match event {
             ProviderEvent::TextDelta { text } => self.append_text(text, false),
             ProviderEvent::ReasoningDelta { text } => self.append_text(text, true),
-            ProviderEvent::ToolCallStart { call_id, name } => {
+            ProviderEvent::ToolCallStart { call_id, name, freeform } => {
                 let seen = self.slots.iter().any(
                     |slot| matches!(slot, Slot::Call { call_id: seen, .. } if seen == call_id),
                 );
@@ -100,6 +101,7 @@ impl CompletionBuilder {
                 self.slots.push(Slot::Call {
                     call_id: call_id.clone(),
                     name: name.clone(),
+                    freeform: *freeform,
                     input: None,
                 });
             }
@@ -109,8 +111,13 @@ impl CompletionBuilder {
                 self.open_call(call_id, "arguments for a tool call that is not open")?;
             }
             ProviderEvent::ToolCallEnd { call_id, arguments } => {
-                let input = self.open_call(call_id, "the end of a tool call that is not open")?;
-                *input = Some(parse_arguments(arguments));
+                let (freeform, input) =
+                    self.open_call(call_id, "the end of a tool call that is not open")?;
+                *input = Some(if freeform {
+                    Value::String(arguments.clone())
+                } else {
+                    parse_arguments(arguments)
+                });
             }
             ProviderEvent::Usage(usage) => self.usage = Some(*usage),
             ProviderEvent::Done { stop_reason, provider_raw } => {
@@ -145,8 +152,8 @@ impl CompletionBuilder {
         for slot in self.slots {
             content.push(match slot {
                 Slot::Block(block) => block,
-                Slot::Call { call_id, name, input: Some(input) } => {
-                    ContentBlock::ToolCall { call_id, name, input }
+                Slot::Call { call_id, name, freeform, input: Some(input) } => {
+                    ContentBlock::ToolCall { call_id, name, input, freeform }
                 }
                 Slot::Call { input: None, .. } => {
                     return Err(ProviderError::InvalidStream {
@@ -183,16 +190,18 @@ impl CompletionBuilder {
         }
     }
 
-    /// The input of the started, not yet ended call `call_id`.
+    /// Whether the started, not yet ended call `call_id` is freeform, and its input.
     fn open_call(
         &mut self,
         call_id: &str,
         problem: &'static str,
-    ) -> Result<&mut Option<Value>, ProviderError> {
+    ) -> Result<(bool, &mut Option<Value>), ProviderError> {
         self.slots
             .iter_mut()
             .find_map(|slot| match slot {
-                Slot::Call { call_id: id, input: input @ None, .. } if id == call_id => Some(input),
+                Slot::Call { call_id: id, freeform, input: input @ None, .. } if id == call_id => {
+                    Some((*freeform, input))
+                }
                 _ => None,
             })
             .ok_or(ProviderError::InvalidStream { problem })

@@ -26,7 +26,7 @@ use crate::connections::Connections;
 use crate::reload::Reloads;
 use crate::screens::ScreenBackend;
 use crate::tools::{
-    DaemonToolbox, SettingsTool, for_model, outcome, permission_requirements, registry,
+    DaemonToolbox, SettingsTool, definition, for_model, outcome, permission_requirements, registry,
 };
 
 /// A holder that never starts a shell; these tests never run a command.
@@ -145,6 +145,26 @@ fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {
         cwd.join("scratch"),
     );
     ToolCall::new(name, input, context)
+}
+
+#[test]
+fn a_freeform_spec_becomes_a_freeform_definition_with_the_same_function_form() {
+    // NOTE: the two crates name the member of the function form each on their own,
+    // because neither depends on the other.
+    assert_eq!(efr_tools::FREEFORM_INPUT, efr_provider::FREEFORM_INPUT);
+    let grammar = efr_tools::ToolGrammar::Lark("start: LF".to_owned());
+    let spec = efr_tools::ToolSpec::freeform("apply_patch", "Edits files.", grammar);
+    let defined = definition(spec.clone());
+    assert_eq!(defined.grammar, Some(efr_provider::ToolGrammar::lark("start: LF")));
+    assert_eq!(defined.input_schema, spec.input_schema);
+    assert_eq!(
+        defined,
+        efr_provider::ToolDefinition::freeform(
+            "apply_patch",
+            "Edits files.",
+            efr_provider::ToolGrammar::lark("start: LF"),
+        )
+    );
 }
 
 #[test]

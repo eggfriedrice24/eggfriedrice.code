@@ -394,6 +394,7 @@ fn a_call_that_takes_a_manual_input_says_so_and_an_old_one_does_not() {
         input: json!({ "command": "./deploy" }),
         manual_input,
         launch: None,
+        freeform: false,
     };
     let wire = json!({
         "kind": "tool_call_started",

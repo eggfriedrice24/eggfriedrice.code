@@ -42,6 +42,12 @@ struct Builtin {
     max_output: Option<u32>,
     efforts: &'static [&'static str],
     default_effort: &'static str,
+    /// True when the model takes freeform (`custom`) tools, so a freeform tool such as
+    /// `apply_patch` goes to it in its freeform form with its grammar. Codex's catalog
+    /// says it per model as `apply_patch_tool_type`: `"freeform"` for this form; a model
+    /// without the key gets no `apply_patch` tool in Codex. efr sends such a model the
+    /// function form instead.
+    freeform_tools: bool,
 }
 
 /// The models that the ChatGPT subscription backend lists for Codex, in the order of
@@ -60,34 +66,66 @@ struct Builtin {
 ///   `gpt-6-luna` and every newer `gpt-N.M` except the bare `gpt-5.6` and the pro
 ///   models. Every id below passes that filter; the older ids that opencode keeps are
 ///   not in Codex's list, so they are left out.
+///
+/// Read again at c0c230e (2026-10-08) for `apply_patch_tool_type`: every listed entry
+/// has `"freeform"`, and `ApplyPatchToolType` (`codex-rs/protocol/src/openai_models.rs`)
+/// has no other value left.
 const SUBSCRIPTION: &[Builtin] = &[
-    Builtin { id: "gpt-6.1-sol", max_output: None, efforts: UP_TO_ULTRA, default_effort: "low" },
-    Builtin { id: "gpt-6-astra", max_output: None, efforts: UP_TO_ULTRA, default_effort: "low" },
-    Builtin { id: "gpt-6-sol", max_output: None, efforts: UP_TO_ULTRA, default_effort: "medium" },
-    Builtin { id: "gpt-6-luna", max_output: None, efforts: UP_TO_MAX, default_effort: "medium" },
+    Builtin {
+        id: "gpt-6.1-sol",
+        max_output: None,
+        efforts: UP_TO_ULTRA,
+        default_effort: "low",
+        freeform_tools: true,
+    },
+    Builtin {
+        id: "gpt-6-astra",
+        max_output: None,
+        efforts: UP_TO_ULTRA,
+        default_effort: "low",
+        freeform_tools: true,
+    },
+    Builtin {
+        id: "gpt-6-sol",
+        max_output: None,
+        efforts: UP_TO_ULTRA,
+        default_effort: "medium",
+        freeform_tools: true,
+    },
+    Builtin {
+        id: "gpt-6-luna",
+        max_output: None,
+        efforts: UP_TO_MAX,
+        default_effort: "medium",
+        freeform_tools: true,
+    },
     Builtin {
         id: "gpt-5.6-sol",
         max_output: Some(GPT_5_OUTPUT_LIMIT),
         efforts: UP_TO_ULTRA,
         default_effort: "low",
+        freeform_tools: true,
     },
     Builtin {
         id: "gpt-5.6-terra",
         max_output: Some(GPT_5_OUTPUT_LIMIT),
         efforts: UP_TO_ULTRA,
         default_effort: "medium",
+        freeform_tools: true,
     },
     Builtin {
         id: "gpt-5.6-luna",
         max_output: Some(GPT_5_OUTPUT_LIMIT),
         efforts: UP_TO_MAX,
         default_effort: "medium",
+        freeform_tools: true,
     },
     Builtin {
         id: "gpt-5.5",
         max_output: Some(GPT_5_OUTPUT_LIMIT),
         efforts: UP_TO_XHIGH,
         default_effort: "medium",
+        freeform_tools: true,
     },
 ];
 
@@ -118,6 +156,15 @@ pub fn subscription_models() -> Vec<ModelInfo> {
 /// model id is passed through.
 pub fn api_models() -> Vec<ModelInfo> {
     Vec::new()
+}
+
+/// True when `model` takes freeform (`custom`) tools, so a request sends a tool with a
+/// grammar in its freeform form. Only the models of the built-in catalog do, on either
+/// backend, because the catalog is the one source that says so per model. Every other
+/// model gets each freeform tool in its function form, one string member that holds
+/// the text, which every model with function calls takes.
+pub(crate) fn takes_freeform_tools(model: &str) -> bool {
+    SUBSCRIPTION.iter().any(|builtin| builtin.id == model && builtin.freeform_tools)
 }
 
 /// True when `model` belongs to a reasoning family, so a request for it carries the

@@ -156,11 +156,7 @@ impl SettingsTool {
 
     /// The tool as the model sees it.
     pub(crate) fn definition() -> ToolDefinition {
-        ToolDefinition {
-            name: NAME.to_owned(),
-            description: DESCRIPTION.to_owned(),
-            input_schema: input_schema(),
-        }
+        ToolDefinition::function(NAME, DESCRIPTION, input_schema())
     }
 
     /// What a call needs: nothing for `read`, a settings change for a valid change.

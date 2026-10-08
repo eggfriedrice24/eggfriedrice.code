@@ -10,7 +10,9 @@
 //!   reasoning, with a blank line between summary sections;
 //! - `response.output_item.added` starts a function call,
 //!   `response.function_call_arguments.delta` grows it and `response.output_item.done`
-//!   ends it with the complete arguments;
+//!   ends it with the complete arguments; a `custom_tool_call` item is a freeform call,
+//!   which `response.custom_tool_call_input.delta` grows with plain text and whose
+//!   finished item holds the whole text as `input`;
 //! - every `response.output_item.done` item is kept verbatim, and `response.completed`
 //!   ends the answer with the usage and those items as the message's `provider_raw`;
 //! - `response.incomplete` ends it at the output limit or the content filter;
@@ -50,7 +52,7 @@ pub(crate) struct EventMapper {
     done: bool,
 }
 
-/// A function call that has started.
+/// A tool call that has started; for a freeform call, `arguments` is its text.
 #[derive(Debug)]
 struct Call {
     call_id: String,
@@ -166,11 +168,18 @@ impl EventMapper {
                     self.item_added(item, &location_of_item(event, item), &mut out);
                 }
             }
-            "response.function_call_arguments.delta" => self.arguments_delta(event, &mut out),
-            "response.function_call_arguments.done" => {
+            "response.function_call_arguments.delta" | "response.custom_tool_call_input.delta" => {
+                self.arguments_delta(event, &mut out)
+            }
+            "response.function_call_arguments.done" | "response.custom_tool_call_input.done" => {
                 let at = location(event);
+                let key = if kind == "response.function_call_arguments.done" {
+                    "arguments"
+                } else {
+                    "input"
+                };
                 if let (Some(call), Some(arguments)) =
-                    (self.open_call_at(&at), text(event, "arguments"))
+                    (self.open_call_at(&at, text(event, "call_id")), text(event, key))
                 {
                     arguments.clone_into(&mut call.arguments);
                 }
@@ -247,8 +256,8 @@ impl EventMapper {
     }
 
     fn item_added(&mut self, item: &Value, at: &Location, out: &mut Vec<ProviderEvent>) {
-        if let OutputItem::FunctionCall { call_id, name, .. } = OutputItem::parse(item) {
-            self.start_call(call_id, name, at, out);
+        if let OutputItem::FunctionCall { call_id, name, freeform, .. } = OutputItem::parse(item) {
+            self.start_call(call_id, name, freeform, at, out);
         }
     }
 
@@ -256,13 +265,14 @@ impl EventMapper {
         &mut self,
         call_id: String,
         name: String,
+        freeform: bool,
         at: &Location,
         out: &mut Vec<ProviderEvent>,
     ) {
         if self.calls.iter().any(|call| call.call_id == call_id) {
             return;
         }
-        out.push(ProviderEvent::ToolCallStart { call_id: call_id.clone(), name });
+        out.push(ProviderEvent::ToolCallStart { call_id: call_id.clone(), name, freeform });
         self.last_delta = LastDelta::Other;
         self.calls.push(Call {
             call_id,
@@ -278,8 +288,8 @@ impl EventMapper {
         let Some(delta) = text(event, "delta").filter(|delta| !delta.is_empty()) else {
             return;
         };
-        let Some(call) = self.open_call_at(&at) else {
-            tracing::debug!("arguments for a function call that has not started; left out");
+        let Some(call) = self.open_call_at(&at, text(event, "call_id")) else {
+            tracing::debug!("arguments for a tool call that has not started; left out");
             return;
         };
         call.arguments.push_str(delta);
@@ -289,17 +299,20 @@ impl EventMapper {
         });
     }
 
-    /// The started, not yet ended call at `at`, found by its item id or else by its
-    /// output index.
-    fn open_call_at(&mut self, at: &Location) -> Option<&mut Call> {
+    /// The started, not yet ended call at `at`, found by its item id, else by its
+    /// output index, else by the `call_id` that a freeform call's input events may
+    /// carry instead.
+    fn open_call_at(&mut self, at: &Location, call_id: Option<&str>) -> Option<&mut Call> {
         let by_id = |call: &Call| at.item_id.is_some() && call.item_id == at.item_id;
         let by_index =
             |call: &Call| at.output_index.is_some() && call.output_index == at.output_index;
+        let by_call = |call: &Call| call_id.is_some_and(|id| call.call_id == id);
         let position = self
             .calls
             .iter()
             .position(|call| !call.ended && by_id(call))
-            .or_else(|| self.calls.iter().position(|call| !call.ended && by_index(call)))?;
+            .or_else(|| self.calls.iter().position(|call| !call.ended && by_index(call)))
+            .or_else(|| self.calls.iter().position(|call| !call.ended && by_call(call)))?;
         self.calls.get_mut(position)
     }
 
@@ -318,8 +331,8 @@ impl EventMapper {
                     self.push_reasoning(section, &summary, out);
                 }
             }
-            OutputItem::FunctionCall { call_id, name, arguments } => {
-                self.start_call(call_id.clone(), name, at, out);
+            OutputItem::FunctionCall { call_id, name, arguments, freeform } => {
+                self.start_call(call_id.clone(), name, freeform, at, out);
                 if let Some(call) = self.calls.iter_mut().find(|call| call.call_id == call_id)
                     && !call.ended
                 {

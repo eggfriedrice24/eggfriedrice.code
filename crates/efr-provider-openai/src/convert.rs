@@ -9,19 +9,30 @@
 //! (`codex-rs/protocol/src/models.rs`) and goose's `build_input_items`
 //! (`crates/goose/src/providers/chatgpt_codex.rs`).
 //!
+//! A freeform tool goes to a model that takes freeform tools as a `custom` tool with
+//! its grammar (`codex-rs/tools/src/responses_api.rs`, `FreeformTool`, and
+//! `codex-rs/core/src/tools/handlers/apply_patch_spec.rs`); the model answers with a
+//! `custom_tool_call` whose `input` is the raw text, and the result goes back as a
+//! `custom_tool_call_output`. Every other model gets the tool's function form.
+//!
 //! An assistant message that carries `provider_raw` is sent as those items, verbatim:
-//! they are the exact `reasoning`, `message` and `function_call` items this provider
-//! produced, in order, and the encrypted reasoning only works when it comes back
-//! unchanged. Without `provider_raw` the message is rebuilt from its canonical content,
-//! and reasoning text is dropped, because a reasoning item without its encrypted
-//! content is refused when `store` is false.
+//! they are the exact `reasoning`, `message`, `function_call` and `custom_tool_call`
+//! items this provider produced, in order, and the encrypted reasoning only works when
+//! it comes back unchanged. Without `provider_raw` the message is rebuilt from its
+//! canonical content, and reasoning text is dropped, because a reasoning item without
+//! its encrypted content is refused when `store` is false.
+
+use std::collections::HashSet;
 
 use efr_provider::{ContentBlock, Message, Request, Role, ToolDefinition};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::config::{Backend, OpenAiConfig, ReasoningMode};
-use crate::models::is_reasoning_model;
+use crate::models::{is_reasoning_model, takes_freeform_tools};
+
+/// The item type of a call of a freeform tool.
+pub(crate) const CUSTOM_CALL: &str = "custom_tool_call";
 
 /// What the model is asked to return besides its output: the encrypted reasoning that
 /// lets the next request continue the same chain of thought without server-side state.
@@ -98,7 +109,10 @@ pub(crate) fn request_body(request: &Request, config: &OpenAiConfig) -> Response
         service_tier: options.string("service_tier"),
         instructions: request.system.clone().filter(|system| !system.is_empty()),
         input: input_items(&request.messages),
-        tools: request.tools.iter().map(tool_definition).collect(),
+        tools: {
+            let freeform = takes_freeform_tools(&request.model);
+            request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect()
+        },
         tool_choice: "auto",
         parallel_tool_calls: options.bool("parallel_tool_calls", config.parallel_tool_calls()),
         reasoning,
@@ -170,29 +184,70 @@ fn json_kind(value: &Value) -> &'static str {
     }
 }
 
-/// A tool as the Responses API takes it. `strict` is off as in Codex, because strict
+/// A tool as the Responses API takes it, for a model that takes freeform tools when
+/// `freeform` is true.
+///
+/// A freeform tool for such a model is a `custom` tool with its grammar as `format`.
+/// Every other tool is a function tool: `strict` is off as in Codex, because strict
 /// mode requires every property to be listed as required, which tool schemas with
-/// optional inputs are not.
-pub(crate) fn tool_definition(tool: &ToolDefinition) -> Value {
-    json!({
-        "type": "function",
-        "name": tool.name,
-        "description": tool.description,
-        "strict": false,
-        "parameters": tool.input_schema,
-    })
+/// optional inputs are not. A freeform tool's function form is its `input_schema`.
+pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
+    match &tool.grammar {
+        Some(grammar) if freeform => json!({
+            "type": "custom",
+            "name": tool.name,
+            "description": tool.description,
+            "format": {
+                "type": "grammar",
+                "syntax": grammar.syntax,
+                "definition": grammar.definition,
+            },
+        }),
+        _ => json!({
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "strict": false,
+            "parameters": tool.input_schema,
+        }),
+    }
 }
 
 /// The Responses `input` for a conversation, oldest first.
+///
+/// A tool result answers a `custom_tool_call` with a `custom_tool_call_output` and
+/// any other call with a `function_call_output`, so the calls of the conversation are
+/// read first, from the raw items and from the canonical content.
 pub(crate) fn input_items(messages: &[Message]) -> Vec<Value> {
+    let freeform = freeform_calls(messages);
     let mut items = Vec::new();
     for message in messages {
         match raw_items(message) {
             Some(raw) => items.extend(raw.iter().cloned()),
-            None => push_canonical(&mut items, message),
+            None => push_canonical(&mut items, message, &freeform),
         }
     }
     items
+}
+
+/// The provider ids of the freeform calls in `messages`: the `custom_tool_call` items
+/// of their raw items and the canonical freeform calls.
+fn freeform_calls(messages: &[Message]) -> HashSet<&str> {
+    let mut calls = HashSet::new();
+    for message in messages {
+        if let Some(raw) = raw_items(message) {
+            calls.extend(
+                raw.iter()
+                    .filter(|item| item.get("type").and_then(Value::as_str) == Some(CUSTOM_CALL))
+                    .filter_map(|item| item.get("call_id").and_then(Value::as_str)),
+            );
+        }
+        calls.extend(message.content.iter().filter_map(|block| match block {
+            ContentBlock::ToolCall { call_id, freeform: true, .. } => Some(call_id.as_str()),
+            _ => None,
+        }));
+    }
+    calls
 }
 
 /// The `provider_raw` of an assistant message whose response produced `items`: the
@@ -229,8 +284,9 @@ fn raw_items(message: &Message) -> Option<&Vec<Value>> {
 
 /// Appends `message` rebuilt from its canonical blocks. Text and images of one run form
 /// one message item; a tool call or a tool result ends the run and becomes an item of
-/// its own, so the order of the blocks is kept.
-fn push_canonical(items: &mut Vec<Value>, message: &Message) {
+/// its own, so the order of the blocks is kept. A result of one of the `freeform`
+/// calls is a `custom_tool_call_output`.
+fn push_canonical(items: &mut Vec<Value>, message: &Message, freeform: &HashSet<&str>) {
     let role = match message.role {
         Role::Assistant => "assistant",
         Role::User => "user",
@@ -265,7 +321,16 @@ fn push_canonical(items: &mut Vec<Value>, message: &Message) {
                     _ => tracing::debug!("an image whose bytes did not encode; left out"),
                 }
             }
-            ContentBlock::ToolCall { call_id, name, input } => {
+            ContentBlock::ToolCall { call_id, name, input, freeform: true } => {
+                flush(items, role, &mut content);
+                items.push(json!({
+                    "type": CUSTOM_CALL,
+                    "call_id": call_id,
+                    "name": name,
+                    "input": arguments_text(input),
+                }));
+            }
+            ContentBlock::ToolCall { call_id, name, input, .. } => {
                 flush(items, role, &mut content);
                 items.push(json!({
                     "type": "function_call",
@@ -279,8 +344,13 @@ fn push_canonical(items: &mut Vec<Value>, message: &Message) {
                 // NOTE: the Responses API has no error flag on a tool result; goose
                 // marks a failed call in the output text the same way.
                 let output = if *is_error { format!("Error: {output}") } else { output.clone() };
+                let kind = if freeform.contains(call_id.as_str()) {
+                    "custom_tool_call_output"
+                } else {
+                    "function_call_output"
+                };
                 items.push(json!({
-                    "type": "function_call_output",
+                    "type": kind,
                     "call_id": call_id,
                     "output": output,
                 }));
@@ -299,7 +369,8 @@ fn flush(items: &mut Vec<Value>, role: &str, content: &mut Vec<Value>) {
 }
 
 /// The arguments text of a canonical tool call. Arguments that were not JSON were kept
-/// as a JSON string; they go back as the text the model wrote.
+/// as a JSON string, and so is the text of a freeform call; they go back as the text
+/// the model wrote.
 fn arguments_text(input: &Value) -> String {
     match input {
         Value::String(text) => text.clone(),
@@ -314,15 +385,16 @@ pub(crate) enum OutputItem {
     Message { text: String },
     /// A reasoning item: its summary parts, joined by a blank line.
     Reasoning { summary: String },
-    /// A function call.
-    FunctionCall { call_id: String, name: String, arguments: String },
+    /// A function call, or a freeform (`custom_tool_call`) call whose `arguments` are
+    /// its raw text `input`.
+    FunctionCall { call_id: String, name: String, arguments: String, freeform: bool },
     /// Any other item, such as a hosted tool call, which has no canonical form.
     Other { kind: String },
 }
 
 impl OutputItem {
-    /// Reads `item`. A function call without a `call_id` or a `name` is `Other`, since
-    /// nothing could answer it.
+    /// Reads `item`. A call without a `call_id` or a `name` is `Other`, since nothing
+    /// could answer it.
     pub(crate) fn parse(item: &Value) -> OutputItem {
         let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
         match kind {
@@ -334,13 +406,16 @@ impl OutputItem {
             "reasoning" => OutputItem::Reasoning {
                 summary: joined(item, "summary", "\n\n", &["summary_text"]),
             },
-            "function_call" => {
+            "function_call" | CUSTOM_CALL => {
+                let freeform = kind == CUSTOM_CALL;
                 let text = |key: &str| item.get(key).and_then(Value::as_str).map(str::to_owned);
+                let arguments = if freeform { "input" } else { "arguments" };
                 match (text("call_id"), text("name")) {
                     (Some(call_id), Some(name)) => OutputItem::FunctionCall {
                         call_id,
                         name,
-                        arguments: text("arguments").unwrap_or_default(),
+                        arguments: text(arguments).unwrap_or_default(),
+                        freeform,
                     },
                     _ => OutputItem::Other { kind: kind.to_owned() },
                 }

@@ -8,8 +8,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::{
-    AccessMode, NoOutput, PathAccess, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
-    parse_input,
+    AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, ToolGrammar, ToolOutputSink,
+    ToolRequirements, ToolResult, ToolSpec, freeform_text, parse_input,
 };
 use crate::ToolError;
 use crate::testing::Fixture;
@@ -36,6 +36,28 @@ fn a_generated_schema_is_an_object_without_schema_and_title_keys() {
     assert_eq!(schema["required"], json!(["text"]));
     assert_eq!(schema["additionalProperties"], json!(false));
     assert_eq!(schema["properties"]["text"]["description"], "What to say.");
+}
+
+#[test]
+fn a_function_spec_has_no_grammar() {
+    assert_eq!(ToolSpec::for_input::<Input>("say", "Says something.").grammar, None);
+}
+
+#[test]
+fn a_freeform_spec_has_its_grammar_and_a_function_form_of_one_string() {
+    let spec = ToolSpec::freeform("patch", "Patches.", ToolGrammar::Lark("start: LF".to_owned()));
+    assert_eq!(spec.grammar, Some(ToolGrammar::Lark("start: LF".to_owned())));
+    assert_eq!(spec.input_schema["required"], json!([FREEFORM_INPUT]));
+    assert_eq!(spec.input_schema["properties"][FREEFORM_INPUT]["type"], "string");
+}
+
+#[test]
+fn freeform_text_reads_both_forms_of_a_call() {
+    assert_eq!(freeform_text(&json!("*** Begin Patch")), Some("*** Begin Patch"));
+    assert_eq!(freeform_text(&json!({"input": "*** Begin Patch"})), Some("*** Begin Patch"));
+    assert_eq!(freeform_text(&json!({"input": 1})), None);
+    assert_eq!(freeform_text(&json!({"patch": "x"})), None);
+    assert_eq!(freeform_text(&json!(["x"])), None);
 }
 
 #[test]

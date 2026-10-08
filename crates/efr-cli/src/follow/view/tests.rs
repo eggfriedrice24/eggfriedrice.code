@@ -55,6 +55,7 @@ fn tool_started(command: &str) -> Event {
         input: json!({ "command": command }),
         manual_input: true,
         launch: None,
+        freeform: false,
     }
 }
 
@@ -267,6 +268,7 @@ fn a_call_that_efr_refused_says_why() {
         input: json!({ "command": "echo x >> ~/.config/efr/config.toml" }),
         manual_input: true,
         launch: Some(Launch::contained()),
+        freeform: false,
     };
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[contained, refused], false);
@@ -1013,6 +1015,7 @@ fn shell_started() -> Event {
         input: json!({ "command": "./deploy" }),
         manual_input: true,
         launch: None,
+        freeform: false,
     }
 }
 
@@ -1048,6 +1051,7 @@ fn only_calls_of_the_followed_turn_that_take_a_manual_input_can_be_silent() {
         input: json!({ "path": "/etc/hosts" }),
         manual_input: false,
         launch: None,
+        freeform: false,
     };
     framed(view.event(&read, SIZE, true), &mut view);
     assert_eq!(view.silence(), None);
@@ -1066,6 +1070,7 @@ fn a_shell_call_into_a_shell_that_reads_command_lines_is_never_silent() {
         input: json!({ "command": "sleep 60", "nested_shell": true }),
         manual_input: false,
         launch: None,
+        freeform: false,
     };
     framed(view.event(&nested, SIZE, true), &mut view);
     assert_eq!(view.silence(), None);
@@ -1341,6 +1346,7 @@ fn contained_started(command: &str) -> Event {
         input: json!({ "command": command }),
         manual_input: true,
         launch: Some(Launch::contained()),
+        freeform: false,
     }
 }
 

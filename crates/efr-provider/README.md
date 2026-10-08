@@ -19,7 +19,12 @@ Modules:
 - `request`: `Request { model, system, messages, tools, max_output_tokens,
   provider_options }` and `ToolDefinition`, the tool as the model sees it.
   `efr-tools` has its own `ToolSpec`; the conversation converts between the two,
-  because neither crate depends on the other.
+  because neither crate depends on the other. A tool is a function tool
+  (`ToolDefinition::function`: a JSON Schema of its input object) or a freeform tool
+  (`ToolDefinition::freeform`: its input is plain text that a `ToolGrammar`
+  describes, Lark or a regular expression). A freeform tool keeps the schema of its
+  function form in `input_schema`: one required string member, `FREEFORM_INPUT`
+  (`input`), from `freeform_input_schema`.
 - `event`: `ProviderEvent` (`TextDelta`, `ReasoningDelta`, `ToolCallStart`,
   `ToolCallDelta`, `ToolCallEnd`, `Usage`, `Done`, `Raw`) and `StopReason`. The order
   a provider keeps is documented on the type: a tool call is start, deltas, end (with
@@ -51,6 +56,19 @@ Modules:
   `Unauthorized` is what a provider reports after a 401 survived one
   `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider
   asked for.
+
+Freeform tools. Which models take the freeform form is a fact about the model, so
+each provider knows it in its own model catalog; `efr-provider-openai` says it in
+`models.rs` (`takes_freeform_tools`). A provider sends a freeform tool in its
+freeform form only to a model that takes it, and in its function form to every other
+model. A call in the freeform form is a `ContentBlock::ToolCall` with `freeform` set
+and the text as a JSON string `input`; its stream is a `ToolCallStart` with
+`freeform` set, deltas and an end whose `arguments` are that text, which
+`CompletionBuilder` keeps as it came. A call in the function form is an ordinary
+call whose input is `{"input": "<text>"}`. The flag stays with the call in the
+stored turn messages and in the event log (`tool_call_started`), so the next request
+sends the call, and its result, back in the form the model wrote it. A tool reads
+both forms the same way (`efr_tools::freeform_text`).
 
 Serde forms: names are snake_case, internally tagged enums use the member `kind`,
 optional members are left out when empty and unknown members are ignored, as on the

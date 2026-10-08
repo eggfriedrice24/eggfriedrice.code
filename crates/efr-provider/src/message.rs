@@ -111,8 +111,15 @@ pub enum ContentBlock {
         /// The tool's registered name, such as `shell`.
         name: String,
         /// The tool's input. Arguments that were not valid JSON are kept as a JSON
-        /// string, so the tool layer can tell the model what was wrong with them.
+        /// string, so the tool layer can tell the model what was wrong with them. For a
+        /// freeform call, the text the model wrote, as a JSON string.
         input: Value,
+        /// True when the model called a freeform tool in its freeform form and wrote
+        /// the input as plain text ([`ToolDefinition`](crate::ToolDefinition)). The
+        /// provider sends such a call, and its result, back as a freeform call. False
+        /// when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        freeform: bool,
     },
 
     /// The result of a tool call, sent back to the model.

@@ -47,6 +47,7 @@ fn started(turn_id: TurnId, call_id: CallId, tool: &str) -> Event {
         input: json!({}),
         manual_input: false,
         launch: None,
+        freeform: false,
     }
 }
 
@@ -66,7 +67,12 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
 }
 
 fn tool_call(call_id: CallId, name: &str) -> ContentBlock {
-    ContentBlock::ToolCall { call_id: call_id.to_string(), name: name.to_owned(), input: json!({}) }
+    ContentBlock::ToolCall {
+        call_id: call_id.to_string(),
+        name: name.to_owned(),
+        input: json!({}),
+        freeform: false,
+    }
 }
 
 fn tool_result(call_id: CallId, output: &str) -> ContentBlock {
@@ -780,4 +786,39 @@ async fn saved_messages_that_cannot_be_read_are_logged_without_their_text() {
     let text = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
     assert!(text.contains("the saved messages of a turn could not be read"), "{text}");
     assert!(!text.contains(secret), "{text}");
+}
+
+#[test]
+fn a_freeform_call_is_rebuilt_as_a_freeform_call() {
+    let t = turn(2);
+    let c1 = call(3);
+    let patch = "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch";
+    let events = [
+        Event::ToolCallStarted {
+            turn_id: t,
+            call_id: c1,
+            tool: "apply_patch".to_owned(),
+            input: json!(patch),
+            freeform: true,
+            manual_input: false,
+            launch: None,
+        },
+        finished(t, c1, "Success. Deleted: a.txt"),
+    ];
+    assert_eq!(
+        rebuilt("remove a.txt", &events),
+        vec![
+            Message::user("remove a.txt"),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolCall {
+                    call_id: c1.to_string(),
+                    name: "apply_patch".to_owned(),
+                    input: json!(patch),
+                    freeform: true,
+                }],
+            ),
+            Message::new(Role::User, vec![tool_result(c1, "Success. Deleted: a.txt")]),
+        ]
+    );
 }

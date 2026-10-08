@@ -312,11 +312,12 @@ pub(crate) fn rebuild(prompt: &str, events: &[&EventEnvelope]) -> Vec<Message> {
                 }
                 rebuilt.assistant(ContentBlock::Text { text: text.clone() }, true);
             }
-            Event::ToolCallStarted { call_id, tool, input, .. } => {
+            Event::ToolCallStarted { call_id, tool, input, freeform, .. } => {
                 let block = ContentBlock::ToolCall {
                     call_id: call_id.to_string(),
                     name: tool.clone(),
                     input: input.clone(),
+                    freeform: *freeform,
                 };
                 rebuilt.assistant(block, false);
             }

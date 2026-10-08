@@ -21,7 +21,7 @@ use efr_protocol::{
     Seq, ShellContext, SurfaceChange, TurnId, TurnInterrupt, TurnSettings, TurnSteer,
     WithdrawTarget,
 };
-use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition};
+use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition, ToolGrammar};
 use efr_scope::{Derivation, Home};
 use efr_stdx::id::uuid_v7;
 use efr_store::Committed;
@@ -104,10 +104,12 @@ pub(crate) fn edited() -> FileChanges {
 
 impl FakeToolbox {
     pub(crate) fn tools() -> Vec<ToolDefinition> {
-        let tool = |name: &str, description: &str, properties: Value| ToolDefinition {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            input_schema: json!({"type": "object", "properties": properties}),
+        let tool = |name: &str, description: &str, properties: Value| {
+            ToolDefinition::function(
+                name,
+                description,
+                json!({"type": "object", "properties": properties}),
+            )
         };
         vec![
             tool("read_file", "Reads a file.", json!({"path": {"type": "string"}})),
@@ -118,6 +120,7 @@ impl FakeToolbox {
             ),
             tool("shell", "Runs a command.", json!({"command": {"type": "string"}})),
             tool("hang", "Never ends.", json!({})),
+            ToolDefinition::freeform("note", "Takes a note.", ToolGrammar::lark("start: /.+/")),
         ]
     }
 
@@ -211,7 +214,7 @@ impl Toolbox for FakeToolbox {
                 }
                 Ok(requirements)
             }
-            "hang" => Ok(Requirements::none()),
+            "hang" | "note" => Ok(Requirements::none()),
             other => Err(format!("no tool is named {other:?}")),
         }
     }
@@ -245,6 +248,7 @@ impl Toolbox for FakeToolbox {
         let path = call.input.get("path").and_then(Value::as_str).unwrap_or_default();
         match call.name.as_str() {
             "read_file" => ToolOutcome::ok(format!("contents of {path}")),
+            "note" => ToolOutcome::ok(format!("noted {}", call.input.as_str().unwrap_or("?"))),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
             "shell" if call.input["command"] == "ask-password" => {
                 out.update("pw: ", 4);
@@ -845,7 +849,11 @@ pub(crate) fn text_answer(text: &str) -> Vec<ProviderEvent> {
 /// An answer that calls one tool.
 pub(crate) fn tool_answer(call_id: &str, name: &str, input: &Value) -> Vec<ProviderEvent> {
     vec![
-        ProviderEvent::ToolCallStart { call_id: call_id.to_owned(), name: name.to_owned() },
+        ProviderEvent::ToolCallStart {
+            call_id: call_id.to_owned(),
+            name: name.to_owned(),
+            freeform: false,
+        },
         ProviderEvent::ToolCallEnd { call_id: call_id.to_owned(), arguments: input.to_string() },
         done(efr_provider::StopReason::ToolUse, None),
     ]
@@ -853,6 +861,33 @@ pub(crate) fn tool_answer(call_id: &str, name: &str, input: &Value) -> Vec<Provi
 
 pub(crate) fn done(stop_reason: efr_provider::StopReason, raw: Option<Value>) -> ProviderEvent {
     ProviderEvent::Done { stop_reason, provider_raw: raw }
+}
+
+/// An answer that calls the freeform tool `name` with `text`.
+pub(crate) fn freeform_answer(call_id: &str, name: &str, text: &str) -> Vec<ProviderEvent> {
+    vec![
+        ProviderEvent::ToolCallStart {
+            call_id: call_id.to_owned(),
+            name: name.to_owned(),
+            freeform: true,
+        },
+        ProviderEvent::ToolCallEnd { call_id: call_id.to_owned(), arguments: text.to_owned() },
+        done(efr_provider::StopReason::ToolUse, None),
+    ]
+}
+
+/// The assistant message of [`freeform_answer`].
+pub(crate) fn freeform_message(call_id: &str, name: &str, text: &str) -> Message {
+    use efr_provider::{ContentBlock, Role};
+    Message::new(
+        Role::Assistant,
+        vec![ContentBlock::ToolCall {
+            call_id: call_id.to_owned(),
+            name: name.to_owned(),
+            input: json!(text),
+            freeform: true,
+        }],
+    )
 }
 
 /// The assistant message of [`tool_answer`].
@@ -864,6 +899,7 @@ pub(crate) fn tool_message(call_id: &str, name: &str, input: &Value) -> Message 
             call_id: call_id.to_owned(),
             name: name.to_owned(),
             input: input.clone(),
+            freeform: false,
         }],
     )
 }

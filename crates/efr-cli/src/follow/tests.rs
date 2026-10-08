@@ -574,6 +574,7 @@ fn shell_started(command: &str) -> Event {
         input: serde_json::json!({ "command": command }),
         manual_input: true,
         launch: None,
+        freeform: false,
     }
 }
 

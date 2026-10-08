@@ -157,8 +157,16 @@ pub enum Event {
         call_id: CallId,
         /// The tool's registered name, such as `shell` or `read_file`.
         tool: String,
-        /// The tool's input as the model wrote it.
+        /// The tool's input as the model wrote it. For a call with `freeform`, a JSON
+        /// string that holds the text.
         input: Value,
+        /// True when the model wrote the input as plain text for a freeform tool, such
+        /// as the patch of an `apply_patch` call for an OpenAI model: `input` is then a
+        /// JSON string with that text, and the next request sends the call back in its
+        /// freeform form. False when absent: `input` is the JSON that the model wrote,
+        /// or a JSON string with arguments that were not JSON.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        freeform: bool,
         /// True when the call takes an input that the user chooses to type while it
         /// reports no wait (`input.respond` with `manual`), as a `shell` call does whose
         /// command does not type into a shell that reads command lines. A client offers

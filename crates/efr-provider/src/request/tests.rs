@@ -1,19 +1,19 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{Request, ToolDefinition};
+use super::{FREEFORM_INPUT, GrammarSyntax, Request, ToolDefinition, ToolGrammar};
 use crate::{ContentBlock, Message, Role};
 
 fn shell_tool() -> ToolDefinition {
-    ToolDefinition {
-        name: "shell".to_owned(),
-        description: "Run a command in the conversation's shell.".to_owned(),
-        input_schema: json!({
+    ToolDefinition::function(
+        "shell",
+        "Run a command in the conversation's shell.",
+        json!({
             "type": "object",
             "properties": {"command": {"type": "string"}},
             "required": ["command"],
         }),
-    }
+    )
 }
 
 #[test]
@@ -38,6 +38,7 @@ fn a_full_request_round_trips_with_raw_items_intact() {
                 call_id: "call_1".to_owned(),
                 name: "shell".to_owned(),
                 input: json!({"command": "ls"}),
+                freeform: false,
             }],
         )
         .with_provider_raw(json!([{"type": "function_call", "call_id": "call_1"}])),
@@ -86,4 +87,27 @@ fn a_full_request_round_trips_with_raw_items_intact() {
 fn decoding_fills_defaults() {
     let request: Request = serde_json::from_value(json!({"model": "m"})).unwrap();
     assert_eq!(request, Request::new("m"));
+}
+
+#[test]
+fn a_function_tool_has_no_grammar_member() {
+    let tool = shell_tool();
+    assert!(!tool.is_freeform());
+    assert!(serde_json::to_value(&tool).unwrap().get("grammar").is_none());
+}
+
+#[test]
+fn a_freeform_tool_carries_its_grammar_and_the_schema_of_its_function_form() {
+    let tool = ToolDefinition::freeform(
+        "apply_patch",
+        "Edit files with a patch.",
+        ToolGrammar::lark("start: \"x\""),
+    );
+    assert!(tool.is_freeform());
+    let wire = serde_json::to_value(&tool).unwrap();
+    assert_eq!(wire["grammar"], json!({"syntax": "lark", "definition": "start: \"x\""}));
+    assert_eq!(wire["input_schema"]["required"], json!([FREEFORM_INPUT]));
+    assert_eq!(wire["input_schema"]["properties"][FREEFORM_INPUT]["type"], json!("string"));
+    assert_eq!(serde_json::from_value::<ToolDefinition>(wire).unwrap(), tool);
+    assert_eq!(serde_json::to_value(GrammarSyntax::Regex).unwrap(), json!("regex"));
 }

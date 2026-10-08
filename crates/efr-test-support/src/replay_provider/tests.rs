@@ -390,7 +390,11 @@ fn first_difference_points_at_the_first_differing_member() {
 #[tokio::test]
 async fn a_tool_call_answer_collects_into_a_message() {
     let call = [
-        ProviderEvent::ToolCallStart { call_id: "call_1".to_owned(), name: "shell".to_owned() },
+        ProviderEvent::ToolCallStart {
+            call_id: "call_1".to_owned(),
+            name: "shell".to_owned(),
+            freeform: false,
+        },
         ProviderEvent::ToolCallEnd {
             call_id: "call_1".to_owned(),
             arguments: "{\"command\":\"ls <CWD>\"}".to_owned(),
@@ -408,6 +412,7 @@ async fn a_tool_call_answer_collects_into_a_message() {
             call_id: "call_1".to_owned(),
             name: "shell".to_owned(),
             input: json!({"command": format!("ls {CWD}")}),
+            freeform: false,
         }]
     );
     assert_eq!(completion.message.provider_raw, Some(json!([1])));

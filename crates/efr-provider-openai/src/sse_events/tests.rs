@@ -110,7 +110,11 @@ fn a_tool_call_starts_grows_and_ends_with_the_whole_arguments() {
     assert_eq!(
         mapped,
         vec![
-            ProviderEvent::ToolCallStart { call_id: call_id.clone(), name: "shell".to_owned() },
+            ProviderEvent::ToolCallStart {
+                call_id: call_id.clone(),
+                name: "shell".to_owned(),
+                freeform: false
+            },
             ProviderEvent::ToolCallDelta {
                 call_id: call_id.clone(),
                 arguments: "{\"command\":".to_owned(),
@@ -141,6 +145,7 @@ fn a_tool_call_starts_grows_and_ends_with_the_whole_arguments() {
             call_id,
             name: "shell".to_owned(),
             input: json!({"command": "ls -la"}),
+            freeform: false,
         }]
     );
 }
@@ -364,7 +369,11 @@ fn items_sent_only_whole_still_reach_the_canonical_message() {
         vec![
             reasoning("Thinking."),
             text("Hello."),
-            ProviderEvent::ToolCallStart { call_id: "call_1".to_owned(), name: "shell".to_owned() },
+            ProviderEvent::ToolCallStart {
+                call_id: "call_1".to_owned(),
+                name: "shell".to_owned(),
+                freeform: false
+            },
             ProviderEvent::ToolCallEnd {
                 call_id: "call_1".to_owned(),
                 arguments: "{\"command\":\"ls\"}".to_owned(),
@@ -483,4 +492,87 @@ fn a_new_reasoning_item_after_another_starts_a_new_section() {
 #[case("Rate limit reached.", None)]
 fn retry_hints(#[case] message: &str, #[case] wait: Option<Duration>) {
     assert_eq!(retry_hint(message), wait, "{message}");
+}
+
+#[test]
+fn a_custom_tool_call_streams_its_text_as_a_freeform_call() {
+    let events = fixture_events("custom_tool_call.sse");
+    let (mapped, error) = map_all(&events);
+    assert!(error.is_none(), "{error:?}");
+    let call_id = "call_Vb3nT8kQ2mR5xL9p".to_owned();
+    let patch = "*** Begin Patch\n*** Update File: src/lib.rs\n@@ fn main\n-    old();\n+    new();\n*** End Patch\n";
+    assert_eq!(
+        mapped,
+        vec![
+            ProviderEvent::ToolCallStart {
+                call_id: call_id.clone(),
+                name: "apply_patch".to_owned(),
+                freeform: true,
+            },
+            ProviderEvent::ToolCallDelta {
+                call_id: call_id.clone(),
+                arguments: "*** Begin Patch\n*** Update File: src/lib.rs\n".to_owned(),
+            },
+            ProviderEvent::ToolCallDelta {
+                call_id: call_id.clone(),
+                arguments: "@@ fn main\n-    old();\n+    new();\n*** End Patch\n".to_owned(),
+            },
+            ProviderEvent::ToolCallEnd { call_id: call_id.clone(), arguments: patch.to_owned() },
+            usage(2210, 61, 2048, 0),
+            ProviderEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                provider_raw: Some(done_items(&events)),
+            },
+        ]
+    );
+    let mut builder = CompletionBuilder::new();
+    for event in &mapped {
+        builder.push(event).unwrap();
+    }
+    let completion = builder.finish().unwrap();
+    assert_eq!(
+        completion.message.content,
+        vec![ContentBlock::ToolCall {
+            call_id,
+            name: "apply_patch".to_owned(),
+            input: json!(patch),
+            freeform: true,
+        }]
+    );
+}
+
+#[test]
+fn custom_input_deltas_may_name_only_the_call() {
+    // The shape of Codex's own stream tests: the deltas carry the call id, not the
+    // item id or the output index.
+    let events = sse(&[
+        json!({
+            "type": "response.output_item.added",
+            "item": {"type": "custom_tool_call", "call_id": "call_1", "name": "apply_patch", "input": ""},
+        }),
+        json!({"type": "response.custom_tool_call_input.delta", "call_id": "call_1", "delta": "*** Begin"}),
+        json!({"type": "response.custom_tool_call_input.delta", "call_id": "call_9", "delta": "lost"}),
+        json!({"type": "response.completed", "response": {"id": "resp_1"}}),
+    ]);
+    let (mapped, error) = map_all(&events);
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(
+        mapped[..3],
+        [
+            ProviderEvent::ToolCallStart {
+                call_id: "call_1".to_owned(),
+                name: "apply_patch".to_owned(),
+                freeform: true,
+            },
+            ProviderEvent::ToolCallDelta {
+                call_id: "call_1".to_owned(),
+                arguments: "*** Begin".to_owned(),
+            },
+            // The response completed, so the call ends with the text that streamed.
+            ProviderEvent::ToolCallEnd {
+                call_id: "call_1".to_owned(),
+                arguments: "*** Begin".to_owned(),
+            },
+        ]
+    );
 }

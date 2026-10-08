@@ -144,6 +144,7 @@ async fn a_tool_call_comes_back_as_a_canonical_call_with_its_raw_items() {
         name: "shell".to_owned(),
         description: "Run a command.".to_owned(),
         input_schema: json!({"type": "object"}),
+        grammar: None,
     }];
 
     let completion = setup.provider.complete(request).await.unwrap();
@@ -155,6 +156,7 @@ async fn a_tool_call_comes_back_as_a_canonical_call_with_its_raw_items() {
             call_id: "call_Qm8sX2vR7nL4kP1a".to_owned(),
             name: "shell".to_owned(),
             input: json!({"command": "ls -la"}),
+            freeform: false,
         }]
     );
     let raw = completion.message.provider_raw.unwrap();

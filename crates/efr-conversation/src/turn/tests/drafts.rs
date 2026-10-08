@@ -39,6 +39,7 @@ fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
                 call_id: "call_1".to_owned(),
                 name: "read_file".to_owned(),
                 input: input.clone(),
+                freeform: false,
             },
         ],
     );
@@ -50,6 +51,7 @@ fn reasoning_tool_text(setup: &Setup) -> (Vec<Record>, String) {
             ProviderEvent::ToolCallStart {
                 call_id: "call_1".to_owned(),
                 name: "read_file".to_owned(),
+                freeform: false,
             },
             ProviderEvent::ToolCallDelta {
                 call_id: "call_1".to_owned(),

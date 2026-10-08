@@ -5,7 +5,10 @@
 The tools the model calls, and the registry that offers them.
 
 - `Tool`: `spec()` (a `ToolSpec`: name, description and the input's JSON Schema,
-  generated with schemars from the input type, without `$schema` and `title`),
+  generated with schemars from the input type, without `$schema` and `title`; or,
+  from `ToolSpec::freeform`, a freeform tool whose input is plain text that a
+  `ToolGrammar` describes, with the schema of its function form, one string member
+  `FREEFORM_INPUT` (`input`)),
   `requirements(ctx, input)`, `preview(ctx, input)` (what a call would change, for
   its approval; none by default) and `invoke(ctx, input, out)`.
 - `ToolRequirements`: every path a call touches with its `AccessMode` (read, read with
@@ -52,6 +55,11 @@ The tools the model calls, and the registry that offers them.
   whether a person can answer hidden input now (`can_answer_hidden`, true by default)
   and whether a person who can answer follows the call (`can_answer`, false by
   default, which keeps a call's timeout); the daemon answers both.
+- `freeform_text(input)`: the text of a freeform tool's call. A model that takes
+  freeform tools writes the text itself, which arrives as a JSON string; any other
+  model calls the function form, `{"input": "<text>"}`. A freeform tool reads its
+  input only through this function, so both forms work the same. The member name
+  must equal `efr_provider::FREEFORM_INPUT`; a test in `efr-daemon` checks it.
 - `truncate_middle`: the head and the tail of a long output with a
   `[... N bytes omitted ...]` line between them, cut on character boundaries and near
   line ends; `DEFAULT_OUTPUT_LIMIT` is 32 KiB.
@@ -139,6 +147,9 @@ The tools:
   `MemoryJournal` keeps them in memory. No content hash is taken yet: `blake3` comes
   with the undo command.
 
+- `ApplyPatchTool` (`apply_patch`), not built yet: its contract is in the section
+  "The apply_patch tool" below.
+
 Both file tools refuse a path that goes through a symbolic link, and name the real
 path in the error, because the permission engine judged the path as written: a
 second call with the real path is judged on its own. A home reached through a link
@@ -154,6 +165,87 @@ runs it on the blocking pool before the engine decides). A link that a glob expa
 to, or one below the root of a recursive search that the program follows, is not
 seen.
 
+## The apply_patch tool
+
+`ApplyPatchTool` edits files with a patch in the `apply_patch` format of Codex, so
+the model stops rewriting whole files or using `sed -i`. The engine is `efr-patch`;
+this tool does the IO around it. `write_file` stays.
+
+Definition:
+
+- Name: `apply_patch`.
+- Spec: `ToolSpec::freeform("apply_patch", DESCRIPTION,
+  ToolGrammar::Lark(efr_patch::GRAMMAR.to_owned()))`. The grammar lives in
+  `efr-patch`, next to the parser that reads it.
+- A provider sends the freeform form (a Responses `custom` tool with the grammar) to
+  a model that takes it, and the function form (one string member `input`) to every
+  other model. Which models take which form is in
+  `efr-provider-openai/src/models.rs` (`takes_freeform_tools`): every model of
+  Codex's catalog takes the freeform form, as its `apply_patch_tool_type` says.
+- The description tells the model the format with a short example, says that the
+  patch is plain text and not JSON (in the function form, the whole patch goes in
+  `input`), and says that paths are relative to the working directory or absolute.
+- The input is `freeform_text(input)`. Any other input is `ToolError::InvalidInput`.
+- When the daemon registers the tool, `efr_config::DEFAULT_SYSTEM_PROMPT`
+  (`efr-config/src/tables.rs`) tells the model to edit files with `apply_patch`, and
+  never with `sed -i`, `perl -pi` or a `write_file` of the whole file for a small
+  change.
+
+Requirements (pure, like every `requirements`):
+
+- The tool parses the patch with `efr_patch::parse`. A parse error is the `Err`
+  that the model reads: the line and the problem.
+- It resolves each path lexically as `write_file` does (`paths::resolve`: `~`,
+  relative to the user's working directory, `.` and `..` folded), with
+  `Patch::map_paths`.
+- It declares every path it touches as a write (`AccessMode::Write`): the file of
+  an update, of an add and of a delete, and both the source and the target of a
+  move. So in a registered project an update or an add is routine exactly where a
+  `write_file` of the same path is routine today.
+- A delete or a move (`Operation::is_destructive`) also sets a new flag,
+  `ToolRequirements::destructive`. The daemon copies it to a new
+  `efr_permissions::Requirements::destructive`, and the engine answers `Ask` for it
+  in every mode, `auto` too, whatever the rules say, until undo exists (phase 4 of
+  the auto spec). The tool must not be registered before the engine asks for it.
+
+Preview (the approval card): the unified diff of every file of the patch, none left
+out, each file within the bounds of `written_diff`. A delete and a move have a
+header line that says so, such as `delete src/old.rs` and
+`move src/a.rs -> src/b.rs`, so the card can mark them. A patch that does not
+apply has no preview; its call fails when it runs.
+
+Invoke, all or nothing:
+
+1. Read every path of the patch. Refuse, as `read_file` and `write_file` do, a path
+   through a symbolic link (`paths::check_real`, naming the real path), anything
+   that is not a regular file, a file over 16 MiB and a binary file (a NUL byte in
+   the first 8 KiB). A path with no file is absent from the `efr_patch::Files`.
+2. Call `efr_patch::apply`. An error changes nothing.
+3. For each `FileChange`, in order: record the original of every path it changes
+   (both paths of a move) in the context's `WriteJournal` as `write_file` does, and
+   write nothing when the journal fails; then write. An add or an update writes
+   atomically with `efr_stdx::fs::write_atomic`, keeps the mode, the owner and the
+   group of an existing file, gives a new file mode 0644 and creates missing parent
+   directories. A delete removes the file. A move writes the target, then removes
+   the source.
+4. When a write fails, restore every file that the call already changed from the
+   journal's snapshots, in reverse order, and fail with the error. The result says
+   that no file was changed, or names a file that could not be restored.
+
+Result:
+
+- Success, short: `Success. Updated: a.rs, b.rs; Added: c.rs; Deleted: d.rs;
+  Moved: e.rs -> f.rs`, with each group left out when empty and the paths as the
+  patch wrote them.
+- Failure: the error in one sentence, then for `PatchError::NoMatch` the hunk's
+  anchors and the nearest lines of the file with their numbers, then
+  `No file was changed.`, so the model can correct the patch and try again.
+- `ToolResult` carries every file that the call wrote, as `write_file` carries its
+  one file: `written` becomes a list of `WrittenFile`, which also says whether a
+  file was deleted or moved (and from where). The daemon turns the list into the
+  `changes` and the `diff` of `tool_call_completed`, the diff of every file in patch
+  order, so the CLI shows one diff block per file.
+
 ## Tier
 
 Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.
@@ -161,7 +253,8 @@ Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.
 ## Allowed dependencies
 
 `efr-shell` (the `CommandRunner` trait and its request and result types),
-`efr-scope` (`Home`, the home directory in both forms), `efr-protocol` (ids, `Scope`,
+`efr-scope` (`Home`, the home directory in both forms), `efr-patch` (the patch
+engine of `apply_patch`; allowed, not used yet), `efr-protocol` (ids, `Scope`,
 `Origin`) and `efr-stdx` (`Clock`, atomic writes). `xtask/src/deps.rs` holds the
 allowlist and forbids `efr-tools -> efr-permissions`, directly or through any chain.
 

@@ -120,7 +120,7 @@ impl Drafter {
                 self.reasoning.push_str(text);
                 true
             }
-            ProviderEvent::ToolCallStart { call_id, name } => {
+            ProviderEvent::ToolCallStart { call_id, name, .. } => {
                 self.calls.push(ToolInput {
                     call_id: call_id.clone(),
                     tool: name.clone(),

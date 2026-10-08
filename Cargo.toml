@@ -10,6 +10,7 @@ default-members = [
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
   "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "crates/efr-sbx", "crates/efr-snapshot",
+  "crates/efr-patch",
   "xtask",
 ]
 
@@ -134,6 +135,7 @@ walkdir = "2.5.0"
 # `efr-stdx.workspace = true`.
 efr-stdx = { path = "crates/efr-stdx" }
 efr-protocol = { path = "crates/efr-protocol" }
+efr-patch = { path = "crates/efr-patch" }
 efr-store = { path = "crates/efr-store" }
 efr-credentials = { path = "crates/efr-credentials" }
 efr-permissions = { path = "crates/efr-permissions" }

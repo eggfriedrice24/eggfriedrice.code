@@ -106,6 +106,7 @@ impl Provider for RunsOneCommand {
                 ProviderEvent::ToolCallStart {
                     call_id: "call_1".to_owned(),
                     name: "shell".to_owned(),
+                    freeform: false,
                 },
                 ProviderEvent::ToolCallEnd { call_id: "call_1".to_owned(), arguments },
                 ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None },

@@ -46,6 +46,7 @@ fn call_started(turn: TurnId, call: CallId) -> Event {
         input: json!({ "path": "/etc/hosts", "content": "" }),
         manual_input: false,
         launch: None,
+        freeform: false,
     }
 }
 

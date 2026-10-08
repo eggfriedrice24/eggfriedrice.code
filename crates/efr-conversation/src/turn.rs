@@ -651,6 +651,7 @@ impl Turn {
                 input: tool_call.input.clone(),
                 manual_input,
                 launch,
+                freeform: call.freeform,
             }])
             .await?;
             tracing::debug!(phase = "record_started", elapsed_ms = %watch, "phase=record_started elapsed_ms={}", watch);
@@ -1218,6 +1219,8 @@ struct PendingCall {
     provider_call_id: String,
     name: String,
     input: Value,
+    /// True when the model wrote the input as text for a freeform tool.
+    freeform: bool,
 }
 
 /// The tool calls of an assistant message, in order.
@@ -1226,10 +1229,11 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
         .content
         .iter()
         .filter_map(|block| match block {
-            ContentBlock::ToolCall { call_id, name, input } => Some(PendingCall {
+            ContentBlock::ToolCall { call_id, name, input, freeform } => Some(PendingCall {
                 provider_call_id: call_id.clone(),
                 name: name.clone(),
                 input: input.clone(),
+                freeform: *freeform,
             }),
             _ => None,
         })

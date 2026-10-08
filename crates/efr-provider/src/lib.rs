@@ -2,7 +2,8 @@
 //! whatever the provider.
 //!
 //! A [`Request`] carries canonical [`Message`]s made of [`ContentBlock`]s (text, tool
-//! calls, tool results, reasoning, images) and [`ToolDefinition`]s. Each assistant
+//! calls, tool results, reasoning, images) and [`ToolDefinition`]s, each a function
+//! tool with a JSON Schema or a freeform tool with a [`ToolGrammar`]. Each assistant
 //! message keeps the provider's own items in `provider_raw`, so a provider gets back
 //! exactly what it produced. The answer streams back as [`ProviderEvent`]s, ending with
 //! a [`StopReason`] and the call's [`TokenUsage`].
@@ -43,7 +44,9 @@ pub use event::{ProviderEvent, StopReason};
 pub use message::{ContentBlock, Message, Role};
 pub use provider::{ModelInfo, Provider, ProviderStream};
 pub use provider_id::ProviderId;
-pub use request::{Request, ToolDefinition};
+pub use request::{
+    FREEFORM_INPUT, GrammarSyntax, Request, ToolDefinition, ToolGrammar, freeform_input_schema,
+};
 pub use secrecy::{ExposeSecret, SecretString};
 pub use token_source::{AccessToken, StaticToken, TokenSource};
 pub use usage::TokenUsage;

@@ -62,6 +62,7 @@ fn events() -> Vec<EventEnvelope> {
                 input: json!({ "command": "systemctl status nginx" }),
                 manual_input: true,
                 launch: None,
+                freeform: false,
             },
         ),
         envelope(
@@ -384,6 +385,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             input: json!({ "command": "cargo add serde" }),
             manual_input: true,
             launch: Some(Launch::contained()),
+            freeform: false,
         },
         Event::ToolCallCompleted {
             turn_id: turn(),
@@ -545,6 +547,7 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
             input: json!({ "command": "cargo test" }),
             manual_input: true,
             launch: None,
+            freeform: false,
         },
         prompt(docs, "then update the docs", Vec::new()),
         prompt(changelog, "and the changelog", Vec::new()),
@@ -660,6 +663,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
         input: json!({ "command": command }),
         manual_input: true,
         launch: None,
+        freeform: false,
     };
     let grants = vec![efr_protocol::Grant::Bus { bus: efr_protocol::BusKind::System }];
     let info = exit_info(&[ExitKind::Bus], Launch::Contained { grants: grants.clone() });

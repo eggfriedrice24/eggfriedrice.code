@@ -44,6 +44,7 @@ fn started(n: u8, tool: &str, input: Value, launch: Option<Launch>) -> Event {
         input,
         manual_input: false,
         launch,
+        freeform: false,
     }
 }
 

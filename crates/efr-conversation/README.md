@@ -281,6 +281,13 @@ without the restart. Only a turn with no saved messages (one from before the tab
 or one whose saved messages cannot be read back) is rebuilt from the events, with the
 daemon's call ids and without provider items.
 
+A call of a freeform tool (its input is text, such as a patch) keeps that kind on the
+way: `ContentBlock::ToolCall` has `freeform` set in the saved messages, and the turn
+records it as the `freeform` flag of `tool_call_started`, which a rebuild from the
+events reads back. So the next request sends the call and its result in the form the
+model wrote them (for the Responses API, `custom_tool_call` and
+`custom_tool_call_output`).
+
 ## Tier
 
 Tier 3, the engine.

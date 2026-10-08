@@ -1,4 +1,6 @@
-use efr_provider::{ContentBlock, Message, Request, Role, ToolDefinition};
+use efr_provider::{
+    ContentBlock, FREEFORM_INPUT, Message, Request, Role, ToolDefinition, ToolGrammar,
+};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -7,14 +9,31 @@ use super::{OutputItem, input_items, provider_raw, request_body, tool_definition
 use crate::{OpenAiConfig, ReasoningMode};
 
 fn shell_tool() -> ToolDefinition {
-    ToolDefinition {
-        name: "shell".to_owned(),
-        description: "Run a command in the user's shell.".to_owned(),
-        input_schema: json!({
+    ToolDefinition::function(
+        "shell",
+        "Run a command in the user's shell.",
+        json!({
             "type": "object",
             "properties": {"command": {"type": "string"}},
             "required": ["command"],
         }),
+    )
+}
+
+fn patch_tool() -> ToolDefinition {
+    ToolDefinition::freeform(
+        "apply_patch",
+        "Edit files with a patch.",
+        ToolGrammar::lark("start: \"*** Begin Patch\" LF"),
+    )
+}
+
+fn freeform_call(call_id: &str, text: &str) -> ContentBlock {
+    ContentBlock::ToolCall {
+        call_id: call_id.to_owned(),
+        name: "apply_patch".to_owned(),
+        input: json!(text),
+        freeform: true,
     }
 }
 
@@ -27,7 +46,12 @@ fn text(text: &str) -> ContentBlock {
 }
 
 fn call(call_id: &str, name: &str, input: Value) -> ContentBlock {
-    ContentBlock::ToolCall { call_id: call_id.to_owned(), name: name.to_owned(), input }
+    ContentBlock::ToolCall {
+        call_id: call_id.to_owned(),
+        name: name.to_owned(),
+        input,
+        freeform: false,
+    }
 }
 
 fn result(call_id: &str, output: &str, is_error: bool) -> ContentBlock {
@@ -377,7 +401,7 @@ fn an_empty_message_sends_nothing() {
 #[test]
 fn a_tool_definition_is_a_function_tool() {
     assert_eq!(
-        tool_definition(&shell_tool()),
+        tool_definition(&shell_tool(), true),
         json!({
             "type": "function",
             "name": "shell",
@@ -430,6 +454,7 @@ fn output_items_read_back_their_canonical_parts() {
             call_id: "call_1".to_owned(),
             name: "shell".to_owned(),
             arguments: "{}".to_owned(),
+            freeform: false,
         }
     );
 }
@@ -465,5 +490,116 @@ fn raw_items_on_a_user_message_are_not_used() {
             "role": "user",
             "content": [{"type": "input_text", "text": "Hello."}],
         })]
+    );
+}
+
+#[test]
+fn a_freeform_tool_is_a_custom_tool_with_its_grammar() {
+    assert_eq!(
+        tool_definition(&patch_tool(), true),
+        json!({
+            "type": "custom",
+            "name": "apply_patch",
+            "description": "Edit files with a patch.",
+            "format": {
+                "type": "grammar",
+                "syntax": "lark",
+                "definition": "start: \"*** Begin Patch\" LF",
+            },
+        })
+    );
+}
+
+#[test]
+fn a_freeform_tool_falls_back_to_its_function_form() {
+    let tool = tool_definition(&patch_tool(), false);
+    assert_eq!(tool["type"], json!("function"));
+    assert_eq!(tool["strict"], json!(false));
+    assert_eq!(tool["parameters"]["required"], json!([FREEFORM_INPUT]));
+    // A function tool stays a function tool for a model that takes freeform tools.
+    assert_eq!(tool_definition(&shell_tool(), true)["type"], json!("function"));
+}
+
+#[rstest]
+#[case::catalog_model("gpt-5.5", "custom")]
+#[case::newest_catalog_model("gpt-6.1-sol", "custom")]
+#[case::model_outside_the_catalog("gpt-4.1", "function")]
+#[case::unknown_model("some-model", "function")]
+fn the_model_decides_the_form_of_a_freeform_tool(#[case] model: &str, #[case] kind: &str) {
+    let mut request = Request::new(model);
+    request.tools = vec![patch_tool()];
+    let config = OpenAiConfig::api();
+    assert_eq!(body(&request, &config)["tools"][0]["type"], json!(kind));
+}
+
+#[test]
+fn a_freeform_call_and_its_result_go_back_as_custom_items() {
+    let patch = "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch";
+    let messages = [
+        Message::new(
+            Role::Assistant,
+            vec![freeform_call("call_1", patch), call("call_2", "shell", json!({"command": "ls"}))],
+        ),
+        Message::new(
+            Role::User,
+            vec![result("call_1", "Success. Deleted: a.txt", false), result("call_2", "x", true)],
+        ),
+    ];
+    assert_eq!(
+        input_items(&messages),
+        vec![
+            json!({"type": "custom_tool_call", "call_id": "call_1", "name": "apply_patch", "input": patch}),
+            json!({"type": "function_call", "call_id": "call_2", "name": "shell", "arguments": "{\"command\":\"ls\"}"}),
+            json!({"type": "custom_tool_call_output", "call_id": "call_1", "output": "Success. Deleted: a.txt"}),
+            json!({"type": "function_call_output", "call_id": "call_2", "output": "Error: x"}),
+        ]
+    );
+}
+
+#[test]
+fn a_result_of_a_raw_custom_call_is_a_custom_output() {
+    let raw = json!([{
+        "id": "ctc_1",
+        "type": "custom_tool_call",
+        "status": "completed",
+        "call_id": "call_1",
+        "name": "apply_patch",
+        "input": "*** Begin Patch\n*** End Patch",
+    }]);
+    let assistant = Message::new(
+        Role::Assistant,
+        vec![freeform_call("call_1", "*** Begin Patch\n*** End Patch")],
+    )
+    .with_provider_raw(raw.clone());
+    let messages = [assistant, Message::new(Role::User, vec![result("call_1", "bad", true)])];
+    let items = input_items(&messages);
+    assert_eq!(items[0], raw[0]);
+    assert_eq!(
+        items[1],
+        json!({"type": "custom_tool_call_output", "call_id": "call_1", "output": "Error: bad"})
+    );
+}
+
+#[test]
+fn a_custom_call_item_reads_back_as_a_freeform_call() {
+    let item = json!({
+        "type": "custom_tool_call",
+        "call_id": "call_1",
+        "name": "apply_patch",
+        "input": "*** Begin Patch\n",
+    });
+    assert_eq!(
+        OutputItem::parse(&item),
+        OutputItem::FunctionCall {
+            call_id: "call_1".to_owned(),
+            name: "apply_patch".to_owned(),
+            arguments: "*** Begin Patch\n".to_owned(),
+            freeform: true,
+        }
+    );
+    let without_name = json!({"type": "custom_tool_call", "call_id": "call_1", "input": ""});
+    assert_eq!(
+        OutputItem::parse(&without_name),
+        OutputItem::Other { kind: "custom_tool_call".to_owned() }
     );
 }

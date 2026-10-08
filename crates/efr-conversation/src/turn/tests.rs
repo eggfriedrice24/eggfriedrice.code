@@ -18,8 +18,9 @@ use serde_json::json;
 use super::{bounded_tail, provider_failure};
 use crate::preamble::LiveState;
 use crate::testing::{
-    MODEL, Setup, answer, default_settings, done, expect_request, failure, find, hold, request,
-    result_message, text_answer, tool_answer, tool_message, user_prompt,
+    MODEL, Setup, answer, default_settings, done, expect_request, failure, find, freeform_answer,
+    freeform_message, hold, request, result_message, text_answer, tool_answer, tool_message,
+    user_prompt,
 };
 use crate::{ConversationError, approvals};
 
@@ -309,6 +310,44 @@ async fn a_text_turn_records_the_answer_and_completes() {
 }
 
 #[tokio::test]
+async fn a_freeform_call_runs_with_its_text_and_goes_back_as_a_freeform_call() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "take a note");
+    let first = setup.prompt(&state, "take a note");
+    let text = "buy milk\n";
+    let records = vec![
+        expect_request(request(vec![first.clone()])),
+        answer(&freeform_answer("call_1", "note", text)),
+        expect_request(request(vec![
+            first,
+            freeform_message("call_1", "note", text),
+            result_message("call_1", "noted buy milk\n", false),
+        ])),
+        answer(&text_answer("Noted.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("take a note").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(h.toolbox.invoked(), vec![("note".to_owned(), json!(text))]);
+    let events = h.events().await;
+    assert_eq!(
+        find(&events, |e| matches!(e, Event::ToolCallStarted { .. })),
+        Event::ToolCallStarted {
+            turn_id: sent.turn_id,
+            call_id: h.call_ids().await[0],
+            tool: "note".to_owned(),
+            input: json!(text),
+            freeform: true,
+            manual_input: false,
+            launch: None,
+        }
+    );
+    h.finish();
+}
+
+#[tokio::test]
 async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "read my notes");
@@ -356,6 +395,7 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             input,
             manual_input: false,
             launch: None,
+            freeform: false,
         }
     );
     assert_eq!(

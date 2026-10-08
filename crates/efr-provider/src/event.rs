@@ -11,8 +11,9 @@ use crate::TokenUsage;
 ///
 /// - text, reasoning and tool call events come in the order the model produced them;
 /// - a tool call is one `ToolCallStart`, any number of `ToolCallDelta`s with the same
-///   call id, then one `ToolCallEnd` with the complete arguments; calls may
-///   interleave, and a consumer that only needs the result can ignore the deltas;
+///   call id, then one `ToolCallEnd` with the complete arguments (for a freeform call,
+///   the complete text); calls may interleave, and a consumer that only needs the
+///   result can ignore the deltas;
 /// - `Usage` comes at most once, before `Done` (if it comes twice, the last counts);
 /// - `Done` comes exactly once and is the last event;
 /// - `Raw` may come anywhere.
@@ -43,13 +44,18 @@ pub enum ProviderEvent {
         call_id: String,
         /// The tool's name.
         name: String,
+        /// True when the model calls a freeform tool in its freeform form: the
+        /// arguments of the deltas and the end are then plain text, not JSON. False
+        /// when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        freeform: bool,
     },
 
-    /// More of a tool call's JSON arguments, for showing a call as it is written.
+    /// More of a tool call's arguments, for showing a call as it is written.
     ToolCallDelta {
         /// The provider's id of the call.
         call_id: String,
-        /// The next piece of the arguments text.
+        /// The next piece of the arguments text, or of a freeform call's text.
         arguments: String,
     },
 
@@ -57,7 +63,8 @@ pub enum ProviderEvent {
     ToolCallEnd {
         /// The provider's id of the call.
         call_id: String,
-        /// The complete arguments text, normally a JSON object.
+        /// The complete arguments text, normally a JSON object; for a freeform call,
+        /// the whole text the model wrote.
         arguments: String,
     },
 

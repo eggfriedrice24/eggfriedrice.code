@@ -17,7 +17,11 @@ fn reasoning(text: &str) -> ProviderEvent {
 }
 
 fn start(call_id: &str, name: &str) -> ProviderEvent {
-    ProviderEvent::ToolCallStart { call_id: call_id.to_owned(), name: name.to_owned() }
+    ProviderEvent::ToolCallStart {
+        call_id: call_id.to_owned(),
+        name: name.to_owned(),
+        freeform: false,
+    }
 }
 
 fn delta(call_id: &str, arguments: &str) -> ProviderEvent {
@@ -45,7 +49,12 @@ fn build(events: &[ProviderEvent]) -> Result<Completion, ProviderError> {
 }
 
 fn call(call_id: &str, name: &str, input: serde_json::Value) -> ContentBlock {
-    ContentBlock::ToolCall { call_id: call_id.to_owned(), name: name.to_owned(), input }
+    ContentBlock::ToolCall {
+        call_id: call_id.to_owned(),
+        name: name.to_owned(),
+        input,
+        freeform: false,
+    }
 }
 
 #[test]
@@ -220,4 +229,36 @@ async fn collect_returns_the_first_error_item() {
 async fn collect_reports_a_stream_cut_short() {
     let result = Completion::collect(stream::iter(vec![Ok(text("hi"))])).await;
     assert!(matches!(result, Err(ProviderError::Incomplete)));
+}
+
+#[test]
+fn a_freeform_call_keeps_its_text_as_it_came() {
+    let patch = "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch";
+    let freeform_start = |call_id: &str| ProviderEvent::ToolCallStart {
+        call_id: call_id.to_owned(),
+        name: "apply_patch".to_owned(),
+        freeform: true,
+    };
+    let completion = build(&[
+        freeform_start("call_1"),
+        delta("call_1", "*** Begin Patch\n"),
+        end("call_1", patch),
+        // Text that happens to be JSON stays text, and empty text stays empty.
+        freeform_start("call_2"),
+        end("call_2", "{\"a\": 1}"),
+        freeform_start("call_3"),
+        end("call_3", ""),
+        done(StopReason::ToolUse),
+    ])
+    .unwrap();
+    let freeform = |call_id: &str, text: &str| ContentBlock::ToolCall {
+        call_id: call_id.to_owned(),
+        name: "apply_patch".to_owned(),
+        input: json!(text),
+        freeform: true,
+    };
+    assert_eq!(
+        completion.message.content,
+        vec![freeform("call_1", patch), freeform("call_2", "{\"a\": 1}"), freeform("call_3", "")]
+    );
 }

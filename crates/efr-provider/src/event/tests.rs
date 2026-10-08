@@ -16,8 +16,20 @@ fn events_have_a_kind_and_data() {
             json!({"kind": "reasoning_delta", "data": {"text": "Thinking"}}),
         ),
         (
-            ProviderEvent::ToolCallStart { call_id: "call_1".to_owned(), name: "shell".to_owned() },
+            ProviderEvent::ToolCallStart {
+                call_id: "call_1".to_owned(),
+                name: "shell".to_owned(),
+                freeform: false,
+            },
             json!({"kind": "tool_call_start", "data": {"call_id": "call_1", "name": "shell"}}),
+        ),
+        (
+            ProviderEvent::ToolCallStart {
+                call_id: "call_2".to_owned(),
+                name: "apply_patch".to_owned(),
+                freeform: true,
+            },
+            json!({"kind": "tool_call_start", "data": {"call_id": "call_2", "name": "apply_patch", "freeform": true}}),
         ),
         (
             ProviderEvent::ToolCallDelta {

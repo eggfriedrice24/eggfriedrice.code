@@ -96,6 +96,7 @@ pub(crate) fn all() -> Vec<Fixture> {
         .collect();
     fixtures.extend(answer_fixtures());
     fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
+    fixtures.push(fixture("events/tool_call_started_freeform.json", &freeform_call_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -107,6 +108,22 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("draft_parts.json", &draft_part_samples()));
     fixtures.push(fixture("withdraw_targets.json", &withdraw_target_samples()));
     fixtures
+}
+
+/// A `tool_call_started` of a freeform tool, whose input is text. The sample of
+/// `events/tool_call_started.json` is a `shell` call, whose input is JSON.
+pub(crate) fn freeform_call_sample() -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        tool: "apply_patch".into(),
+        input: json!(
+            "*** Begin Patch\n*** Update File: src/main.rs\n@@ fn main\n-    println!(\"hi\");\n+    println!(\"hello\");\n*** End Patch\n"
+        ),
+        freeform: true,
+        manual_input: false,
+        launch: None,
+    }
 }
 
 /// One sample of every kind of target of `prompt.withdraw`.
@@ -971,7 +988,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             manual_input: true,
             launch: Some(Launch::Contained {
                 grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
-            }),
+            }), freeform: false,
         },
         Event::ToolCallOutputUpdated {
             turn_id: turn_id(),

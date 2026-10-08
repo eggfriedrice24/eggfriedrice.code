@@ -127,6 +127,7 @@ fn tool_input_counts_bytes_per_call_and_the_end_sets_the_whole_size() {
     let start = |id: &str, name: &str| ProviderEvent::ToolCallStart {
         call_id: id.to_owned(),
         name: name.to_owned(),
+        freeform: false,
     };
     let delta = |id: &str, arguments: &str| ProviderEvent::ToolCallDelta {
         call_id: id.to_owned(),

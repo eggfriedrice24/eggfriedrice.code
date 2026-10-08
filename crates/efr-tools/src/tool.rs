@@ -60,6 +60,12 @@ pub trait Tool: Send + Sync + fmt::Debug {
 
 /// A tool as the model sees it. The conversation copies it into the provider's own
 /// tool definition.
+///
+/// A function tool takes a JSON object that `input_schema` describes. A freeform tool
+/// takes plain text that `grammar` describes, such as a patch; its `input_schema` is
+/// the schema of its function form, one string member [`FREEFORM_INPUT`], which a
+/// provider sends to a model that does not take freeform tools. Either way the tool
+/// reads the text with [`freeform_text`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ToolSpec {
@@ -67,8 +73,35 @@ pub struct ToolSpec {
     pub name: String,
     /// What the tool does, for the model.
     pub description: String,
-    /// The JSON Schema of the tool's input object.
+    /// The JSON Schema of the tool's input object; for a freeform tool, of its function
+    /// form.
     pub input_schema: Value,
+    /// The grammar of a freeform tool's text input; `None` for a function tool.
+    pub grammar: Option<ToolGrammar>,
+}
+
+/// The grammar of a freeform tool's text input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolGrammar {
+    /// A Lark context-free grammar, the form the Responses API takes for a `custom`
+    /// tool.
+    Lark(String),
+}
+
+/// The member that holds the text when a freeform tool is called in its function form.
+/// It must equal `efr_provider::FREEFORM_INPUT`; a test of the daemon, which knows both
+/// crates, checks it.
+pub const FREEFORM_INPUT: &str = "input";
+
+/// The text of a freeform tool's call: the input itself when the model wrote it as
+/// text (a JSON string), or the string member [`FREEFORM_INPUT`] of the function form.
+/// `None` for any other input.
+pub fn freeform_text(input: &Value) -> Option<&str> {
+    match input {
+        Value::String(text) => Some(text),
+        Value::Object(members) => members.get(FREEFORM_INPUT).and_then(Value::as_str),
+        _ => None,
+    }
 }
 
 impl ToolSpec {
@@ -78,7 +111,33 @@ impl ToolSpec {
         description: impl Into<String>,
         input_schema: Value,
     ) -> Self {
-        ToolSpec { name: name.into(), description: description.into(), input_schema }
+        ToolSpec { name: name.into(), description: description.into(), input_schema, grammar: None }
+    }
+
+    /// A freeform tool whose text input `grammar` describes. Its function form takes
+    /// the text in the one string member [`FREEFORM_INPUT`].
+    pub fn freeform(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        grammar: ToolGrammar,
+    ) -> Self {
+        let input_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                FREEFORM_INPUT: {
+                    "type": "string",
+                    "description": "The whole input of the tool as plain text, in the format that the tool's description gives.",
+                },
+            },
+            "required": [FREEFORM_INPUT],
+            "additionalProperties": false,
+        });
+        ToolSpec {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            grammar: Some(grammar),
+        }
     }
 
     /// A spec whose schema is generated from the input type `T` (schemars), without the

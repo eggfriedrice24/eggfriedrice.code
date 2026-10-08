@@ -111,7 +111,8 @@ pub enum DraftPart {
         call: u32,
         /// The name of the tool.
         tool: String,
-        /// How many bytes of input the model has written so far.
+        /// How many bytes of input the model has written so far: of the JSON
+        /// arguments, or of the text of a freeform tool such as `apply_patch`.
         bytes: u64,
     },
 }

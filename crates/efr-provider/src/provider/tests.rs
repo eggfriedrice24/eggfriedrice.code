@@ -46,7 +46,11 @@ impl Provider for FakeProvider {
 fn tool_call_answer() -> Vec<ProviderEvent> {
     vec![
         ProviderEvent::TextDelta { text: "Listing.".to_owned() },
-        ProviderEvent::ToolCallStart { call_id: "call_1".to_owned(), name: "shell".to_owned() },
+        ProviderEvent::ToolCallStart {
+            call_id: "call_1".to_owned(),
+            name: "shell".to_owned(),
+            freeform: false,
+        },
         ProviderEvent::ToolCallEnd {
             call_id: "call_1".to_owned(),
             arguments: "{\"command\":\"ls\"}".to_owned(),
@@ -85,6 +89,7 @@ async fn complete_collects_the_stream_into_one_message() {
                 call_id: "call_1".to_owned(),
                 name: "shell".to_owned(),
                 input: json!({"command": "ls"}),
+                freeform: false,
             },
         ]
     );

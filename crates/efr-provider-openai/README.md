@@ -23,14 +23,28 @@ Modules:
   fetches the list from `/backend-api/codex/models` for a ChatGPT login; efr does
   not call it yet. The lists are hints: a model that is not listed is still sent, and
   an answer that says the model is not served becomes `ProviderError::UnknownModel`.
+  The catalog also says which models take freeform (`custom`) tools
+  (`takes_freeform_tools`): Codex's `apply_patch_tool_type` is `"freeform"` for every
+  listed model (read at c0c230e on 2026-10-08), so each of them does, on both
+  backends. Every model outside the catalog gets the function form of a freeform
+  tool, which every model with function calls takes.
 - `convert`: canonical `Request` and `Message` to the Responses body and `input`
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
   `tool_choice: "auto"`, function tools with `strict: false`, and for reasoning models
   `reasoning: {effort, summary}` with `include: ["reasoning.encrypted_content"]`. The
-  subscription path sends no `max_output_tokens`, which that backend refuses.
+  subscription path sends no `max_output_tokens`, which that backend refuses. A
+  freeform tool goes to a model that takes it as
+  `{"type": "custom", name, description, "format": {"type": "grammar", syntax,
+  definition}}`, and to any other model as a function tool with its function form. A
+  canonical freeform call goes back as a `custom_tool_call` item (`call_id`, `name`,
+  `input`), and the result of a call that was a `custom_tool_call` (in the raw items
+  or the canonical content) as a `custom_tool_call_output`.
 - `sse_events`: `EventMapper`, a pure state machine from Responses events to
   `ProviderEvent`s (text, reasoning, tool call start, deltas and end, usage, done).
+  A `custom_tool_call` item is a freeform call: `response.custom_tool_call_input.delta`
+  events grow its text (found by item id, output index or call id), and its finished
+  item holds the whole text as `input`.
   Unknown event types and output items without a canonical form become
   `ProviderEvent::Raw` and are logged at debug, never dropped silently.
 - `responses`: `OpenAiProvider`, the HTTP exchange and the event stream.
@@ -40,7 +54,8 @@ Modules:
 
 Native passthrough: the `Done` event carries every `response.output_item.done` item
 of the response, verbatim and in order (the encrypted `reasoning` item, the
-`message` items and the exact `function_call` items), as the assistant message's
+`message` items and the exact `function_call` and `custom_tool_call` items), as the
+assistant message's
 `provider_raw`. The next request to the same provider sends those items back
 unchanged in place of the message's canonical content. An assistant message without
 usable `provider_raw` is rebuilt from its canonical content; its reasoning text is
@@ -116,7 +131,12 @@ reference implementations (shallow clones of 2026-10-04):
   header),
   `codex-rs/login/src/auth/default_client.rs` (`originator`),
   `codex-rs/protocol/src/models.rs` (`ResponseItem` and `ContentItem` shapes),
-  `codex-rs/tools/src/responses_api.rs` (function tools with `strict`),
+  `codex-rs/tools/src/responses_api.rs` (function tools with `strict`, and
+  `FreeformTool`, the `custom` tool with its grammar `format`),
+  `codex-rs/core/src/tools/handlers/apply_patch_spec.rs` (the freeform `apply_patch`
+  tool), `codex-rs/protocol/src/openai_models.rs` (`ApplyPatchToolType`; read at
+  c0c230e on 2026-10-08), `codex-rs/protocol/src/models.rs` (`CustomToolCall` and
+  `CustomToolCallOutput`),
   `codex-rs/models-manager/models.json` (model ids, `context_window`, the reasoning
   levels and the default level; read again at 823ea83 on 2026-10-05),
   `codex-rs/model-provider/src/models_endpoint.rs` (the `/models` endpoint that
@@ -147,10 +167,11 @@ cargo nextest run -p efr-provider-openai
 ```
 
 `convert` tests pin the request body and the item shapes, including the verbatim
-passthrough of `provider_raw` and the fallbacks. `sse_events` tests run the mapper
-over the streams in `fixtures/responses/` (plain text, a tool call, reasoning with
-encrypted content, an error event, a failed response with a rate limit, a response
-stopped at the output limit) and over small inline streams. `responses` tests drive
+passthrough of `provider_raw`, the fallbacks and the two forms of a freeform tool by
+model. `sse_events` tests run the mapper over the streams in `fixtures/responses/`
+(plain text, a tool call, a freeform `apply_patch` call, reasoning with encrypted
+content, an error event, a failed response with a rate limit, a response stopped at
+the output limit) and over small inline streams. `responses` tests drive
 `OpenAiProvider` against a `wiremock` server on the loopback interface: the headers of
 both backends, the reasoning round trip across two requests, the 401 refresh (with
 `fixtures/responses/unauthorized.json`), retries on the injected clock, the error

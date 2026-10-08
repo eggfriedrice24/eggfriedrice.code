@@ -1,7 +1,7 @@
 //! One request to a model, in canonical form.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::Message;
 
@@ -45,14 +45,111 @@ impl Request {
 /// `efr-tools` describes its tools with its own `ToolSpec`; the conversation converts
 /// each into this type, because this crate and `efr-tools` do not depend on each
 /// other.
+///
+/// A tool is a function tool, whose input is a JSON object that
+/// [`input_schema`](Self::input_schema) describes, or a freeform tool, whose input is
+/// plain text that [`grammar`](Self::grammar) describes, such as a patch for
+/// `apply_patch`. A freeform tool keeps the schema of its function form in
+/// `input_schema`: one string member [`FREEFORM_INPUT`] that holds the text. Each
+/// provider sends a freeform tool in its freeform form only to a model that takes that
+/// form, and in its function form to every other model. The model's call then has the
+/// text as [`ContentBlock::ToolCall`](crate::ContentBlock::ToolCall) `input`, as a JSON
+/// string with `freeform` set, or as `{"input": "<text>"}` from the function form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDefinition {
     /// The name the model calls the tool by, such as `shell`.
     pub name: String,
     /// What the tool does, for the model.
     pub description: String,
-    /// The JSON Schema of the tool's input object.
+    /// The JSON Schema of the tool's input object. For a freeform tool, the schema of
+    /// its function form.
     pub input_schema: Value,
+    /// The grammar of a freeform tool's text input; absent for a function tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grammar: Option<ToolGrammar>,
+}
+
+impl ToolDefinition {
+    /// A function tool whose input is the JSON object that `input_schema` describes.
+    pub fn function(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: Value,
+    ) -> Self {
+        ToolDefinition {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            grammar: None,
+        }
+    }
+
+    /// A freeform tool whose text input `grammar` describes. Its function form takes
+    /// the text in one string member, [`FREEFORM_INPUT`].
+    pub fn freeform(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        grammar: ToolGrammar,
+    ) -> Self {
+        ToolDefinition {
+            name: name.into(),
+            description: description.into(),
+            input_schema: freeform_input_schema(),
+            grammar: Some(grammar),
+        }
+    }
+
+    /// True for a freeform tool.
+    pub fn is_freeform(&self) -> bool {
+        self.grammar.is_some()
+    }
+}
+
+/// The member that holds the text when a freeform tool is sent in its function form.
+pub const FREEFORM_INPUT: &str = "input";
+
+/// The JSON Schema of a freeform tool's function form: an object with one required
+/// string member, [`FREEFORM_INPUT`].
+pub fn freeform_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            FREEFORM_INPUT: {
+                "type": "string",
+                "description": "The whole input of the tool as plain text, in the format that the tool's description gives.",
+            },
+        },
+        "required": [FREEFORM_INPUT],
+        "additionalProperties": false,
+    })
+}
+
+/// The grammar of a freeform tool's text input, as the Responses API takes it in a
+/// `custom` tool's `format`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolGrammar {
+    /// The language the definition is written in.
+    pub syntax: GrammarSyntax,
+    /// The grammar itself.
+    pub definition: String,
+}
+
+impl ToolGrammar {
+    /// A Lark grammar.
+    pub fn lark(definition: impl Into<String>) -> Self {
+        ToolGrammar { syntax: GrammarSyntax::Lark, definition: definition.into() }
+    }
+}
+
+/// The language of a [`ToolGrammar`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GrammarSyntax {
+    /// A Lark context-free grammar.
+    Lark,
+    /// A regular expression.
+    Regex,
 }
 
 #[cfg(test)]

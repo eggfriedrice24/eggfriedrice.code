@@ -40,8 +40,24 @@ fn blocks_have_a_kind_tag() {
                 call_id: "call_1".to_owned(),
                 name: "shell".to_owned(),
                 input: json!({"command": "ls"}),
+                freeform: false,
             },
             json!({"kind": "tool_call", "call_id": "call_1", "name": "shell", "input": {"command": "ls"}}),
+        ),
+        (
+            ContentBlock::ToolCall {
+                call_id: "call_3".to_owned(),
+                name: "apply_patch".to_owned(),
+                input: json!("*** Begin Patch\n*** End Patch"),
+                freeform: true,
+            },
+            json!({
+                "kind": "tool_call",
+                "call_id": "call_3",
+                "name": "apply_patch",
+                "input": "*** Begin Patch\n*** End Patch",
+                "freeform": true,
+            }),
         ),
         (
             ContentBlock::ToolResult {
@@ -103,6 +119,7 @@ fn provider_raw_passes_through_a_round_trip_unchanged() {
                 call_id: "call_9xQ".to_owned(),
                 name: "shell".to_owned(),
                 input: json!({"command": "ls -la"}),
+                freeform: false,
             },
         ],
     )
@@ -158,6 +175,7 @@ fn text_joins_the_text_blocks_only() {
                 call_id: "c".to_owned(),
                 name: "shell".to_owned(),
                 input: json!({}),
+                freeform: false,
             },
             ContentBlock::Text { text: "Done.".to_owned() },
         ],

@@ -162,6 +162,7 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
         input: serde_json::json!({ "command": "sleep 60" }),
         manual_input: false,
         launch: None,
+        freeform: false,
     };
     event(&mut view, 12, 100, running);
     screen(&mut view, &mut grid, 100);

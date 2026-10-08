@@ -938,6 +938,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-patch"
+version = "0.0.2"
+dependencies = [
+ "pretty_assertions",
+ "thiserror",
+]
+
+[[package]]
 name = "efr-permissions"
 version = "0.0.2"
 dependencies = [

@@ -32,6 +32,7 @@ shipped binary.
 |---|---|---|---|---|
 | `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
+| `efr-patch` | lib | 0 | the patch engine of `apply_patch` and the later edit tool: the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio | none |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
 | `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
@@ -39,7 +40,7 @@ shipped binary.
 | `efr-holder` | lib | 1 | the `PtyHolder` trait and holder wire types; no IO, no unsafe | `efr-protocol`, `efr-stdx` |
 | `efr-http` | lib | 1 | the reqwest client, SSE parser, Unix-socket HTTP client, header redaction | `efr-stdx` |
 | `efr-screen` | lib | 1 | the `Screen` trait, `ScreenActor` and `ScreenHandle`, the OSC 133 and OSC 7 scanner, the conformance suite | `efr-protocol`, `efr-stdx` |
-| `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages | `efr-protocol`, `efr-stdx` |
+| `efr-provider` | lib | 1 | the `Provider` and `TokenSource` traits, canonical messages, function and freeform tool definitions | `efr-protocol`, `efr-stdx` |
 | `efr-test-support` | dev | 1 | `TestClock`, seeded `TestRng`, temp dirs, in-memory store, NDJSON reader, `ReplayProvider`, `Wait` | `efr-protocol`, `efr-store`, `efr-provider`, `efr-stdx` |
 | `efr-render` | lib | 1 | markdown and render events to ANSI: committed and live zones, colour roles and the palette, syntax colours, OSC 8 links, widths by code point or grapheme cluster; no IO, the CLI passes `RenderOptions` | none |
 | `efr-sandbox` | lib | 1 | the pure logic of the `auto` sandbox: `SandboxSpec`, `MountPlan` and the bwrap arguments, Landlock and seccomp as data, the environment and export filters, the records, the sandbox state, `result.json`, the surface guard, the worktree record, the probe's result types; file access only through `FsView`, no tokio, no unsafe | `efr-protocol` |
@@ -48,8 +49,8 @@ shipped binary.
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
-| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-openai` | lib | 2 | the Responses API client; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file and write_file tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
+| `efr-provider-openai` | lib | 2 | the Responses API client; the model catalog, which also says which models take freeform (`custom`) tools; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
@@ -76,7 +77,8 @@ and `efr-daemon -> (everything)`.
    `efr-tools -> efr-permissions`, `efr-provider-openai -> efr-oauth-openai`,
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
-   `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`;
+   `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
+   `efr-patch -> tokio`;
 3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
    other than `efr-store` reaches `rusqlite`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
@@ -98,6 +100,9 @@ What each forbidden edge protects:
 - The sandbox logic and the launcher stay free of a runtime: the launcher is a small
   process that runs as a foreground job of the hidden shell, and every rule it applies
   is a pure function that tests run without a kernel.
+- The patch engine stays pure: it computes every new content from texts that the
+  caller read, so a patch over several files is checked whole before the tool writes
+  one of them.
 - Zig is a build requirement of one crate, and SQLite has one owner.
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
@@ -197,5 +202,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   which roots a call snapshots in `crates/efr-daemon/src/tools/snapshot.rs`, and the
   diff of a turn in `crates/efr-daemon/src/methods/conversation_diff.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
+- Freeform tools, whose input is text: the definition in
+  `crates/efr-provider/src/request.rs`, which models take the freeform form in
+  `crates/efr-provider-openai/src/models.rs` (`takes_freeform_tools`), the `custom`
+  items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
+  `apply_patch`: `crates/efr-patch/`; the tool's contract: `crates/efr-tools/README.md`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

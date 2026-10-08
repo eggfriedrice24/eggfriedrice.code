@@ -80,6 +80,7 @@ impl Provider for ScriptedModel {
                     ProviderEvent::ToolCallStart {
                         call_id: call_id.clone(),
                         name: "shell".to_owned(),
+                        freeform: false,
                     },
                     ProviderEvent::ToolCallEnd { call_id, arguments: input.to_string() },
                     ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None },
@@ -1121,7 +1122,11 @@ impl Provider for RepeatModel {
             let call_id = format!("call_{n}");
             let input = json!({ "command": self.line });
             vec![
-                ProviderEvent::ToolCallStart { call_id: call_id.clone(), name: "shell".to_owned() },
+                ProviderEvent::ToolCallStart {
+                    call_id: call_id.clone(),
+                    name: "shell".to_owned(),
+                    freeform: false,
+                },
                 ProviderEvent::ToolCallEnd { call_id, arguments: input.to_string() },
                 ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None },
             ]

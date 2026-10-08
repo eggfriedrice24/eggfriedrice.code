@@ -1,7 +1,10 @@
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{DEFAULT_SUBSCRIPTION_MODEL, api_models, is_reasoning_model, subscription_models};
+use super::{
+    DEFAULT_SUBSCRIPTION_MODEL, api_models, is_reasoning_model, subscription_models,
+    takes_freeform_tools,
+};
 
 #[test]
 fn the_default_model_is_listed_for_the_subscription() {
@@ -79,4 +82,15 @@ fn the_api_lists_no_models() {
 #[case("", false)]
 fn reasoning_families(#[case] model: &str, #[case] reasons: bool) {
     assert_eq!(is_reasoning_model(model), reasons, "{model}");
+}
+
+#[test]
+fn every_catalog_model_takes_freeform_tools_and_no_other_model_does() {
+    // Codex's catalog says `apply_patch_tool_type: "freeform"` for every listed model.
+    for model in subscription_models() {
+        assert!(takes_freeform_tools(&model.id), "{}", model.id);
+    }
+    for model in ["gpt-4.1", "gpt-5", "o3", "", "gpt-5.5-preview"] {
+        assert!(!takes_freeform_tools(model), "{model}");
+    }
 }

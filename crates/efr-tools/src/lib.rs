@@ -1,7 +1,9 @@
 //! The tools the model calls.
 //!
 //! - [`Tool`]: the trait, with [`spec`](Tool::spec) ([`ToolSpec`]: name,
-//!   description, JSON Schema from schemars), [`requirements`](Tool::requirements)
+//!   description, JSON Schema from schemars, or a [`ToolGrammar`] for a freeform tool
+//!   whose input is text, read with [`freeform_text`]),
+//!   [`requirements`](Tool::requirements)
 //!   ([`ToolRequirements`]: every path with its [`AccessMode`], the command line,
 //!   network, interactive) and [`invoke`](Tool::invoke) ([`ToolResult`], with live
 //!   output to a [`ToolOutputSink`]).
@@ -46,7 +48,7 @@ pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
 pub use shell_tool::{ShellTool, not_ready_message};
 pub use tool::{
-    AccessMode, NoOutput, PathAccess, Tool, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec,
-    WrittenFile,
+    AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,
+    ToolRequirements, ToolResult, ToolSpec, WrittenFile, freeform_text,
 };
 pub use write_file::WriteFileTool;

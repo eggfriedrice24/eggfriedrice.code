@@ -30,14 +30,14 @@ use efr_permissions::{Engine, Requirements};
 use efr_protocol::{
     ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
 };
-use efr_provider::ToolDefinition;
+use efr_provider::{ToolDefinition, ToolGrammar as ProviderGrammar};
 use efr_scope::Home;
 use efr_shell::{ShellError, ShellSessions};
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext, ToolError,
-    ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, WriteFileTool, WriteJournal,
-    not_ready_message,
+    ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec, WriteFileTool,
+    WriteJournal, not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -384,19 +384,21 @@ impl DaemonToolbox {
     }
 }
 
+/// The provider's definition of a registered tool: a field-by-field copy, with a
+/// freeform tool's grammar.
+pub(crate) fn definition(spec: ToolSpec) -> ToolDefinition {
+    let mut definition = ToolDefinition::function(spec.name, spec.description, spec.input_schema);
+    definition.grammar = spec.grammar.map(|grammar| match grammar {
+        efr_tools::ToolGrammar::Lark(definition) => ProviderGrammar::lark(definition),
+    });
+    definition
+}
+
 #[async_trait]
 impl Toolbox for DaemonToolbox {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        let mut definitions: Vec<ToolDefinition> = self
-            .registry
-            .specs()
-            .into_iter()
-            .map(|spec| ToolDefinition {
-                name: spec.name,
-                description: spec.description,
-                input_schema: spec.input_schema,
-            })
-            .collect();
+        let mut definitions: Vec<ToolDefinition> =
+            self.registry.specs().into_iter().map(definition).collect();
         definitions.push(SettingsTool::definition());
         definitions
     }

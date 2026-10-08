@@ -1,0 +1,8 @@
+{
+  "kind": "tool_call_started",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "tool": "apply_patch",
+  "input": "*** Begin Patch\n*** Update File: src/main.rs\n@@ fn main\n-    println!(\"hi\");\n+    println!(\"hello\");\n*** End Patch\n",
+  "freeform": true
+}

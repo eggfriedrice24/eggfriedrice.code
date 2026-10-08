@@ -1,0 +1,21 @@
+[package]
+name = "efr-patch"
+description = "The pure patch engine of efr: parses apply_patch text, matches hunks with tolerance and computes new file contents, without IO"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

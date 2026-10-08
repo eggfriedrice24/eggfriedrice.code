@@ -1,0 +1,21 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_7c1d2e3f40516273849a0b1c2d3e4f50","object":"response","created_at":1791115320,"status":"in_progress","model":"gpt-5.5","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","type":"custom_tool_call","status":"in_progress","call_id":"call_Vb3nT8kQ2mR5xL9p","name":"apply_patch","input":""}}
+
+event: response.custom_tool_call_input.delta
+data: {"type":"response.custom_tool_call_input.delta","sequence_number":2,"item_id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","output_index":0,"delta":"*** Begin Patch\n*** Update File: src/lib.rs\n"}
+
+event: response.custom_tool_call_input.delta
+data: {"type":"response.custom_tool_call_input.delta","sequence_number":3,"item_id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","output_index":0,"delta":"@@ fn main\n-    old();\n+    new();\n*** End Patch\n"}
+
+event: response.custom_tool_call_input.done
+data: {"type":"response.custom_tool_call_input.done","sequence_number":4,"item_id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","output_index":0,"input":"*** Begin Patch\n*** Update File: src/lib.rs\n@@ fn main\n-    old();\n+    new();\n*** End Patch\n"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","type":"custom_tool_call","status":"completed","call_id":"call_Vb3nT8kQ2mR5xL9p","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/lib.rs\n@@ fn main\n-    old();\n+    new();\n*** End Patch\n"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":6,"response":{"id":"resp_7c1d2e3f40516273849a0b1c2d3e4f50","object":"response","created_at":1791115320,"status":"completed","model":"gpt-5.5","output":[{"id":"ctc_7c1d2e3f40516273849a0b1c2d3e4f50","type":"custom_tool_call","status":"completed","call_id":"call_Vb3nT8kQ2mR5xL9p","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/lib.rs\n@@ fn main\n-    old();\n+    new();\n*** End Patch\n"}],"usage":{"input_tokens":2210,"input_tokens_details":{"cached_tokens":2048},"output_tokens":61,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2271}}}
+

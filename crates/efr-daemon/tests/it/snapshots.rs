@@ -55,6 +55,7 @@ impl Provider for ScriptedModel {
                     ProviderEvent::ToolCallStart {
                         call_id: call_id.clone(),
                         name: (*tool).to_owned(),
+                        freeform: false,
                     },
                     ProviderEvent::ToolCallEnd { call_id, arguments: input.to_string() },
                     ProviderEvent::Done { stop_reason: StopReason::ToolUse, provider_raw: None },

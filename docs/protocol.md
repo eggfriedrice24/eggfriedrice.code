@@ -215,3 +215,11 @@ No protocol version has shipped yet.
   `prompt_withdraw_result.json`, `events/steering_delivered.json`,
   `events/steering_withdrawn.json`, `events/prompt_withdrawn.json` and
   `withdraw_targets.json` are new.
+- Version 1, additive: freeform tools, whose input is plain text, such as the patch
+  of `apply_patch`. The `tool_call_started` event gains an optional `freeform` flag,
+  false when absent. With the flag, `input` is a JSON string that holds the text as
+  the model wrote it. Without it, `input` is the JSON that the model wrote, as before
+  (or a JSON string with arguments that were not JSON). A client shows a freeform
+  input as text. The `tool_input` draft part counts the bytes of that text in
+  `bytes`. The new fixture `events/tool_call_started_freeform.json` sets the flag;
+  `events/tool_call_started.json` does not change.
