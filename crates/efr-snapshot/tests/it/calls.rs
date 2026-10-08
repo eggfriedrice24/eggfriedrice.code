@@ -164,3 +164,24 @@ async fn two_roots_show_their_paths_with_their_prefixes() {
     let paths: Vec<&str> = changes.files.iter().map(|file| file.path.as_str()).collect();
     assert_eq!(paths, ["$SCRATCH/notes.md", "a.rs"]);
 }
+
+#[tokio::test]
+async fn a_leftover_index_lock_does_not_hide_the_next_change() {
+    let world = World::new();
+    let dir = world.dir("locked");
+    write(&dir.join("a.txt"), "1\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    // NOTE: a git that the snapshot timeout or a stop of efrd killed leaves its lock.
+    let lock = world.only_store().with_extension("index.lock");
+    fs::write(&lock, "").unwrap();
+
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "2\n");
+    let changes = world.snapshots.after_call(call, limits()).await.unwrap();
+    assert_eq!(changes.files, [file("a.txt", ChangeKind::Modified, 1, 1)]);
+    assert!(!lock.exists(), "the leftover lock is gone");
+    assert!(world.snapshots.finish_turn(turn(1), limits()).await.is_some());
+}

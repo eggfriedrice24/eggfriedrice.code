@@ -67,7 +67,10 @@ automatic gc, no line-end conversion, literal pathspecs, and `--no-ext-diff
 `.gitattributes` in a root runs nothing. The project's `.git`, its config, its hooks
 and its index are never written; only its `info/exclude` (at most 64 KiB, never through
 a link) and its `HEAD` are read. Objects are written by `git add` in the store, never
-hardlinked. One snapshot, commit or collection of a store runs at a time.
+hardlinked. One snapshot, commit or collection of a store runs at a time. Under that
+gate, a lock that a killed git left (the index's or `packed-refs`'s) is removed, so a
+timeout or a stop of efrd cannot block a store for good; a `git add` that a lock still
+stops fails the snapshot instead of listing no changes.
 
 ## Tests
 

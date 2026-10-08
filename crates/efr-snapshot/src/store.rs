@@ -67,6 +67,26 @@ impl Store {
         self.dir.join(format!("{}.root", self.id))
     }
 
+    /// The lock that git takes on the persistent index while it writes it.
+    pub(crate) fn index_lock(&self) -> PathBuf {
+        self.dir.join(format!("{}.index.lock", self.id))
+    }
+
+    /// Removes the locks that a killed git left: the index's lock and that of
+    /// `packed-refs`. git removes its own lock when it ends, also when it fails, so a
+    /// lock stays only when the snapshot timeout or a stop of efrd killed git
+    /// (`kill_on_drop`). Each lock blocks every later `git add`, `write-tree` or ref
+    /// deletion of the store. The caller holds the store's gate, and efr is the only
+    /// writer of the store, so a lock found then belongs to no running git. Returns
+    /// true when a lock was removed.
+    pub(crate) fn clear_leftover_locks(&self) -> bool {
+        let mut removed = false;
+        for lock in [self.index_lock(), self.git_dir().join("packed-refs.lock")] {
+            removed |= fs::remove_file(&lock).is_ok();
+        }
+        removed
+    }
+
     /// True when the bare repository exists.
     pub(crate) fn exists(&self) -> bool {
         self.git_dir().join("HEAD").is_file()

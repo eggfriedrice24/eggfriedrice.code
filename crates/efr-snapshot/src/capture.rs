@@ -107,6 +107,10 @@ pub(crate) async fn stage(
         let prepared = store.clone();
         runner.blocking(store.dir(), move || prepared.finish_init()).await??;
     }
+    let unlocked = store.clone();
+    if runner.blocking(&root, move || unlocked.clear_leftover_locks()).await? {
+        tracing::warn!(root = %root.display(), "removed a lock that a killed git left in a snapshot store");
+    }
     if ignored || fresh {
         let copied = store.clone();
         runner.blocking(&root, move || copied.copy_exclude()).await??;
@@ -173,6 +177,7 @@ pub(crate) async fn stage(
             )
             .await?;
         if !output.success {
+            locked(store)?;
             // NOTE: with --ignore-errors git adds what it can read and fails for the
             // rest, such as a file that only root may read; the tree holds the rest.
             tracing::debug!(root = %root.display(), "some files could not be added to a snapshot");
@@ -192,10 +197,21 @@ pub(crate) async fn stage(
             )
             .await?;
         if !output.success {
+            locked(store)?;
             tracing::debug!(root = %root.display(), "some ignored files could not be added to a snapshot");
         }
     }
     Ok(Staged::Changed)
+}
+
+/// Fails when a `git add` that failed left the index as it was because another git
+/// held its lock: the index then does not hold the root's changes, and a comparison
+/// with it would list none.
+fn locked(store: &Store) -> Result<(), SnapshotError> {
+    if store.index_lock().exists() {
+        return Err(SnapshotError::GitFailed { command: "add", store: store.git_dir() });
+    }
+    Ok(())
 }
 
 /// Writes the tree of the persistent index of `store`.

@@ -65,6 +65,15 @@ impl Snapshots {
                 }
                 continue;
             }
+            let unlocked = store.clone();
+            if self
+                .runner()
+                .blocking(&store.git_dir(), move || unlocked.clear_leftover_locks())
+                .await
+                .unwrap_or(false)
+            {
+                tracing::warn!(root = %store.root().display(), "removed a lock that a killed git left in a snapshot store");
+            }
             match self.trim_refs(&store, keep_turns).await {
                 Ok(deleted) => report.refs_deleted += deleted,
                 Err(error) => {
