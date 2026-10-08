@@ -165,7 +165,10 @@ and the new input starts with the previous input and the previous answer's outpu
 items, item for item. Any other call sends the whole input: a new connection, an
 interrupted or failed answer, a changed model, effort, instructions or tool list, and a
 history that a compaction or a rebuild changed. The HTTP body never carries
-`previous_response_id`.
+`previous_response_id`. In practice, the conversation puts its live state into the
+newest user message of each turn's first request and keeps it out of the history, so
+the first call of a turn sends the whole input and the later calls of the turn send
+only their new items.
 
 Interrupt: when the conversation drops the stream of a running answer, the connection
 sends `{"type": "response.interrupt", "response_id", "mode": "discard_partial_items"}`
