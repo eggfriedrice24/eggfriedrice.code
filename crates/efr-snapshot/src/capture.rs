@@ -4,7 +4,9 @@
 //! A snapshot asks git once what differs from the persistent index (`ls-files` of the
 //! modified, deleted and untracked files), so a root where nothing changed costs one
 //! git run and the tree of the last snapshot comes back. New untracked files above the
-//! size limit and nested repositories are left out. Only the changed paths are added,
+//! size limit and nested repositories are left out, and a file of the index that grew
+//! past its limit leaves the index, so no call hashes it again. Only the changed paths
+//! are added,
 //! literally ([`stage`]), and `write-tree` writes the tree when one is needed
 //! ([`write_tree`]). With the ignored files of
 //! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories,
@@ -134,10 +136,23 @@ pub(crate) async fn stage(
         return Ok(Staged::Skipped("the root has more files than snapshot.max_files"));
     }
     let max_file_bytes = limits.max_file_bytes;
+    let changed: Vec<String> = listing.changed.into_iter().collect();
+    let base = root.clone();
+    let sized = runner.blocking(&root, move || by_size(&base, changed, max_file_bytes)).await?;
+    let mut paths = sized.small;
+    let mut large = sized.large;
+    if !sized.mid.is_empty() {
+        let (ignored, kept) = split_ignored(runner, store, &root, sized.mid).await?;
+        large.extend(ignored);
+        paths.extend(kept);
+    }
+    let left = !large.is_empty();
+    if left {
+        drop_large(runner, store, &root, &large).await?;
+    }
     let others = listing.others;
     let base = root.clone();
     let others = runner.blocking(&root, move || keep_others(&base, others, max_file_bytes)).await?;
-    let mut paths: Vec<String> = listing.changed.into_iter().collect();
     paths.extend(others);
 
     let mut forced = Vec::new();
@@ -161,7 +176,7 @@ pub(crate) async fn stage(
     }
 
     if paths.is_empty() && forced.is_empty() {
-        return Ok(Staged::Unchanged);
+        return Ok(if left { Staged::Changed } else { Staged::Unchanged });
     }
     if !paths.is_empty() {
         let output = runner
@@ -177,7 +192,7 @@ pub(crate) async fn stage(
             )
             .await?;
         if !output.success {
-            locked(store)?;
+            locked(store, "add")?;
             // NOTE: with --ignore-errors git adds what it can read and fails for the
             // rest, such as a file that only root may read; the tree holds the rest.
             tracing::debug!(root = %root.display(), "some files could not be added to a snapshot");
@@ -197,19 +212,19 @@ pub(crate) async fn stage(
             )
             .await?;
         if !output.success {
-            locked(store)?;
+            locked(store, "add")?;
             tracing::debug!(root = %root.display(), "some ignored files could not be added to a snapshot");
         }
     }
     Ok(Staged::Changed)
 }
 
-/// Fails when a `git add` that failed left the index as it was because another git
+/// Fails when a `command` that failed left the index as it was because another git
 /// held its lock: the index then does not hold the root's changes, and a comparison
 /// with it would list none.
-fn locked(store: &Store) -> Result<(), SnapshotError> {
+fn locked(store: &Store, command: &'static str) -> Result<(), SnapshotError> {
     if store.index_lock().exists() {
-        return Err(SnapshotError::GitFailed { command: "add", store: store.git_dir() });
+        return Err(SnapshotError::GitFailed { command, store: store.git_dir() });
     }
     Ok(())
 }
@@ -224,6 +239,85 @@ pub(crate) async fn write_tree(runner: &Runner, store: &Store) -> Result<String,
         return Err(SnapshotError::BadOutput { command: "write-tree" });
     }
     Ok(tree)
+}
+
+/// The changed files of the index by their size now.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Sized {
+    /// Up to [`MAX_IGNORED_BYTES`], gone, or not a regular file: added as before.
+    pub(crate) small: Vec<String>,
+    /// Above [`MAX_IGNORED_BYTES`] and up to the limit of untracked files: added unless
+    /// the file is ignored.
+    pub(crate) mid: Vec<String>,
+    /// Above the limit of untracked files: left out.
+    pub(crate) large: Vec<String>,
+}
+
+/// Sorts `changed`, paths of the index that `ls-files` named, by the size of their
+/// file now. The limits of new files apply to a file of the index too: an ignored file
+/// taken while small, or a database taken below the limit, may grow without bound, and
+/// each call would hash it and store it again.
+pub(crate) fn by_size(root: &Path, changed: Vec<String>, max_file_bytes: u64) -> Sized {
+    let mut sized = Sized::default();
+    for path in changed {
+        let bytes = match fs::symlink_metadata(root.join(&path)) {
+            Ok(metadata) if metadata.is_file() => metadata.len(),
+            _ => 0,
+        };
+        if bytes > max_file_bytes {
+            sized.large.push(path);
+        } else if bytes > MAX_IGNORED_BYTES {
+            sized.mid.push(path);
+        } else {
+            sized.small.push(path);
+        }
+    }
+    sized
+}
+
+/// Splits `paths` into the ignored ones and the rest, by the ignore rules alone (`git
+/// check-ignore --no-index`), because a path of the index is never ignored otherwise.
+async fn split_ignored(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+    paths: Vec<String>,
+) -> Result<(Vec<String>, Vec<String>), SnapshotError> {
+    let output = runner
+        .run(
+            store,
+            &["check-ignore", "--no-index", "-z", "--stdin"],
+            Run { work_tree: Some(root), stdin: Some(nul_list(&paths)), ..Run::default() },
+        )
+        .await?;
+    let ignored: BTreeSet<&[u8]> =
+        output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()).collect();
+    Ok(paths.into_iter().partition(|path| ignored.contains(path.as_bytes())))
+}
+
+/// Takes the files of `large` out of the persistent index of `store`, so the snapshot
+/// leaves them out as it leaves out a new file of their size.
+async fn drop_large(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+    large: &[String],
+) -> Result<(), SnapshotError> {
+    for path in large {
+        tracing::debug!(root = %root.display(), path = %path, "a file grew past its limit and is left out of the snapshot");
+    }
+    let output = runner
+        .run(
+            store,
+            &["update-index", "--force-remove", "-z", "--stdin"],
+            Run { work_tree: Some(root), stdin: Some(nul_list(large)), ..Run::default() },
+        )
+        .await?;
+    if !output.success {
+        locked(store, "update-index")?;
+        tracing::debug!(root = %root.display(), "some large files could not leave a snapshot");
+    }
+    Ok(())
 }
 
 /// The paths of `list`, each followed by a NUL, for `--pathspec-from-file`.

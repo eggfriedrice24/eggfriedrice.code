@@ -185,3 +185,33 @@ async fn a_leftover_index_lock_does_not_hide_the_next_change() {
     assert!(!lock.exists(), "the leftover lock is gone");
     assert!(world.snapshots.finish_turn(turn(1), limits()).await.is_some());
 }
+
+#[tokio::test]
+async fn a_file_that_grows_past_its_limit_leaves_the_snapshot_and_shows_as_changed() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("grows");
+    write(&dir.join(".gitignore"), "*.log\n");
+    write(&dir.join("dev.db"), "small\n");
+    write(&dir.join("app.log"), "small\n");
+    // Ignored files above 1 MiB leave too, below the 4 MiB of untracked files.
+    let wide = Limits { max_file_bytes: 4 * 1024 * 1024, ..limits() };
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], wide).await;
+    fs::write(dir.join("dev.db"), vec![b'd'; 5 * 1024 * 1024]).unwrap();
+    fs::write(dir.join("app.log"), vec![b'l'; 2 * 1024 * 1024]).unwrap();
+    let changes = world.snapshots.after_call(call, wide).await.unwrap();
+    let both =
+        [file("app.log", ChangeKind::Modified, 0, 0), file("dev.db", ChangeKind::Modified, 0, 0)];
+    assert_eq!(changes.files, both, "changed, with no line counts");
+
+    // The next call does not hash the large file again, and lists nothing for it.
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], wide).await;
+    fs::write(dir.join("dev.db"), vec![b'e'; 6 * 1024 * 1024]).unwrap();
+    assert_eq!(world.snapshots.after_call(call, wide).await, None);
+
+    let turn_changes = world.snapshots.finish_turn(turn(1), wide).await.unwrap();
+    assert_eq!(turn_changes.files, both);
+    let post = format!("refs/efr/{}/{}/post", conversation(1), turn(1));
+    let tree = tree_of(&world.only_store(), &home, &post).await;
+    assert_eq!(tree.keys().collect::<Vec<_>>(), [".gitignore"], "both large files are left out");
+}

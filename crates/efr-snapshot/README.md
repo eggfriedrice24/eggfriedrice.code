@@ -36,7 +36,10 @@ What a snapshot takes (`Limits`): tracked files; new untracked files up to
 a turn, ignored files up to 1 MiB outside `SKIPPED_DIRS` (`target`, `node_modules`,
 `.venv`, `venv`, `__pycache__`, `dist`, `build`, `.next`, `.cache`), such as `.env`. It
 leaves out empty directories, nested repositories, and a root with more than
-`max_files` files, which the debug log names. A call's own list does not show a new
+`max_files` files, which the debug log names. The same size limits hold for a file
+that the store already has: one that grows past its limit (`max_file_bytes`, or 1 MiB
+for an ignored file) leaves the index, so no later call hashes it again, and it shows
+as changed with no line counts, not as deleted. A call's own list does not show a new
 ignored file; the turn's does.
 
 A changed path shows with its root's prefix (`shown_prefix`): nothing for the turn's

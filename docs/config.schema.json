@@ -994,7 +994,7 @@
         },
         "max_file_mib": {
           "default": 10,
-          "description": "Untracked files above this size in MiB are left out of a snapshot, from 1 to\n1024.",
+          "description": "Files above this size in MiB are left out of a snapshot, from 1 to 1024: a new\nuntracked file, and a file that grows past it, which then shows as changed with\nno line counts.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"

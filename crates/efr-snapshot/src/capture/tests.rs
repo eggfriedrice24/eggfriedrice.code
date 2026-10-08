@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 
 use pretty_assertions::assert_eq;
 
-use super::{MAX_IGNORED_BYTES, keep_others, parse_listing, small_ignored};
+use super::{MAX_IGNORED_BYTES, by_size, keep_others, parse_listing, small_ignored};
 
 #[test]
 fn a_listing_splits_tracked_changes_from_new_files() {
@@ -47,4 +47,19 @@ fn small_ignored_files_outside_build_dirs_are_taken() {
     fs::write(dir.join("secret/repo/file"), "x").unwrap();
     let entries: Vec<String> = [".env", "big.log", "target/", "secret/"].map(str::to_owned).into();
     assert_eq!(small_ignored(dir, &entries), [".env", "secret/key"]);
+}
+
+#[test]
+fn changed_files_sort_by_their_size_now() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path();
+    fs::write(dir.join("small"), "x").unwrap();
+    fs::write(dir.join("mid"), vec![0_u8; MAX_IGNORED_BYTES as usize + 1]).unwrap();
+    fs::write(dir.join("large"), vec![0_u8; 3 * 1024 * 1024]).unwrap();
+    symlink("/etc/passwd", dir.join("link")).unwrap();
+    let changed = ["small", "mid", "large", "link", "gone"].map(str::to_owned).to_vec();
+    let sized = by_size(dir, changed, 2 * 1024 * 1024);
+    assert_eq!(sized.small, ["small", "link", "gone"]);
+    assert_eq!(sized.mid, ["mid"]);
+    assert_eq!(sized.large, ["large"]);
 }

@@ -422,7 +422,7 @@ impl Snapshots {
                     args.push(before);
                     let out =
                         self.runner().checked(&store, "diff-index", &args, Run::default()).await?;
-                    Ok(Ok(changes::parse(&out)))
+                    self.read_changes(&store, &out).await.map(Ok)
                 }
             }
         }
@@ -463,7 +463,28 @@ impl Snapshots {
         let mut args: Vec<&str> = changes::DIFF_TREE.to_vec();
         args.extend([from, to]);
         let out = self.runner().checked(store, "diff-tree", &args, Run::default()).await?;
-        Ok(changes::parse(&out))
+        self.read_changes(store, &out).await
+    }
+
+    /// The changes in `out`, the output of [`changes::DIFF_TREE`] or
+    /// [`changes::DIFF_INDEX`] in `store`, with the files that the snapshot left out
+    /// for their size marked ([`changes::mark_left_out`]).
+    async fn read_changes(
+        &self,
+        store: &Store,
+        out: &[u8],
+    ) -> Result<Vec<RootChange>, SnapshotError> {
+        let mut found = changes::parse(out);
+        if !found.iter().any(|change| change.kind == efr_protocol::ChangeKind::Deleted) {
+            return Ok(found);
+        }
+        let root = store.root().to_path_buf();
+        self.runner()
+            .blocking(&root.clone(), move || {
+                changes::mark_left_out(&root, &mut found);
+                found
+            })
+            .await
     }
 
     /// Writes the commits of the turn's first and last trees of `root` and points

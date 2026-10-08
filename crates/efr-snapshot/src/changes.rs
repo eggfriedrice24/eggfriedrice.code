@@ -2,6 +2,7 @@
 //! `git diff-tree` or `git diff-index --cached` with `-z -M --raw --numstat`, and the
 //! list of a call or a turn across its roots.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
@@ -90,6 +91,20 @@ pub(crate) fn parse(out: &[u8]) -> Vec<RootChange> {
         });
     }
     changes
+}
+
+/// Shows a deletion of a file that is still a regular file in `root` as a change with
+/// no line counts: the snapshot left the file out because it grew past its size limit
+/// (`capture::by_size`), so the store holds no new content to count.
+pub(crate) fn mark_left_out(root: &Path, changes: &mut [RootChange]) {
+    for change in changes.iter_mut().filter(|change| change.kind == ChangeKind::Deleted) {
+        if fs::symlink_metadata(root.join(&change.path)).is_ok_and(|metadata| metadata.is_file()) {
+            change.kind = ChangeKind::Modified;
+            change.added = 0;
+            change.removed = 0;
+            change.binary = false;
+        }
+    }
 }
 
 /// The changes of one root with the prefix that shows its paths.

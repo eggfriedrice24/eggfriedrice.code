@@ -41,7 +41,7 @@ Modules:
   with their phases.
 - `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
   files that the agent can change (the auto spec, section 10): `enabled`,
-  `max_file_mib` (untracked files above it are left out), `ignored` (`IgnoredFiles`:
+  `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:
   `none` or `small`), `max_files` (a root with more files is not snapshotted),
   `keep_turns` and `max_age_days` (what the collector keeps). The spec names some of
   them `undo.*`; they live here because the snapshots come before undo.
