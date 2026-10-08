@@ -1432,7 +1432,7 @@ fn line_of(asking: &Asking) -> &str {
 fn a_visible_wait_takes_the_pending_line_with_the_queued_keys_but_no_enter() {
     let (reader, _sender) = reader_with(b"es\r");
     let ask = Ask::Input { call_id: call(), kind: AnswerKind::Visible };
-    let (mut reader, asking, seeded) = take_over(reader, Some(pending("Y\r")), ask);
+    let (mut reader, asking, seeded, _) = take_over(reader, Some(pending("Y\r")), ask);
     assert_eq!(line_of(&asking), "Yes");
     assert_eq!(seeded, Some(Seed::Shown("Yes".to_owned())), "a visible answer shows it");
     assert_eq!(reader.queued(), None, "the queue went into the line");
@@ -1442,7 +1442,7 @@ fn a_visible_wait_takes_the_pending_line_with_the_queued_keys_but_no_enter() {
 fn a_secret_looking_wait_takes_the_pending_line_without_showing_it() {
     let (reader, _sender) = reader_with(b"2");
     let ask = Ask::Input { call_id: call(), kind: AnswerKind::Masked };
-    let (_, asking, seeded) = take_over(reader, Some(pending("hunter")), ask);
+    let (_, asking, seeded, _) = take_over(reader, Some(pending("hunter")), ask);
     assert_eq!(line_of(&asking), "hunter2");
     assert_eq!(seeded, Some(Seed::Unshown(7)), "only how many characters it holds");
 }
@@ -1458,7 +1458,7 @@ fn a_hidden_wait_a_manual_line_or_another_call_drops_the_pending_line_and_the_qu
         Ask::Approval(other),
     ] {
         let (reader, _sender) = reader_with(b"more");
-        let (mut reader, asking, seeded) = take_over(reader, Some(pending("ahead")), ask);
+        let (mut reader, asking, seeded, _) = take_over(reader, Some(pending("ahead")), ask);
         assert_eq!(seeded, None, "{ask:?}");
         if let Asking::Input { line, .. } = &asking {
             assert_eq!(line.text(), "", "{ask:?}");
@@ -1472,9 +1472,45 @@ fn keeping_the_keys_again_keeps_the_queue() {
     let (reader, _sender) = reader_with(b"y");
     let before =
         Asking::Input { call_id: call(), kind: AnswerKind::Visible, line: AnswerLine::new() };
-    let (mut reader, asking, _) = take_over(reader, Some(before), Ask::Retain(call()));
+    let (mut reader, asking, ..) = take_over(reader, Some(before), Ask::Retain(call()));
     assert_eq!(line_of(&asking), "");
     assert_eq!(reader.queued(), Some(Key::Byte(b'y')), "typed for the call, so it stays");
+}
+
+/// The review finding: a call's password prompt and its wait came back to back, so the
+/// keys typed for the row before the prompt showed became the start of the password.
+/// The keys from before the mark go to the row; only those after it start the answer.
+#[test]
+fn keys_from_before_the_mark_go_to_the_row_and_not_into_the_answer() {
+    let (sender, keys) = tokio::sync::mpsc::channel(16);
+    let mut reader = KeyReader::from_channel_confirming(keys);
+    reader.mark();
+    for read in [b'a', b'b', b'c'].map(|byte| Read::Key(Key::Byte(byte))) {
+        sender.try_send(read).unwrap();
+    }
+    sender.try_send(Read::Marked).unwrap();
+    sender.try_send(Read::Key(Key::Byte(b'x'))).unwrap();
+    let ask = Ask::Input { call_id: call(), kind: AnswerKind::Masked };
+    let (_, asking, seeded, row) = take_over(reader, Some(pending("")), ask);
+    assert_eq!(row, [b'a', b'b', b'c'].map(Key::Byte), "typed for the row");
+    assert_eq!(line_of(&asking), "x");
+    assert_eq!(seeded, Some(Seed::Unshown(1)));
+}
+
+/// Keys from before the mark stay the row's also when the new question drops the
+/// queue.
+#[test]
+fn a_question_that_drops_the_queue_keeps_the_keys_from_before_the_mark_for_the_row() {
+    let (sender, keys) = tokio::sync::mpsc::channel(16);
+    let mut reader = KeyReader::from_channel_confirming(keys);
+    reader.mark();
+    sender.try_send(Read::Key(Key::Byte(b'a'))).unwrap();
+    sender.try_send(Read::Marked).unwrap();
+    sender.try_send(Read::Key(Key::Byte(b'x'))).unwrap();
+    let other: CallId = "0192f0c1-7a00-7000-8000-0000000000fd".parse().unwrap();
+    let (mut reader, _, _, row) = take_over(reader, Some(pending("")), Ask::Approval(other));
+    assert_eq!(row, [Key::Byte(b'a')]);
+    assert_eq!(reader.queued(), None, "the key after the mark is dropped");
 }
 
 // --- frames, ticks, resizes and the ways out ----------------------------------------

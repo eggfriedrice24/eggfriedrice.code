@@ -813,8 +813,11 @@ impl Follower<'_> {
                 };
                 // NOTE: the reader is held here before anything can fail, so the exit
                 // path still stops it and restores the terminal.
-                let (reader, asking, seeded) = take_over(reader, before, ask);
+                let (reader, asking, seeded, row) = take_over(reader, before, ask);
                 self.keys = Some((reader, asking));
+                for key in row {
+                    view.row_key(key);
+                }
                 let size = self.ctx.screen.size();
                 match seeded {
                     Some(Seed::Shown(text)) => write(out, &view.typed(&text))?,
@@ -1434,28 +1437,36 @@ impl Follower<'_> {
 /// one that looks secret does not, and says how many characters it starts with. Keeping
 /// keys again keeps the queue too. Anything
 /// else drops what came before, zeroed, and the queue: those keys were typed before
-/// this question appeared, and a new reader's flush would have dropped them.
+/// this question appeared, and a new reader's flush would have dropped them. In every
+/// case, a queued key from before the last mark (`KeyReader::before_mark`) was typed
+/// for the input row: it comes back in the last part, for the row, and never starts an
+/// answer.
 fn take_over(
     mut reader: KeyReader,
     before: Option<Asking>,
     ask: Ask,
-) -> (KeyReader, Asking, Option<Seed>) {
+) -> (KeyReader, Asking, Option<Seed>, Vec<Key>) {
+    let mut row = Vec::new();
     match (before, ask) {
         (Some(Asking::Pending { call_id, mut line }), Ask::Input { call_id: asked, kind })
             if asked == call_id && matches!(kind, AnswerKind::Visible | AnswerKind::Masked) =>
         {
             while let Some(key) = reader.queued() {
-                pend(&mut line, key.byte());
+                if reader.before_mark() {
+                    row.push(key);
+                } else {
+                    pend(&mut line, key.byte());
+                }
             }
             let seeded = match line.text() {
                 "" => None,
                 text if kind.shown() => Some(Seed::Shown(text.to_owned())),
                 text => Some(Seed::Unshown(text.chars().count())),
             };
-            (reader, Asking::Input { call_id, kind, line }, seeded)
+            (reader, Asking::Input { call_id, kind, line }, seeded, row)
         }
         (Some(Asking::Pending { call_id, line }), Ask::Retain(kept)) if kept == call_id => {
-            (reader, Asking::Pending { call_id, line }, None)
+            (reader, Asking::Pending { call_id, line }, None, row)
         }
         (before, ask) => {
             // A running reader is kept, so echo never comes back between two questions.
@@ -1464,7 +1475,11 @@ fn take_over(
                 && !matches!(before, Some(Asking::Row))
                 && !matches!(ask, Ask::Retain(_))
             {
-                reader.discard_queued();
+                while let Some(key) = reader.queued() {
+                    if reader.before_mark() {
+                        row.push(key);
+                    }
+                }
             }
             let asking = match ask {
                 Ask::Approval(call_id) => Asking::Approval(call_id),
@@ -1475,7 +1490,7 @@ fn take_over(
                 Ask::Retain(call_id) => Asking::Pending { call_id, line: AnswerLine::new() },
                 Ask::Surface(question_id) => Asking::Surface(question_id),
             };
-            (reader, asking, None)
+            (reader, asking, None, row)
         }
     }
 }
