@@ -120,8 +120,9 @@ efrd must:
    - When the turn does not run, answer `conflict` and do none of it.
    - The result has `resent` (absent when no steer was unread) and `withdrawn` (the
      texts, in queue order).
-6. Until efrd implements a point, it keeps the old behaviour: it ignores `if_late`,
-   `resend_steers` and `withdraw`, and it refuses `prompt.withdraw` with `invalid`.
+6. efrd implements points 1 to 5. An older efrd ignores `if_late`, `resend_steers`
+   and `withdraw`, and refuses `prompt.withdraw` with `invalid`. `efr` must accept
+   these answers too.
 
 `efr` must:
 
