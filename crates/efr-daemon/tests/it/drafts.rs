@@ -138,7 +138,8 @@ async fn subscribe(
 /// What one subscription saw so far.
 #[derive(Debug, Default)]
 struct Seen {
-    kinds: Vec<String>,
+    /// The kind of each event, with its sequence number.
+    kinds: Vec<(Seq, String)>,
     /// Each text draft: its offset and its delta.
     texts: Vec<(u64, String)>,
     /// When the client held the text up to each end, from drafts and from events.
@@ -157,6 +158,11 @@ impl Seen {
         Seen { last: hwm, ..Seen::default() }
     }
 
+    /// The kinds of the events after `after`.
+    fn kinds_after(&self, after: Seq) -> Vec<&str> {
+        self.kinds.iter().filter(|(seq, _)| *seq > after).map(|(_, kind)| kind.as_str()).collect()
+    }
+
     /// Reads `stream` until `enough` holds or the turn completed. Checks that every
     /// event at or below the `after_seq` of a draft came before it, and that no draft
     /// came after an event that ends what it shows.
@@ -169,7 +175,7 @@ impl Seen {
             match stream.next().await.unwrap().unwrap() {
                 ConversationSubscribeItem::Event(envelope) => {
                     self.last = envelope.seq;
-                    self.kinds.push(envelope.event.kind().to_owned());
+                    self.kinds.push((envelope.seq, envelope.event.kind().to_owned()));
                     match envelope.event {
                         Event::AssistantMessageUpdated { offset, delta, .. } => {
                             self.updates += 1;
@@ -240,7 +246,11 @@ async fn drafts_reach_a_subscriber_that_asked_and_no_other() {
 
     assert_eq!(without.drafts, 0, "no drafts without the parameter");
     assert!(with.drafts > 0, "drafts with the parameter");
-    assert_eq!(with.kinds, without.kinds, "both get the same events");
+    // NOTE: the turn records its start while the test subscribes, so the start can come
+    // between the two subscriptions. Each one gets the events after its own start, so
+    // the two get the same events after the later start.
+    let after = with_hwm.max(without_hwm);
+    assert_eq!(with.kinds_after(after), without.kinds_after(after), "both get the same events");
     // Each draft is the text at its offset, and the offsets only grow.
     let whole = model.text();
     let mut end = 0;
