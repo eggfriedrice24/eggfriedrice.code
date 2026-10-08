@@ -240,3 +240,32 @@ async fn a_file_that_grows_past_its_limit_leaves_the_snapshot_and_shows_as_chang
     let tree = tree_of(&world.only_store(), &home, &post).await;
     assert_eq!(tree.keys().collect::<Vec<_>>(), [".gitignore"], "both large files are left out");
 }
+
+/// The lists say what changed in a root while a call or a turn ran: a snapshot cannot
+/// tell who made a change, so another conversation's write at the same time shows in
+/// both. The docs say so (the README of this crate and of efr-cli).
+#[tokio::test]
+async fn two_conversations_on_one_project_each_see_what_changed_during_their_call() {
+    let world = World::new();
+    let dir = world.dir("shared");
+    write(&dir.join("a.txt"), "a\n");
+    write(&dir.join("b.txt"), "b\n");
+    let first =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    let second =
+        world.snapshots.before_call(conversation(2), turn(2), vec![root(&dir)], limits()).await;
+    write(&dir.join("b.txt"), "b2\n");
+    let changes = world.snapshots.after_call(second, limits()).await.unwrap();
+    assert_eq!(changes.files, [file("b.txt", ChangeKind::Modified, 1, 1)]);
+    write(&dir.join("a.txt"), "a2\n");
+    let changes = world.snapshots.after_call(first, limits()).await.unwrap();
+    assert_eq!(
+        changes.files,
+        [file("a.txt", ChangeKind::Modified, 1, 1), file("b.txt", ChangeKind::Modified, 1, 1)],
+        "the first call's list holds the second conversation's write too"
+    );
+    let turn_one = world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
+    assert_eq!(turn_one.files.len(), 2, "and so does its turn");
+    let turn_two = world.snapshots.finish_turn(turn(2), limits()).await.unwrap();
+    assert_eq!(turn_two.files.len(), 2);
+}

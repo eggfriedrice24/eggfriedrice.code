@@ -52,7 +52,9 @@ pub struct FileChange {
     pub binary: bool,
 }
 
-/// The files that a call or a turn changed.
+/// The files that changed in the roots of a call or a turn while it ran. efr compares
+/// its own snapshots, so a file that another conversation or the user changed at the
+/// same time is listed too.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FileChanges {
     /// The changed files, at most [`MAX_LISTED_FILES`], sorted by path.

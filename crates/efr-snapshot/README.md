@@ -45,6 +45,12 @@ for an ignored file) leaves the index, so no later call hashes it again, and it 
 as changed with no line counts, not as deleted. A call's own list does not show a new
 ignored file; the turn's does.
 
+The lists say what changed in a root between two snapshots, not who changed it. A
+write by another conversation's call, or by the user's editor, between a call's
+snapshots (or a turn's first and last) shows in that call's list (or turn's) too,
+also in `efr diff`. The plan lock of `auto` does not cover the snapshot after a call,
+and the other modes take no lock for a `shell` call.
+
 A changed path shows with its root's prefix (`shown_prefix`): nothing for the turn's
 project, `$SCRATCH/` for the conversation's scratch directory, `~/...` below the home
 directory, else the absolute path.

@@ -18,7 +18,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A shell call that changed files gets one muted row under its result, such as
   `changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)`. A turn that
   changed files gets a muted line such as `3 files changed, +24 −7` before its end.
-  This works in registered projects (git or not) and in `$SCRATCH`.
+  This works in registered projects (git or not) and in `$SCRATCH`. The row and the
+  line show what changed while the call or the turn ran, also a file that another
+  conversation or your editor saved at the same time.
 - `efr diff` prints what a turn changed: by default the last turn of this terminal's
   conversation, `--turn <id>` for another, `--stat` for the list of files. In a pipe it
   writes the plain diff.

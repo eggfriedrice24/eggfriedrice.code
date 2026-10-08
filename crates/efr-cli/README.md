@@ -207,7 +207,9 @@ Replies:
   binary file, the counts of a changed or renamed file with `+N` in the `success` role
   and `−N` in the `error` role, and how many more files changed. A row wider than the
   screen goes on in the next row, indented 2 more columns. Every path passes through
-  `format::one_line`.
+  `format::one_line`. The row and the turn's line say what changed in the roots while
+  the call or the turn ran, not who changed it: the snapshots cannot tell, so a file
+  that another conversation or the user's editor saved at the same time shows too.
 - When stdout is not a terminal, the blocks go to stderr in plain text, in the order
   that a terminal keeps them: the question of a call and the line of its answer, then
   the first rows of the call, then its result (with the last lines of a failure's

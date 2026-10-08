@@ -165,11 +165,12 @@ No protocol version has shipped yet.
   an optional `from` for a rename; `added` and `removed` line counts; `binary`, false
   when absent) and `file_changes` (`files`, at most 50 and sorted by path, `more`, the
   files left out, and the `added` and `removed` totals). The `tool_call_completed`
-  event gains an optional `changes` (a file tool's write, or what a `shell` call changed
-  in the turn's project, `$SCRATCH` and, in `auto`, the projects that the line names)
+  event gains an optional `changes` (a file tool's write, or what changed while a
+  `shell` call ran in the turn's project, `$SCRATCH` and, in `auto`, the projects that
+  the line names, also a file that another conversation or the user changed then)
   and an optional `diff` (the unified diff of a file tool's write, at most 2000 lines
   and then `... N more lines`). The `turn_completed` event gains an optional `changes`:
-  the turn's first snapshot against its last. New method `conversation.diff` (scope
+  the turn's first snapshot against its last, with the same caveat. New method `conversation.diff` (scope
   `read`, no command id) with an optional `conversation_id` (absent: the conversation
   of the named turn, else the active conversation of the hello's terminal), an
   optional `turn_id` (absent: the newest finished turn of the conversation) and a `stat`
