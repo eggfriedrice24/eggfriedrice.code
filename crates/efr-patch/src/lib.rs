@@ -28,6 +28,8 @@ mod grammar;
 mod parse;
 mod patch;
 mod replace;
+mod seek;
+mod text;
 
 pub use apply::{ChangeKind, FileChange, Files, apply};
 pub use error::{NearLine, ParseProblem, PatchError};

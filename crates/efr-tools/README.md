@@ -237,9 +237,12 @@ Result:
 - Success, short: `Success. Updated: a.rs, b.rs; Added: c.rs; Deleted: d.rs;
   Moved: e.rs -> f.rs`, with each group left out when empty and the paths as the
   patch wrote them.
-- Failure: the error in one sentence, then for `PatchError::NoMatch` the hunk's
-  anchors and the nearest lines of the file with their numbers, then
-  `No file was changed.`, so the model can correct the patch and try again.
+- Failure: the error in one sentence, then for `PatchError::NoMatch` and
+  `PatchError::NoAnchor` the hunk's anchors and the nearest lines of the file with
+  their numbers, for `PatchError::Ambiguous` the line numbers of the matches and a
+  request for more context or an `@@` line, then `No file was changed.`, so the
+  model can correct the patch and try again. An add of a file that exists is
+  `PatchError::Exists`: the model updates the file instead, or deletes it first.
 - `ToolResult` carries every file that the call wrote, as `write_file` carries its
   one file: `written` becomes a list of `WrittenFile`, which also says whether a
   file was deleted or moved (and from where). The daemon turns the list into the

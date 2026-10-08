@@ -1,6 +1,6 @@
 //! One exact replacement of text, for an edit tool that takes an old and a new string.
 
-use crate::PatchError;
+use crate::{PatchError, seek};
 
 /// Which occurrences of the old text a [`replace`] changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +32,33 @@ pub fn replace(
     new: &str,
     occurrences: Occurrences,
 ) -> Result<Replacement, PatchError> {
-    // NOTE: a stub until the engine is built; the contract is in the README.
-    let _ = (text, old, new, occurrences);
-    Err(PatchError::NotBuilt)
+    if old.is_empty() {
+        return Err(PatchError::EmptyOld);
+    }
+    let count = text.matches(old).count();
+    match (count, occurrences) {
+        (0, _) => {
+            let lines = lines(text);
+            Err(PatchError::NotFound { nearest: seek::nearest(&lines, &lines_of(old)) })
+        }
+        (1, _) | (_, Occurrences::All) => Ok(Replacement { text: text.replace(old, new), count }),
+        (count, Occurrences::One) => Err(PatchError::NotUnique { count }),
+    }
 }
+
+/// The lines of a text, without their endings.
+fn lines(text: &str) -> Vec<&str> {
+    crate::text::split(text).lines.iter().map(|line| line.text).collect()
+}
+
+/// The lines of an old text. Its blank lines at both ends say nothing about where it
+/// nearly occurs.
+fn lines_of(old: &str) -> Vec<&str> {
+    let lines = lines(old);
+    let first = lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(lines.len());
+    let last = lines.iter().rposition(|line| !line.trim().is_empty()).map_or(first, |at| at + 1);
+    lines[first..last.max(first)].to_vec()
+}
+
+#[cfg(test)]
+mod tests;
