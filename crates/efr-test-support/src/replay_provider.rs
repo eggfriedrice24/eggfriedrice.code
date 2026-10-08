@@ -13,10 +13,10 @@
 //! `{"kind": "unauthorized"}`, `{"kind": "rate_limited", "retry_after_ms": 1000}`,
 //! `{"kind": "not_logged_in"}`, `{"kind": "incomplete"}` or
 //! `{"kind": "api", "status": 500, "code": "server_error", "message": "..."}`
-//! (`status` and `code` optional; `ProviderError::api` decides, so the code
-//! `context_length_exceeded` gives `ProviderError::ContextOverflow`). A provider's own
-//! wire format is replayed at the HTTP level instead, with wiremock in front of the real
-//! client.
+//! (`status` and `code` optional). An `api` error goes through [`ProviderError::api`],
+//! as a real provider's does, so the code `context_length_exceeded` or the status 413
+//! gives [`ProviderError::ContextOverflow`]. A provider's own wire format is replayed at
+//! the HTTP level instead, with wiremock in front of the real client.
 
 mod sse;
 
