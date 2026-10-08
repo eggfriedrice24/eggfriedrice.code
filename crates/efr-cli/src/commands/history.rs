@@ -11,7 +11,7 @@ use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, EventEnvelope, ExitRecord, Launch, Method, Origin, PageCursor,
-    TurnId,
+    Seq, TurnId,
 };
 use efr_render::{RenderOptions, render, render_trace};
 
@@ -171,10 +171,81 @@ pub(crate) fn transcript(
         let _ = writeln!(out, "{}", format::paint(&earlier, Tone::Dim, options));
     }
     let mut transcript = Transcript::new(shown, out);
-    for envelope in &page.events {
-        transcript.event(envelope);
+    for group in in_turn_order(&page.events) {
+        for envelope in group {
+            transcript.event(envelope);
+        }
+        transcript.flush();
     }
     transcript.finish()
+}
+
+/// The events of one turn, or one event of no turn, and where they go in the
+/// transcript.
+struct Group<'a> {
+    events: Vec<&'a EventEnvelope>,
+    /// When the prompt of the turn was queued; `None` before the page.
+    queued: Option<Seq>,
+    /// When the turn started; `None` when it did not start on the page.
+    started: Option<Seq>,
+}
+
+impl Group<'_> {
+    /// The turn started, on the page or before it: its prompt is not on the page
+    /// either.
+    fn ran(&self) -> bool {
+        self.started.is_some() || self.queued.is_none()
+    }
+}
+
+/// The events of `page` by turn, each turn's events together and in their order. The
+/// turns come in the order they started. A prompt that never started on the page
+/// (taken back, cancelled, or still waiting) comes where it was in the queue: after
+/// the turns whose prompts were queued before it. An event of no turn is a group of
+/// its own at its place.
+///
+/// NOTE: the log is in event order, so the events of a turn and the prompts queued
+/// while it ran interleave. A transcript in that order shows a queued prompt in the
+/// middle of the turn before it.
+fn in_turn_order(page: &[EventEnvelope]) -> Vec<Vec<&EventEnvelope>> {
+    let mut groups: Vec<Group<'_>> = Vec::new();
+    let mut by_turn: HashMap<TurnId, usize> = HashMap::new();
+    for envelope in page {
+        let at = match envelope.event.turn_id() {
+            Some(turn) => *by_turn.entry(turn).or_insert_with(|| {
+                groups.push(Group { events: Vec::new(), queued: None, started: None });
+                groups.len() - 1
+            }),
+            None => {
+                let seq = Some(envelope.seq);
+                groups.push(Group { events: Vec::new(), queued: seq, started: seq });
+                groups.len() - 1
+            }
+        };
+        let group = &mut groups[at];
+        match envelope.event {
+            Event::PromptQueued { .. } if group.queued.is_none() => {
+                group.queued = Some(envelope.seq);
+            }
+            Event::TurnStarted { .. } if group.started.is_none() => {
+                group.started = Some(envelope.seq);
+            }
+            _ => {}
+        }
+        group.events.push(envelope);
+    }
+    // The turns that started, by the start. A turn that started before the page
+    // comes first. The sort is stable, so equal keys keep the order of the page.
+    let (mut ordered, mut waiting): (Vec<Group<'_>>, Vec<Group<'_>>) =
+        groups.into_iter().partition(Group::ran);
+    ordered.sort_by_key(|group| group.started);
+    waiting.sort_by_key(|group| group.queued);
+    for group in waiting {
+        let at =
+            ordered.iter().rposition(|other| other.queued < group.queued).map_or(0, |at| at + 1);
+        ordered.insert(at, group);
+    }
+    ordered.into_iter().map(|group| group.events).collect()
 }
 
 /// Builds a transcript event by event.

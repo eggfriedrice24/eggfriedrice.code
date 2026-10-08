@@ -506,6 +506,132 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
 }
 
 #[test]
+fn each_turn_shows_together_in_the_order_the_turns_started() {
+    let id = |n: u8| -> efr_protocol::TurnId {
+        format!("019a9b1c-3d00-7a10-8b20-0000000001{n:02x}").parse().unwrap()
+    };
+    let (first, docs, changelog, resent) = (id(1), id(2), id(3), id(4));
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let prompt = |turn_id, text: &str, steers: Vec<Seq>| Event::PromptQueued {
+        turn_id,
+        command_id,
+        text: text.to_owned(),
+        origin: Origin::Shell,
+        context: None,
+        settings: TurnSettings::default(),
+        steers,
+    };
+    let started = |turn_id| Event::TurnStarted {
+        turn_id,
+        cwd: "/home/user".into(),
+        scope: Scope::Machine,
+        settings: None,
+    };
+    let answer = |turn_id, text: &str| Event::AssistantMessageCompleted {
+        turn_id,
+        index: 0,
+        text: text.to_owned(),
+    };
+    let done = |turn_id| Event::TurnCompleted { turn_id, usage: None, changes: None };
+    // While the first turn runs, the user queues two prompts and takes the second
+    // back, then steers and presses Esc: the steer runs next as a new prompt.
+    let events = vec![
+        prompt(first, "fix the bug", Vec::new()),
+        started(first),
+        Event::ToolCallStarted {
+            turn_id: first,
+            call_id: call(),
+            tool: "shell".to_owned(),
+            input: json!({ "command": "cargo test" }),
+            manual_input: true,
+            launch: None,
+        },
+        prompt(docs, "then update the docs", Vec::new()),
+        prompt(changelog, "and the changelog", Vec::new()),
+        Event::PromptWithdrawn { turn_id: changelog, origin: Origin::Shell },
+        Event::TurnSteered { turn_id: first, text: "look at the logs first".to_owned() },
+        Event::TurnInterruptRequested { turn_id: first, origin: Origin::Shell },
+        prompt(resent, "look at the logs first", vec![Seq::new(7)]),
+        Event::ToolCallCompleted {
+            turn_id: first,
+            call_id: call(),
+            output: String::new(),
+            truncated: false,
+            is_error: true,
+            exit_code: Some(130),
+            sandbox: None,
+            refusal: None,
+            changes: None,
+            diff: None,
+        },
+        Event::TurnInterrupted { turn_id: first },
+        started(resent),
+        answer(resent, "The logs show a timeout."),
+        done(resent),
+        started(docs),
+        answer(docs, "Docs updated."),
+        done(docs),
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+
+    let text = show(&page, &RenderOptions::new(60).with_terminal(false));
+
+    let at = |line: &str| text.find(line).unwrap_or_else(|| panic!("no {line:?} in {text}"));
+    let order = [
+        "> fix the bug",
+        "$ cargo test",
+        "steered: look at the logs first",
+        "interrupted",
+        "> look at the logs first",
+        "The logs show a timeout.",
+        "> then update the docs",
+        "Docs updated.",
+        "> and the changelog",
+        "withdrawn before it ran",
+    ];
+    for pair in order.windows(2) {
+        assert!(at(pair[0]) < at(pair[1]), "{:?} before {:?}:\n{text}", pair[0], pair[1]);
+    }
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn a_turn_that_started_before_the_page_comes_first() {
+    let next: efr_protocol::TurnId = "019a9b1c-3d00-7a10-8b20-000000000102".parse().unwrap();
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let page = vec![
+        envelope(
+            20,
+            Event::PromptQueued {
+                turn_id: next,
+                command_id,
+                text: "next".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+                steers: Vec::new(),
+            },
+        ),
+        envelope(21, Event::TurnInterrupted { turn_id: turn() }),
+        envelope(
+            22,
+            Event::TurnStarted {
+                turn_id: next,
+                cwd: "/home/user".into(),
+                scope: Scope::Machine,
+                settings: None,
+            },
+        ),
+    ];
+    let seqs: Vec<Vec<u64>> = super::in_turn_order(&page)
+        .iter()
+        .map(|group| group.iter().map(|envelope| envelope.seq.get()).collect())
+        .collect();
+    assert_eq!(seqs, [vec![21], vec![20, 22]]);
+}
+
+#[test]
 fn a_steer_taken_back_says_that_the_model_did_not_read_it() {
     let events = vec![
         Event::TurnSteered { turn_id: turn(), text: "use tabs".to_owned() },

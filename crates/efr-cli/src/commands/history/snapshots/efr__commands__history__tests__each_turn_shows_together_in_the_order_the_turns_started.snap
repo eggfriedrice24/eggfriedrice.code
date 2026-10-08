@@ -1,0 +1,23 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: text
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+> fix the bug
+
+$ cargo test
+steered: look at the logs first
+shell exited with 130
+interrupted
+
+> look at the logs first
+
+The logs show a timeout.
+
+> then update the docs
+
+Docs updated.
+
+> and the changelog
+
+withdrawn before it ran

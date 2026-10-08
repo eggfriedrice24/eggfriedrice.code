@@ -79,6 +79,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - The note `interrupted to send your message` now comes after the call that Esc
   stopped and after the end of the interrupted turn. Before, it came above the
   stopped call.
+- `efr history` shows the lines of each turn together, and the turns in the order
+  that they started. Before, it showed the events in the order that they came, so a
+  prompt that you queued or sent again with Esc showed in the middle of the turn
+  before it. A prompt that you took back shows where it was in the queue, with the
+  note `withdrawn before it ran`.
 
 ### Fixed
 
