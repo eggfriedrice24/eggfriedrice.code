@@ -187,13 +187,24 @@ request, so the HTTP request is the first and only model call:
 - the connection cannot be opened, or the server refuses the upgrade;
 - a connection that had no call for 30 seconds does not answer its ping;
 - the request could not be written whole;
-- the server does not take the call: it sends an `error` event, or closes the
-  connection with a close frame, before the first event of an answer (`response.*`).
+- the server does not take the call: it closes the connection with a close frame
+  before the first event of an answer (`response.*`), or it sends an `error` event
+  without an error status, with a 401, a 408 or a 5xx, or with the code
+  `previous_response_not_found` or `websocket_connection_limit_reached`.
+
+An `error` event before the answer with any other status from 400 to 499, such as a
+429 or a context overflow, is the server's answer to the request itself, as Codex
+reads it. The call fails with the same error as an HTTP answer with that status and
+body (the event's `headers` member gives the `Retry-After`), and it does not go out a
+second time over HTTP.
 
 After a failure that says that WebSockets do not work now (a refused upgrade, a failed
-handshake, an `error` event other than a refused token, a rate limit,
-`previous_response_not_found` or `websocket_connection_limit_reached`), every call goes
-over HTTP for 5 minutes. A closed stale connection does not pause them.
+handshake, an `error` event without an error status or with a 408 or a 5xx, a binary
+message or a message that is not JSON), every call goes over HTTP for 5 minutes. A
+refused token pauses them only when the call before was refused for its token too, so
+the HTTP path can refresh the token first. A closed stale connection, a dead
+connection that does not answer its ping, a routine code and an error status that
+answers the request do not pause them.
 
 Once the request has gone out, a failure that does not show that the server refused
 it is the call's failure, also before the first event of an answer: a broken
@@ -237,6 +248,8 @@ and `codex-rs/core/src/client.rs`, read on 2026-10-08):
 - the two routine error codes, `websocket_connection_limit_reached` and
   `previous_response_not_found`, which Codex answers with a new connection and the
   whole input;
+- an `error` event with an HTTP error status as that HTTP error answer
+  (`map_wrapped_websocket_error_event`);
 - the fallback to HTTP on a refused upgrade, and that it lasts beyond the one call
   (`force_http_fallback`).
 
@@ -297,8 +310,9 @@ for the fake server.
   recorder, and error messages come from the server's error body, never from the
   request.
 - A model call is never sent twice after the server may have acted on it. Over a
-  WebSocket, a call goes over HTTP only when the server has not started an answer for
-  it.
+  WebSocket, a call goes over HTTP only when the server certainly did not act on its
+  request: the request did not go out, or the server refused it with a close frame or
+  an `error` event before an answer.
 - `previous_response_id` goes only on the WebSocket connection that holds that answer,
   and only when the rest of the request is unchanged.
 - efr names itself honestly: a fetch of the catalog sends efr's own version as
@@ -394,7 +408,9 @@ of a connection with only the new items, the whole input after a changed setting
 compaction, the interrupt, the fallback to HTTP on a refused upgrade, a close and an
 `error` event before the answer, the failure of a close after the answer started, the
 failure of a broken connection and of a silent server after the request went out
-(with no HTTP request), a lost previous answer, the idle close, the ping before a call after a quiet spell
+(with no HTTP request), an error status that fails the call (a context overflow and a
+429 with its wait), a second refused token in a row (in the event and at the upgrade)
+that pauses WebSockets, a lost previous answer, the idle close, the ping before a call after a quiet spell
 (answered, and not answered by a connection that hangs), and the switch with the catalog's
 `prefer_websockets`. `continuation` tests check when a call may send only its new
 items. The fixtures are hand-written in the Responses wire format, since the tests

@@ -1,7 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
-use efr_provider::{Message, Provider, ProviderEvent, ProviderId, ProviderStream, Request};
+use efr_provider::{
+    Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
+};
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -338,8 +341,8 @@ async fn a_close_after_the_answer_started_fails_the_call_as_on_http() {
 async fn an_error_event_before_the_answer_sends_the_call_over_http_and_pauses_websockets() {
     let error = json!({
         "type": "error",
-        "status": 400,
-        "error": {"type": "invalid_request_error", "message": "websockets are not on for you"},
+        "status": 500,
+        "error": {"type": "server_error", "message": "the websocket service failed"},
     });
     let socket = Socket::serving(vec![vec![Step::Send(vec![error])]]);
     let posts = vec![fixture("plain_text.sse"), fixture("plain_text.sse")];
@@ -543,4 +546,68 @@ async fn a_server_that_says_nothing_after_the_request_fails_the_call_at_the_read
     assert_eq!(events.len(), 1);
     assert!(events[0].as_ref().unwrap_err().starts_with("Transport"), "{events:?}");
     assert!(setup.server.posts().is_empty());
+}
+
+/// An `error` event with `status` and the error object `error`.
+fn error_event(status: u16, error: Value) -> Value {
+    json!({"type": "error", "status": status, "error": error})
+}
+
+#[tokio::test]
+async fn an_error_status_before_the_answer_fails_the_call_as_on_http_without_a_pause() {
+    let overflow = error_event(
+        400,
+        json!({"type": "invalid_request_error", "code": "context_length_exceeded", "message": "Your input exceeds the context window of this model."}),
+    );
+    let mut limited =
+        error_event(429, json!({"type": "rate_limit_exceeded", "message": "Rate limit reached."}));
+    limited["headers"] = json!({"retry-after": "7"});
+    let sockets = vec![
+        Socket::serving(vec![vec![Step::Send(vec![overflow])]]),
+        Socket::serving(vec![vec![Step::Send(vec![limited])]]),
+        Socket::serving(vec![vec![Step::Send(answer("resp_3", "Fresh."))]]),
+    ];
+    let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    let overflow = setup.provider.stream(request("gpt-5.5", "hi")).await.err().unwrap();
+    let limited = setup.provider.stream(request("gpt-5.5", "hi")).await.err().unwrap();
+    let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    assert!(overflow.is_context_overflow(), "{overflow:?}");
+    assert!(
+        matches!(limited, ProviderError::RateLimited { retry_after: Some(wait) } if wait == Duration::from_secs(7)),
+        "{limited:?}"
+    );
+    // The server answered each request, so neither went out a second time over HTTP,
+    // and WebSockets stay on: the third call opens a new connection.
+    assert!(setup.server.posts().is_empty());
+    assert_eq!(third.message.text(), "Fresh.");
+    assert_eq!(setup.server.sockets().len(), 3);
+}
+
+#[tokio::test]
+async fn a_second_refused_token_in_a_row_pauses_websockets() {
+    let refused =
+        || error_event(401, json!({"type": "invalid_request_error", "message": "token rejected"}));
+    // (the first socket, the second socket): refused in the event or at the upgrade.
+    let cases = [
+        (
+            Socket::serving(vec![vec![Step::Send(vec![refused()])]]),
+            Socket::serving(vec![vec![Step::Send(vec![refused()])]]),
+        ),
+        (Socket::refused(401), Socket::refused(401)),
+    ];
+    for (first, second) in cases {
+        let posts = vec![fixture("plain_text.sse"); 3];
+        let setup = setup(vec![first, second], posts, WebSocketMode::Auto).await;
+
+        for _ in 0..3 {
+            setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+        }
+
+        // The first refusal tries the socket again on the next call; the second one
+        // pauses it, so the third call goes straight over HTTP.
+        assert_eq!(setup.server.sockets().len(), 2);
+        assert_eq!(setup.server.posts().len(), 3);
+    }
 }

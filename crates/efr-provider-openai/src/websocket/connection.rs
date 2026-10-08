@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::Instrument as _;
 
+use super::Health;
 use super::continuation::Continuation;
 use crate::convert::ResponsesBody;
 
@@ -61,6 +62,19 @@ pub(crate) enum Delivery {
     Failed(ProviderError),
     /// The request failed before the server took it, so it may go over HTTP.
     Refused(Refusal),
+    /// The server answered the request with an error status before an answer, as an
+    /// HTTP error answer: the request itself failed, and over HTTP it would fail the
+    /// same way.
+    Rejected(Rejection),
+}
+
+/// An `error` event with an HTTP error status, the server's answer to a request.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Rejection {
+    /// The status, from 400 to 499.
+    pub(crate) status: u16,
+    /// The whole event, with its `error` object and maybe its `headers`.
+    pub(crate) event: Value,
 }
 
 /// Why the server did not take a request.
@@ -68,9 +82,8 @@ pub(crate) enum Delivery {
 pub(crate) struct Refusal {
     /// What happened, for the log.
     pub(crate) reason: String,
-    /// True when the failure says that WebSockets do not work now, so the provider
-    /// pauses them; false for a stale connection or a routine error.
-    pub(crate) pause: bool,
+    /// What the failure says about WebSockets.
+    pub(crate) health: Health,
 }
 
 /// One request for the task.
@@ -222,7 +235,8 @@ async fn run(
             // transport, so WebSockets do not pause.
             retire(&shared);
             let reason = "the websocket did not answer a ping".to_owned();
-            let _ = create.events.send(Delivery::Refused(Refusal { reason, pause: false })).await;
+            let refusal = Refusal { reason, health: Health::Fine };
+            let _ = create.events.send(Delivery::Refused(refusal)).await;
             break;
         }
         match serve(&mut socket, create, &shared, &*clock, limits).await {
@@ -292,12 +306,12 @@ impl Request<'_> {
     /// `failed` after. Only for a failure that shows that the server did not act on
     /// the request when no answer has started: the server's own close or a message
     /// that breaks the protocol.
-    async fn fail(&self, reason: String, pause: bool, failed: ProviderError) -> Served {
+    async fn fail(&self, reason: String, health: Health, failed: ProviderError) -> Served {
         self.retire();
         if self.accepted {
             self.deliver(Delivery::Failed(failed)).await;
         } else {
-            self.deliver(Delivery::Refused(Refusal { reason, pause })).await;
+            self.deliver(Delivery::Refused(Refusal { reason, health })).await;
         }
         Served::Dead
     }
@@ -336,7 +350,7 @@ async fn serve(
             // NOTE: the writer reports an error only for a frame that it could not
             // write whole, and the server acts on no part of a frame.
             let reason = format!("the request could not be sent: {error}");
-            return request.fail(reason, false, transport(error)).await;
+            return request.fail(reason, Health::Fine, transport(error)).await;
         }
         Err(_) => {
             // NOTE: the frame stays in the writer's queue and may still go out.
@@ -366,12 +380,12 @@ async fn serve(
             Ok(Some(Ok(WsMessage::Text(text)))) => text,
             Ok(Some(Ok(WsMessage::Close { code, reason }))) => {
                 let reason = format!("the server closed the websocket ({code:?} {reason})");
-                return request.fail(reason, false, ProviderError::Incomplete).await;
+                return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
             }
             Ok(Some(Ok(_))) => {
                 let reason = "the server sent a binary message".to_owned();
                 let failed = ProviderError::InvalidStream { problem: "a binary websocket message" };
-                return request.fail(reason, true, failed).await;
+                return request.fail(reason, Health::Broken, failed).await;
             }
             Ok(Some(Err(error))) => return request.lose(transport(error)).await,
             Ok(None) => return request.lose(ProviderError::Incomplete).await,
@@ -384,7 +398,9 @@ async fn serve(
             Ok(event) => event,
             Err(source) => {
                 let reason = "the server sent a message that is not JSON".to_owned();
-                return request.fail(reason, true, ProviderError::Decode { source }).await;
+                return request
+                    .fail(reason, Health::Broken, ProviderError::Decode { source })
+                    .await;
             }
         };
         let kind = event.get("type").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -437,16 +453,35 @@ async fn refuse(request: &Request<'_>, event: &Value) -> Served {
     let error = event.get("error").filter(|error| error.is_object()).unwrap_or(event);
     let field = |key: &str| error.get(key).and_then(Value::as_str).unwrap_or_default();
     let code = field("code");
-    let status = event.get("status").or_else(|| event.get("status_code")).and_then(Value::as_u64);
+    let status = event
+        .get("status")
+        .or_else(|| event.get("status_code"))
+        .and_then(Value::as_u64)
+        .and_then(|status| u16::try_from(status).ok());
     let reason = format!(
         "the server refused the request: status {status:?}, code {code:?}: {}",
         field("message")
     );
-    // NOTE: a refused token or a rate limit is not the socket's fault: the HTTP path
-    // answers them the same way, and the next call tries the socket again.
-    let pause = !ROUTINE_ERRORS.contains(&code) && !matches!(status, Some(401 | 429));
     request.retire();
-    request.deliver(Delivery::Refused(Refusal { reason, pause })).await;
+    let delivery = match status {
+        // NOTE: the server keeps no answer for this connection or ends it at its age
+        // limit; a new connection or HTTP serves the call, and the socket is fine.
+        _ if ROUTINE_ERRORS.contains(&code) => {
+            Delivery::Refused(Refusal { reason, health: Health::Fine })
+        }
+        // NOTE: the HTTP path refreshes a refused token and sends the call again.
+        Some(401) => Delivery::Refused(Refusal { reason, health: Health::Unauthorized }),
+        // NOTE: an error status is the server's answer to the request itself, such as a
+        // rate limit or a context overflow, as Codex reads it
+        // (`map_wrapped_websocket_error_event`). HTTP would answer the same, so the call
+        // fails at once: it does not go out twice, and WebSockets do not pause. A 408
+        // says that the request did not arrive in time, which HTTP may still serve.
+        Some(status) if (400..500).contains(&status) && status != 408 => {
+            Delivery::Rejected(Rejection { status, event: event.clone() })
+        }
+        _ => Delivery::Refused(Refusal { reason, health: Health::Broken }),
+    };
+    request.deliver(delivery).await;
     Served::Dead
 }
 

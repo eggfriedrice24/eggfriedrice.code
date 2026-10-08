@@ -21,7 +21,9 @@
 //! request (it sends an `error` event or closes the connection before the first event
 //! of an answer). The server has then not started an answer, so the HTTP request is the
 //! first and only model call. After a failure that says that WebSockets do not work
-//! now, every call goes over HTTP for [`PAUSE`]. Once the request has gone out, a
+//! now, every call goes over HTTP for [`PAUSE`]. An `error` event with an HTTP error
+//! status, such as a rate limit or a context overflow, is the server's answer to the
+//! request, and the call fails with it as with that answer over HTTP. Once the request has gone out, a
 //! failure that does not show that the server refused it (a broken connection, a
 //! connection that ends without a close, or a timeout) is the call's failure, exactly
 //! as on the HTTP path, because the server may have acted on it and sending the call
@@ -48,6 +50,7 @@ use crate::timing::{Route, Timing};
 mod connection;
 mod continuation;
 
+pub(crate) use connection::Rejection;
 use connection::{Connection, Create, Delivery, Limits, Refusal};
 use continuation::{Plan, plan};
 
@@ -95,6 +98,8 @@ pub(crate) enum Attempt {
     Answered(ProviderStream),
     /// The socket could not serve the call, for `reason`; it goes over HTTP.
     Http(String),
+    /// The server answered the call with an error status; the call fails with it.
+    Rejected(Rejection),
     /// The socket was not tried, for `reason`: WebSockets are paused, or the
     /// conversation's connection is busy. The call goes over HTTP.
     Skipped(String),
@@ -105,8 +110,22 @@ pub(crate) enum Attempt {
 pub(crate) struct ConnectError {
     /// What failed, for the log.
     pub(crate) reason: String,
-    /// True when the failure says that WebSockets do not work now.
-    pub(crate) pause: bool,
+    /// What the failure says about WebSockets.
+    pub(crate) health: Health,
+}
+
+/// What a failure before the server took a call says about WebSockets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Health {
+    /// Nothing: a stale connection or a routine error. The next call tries again.
+    Fine,
+    /// WebSockets do not work now, such as after a refused upgrade: every call goes
+    /// over HTTP for [`PAUSE`].
+    Broken,
+    /// The server refused the token. The HTTP path refreshes it, so one refusal does
+    /// not pause WebSockets; a second one in a row does, because the socket then
+    /// refuses a token that HTTP takes.
+    Unauthorized,
 }
 
 /// The open connections of one provider, one for each conversation.
@@ -121,6 +140,8 @@ pub(crate) struct Sockets {
 struct State {
     connections: HashMap<String, Arc<Connection>>,
     paused_until: Option<Timestamp>,
+    /// The last call that the socket did not serve failed on a refused token.
+    unauthorized: bool,
 }
 
 /// A connection taken for one call. Dropped before its request went out, it frees the
@@ -230,14 +251,17 @@ impl Sockets {
                     early.push(event);
                     if answer {
                         timing.accepted();
+                        self.state().unauthorized = false;
                         break;
                     }
                 }
-                Some(Delivery::Refused(Refusal { reason, pause })) => {
-                    if pause {
-                        self.pause();
-                    }
+                Some(Delivery::Refused(Refusal { reason, health })) => {
+                    self.judge(health);
                     return Attempt::Http(reason);
+                }
+                Some(Delivery::Rejected(rejection)) => {
+                    self.state().unauthorized = false;
+                    return Attempt::Rejected(rejection);
                 }
                 Some(Delivery::Failed(error)) => {
                     // NOTE: the server took the request, or it may have: the connection
@@ -290,10 +314,8 @@ impl Sockets {
         let watch = efr_stdx::time::Stopwatch::start();
         let socket = match self.clock.timeout(CONNECT_TIMEOUT, connect()).await {
             Ok(Ok(socket)) => socket,
-            Ok(Err(ConnectError { reason, pause })) => {
-                if pause {
-                    self.pause();
-                }
+            Ok(Err(ConnectError { reason, health })) => {
+                self.judge(health);
                 return Err(reason);
             }
             Err(_) => {
@@ -313,6 +335,23 @@ impl Sockets {
     #[cfg(test)]
     pub(crate) fn is_busy(&self, key: &str) -> bool {
         self.state().connections.get(key).is_some_and(|connection| connection.is_busy())
+    }
+
+    /// Pauses WebSockets when `health` says so.
+    fn judge(&self, health: Health) {
+        let pause = match health {
+            Health::Fine => false,
+            Health::Broken => true,
+            Health::Unauthorized => {
+                // NOTE: the flag stays set until a call goes through, so after the
+                // pause one more refusal pauses again.
+                let mut state = self.state();
+                std::mem::replace(&mut state.unauthorized, true)
+            }
+        };
+        if pause {
+            self.pause();
+        }
     }
 
     /// Sends every call over HTTP for [`PAUSE`].
@@ -390,6 +429,12 @@ impl Answer {
                     // NOTE: a refusal comes only before the server takes a call, and
                     // this stream starts after that; it is a broken promise of the task.
                     tracing::debug!(reason = %reason, "a refusal after the answer started");
+                    self.pending.push_back(Err(ProviderError::Incomplete));
+                    true
+                }
+                Some(Delivery::Rejected(Rejection { status, .. })) => {
+                    // NOTE: the same broken promise as a refusal.
+                    tracing::debug!(status, "a rejection after the answer started");
                     self.pending.push_back(Err(ProviderError::Incomplete));
                     true
                 }

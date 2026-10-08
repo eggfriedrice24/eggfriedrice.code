@@ -16,20 +16,21 @@ into the GitHub release notes, and it stops when the section is missing.
   token. Each conversation keeps one connection open between the calls of a turn and
   between turns, and closes it after 10 minutes without a call. Before a call on a
   connection that had no call for 30 seconds, efr sends a ping. When the connection
-  died during a sleep of the computer or a change of network, the call goes over
-  HTTP after at most 5 seconds. While the connection
-  holds the previous answer, a call sends only its new input. A call that the server
-  did not take on the WebSocket goes over HTTP. A call whose request went out and
-  whose connection then broke or went silent fails as on HTTP and does not go out
-  again, because the model may already run. When you interrupt a turn, efr stops the answer on the
-  connection and keeps the connection for the next call. The new key
-  `[openai] websocket` chooses the transport: `auto` (the default) uses a WebSocket for each
-  model that the model catalog marks with `prefer_websockets` and HTTP for the other
-  models, so a new catalog from the backend changes the choice from the next call.
-  `on` uses it for every model, and `off` uses HTTP only. The key needs a restart of
-  efrd. The debug log shows the time to the first event of each call with its
-  transport (`phase=provider_accepted` and `phase=provider_first_event`), so you can
-  compare the two.
+  died during a sleep of the computer or a change of network, the call goes over HTTP
+  after at most 5 seconds. While the connection holds the previous answer, a call
+  sends only its new input. A call that the server did not take on the WebSocket goes
+  over HTTP. An error answer on the WebSocket, such as a rate limit or a context
+  overflow, fails the call as it does over HTTP, without a second request. A call
+  whose request went out and whose connection then broke or went silent fails as on
+  HTTP and does not go out again, because the model may already run. When you
+  interrupt a turn, efr stops the answer on the connection and keeps the connection
+  for the next call. The new key `[openai] websocket` chooses the transport: `auto`
+  (the default) uses a WebSocket for each model that the model catalog marks with
+  `prefer_websockets` and HTTP for the other models, so a new catalog from the backend
+  changes the choice from the next call. `on` uses it for every model, and `off` uses
+  HTTP only. The key needs a restart of efrd. The debug log shows the time to the
+  first event of each call with its transport (`phase=provider_accepted` and
+  `phase=provider_first_event`), so you can compare the two.
 - The model edits files with a new `apply_patch` tool. One patch adds, changes,
   deletes or moves one or more files, and it changes all of them or none: when a part
   does not match, the model gets the nearest lines of the file and no file changes.

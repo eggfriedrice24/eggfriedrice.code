@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_http::{
-    ByteStream, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest, HttpResponse,
-    SseStream, StatusCode, WebSocket, header,
+    ByteStream, HeaderMap, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest,
+    HttpResponse, SseStream, StatusCode, WebSocket, header,
 };
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
@@ -24,7 +24,7 @@ use crate::config::Backend;
 use crate::convert::{ResponsesBody, request_body};
 use crate::sse_events::{EventMapper, retry_hint};
 use crate::timing::Timing;
-use crate::websocket::{Attempt, CONNECT_TIMEOUT, ConnectError, Sockets};
+use crate::websocket::{Attempt, CONNECT_TIMEOUT, ConnectError, Health, Rejection, Sockets};
 
 /// The header that routes a subscription request to the account the token belongs to
 /// (goose `chatgpt_codex.rs`, `post_streaming`; Codex sends it as `ChatGPT-Account-ID`,
@@ -153,20 +153,19 @@ impl OpenAiProvider {
     async fn connect(&self, body: &ResponsesBody) -> Result<WebSocket, ConnectError> {
         let token = self.tokens.access_token().await.map_err(|error| ConnectError {
             reason: format!("no access token: {error}"),
-            pause: false,
+            health: Health::Fine,
         })?;
         let request = self.websocket_request(body, &token).map_err(|error| ConnectError {
             reason: format!("the handshake could not be built: {error}"),
-            pause: true,
+            health: Health::Broken,
         })?;
         self.http.websocket(&request).await.map_err(|error| {
-            // NOTE: a refused token is not the socket's fault; the HTTP path refreshes
-            // it, and the next call tries the socket again.
             let unauthorized = matches!(
                 &error,
                 HttpError::UpgradeRefused { status, .. } if *status == StatusCode::UNAUTHORIZED
             );
-            ConnectError { reason: error.to_string(), pause: !unauthorized }
+            let health = if unauthorized { Health::Unauthorized } else { Health::Broken };
+            ConnectError { reason: error.to_string(), health }
         })
     }
 
@@ -227,13 +226,49 @@ impl OpenAiProvider {
     /// The error for a response that is neither a success nor a 401.
     async fn status_error(&self, response: HttpResponse, model: &str) -> ProviderError {
         let status = response.status();
-        let now = self.clock.now();
-        let header_wait = efr_http::retry_after(response.headers(), now);
+        let header_wait = efr_http::retry_after(response.headers(), self.clock.now());
         let body = match response.text().await {
             Ok(body) => body,
             Err(error) => return transport(error),
         };
-        let details = ErrorDetails::parse(&body);
+        self.answer_error(status, header_wait, &body, model)
+    }
+
+    /// The error for an `error` event with an HTTP error status on the WebSocket: the
+    /// same as for an HTTP answer with that status, with the event as its body and its
+    /// `headers` member as the headers.
+    fn rejection_error(&self, rejection: &Rejection, model: &str) -> ProviderError {
+        let Rejection { status, event } = rejection;
+        let mut headers = HeaderMap::new();
+        if let Some(members) = event.get("headers").and_then(Value::as_object) {
+            for (name, value) in members {
+                let text = match value {
+                    Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                };
+                if let (Ok(name), Ok(value)) =
+                    (HeaderName::try_from(name.as_str()), HeaderValue::from_str(&text))
+                {
+                    headers.insert(name, value);
+                }
+            }
+        }
+        let header_wait = efr_http::retry_after(&headers, self.clock.now());
+        let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_REQUEST);
+        self.answer_error(status, header_wait, &event.to_string(), model)
+    }
+
+    /// The error for an error answer with `status` and `body`; `header_wait` is the
+    /// wait that its headers ask for.
+    fn answer_error(
+        &self,
+        status: StatusCode,
+        header_wait: Option<Duration>,
+        body: &str,
+        model: &str,
+    ) -> ProviderError {
+        let now = self.clock.now();
+        let details = ErrorDetails::parse(body);
         let quota = details.codes().any(|code| QUOTA_CODES.contains(&code));
         if status == StatusCode::TOO_MANY_REQUESTS && !quota {
             let reset_wait = details.resets_at.map(|at| {
@@ -293,6 +328,12 @@ impl Provider for OpenAiProvider {
                 .await;
             match attempt {
                 Attempt::Answered(stream) => return Ok(stream),
+                Attempt::Rejected(rejection) => {
+                    span.in_scope(|| {
+                        tracing::debug!(status = rejection.status, "the server refused the model call on the websocket");
+                    });
+                    return Err(self.rejection_error(&rejection, &request.model));
+                }
                 Attempt::Http(reason) => span.in_scope(|| {
                     tracing::warn!(reason = %reason, "the websocket could not serve the model call; it goes over HTTP");
                 }),
