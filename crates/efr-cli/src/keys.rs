@@ -25,15 +25,20 @@
 //! sends the bytes of an escape sequence in one write, so they come together.
 //! [`KeyReader::flush`] throws away what was typed so far without leaving the mode, for
 //! the moment a password line gives the keys back to the row. [`KeyReader::mark`] keeps
-//! it instead: the thread reads every byte that waits in the terminal, sends it, and then
-//! sends [`Read::Marked`], so the keys typed before a question appeared can go to the
-//! row and only the keys typed after it answer the question.
+//! it instead, and tells the keys typed before a question appeared, which can go to the
+//! row, from the keys typed after it, which answer the question. It counts at once, on
+//! the caller's thread, the keys that the thread took from the terminal and the bytes
+//! that still wait in the terminal (`FIONREAD`): the keys up to that count come before
+//! the mark. The thread may be inside a read when the mark comes, so it cannot tell
+//! itself whether a byte that the read returns came before the mark. Without a count,
+//! the thread reads every byte that waits in the terminal when it sees the mark, sends
+//! it, and then sends [`Read::Marked`].
 
 use std::fmt;
 use std::io;
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use efr_protocol::ApprovalDecision;
 use rustix::termios::{
@@ -122,6 +127,9 @@ struct Flags {
     /// Set the key mode again: a stop (Ctrl+Z) gave the terminal to the shell, which
     /// may have changed it.
     reapply: AtomicBool,
+    /// How many keys the thread took from the terminal so far. It counts a key as soon
+    /// as its byte is read, before it sends the key.
+    taken: AtomicU64,
 }
 
 /// Keys as they are typed, until [`stop`](KeyReader::stop).
@@ -141,6 +149,15 @@ pub(crate) struct KeyReader {
     /// A mark was asked for and the thread did not confirm it yet: the keys until then
     /// were typed before the mark.
     marking: bool,
+    /// A descriptor of the terminal, to count the bytes that wait in it at a mark;
+    /// `None` for a test's channel.
+    tty: Option<OwnedFd>,
+    /// How many keys came from the queue so far, also those that a flush threw away.
+    received: u64,
+    /// The keys numbered below this one were typed before the last counted mark.
+    mark_end: u64,
+    /// The key that came last was typed before the last mark.
+    last_before: bool,
     done: oneshot::Receiver<()>,
 }
 
@@ -157,6 +174,10 @@ impl KeyReader {
             confirms: false,
             flushing: false,
             marking: false,
+            tty: None,
+            received: 0,
+            mark_end: 0,
+            last_before: false,
             done,
         }
     }
@@ -179,11 +200,37 @@ impl KeyReader {
     /// then says whether it was typed before the last mark.
     pub(crate) async fn next(&mut self) -> Option<Key> {
         loop {
-            match self.keys.recv().await? {
-                Read::Flushed => self.flushing = false,
-                Read::Marked => self.marking = false,
-                Read::Key(_) if self.flushing => {}
-                Read::Key(key) => return Some(key),
+            let read = self.keys.recv().await?;
+            if let Some(key) = self.take(read) {
+                return Some(key);
+            }
+        }
+    }
+
+    /// What `read` from the queue gives: a key, unless a flush throws it away. It
+    /// counts the key and notes whether it came before the last mark.
+    fn take(&mut self, read: Read) -> Option<Key> {
+        match read {
+            Read::Flushed => {
+                self.flushing = false;
+                // NOTE: a key that the flush threw away never comes, so the count of a
+                // mark may be too high now; the keys after the flush count as typed
+                // after the mark, so they never land in the row by mistake.
+                self.mark_end = self.mark_end.min(self.received);
+                None
+            }
+            Read::Marked => {
+                self.marking = false;
+                None
+            }
+            Read::Key(key) => {
+                let index = self.received;
+                self.received = self.received.saturating_add(1);
+                if self.flushing {
+                    return None;
+                }
+                self.last_before = self.marking || index < self.mark_end;
+                Some(key)
             }
         }
     }
@@ -191,16 +238,26 @@ impl KeyReader {
     /// True while the keys come from before the last [`mark`](Self::mark): the key that
     /// [`next`](Self::next) or [`queued`](Self::queued) gave last was typed before it.
     pub(crate) fn before_mark(&self) -> bool {
-        self.marking
+        self.last_before
     }
 
     /// Marks the keys typed so far, also those that the thread did not read yet: they
     /// come first, and [`before_mark`](Self::before_mark) is true for them. The keys
-    /// typed after the mark answer a question that appears now.
+    /// typed after the mark answer a question that appears now. The count is taken
+    /// now, so a key that the thread reads a moment later is never counted before the
+    /// mark.
     pub(crate) fn mark(&mut self) {
-        if self.confirms {
-            self.flags.mark.store(true, Ordering::Release);
-            self.marking = true;
+        let waiting = self.tty.as_ref().and_then(|tty| rustix::io::ioctl_fionread(tty).ok());
+        match waiting {
+            Some(waiting) => {
+                let taken = self.flags.taken.load(Ordering::Acquire);
+                self.mark_end = taken.saturating_add(waiting);
+            }
+            None if self.confirms => {
+                self.flags.mark.store(true, Ordering::Release);
+                self.marking = true;
+            }
+            None => {}
         }
     }
 
@@ -213,11 +270,9 @@ impl KeyReader {
     /// The next key that already waits in the queue, without waiting for one.
     pub(crate) fn queued(&mut self) -> Option<Key> {
         loop {
-            match self.keys.try_recv().ok()? {
-                Read::Flushed => self.flushing = false,
-                Read::Marked => self.marking = false,
-                Read::Key(_) if self.flushing => {}
-                Read::Key(key) => return Some(key),
+            let read = self.keys.try_recv().ok()?;
+            if let Some(key) = self.take(read) {
+                return Some(key);
             }
         }
     }
@@ -262,12 +317,7 @@ impl KeyReader {
         // NOTE: the thread sees the stop flag within one read timeout. It drops its end
         // of the queue once it has restored the terminal, so the queue ends then.
         while let Some(read) = self.keys.recv().await {
-            match read {
-                Read::Flushed => self.flushing = false,
-                Read::Marked => self.marking = false,
-                Read::Key(_) if self.flushing => {}
-                Read::Key(key) => kept.push(key),
-            }
+            kept.extend(self.take(read));
         }
         self.finish().await;
         kept
@@ -334,6 +384,8 @@ pub(crate) fn start_on(fd: OwnedFd, typeahead: Typeahead) -> Result<KeyReader, C
     let (sender, keys) = mpsc::channel(KEY_QUEUE);
     let (finished, done) = oneshot::channel();
     let flags = Arc::new(Flags::default());
+    // NOTE: without it, a mark waits for the thread, as it did before marks counted.
+    let tty = rustix::io::dup(&fd).ok();
     let thread_flags = Arc::clone(&flags);
     efr_stdx::thread::spawn_named("efr-keys", THREAD_STACK, move || {
         if let Err(error) = read_keys(&fd, &sender, &thread_flags, typeahead) {
@@ -349,6 +401,10 @@ pub(crate) fn start_on(fd: OwnedFd, typeahead: Typeahead) -> Result<KeyReader, C
         confirms: true,
         flushing: false,
         marking: false,
+        tty,
+        received: 0,
+        mark_end: 0,
+        last_before: false,
         done,
     })
 }
@@ -386,20 +442,23 @@ fn read_keys(
                 break;
             }
         }
-        if flags.mark.swap(false, Ordering::AcqRel) && !send_waiting(fd, keys)? {
+        if flags.mark.swap(false, Ordering::AcqRel) && !send_waiting(fd, keys, flags)? {
             break;
         }
         let Some(byte) = read_byte(fd)? else {
             continue;
         };
+        flags.taken.fetch_add(1, Ordering::AcqRel);
         let sent = if byte == ESC {
             // NOTE: the rest of an escape sequence comes in the same write; an escape
             // byte that nothing follows within one read timeout is the Esc key.
             match read_byte(fd)? {
                 None => keys.blocking_send(Read::Key(Key::Esc)),
-                Some(next) => keys
-                    .blocking_send(Read::Key(Key::Byte(ESC)))
-                    .and_then(|()| keys.blocking_send(Read::Key(Key::Byte(next)))),
+                Some(next) => {
+                    flags.taken.fetch_add(1, Ordering::AcqRel);
+                    keys.blocking_send(Read::Key(Key::Byte(ESC)))
+                        .and_then(|()| keys.blocking_send(Read::Key(Key::Byte(next))))
+                }
             }
         } else {
             keys.blocking_send(Read::Key(Key::Byte(byte)))
@@ -413,7 +472,7 @@ fn read_keys(
 
 /// Sends every byte that waits in `fd` now, each as a byte (an escape byte too), then
 /// [`Read::Marked`]. False when the consumer is gone.
-fn send_waiting(fd: &OwnedFd, keys: &mpsc::Sender<Read>) -> io::Result<bool> {
+fn send_waiting(fd: &OwnedFd, keys: &mpsc::Sender<Read>, flags: &Flags) -> io::Result<bool> {
     // NOTE: a terminal that cannot count its input marks at once; the keys typed before
     // then come after the mark, as they did before marks existed.
     let waiting = rustix::io::ioctl_fionread(fd).unwrap_or(0);
@@ -421,6 +480,7 @@ fn send_waiting(fd: &OwnedFd, keys: &mpsc::Sender<Read>) -> io::Result<bool> {
         let Some(byte) = read_byte(fd)? else {
             break;
         };
+        flags.taken.fetch_add(1, Ordering::AcqRel);
         if keys.blocking_send(Read::Key(Key::Byte(byte))).is_err() {
             return Ok(false);
         }

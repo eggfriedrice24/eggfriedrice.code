@@ -321,7 +321,7 @@ async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
         conn.until_closed().await;
     };
     let line = command(&["settings", "--mode", "auto"]);
-    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    let (exit, ()) = tokio::join!(Box::pin(run::run(&line, &ctx, &mut out)), script);
     assert_eq!(exit, Exit::Success, "{}", captured.stderr());
     assert!(captured.stdout().starts_with("mode = auto  # --mode;"), "{}", captured.stdout());
     captured.stderr()

@@ -414,8 +414,9 @@ last part of the live zone, below the status row. Inline only: no alternate scre
 - A question, an answer line and the keys that an allowed call keeps take the keys
   first: the row hides, keeps its text, and comes back after. The keys typed before
   the question appeared go into the row: those that the reader queued, and those still
-  in the terminal, which the key thread reads and then marks (`KeyReader::mark`,
-  `FIONREAD`). A paste that the question cut goes on into the row until its end, for
+  in the terminal (`KeyReader::mark`). The mark counts them at once: the keys that
+  the key thread took and the bytes that wait in the terminal (`FIONREAD`). So a key
+  that the thread reads a moment after the question showed never goes into the row. A paste that the question cut goes on into the row until its end, for
   at most 1 s; then the row ends it with the text that came. A key among them that
   would send stays text there. When the keys come back, the row drops an escape
   sequence that the question cut. Before the keys go back to the row after an answer line, a call that

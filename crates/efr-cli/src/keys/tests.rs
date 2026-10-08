@@ -279,19 +279,51 @@ async fn a_mark_keeps_what_was_typed_and_tells_it_from_what_comes_after() {
     let mut reader = full_reader(&master, slave, &probe).await;
 
     reader.mark();
+    rustix::io::write(&master, b"y").unwrap();
     for _ in 0..2 * KEY_QUEUE {
         assert_eq!(reader.next().await, Some(Key::Byte(b'x')), "every key typed before");
         assert!(reader.before_mark());
     }
-    Wait::new("the mark")
-        .until(|| {
-            let _ = reader.queued();
-            !reader.before_mark()
-        })
-        .await
+    assert_eq!(reader.next().await, Some(Key::Byte(b'y')));
+    assert!(!reader.before_mark(), "typed after the mark");
+    reader.stop().await;
+}
+
+/// The review finding: the thread saw a mark only after its read returned, so a key
+/// typed just after the mark, which that read returned, counted as typed before it and
+/// went to the input row, also the first letters of a password. The count is taken at
+/// the mark now.
+#[tokio::test]
+async fn a_key_that_a_read_returns_after_the_mark_counts_as_typed_after_it() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let mut reader = start_on(slave, Typeahead::Keep).unwrap();
+    wait_for_key_mode(&probe);
+    rustix::io::write(&master, b"a").unwrap();
+    assert_eq!(reader.next().await, Some(Key::Byte(b'a')));
+
+    reader.mark();
+    rustix::io::write(&master, b"h").unwrap();
+    assert_eq!(reader.next().await, Some(Key::Byte(b'h')));
+    assert!(!reader.before_mark(), "typed after the mark");
+    reader.stop().await;
+}
+
+/// A key that a flush threw away never comes, so the keys after the flush count as
+/// typed after the mark.
+#[tokio::test]
+async fn after_a_flush_no_key_counts_as_typed_before_the_mark() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let mut reader = full_reader(&master, slave, &probe).await;
+
+    reader.flush();
+    reader.mark();
+    Wait::new("an empty input queue")
+        .until_blocking(|| rustix::io::ioctl_fionread(&probe).unwrap() == 0)
         .unwrap();
     rustix::io::write(&master, b"y").unwrap();
-    assert_eq!(reader.next().await, Some(Key::Byte(b'y')));
+    assert_eq!(reader.next().await, Some(Key::Byte(b'y')), "only the key after the flush");
     assert!(!reader.before_mark(), "typed after the mark");
     reader.stop().await;
 }
