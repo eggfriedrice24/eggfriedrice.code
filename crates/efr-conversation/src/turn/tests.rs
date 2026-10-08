@@ -882,6 +882,49 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
 }
 
 #[tokio::test]
+async fn a_cd_of_the_user_between_prompts_moves_the_hidden_shell_there() {
+    let setup = Setup::new();
+    let elsewhere = setup.dirs.create_dir("home/elsewhere").expect("directory");
+    let shell = PathBuf::from("/var/log");
+    let mut first_state = setup.live_state(&setup.cwd, "first");
+    first_state.agent_cwd = Some(shell.clone());
+    let mut moved_state = setup.live_state(&elsewhere, "first");
+    moved_state.agent_cwd = Some(elsewhere.clone());
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&first_state, "first")])),
+        answer(&text_answer("One.")),
+        expect_request(request(vec![
+            Message::user("first"),
+            Message::assistant("One."),
+            setup.prompt(&first_state, "second"),
+        ])),
+        answer(&text_answer("Two.")),
+        expect_request(request(vec![
+            Message::user("first"),
+            Message::assistant("One."),
+            Message::user("second"),
+            Message::assistant("Two."),
+            setup.prompt(&moved_state, "third"),
+        ])),
+        answer(&text_answer("Three.")),
+    ];
+    let mut h = setup.start(records).await;
+    *h.toolbox.shell_cwd.lock().unwrap() = Some(shell);
+
+    let first = h.prompt("first").await;
+    h.wait_end(first.turn_id).await;
+    let second = h.prompt("second").await;
+    h.wait_end(second.turn_id).await;
+    assert_eq!(*h.toolbox.moved.lock().unwrap(), Vec::<PathBuf>::new(), "the user did not move");
+
+    let third = h.prompt_in(&elsewhere, "third").await;
+    h.wait_end(third.turn_id).await;
+
+    assert_eq!(*h.toolbox.moved.lock().unwrap(), vec![elsewhere]);
+    h.finish();
+}
+
+#[tokio::test]
 async fn the_preamble_names_where_the_live_hidden_shell_is() {
     let setup = Setup::new();
     let mut state = setup.live_state(&setup.cwd, "where");

@@ -67,6 +67,9 @@ pub(crate) struct FakeToolbox {
     pub(crate) hang_started: Notify,
     /// What [`Toolbox::shell_cwd`] answers.
     pub(crate) shell_cwd: Mutex<Option<PathBuf>>,
+    /// Every directory that [`Toolbox::move_shell`] moved the shell to. A move also sets
+    /// [`shell_cwd`](Self::shell_cwd).
+    pub(crate) moved: Mutex<Vec<PathBuf>>,
     /// The context of every call that `requirements` was asked about.
     judged: Mutex<Vec<CallContext>>,
     /// The context of every call that reached `invoke`.
@@ -221,6 +224,11 @@ impl Toolbox for FakeToolbox {
 
     async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
         self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    async fn move_shell(&self, _conversation_id: ConversationId, dir: &Path) {
+        self.moved.lock().unwrap_or_else(PoisonError::into_inner).push(dir.to_path_buf());
+        *self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir.to_path_buf());
     }
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {

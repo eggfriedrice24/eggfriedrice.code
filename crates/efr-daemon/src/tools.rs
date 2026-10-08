@@ -19,7 +19,7 @@
 //! may wait for input running past the model's timeout, up to
 //! `shell.interactive_timeout_minutes`, while one of them follows the conversation.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -504,6 +504,12 @@ impl Toolbox for DaemonToolbox {
             .await
             .ok()
             .map(|state| state.effective_cwd().to_path_buf())
+    }
+
+    async fn move_shell(&self, conversation_id: ConversationId, dir: &Path) {
+        if let Err(error) = self.shells.move_to(conversation_id, dir).await {
+            tracing::info!(%conversation_id, %error, "the hidden shell stays where it is");
+        }
     }
 
     async fn restore_quarantine(

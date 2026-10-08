@@ -21,7 +21,7 @@
 //! the same as without the restart. Only a turn with neither is rebuilt.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{ConversationId, ConversationSummary, Event, EventEnvelope, Seq, TurnId};
@@ -124,6 +124,16 @@ impl Snapshot {
             })
             .await
             .map_err(ConversationError::from_store)
+    }
+
+    /// The user's directory when the newest earlier turn started, from its
+    /// `turn_started`; `None` when the page holds no earlier turn. `current` is the
+    /// turn being assembled, which never counts.
+    pub(crate) fn previous_cwd(&self, current: TurnId) -> Option<&Path> {
+        self.page.iter().rev().find_map(|envelope| match &envelope.event {
+            Event::TurnStarted { turn_id, cwd, .. } if *turn_id != current => Some(cwd.as_path()),
+            _ => None,
+        })
     }
 
     /// Where the conversation's hidden shell is, from the newest shell event in the

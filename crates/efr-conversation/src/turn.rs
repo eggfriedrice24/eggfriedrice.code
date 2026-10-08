@@ -373,6 +373,15 @@ impl Turn {
             }
         };
 
+        // NOTE: a `cd` of the user between two prompts moves the hidden shell too, so
+        // the model works where the user now is. Without such a move the shell stays
+        // where the model left it.
+        if self.spec.context.is_some()
+            && let Some(before) = snapshot.previous_cwd(turn_id)
+            && before != self.cwd
+        {
+            shared.deps.toolbox.move_shell(shared.conversation_id, &self.cwd).await;
+        }
         let agent_cwd = match shared.deps.toolbox.shell_cwd(shared.conversation_id).await {
             Some(cwd) => Some(cwd),
             None => snapshot.agent_cwd(),

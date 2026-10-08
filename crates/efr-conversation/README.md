@@ -125,6 +125,9 @@ A turn reads one snapshot of the conversation through the store's readers, deriv
 scope from the user's working directory (`ScopeResolver`, `GitScopeResolver` over
 `efr_scope::derive` with the registry file read every turn), records `turn_started`
 (and `scope_changed` when the user moved), makes sure `$SCRATCH` exists, and builds the
+request below. When the user's directory differs from the one of the newest earlier
+`turn_started`, the turn first calls `Toolbox::move_shell`, so the hidden shell goes
+where the user went; without such a move the shell stays where the model left it. The
 request:
 
 1. the system prompt (the static rules, `ConversationConfig::system_prompt`);

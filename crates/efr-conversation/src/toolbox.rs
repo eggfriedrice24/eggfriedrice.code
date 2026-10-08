@@ -10,7 +10,7 @@
 //! point stays in `turn.rs`: a toolbox declares, the engine decides, the turn enforces.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
@@ -63,6 +63,12 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
         None
     }
+
+    /// Moves the conversation's hidden shell to `dir`, because the user went there
+    /// since the previous prompt. A shell that cannot move (a command still runs in
+    /// it) stays where it is, and [`shell_cwd`](Toolbox::shell_cwd) then says where.
+    /// The default does nothing.
+    async fn move_shell(&self, _conversation_id: ConversationId, _dir: &Path) {}
 
     /// Stops the work of a call whose [`invoke`](Toolbox::invoke) future the turn
     /// dropped because the user interrupted it, such as a command still running in the

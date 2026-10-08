@@ -96,6 +96,12 @@ into the GitHub release notes, and it stops when the section is missing.
   with "an earlier command is still running", although no command ran. The startup
   timeout (10 s) limits that wait now. When a new shell never shows a ready prompt,
   the model reads that no command ran in it yet.
+- The hidden shell now follows you when you change directories between two prompts.
+  Before, it stayed where the model left it, so the model worked in the old directory
+  or used long paths. Now efrd moves the shell to your new directory before the turn
+  starts. The shell keeps its variables. When you did not move, the shell stays where
+  the model put it. While a command still runs in the shell, the shell stays, and the
+  model reads where it is.
 
 ## [0.0.2] - 2026-10-08
 
