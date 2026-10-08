@@ -372,7 +372,9 @@ spec; `docs/sandbox.md` for the user's view):
   `changes` and `diff`, in every directory. A created file is `added`, a deleted one
   `deleted` and a moved one `renamed` with the path it came from. The diff holds the
   diff of each file in the order the call changed them, one after the other, with
-  each header naming the shown paths (`/dev/null` for the side that is missing).
+  each header naming the shown paths (`/dev/null` for the side that is missing). A
+  shown path that is absolute keeps its `/` after `a/` and `b/`, such as
+  `+++ b//etc/x.conf`, so a client does not show it as a path in the project.
   The approval preview of an `apply_patch` call names the same shown paths, in its
   headers and in its `delete` and `move` lines; the lines of each hunk stay as
   they are.

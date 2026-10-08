@@ -239,14 +239,14 @@ fn with_shown_header(text: &str, old: (&Path, &str), new: (&Path, &str)) -> Stri
     let mut rest = text;
     let mut out = String::with_capacity(text.len());
     if let Some(after) = rest.strip_prefix(old_line.as_str()) {
-        out.push_str(&format!("--- a/{}\n", old.1.trim_start_matches('/')));
+        out.push_str(&format!("--- a/{}\n", old.1));
         rest = after;
     } else if let Some(after) = rest.strip_prefix("--- /dev/null\n") {
         out.push_str("--- /dev/null\n");
         rest = after;
     }
     if let Some(after) = rest.strip_prefix(new_line.as_str()) {
-        out.push_str(&format!("+++ b/{}\n", new.1.trim_start_matches('/')));
+        out.push_str(&format!("+++ b/{}\n", new.1));
         rest = after;
     } else if let Some(after) = rest.strip_prefix("+++ /dev/null\n") {
         out.push_str("+++ /dev/null\n");
@@ -265,7 +265,7 @@ fn with_shown_paths(text: &str, shown: impl Fn(&Path) -> String) -> String {
     let absolute = |path: &str| path.starts_with('/').then(|| shown(Path::new(path)));
     let side = |line: &str, start: &str, prefix: &str| -> Option<String> {
         let path = line.strip_prefix(start)?;
-        absolute(path).map(|path| format!("{prefix}{}", path.trim_start_matches('/')))
+        absolute(path).map(|path| format!("{prefix}{path}"))
     };
     let mut out = String::with_capacity(text.len());
     // The old and new lines that the current hunk still has.

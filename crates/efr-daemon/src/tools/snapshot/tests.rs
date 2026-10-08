@@ -72,7 +72,7 @@ fn a_patch_preview_names_the_shown_paths_and_keeps_its_hunk_lines() {
         "--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n--- a/home/u/p/x\n+++ b/home/u/p/y\n\
          --- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+delete /home/u/p/n\n\
          delete old.rs\n--- a/old.rs\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-x\n\
-         move e.rs -> /etc/f.rs\n--- a/e.rs\n+++ b/etc/f.rs\n\
+         move e.rs -> /etc/f.rs\n--- a/e.rs\n+++ b//etc/f.rs\n\
          @@ -1,3 +1,3 @@\n a\n-b\n... 2 more lines\n--- a/z\n+++ b/z\n"
     );
 }
@@ -107,7 +107,9 @@ fn a_write_shows_as_a_change_with_its_diff_under_scratch_home_or_absolute() {
     let (changes, diff) =
         snapshots.written(&call, &file(PathBuf::from("/etc/x.conf"), Some("a\n")));
     assert_eq!(changes.unwrap().files[0].path, "/etc/x.conf");
-    assert!(diff.unwrap().starts_with("--- a/etc/x.conf\n+++ b/etc/x.conf\n"));
+    // The path stays absolute after `a/` and `b/`, so a client does not show it as a
+    // path in the project.
+    assert!(diff.unwrap().starts_with("--- a//etc/x.conf\n+++ b//etc/x.conf\n"));
 
     let same = file(home.join("p/same.rs"), Some("one\ntwo\n"));
     assert_eq!(snapshots.written(&call, &same), (None, None), "no change, no line");

@@ -195,6 +195,12 @@ fn a_preview_marks_a_delete_and_a_move_before_their_diff() {
     // A move without a change has its headers and no lines.
     assert_eq!(diffs[2].parts.head, ["--- a/a.rs", "+++ b/b.rs"]);
     assert!(diffs[2].parts.body.is_empty());
+    let outside = file_diffs("--- /dev/null\n+++ b//tmp/notes.txt\n@@ -0,0 +1 @@\n+x\n");
+    assert_eq!(
+        outside[0].file,
+        DiffFile::Add("/tmp/notes.txt".to_owned()),
+        "an absolute path stays"
+    );
     let renamed =
         file_diffs("--- a/x.rs\n+++ b/y.rs\n--- a/z.rs\n+++ b/z.rs\n@@ -1 +1 @@\n-a\n+b\n");
     assert_eq!(renamed[0].file, DiffFile::Move { from: "x.rs".to_owned(), to: "y.rs".to_owned() });

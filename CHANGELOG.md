@@ -26,8 +26,10 @@ into the GitHub release notes, and it stops when the section is missing.
   new notes.md +2, delete old.rs`, and never the text of the patch. After the call,
   each file gets its own diff block with a row that names it, and
   `render.diff_lines` applies to each file. The approval of a patch shows the diff of
-  every file, and marks a delete or a move in the warning colour. While the model
-  writes the patch, the status row shows `preparing apply_patch, 3.2 KB`.
+  every file, and marks a delete or a move in the warning colour. A file outside the
+  project, `$SCRATCH` and your home keeps its absolute path, such as `/etc/hosts`.
+  While the model writes the patch, the status row shows `preparing apply_patch,
+  3.2 KB`.
 - An input row below a running turn, in the terminal that follows it. Type there while
   the turn runs: Enter steers the turn, Tab queues the text as a prompt behind it, Esc
   interrupts it and Alt+Up takes back the newest prompt that you queued there. The row
