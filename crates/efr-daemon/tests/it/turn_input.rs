@@ -2,7 +2,7 @@
 //! `prompt.withdraw`, and the interrupt of Esc that withdraws prompts and sends unread
 //! steers again. A retried command answers exactly as the first time, also the
 //! sequence numbers inside a result. A model that waits for the test holds each turn,
-//! so nothing depends on timing.
+//! and the tests steer only once a model call started, so nothing depends on timing.
 
 use std::sync::Arc;
 
@@ -18,23 +18,35 @@ use efr_provider::{
 use efr_test_daemon::{Client, ClientError, TTY, TestDaemon, command_id, events_until};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 
 /// A model that answers `ok` to each call once the test lets one more call through.
 #[derive(Debug)]
 struct Gated {
     id: ProviderId,
     calls: Arc<Semaphore>,
+    /// How many model calls have started. A call takes the unread steers of its turn
+    /// before it starts, so a steer sent after a start stays unread.
+    started: watch::Sender<usize>,
 }
 
 impl Gated {
     fn new() -> Arc<Self> {
-        Arc::new(Gated { id: ProviderId::new("test").unwrap(), calls: Arc::new(Semaphore::new(0)) })
+        Arc::new(Gated {
+            id: ProviderId::new("test").unwrap(),
+            calls: Arc::new(Semaphore::new(0)),
+            started: watch::channel(0).0,
+        })
     }
 
     /// Lets `count` more model calls answer.
     fn allow(&self, count: usize) {
         self.calls.add_permits(count);
+    }
+
+    /// Waits until `count` model calls have started.
+    async fn started(&self, count: usize) {
+        self.started.subscribe().wait_for(|started| *started >= count).await.unwrap();
     }
 }
 
@@ -45,6 +57,7 @@ impl Provider for Gated {
     }
 
     async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+        self.started.send_modify(|started| *started += 1);
         let calls = Arc::clone(&self.calls);
         let events = futures::stream::once(async move {
             // NOTE: the permit is used up, so each call takes one.
@@ -68,8 +81,9 @@ async fn start(model: &Arc<Gated>) -> (TestDaemon, Client) {
     (daemon, client)
 }
 
-/// Sends a prompt and waits until its turn started, so it holds in the model.
-async fn running(daemon: &TestDaemon, client: &Client, n: u128) -> PromptSendResult {
+/// Sends a prompt and waits until its turn holds in its first model call, so a steer
+/// sent after this stays unread.
+async fn running(model: &Gated, daemon: &TestDaemon, client: &Client, n: u128) -> PromptSendResult {
     let sent: PromptSendResult = client.call(daemon.prompt(n, "first", TTY)).await.unwrap();
     let mut follow = daemon.follow(client, sent.conversation_id).await.unwrap();
     let turn_id = sent.turn_id;
@@ -79,6 +93,7 @@ async fn running(daemon: &TestDaemon, client: &Client, n: u128) -> PromptSendRes
     )
     .await
     .unwrap();
+    model.started(1).await;
     sent
 }
 
@@ -134,7 +149,7 @@ fn code(refused: Result<Value, ClientError>) -> ErrorCode {
 async fn a_late_steer_becomes_a_prompt_and_a_retry_answers_from_its_receipt() {
     let model = Gated::new();
     let (daemon, client) = start(&model).await;
-    let sent = running(&daemon, &client, 1).await;
+    let sent = running(&model, &daemon, &client, 1).await;
     let conversation_id = sent.conversation_id;
     let stop = Method::TurnInterrupt(TurnInterrupt {
         command_id: command_id(2),
@@ -200,7 +215,7 @@ async fn a_late_steer_to_a_conversation_without_an_actor_starts_a_prompt() {
 async fn a_queued_prompt_is_withdrawn_once_and_a_retry_answers_from_its_receipt() {
     let model = Gated::new();
     let (daemon, client) = start(&model).await;
-    let sent = running(&daemon, &client, 1).await;
+    let sent = running(&model, &daemon, &client, 1).await;
     let conversation_id = sent.conversation_id;
     let second: PromptSendResult = client.call(daemon.prompt(2, "second", TTY)).await.unwrap();
     let third: PromptSendResult = client.call(daemon.prompt(3, "third", TTY)).await.unwrap();
@@ -244,7 +259,7 @@ async fn a_queued_prompt_is_withdrawn_once_and_a_retry_answers_from_its_receipt(
 async fn esc_withdraws_and_resends_in_one_step_and_a_retry_gets_the_same_numbers() {
     let model = Gated::new();
     let (daemon, client) = start(&model).await;
-    let sent = running(&daemon, &client, 1).await;
+    let sent = running(&model, &daemon, &client, 1).await;
     let conversation_id = sent.conversation_id;
     let steered: TurnSteerResult =
         client.call(steer(2, conversation_id, sent.turn_id, true)).await.unwrap();
