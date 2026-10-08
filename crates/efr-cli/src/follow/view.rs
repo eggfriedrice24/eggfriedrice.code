@@ -87,6 +87,7 @@
 //! question id: it is not an approval of a call.
 
 mod call;
+mod input;
 mod message;
 mod status;
 
@@ -97,7 +98,7 @@ use std::time::Duration;
 use efr_protocol::{
     ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
     ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange,
-    TurnId,
+    TurnId, TurnInterruptResult,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -105,10 +106,13 @@ use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
 use crate::format::{self, Block, Spacing, Tone, sandbox};
+use crate::keys::Key;
 use crate::live::{LiveZone, Measured, effective_width, fits, rows_of};
 use crate::progress;
+use crate::row::Action;
 use crate::terminal::{Size, at_width};
 use call::{Call, Outcome};
+use input::{Input, Queued, user_message};
 use message::Message;
 use status::{State, Status, spinner};
 
@@ -119,6 +123,18 @@ const HIDE_CURSOR: &str = "\x1b[?25l";
 
 /// Shows the cursor again.
 const SHOW_CURSOR: &str = "\x1b[?25h";
+
+/// Turns bracketed paste on while the input row shows: a pasted newline never sends.
+const PASTE_ON: &str = "\x1b[?2004h";
+
+/// Turns bracketed paste off again.
+const PASTE_OFF: &str = "\x1b[?2004l";
+
+/// The note when an interrupt sent the unread steers again as a new prompt.
+const RESENT: &str = "interrupted to send your message";
+
+/// The note when the followed prompt was taken back before it ran.
+const WITHDRAWN: &str = "the prompt was taken back before it ran";
 
 /// What starts the title of an approval of the turn that the followed one waits
 /// behind.
@@ -190,6 +206,8 @@ pub(crate) enum TurnEnd {
     Interrupted,
     /// The daemon cancelled it at a restart.
     Cancelled,
+    /// Its prompt was taken back before it started (`prompt_withdrawn`).
+    Withdrawn,
 }
 
 /// What one input to the view produced.
@@ -472,6 +490,12 @@ pub(crate) struct TurnView {
     /// steer that the conversation records and not the turn, move nothing: the drafts
     /// after them still name the turn's own last event.
     draft_boundary: Option<Seq>,
+    /// The sequence number of the event that is being taken.
+    event_seq: Option<Seq>,
+    /// The input row, on a terminal whose keys the follow loop reads for it.
+    input: Option<Input>,
+    /// This view asked to interrupt the followed turn (Esc).
+    interrupting: bool,
 }
 
 impl TurnView {
@@ -519,6 +543,9 @@ impl TurnView {
             event_at: None,
             started_at: None,
             draft_boundary: None,
+            event_seq: None,
+            input: None,
+            interrupting: false,
         }
     }
 
@@ -526,6 +553,153 @@ impl TurnView {
     pub(crate) fn with_look(mut self, look: Look) -> TurnView {
         self.look = look;
         self
+    }
+
+    /// The same view with the input row, on a terminal: the follow loop reads its keys.
+    pub(crate) fn with_input(mut self) -> TurnView {
+        if self.terminal() {
+            self.input = Some(Input::default());
+        }
+        self
+    }
+
+    /// The turn that the view follows now. It changes when the turn ends and a prompt
+    /// that this view queued runs next.
+    pub(crate) fn turn(&self) -> TurnId {
+        self.turn
+    }
+
+    /// True while the input row can take keys: it exists and the view did not end.
+    pub(crate) fn has_row(&self) -> bool {
+        self.input.is_some() && !self.ended
+    }
+
+    /// Keys come to the input row (`shown`), or something else takes them meanwhile:
+    /// a question or an answer line. The row hides then and keeps its text.
+    pub(crate) fn show_row(&mut self, shown: bool) {
+        if let Some(input) = &mut self.input
+            && input.shown != shown
+        {
+            input.shown = shown;
+            self.dirty = true;
+        }
+    }
+
+    /// Takes a key for the input row and says what it asks for.
+    pub(crate) fn row_key(&mut self, key: Key) -> Action {
+        let Some(input) = &mut self.input else {
+            return Action::None;
+        };
+        let action = input.line.key(key);
+        if action == Action::Edited {
+            self.dirty = true;
+        }
+        action
+    }
+
+    /// The text of the input row; empty without one.
+    pub(crate) fn row_text(&self) -> &str {
+        self.input.as_ref().map_or("", |input| input.line.text())
+    }
+
+    /// True when the input row holds text that is not blank, which Enter and Tab send.
+    pub(crate) fn row_ready(&self) -> bool {
+        self.input.as_ref().is_some_and(|input| !input.line.is_blank())
+    }
+
+    /// Takes the text of the input row and leaves it empty.
+    pub(crate) fn row_take(&mut self) -> String {
+        self.dirty = true;
+        self.input.as_mut().map(|input| input.line.take()).unwrap_or_default()
+    }
+
+    /// Clears the input row; true when it held text.
+    pub(crate) fn row_clear(&mut self) -> bool {
+        let cleared = self.input.as_mut().is_some_and(|input| input.line.clear());
+        self.dirty |= cleared;
+        cleared
+    }
+
+    /// Puts `text` into the input row after its text, on a line of its own.
+    pub(crate) fn row_append(&mut self, text: &str) {
+        if let Some(input) = &mut self.input {
+            input.line.append(text);
+            self.dirty = true;
+        }
+    }
+
+    /// The daemon recorded `text` as steer `seq` of this view: it waits for a model call
+    /// to read it.
+    pub(crate) fn steered(&mut self, seq: Seq, text: String) {
+        if let Some(input) = &mut self.input {
+            input.steered(seq, text);
+            self.dirty = true;
+        }
+    }
+
+    /// The daemon queued `text` as the prompt of `turn` for this view. `late` for a
+    /// steer that came after its turn stopped reading steers.
+    pub(crate) fn queued_prompt(&mut self, turn: TurnId, text: String, late: bool) {
+        if let Some(input) = &mut self.input {
+            input.queued(turn, text, late);
+            self.dirty = true;
+        }
+    }
+
+    /// The unread steers of this view, by sequence number.
+    pub(crate) fn unread_steers(&self) -> Vec<Seq> {
+        self.input.as_ref().map(Input::unread).unwrap_or_default()
+    }
+
+    /// Takes the texts of the unread steers of this view, oldest first.
+    pub(crate) fn take_unread(&mut self) -> Vec<String> {
+        self.dirty = true;
+        self.input.as_mut().map(Input::take_unread).unwrap_or_default()
+    }
+
+    /// The prompts that this view queued and that did not start, in queue order.
+    pub(crate) fn queued_turns(&self) -> Vec<TurnId> {
+        self.input.as_ref().map(Input::queued_turns).unwrap_or_default()
+    }
+
+    /// The newest prompt that this view queued and that did not start.
+    pub(crate) fn newest_queued(&self) -> Option<TurnId> {
+        self.input.as_ref().and_then(Input::newest)
+    }
+
+    /// The prompt of `turn` left the queue: it started, or someone took it back. Its
+    /// text stays where it is.
+    pub(crate) fn drop_queued(&mut self, turn: TurnId) {
+        if let Some(input) = &mut self.input
+            && input.remove(turn).is_some()
+        {
+            self.dirty = true;
+        }
+    }
+
+    /// The prompt of `turn`, which this view queued, was taken back with `text`: it
+    /// leaves the list, and its text comes into the input row after the text there.
+    pub(crate) fn withdrawn(&mut self, turn: TurnId, text: &str) {
+        self.drop_queued(turn);
+        self.row_append(text);
+    }
+
+    /// What an interrupt from the input row (Esc) did: the prompts it took back come
+    /// into the row, and the unread steers that it sent again are now a prompt that
+    /// runs next, which this view follows, with a note that says so.
+    pub(crate) fn interrupt_result(&mut self, result: &TurnInterruptResult, size: Size) -> Step {
+        // The interrupt is this view's own: its request needs no note.
+        self.interrupting = true;
+        for withdrawn in &result.withdrawn {
+            self.withdrawn(withdrawn.turn_id, &withdrawn.text);
+        }
+        let Some(resent) = &result.resent else {
+            return self.commit(String::new());
+        };
+        if let Some(input) = &mut self.input {
+            input.resent(resent.turn_id, &resent.steers);
+        }
+        self.note(RESENT, size)
     }
 
     /// Starts the status row, on a terminal: the prompt's line was just sent, and the
@@ -568,8 +742,10 @@ impl TurnView {
             }
             self.event_at = Some(envelope.at);
         }
+        self.event_seq = Some(envelope.seq);
         let step = self.event(&envelope.event, size, can_ask);
         self.event_at = None;
+        self.event_seq = None;
         step
     }
 
@@ -649,15 +825,22 @@ impl TurnView {
         self.live.forget();
         self.cursor_hidden = false;
         self.progress_sent = None;
+        // The shell turns bracketed paste off while it runs a command such as `fg`.
+        if let Some(input) = &mut self.input {
+            input.paste = false;
+        }
         self.dirty = true;
     }
 
     /// What a sudden way out must write to leave the terminal as it was: the cursor
-    /// back, and no progress bar.
+    /// back, bracketed paste off, and no progress bar.
     pub(crate) fn restore(&self) -> String {
         let mut text = String::new();
         if self.cursor_hidden {
             text.push_str(SHOW_CURSOR);
+        }
+        if self.input.as_ref().is_some_and(|input| input.paste) {
+            text.push_str(PASTE_OFF);
         }
         if matches!(self.progress_sent, Some(sent) if sent == progress::RUNNING || sent == progress::PAUSED)
         {
@@ -695,13 +878,24 @@ impl TurnView {
             Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
             _ => String::new(),
         };
-        let hide = self.ticks() && !asking;
+        // The input row is the last part of the live zone, and the cursor waits in it.
+        let input = self.input.as_ref().filter(|input| input.shown && !self.ended);
+        let tail =
+            input.map(|input| input.row(&options, effective_width(size))).unwrap_or_default();
+        let hide = self.ticks() && !asking && input.is_none();
+        let paste = self.input.is_some() && !self.ended;
         let mut out = String::new();
         if hide && !self.cursor_hidden {
             out.push_str(HIDE_CURSOR);
             self.cursor_hidden = true;
         }
-        out.push_str(&self.live.draw(&committed, &body, measured, &row, size));
+        if let Some(input) = &mut self.input
+            && input.paste != paste
+        {
+            out.push_str(if paste { PASTE_ON } else { PASTE_OFF });
+            input.paste = paste;
+        }
+        out.push_str(&self.live.draw(&committed, &body, measured, &row, &tail, size));
         if !hide && self.cursor_hidden {
             out.push_str(SHOW_CURSOR);
             self.cursor_hidden = false;
@@ -892,6 +1086,12 @@ impl TurnView {
                 self.started_at = self.event_at;
                 if let Some(status) = &mut self.status {
                     status.turn_started();
+                }
+                // A prompt that this view queued is the user's message of its turn.
+                if let Some(prompt) = self.input.as_mut().and_then(|input| input.prompt.take()) {
+                    let mut committed = self.spacing.before(Block::Prompt).to_owned();
+                    committed.push_str(&user_message(&prompt, &self.options_at(size)));
+                    self.stage(&committed);
                 }
                 self.in_project = matches!(scope, Scope::Project(_));
                 // A call or a question of the turn ahead that is still shown or kept is
@@ -1092,9 +1292,32 @@ impl TurnView {
                 self.answer_came(*call_id);
                 self.expired(*call_id, size)
             }
+            // A steer of this view shows as unread until a model call reads it.
+            Event::TurnSteered { .. }
+                if self.event_seq.is_some_and(|seq| {
+                    self.input.as_ref().is_some_and(|input| input.is_steer(seq))
+                }) =>
+            {
+                Step::default()
+            }
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)), size)
             }
+            Event::SteeringDelivered { steers, .. } => {
+                let texts = self.input.as_mut().map(|input| input.delivered(steers));
+                let options = self.options_at(size);
+                let mut committed = String::new();
+                for text in texts.unwrap_or_default() {
+                    committed.push_str(self.spacing.before(Block::Prompt));
+                    committed.push_str(&user_message(&text, &options));
+                }
+                self.dirty = true;
+                self.commit(committed)
+            }
+            Event::PromptWithdrawn { .. } => {
+                self.end(TurnEnd::Withdrawn, &[WITHDRAWN.to_owned()], size)
+            }
+            Event::TurnInterruptRequested { .. } if self.interrupting => Step::default(),
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
             }
@@ -1122,6 +1345,9 @@ impl TurnView {
     /// An event of another turn: only the approvals of the turn this one waits behind
     /// and its running call show, and only until this one starts.
     fn other_turn(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
+        if let Some(step) = self.own_prompt(event) {
+            return step;
+        }
         if !self.queued {
             return Step::default();
         }
@@ -1181,6 +1407,34 @@ impl TurnView {
             }
             _ => Step::default(),
         }
+    }
+
+    /// An event of a prompt that this view queued and does not follow yet; `None` for
+    /// any other event. Steers that an interrupt sent again become that prompt. A prompt
+    /// that ended before it started leaves the list: the daemon cancelled it at a
+    /// restart, which puts its text back into the input row, or someone took it back.
+    fn own_prompt(&mut self, event: &Event) -> Option<Step> {
+        let input = self.input.as_mut()?;
+        match event {
+            Event::PromptQueued { turn_id, steers, .. } if !steers.is_empty() => {
+                if !input.resent(*turn_id, steers) {
+                    return None;
+                }
+            }
+            Event::TurnCancelled { turn_id } => {
+                let queued = input.remove(*turn_id)?;
+                input.line.append(&queued.text);
+            }
+            Event::PromptWithdrawn { turn_id, .. }
+            | Event::TurnCompleted { turn_id, .. }
+            | Event::TurnFailed { turn_id, .. }
+            | Event::TurnInterrupted { turn_id } => {
+                input.remove(*turn_id)?;
+            }
+            _ => return None,
+        }
+        self.dirty = true;
+        Some(Step::default())
     }
 
     fn resolved(
@@ -1709,6 +1963,15 @@ impl TurnView {
     /// Ends the view early: commits what the current message has so far and clears the
     /// live zone, before an error or an interrupt is reported.
     pub(crate) fn close(&mut self) -> Step {
+        self.ended = true;
+        self.end_progress.get_or_insert(progress::CLEAR);
+        self.wrap_up()
+    }
+
+    /// Ends what the followed turn shows: commits what the current message has so far,
+    /// a question that nobody answered and the sandbox's line, and drops the running
+    /// call and the questions.
+    fn wrap_up(&mut self) -> Step {
         // The rows of a call that still wait show what ran.
         let header = self.due_header(self.size);
         self.asking = None;
@@ -1716,8 +1979,6 @@ impl TurnView {
         self.running = None;
         self.call = None;
         self.retained = None;
-        self.ended = true;
-        self.end_progress.get_or_insert(progress::CLEAR);
         let committed = self.finish_message();
         // An echo line left open would carry what is written after the view.
         let mut err = header;
@@ -1889,15 +2150,70 @@ impl TurnView {
             || self.surface.take().is_some()
             || input
             || self.retained.is_some();
-        let failed = matches!(end, TurnEnd::Failed(_));
-        self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
-        let mut step = self.close();
-        for note in notes {
+        // A prompt that this view queued runs next: the view follows it.
+        let next = self.input.as_mut().and_then(Input::next);
+        let mut step = if next.is_some() {
+            self.wrap_up()
+        } else {
+            let failed = matches!(end, TurnEnd::Failed(_));
+            self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
+            self.close()
+        };
+        let mut notes = notes.to_vec();
+        // The last turn's failure is the command's error; an earlier one is a note.
+        if next.is_some() {
+            notes.extend(ended_note(&end));
+        }
+        for note in &notes {
             let noted = self.note(note, size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
         }
-        Step { settled, end: Some(end), ..step }
+        if let Some(input) = &mut self.input {
+            // A prompt that never ran because the daemon restarted comes back to the
+            // row; one that was taken back is already where it went.
+            let prompt = input.prompt.take();
+            if end == TurnEnd::Cancelled
+                && let Some(prompt) = prompt
+            {
+                input.line.append(&prompt);
+            }
+            // Steers that no model call read come back too, so nothing typed is lost.
+            for text in input.take_unread() {
+                input.line.append(&text);
+            }
+        }
+        match next {
+            Some(next) => {
+                self.advance(next);
+                Step { settled, ..step }
+            }
+            None => Step { settled, end: Some(end), ..step },
+        }
+    }
+
+    /// Follows `next`, a prompt that this view queued, after the turn before it ended:
+    /// it waits behind the running turn until it starts.
+    fn advance(&mut self, next: Queued) {
+        self.turn = next.turn;
+        self.queued = true;
+        self.message = None;
+        self.next_index = 0;
+        self.blocking.clear();
+        self.interactive.clear();
+        self.in_project = false;
+        self.started_at = None;
+        self.draft_boundary = None;
+        self.interrupting = false;
+        if let Some(input) = &mut self.input {
+            input.prompt = Some(next.text);
+        }
+        if self.terminal() {
+            let mut status = Status::new(self.look.motion);
+            status.set(State::Queued);
+            self.status = Some(status);
+        }
+        self.dirty = true;
     }
 
     /// `text` for stderr when stdout is not a terminal, on a line of its own: an open
@@ -2033,6 +2349,9 @@ impl TurnView {
                 live.push_str(&shown.card.render(Some(shown.footer), &options));
             }
         }
+        if let Some(input) = self.input.as_ref().filter(|_| !self.ended) {
+            live.push_str(&input.pending(&options, effective_width(size)));
+        }
         if live.len() != before {
             measured = None;
         }
@@ -2078,6 +2397,20 @@ struct Request<'a> {
     diff: Option<&'a str>,
     /// What the call would do outside the sandbox, for an exit.
     exit: Option<&'a ExitInfo>,
+}
+
+/// The note for a turn that ended as `end` while a prompt of this view waits after it:
+/// the command goes on, so a failure is not its error.
+fn ended_note(end: &TurnEnd) -> Option<String> {
+    match end {
+        TurnEnd::Failed(body) => {
+            Some(format!("the turn failed with {}: {}", body.code, format::one_line(&body.message)))
+        }
+        TurnEnd::Cancelled => {
+            Some("the turn was cancelled because the daemon restarted".to_owned())
+        }
+        TurnEnd::Completed | TurnEnd::Interrupted | TurnEnd::Withdrawn => None,
+    }
 }
 
 /// The row of the files that a call changed as one plain note, for a call whose block

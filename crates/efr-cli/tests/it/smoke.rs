@@ -90,6 +90,74 @@ async fn send_prints_the_models_answer_and_exits_when_the_turn_ends() {
     daemon.stop().await.unwrap();
 }
 
+/// A pseudo-terminal pair: the master, which plays the person and the screen, and the
+/// slave, which `efr` gets as stdin, stdout and stderr.
+fn pty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+    use rustix::fs::{Mode, OFlags};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave =
+        rustix::fs::open(name.as_c_str(), OFlags::RDWR | OFlags::NOCTTY, Mode::empty()).unwrap();
+    let size = rustix::termios::Winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+    rustix::termios::tcsetwinsize(&master, size).unwrap();
+    (master, slave)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_a_terminal_keys_typed_ahead_go_to_the_input_row_and_back_to_the_shell() {
+    use rustix::termios::{InputModes, LocalModes, tcgetattr};
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::text("Hello from **efr**."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    let context = serde_json::json!({ "pwd": daemon.cwd(), "tty": TTY }).to_string();
+    let drafts = tempfile::tempdir().unwrap();
+    let draft = drafts.path().join("drafts").join("4242");
+    let (master, slave) = pty();
+    // Typed while the shell starts efr, before any line was read: the line discipline
+    // keeps them.
+    rustix::io::write(&master, b"and the docs").unwrap();
+    let mut command = efr_stdx::process::command(env!("CARGO_BIN_EXE_efr"), daemon.cwd());
+    let dirs = daemon.dirs().dirs();
+    command
+        .env_clear()
+        .env("HOME", daemon.dirs().home())
+        .env("TERM", "xterm-256color")
+        .env("EFR_CONFIG_DIR", dirs.config())
+        .env("EFR_DATA_DIR", dirs.data())
+        .env("EFR_STATE_DIR", dirs.state())
+        .env("EFR_RUNTIME_DIR", dirs.runtime())
+        .env("EFR_DRAFT_FILE", &draft)
+        .args(["send", "--context-json", &context, "--", "say hello"])
+        .stdin(slave.try_clone().unwrap())
+        .stdout(slave.try_clone().unwrap())
+        .stderr(slave.try_clone().unwrap());
+
+    let status = command.status().await.unwrap();
+
+    let mut screen = Vec::new();
+    rustix::io::ioctl_fionbio(&master, true).unwrap();
+    let mut buffer = [0_u8; 4096];
+    while let Ok(read) = rustix::io::read(&master, &mut buffer) {
+        if read == 0 {
+            break;
+        }
+        screen.extend_from_slice(&buffer[..read]);
+    }
+    let screen = String::from_utf8_lossy(&screen).into_owned();
+    assert!(status.success(), "{screen}");
+    assert!(screen.contains("\u{203a}"), "the input row showed: {screen:?}");
+    assert!(screen.contains("\x1b[?2004h") && screen.contains("\x1b[?2004l"), "{screen:?}");
+    assert_eq!(std::fs::read_to_string(&draft).unwrap(), "and the docs");
+    // The terminal is back in its mode for the shell.
+    let mode = tcgetattr(&slave).unwrap();
+    assert!(mode.local_modes.contains(LocalModes::ICANON | LocalModes::ECHO));
+    assert!(mode.input_modes.contains(InputModes::ICRNL));
+    daemon.stop().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn new_starts_a_conversation_only_with_a_first_prompt() {
     let server = ResponsesServer::start().await;

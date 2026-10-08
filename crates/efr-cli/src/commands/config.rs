@@ -32,6 +32,7 @@ use crate::cli::ConfigCommand;
 use crate::context::{Context, DEFAULT_LOG_FILTER};
 use crate::error::CliError;
 use crate::format;
+use crate::keys::Key;
 use crate::output::Output;
 use crate::settings::{self, Source};
 
@@ -361,7 +362,7 @@ async fn edit_again(ctx: &Context, out: &mut Output) -> Result<bool, CliError> {
     }
     out.err("efr: edit it again? [Y/n] ");
     let mut keys = ctx.keys.start()?;
-    let key = keys.next().await;
+    let key = keys.next().await.map(Key::byte);
     keys.stop().await;
     out.err("\n");
     Ok(matches!(key, Some(b'\r' | b'\n' | b'y' | b'Y')))

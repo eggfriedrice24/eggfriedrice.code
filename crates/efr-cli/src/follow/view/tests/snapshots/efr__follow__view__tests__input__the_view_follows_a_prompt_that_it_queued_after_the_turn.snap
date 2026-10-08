@@ -1,0 +1,24 @@
+---
+source: crates/efr-cli/src/follow/view/tests/input.rs
+expression: "format!(\"[waiting]\\n{waiting}\\n\\n[running]\\n{running}\\n\\n[end]\\n{last}\")"
+---
+[waiting]
+done in 2.0s
+↳ queued: then update the docs
+• waiting for the running turn
+› ▏enter steer · tab queue · esc interrupt
+
+[running]
+done in 2.0s
+
+> then update the docs
+• waiting for the model
+› ▏enter steer · tab queue · esc interrupt
+
+[end]
+done in 2.0s
+
+> then update the docs
+
+done in 0.9s
+▏

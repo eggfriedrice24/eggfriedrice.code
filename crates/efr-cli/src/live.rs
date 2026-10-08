@@ -21,10 +21,15 @@
 //! cluster in Ghostty ([`WidthMethod`]). A ZWJ emoji, a flag or a variation selector
 //! counted the other way would move the cursor up one row too many or too few.
 //!
-//! The last line of the live zone can be a status row, which changes on every tick of a
-//! running turn. When only that row changed, the redraw replaces that one row: a
-//! carriage return, the cursor up one row, erase the line, the new row. The rest of the
-//! live zone stays on the screen as it is.
+//! The live zone can end with a status row, which changes on every tick of a running
+//! turn, and the input row of the turn below it (the tail). When only the status row
+//! changed, the redraw replaces that one row: a carriage return, the cursor up to that
+//! row, erase the line, the new row. The rest of the live zone stays on the screen as it
+//! is.
+//!
+//! While the input row shows, the cursor waits in it, where the next typed character
+//! goes ([`Cursor`]). The next redraw starts there: it moves up only over the rows above
+//! the cursor.
 
 use std::fmt::Write as _;
 
@@ -49,6 +54,15 @@ pub(crate) struct Measured {
     pub(crate) width: u16,
 }
 
+/// Where the cursor waits after a redraw: in the tail of the live zone.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Cursor {
+    /// The line of the tail, from 0.
+    pub(crate) line: usize,
+    /// The column in that line, from 0.
+    pub(crate) column: usize,
+}
+
 /// The live zone as it stands on the screen.
 #[derive(Debug, Default)]
 pub(crate) struct LiveZone {
@@ -56,8 +70,15 @@ pub(crate) struct LiveZone {
     method: WidthMethod,
     /// The text on the screen now, after clipping.
     shown: String,
-    /// The status row at the end of `shown`, with its newline; empty without one.
+    /// The status row in `shown`, with its newline; empty without one.
     status: String,
+    /// The tail at the end of `shown`, after the status row; empty without one.
+    tail: String,
+    /// Where the cursor waits in the tail; `None` when it waits below the live zone.
+    cursor: Option<Cursor>,
+    /// The lines of the tail from the cursor's line on, which the cursor is above the
+    /// row below the live zone.
+    below: String,
     /// The rows it took when it was written.
     rows: usize,
     /// The width it was written at.
@@ -81,7 +102,7 @@ impl LiveZone {
         measured: Option<Measured>,
         size: Size,
     ) -> String {
-        self.draw(committed, live, measured, "", size)
+        self.draw(committed, live, measured, "", &Tail::default(), size)
     }
 
     /// Forgets the live zone on the screen: the next draw starts a new one at the
@@ -91,64 +112,119 @@ impl LiveZone {
         *self = LiveZone::new(self.method);
     }
 
-    /// The bytes that erase the live zone, write `committed` once, and show `body` and
-    /// then the status row `status` (one line with its newline, or empty) in its place.
-    /// `measured` is the renderer's count of the rows `body` takes, used when it was
-    /// counted at the current width. When only the status row changed, only that row is
-    /// written again. Empty when nothing would change.
+    /// The bytes that erase the live zone, write `committed` once, and show `body`, the
+    /// status row `status` (one line with its newline, or empty) and `tail` in its
+    /// place. `measured` is the renderer's count of the rows `body` takes, used when it
+    /// was counted at the current width. When only the status row changed, only that
+    /// row is written again. The cursor then waits where `tail` says, or below the live
+    /// zone. Empty when nothing would change.
     pub(crate) fn draw(
         &mut self,
         committed: &str,
         body: &str,
         measured: Option<Measured>,
         status: &str,
+        tail: &Tail,
         size: Size,
     ) -> String {
         let width = effective_width(size);
         let method = self.method;
         let rows_of = |text: &str| rows_of(text, width, method);
-        let live = format!("{body}{status}");
+        let live = format!("{body}{status}{}", tail.text);
+        let extra = rows_of(status) + rows_of(&tail.text);
         let (shown, rows) = match measured {
-            Some(measured)
-                if measured.width == width && fits(measured.rows + rows_of(status), size) =>
-            {
-                (live.as_str(), measured.rows + rows_of(status))
+            Some(measured) if measured.width == width && fits(measured.rows + extra, size) => {
+                (live.as_str(), measured.rows + extra)
             }
             _ => clip(&live, width, max_rows(size), method),
         };
+        // A tail that does not fit whole on the screen gets no cursor.
+        let cursor = tail.cursor.filter(|_| shown.ends_with(&*tail.text));
         // An empty live zone looks the same at any width.
-        if committed.is_empty() && shown == self.shown && (width == self.width || shown.is_empty())
+        if committed.is_empty()
+            && shown == self.shown
+            && cursor == self.cursor
+            && (width == self.width || shown.is_empty())
         {
             return String::new();
         }
+        // The rows from the cursor down to the row below the live zone.
+        let parked = rows_of(&self.below);
         // The status row stays one row when the rest stays as it is: only it changes.
-        let status = if status.is_empty() || !shown.ends_with(status) { "" } else { status };
-        let same_rest = shown.strip_suffix(status) == self.shown.strip_suffix(&*self.status);
+        let ending = format!("{status}{}", tail.text);
+        let status = if status.is_empty() || !shown.ends_with(&ending) { "" } else { status };
+        let old_ending = format!("{}{}", self.status, self.tail);
+        let same_rest = shown.strip_suffix(&*ending) == self.shown.strip_suffix(&*old_ending);
+        let tail_rows = rows_of(&tail.text);
         let mut out = String::from(BEGIN_SYNC);
-        if committed.is_empty()
+        let at_tail = if committed.is_empty()
             && width == self.width
             && rows == self.rows
             && same_rest
+            && tail.text == self.tail
+            && cursor == self.cursor
             && rows_of(status) == 1
             && rows_of(&self.status) == 1
         {
-            out.push_str("\r\x1b[1A\x1b[2K");
+            let up = (1 + tail_rows).saturating_sub(parked).max(1);
+            let _ = write!(out, "\r\x1b[{up}A\x1b[2K");
             out.push_str(status);
+            // The status row's newline left the cursor at the start of the tail.
+            true
         } else {
             let old_rows = if width == self.width { self.rows } else { rows_of(&self.shown) };
-            if old_rows > 0 {
-                let _ = write!(out, "\r\x1b[{old_rows}A\x1b[J");
+            let up = old_rows.saturating_sub(parked);
+            if up > 0 {
+                let _ = write!(out, "\r\x1b[{up}A\x1b[J");
+            } else if old_rows > 0 {
+                out.push_str("\r\x1b[J");
             }
             out.push_str(committed);
             out.push_str(shown);
+            false
+        };
+        let below = match cursor {
+            Some(cursor) => tail.text.split_inclusive('\n').skip(cursor.line).collect(),
+            None => String::new(),
+        };
+        let below_rows = rows_of(&below);
+        // From the start of the tail or from the row below the live zone, to the cursor.
+        let down = if at_tail { tail_rows.saturating_sub(below_rows) } else { 0 };
+        match cursor {
+            Some(cursor) => {
+                if down > 0 {
+                    let _ = write!(out, "\x1b[{down}B");
+                } else if !at_tail && below_rows > 0 {
+                    let _ = write!(out, "\x1b[{below_rows}A");
+                }
+                out.push('\r');
+                if cursor.column > 0 {
+                    let _ = write!(out, "\x1b[{}C", cursor.column);
+                }
+            }
+            None if at_tail && tail_rows > 0 => {
+                let _ = write!(out, "\x1b[{tail_rows}B");
+            }
+            None => {}
         }
         out.push_str(END_SYNC);
         shown.clone_into(&mut self.shown);
         status.clone_into(&mut self.status);
+        tail.text.clone_into(&mut self.tail);
+        self.cursor = cursor;
+        self.below = below;
         self.rows = rows;
         self.width = width;
         out
     }
+}
+
+/// The last lines of the live zone, below the status row: the input row of a turn,
+/// each line with its newline, and where the cursor waits in them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Tail {
+    pub(crate) text: String,
+    pub(crate) cursor: Option<Cursor>,
 }
 
 /// The width that rendering and row counting use for a terminal of `size`.

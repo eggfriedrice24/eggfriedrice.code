@@ -10,7 +10,7 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq` | follows the turn until it ends |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` to find the tty's active conversation, `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`) |
@@ -46,6 +46,8 @@ own processes. `--context-json`, `--last-command` and the prompt words do the sa
 hand, and each wins over its variable. The variables reach no child process (`efr`
 starts only `xdg-open`, through `efr_stdx::process::command`, which removes them) and
 no log: `LastCommand` and `efr_stdx::env::Env` show them in `Debug` by length only.
+The plugin also sets `EFR_DRAFT_FILE`, where `efr send` and `efr new` put the text that
+is still in the input row when they end (`draft.rs`, below).
 
 Turn settings: `efr send` and `efr new` ask for a permission mode, a model and a
 reasoning effort with `--mode`, `--model` and `--effort`, else with `EFR_MODE`,
@@ -119,9 +121,12 @@ Replies:
   band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with
   a colour. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
   on the injected clock) that changes only the status row writes only that row:
-  carriage return, cursor up one row, erase the line, the row. While the user is asked
+  carriage return, cursor up to the row, erase the line, the row (and back down to the
+  cursor in the input row when there is one). While the user is asked
   something here (an approval, the quarantine question, an answer line) the row goes
-  and its time stops; the 20 s of a stall count again from the answer. The cursor is hidden while the row shows and comes back for a
+  and its time stops; the 20 s of a stall count again from the answer. Without the
+  input row, the cursor is hidden while the row shows; with it, the cursor waits in the
+  input row. The cursor comes back for a
   question and on every way out: the end of the turn, Ctrl+C, SIGTERM and SIGHUP, an
   error, a panic (the hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
   shows it again after any line that ran `efr`, for a `kill -9`.
@@ -303,6 +308,7 @@ Replies:
   turn_summary = true          # the line at the end of each turn
   progress = "auto"            # the progress bar of the tab: auto, on or off
   diff_lines = 20              # the lines of a file write's diff; 0 shows none
+  turn_input = true            # the input row below a running turn
 
   [render.colors]
   accent = "#f2c14e"           # "#rrggbb", an ANSI slot 0 to 15, or a name
@@ -335,6 +341,77 @@ Replies:
   valid, names a theme `efr-render` does not have, or names a theme file or a code
   theme that cannot be read or used. The layers below apply then. `efr config check`
   and `efr config edit` check the theme names, the theme file and the code theme too.
+
+The input row. When stdin and stdout are terminals and `render.turn_input` is on (the
+default), `efr send` and `efr new` read keys for the whole turn into an input row, the
+last part of the live zone, below the status row. Inline only: no alternate screen.
+
+- The key thread starts before the prompt goes out and keeps the typeahead
+  (`Keys::keep`), so the keys typed between Enter in zsh and the first frame land in
+  the row. It turns off the terminal's map of carriage return to newline, so Enter and
+  Ctrl+J are two keys, and an escape byte that no other byte follows within one read
+  timeout (0.1 s) is Esc. Bracketed paste is on while the row exists (`CSI ? 2004 h`)
+  and off on every way out, a panic and SIGQUIT included (`TurnView::restore`).
+- The row is `› ` and the text, or the muted hint `enter steer · tab queue · esc
+  interrupt` while it is empty. A long text goes on in the next row, at a grapheme
+  cluster, by the width that the terminal counts; at most five rows show, the ones
+  around the cursor. The cursor waits in the row where the next character goes
+  (`live::Cursor`); the next frame starts there and moves up only over the rows above
+  it.
+- `row.rs` edits the line: printable text and UTF-8, Backspace and Delete (one
+  grapheme cluster), Left and Right, Home and End, Ctrl+A, Ctrl+E, Ctrl+U (to the start
+  of the line), Ctrl+K (to its end), Ctrl+W (the word before the cursor), Alt+B and
+  Alt+F, Ctrl+J and Alt+Enter (a newline), and a bracketed paste, whose newlines never
+  send. A tab shows as a blank and another control character as its stand-in.
+- Enter sends `turn.steer` for the followed turn with `if_late` set to queue it as
+  `prompt.send` would, with the context, the last command and the settings that the
+  plugin handed over. An empty Enter does nothing. Tab sends `prompt.send` to the
+  conversation, queued behind the running turn. Alt+Up sends `prompt.withdraw` for the
+  newest prompt that this view queued and puts its text into the row, after the text
+  there on a line of its own; a prompt that already started (`conflict`) leaves the
+  list with a note. A send that fails puts the text back and says why.
+- Esc sends `turn.interrupt` with the unread steers of this view (`resend_steers`) and
+  the prompts that it queued (`withdraw`). The prompts that the daemon took back come
+  into the row after its text; the steers that it sent again become a prompt that runs
+  next, with the note `interrupted to send your message`. When the followed prompt
+  still waits behind another turn, Esc takes it back with `prompt.withdraw` instead,
+  with the prompts after it. A turn that Esc stopped, and after which nothing runs,
+  ends the command as Ctrl+C does (exit 130, no message).
+- Ctrl+C with text in the row clears the text. On an empty row it interrupts the turn
+  and ends the command as before, and it takes back the prompts that this view queued,
+  which would run with nobody to follow them; their texts and the steers that no model
+  call read go back to the shell.
+- Above the status row, each unread steer of this view shows as `↳ steer: <first
+  line>` and each queued prompt as `↳ queued: <first line>`, muted; a steer that came
+  too late is a queued prompt with `(too late to steer, so it waits in the queue)`.
+  When `steering_delivered` names a steer, it goes to the scrollback as the user's
+  message (`> ` and each line in bold, as `efr history` shows a prompt), and this
+  view's own `turn_steered` gets no note. A queued prompt goes to the scrollback the
+  same way when its turn starts.
+- The view follows each prompt that it queued after the turn before it: the turn's end
+  line, then the status row says `waiting for the running turn` until the next one
+  starts. The command ends when the last one ends (`turn_completed`, `turn_failed`,
+  `turn_interrupted`, `turn_cancelled` or `prompt_withdrawn`), with the exit code of
+  that one; an earlier failure is a note. Steers that no model call read when their
+  turn ended, and a queued prompt that a restart cancelled, come back into the row.
+- A question, an answer line and the keys that an allowed call keeps take the keys
+  first: the row hides, keeps its text, and comes back after. Keys that the reader
+  queued before the question go into the row; a key among them that would send stays
+  text there. Before the keys go back to the row after an answer line, a call that
+  asked for a password or the keys it kept, the reader throws away what is still
+  unread (`KeyReader::flush`), so the rest of a password never lands in the row.
+- After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
+  turns bracketed paste on again.
+- When `efr` ends, the text that is still in the row, with the keys that the reader
+  did not hand over yet, goes back to the shell (`draft.rs`): written to
+  `EFR_DRAFT_FILE` as UTF-8, mode 0600, without a final newline, in a directory that it
+  creates with mode 0700 when it is missing. The plugin's precmd puts it on the command
+  line as `, <text>`. Without the variable, or when the write fails, one muted note
+  `not sent: <text>` shows it. This happens on every way out: the end, Ctrl+C, Esc,
+  SIGTERM and SIGHUP, an error, and a failure before the turn is followed.
+
+With `render.turn_input = false`, or without a terminal on stdin or stdout, no key is
+read for the row and everything below works as it did before the row.
 
 Approvals show inline. When stdin is a terminal, `y` allows and `n` denies with one key:
 a named thread puts the terminal into non-canonical mode without echo, discards keys
@@ -412,11 +489,13 @@ password too, so from then on the call's keys are thrown away instead of kept, a
 `Ctrl+\` still opens the next manual line. The call's completion, the turn's end or another approval
 drops the pending text and stops the key thread, which discards unread input first.
 Keys typed outside such a call, or during a call allowed elsewhere or that waits for
-nothing, stay typeahead for the user's shell as before.
+nothing, go to the input row, or without it stay typeahead for the user's shell as
+before.
 
 A command can also wait for input without a prompt that the daemon can see, such as a
-program that reads a line after printing a newline. `efr` must not read keys just
-because a command is silent: text typed then stays typeahead for the user's shell. So
+program that reads a line after printing a newline. `efr` must not send keys to a
+command just because it is silent: text typed then goes to the input row, or without
+it stays typeahead for the user's shell. So
 while a shell call of the followed turn runs, reports no wait, no key is read for it
 and keys can be read here, ten seconds without output (`follow::SILENCE`, timed on the
 injected clock from the call's last output, wait or answer) bring one dim line: "no
@@ -443,9 +522,11 @@ completed is refused as `not_found`, which the CLI shows as the note that the co
 no longer waits.
 
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
-130); the daemon stops the model and any running command. A prompt that still waits
-behind another turn cannot be taken back yet, and the CLI says so. During a login,
-Ctrl+C closes the connection. What arrived stays on the screen.
+130); the daemon stops the model and any running command. With the input row, it
+first clears the row's text, and it takes back the prompts that the row queued (see
+above). A followed prompt that still waits behind another turn is not interrupted,
+and the CLI says so; Esc in the input row takes it back. During a login, Ctrl+C
+closes the connection. What arrived stays on the screen.
 
 SIGTERM (`kill`, `timeout`) and SIGHUP (the terminal closes) while a turn is followed
 end the command with a last frame, which shows the cursor again and clears the
@@ -455,7 +536,8 @@ The turn goes on in its conversation.
 Exit codes: 0 success; 1 the daemon failed the request, the turn failed or was
 interrupted elsewhere, the connection broke, or a config file has an error; 2 a usage
 error; 3 no daemon listens, also because the socket path is longer than a socket
-address holds; 130 Ctrl+C; the signal itself (128 and its number in the shell) for
+address holds; 130 Ctrl+C, or Esc in the input row when the turn that it stopped is
+the last one; the signal itself (128 and its number in the shell) for
 SIGTERM and SIGHUP during a turn.
 
 A failure that a first run meets gets a second line with the command that fixes it:
@@ -522,9 +604,13 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - A hidden answer, one whose prompt looks secret, and a manual one are never written
   to stdout or stderr, never logged and never handed to the view; they leave the
   process only inside `input.respond`.
-- No key is read while a command is merely silent: only `Ctrl+\`, while the view offers
-  it, opens an answer line; a SIGQUIT while no key is read and nothing is offered ends
-  `efr` as it would without a handler.
+- No key goes to a command while it is merely silent: only `Ctrl+\`, while the view
+  offers it, opens an answer line. Without the input row, no key is read then at all;
+  a SIGQUIT while no key is read and nothing is offered ends `efr` as it would without
+  a handler.
+- The text of the input row leaves `efr` only as a steer, a prompt, or the hand-back
+  to the shell's file in the runtime directory, never in an argument. Keys read for an
+  answer line that may be a password never reach the row.
 - The last command line never reaches the shell context, and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
   reaches no child process and no log.
@@ -584,6 +670,23 @@ whose sleeps end when the test opens a gate and a `Ctrl+\` the test presses, and
 that no key reader starts before the key and that the key is waited for only while the
 line offers it. `quit.rs` is tested with SIGQUITs that the test sends to its own process,
 with a stand-in for the default action, which would end it.
+The input row: `row/tests.rs` checks each key of the line editor, grapheme clusters,
+pastes, the limit and the layout (with a proptest that the cursor stays on a
+character and every row fits); `follow/view/input/tests.rs` the row, the hint, the
+five rows and the lines of what waits; `live/tests.rs` the cursor in the tail and a
+tick above it on a simulated screen (`testing::Grid`); `follow/view/tests/input.rs`
+snapshots the live zone with the row, a steer that a model call read and a queued
+prompt that the view follows. `follow/tests/row.rs` runs the follow loop with the row
+against a fake daemon: the params of Enter, Tab, Esc, Alt+Up and Ctrl+C, a late steer,
+the prompts that the view follows, a question and a password that take the keys, the
+cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.
+`draft/tests.rs` checks the file's mode and content and the note without the plugin;
+`commands/send/tests.rs` the keys typed while the prompt goes out, a refused prompt
+and `render.turn_input = false`; the key thread tests on a pseudo-terminal check the
+typeahead that the row keeps, Enter and Ctrl+J, Esc, the flush and the mode after a
+stop. `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a
+`TestDaemon` and checks that keys typed before it started go back to the shell's file
+and that the terminal's mode comes back.
 The integration tests are one test binary, `tests/it/main.rs`, with one module per
 area (nextest names a test `efr-cli::it <module>::<test>`). `tests/it/binary.rs` runs the built `efr` against the same kind of fake daemon for exit
 codes and the environment. `tests/it/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
@@ -596,7 +699,11 @@ fake prints canned output for `efr settings` and `efr models`, so the tests cove
 `EFR_MODEL` and `EFR_EFFORT` to `,` and `,new` and not to `,!`, completion after
 `compinit`, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
-temporary tree). The question about the background runs against a driver that plays the
+temporary tree). The hand-back of the input row: `,` and `,new` name the shell's draft
+file under the runtime root, precmd puts its text on the command line once as `, `
+and the text (a blank text puts nothing), and on a pseudo-terminal the text that the
+fake hands back waits on the next command line and runs as one prompt of two lines
+with Enter. The question about the background runs against a driver that plays the
 terminal on a pseudo-terminal: a light and a dark OSC 11 reply (ended by ST or BEL), a
 terminal that answers only DA1, no reply at all (dark after one second), a reply that
 comes after 300 ms (it sets the background and never reaches the line editor), keys

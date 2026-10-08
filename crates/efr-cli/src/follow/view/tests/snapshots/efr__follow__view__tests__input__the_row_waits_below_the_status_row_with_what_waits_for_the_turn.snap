@@ -1,0 +1,28 @@
+---
+source: crates/efr-cli/src/follow/view/tests/input.rs
+expression: "shots.join(\"\\n\\n\")"
+---
+[empty]
+• waiting for the model
+› ▏enter steer · tab queue · esc interrupt
+
+[typed]
+• waiting for the model
+› check the logs
+  and then the config▏
+
+[pending]
+↳ steer: use the release build
+↳ queued: then update the docs
+• waiting for the model
+› check the logs
+  ▏
+
+[read]
+> use the release build
+
+The release build passes.
+↳ queued: then update the docs
+• waiting for the model
+› check the logs
+  ▏

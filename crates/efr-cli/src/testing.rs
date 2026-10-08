@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::future::{pending, ready};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -38,7 +38,7 @@ use crate::context::{
     Browser, Context, Ending, Interrupt, Resize, Resume, Signals, Stop, Terminate,
 };
 use crate::error::CliError;
-use crate::keys::{KeyReader, Keys};
+use crate::keys::{Key, KeyReader, Keys, Read};
 use crate::output::Output;
 use crate::quit::Quit;
 use crate::settings::Settings;
@@ -79,6 +79,148 @@ pub(crate) fn call() -> CallId {
 /// stay readable and keep the carriage returns that insta would otherwise drop.
 pub(crate) fn readable(painted: &str) -> String {
     painted.replace('\x1b', "\\e").replace('\r', "\\r")
+}
+
+/// `text` without its escape sequences, so a test can find text that paint splits.
+pub(crate) fn bare(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' || (c == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A terminal's screen for the tests: the writes move a cursor over a grid of cells.
+/// Carriage return, newline (as `ONLCR` makes it), the cursor moves `CSI A`, `B`, `C`
+/// and `D`, and the erases `CSI J`, `K` and `2K` act; colours, modes and OSC sequences
+/// draw nothing. Every character takes one cell, a row wraps at the width, and the
+/// screen grows downwards without scrolling.
+#[derive(Debug, Default)]
+pub(crate) struct Grid {
+    cols: usize,
+    rows: Vec<Vec<char>>,
+    row: usize,
+    col: usize,
+}
+
+impl Grid {
+    pub(crate) fn new(cols: u16) -> Grid {
+        Grid { cols: usize::from(cols), ..Grid::default() }
+    }
+
+    pub(crate) fn write(&mut self, text: &str) {
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\x1b' => match chars.next() {
+                    Some('[') => {
+                        let mut params = String::new();
+                        for c in chars.by_ref() {
+                            if ('@'..='~').contains(&c) {
+                                self.csi(&params, c);
+                                break;
+                            }
+                            params.push(c);
+                        }
+                    }
+                    Some(']') => {
+                        while let Some(c) = chars.next() {
+                            if c == '\x07' || (c == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                '\r' => self.col = 0,
+                '\n' => {
+                    self.row += 1;
+                    self.col = 0;
+                }
+                c => {
+                    if self.col >= self.cols {
+                        self.row += 1;
+                        self.col = 0;
+                    }
+                    let col = self.col;
+                    let row = self.line();
+                    if row.len() <= col {
+                        row.resize(col + 1, ' ');
+                    }
+                    row[col] = c;
+                    self.col += 1;
+                }
+            }
+        }
+    }
+
+    fn line(&mut self) -> &mut Vec<char> {
+        if self.rows.len() <= self.row {
+            self.rows.resize(self.row + 1, Vec::new());
+        }
+        &mut self.rows[self.row]
+    }
+
+    fn csi(&mut self, params: &str, last: char) {
+        let count = params.parse::<usize>().unwrap_or(1).max(1);
+        match (last, params) {
+            ('A', _) => self.row = self.row.saturating_sub(count),
+            ('B', _) => self.row += count,
+            ('C', _) => self.col = (self.col + count).min(self.cols.saturating_sub(1)),
+            ('D', _) => self.col = self.col.saturating_sub(count),
+            ('J', "" | "0") => {
+                let col = self.col;
+                self.line().truncate(col);
+                self.rows.truncate(self.row + 1);
+            }
+            ('K', "" | "0") => {
+                let col = self.col;
+                self.line().truncate(col);
+            }
+            ('K', "2") => self.line().clear(),
+            _ => {}
+        }
+    }
+
+    /// The rows with text, without the blanks at their ends, and without empty rows at
+    /// the bottom.
+    pub(crate) fn lines(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self
+            .rows
+            .iter()
+            .map(|row| row.iter().collect::<String>().trim_end().to_owned())
+            .collect();
+        while lines.last().is_some_and(String::is_empty) {
+            lines.pop();
+        }
+        lines
+    }
+
+    /// The row and the column of the cursor.
+    pub(crate) fn cursor(&self) -> (usize, usize) {
+        (self.row, self.col)
+    }
 }
 
 /// Parses an `efr` command line.
@@ -256,29 +398,55 @@ impl Keys for NoKeys {
     fn start(&self) -> Result<KeyReader, CliError> {
         Err(CliError::Terminal { source: io::Error::other("no terminal in this test") })
     }
+
+    fn keep(&self) -> Result<KeyReader, CliError> {
+        self.start()
+    }
 }
 
 /// Keys that the test sends. Every reader gets the keys sent after it started.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct ScriptedKeys {
-    senders: Mutex<Vec<mpsc::Sender<u8>>>,
-    /// Each reader's flag that says it threw away unread input when it stopped.
-    discards: Mutex<Vec<Arc<AtomicBool>>>,
+    senders: Mutex<Vec<mpsc::Sender<Read>>>,
+    /// Each reader's check that says it threw away unread input when it stopped.
+    discards: Mutex<Vec<Arc<dyn Fn() -> bool + Send + Sync>>>,
+    /// How many readers kept the typeahead ([`Keys::keep`]).
+    kept: AtomicUsize,
     started: Notify,
+}
+
+impl std::fmt::Debug for ScriptedKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptedKeys").field("starts", &self.starts()).finish_non_exhaustive()
+    }
 }
 
 impl ScriptedKeys {
     /// Waits until a reader has started, then sends `key` to the newest one.
     pub(crate) async fn press(&self, key: u8) {
+        self.send(Read::Key(Key::Byte(key))).await;
+    }
+
+    /// Presses Esc alone.
+    pub(crate) async fn press_esc(&self) {
+        self.send(Read::Key(Key::Esc)).await;
+    }
+
+    async fn send(&self, read: Read) {
         loop {
             let sender = self.senders.lock().unwrap().last().cloned();
             if let Some(sender) = sender
-                && sender.send(key).await.is_ok()
+                && sender.send(read).await.is_ok()
             {
                 return;
             }
             self.started.notified().await;
         }
+    }
+
+    /// How many readers kept the typeahead, as the input row's reader does.
+    pub(crate) fn kept(&self) -> usize {
+        self.kept.load(Ordering::SeqCst)
     }
 
     /// Types `text`, one byte at a time, into the newest reader.
@@ -303,7 +471,7 @@ impl ScriptedKeys {
 
     /// True when the newest reader was stopped with its unread input thrown away.
     pub(crate) fn discarded(&self) -> bool {
-        self.discards.lock().unwrap().last().is_some_and(|flag| flag.load(Ordering::Acquire))
+        self.discards.lock().unwrap().last().is_some_and(|discarded| discarded())
     }
 }
 
@@ -319,6 +487,11 @@ impl Keys for ScriptedKeys {
         self.discards.lock().unwrap().push(reader.discard_flag());
         self.started.notify_one();
         Ok(reader)
+    }
+
+    fn keep(&self) -> Result<KeyReader, CliError> {
+        self.kept.fetch_add(1, Ordering::SeqCst);
+        self.start()
     }
 }
 

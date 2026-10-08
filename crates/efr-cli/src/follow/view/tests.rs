@@ -2212,4 +2212,5 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
     insta::assert_snapshot!(shown.join("\n===\n"));
 }
 
+mod input;
 mod layout;

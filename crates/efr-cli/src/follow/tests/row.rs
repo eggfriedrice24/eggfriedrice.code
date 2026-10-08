@@ -1,0 +1,563 @@
+//! The input row against a fake daemon: what each key sends, what the view shows, the
+//! prompts that the view follows after the turn, and the text that goes back to the
+//! shell when `efr` ends.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use efr_protocol::{
+    ApprovalDecision, ApprovalRespondResult, ErrorBody, ErrorCode, Event, InputRespondResult,
+    InputWait, LateSteer, Method, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+};
+use efr_stdx::env::{Env, Var};
+use pretty_assertions::assert_eq;
+
+use super::super::{Compose, Row, follow};
+use super::{
+    Stream, completed, input_changed, input_respond, readable, request_after_cancels,
+    shell_completed, shell_output, shell_started, shows_on, started_view, subscribed, target,
+    turn_completed,
+};
+use crate::cli::LastCommand;
+use crate::context::Context;
+use crate::error::CliError;
+use crate::keys::Keys as _;
+use crate::testing::{
+    Captured, Conn, ScriptedKeys, TestEnv, TestInterrupt, bare, call, capture, conversation, item,
+    turn,
+};
+
+/// Waits until stdout, without its escape sequences, holds `text`.
+async fn shows(seen: &Captured, text: &str) {
+    shows_where(seen, |shown| shown.contains(text)).await;
+}
+
+/// Waits until stdout, without its escape sequences, passes `test`.
+async fn shows_where(seen: &Captured, test: impl Fn(&str) -> bool) {
+    shows_on(seen, Stream::Stdout, |out| test(&bare(out))).await;
+}
+
+/// The second and the third turn of the conversation: prompts queued from the row.
+fn turn_2() -> TurnId {
+    "019a9b1c-3d00-7a10-8b20-000000000012".parse().unwrap()
+}
+
+fn turn_3() -> TurnId {
+    "019a9b1c-3d00-7a10-8b20-000000000013".parse().unwrap()
+}
+
+/// What the plugin handed to the command: the row sends with it.
+fn compose() -> Compose {
+    let mut context = ShellContext::new("/home/user/project");
+    context.tty = Some("/dev/pts/7".to_owned());
+    Compose {
+        context,
+        last_command: Some(LastCommand::from("cargo test".to_owned())),
+        settings: TurnSettings { mode: Some(Mode::Auto), model: None, effort: None },
+    }
+}
+
+/// A test's keys, a context that reads them and a file for the text handed back.
+struct Setup {
+    env: TestEnv,
+    keys: Arc<ScriptedKeys>,
+    interrupt: Arc<TestInterrupt>,
+    dir: tempfile::TempDir,
+}
+
+impl Setup {
+    fn new() -> Setup {
+        Setup {
+            env: TestEnv::new(),
+            keys: Arc::new(ScriptedKeys::default()),
+            interrupt: Arc::new(TestInterrupt::default()),
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+
+    fn draft_file(&self) -> PathBuf {
+        self.dir.path().join("drafts").join("4242")
+    }
+
+    /// The context with the plugin's file for the text, or without it.
+    fn context(&self, plugin: bool) -> Context {
+        let env = if plugin {
+            Env::fixed([(Var::DraftFile, self.draft_file().into_os_string())])
+        } else {
+            Env::fixed(Vec::<(Var, String)>::new())
+        };
+        Context {
+            keys: self.keys.clone(),
+            interrupt: self.interrupt.clone(),
+            env,
+            ..self.env.context()
+        }
+    }
+
+    /// What the command handed back to the plugin, if anything.
+    fn handed_back(&self) -> Option<String> {
+        std::fs::read_to_string(self.draft_file()).ok()
+    }
+}
+
+/// Runs `follow` with the input row, against the fake daemon, which runs `script`.
+async fn run_row<F>(
+    setup: &Setup,
+    ctx: &Context,
+    script: impl FnOnce(Conn, Captured) -> F,
+) -> (Result<(), CliError>, String, String)
+where
+    F: Future<Output = ()>,
+{
+    let daemon = setup.env.listen();
+    let (mut out, captured) = capture();
+    let seen = captured.clone();
+    let mut view = started_view().with_input();
+    let reader = setup.keys.keep().unwrap();
+    let client = async {
+        let client = ctx.connect(Origin::Shell, None).await.unwrap();
+        let row = Row { compose: compose(), reader };
+        follow(ctx, &client, &mut out, &mut view, target(), Some(row)).await
+    };
+    let daemon = async { script(daemon.accept().await, seen).await };
+    let (result, ()) = tokio::join!(client, daemon);
+    (result, bare(&captured.stdout()), captured.stdout())
+}
+
+/// The next request, which must be `turn.steer`.
+async fn steer_request(conn: &mut Conn) -> (RequestId, TurnSteer) {
+    let (id, method) = conn.request().await;
+    let Method::TurnSteer(params) = method else {
+        panic!("expected turn.steer, got {}", method.name());
+    };
+    (id, params)
+}
+
+/// The next request, which must be `prompt.send`.
+async fn send_request(conn: &mut Conn) -> (RequestId, PromptSend) {
+    let (id, method) = conn.request().await;
+    let Method::PromptSend(params) = method else {
+        panic!("expected prompt.send, got {}", method.name());
+    };
+    (id, params)
+}
+
+/// The next request, which must be `turn.interrupt`, after the cancel of the
+/// subscription that Ctrl+C dropped.
+async fn interrupt_request(conn: &mut Conn) -> (RequestId, TurnInterrupt) {
+    let (id, method) = request_after_cancels(conn).await;
+    let Method::TurnInterrupt(params) = method else {
+        panic!("expected turn.interrupt, got {}", method.name());
+    };
+    (id, params)
+}
+
+/// The next request, which must be `prompt.withdraw`.
+async fn withdraw_request(conn: &mut Conn) -> (RequestId, PromptWithdraw) {
+    let (id, method) = conn.request().await;
+    let Method::PromptWithdraw(params) = method else {
+        panic!("expected prompt.withdraw, got {}", method.name());
+    };
+    (id, params)
+}
+
+/// Queues `text` with Tab, and the daemon queues it as `turn`.
+async fn tab(conn: &mut Conn, keys: &ScriptedKeys, text: &str, turn: TurnId, seq: u64) {
+    keys.type_bytes(format!("{text}\t").as_bytes()).await;
+    let (id, params) = send_request(conn).await;
+    assert_eq!(params.text, text);
+    let result = PromptSendResult {
+        conversation_id: conversation(),
+        turn_id: turn,
+        seq: Seq::new(seq),
+        queued: true,
+        settings: None,
+    };
+    conn.reply(id, &result).await;
+}
+
+/// Steers with `text` and Enter, and the daemon records it as `seq`.
+async fn enter(conn: &mut Conn, keys: &ScriptedKeys, text: &str, seq: u64) {
+    keys.type_bytes(format!("{text}\r").as_bytes()).await;
+    let (id, params) = steer_request(conn).await;
+    assert_eq!(params.text, text);
+    conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(seq), queued: false }).await;
+}
+
+fn started(turn_id: TurnId) -> Event {
+    Event::TurnStarted {
+        turn_id,
+        cwd: PathBuf::from("/home/user/project"),
+        scope: Scope::Machine,
+        settings: None,
+    }
+}
+
+fn answer(turn_id: TurnId, text: &str) -> Event {
+    Event::AssistantMessageCompleted { turn_id, index: 0, text: text.to_owned() }
+}
+
+fn ended(turn_id: TurnId) -> Event {
+    Event::TurnCompleted { turn_id, usage: None, changes: None }
+}
+
+/// The part of `text` after the last time it showed `marker`.
+fn after<'a>(text: &'a str, marker: &str) -> &'a str {
+    text.rfind(marker).map_or("", |at| &text[at..])
+}
+
+#[tokio::test]
+async fn enter_steers_and_the_steer_waits_until_a_model_call_reads_it() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        // The row shows from the first frame, with its hint.
+        shows(&seen, "enter steer").await;
+        // Enter on an empty row sends nothing.
+        keys.press(b'\r').await;
+        keys.type_bytes(b"use the release build\r").await;
+        let (id, params) = steer_request(&mut conn).await;
+        assert_eq!(params.conversation_id, conversation());
+        assert_eq!(params.turn_id, Some(turn()));
+        assert_eq!(params.text, "use the release build");
+        let Some(LateSteer::Queue { context, last_command, settings }) = params.if_late else {
+            panic!("a late steer is queued: {:?}", params.if_late);
+        };
+        assert_eq!(context.and_then(|context| context.tty).as_deref(), Some("/dev/pts/7"));
+        assert_eq!(last_command.as_deref(), Some("cargo test"));
+        assert_eq!(settings.mode, Some(Mode::Auto));
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(11), queued: false })
+            .await;
+        shows(&seen, "\u{21b3} steer: use the release build").await;
+        let steered =
+            Event::TurnSteered { turn_id: turn(), text: "use the release build".to_owned() };
+        conn.item(sub, &item(11, steered)).await;
+        let delivered = Event::SteeringDelivered { turn_id: turn(), steers: vec![Seq::new(11)] };
+        conn.item(sub, &item(12, delivered)).await;
+        shows(&seen, "> use the release build").await;
+        conn.item(sub, &item(13, completed("Built in release."))).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("steered:"), "a steer of this view is no note: {}", readable(&out));
+    let tail = after(&out, "> use the release build");
+    assert!(!tail.contains("\u{21b3} steer"), "a steer that was read leaves the list");
+    assert_eq!(setup.handed_back(), None, "nothing was left in the row");
+}
+
+#[tokio::test]
+async fn tab_queues_a_prompt_and_the_view_follows_it_after_the_turn() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"then update the docs\t").await;
+        let (id, params) = send_request(&mut conn).await;
+        assert_eq!(params.conversation_id, Some(conversation()));
+        assert!(!params.new_conversation);
+        assert_eq!(params.text, "then update the docs");
+        assert_eq!(params.context.and_then(|context| context.tty).as_deref(), Some("/dev/pts/7"));
+        assert_eq!(params.last_command.as_deref(), Some("cargo test"));
+        assert_eq!(params.settings.mode, Some(Mode::Auto));
+        let queued = PromptSendResult {
+            conversation_id: conversation(),
+            turn_id: turn_2(),
+            seq: Seq::new(11),
+            queued: true,
+            settings: None,
+        };
+        conn.reply(id, &queued).await;
+        shows(&seen, "\u{21b3} queued: then update the docs").await;
+        conn.item(sub, &item(12, completed("First answer."))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        // The command goes on: the queued prompt runs next.
+        shows(&seen, "waiting for the running turn").await;
+        conn.item(sub, &item(14, started(turn_2()))).await;
+        shows(&seen, "> then update the docs").await;
+        conn.item(sub, &item(15, answer(turn_2(), "Docs updated."))).await;
+        conn.item(sub, &item(16, ended(turn_2()))).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    let second = after(&out, "> then update the docs");
+    assert!(second.contains("Docs updated."), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn a_steer_that_comes_too_late_waits_in_the_queue_with_a_note() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"and run it again\r").await;
+        let (id, _) = steer_request(&mut conn).await;
+        conn.reply(id, &TurnSteerResult { turn_id: turn_2(), seq: Seq::new(12), queued: true })
+            .await;
+        shows(&seen, "\u{21b3} queued: and run it again (too late to steer").await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.item(sub, &item(14, started(turn_2()))).await;
+        conn.item(sub, &item(15, ended(turn_2()))).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        enter(&mut conn, &keys, "look at the logs first", 11).await;
+        tab(&mut conn, &keys, "then fix the bug", turn_2(), 12).await;
+        keys.type_bytes(b"half typed").await;
+        shows(&seen, "half typed").await;
+        keys.press_esc().await;
+        let (id, params) = interrupt_request(&mut conn).await;
+        assert_eq!(params.turn_id, Some(turn()));
+        assert_eq!(params.resend_steers, [Seq::new(11)]);
+        assert_eq!(params.withdraw, [turn_2()]);
+        let result = TurnInterruptResult {
+            turn_id: turn(),
+            seq: Seq::new(13),
+            resent: Some(ResentSteers {
+                turn_id: turn_3(),
+                seq: Seq::new(15),
+                steers: vec![Seq::new(11)],
+            }),
+            withdrawn: vec![WithdrawnPrompt {
+                turn_id: turn_2(),
+                seq: Seq::new(14),
+                text: "then fix the bug".to_owned(),
+            }],
+        };
+        conn.reply(id, &result).await;
+        shows(&seen, "interrupted to send your message").await;
+        shows(&seen, "  then fix the bug").await;
+        let requested = Event::TurnInterruptRequested { turn_id: turn(), origin: Origin::Shell };
+        conn.item(sub, &item(13, requested)).await;
+        let withdrawn = Event::PromptWithdrawn { turn_id: turn_2(), origin: Origin::Shell };
+        conn.item(sub, &item(14, withdrawn)).await;
+        conn.item(sub, &item(16, Event::TurnInterrupted { turn_id: turn() })).await;
+        // The steer runs as its own prompt now, which the view follows.
+        conn.item(sub, &item(17, started(turn_3()))).await;
+        shows(&seen, "> look at the logs first").await;
+        conn.item(sub, &item(18, ended(turn_3()))).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!after(&out, "> look at the logs first").contains("\u{21b3}"), "{}", readable(&out));
+    assert!(!out.contains("interrupt requested"), "its own request needs no note: {out}");
+    assert_eq!(setup.handed_back().as_deref(), Some("half typed\nthen fix the bug"));
+}
+
+#[tokio::test]
+async fn esc_with_nothing_unread_ends_as_ctrl_c_does_and_the_text_shows_without_the_plugin() {
+    let setup = Setup::new();
+    let ctx = setup.context(false);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"not now").await;
+        shows(&seen, "not now").await;
+        keys.press_esc().await;
+        let (id, params) = interrupt_request(&mut conn).await;
+        assert_eq!((params.resend_steers.len(), params.withdraw.len()), (0, 0));
+        let result = TurnInterruptResult {
+            turn_id: turn(),
+            seq: Seq::new(11),
+            resent: None,
+            withdrawn: vec![],
+        };
+        conn.reply(id, &result).await;
+        conn.item(sub, &item(12, Event::TurnInterrupted { turn_id: turn() })).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Escaped)), "{result:?}");
+    assert!(out.contains("not sent: not now"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn alt_up_takes_back_the_newest_queued_prompt() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        tab(&mut conn, &keys, "first", turn_2(), 11).await;
+        tab(&mut conn, &keys, "second", turn_3(), 12).await;
+        keys.type_bytes(b"\x1b[1;3A").await;
+        let (id, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.conversation_id, conversation());
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn_3() });
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn_3(), seq: Seq::new(13), text: "second".to_owned() };
+        conn.reply(id, &PromptWithdrawResult { withdrawn }).await;
+        shows(&seen, "\u{203a} second").await;
+        // The next one already started: the daemon refuses, and it leaves the list.
+        keys.type_bytes(b"\x1b[1;3A").await;
+        let (id, params) = withdraw_request(&mut conn).await;
+        assert_eq!(params.target, WithdrawTarget::Turn { turn_id: turn_2() });
+        conn.fail(id, ErrorBody::new(ErrorCode::Conflict, "the prompt started")).await;
+        shows(&seen, "not taken back: the prompt already started").await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(setup.handed_back().as_deref(), Some("second"));
+}
+
+#[tokio::test]
+async fn ctrl_c_clears_the_row_first_then_interrupts_and_takes_back_the_queue() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let interrupt = Arc::clone(&setup.interrupt);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let _sub = subscribed(&mut conn, 10).await;
+        enter(&mut conn, &keys, "a steer nobody reads", 11).await;
+        tab(&mut conn, &keys, "queued", turn_2(), 12).await;
+        keys.type_bytes(b"throw this away").await;
+        shows(&seen, "throw this away").await;
+        interrupt.trigger();
+        shows_where(&seen, |out| after(out, "throw this away").contains("enter steer")).await;
+        interrupt.trigger();
+        let (id, params) = interrupt_request(&mut conn).await;
+        assert_eq!(params.withdraw, [turn_2()]);
+        assert!(params.resend_steers.is_empty(), "Ctrl+C sends nothing again");
+        let withdrawn =
+            WithdrawnPrompt { turn_id: turn_2(), seq: Seq::new(14), text: "queued".to_owned() };
+        let result = TurnInterruptResult {
+            turn_id: turn(),
+            seq: Seq::new(13),
+            resent: None,
+            withdrawn: vec![withdrawn],
+        };
+        conn.reply(id, &result).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::Interrupted)), "{result:?}");
+    assert_eq!(setup.handed_back().as_deref(), Some("a steer nobody reads\nqueued"));
+}
+
+#[tokio::test]
+async fn a_question_takes_the_keys_and_the_row_keeps_its_text() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "draft").await;
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "run rm -rf build".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+        };
+        conn.item(sub, &item(11, request)).await;
+        shows(&seen, "y allow").await;
+        keys.press(b'y').await;
+        let (id, method) = conn.request().await;
+        let Method::ApprovalRespond(params) = method else {
+            panic!("expected approval.respond, got {}", method.name());
+        };
+        assert_eq!(params.decision, ApprovalDecision::Allow);
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(12) }).await;
+        keys.type_bytes(b"!").await;
+        shows(&seen, "\u{203a} draft!").await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    // While the question waited, the row was not shown.
+    let asked = after(&out, "y allow");
+    assert!(!asked[..asked.find("allowed").unwrap_or(asked.len())].contains("\u{203a}"));
+    assert_eq!(setup.handed_back().as_deref(), Some("draft!"));
+}
+
+#[tokio::test]
+async fn after_a_password_the_keys_go_back_to_the_row_without_what_followed_it() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_started("sudo true"))).await;
+        conn.item(sub, &item(12, shell_output("[sudo] password for egg: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
+        shows(&seen, "it is not shown").await;
+        keys.type_bytes(b"hunter2\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        // Typed again while sudo checks it: thrown away.
+        keys.type_bytes(b"hunter2").await;
+        conn.item(sub, &item(15, shell_completed(0))).await;
+        // The row comes back once the call ended.
+        shows_where(&seen, |out| after(out, "\u{2713}").contains("enter steer")).await;
+        keys.type_bytes(b"ok").await;
+        shows(&seen, "\u{203a} ok").await;
+        conn.item(sub, &item(16, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("hunter"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("ok"));
+}
+
+#[tokio::test]
+async fn the_cursor_shows_in_the_row_and_paste_mode_is_off_on_the_way_out() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, out) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"x").await;
+        shows(&seen, "\u{203a} x").await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.starts_with("\x1b[?2004h"), "{}", readable(&out));
+    assert!(!out.contains("\x1b[?25l"), "the cursor never hides: {}", readable(&out));
+    let off = out.rfind("\x1b[?2004l").unwrap_or_else(|| panic!("{}", readable(&out)));
+    assert!(!out[off..].contains("\u{203a}"), "the row is gone after it");
+    assert_eq!(setup.handed_back().as_deref(), Some("x"));
+}
+
+/// The directory of the plugin's file exists only once a text was handed back.
+#[tokio::test]
+async fn a_turn_that_ends_with_an_empty_row_writes_no_file() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, _| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!Path::new(&setup.draft_file()).parent().unwrap().exists());
+}

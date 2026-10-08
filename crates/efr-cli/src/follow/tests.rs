@@ -16,7 +16,7 @@ use super::{AnswerKind, Ask, Asking, Look, Seed, Target, TurnView, follow, since
 use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::keys::KeyReader;
+use crate::keys::{Key, KeyReader, Read};
 use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
@@ -96,7 +96,7 @@ where
     let seen = captured.clone();
     let client = async {
         let client = ctx.connect(Origin::Cli, None).await.unwrap();
-        follow(ctx, &client, &mut out, &mut view, target()).await
+        follow(ctx, &client, &mut out, &mut view, target(), None).await
     };
     let daemon = async { script(daemon.accept().await, seen).await };
     let (result, ()) = tokio::join!(client, daemon);
@@ -1404,10 +1404,10 @@ async fn without_keys_a_silent_call_offers_nothing() {
 }
 
 /// A reader whose queue holds `queued`, as if those keys were typed and not read yet.
-fn reader_with(queued: &[u8]) -> (KeyReader, tokio::sync::mpsc::Sender<u8>) {
+fn reader_with(queued: &[u8]) -> (KeyReader, tokio::sync::mpsc::Sender<Read>) {
     let (sender, keys) = tokio::sync::mpsc::channel(16);
     for key in queued {
-        sender.try_send(*key).unwrap();
+        sender.try_send(Read::Key(Key::Byte(*key))).unwrap();
     }
     (KeyReader::from_channel(keys), sender)
 }
@@ -1473,7 +1473,7 @@ fn keeping_the_keys_again_keeps_the_queue() {
         Asking::Input { call_id: call(), kind: AnswerKind::Visible, line: AnswerLine::new() };
     let (mut reader, asking, _) = take_over(reader, Some(before), Ask::Retain(call()));
     assert_eq!(line_of(&asking), "");
-    assert_eq!(reader.queued(), Some(b'y'), "typed for the call, so it stays");
+    assert_eq!(reader.queued(), Some(Key::Byte(b'y')), "typed for the call, so it stays");
 }
 
 // --- frames, ticks, resizes and the ways out ----------------------------------------
@@ -1756,3 +1756,5 @@ async fn drafts_reach_the_screen_before_the_persisted_text_and_show_once() {
     );
     assert!(!out.contains("The disk isThe"), "{}", readable(&out));
 }
+
+mod row;

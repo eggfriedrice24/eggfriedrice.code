@@ -18,10 +18,12 @@ use efr_stdx::env::Var;
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
 use crate::error::CliError;
-use crate::follow::{self, Look, Target, TurnView};
+use crate::follow::{self, Compose, Look, Row, Target, TurnView};
+use crate::keys::KeyReader;
 use crate::live::effective_width;
 use crate::output::Output;
 use crate::progress;
+use crate::row::RowLine;
 use crate::turn_settings::Asked;
 
 /// Conversations asked for per page while looking for the terminal's active one.
@@ -106,13 +108,65 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
     send(ctx, out, origin, prompt).await
 }
 
-/// Sends `prompt` and follows the turn that answers it.
+/// Sends `prompt` and follows the turn that answers it. On a terminal with
+/// `render.turn_input` on, the input row's key reader starts first, so the keys typed
+/// while the prompt goes out land in the row; a failure before the turn is followed
+/// hands what they typed back to the shell.
 pub(crate) async fn send(
     ctx: &Context,
     out: &mut Output,
     origin: Origin,
     prompt: Prompt,
 ) -> Result<(), CliError> {
+    let mut reader = if row_wanted(ctx) {
+        ctx.keys
+            .keep()
+            .inspect_err(|error| tracing::debug!(%error, "the input row cannot read keys"))
+            .ok()
+    } else {
+        None
+    };
+    let result = send_and_follow(ctx, out, origin, prompt, &mut reader).await;
+    if let Some(reader) = reader {
+        give_back(ctx, out, reader).await;
+    }
+    result
+}
+
+/// True when a followed turn gets the input row: `render.turn_input` is on, and stdin
+/// and stdout are terminals.
+fn row_wanted(ctx: &Context) -> bool {
+    ctx.settings.render.turn_input && ctx.keys.available() && ctx.term.formats_stdout()
+}
+
+/// Stops `reader`, which no turn took over, and hands the keys that it read back to the
+/// shell.
+async fn give_back(ctx: &Context, out: &mut Output, mut reader: KeyReader) {
+    let mut line = RowLine::default();
+    while let Some(key) = reader.queued() {
+        line.key(key);
+    }
+    reader.stop().await;
+    if let Some(note) = crate::draft::hand_back(ctx, line.text()).await {
+        let options = ctx.render_options(effective_width(ctx.screen.size()));
+        out.err(&render_trace(&note, &options));
+    }
+}
+
+/// Sends `prompt` and follows the turn, with the input row when `reader` holds its key
+/// reader; the follow loop takes the reader.
+async fn send_and_follow(
+    ctx: &Context,
+    out: &mut Output,
+    origin: Origin,
+    prompt: Prompt,
+    reader: &mut Option<KeyReader>,
+) -> Result<(), CliError> {
+    let compose = Compose {
+        context: prompt.context.clone(),
+        last_command: prompt.last_command.clone(),
+        settings: prompt.settings.clone(),
+    };
     let client = ctx.connect(origin, prompt.context.tty.as_deref()).await?;
     let result = send_prompt(ctx, &client, prompt).await?;
     let size = ctx.screen.size();
@@ -126,6 +180,9 @@ pub(crate) async fn send(
     };
     let mut view =
         TurnView::new(result.turn_id, options).with_home(ctx.home.clone()).with_look(look);
+    if reader.is_some() {
+        view = view.with_input();
+    }
     // NOTE: the note comes from the prompt.send result, so it is the reply's first line
     // even before the first event arrives; the follow loop writes it in its first frame.
     if let Some(note) = result.settings.as_ref().and_then(overrides) {
@@ -142,7 +199,8 @@ pub(crate) async fn send(
     view.start();
     let target =
         Target { conversation: result.conversation_id, turn: result.turn_id, after: result.seq };
-    follow::follow(ctx, &client, out, &mut view, target).await
+    let row = reader.take().map(|reader| Row { compose, reader });
+    follow::follow(ctx, &client, out, &mut view, target, row).await
 }
 
 /// Sends `prompt` without following the turn.

@@ -32,7 +32,8 @@ pub(crate) enum Exit {
     Usage,
     /// 3: no daemon listens on the socket.
     NotRunning,
-    /// 130: the user pressed Ctrl+C, the shell convention for an interrupt.
+    /// 130: the user pressed Ctrl+C, or Esc in the input row, the shell convention for
+    /// an interrupt.
     Interrupted,
     /// 128 and the signal's number: SIGTERM or SIGHUP ended a followed turn. `main`
     /// first lets the signal take its default action, so the shell sees the signal.
@@ -183,6 +184,11 @@ pub(crate) enum CliError {
     #[error("interrupted")]
     Interrupted,
 
+    /// The user pressed Esc in the input row, and the turn that it stopped was the last
+    /// one to follow.
+    #[error("interrupted with Esc")]
+    Escaped,
+
     /// A signal that asks the process to end (SIGTERM, SIGHUP) came while a turn was
     /// followed.
     #[error("ended by signal {signal}")]
@@ -249,7 +255,7 @@ impl CliError {
             | CliError::SteerNeedsConversation
             | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
-            CliError::Interrupted => Exit::Interrupted,
+            CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
             CliError::ConfigInvalid | CliError::SandboxUnavailable => Exit::Invalid,
             _ => Exit::DaemonError,
@@ -305,6 +311,7 @@ impl CliError {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
             CliError::Interrupted
+            | CliError::Escaped
             | CliError::Ended { .. }
             | CliError::ConfigInvalid
             | CliError::SandboxUnavailable => true,

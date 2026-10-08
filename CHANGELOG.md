@@ -12,6 +12,24 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
+- An input row below a running turn, in the terminal that follows it. Type there while
+  the turn runs: Enter steers the turn, Tab queues the text as a prompt behind it, Esc
+  interrupts it and Alt+Up takes back the newest prompt that you queued there. The row
+  edits like a shell line (arrows, Home, End, Ctrl+A/E/U/W/K, Alt+B/F), Ctrl+J adds a
+  newline, and a paste keeps its newlines. Keys that you type while the prompt goes
+  out land in the row too. `render.turn_input = false` turns the row off.
+- Steers that the model did not read yet show above the status row as `↳ steer:`, and
+  prompts that you queued as `↳ queued:`. When a model call reads a steer, it moves
+  into the reply as your message. A steer that comes too late for its turn waits in
+  the queue instead.
+- `efr` follows each prompt that you queue from the input row after the turn before
+  it, and ends after the last one. Esc sends the steers that the model did not read as
+  a new prompt, and puts the prompts that you queued back into the row, so nothing
+  runs that you did not see. Ctrl+C clears the row; on an empty row it interrupts the
+  turn and also takes back the prompts that you queued there.
+- Text that is still in the input row when `efr` ends goes back to your zsh command
+  line as `, <text>`, so you can edit it and send it again. Without the zsh plugin,
+  `efr` shows it as one muted line.
 - The diff of each file write shows in its call block, in the diff colours: the first
   `render.diff_lines` lines (default 20), then a muted `… N more lines`. This works in
   every directory.

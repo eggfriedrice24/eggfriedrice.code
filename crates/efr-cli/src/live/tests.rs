@@ -4,9 +4,9 @@ use proptest::prelude::{prop, proptest};
 
 use efr_render::{WidthMethod, display_width};
 
-use super::{LiveZone, Measured, rows_of};
+use super::{Cursor, LiveZone, Measured, Tail, rows_of};
 use crate::terminal::Size;
-use crate::testing::readable;
+use crate::testing::{Grid, readable};
 
 const BEGIN: &str = "\x1b[?2026h";
 const END: &str = "\x1b[?2026l";
@@ -184,6 +184,76 @@ fn a_redraw_moves_up_over_the_rows_that_the_terminal_counted() {
         let out = zone.redraw("", "next\n", None, size(10, 20));
         assert_eq!(readable(&out), format!("\\e[?2026h\\r\\e[{up}A\\e[Jnext\n\\e[?2026l"));
     }
+}
+
+/// An input row of two lines with the cursor after `typ` on its second line.
+fn input_row() -> Tail {
+    Tail { text: "> first\n  typ\n".to_owned(), cursor: Some(Cursor { line: 1, column: 5 }) }
+}
+
+#[test]
+fn the_cursor_waits_in_the_tail_and_the_next_redraw_starts_from_there() {
+    let mut zone = LiveZone::default();
+    let out = zone.draw("", "body\n", None, "status\n", &input_row(), size(40, 20));
+    // Up one row from below the live zone, to column 5 of the tail's second line.
+    assert_eq!(readable(&out), "\\e[?2026hbody\nstatus\n> first\n  typ\n\\e[1A\\r\\e[5C\\e[?2026l");
+    let mut grid = Grid::new(40);
+    grid.write(&out);
+    assert_eq!(grid.cursor(), (3, 5));
+    // The cursor is three rows below the top of the live zone, not four.
+    let out = zone.draw("done\n", "body\n", None, "status\n", &Tail::default(), size(40, 20));
+    assert_eq!(readable(&out), "\\e[?2026h\\r\\e[3A\\e[Jdone\nbody\nstatus\n\\e[?2026l");
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["done", "body", "status"]);
+    assert_eq!(grid.cursor(), (3, 0));
+}
+
+#[test]
+fn a_tick_rewrites_the_status_row_above_the_tail_and_puts_the_cursor_back() {
+    let mut zone = LiveZone::default();
+    let mut grid = Grid::new(40);
+    grid.write(&zone.draw("", "body\n", None, "status 1\n", &input_row(), size(40, 20)));
+    let out = zone.draw("", "body\n", None, "status 2\n", &input_row(), size(40, 20));
+    assert_eq!(readable(&out), "\\e[?2026h\\r\\e[2A\\e[2Kstatus 2\n\\e[1B\\r\\e[5C\\e[?2026l");
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["body", "status 2", "> first", "  typ"]);
+    assert_eq!(grid.cursor(), (3, 5));
+}
+
+#[test]
+fn a_cursor_that_moves_redraws_the_live_zone() {
+    let mut zone = LiveZone::default();
+    let mut grid = Grid::new(40);
+    grid.write(&zone.draw("", "", None, "status\n", &input_row(), size(40, 20)));
+    let mut moved = input_row();
+    moved.cursor = Some(Cursor { line: 0, column: 2 });
+    let out = zone.draw("", "", None, "status\n", &moved, size(40, 20));
+    assert!(!out.is_empty());
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["status", "> first", "  typ"]);
+    assert_eq!(grid.cursor(), (1, 2));
+    assert_eq!(zone.draw("", "", None, "status\n", &moved, size(40, 20)), "", "nothing new");
+}
+
+#[test]
+fn a_tail_without_a_status_row_takes_the_cursor_too() {
+    let mut zone = LiveZone::default();
+    let mut grid = Grid::new(40);
+    let tail = Tail { text: "> x\n".to_owned(), cursor: Some(Cursor { line: 0, column: 3 }) };
+    grid.write(&zone.draw("", "", None, "", &tail, size(40, 20)));
+    assert_eq!(grid.cursor(), (0, 3));
+    // A redraw from the top row of the live zone moves up no row.
+    let out = zone.draw("note\n", "", None, "", &Tail::default(), size(40, 20));
+    assert_eq!(readable(&out), "\\e[?2026h\\r\\e[Jnote\n\\e[?2026l");
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["note"]);
+}
+
+#[test]
+fn a_tail_that_does_not_fit_gets_no_cursor() {
+    let mut zone = LiveZone::default();
+    let out = zone.draw("", "", None, "status\n", &input_row(), size(40, 2));
+    assert!(!out.contains("\\e[5C") && !out.contains("\x1b[5C"), "{}", readable(&out));
 }
 
 proptest! {

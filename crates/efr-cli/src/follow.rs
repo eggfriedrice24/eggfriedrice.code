@@ -48,6 +48,17 @@
 //! answer line, together with the keys still queued, so a `y` typed ahead stands in the
 //! line when the question appears and waits for Enter. A hidden wait, a manual line and
 //! the call's end drop it, zeroed; the reader then throws away what is still unread.
+//!
+//! With the input row ([`Row`]), the key thread runs for the whole turn and the keys go
+//! to the row whenever nothing else takes them: a question, an answer line, or the keys
+//! that a call allowed here keeps. Enter steers the followed turn (`turn.steer`, which
+//! the daemon queues as a prompt when it comes too late), Tab queues a prompt
+//! (`prompt.send`), Esc interrupts the turn and takes back what this view sent and the
+//! turn did not read (`turn.interrupt`), and Alt+Up takes back the newest prompt that
+//! this view queued (`prompt.withdraw`). Ctrl+C clears the row; with an empty row it
+//! interrupts as before. The view follows each prompt that it queued after the turn
+//! before it, and the command ends when the last one ends. Text that is still in the
+//! row then goes back to the user's shell (`crate::draft`).
 
 mod view;
 
@@ -57,8 +68,10 @@ use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, InputRespond, InputRespondResult, Method, QuestionId, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, SecretText, Seq, TurnId, TurnInterrupt, TurnInterruptResult,
+    ErrorCode, Event, InputRespond, InputRespondResult, LateSteer, Method, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use futures::StreamExt as _;
@@ -66,13 +79,33 @@ use jiff::Timestamp;
 use serde_json::Value;
 
 use crate::answer::{AnswerLine, Edit};
+use crate::cli::LastCommand;
 use crate::context::{Context, Stop};
 use crate::error::CliError;
-use crate::keys::{self, KeyReader};
+use crate::keys::{self, Key, KeyReader};
 use crate::output::Output;
+use crate::row::Action;
 use view::AnswerKind;
 
 pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView};
+
+/// What the input row sends with: the shell context, the last command line and the
+/// turn settings that the plugin handed to this command, so a prompt or a late steer
+/// from the row goes as a prompt from this terminal would.
+#[derive(Debug, Clone)]
+pub(crate) struct Compose {
+    pub(crate) context: ShellContext,
+    pub(crate) last_command: Option<LastCommand>,
+    pub(crate) settings: TurnSettings,
+}
+
+/// The input row of a followed turn: what it sends with, and its key reader, which
+/// started before the prompt went out, so keys typed meanwhile land in the row.
+#[derive(Debug)]
+pub(crate) struct Row {
+    pub(crate) compose: Compose,
+    pub(crate) reader: KeyReader,
+}
 
 /// How often in a row a subscription may fall behind before the command gives up.
 const MAX_RESUBSCRIBES: u32 = 8;
@@ -107,20 +140,35 @@ pub(crate) struct Target {
     pub(crate) after: Seq,
 }
 
-/// Follows `target` on `client` until the turn ends, writing it to `out`.
+/// Follows `target` on `client` until the turn ends, writing it to `out`. With `row`,
+/// the view's input row reads keys for the whole turn, and the view follows the
+/// prompts that it queues until the last one ends.
 pub(crate) async fn follow(
     ctx: &Context,
     client: &Client,
     out: &mut Output,
     view: &mut TurnView,
     target: Target,
+    row: Option<Row>,
 ) -> Result<(), CliError> {
+    let (compose, keys) = match row {
+        Some(Row { compose, reader }) if view.has_row() => {
+            (Some(compose), Some((reader, Asking::Row)))
+        }
+        Some(Row { reader, .. }) => {
+            reader.stop().await;
+            (None, None)
+        }
+        None => (None, None),
+    };
     let mut follower = Follower {
         ctx,
         client,
         target,
         last_seen: target.after,
-        keys: None,
+        keys,
+        compose,
+        escaped: None,
         silence: None,
         quit: None,
         last_frame: None,
@@ -137,7 +185,13 @@ pub(crate) async fn follow(
     };
     // NOTE: the terminal must be back in its normal mode before anything else is
     // written or the process exits, whichever way the loop ended.
-    if let Some((keys, asking)) = follower.keys.take() {
+    if let Some((mut keys, asking)) = follower.keys.take() {
+        if matches!(asking, Asking::Row) {
+            // Keys that the row did not take yet are part of its text.
+            while let Some(key) = keys.queued() {
+                view.row_key(key);
+            }
+        }
         stop(keys, &asking).await;
     }
     if let Err(error) = &result {
@@ -148,30 +202,54 @@ pub(crate) async fn follow(
         if matches!(error, CliError::Interrupted) {
             // The time of the Ctrl+C, not of the daemon's answer.
             let stopped = ctx.clock.now();
-            let note = match interrupt(ctx, client, target).await {
-                Ok(()) => view.interrupted(stopped),
-                Err(note) => note,
-            };
+            // Prompts that this view queued would run with nobody to follow them: they
+            // come back with the steers that no model call read, to the user's shell.
+            let withdraw = view.queued_turns();
+            let note =
+                match interrupt(ctx, client, target.conversation, view.turn(), withdraw).await {
+                    Ok(withdrawn) => {
+                        for text in view.take_unread() {
+                            view.row_append(&text);
+                        }
+                        for prompt in withdrawn {
+                            view.withdrawn(prompt.turn_id, &prompt.text);
+                        }
+                        view.interrupted(stopped)
+                    }
+                    Err(note) => note,
+                };
             let step = view.note(&note, ctx.screen.size());
             follower.show(out, view, &step)?;
         }
+    }
+    let text = view.row_text().to_owned();
+    if let Some(note) = crate::draft::hand_back(ctx, &text).await {
+        let step = view.note(&note, ctx.screen.size());
+        follower.show(out, view, &step)?;
     }
     crate::output::set_restore(&view.restore());
     result
 }
 
-/// Asks the daemon to stop the followed turn; when that fails, says how.
-async fn interrupt(ctx: &Context, client: &Client, target: Target) -> Result<(), String> {
+/// Asks the daemon to stop `turn` and to take back the prompts of `withdraw`, which this
+/// view queued; the prompts it took back, or how that failed.
+async fn interrupt(
+    ctx: &Context,
+    client: &Client,
+    conversation: ConversationId,
+    turn: TurnId,
+    withdraw: Vec<TurnId>,
+) -> Result<Vec<WithdrawnPrompt>, String> {
     let method = Method::TurnInterrupt(TurnInterrupt {
         command_id: ctx.command_id(),
-        conversation_id: target.conversation,
-        turn_id: Some(target.turn),
+        conversation_id: conversation,
+        turn_id: Some(turn),
         resend_steers: Vec::new(),
-        withdraw: Vec::new(),
+        withdraw,
     });
     let call = client.call::<TurnInterruptResult>(method);
     match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {
-        Ok(Ok(_)) => Ok(()),
+        Ok(Ok(result)) => Ok(result.withdrawn),
         // The turn already ended, or it still waits behind another turn, which the
         // daemon cannot take back yet.
         Ok(Err(ClientError::Server { body })) if body.code == ErrorCode::Conflict => {
@@ -193,8 +271,14 @@ struct Follower<'a> {
     client: &'a Client,
     target: Target,
     last_seen: Seq,
-    /// Reads keys while an approval question or an input is pending.
+    /// Reads keys while an approval question or an input is pending, and for the whole
+    /// turn with the input row.
     keys: Option<(KeyReader, Asking)>,
+    /// What the input row sends with; `None` without the row.
+    compose: Option<Compose>,
+    /// The turn that Esc interrupted or took back: when it is the last to end, the
+    /// command ends as after Ctrl+C.
+    escaped: Option<TurnId>,
     /// The silent shell call and its activity count, with the time until it offers
     /// `Ctrl+\`.
     silence: Option<((CallId, u64), Sleep)>,
@@ -223,6 +307,16 @@ enum Asking {
     Pending { call_id: CallId, line: AnswerLine },
     /// The quarantine question, with one key.
     Surface(QuestionId),
+    /// The input row: nothing else takes the keys.
+    Row,
+}
+
+impl Asking {
+    /// True when the keys read for it may hold a password or the rest of one: before
+    /// they go to the input row, what is still unread is thrown away.
+    fn guards(&self) -> bool {
+        matches!(self, Asking::Input { .. } | Asking::Discard | Asking::Pending { .. })
+    }
 }
 
 /// What an answer line starts with when it takes over the pending line of its call.
@@ -239,7 +333,7 @@ enum Seed {
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
     match asking {
-        Asking::Approval(_) | Asking::Surface(_) => keys.stop().await,
+        Asking::Approval(_) | Asking::Surface(_) | Asking::Row => keys.stop().await,
         Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
             keys.stop_discarding().await;
         }
@@ -334,6 +428,9 @@ impl Follower<'_> {
 
     /// Writes a frame of `view` now; a tick's frame with `tick`.
     fn paint(&mut self, out: &mut Output, view: &mut TurnView, tick: bool) -> Result<(), CliError> {
+        // The input row shows while its keys come to it, and hides while a question or
+        // an answer line takes them.
+        view.show_row(matches!(self.keys, Some((_, Asking::Row))));
         let now = self.ctx.clock.now();
         let size = self.ctx.screen.size();
         let frame = if tick { view.tick(size, now) } else { view.frame(size, now) };
@@ -390,7 +487,13 @@ impl Follower<'_> {
                 self.watch_tick(view);
                 tokio::select! {
                     () = &mut interrupt => {
-                        return Err(CliError::Interrupted);
+                        // Ctrl+C clears the text of the input row first.
+                        if matches!(self.keys, Some((_, Asking::Row))) && view.row_clear() {
+                            interrupt = self.ctx.interrupt.wait();
+                            self.paint(out, view, false)?;
+                        } else {
+                            return Err(CliError::Interrupted);
+                        }
                     }
                     signal = &mut ending => {
                         return Err(CliError::Ended { signal });
@@ -415,6 +518,9 @@ impl Follower<'_> {
                     }
                     Some(()) = resumes.next() => {
                         view.resumed();
+                        if let Some((reader, _)) = &self.keys {
+                            reader.resumed();
+                        }
                         self.paint(out, view, false)?;
                     }
                     () = pressed(&mut self.quit) => {
@@ -425,7 +531,7 @@ impl Follower<'_> {
                         Some(Ok(value)) => {
                             resubscribes = 0;
                             if let Some(end) = self.item(value, out, view).await? {
-                                return finished(end);
+                                return self.finished(end, view);
                             }
                         }
                         Some(Err(ClientError::Server { body })) if body.code == ErrorCode::Overflow => {
@@ -545,6 +651,14 @@ impl Follower<'_> {
         match step.ask {
             Some(ask) => {
                 let (reader, before) = match self.keys.take() {
+                    Some((mut reader, Asking::Row)) => {
+                        // NOTE: the keys typed before the question are the row's; a key
+                        // that would send stays in the row instead.
+                        while let Some(key) = reader.queued() {
+                            view.row_key(key);
+                        }
+                        (reader, Some(Asking::Row))
+                    }
                     Some((reader, before)) => (reader, Some(before)),
                     // Starting the reader discards typeahead, so nothing typed before
                     // the question answers it or stays queued for the shell.
@@ -561,11 +675,23 @@ impl Follower<'_> {
                     None => {}
                 }
             }
-            None if step.settled || step.end.is_some() => {
-                if let Some((keys, asking)) = self.keys.take() {
+            None if step.end.is_some() => {
+                if let Some((mut keys, asking)) = self.keys.take() {
+                    if matches!(asking, Asking::Row) {
+                        // Keys that the row did not take yet are part of its text.
+                        while let Some(key) = keys.queued() {
+                            view.row_key(key);
+                        }
+                    }
                     stop(keys, &asking).await;
                 }
             }
+            None if step.settled => match self.keys.take() {
+                // The row asked for nothing, so nothing of it is settled.
+                Some((reader, Asking::Row)) => self.keys = Some((reader, Asking::Row)),
+                Some((reader, asking)) => self.release(reader, &asking, view).await,
+                None => {}
+            },
             None => {}
         }
         if urgent {
@@ -579,7 +705,7 @@ impl Follower<'_> {
     /// Handles one key; `None` means the key source ended.
     async fn key(
         &mut self,
-        key: Option<u8>,
+        key: Option<Key>,
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
@@ -590,7 +716,14 @@ impl Follower<'_> {
             stop(reader, &asking).await;
             return Ok(());
         };
+        if matches!(asking, Asking::Row) {
+            self.keys = Some((reader, Asking::Row));
+            return self.row_key(key, out, view).await;
+        }
+        // A line or a question reads bytes; Esc alone is the escape byte there.
+        let key = key.byte();
         match asking {
+            Asking::Row => Ok(()),
             Asking::Discard => {
                 self.keys = Some((reader, Asking::Discard));
                 Ok(())
@@ -613,7 +746,7 @@ impl Follower<'_> {
                         let line = AnswerLine::new();
                         self.keys = Some((reader, Asking::Pending { call_id: kept, line }));
                     }
-                    _ => reader.stop().await,
+                    _ => self.release(reader, &Asking::Approval(call_id), view).await,
                 }
                 self.show(out, view, &step)?;
                 self.respond(call_id, decision, out, view).await
@@ -623,7 +756,7 @@ impl Follower<'_> {
                     self.keys = Some((reader, Asking::Surface(question_id)));
                     return Ok(());
                 };
-                reader.stop().await;
+                self.release(reader, &Asking::Surface(question_id), view).await;
                 let keep = decision == ApprovalDecision::Allow;
                 let step = view.surface_answered(question_id, keep, self.ctx.screen.size());
                 self.show(out, view, &step)?;
@@ -645,6 +778,252 @@ impl Follower<'_> {
                     None => Ok(()),
                 }
             }
+        }
+    }
+
+    /// How the command ends after the last followed turn ended as `end`. A turn that Esc
+    /// stopped ends it as Ctrl+C does.
+    fn finished(&self, end: TurnEnd, view: &TurnView) -> Result<(), CliError> {
+        if self.escaped == Some(view.turn())
+            && matches!(end, TurnEnd::Interrupted | TurnEnd::Withdrawn)
+        {
+            return Err(CliError::Escaped);
+        }
+        match end {
+            TurnEnd::Completed | TurnEnd::Withdrawn => Ok(()),
+            TurnEnd::Failed(body) => Err(CliError::TurnFailed { body }),
+            TurnEnd::Interrupted => Err(CliError::TurnInterrupted),
+            TurnEnd::Cancelled => Err(CliError::TurnCancelled),
+        }
+    }
+
+    /// Nothing asks for keys any more: they go back to the input row, after the keys
+    /// that may be the rest of a password are thrown away. Without the row, the reader
+    /// stops.
+    async fn release(&mut self, mut reader: KeyReader, before: &Asking, view: &TurnView) {
+        if self.compose.is_some() && view.has_row() {
+            if before.guards() {
+                reader.flush();
+            }
+            self.keys = Some((reader, Asking::Row));
+        } else {
+            stop(reader, before).await;
+        }
+    }
+
+    /// One key of the input row.
+    async fn row_key(
+        &mut self,
+        key: Key,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        match view.row_key(key) {
+            Action::None => Ok(()),
+            Action::Edited => self.paint(out, view, false),
+            Action::Steer => self.steer(out, view).await,
+            Action::Queue => self.queue(out, view).await,
+            Action::Interrupt => self.escape(out, view).await,
+            Action::Withdraw => self.withdraw(out, view).await,
+        }
+    }
+
+    /// Enter: the text of the row steers the followed turn. A steer that comes too
+    /// late becomes a prompt queued behind it, as Tab would send it.
+    async fn steer(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        let Some(compose) = self.compose.clone() else {
+            return Ok(());
+        };
+        if !view.row_ready() {
+            return Ok(());
+        }
+        let text = view.row_take();
+        let method = Method::TurnSteer(TurnSteer {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            turn_id: Some(view.turn()),
+            text: text.clone(),
+            if_late: Some(LateSteer::Queue {
+                context: Some(compose.context),
+                last_command: compose.last_command.map(LastCommand::into_string),
+                settings: compose.settings,
+            }),
+        });
+        let note = match self.client.call::<TurnSteerResult>(method).await {
+            Ok(result) if result.queued => {
+                view.queued_prompt(result.turn_id, text, true);
+                None
+            }
+            Ok(result) => {
+                view.steered(result.seq, text);
+                None
+            }
+            Err(error) => {
+                view.row_append(&text);
+                Some(match server_error(error)? {
+                    body if body.code == ErrorCode::Conflict => {
+                        "not sent: the turn takes no more steers; press Tab to queue the text"
+                            .to_owned()
+                    }
+                    body => format!("not sent: {}", crate::format::one_line(&body.message)),
+                })
+            }
+        };
+        self.row_done(note, out, view).await
+    }
+
+    /// Tab: the text of the row goes as a prompt queued behind the running turn.
+    async fn queue(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        let Some(compose) = self.compose.clone() else {
+            return Ok(());
+        };
+        if !view.row_ready() {
+            return Ok(());
+        }
+        let text = view.row_take();
+        let method = Method::PromptSend(PromptSend {
+            command_id: self.ctx.command_id(),
+            conversation_id: Some(self.target.conversation),
+            new_conversation: false,
+            text: text.clone(),
+            context: Some(compose.context),
+            last_command: compose.last_command.map(LastCommand::into_string),
+            settings: compose.settings,
+        });
+        let note = match self.client.call::<PromptSendResult>(method).await {
+            Ok(result) => {
+                view.queued_prompt(result.turn_id, text, false);
+                None
+            }
+            Err(error) => {
+                view.row_append(&text);
+                let body = server_error(error)?;
+                Some(format!("not queued: {}", crate::format::one_line(&body.message)))
+            }
+        };
+        self.row_done(note, out, view).await
+    }
+
+    /// Esc: interrupts the followed turn. The steers of this view that no model call
+    /// read go again as one prompt, which runs next, and the prompts that this view
+    /// queued come back into the row, all in one step of the daemon. A followed prompt
+    /// that did not start yet is taken back instead, with the prompts behind it.
+    async fn escape(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        if view.is_queued() {
+            return self.take_back_all(out, view).await;
+        }
+        let turn = view.turn();
+        let method = Method::TurnInterrupt(TurnInterrupt {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            turn_id: Some(turn),
+            resend_steers: view.unread_steers(),
+            withdraw: view.queued_turns(),
+        });
+        let size = self.ctx.screen.size();
+        let step = match self.client.call::<TurnInterruptResult>(method).await {
+            Ok(result) => {
+                self.escaped = Some(turn);
+                view.interrupt_result(&result, size)
+            }
+            Err(error) => match server_error(error)? {
+                body if body.code == ErrorCode::Conflict => {
+                    view.note("not interrupted: the turn is not running", size)
+                }
+                body => view.note(
+                    &format!("the interrupt failed: {}", crate::format::one_line(&body.message)),
+                    size,
+                ),
+            },
+        };
+        self.apply(step, out, view, false).await.map(drop)
+    }
+
+    /// Esc while the followed prompt waits behind another turn: takes it back, and the
+    /// prompts that this view queued after it, into the row. Its `prompt_withdrawn`
+    /// then ends it, and with it the command.
+    async fn take_back_all(
+        &mut self,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let followed = view.turn();
+        let mut notes = Vec::new();
+        for turn in std::iter::once(followed).chain(view.queued_turns()) {
+            match self.take_back(turn).await? {
+                TakeBack::Taken(prompt) if turn == followed => {
+                    self.escaped = Some(turn);
+                    view.row_append(&prompt.text);
+                }
+                TakeBack::Taken(prompt) => view.withdrawn(turn, &prompt.text),
+                TakeBack::Gone(note) | TakeBack::Refused(note) => notes.push(note),
+            }
+        }
+        let size = self.ctx.screen.size();
+        let mut step = Step::default();
+        // One note says it for all.
+        if let Some(note) = notes.first() {
+            step = view.note(note, size);
+        }
+        self.apply(step, out, view, false).await.map(drop)
+    }
+
+    /// Alt+Up: takes back the newest prompt that this view queued, into the row.
+    async fn withdraw(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        let Some(turn) = view.newest_queued() else {
+            return Ok(());
+        };
+        let note = match self.take_back(turn).await? {
+            TakeBack::Taken(prompt) => {
+                view.withdrawn(turn, &prompt.text);
+                None
+            }
+            TakeBack::Gone(note) => {
+                view.drop_queued(turn);
+                Some(note)
+            }
+            TakeBack::Refused(note) => Some(note),
+        };
+        self.row_done(note, out, view).await
+    }
+
+    /// Asks the daemon to take back the queued prompt of `turn`.
+    async fn take_back(&self, turn: TurnId) -> Result<TakeBack, CliError> {
+        let method = Method::PromptWithdraw(PromptWithdraw {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            target: WithdrawTarget::Turn { turn_id: turn },
+        });
+        match self.client.call::<PromptWithdrawResult>(method).await {
+            Ok(result) => Ok(TakeBack::Taken(result.withdrawn)),
+            Err(error) => Ok(match server_error(error)? {
+                body if body.code == ErrorCode::Conflict => {
+                    TakeBack::Gone("not taken back: the prompt already started".to_owned())
+                }
+                body if body.code == ErrorCode::NotFound => {
+                    TakeBack::Gone("not taken back: the daemon has no such prompt".to_owned())
+                }
+                body => TakeBack::Refused(format!(
+                    "not taken back: {}",
+                    crate::format::one_line(&body.message)
+                )),
+            }),
+        }
+    }
+
+    /// Shows what a key of the row did: `note`, when there is one, and a frame.
+    async fn row_done(
+        &mut self,
+        note: Option<String>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        match note {
+            Some(note) => {
+                let step = view.note(&note, self.ctx.screen.size());
+                self.apply(step, out, view, false).await.map(drop)
+            }
+            None => self.paint(out, view, false),
         }
     }
 
@@ -768,7 +1147,7 @@ fn take_over(
             if asked == call_id && matches!(kind, AnswerKind::Visible | AnswerKind::Masked) =>
         {
             while let Some(key) = reader.queued() {
-                pend(&mut line, key);
+                pend(&mut line, key.byte());
             }
             let seeded = match line.text() {
                 "" => None,
@@ -827,11 +1206,21 @@ async fn pressed(quit: &mut Option<Stop>) {
     }
 }
 
-/// The next key while a question or an input is pending; never resolves otherwise.
-async fn next_key(keys: &mut Option<(KeyReader, Asking)>) -> Option<u8> {
+/// The next key while a question, an input or the input row reads keys; never resolves
+/// otherwise.
+async fn next_key(keys: &mut Option<(KeyReader, Asking)>) -> Option<Key> {
     match keys {
         Some((reader, _)) => reader.next().await,
         None => std::future::pending().await,
+    }
+}
+
+/// The daemon's error body of `error`; any other failure, such as a broken connection,
+/// is the command's error.
+fn server_error(error: ClientError) -> Result<efr_protocol::ErrorBody, CliError> {
+    match error {
+        ClientError::Server { body } => Ok(body),
+        error => Err(error.into()),
     }
 }
 
@@ -840,13 +1229,16 @@ fn write(out: &mut Output, step: &Step) -> Result<(), CliError> {
     out.out(&step.out)
 }
 
-fn finished(end: TurnEnd) -> Result<(), CliError> {
-    match end {
-        TurnEnd::Completed => Ok(()),
-        TurnEnd::Failed(body) => Err(CliError::TurnFailed { body }),
-        TurnEnd::Interrupted => Err(CliError::TurnInterrupted),
-        TurnEnd::Cancelled => Err(CliError::TurnCancelled),
-    }
+/// How a prompt that `prompt.withdraw` was asked to take back fared.
+#[derive(Debug)]
+enum TakeBack {
+    /// The daemon took it back.
+    Taken(WithdrawnPrompt),
+    /// It is no longer in the queue: it started, ended or was taken back already. The
+    /// note says so.
+    Gone(String),
+    /// The daemon refused for another reason, which the note gives.
+    Refused(String),
 }
 
 #[cfg(test)]

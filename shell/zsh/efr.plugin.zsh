@@ -4,7 +4,8 @@
 #   ,              a line of just `,` toggles sticky agent mode, as Ctrl+Space does
 #   ,new [prompt]  start a new conversation for this terminal; without a prompt,
 #                  the next `,` line starts it
-#   ,! <text>      steer the running turn instead of queueing
+#   ,! <text>      steer the running turn instead of queueing (from another terminal;
+#                  the input row below steers from this one)
 #   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious
 #                  or auto; without a value, show it with its source and the
 #                  choices; `default` lets the config decide again
@@ -45,6 +46,14 @@
 # EFR_PROMPT. Any local user can read a command line in /proc/<pid>/cmdline, while
 # /proc/<pid>/environ is readable only by this user. The terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
+#
+# While efr follows a turn at a terminal, the keys go to an input row below the turn
+# (render.turn_input in efr's config): Enter steers the turn, Tab queues a prompt
+# behind it, Esc interrupts it and Alt+Up takes back the newest prompt queued there.
+# Text that is still in the row when efr ends comes back to the command line as
+# `, <text>`: the plugin names a file in its runtime directory in EFR_DRAFT_FILE, efr
+# writes the text there (mode 0600), and precmd reads the file, removes it and puts the
+# text in the line editor with print -z. A prompt of several lines stays one prompt.
 #
 # When it loads at a terminal, the plugin asks the terminal once for its background
 # colour (OSC 11) and exports EFR_TERMINAL_BG, dark or light, for render.theme = "auto"
@@ -237,19 +246,45 @@ _efr_rewrite_line() {
 }
 
 # Runs efr with the arguments after the first three, and hands it the context JSON $1,
-# the last command line $2, the prompt $3 and the terminal's turn settings in its
-# environment. The last command travels on its own, never inside the context: it can
-# hold a secret, and the daemon keeps the context in its event log. Prefix assignments
-# set the variables for this one command, so they never stay in the shell, and an
-# empty one hides a value that the shell may have exported.
+# the last command line $2, the prompt $3, the terminal's turn settings and the file
+# for the text of the input row (see _efr_draft_file) in its environment. The last
+# command travels on its own, never inside the context: it can hold a secret, and the
+# daemon keeps the context in its event log. Prefix assignments set the variables for
+# this one command, so they never stay in the shell, and an empty one hides a value
+# that the shell may have exported.
 _efr_call() {
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   local context=$1 last_command=$2 text=$3
   shift 3
+  local REPLY draft=
+  _efr_draft_file && draft=$REPLY
   _efr_called=1
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
-    efr "$@"
+    EFR_DRAFT_FILE=$draft efr "$@"
+}
+
+# Sets REPLY to the file where efr leaves the text that was still in the input row of a
+# turn when it ended: one file per shell, in the drafts directory of the runtime root
+# (see _efr_runtime_root), which efr creates with mode 0700. Returns 1 without a root.
+_efr_draft_file() {
+  _efr_runtime_root || return 1
+  REPLY=$REPLY/drafts/$$
+}
+
+# Puts the text that efr handed back on the command line as a prompt: `, ` and the
+# text, which may span several lines. The file goes once it is read, so the text comes
+# back once. $(<file) is read by zsh itself, without a fork.
+_efr_take_draft() {
+  emulate -L zsh
+  local REPLY
+  _efr_draft_file || return 0
+  local file=$REPLY text
+  [[ -f $file ]] || return 0
+  text=$(<$file)
+  zf_rm -f -- $file 2>/dev/null
+  [[ -n ${text//[[:space:]]/} ]] || return 0
+  print -rz -- ", $text"
 }
 
 # Runs `efr settings` with the terminal's turn settings and the arguments "$@", such as
@@ -757,6 +792,7 @@ _efr_precmd() {
   _efr_stash=''
   _efr_stash_set=0
   _efr_remember_command $exit_status
+  _efr_take_draft
   _efr_print_notices
   _efr_register_completion
 }

@@ -16,8 +16,8 @@ use crate::error::Exit;
 use crate::run;
 use crate::terminal::Size;
 use crate::testing::{
-    CONVERSATION, Conn, FixedScreen, TestEnv, capture, command, conversation, item, now, readable,
-    terminal_facts, turn,
+    CONVERSATION, Conn, FixedScreen, ScriptedKeys, TestEnv, bare, capture, command, conversation,
+    item, now, readable, terminal_facts, turn,
 };
 
 const CONTEXT: &str = r#"{"pwd":"/etc/nginx","oldpwd":"/home/user","tty":"/dev/pts/3","shell_pid":4100,"last_status":1,"shlvl":1,"ssh_connection":null,"hostname":"box"}"#;
@@ -707,4 +707,100 @@ async fn on_a_terminal_the_settings_note_is_dim() {
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     insta::assert_snapshot!(readable(&captured.stdout()));
+}
+
+/// A terminal on stdin and stdout whose keys the test types, and the plugin's file for
+/// the text that the input row hands back, in `dir`.
+fn row_context(env: &TestEnv, keys: &Arc<ScriptedKeys>, dir: &std::path::Path) -> Context {
+    Context {
+        term: terminal_facts(),
+        keys: keys.clone(),
+        screen: Arc::new(FixedScreen(Size { cols: 60, rows: 20 })),
+        env: Env::fixed([(Var::DraftFile, dir.join("draft").into_os_string())]),
+        ..env.context()
+    }
+}
+
+fn completed_turn() -> Event {
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None }
+}
+
+#[tokio::test]
+async fn keys_typed_while_the_prompt_goes_out_land_in_the_input_row() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let keys = Arc::new(ScriptedKeys::default());
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = row_context(&env, &keys, dir.path());
+    let (mut out, captured) = capture();
+    let seen = captured.clone();
+    let typing = Arc::clone(&keys);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        // The reader started before the prompt went out.
+        typing.type_bytes(b"and then").await;
+        conn.reply(id, &sent(false)).await;
+        let (sub, _) = conn.request().await;
+        Wait::new("the row with the keys")
+            .until(|| bare(&seen.stdout()).contains("\u{203a} and then"))
+            .await
+            .unwrap();
+        conn.item(sub, &item(11, completed_turn())).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "hi"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(keys.kept(), 1, "one reader for the whole turn, which kept the typeahead");
+    assert_eq!(keys.starts(), 1);
+    assert_eq!(std::fs::read_to_string(dir.path().join("draft")).unwrap(), "and then");
+}
+
+#[tokio::test]
+async fn a_prompt_that_the_daemon_refuses_hands_the_typed_keys_back() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let keys = Arc::new(ScriptedKeys::default());
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = row_context(&env, &keys, dir.path());
+    let (mut out, _) = capture();
+    let typing = Arc::clone(&keys);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        // Fewer keys than the queue holds: nothing reads them before the failure.
+        typing.type_bytes(b"ahead").await;
+        conn.fail(id, ErrorBody::new(ErrorCode::Busy, "the daemon is starting")).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "hi"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::DaemonError);
+    assert_eq!(std::fs::read_to_string(dir.path().join("draft")).unwrap(), "ahead");
+}
+
+#[tokio::test]
+async fn with_render_turn_input_off_no_key_is_read() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let keys = Arc::new(ScriptedKeys::default());
+    let dir = tempfile::tempdir().unwrap();
+    let mut settings = crate::settings::Settings::default();
+    settings.render.turn_input = false;
+    let ctx = Context { settings, ..row_context(&env, &keys, dir.path()) };
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &sent(false)).await;
+        let (sub, _) = conn.request().await;
+        conn.item(sub, &item(11, completed_turn())).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "hi"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(keys.starts(), 0, "the keys stay typeahead for the shell");
+    assert!(!captured.stdout().contains('\u{203a}'), "{}", readable(&captured.stdout()));
 }

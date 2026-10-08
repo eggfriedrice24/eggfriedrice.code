@@ -20,7 +20,9 @@ use pretty_assertions::assert_eq;
 /// A fake `efr` that records each call under `$EFR_ARGS.<n>`: its command line from
 /// `/proc`, NUL-separated, then the variables the plugin hands over, each prefixed
 /// `set:` or `unset:`. It prints `$EFR_ARGS.out.<first argument>` when that file exists,
-/// such as `args.out.settings` for `efr settings`. The record file is written last,
+/// such as `args.out.settings` for `efr settings`. The first call copies
+/// `$EFR_ARGS.draft`, when it exists, to `$EFR_DRAFT_FILE`, as efr hands back the text
+/// of its input row. The record file is written last,
 /// because its existence numbers the calls. It exits with 2 when one of its arguments
 /// is a line of `$EFR_ARGS.refuse`, as efr refuses a value, and otherwise with
 /// `$FAKE_EXIT` (0 when unset).
@@ -29,7 +31,10 @@ n=0
 while [ -e "$EFR_ARGS.$n" ]; do n=$((n + 1)); done
 record="$EFR_ARGS.$n"
 cat /proc/$$/cmdline > "$record.cmdline"
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT; do
+if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
+  mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
+fi
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -57,6 +62,8 @@ struct Call {
     mode: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    /// Where efr hands back the text of its input row.
+    draft_file: Option<String>,
 }
 
 impl Call {
@@ -84,6 +91,7 @@ impl Call {
             mode: var("EFR_MODE"),
             model: var("EFR_MODEL"),
             effort: var("EFR_EFFORT"),
+            draft_file: var("EFR_DRAFT_FILE"),
         }
     }
 
@@ -844,6 +852,77 @@ fn e2e_without_efr_runtime_dir_notices_come_from_xdg_runtime_dir() {
     assert_eq!(print_notices(&home, None), "efr: approval waiting: a conversation\n");
     assert!(!default.exists());
     assert_eq!(print_notices(&home, None), "", "a notice shows once");
+}
+
+#[test]
+fn e2e_send_and_new_name_the_draft_file_of_this_shell() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let pid = run_in(&home, ", hi\n,new start here\nprint -r -- $$\n");
+    let calls = home.calls();
+    // Home::zsh sets XDG_RUNTIME_DIR to the home.
+    let expected = format!("{}/efr/drafts/{}", home.path().display(), pid.trim());
+    let named: Vec<Option<&str>> = calls.iter().map(|call| call.draft_file.as_deref()).collect();
+    assert_eq!(named, [Some(expected.as_str()), Some(expected.as_str())]);
+    for call in &calls {
+        assert!(!call.cmdline.contains("drafts"), "never in the arguments: {call:?}");
+    }
+}
+
+#[test]
+fn e2e_precmd_puts_the_text_that_efr_handed_back_on_the_command_line_once() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let script = r#"
+        mkdir -p $XDG_RUNTIME_DIR/efr/drafts
+        print -rn -- $'fix the tests\nthen push' > $XDG_RUNTIME_DIR/efr/drafts/$$
+        _efr_take_draft
+        read -rz got
+        print -r -- "[$got]"
+        _efr_take_draft
+        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$$ ]] && print -r -- left
+        print -r -- "[${BUFFERSTACK-}]"
+    "#;
+    let out = run_in(&home, script);
+    assert_eq!(out, "[, fix the tests\nthen push]\n[]\n");
+}
+
+#[test]
+fn e2e_a_blank_text_that_efr_handed_back_puts_nothing_on_the_command_line() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let script = r#"
+        mkdir -p $XDG_RUNTIME_DIR/efr/drafts
+        print -rn -- $'  \n' > $XDG_RUNTIME_DIR/efr/drafts/$$
+        _efr_take_draft
+        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$$ ]] && print -r -- left
+        print -rz -- marker
+        read -rz got
+        print -r -- "[$got]"
+    "#;
+    assert_eq!(run_in(&home, script), "[marker]\n", "the file goes, and nothing is pushed");
+}
+
+#[test]
+fn e2e_the_handed_back_text_waits_on_the_next_command_line_and_runs_as_one_prompt() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    std::fs::write(format!("{}.draft", home.records().display()), "fix the tests\nthen push")
+        .unwrap();
+    // The first `,` line hands the text back; Enter on the next line sends it.
+    let screen = type_lines(&home, &[", hi", ""]);
+    let calls = home.calls();
+    let prompts: Vec<Option<&str>> = calls.iter().map(|call| call.prompt.as_deref()).collect();
+    assert_eq!(prompts, [Some("hi"), Some("fix the tests\nthen push")], "{screen}");
+    assert!(screen.contains(", fix the tests"), "{screen}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
