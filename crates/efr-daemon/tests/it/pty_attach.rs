@@ -7,6 +7,7 @@ use efr_protocol::{
     PtyWrite, PtyWriteResult, Seq, Size,
 };
 use efr_test_daemon::{ClientError, ItemStream, PROMPT, Replay, command_output};
+use efr_test_support::Wait;
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 
@@ -28,11 +29,18 @@ async fn attach(replay: &Replay, since: Option<u64>) -> ItemStream<PtyAttachItem
     replay.client().stream(Method::PtyAttach(params)).await.unwrap()
 }
 
+/// The next item of `stream`. A lost item fails the test at the wait's limit and does
+/// not hang it.
+async fn next(stream: &mut ItemStream<PtyAttachItem>, what: &str) -> PtyAttachItem {
+    let next = Wait::new(what).until_some_async(async || Some(stream.next().await)).await;
+    next.unwrap().unwrap_or_else(|| panic!("the stream ended before {what}")).unwrap()
+}
+
 /// Output items from `start` until `len` bytes arrived, checking they are back to back.
 async fn output(stream: &mut ItemStream<PtyAttachItem>, start: u64, len: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
     while bytes.len() < len {
-        match stream.next().await.unwrap().unwrap() {
+        match next(stream, "output").await {
             PtyAttachItem::Output { seq, data } => {
                 assert_eq!(seq.get(), start + bytes.len() as u64, "no hole and no repeat");
                 bytes.extend_from_slice(data.as_bytes());
@@ -58,7 +66,7 @@ async fn pty_attach_since_seq() {
         &printed[PROMPT.len()..]
     );
     let mut fresh = attach(&replay, None).await;
-    match fresh.next().await.unwrap().unwrap() {
+    match next(&mut fresh, "the screen").await {
         PtyAttachItem::Snapshot { seq, snapshot } => {
             assert_eq!(seq.get(), end, "the screen has seen every recorded byte");
             assert!(snapshot.size.cols > 0 && snapshot.size.rows > 0);
@@ -79,7 +87,13 @@ async fn pty_attach_since_seq() {
 async fn pty_write_reaches_the_shell_and_pty_resize_the_holder_and_the_watchers() {
     let mut replay = Replay::run("pty_attach_since_seq").await.unwrap();
     let pty_id = pty_id(&replay);
-    let mut watcher = attach(&replay, Some(printed().len() as u64)).await;
+    // `stream` returns when the request is sent, and the daemon runs the requests of one
+    // connection side by side. Only the first item shows that the watcher gets live
+    // steps: the daemon registers it before it sends anything. So the watcher resumes
+    // from the start and reads the recording before the resize.
+    let printed = printed();
+    let mut watcher = attach(&replay, Some(0)).await;
+    assert_eq!(output(&mut watcher, 0, printed.len()).await, printed);
 
     let write = Method::PtyWrite(PtyWrite { pty_id, data: Base64Bytes::new(b"q".to_vec()) });
     let _: PtyWriteResult = replay.client().call(write).await.unwrap();
@@ -89,7 +103,7 @@ async fn pty_write_reaches_the_shell_and_pty_resize_the_holder_and_the_watchers(
     let _: PtyResizeResult =
         replay.client().call(Method::PtyResize(PtyResize { pty_id, size })).await.unwrap();
     assert_eq!(replay.daemon().holder().unwrap().resizes(), [(pty_id, size)]);
-    match watcher.next().await.unwrap().unwrap() {
+    match next(&mut watcher, "the resize").await {
         PtyAttachItem::Resized { size: resized, .. } => assert_eq!(resized, size),
         other => panic!("a watcher hears the resize: {other:?}"),
     }
