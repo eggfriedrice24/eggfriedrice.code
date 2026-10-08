@@ -1,0 +1,464 @@
+//! The compaction of a conversation's context: the model's history as a [`Window`],
+//! the pure steps (prune, cut, the summary request) and the summary call.
+//!
+//! The README, section "Context", is the contract. A turn runs a compaction between two
+//! model calls (`turn/compact.rs`), and the actor runs a manual one between turns. Both
+//! hand a [`Job`] to [`run`], which prunes, and summarizes when pruning is not enough or
+//! not allowed. The caller then reads the fresh context block from disk, builds the new
+//! window and records `conversation_compacted`.
+
+use std::collections::HashSet;
+
+use efr_protocol::{CompactionTrigger, TurnId};
+use efr_provider::{
+    CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, TokenUsage,
+};
+use futures::StreamExt as _;
+use tracing::Instrument as _;
+
+use crate::context::{
+    ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
+    SUMMARY_MAX_OUTPUT_TOKENS, TAIL_TOKENS, estimate_tokens,
+};
+use crate::interrupt::Interrupt;
+
+/// The summary prompt: the one text that every compaction sends, and the format of the
+/// handoff record of milestone 4.
+pub(crate) const SUMMARY_PROMPT: &str = include_str!("compaction/prompt.md");
+
+/// What the summary message starts with, so the model tells it from a prompt.
+pub(crate) const SUMMARY_OPEN: &str = "<conversation-summary>";
+
+/// What the summary message ends with.
+pub(crate) const SUMMARY_CLOSE: &str = "</conversation-summary>";
+
+/// What comes before the user's focus text in the summary request.
+const FOCUS: &str = "Keep in the summary: ";
+
+/// One message of the model's history and where it stands: message `index` of the turn
+/// `turn` (0 is the prompt).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Placed {
+    pub(crate) turn: TurnId,
+    pub(crate) index: u32,
+    pub(crate) message: Message,
+}
+
+/// The model's history as the next request sends it, after the system prompt.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Window {
+    /// The fresh context block and the summary of the newest compaction; empty before
+    /// the first compaction with a summary.
+    pub(crate) head: Vec<Message>,
+    /// The messages of the turns, each with its place, oldest first.
+    pub(crate) placed: Vec<Placed>,
+}
+
+impl Window {
+    /// The messages of the request, in order.
+    pub(crate) fn messages(&self) -> Vec<Message> {
+        self.head
+            .iter()
+            .cloned()
+            .chain(self.placed.iter().map(|placed| placed.message.clone()))
+            .collect()
+    }
+
+    /// The number of messages that [`messages`](Self::messages) returns.
+    pub(crate) fn len(&self) -> usize {
+        self.head.len() + self.placed.len()
+    }
+
+    /// The estimated tokens of the messages from the `from`th on.
+    pub(crate) fn tokens_from(&self, from: usize) -> u64 {
+        let head = self.head.iter();
+        let placed = self.placed.iter().map(|placed| &placed.message);
+        head.chain(placed).skip(from).map(message_tokens).sum()
+    }
+}
+
+/// A place in the history: the compaction covers every message before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Cut {
+    /// The newest turn whose messages the compaction covers, in full or in part.
+    pub(crate) through_turn: TurnId,
+    /// The first message of `through_turn` after the cut; `None` when the compaction
+    /// covers the whole turn.
+    pub(crate) through_message: Option<u32>,
+}
+
+impl Cut {
+    /// True when `placed` lies before the cut. `order` gives the position of a turn in
+    /// the conversation; a turn it does not know counts as after the cut.
+    pub(crate) fn covers(&self, placed: &Placed, order: impl Fn(TurnId) -> Option<usize>) -> bool {
+        if placed.turn == self.through_turn {
+            return self.through_message.is_none_or(|first| placed.index < first);
+        }
+        match (order(placed.turn), order(self.through_turn)) {
+            (Some(turn), Some(through)) => turn < through,
+            _ => false,
+        }
+    }
+}
+
+/// What pruning made of a window's turns.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Pruning {
+    /// The messages with the stub in each pruned tool result.
+    pub(crate) placed: Vec<Placed>,
+    /// The tool results that read the stub now.
+    pub(crate) outputs: u32,
+    /// The estimated tokens that the stubs freed.
+    pub(crate) tokens: u64,
+    /// The place after the newest pruned result; `None` when nothing was pruned.
+    pub(crate) cut: Option<Cut>,
+    /// The position in `placed` of the first message after the cut; 0 when nothing was
+    /// pruned.
+    pub(crate) after: usize,
+}
+
+impl Pruning {
+    /// True when the pruning frees enough to be worth a new cache prefix.
+    pub(crate) fn worth_it(&self) -> bool {
+        self.tokens >= PRUNE_MIN_TOKENS
+    }
+}
+
+/// The estimated tokens of `message` as the request carries it.
+pub(crate) fn message_tokens(message: &Message) -> u64 {
+    estimate_tokens(json_len(message))
+}
+
+/// The estimated tokens of the whole `request`: the system prompt, the tool definitions
+/// and the messages.
+pub(crate) fn request_tokens(request: &Request) -> u64 {
+    estimate_tokens(json_len(request))
+}
+
+fn json_len<T: serde::Serialize>(value: &T) -> u64 {
+    serde_json::to_vec(value).map_or(0, |json| json.len() as u64)
+}
+
+/// True for a user message that holds only tool results.
+pub(crate) fn is_results(message: &Message) -> bool {
+    message.role == Role::User
+        && !message.content.is_empty()
+        && message.content.iter().all(|block| matches!(block, ContentBlock::ToolResult { .. }))
+}
+
+/// True for an assistant message that calls a tool.
+fn calls_tool(message: &Message) -> bool {
+    message.role == Role::Assistant
+        && message.content.iter().any(|block| matches!(block, ContentBlock::ToolCall { .. }))
+}
+
+/// Where the shortest tail starts: the newest tool call with its result, or the newest
+/// prompt (or steer), whichever is newer. Nothing in it is pruned or summarized away.
+pub(crate) fn minimal_tail(placed: &[Placed]) -> usize {
+    placed
+        .iter()
+        .rposition(|placed| {
+            calls_tool(&placed.message)
+                || (placed.message.role == Role::User && !is_results(&placed.message))
+        })
+        .unwrap_or(placed.len().saturating_sub(1))
+}
+
+/// Gives every tool result outside the newest [`PRUNE_KEEP_TOKENS`] of `placed`, and
+/// outside the shortest tail, whose output is longer than [`PRUNED_OUTPUT_STUB`] the
+/// stub as its output. The caller decides with [`Pruning::worth_it`] whether to use it.
+pub(crate) fn prune(placed: &[Placed]) -> Pruning {
+    let mut kept: u64 = 0;
+    let mut protected = placed.len();
+    for (at, item) in placed.iter().enumerate().rev() {
+        kept += message_tokens(&item.message);
+        if kept > PRUNE_KEEP_TOKENS {
+            break;
+        }
+        protected = at;
+    }
+    let protected = protected.min(minimal_tail(placed));
+    let mut pruned = placed.to_vec();
+    let mut outputs = 0;
+    let mut freed_bytes: u64 = 0;
+    let mut newest = None;
+    for (at, item) in pruned.iter_mut().enumerate().take(protected) {
+        let before = json_len(&item.message);
+        let mut stubbed = false;
+        for block in &mut item.message.content {
+            if let ContentBlock::ToolResult { output, .. } = block
+                && output.len() > PRUNED_OUTPUT_STUB.len()
+            {
+                PRUNED_OUTPUT_STUB.clone_into(output);
+                outputs += 1;
+                stubbed = true;
+            }
+        }
+        if stubbed {
+            freed_bytes += before.saturating_sub(json_len(&item.message));
+            newest = Some(at);
+        }
+    }
+    let cut = newest.map(|at| place_after(&pruned, at));
+    let after = newest.map_or(0, |at| at + 1);
+    Pruning { placed: pruned, outputs, tokens: estimate_tokens(freed_bytes), cut, after }
+}
+
+/// The place right after `placed[at]`.
+fn place_after(placed: &[Placed], at: usize) -> Cut {
+    let item = &placed[at];
+    let whole_turn = placed.get(at + 1).is_some_and(|next| next.turn != item.turn);
+    Cut {
+        through_turn: item.turn,
+        through_message: (!whole_turn).then_some(item.index.saturating_add(1)),
+    }
+}
+
+/// Where the verbatim tail of `placed` starts: the newest messages whose estimate fits
+/// in [`TAIL_TOKENS`], at least the [`minimal_tail`], and never at a message of tool
+/// results, so a tool call keeps its result. 0 means that nothing lies before the tail.
+pub(crate) fn tail_start(placed: &[Placed]) -> usize {
+    let mut kept: u64 = 0;
+    let mut start = placed.len();
+    for (at, item) in placed.iter().enumerate().rev() {
+        kept += message_tokens(&item.message);
+        if kept > TAIL_TOKENS {
+            break;
+        }
+        start = at;
+    }
+    let mut start = start.min(minimal_tail(placed));
+    while start > 0 && placed.get(start).is_some_and(|item| is_results(&item.message)) {
+        start -= 1;
+    }
+    start
+}
+
+/// The cut before `placed[start]`, or `None` when `start` is 0 and nothing lies before
+/// it.
+pub(crate) fn cut_before(placed: &[Placed], start: usize) -> Option<Cut> {
+    let first = placed.get(start)?;
+    if start == 0 {
+        return None;
+    }
+    if first.index > 0 {
+        return Some(Cut { through_turn: first.turn, through_message: Some(first.index) });
+    }
+    placed.get(start - 1).map(|before| Cut { through_turn: before.turn, through_message: None })
+}
+
+/// How many turns `placed` holds messages of.
+pub(crate) fn turn_count(placed: &[Placed]) -> u32 {
+    let turns: HashSet<TurnId> = placed.iter().map(|placed| placed.turn).collect();
+    u32::try_from(turns.len()).unwrap_or(u32::MAX)
+}
+
+/// The user message that carries `summary` in the history after a compaction.
+pub(crate) fn summary_message(summary: &str) -> Message {
+    Message::user(format!("{SUMMARY_OPEN}\n{}\n{SUMMARY_CLOSE}", summary.trim()))
+}
+
+/// The text of the summary request's last message: the prompt, and the user's focus
+/// when a manual compaction names one.
+pub(crate) fn summary_prompt(focus: Option<&str>) -> String {
+    match focus.map(str::trim).filter(|focus| !focus.is_empty()) {
+        Some(focus) => format!("{}\n\n{FOCUS}{focus}", SUMMARY_PROMPT.trim_end()),
+        None => SUMMARY_PROMPT.trim_end().to_owned(),
+    }
+}
+
+/// The summary request: `base` (the model, the system prompt, the tools and the
+/// options of the turn, so the request hits the prompt cache) with `messages` and the
+/// summary prompt as the last message, and the summary's output limit.
+pub(crate) fn summary_request(
+    base: &Request,
+    messages: Vec<Message>,
+    focus: Option<&str>,
+) -> Request {
+    let mut messages = messages;
+    messages.push(Message::user(summary_prompt(focus)));
+    Request {
+        model: base.model.clone(),
+        system: base.system.clone(),
+        messages,
+        tools: base.tools.clone(),
+        max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS),
+        provider_options: base.provider_options.clone(),
+    }
+}
+
+/// `base` with the messages of `window`.
+pub(crate) fn with_window(base: &Request, window: &Window) -> Request {
+    Request { messages: window.messages(), ..base.clone() }
+}
+
+/// One compaction to run.
+pub(crate) struct Job<'a> {
+    pub(crate) provider: &'a dyn Provider,
+    /// The model, the system prompt, the tools and the options of the requests; its
+    /// messages do not count.
+    pub(crate) base: &'a Request,
+    pub(crate) window: &'a Window,
+    pub(crate) limits: ContextLimits,
+    pub(crate) trigger: CompactionTrigger,
+    pub(crate) focus: Option<&'a str>,
+    /// Stops the summary call when it is raised; a manual compaction has none.
+    pub(crate) interrupt: Option<&'a Interrupt>,
+}
+
+/// What [`run`] did.
+#[derive(Debug)]
+pub(crate) enum Outcome {
+    /// Pruning alone brought the context below the trigger.
+    Pruned(Pruning),
+    /// The model wrote a summary of the history; the verbatim tail starts at
+    /// `window.placed[tail]`.
+    Summarized {
+        summary: String,
+        usage: Option<TokenUsage>,
+        tail: usize,
+        /// The pruning that the summary request used, when it needed one to fit.
+        pruned: Option<Pruning>,
+    },
+    /// Nothing lies before the shortest tail, so a compaction frees no room.
+    Nothing,
+    /// The summary request failed.
+    Failed(ProviderError),
+    /// The model answered the summary request without text.
+    Empty,
+    /// The user interrupted the turn during the summary call.
+    Interrupted,
+}
+
+/// Runs the steps of one compaction: prune, and summarize when pruning frees too little,
+/// leaves the context at or above the trigger, or the compaction is manual.
+pub(crate) async fn run(job: Job<'_>) -> Outcome {
+    let pruning = prune(&job.window.placed);
+    if job.trigger != CompactionTrigger::Manual && pruning.worth_it() {
+        let pruned = Window { head: job.window.head.clone(), placed: pruning.placed.clone() };
+        if request_tokens(&with_window(job.base, &pruned)) < job.limits.trigger {
+            return Outcome::Pruned(pruning);
+        }
+    }
+    let tail = tail_start(&job.window.placed);
+    if tail == 0 {
+        return Outcome::Nothing;
+    }
+    // NOTE: the history as the last request sent it hits the prompt cache. Only a
+    // request that would not fit sends the pruned copy; a refused request did not fit.
+    let mut request = summary_request(job.base, job.window.messages(), job.focus);
+    let mut used = None;
+    let too_large = job.trigger == CompactionTrigger::Overflow
+        || request_tokens(&request) > job.limits.hard_cap;
+    if too_large && pruning.outputs > 0 {
+        let pruned = Window { head: job.window.head.clone(), placed: pruning.placed.clone() };
+        request = summary_request(job.base, pruned.messages(), job.focus);
+        used = Some(pruning.clone());
+    }
+    let mut answer = summarize(job.provider, request.clone(), job.interrupt).await;
+    if matches!(&answer, Answer::Failed(error) if error.is_context_overflow()) {
+        // NOTE: the summary request itself did not fit: the oldest messages go, never
+        // the head with an earlier summary, and the rest is summarized.
+        if let Some(smaller) = without_oldest(&request, job.window.head.len(), job.limits) {
+            answer = summarize(job.provider, smaller, job.interrupt).await;
+        }
+    }
+    match answer {
+        Answer::Done { text, .. } if text.trim().is_empty() => Outcome::Empty,
+        Answer::Done { text, usage } => {
+            Outcome::Summarized { summary: text.trim().to_owned(), usage, tail, pruned: used }
+        }
+        Answer::Failed(error) => Outcome::Failed(error),
+        Answer::Interrupted => Outcome::Interrupted,
+    }
+}
+
+/// `request` without its oldest messages after the first `head`, until its estimate is
+/// below the trigger; the remaining messages never start with tool results. `None`
+/// when nothing can go.
+fn without_oldest(request: &Request, head: usize, limits: ContextLimits) -> Option<Request> {
+    let (keep, rest) = request.messages.split_at(head.min(request.messages.len()));
+    // The last message is the summary prompt, which always stays.
+    let movable = rest.len().saturating_sub(1);
+    for drop in 1..=movable {
+        if rest.get(drop).is_some_and(is_results) {
+            continue;
+        }
+        let messages: Vec<Message> = keep.iter().chain(&rest[drop..]).cloned().collect();
+        let smaller = Request { messages, ..request.clone() };
+        if request_tokens(&smaller) < limits.trigger || drop == movable {
+            return Some(smaller);
+        }
+    }
+    None
+}
+
+/// How the summary call ended.
+enum Answer {
+    Done { text: String, usage: Option<TokenUsage> },
+    Failed(ProviderError),
+    Interrupted,
+}
+
+/// Sends the summary request and keeps the text of the answer. Nothing is recorded: the
+/// summary reaches the log only in `conversation_compacted`. Tool calls in the answer
+/// are ignored.
+async fn summarize(
+    provider: &dyn Provider,
+    request: Request,
+    interrupt: Option<&Interrupt>,
+) -> Answer {
+    let span = tracing::debug_span!(
+        "provider_request",
+        provider = %provider.id(),
+        model = %request.model,
+        purpose = "summary",
+    );
+    stream_summary(provider, request, interrupt).instrument(span).await
+}
+
+async fn stream_summary(
+    provider: &dyn Provider,
+    request: Request,
+    interrupt: Option<&Interrupt>,
+) -> Answer {
+    let raised = async {
+        match interrupt {
+            Some(interrupt) => interrupt.raised().await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(raised);
+    let opened = tokio::select! {
+        biased;
+        () = &mut raised => return Answer::Interrupted,
+        opened = provider.stream(request) => opened,
+    };
+    let mut stream = match opened {
+        Ok(stream) => stream,
+        Err(error) => return Answer::Failed(error),
+    };
+    let mut builder = CompletionBuilder::new();
+    loop {
+        tokio::select! {
+            biased;
+            () = &mut raised => return Answer::Interrupted,
+            item = stream.next() => match item {
+                None => break,
+                Some(Err(error)) => return Answer::Failed(error),
+                Some(Ok(event)) => {
+                    if let Err(error) = builder.push(&event) {
+                        return Answer::Failed(error);
+                    }
+                }
+            },
+        }
+    }
+    match builder.finish() {
+        Ok(completion) => Answer::Done { text: completion.message.text(), usage: completion.usage },
+        Err(error) => Answer::Failed(error),
+    }
+}
+
+#[cfg(test)]
+mod tests;

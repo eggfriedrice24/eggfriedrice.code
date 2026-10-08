@@ -19,19 +19,30 @@
 //! the batch that records its end, and the snapshot reads them back, so after a restart,
 //! when the cache is empty, a saved turn takes the cache's place and the request is
 //! the same as without the restart. Only a turn with neither is rebuilt.
+//!
+//! After a compaction with a summary, the history is the fresh context block, the
+//! summary, and the messages after the compaction's cut (`efr_store::compactions` reads
+//! the newest compaction with a query of its own, never from the page). A newer
+//! compaction that only pruned puts the stub in each tool result before its cut.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, ConversationSummary, Event, EventEnvelope, Seq, TurnId};
+use efr_protocol::{
+    Compaction, ConversationId, ConversationSummary, EffectiveSettings, Event, EventEnvelope, Seq,
+    TurnId,
+};
 use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_store::Readers;
+use efr_store::compactions::{self, LatestCompactions};
 use efr_store::conversations::{self, Turn};
 use efr_store::events;
 use efr_store::turn_messages::{self, TurnMessages};
 
 use crate::ConversationError;
+use crate::compaction::{Cut, Placed, Window, summary_message};
+use crate::context::PRUNED_OUTPUT_STUB;
 
 /// What the model reads for a tool call whose result was never recorded, as when the
 /// daemon stopped while the call ran or waited for approval.
@@ -101,6 +112,8 @@ pub(crate) struct Snapshot {
     pub(crate) page: Vec<EventEnvelope>,
     /// The exact messages that earlier turns saved, by turn.
     pub(crate) saved: HashMap<TurnId, CachedTurn>,
+    /// The newest compaction with a summary, and the newest of any kind.
+    pub(crate) compactions: LatestCompactions,
 }
 
 impl Snapshot {
@@ -120,6 +133,7 @@ impl Snapshot {
                         .into_iter()
                         .filter_map(decode)
                         .collect(),
+                    compactions: compactions::latest(conn, conversation_id)?,
                 })
             })
             .await
@@ -154,12 +168,23 @@ impl Snapshot {
             .flatten()
     }
 
-    /// The earlier turns as messages, oldest first, within `limits`.
-    ///
-    /// A turn counts when it has finished and its `turn_started` event is in the page,
-    /// so none of its events was cut off. `current` is the turn being assembled, which
-    /// never counts. A cached turn keeps its provider items only when `key`, the
-    /// provider and the model of the current turn, answered it.
+    /// The newest compaction with a summary, which decides where the history starts.
+    pub(crate) fn summary(&self) -> Option<&Compaction> {
+        self.compactions.summary.as_ref().map(|stored| &stored.compaction)
+    }
+
+    /// The settings of the newest turn that the page holds, from its `turn_started`, for
+    /// a manual compaction between turns.
+    pub(crate) fn newest_settings(&self) -> Option<&EffectiveSettings> {
+        self.page.iter().rev().find_map(|envelope| match &envelope.event {
+            Event::TurnStarted { settings, .. } => settings.as_ref(),
+            _ => None,
+        })
+    }
+
+    /// The earlier turns as messages, oldest first, within `limits`; see
+    /// [`window`](Self::window).
+    #[cfg(test)]
     pub(crate) fn history(
         &self,
         current: TurnId,
@@ -167,6 +192,28 @@ impl Snapshot {
         key: &ModelKey,
         limits: HistoryLimits,
     ) -> Vec<Message> {
+        self.window(Some(current), cache, key, limits, None).messages()
+    }
+
+    /// The model's history before the turn `current`, oldest first, within `limits`.
+    ///
+    /// A turn counts when it has finished and its `turn_started` event is in the page,
+    /// so none of its events was cut off. `current` is the turn being assembled, which
+    /// never counts; a manual compaction between turns has none. A cached turn keeps its provider items only when `key`, the
+    /// provider and the model of the current turn, answered it.
+    ///
+    /// After a compaction with a summary, the window starts with `fresh` (the fresh
+    /// context block, when given) and the summary, and holds only the messages after
+    /// the compaction's cut. A newer compaction that only pruned puts the stub in each
+    /// tool result before its own cut.
+    pub(crate) fn window(
+        &self,
+        current: Option<TurnId>,
+        cache: &HashMap<TurnId, Arc<CachedTurn>>,
+        key: &ModelKey,
+        limits: HistoryLimits,
+        fresh: Option<&str>,
+    ) -> Window {
         let mut by_turn: HashMap<TurnId, Vec<&EventEnvelope>> = HashMap::new();
         let mut started: HashSet<TurnId> = HashSet::new();
         let left = left_steers(&self.page);
@@ -186,24 +233,46 @@ impl Snapshot {
             by_turn.entry(turn_id).or_default().push(envelope);
         }
 
-        let eligible = self.turns.iter().filter(|turn| {
-            turn.id != current && turn.status.is_finished() && started.contains(&turn.id)
+        let order: HashMap<TurnId, usize> =
+            self.turns.iter().enumerate().map(|(at, turn)| (turn.id, at)).collect();
+        let position = |turn: TurnId| order.get(&turn).copied();
+        let summary = self.summary().and_then(|compaction| {
+            let cut = Cut {
+                through_turn: compaction.through_turn,
+                through_message: compaction.through_message,
+            };
+            compaction.summary.as_deref().map(|summary| (cut, summary))
         });
-        let mut turns: Vec<Vec<Message>> = eligible
+
+        let eligible = self.turns.iter().filter(|turn| {
+            Some(turn.id) != current && turn.status.is_finished() && started.contains(&turn.id)
+        });
+        let mut turns: Vec<Vec<Placed>> = eligible
             .map(|turn| {
                 let exact =
                     cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
-                match exact {
+                let messages = match exact {
                     Some(exact) if exact.key == *key => exact.messages.clone(),
                     Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
                     None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
-                }
+                };
+                messages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, message)| Placed {
+                        turn: turn.id,
+                        index: u32::try_from(index).unwrap_or(u32::MAX),
+                        message,
+                    })
+                    .filter(|placed| summary.is_none_or(|(cut, _)| !cut.covers(placed, position)))
+                    .collect::<Vec<Placed>>()
             })
+            .filter(|turn| !turn.is_empty())
             .collect();
 
         let skip = turns.len().saturating_sub(limits.max_turns);
         turns.drain(..skip);
-        let sizes: Vec<usize> = turns.iter().map(|messages| json_size(messages)).collect();
+        let sizes: Vec<usize> = turns.iter().map(|placed| json_size(placed)).collect();
         let mut total: usize = sizes.iter().sum();
         let mut first = 0;
         while total > limits.max_bytes && first < turns.len() {
@@ -211,8 +280,51 @@ impl Snapshot {
             first += 1;
         }
         turns.drain(..first);
-        turns.into_iter().flatten().collect()
+        let mut placed: Vec<Placed> = turns.into_iter().flatten().collect();
+
+        // NOTE: a pruning newer than the summary holds for the results before its cut;
+        // an older one lies before the summary's cut.
+        let summary_seq = self.compactions.summary.as_ref().map(|stored| stored.seq);
+        let pruned = self.compactions.newest.as_ref().filter(|stored| {
+            stored.compaction.summary.is_none() && summary_seq.is_none_or(|seq| stored.seq > seq)
+        });
+        if let Some(pruned) = pruned {
+            let cut = Cut {
+                through_turn: pruned.compaction.through_turn,
+                through_message: pruned.compaction.through_message,
+            };
+            for item in placed.iter_mut().filter(|item| cut.covers(item, position)) {
+                stub_results(&mut item.message);
+            }
+        }
+
+        let mut head = Vec::new();
+        if let Some((_, summary)) = summary {
+            head.extend(fresh.map(Message::user));
+            head.push(summary_message(summary));
+        }
+        Window { head, placed }
     }
+}
+
+/// Gives each tool result of `message` whose output is longer than the stub the stub.
+fn stub_results(message: &mut Message) {
+    for block in &mut message.content {
+        if let ContentBlock::ToolResult { output, .. } = block
+            && output.len() > PRUNED_OUTPUT_STUB.len()
+        {
+            PRUNED_OUTPUT_STUB.clone_into(output);
+        }
+    }
+}
+
+/// The size of the messages of `placed` as JSON, the measure of
+/// [`HistoryLimits::max_bytes`].
+fn json_size(placed: &[Placed]) -> usize {
+    placed
+        .iter()
+        .map(|placed| serde_json::to_vec(&placed.message).map_or(0, |json| json.len()))
+        .sum()
 }
 
 /// The `turn_steered` events of `page` that left their turn unread at an interrupt:
@@ -265,11 +377,6 @@ fn decode(saved: TurnMessages) -> Option<(TurnId, CachedTurn)> {
 fn without_raw(mut message: Message) -> Message {
     message.provider_raw = None;
     message
-}
-
-/// The size of `messages` as JSON, the measure of [`HistoryLimits::max_bytes`].
-fn json_size(messages: &[Message]) -> usize {
-    messages.iter().map(|message| serde_json::to_vec(message).map_or(0, |json| json.len())).sum()
 }
 
 /// One turn rebuilt from its prompt and its events, in log order.

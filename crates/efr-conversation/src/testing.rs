@@ -14,12 +14,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, CacheMode, CallId, ChangeKind, CommandId, ConversationId,
-    EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait, LateSteer, Mode,
-    Needs, NetworkMode, Origin, OverriddenSettings, ProjectId, PromptSend, PromptSendResult,
-    PromptWithdraw, QuestionId, ReportedFile, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    Seq, ShellContext, SurfaceChange, TurnId, TurnInterrupt, TurnSettings, TurnSteer,
-    WithdrawTarget,
+    ApprovalDecision, ApprovalRespond, CacheMode, CallId, ChangeKind, CommandId, Compaction,
+    ConversationId, EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait,
+    LateSteer, Mode, ModelInfo, ModelSource, Needs, NetworkMode, Origin, OverriddenSettings,
+    ProjectId, PromptSend, PromptSendResult, PromptWithdraw, QuestionId, ReportedFile,
+    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
+    TurnInterrupt, TurnSettings, TurnSteer, WithdrawTarget,
 };
 use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition, ToolGrammar};
 use efr_scope::{Derivation, Home};
@@ -32,13 +32,15 @@ use jiff::civil::date;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
+use crate::compaction::summary_request;
+use crate::fresh::FreshFacts;
 use crate::preamble::LiveState;
 use crate::resolver::machine;
 use crate::scratch;
 use crate::{
     CallContext, ConversationActor, ConversationConfig, ConversationDeps, ConversationDraft,
-    ConversationHandle, ConversationStart, HostInfo, OutputSink, ScopeResolver, ToolCall,
-    ToolOutcome, Toolbox, draft_channel,
+    ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink, ScopeResolver,
+    ToolCall, ToolOutcome, Toolbox, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -48,7 +50,8 @@ pub(crate) const OS: &str = "TestOS";
 
 /// Tools that declare what their input names and answer with fixed text.
 ///
-/// - `read_file {path}` reads a path and answers `contents of <path>`;
+/// - `read_file {path}` reads a path and answers `contents of <path>`, or the bytes of
+///   a file named `big-<bytes>`;
 /// - `write_file {path, content}` writes a path and answers `written <path>`;
 /// - `shell {command}` runs a command, reports `partial` as output, yields, then
 ///   answers `done` with exit code 0; the command `ask-password` instead prints a
@@ -63,7 +66,9 @@ pub(crate) const OS: &str = "TestOS";
 ///
 /// A `shell` input may also declare `reads` and `writes` (lists of paths), `network`,
 /// `nested_shell` and `needs`, as the real shell tool does. The command `plant-hook`
-/// reports a git change that the launcher moved to quarantine ([`planted`]).
+/// reports a git change that the launcher moved to quarantine ([`planted`]). A
+/// `read_file` of a file named `big-<bytes>` reads that many bytes ([`big_text`]), past
+/// the cap of the real tools, so a test fills the context fast.
 #[derive(Debug, Default)]
 pub(crate) struct FakeToolbox {
     invoked: Mutex<Vec<(String, Value)>>,
@@ -167,6 +172,17 @@ pub(crate) fn planted() -> SurfaceChange {
         key: Some("core.fsmonitor".to_owned()),
         quarantined: true,
     }
+}
+
+/// The size of the file `big-<bytes>` that `read_file` reads, or `None` for another
+/// path.
+fn big_output(path: &str) -> Option<usize> {
+    Path::new(path).file_name()?.to_str()?.strip_prefix("big-")?.parse().ok()
+}
+
+/// What `read_file` reads from a file named `big-<bytes>`: that many bytes.
+pub(crate) fn big_text(bytes: usize) -> String {
+    "x".repeat(bytes)
 }
 
 /// The paths of the list `key` of a shell input.
@@ -277,7 +293,10 @@ impl Toolbox for FakeToolbox {
         self.ran.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
         let path = call.input.get("path").and_then(Value::as_str).unwrap_or_default();
         match call.name.as_str() {
-            "read_file" => ToolOutcome::ok(format!("contents of {path}")),
+            "read_file" => match big_output(path) {
+                Some(bytes) => ToolOutcome::ok(big_text(bytes)),
+                None => ToolOutcome::ok(format!("contents of {path}")),
+            },
             "note" => ToolOutcome::ok(format!("noted {}", call.input.as_str().unwrap_or("?"))),
             "apply_patch" => ToolOutcome::ok("patched"),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
@@ -951,4 +970,106 @@ pub(crate) fn result_message(call_id: &str, output: &str, is_error: bool) -> Mes
 /// The event of `events` that `wanted` accepts.
 pub(crate) fn find(events: &[Event], wanted: impl Fn(&Event) -> bool) -> Event {
     events.iter().find(|event| wanted(event)).cloned().expect("the event is in the log")
+}
+
+// Compaction: a model with a small window, big prompts and big reads.
+
+/// The window of the test model: the trigger is at 76000 tokens, the hard cap at 95000.
+pub(crate) const WINDOW: u64 = 100_000;
+pub(crate) const TRIGGER: u64 = 76_000;
+pub(crate) const HARD_CAP: u64 = 95_000;
+
+/// The bytes of a big prompt: about 28000 tokens, so two of them stay below the
+/// trigger and pass the tail's budget.
+pub(crate) const PROMPT_BYTES: usize = 112_000;
+
+pub(crate) const SUMMARY: &str = "## Task and state\nRead the big files.\n\n## Decisions\nNone.";
+pub(crate) const SUMMARY_2: &str =
+    "## Task and state\nRead the big files again.\n\n## Decisions\nNone.";
+pub(crate) const AGENTS: &str = "Keep answers short.\n";
+
+/// A setup whose model has a window of [`WINDOW`] tokens, with a history that holds
+/// every turn and an `AGENTS.md` in the working directory.
+pub(crate) fn compacting() -> Setup {
+    let mut setup = Setup::new();
+    setup.config.models = vec![ModelInfo {
+        id: MODEL.to_owned(),
+        efforts: Vec::new(),
+        default_effort: None,
+        default: true,
+        source: ModelSource::Builtin,
+        context_window: Some(WINDOW),
+    }];
+    setup.config.history = HistoryLimits::new(50, 4096, 64 * 1024 * 1024);
+    std::fs::write(setup.cwd.join("AGENTS.md"), AGENTS).expect("AGENTS.md");
+    setup
+}
+
+/// A prompt of [`PROMPT_BYTES`] bytes whose first line is `title`.
+pub(crate) fn big_prompt(title: &str) -> String {
+    format!("{title}\n{}", big_text(PROMPT_BYTES))
+}
+
+/// The fresh context block that a compaction in the test's working directory reads.
+pub(crate) fn fresh(setup: &Setup) -> Message {
+    let facts = FreshFacts {
+        cwd: setup.cwd.clone(),
+        agents: vec![(setup.cwd.join("AGENTS.md"), AGENTS.to_owned())],
+        ..FreshFacts::default()
+    };
+    Message::user(facts.render())
+}
+
+/// The input of a `read_file` call of a file of `bytes` bytes.
+pub(crate) fn big_file(setup: &Setup, bytes: usize) -> Value {
+    json!({ "path": setup.home().join(format!("big-{bytes}")) })
+}
+
+/// The summary request after `messages`, as the turn sends it.
+pub(crate) fn summary(messages: Vec<Message>) -> Request {
+    summary_request(&request(Vec::new()), messages, None)
+}
+
+/// The two big turns that every test starts with, and the messages that later
+/// requests carry for them.
+pub(crate) fn two_big_turns(setup: &Setup) -> (Vec<Record>, Vec<Message>) {
+    let state = setup.live_state(&setup.cwd, "one");
+    let (one, two) = (big_prompt("one"), big_prompt("two"));
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, &one)])),
+        answer(&text_answer("ok 1")),
+        expect_request(request(vec![
+            Message::user(one.clone()),
+            Message::assistant("ok 1"),
+            setup.prompt(&state, &two),
+        ])),
+        answer(&text_answer("ok 2")),
+    ];
+    let history = vec![
+        Message::user(one),
+        Message::assistant("ok 1"),
+        Message::user(two),
+        Message::assistant("ok 2"),
+    ];
+    (records, history)
+}
+
+pub(crate) async fn run_two_big_turns(h: &mut Harness) -> (TurnId, TurnId) {
+    let one = h.prompt(&big_prompt("one")).await.turn_id;
+    h.wait_end(one).await;
+    let two = h.prompt(&big_prompt("two")).await.turn_id;
+    h.wait_end(two).await;
+    (one, two)
+}
+
+/// The compactions in the log, oldest first.
+pub(crate) async fn compactions(h: &Harness) -> Vec<Compaction> {
+    h.events()
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ConversationCompacted(compaction) => Some(compaction),
+            _ => None,
+        })
+        .collect()
 }

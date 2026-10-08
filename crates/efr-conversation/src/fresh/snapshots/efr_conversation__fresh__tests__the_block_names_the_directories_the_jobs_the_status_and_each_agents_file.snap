@@ -1,0 +1,26 @@
+---
+source: crates/efr-conversation/src/fresh/tests.rs
+expression: facts.render()
+---
+<fresh-context>
+efr read this from disk when it compacted the conversation. It is newer than the summary after it.
+
+## Directories
+- The user's directory: /home/u/p/app/src
+- The hidden shell's directory: /home/u/p/app
+
+## Running jobs of the hidden shell
+- sleep 600
+
+## Git status of /home/u/p/app
+```
+## main...origin/main
+ M src/lib.rs
+```
+
+## /home/u/p/app/AGENTS.md
+Run just check.
+
+## /home/u/p/app/src/AGENTS.md
+No panics here.
+</fresh-context>

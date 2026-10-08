@@ -13,8 +13,10 @@
 //! `{"kind": "unauthorized"}`, `{"kind": "rate_limited", "retry_after_ms": 1000}`,
 //! `{"kind": "not_logged_in"}`, `{"kind": "incomplete"}` or
 //! `{"kind": "api", "status": 500, "code": "server_error", "message": "..."}`
-//! (`status` and `code` optional). A provider's own wire format is replayed at the HTTP
-//! level instead, with wiremock in front of the real client.
+//! (`status` and `code` optional; `ProviderError::api` decides, so the code
+//! `context_length_exceeded` gives `ProviderError::ContextOverflow`). A provider's own
+//! wire format is replayed at the HTTP level instead, with wiremock in front of the real
+//! client.
 
 mod sse;
 
@@ -328,9 +330,9 @@ impl ErrorRecord {
             },
             ErrorRecord::NotLoggedIn {} => ProviderError::NotLoggedIn,
             ErrorRecord::Incomplete {} => ProviderError::Incomplete,
-            ErrorRecord::Api { status, code, message } => {
-                ProviderError::Api { status, code, message }
-            }
+            // NOTE: through the classifier that the real providers use, so a transcript
+            // can refuse a request as larger than the model's window.
+            ErrorRecord::Api { status, code, message } => ProviderError::api(status, code, message),
         }
     }
 }

@@ -64,6 +64,14 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         None
     }
 
+    /// The jobs that run in the background of the conversation's hidden shell, one
+    /// line each (its command line), for the fresh context block after a compaction.
+    /// `None` when the toolbox cannot tell; an empty list when none runs. The default
+    /// cannot tell.
+    async fn jobs(&self, _conversation_id: ConversationId) -> Option<Vec<String>> {
+        None
+    }
+
     /// Moves the conversation's hidden shell to `dir`, because the user went there
     /// since the previous prompt. A shell that cannot move (a command still runs in
     /// it) stays where it is, and [`shell_cwd`](Toolbox::shell_cwd) then says where.

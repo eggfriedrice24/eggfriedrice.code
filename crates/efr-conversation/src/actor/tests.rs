@@ -19,6 +19,7 @@ use crate::testing::{
 };
 use crate::{ConversationError, ConversationStart};
 
+mod compact;
 mod turn_input;
 
 #[tokio::test]

@@ -17,7 +17,10 @@
 //!   Deny.
 //! - The context ([`CompactionConfig`], [`ContextLimits`] and the constants beside
 //!   them): the trigger, the hard cap and the estimate of the compaction contract in
-//!   the README, section "Context".
+//!   the README, section "Context". A turn compacts on its own at the trigger and
+//!   after an overflow (`turn/compact.rs`); [`ConversationHandle::compact`] compacts
+//!   between turns. Pruning, the cut, the summary request and its prompt are in
+//!   `compaction.rs`, the fresh context block in `fresh.rs`.
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
 //!   `efr_tools::ToolRegistry`.
@@ -41,11 +44,13 @@
 
 mod actor;
 mod approvals;
+mod compaction;
 mod config;
 mod context;
 mod drafts;
 mod error;
 mod exit;
+mod fresh;
 mod history;
 mod interrupt;
 mod judge;

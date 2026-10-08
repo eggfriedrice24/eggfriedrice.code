@@ -216,6 +216,16 @@ impl Drafter {
         }
     }
 
+    /// Sends `part` now, outside the coalescing of the model's parts: a change of the
+    /// turn's state that a client shows at once, such as a compaction that starts.
+    /// Without a listener it does nothing.
+    pub(super) fn part(&self, part: DraftPart) {
+        if self.sender.receiver_count() == 0 {
+            return;
+        }
+        self.emit(part);
+    }
+
     fn emit(&self, part: DraftPart) {
         let draft = ConversationDraft {
             conversation_id: self.conversation_id,

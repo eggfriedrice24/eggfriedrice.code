@@ -27,6 +27,7 @@
 //! programs asks the user whether to keep them before the next call.
 
 mod coalesce;
+mod compact;
 mod drafter;
 mod stream;
 
@@ -35,11 +36,13 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
+
 use efr_protocol::{
-    ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
-    TurnId, TurnSettings, Verdict,
+    ApprovalDecision, CallId, CompactionTrigger, ConversationId, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext,
+    SurfaceChange, TurnId, TurnSettings, Verdict,
 };
 use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
 use efr_stdx::id::uuid_v7;
@@ -51,10 +54,13 @@ use tokio::sync::{mpsc, watch};
 use tracing::Instrument as _;
 
 use self::coalesce::{Coalescer, sleep_or_pending};
+use self::compact::{Compacted, Guard};
 use self::drafter::Drafter;
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
+use crate::compaction::{Placed, Window, with_window};
 use crate::exit::{self, TurnExits};
+use crate::fresh::Fresh;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
@@ -153,6 +159,9 @@ pub(crate) struct TurnEnd {
     /// the turn as ended, so no client sees the end while the turn still counts as
     /// running.
     pub(crate) record: Batch,
+    /// The fresh context block of the newest compaction, which the actor keeps for the
+    /// next turns; `None` when the turn neither read nor made one.
+    pub(crate) fresh: Option<Fresh>,
 }
 
 /// Runs the turn `spec` to its terminal event.
@@ -161,6 +170,7 @@ pub(crate) async fn run(
     spec: TurnSpec,
     control: Control,
     cache: HashMap<TurnId, Arc<CachedTurn>>,
+    fresh: Option<Fresh>,
 ) -> TurnEnd {
     let span = tracing::info_span!(
         "turn",
@@ -168,7 +178,7 @@ pub(crate) async fn run(
         turn_id = %spec.turn_id,
     );
     async move {
-        let mut turn = Turn::new(shared, spec, control);
+        let mut turn = Turn::new(shared, spec, control, fresh);
         let ending = match turn.drive(&cache).await {
             Ok(ending) => ending,
             Err(error) => {
@@ -234,6 +244,21 @@ struct Turn {
     /// The drafts of the turn, for live clients only.
     drafter: Drafter,
     usage: Option<TokenUsage>,
+    /// The usage of the newest model call, until the estimate takes it as its base.
+    last_call: Option<TokenUsage>,
+    /// The base of the estimate: the real context of the newest call that reported its
+    /// usage, and how many messages of the window it covered. `None` before the first
+    /// such call and after a compaction.
+    counted: Option<(u64, usize)>,
+    /// The compactions in a row that left the context at or above the trigger, or freed
+    /// nothing; at [`BREAKER_TRIES`](crate::BREAKER_TRIES) the turn stops compacting.
+    misses: u32,
+    /// The fresh context block of the newest compaction: the actor's, or the one this
+    /// turn read or made.
+    fresh: Option<Fresh>,
+    /// Where the hidden shell is by the log, for the fresh block when the toolbox cannot
+    /// tell.
+    logged_shell_cwd: Option<PathBuf>,
     /// The user messages of the conversation so far, for the record of an exit.
     user_messages: Vec<String>,
     /// The exits, refusals and exports of the turn so far.
@@ -283,7 +308,7 @@ enum Kept {
 }
 
 impl Turn {
-    fn new(shared: Arc<Shared>, spec: TurnSpec, control: Control) -> Self {
+    fn new(shared: Arc<Shared>, spec: TurnSpec, control: Control, fresh: Option<Fresh>) -> Self {
         let cwd = shared.deps.home.path().to_path_buf();
         let config = shared.config.current();
         let scratch = config.scratch_root.clone();
@@ -307,6 +332,11 @@ impl Turn {
             streamed: 0,
             drafter,
             usage: None,
+            last_call: None,
+            counted: None,
+            misses: 0,
+            fresh,
+            logged_shell_cwd: None,
             user_messages: Vec::new(),
             exits: TurnExits::default(),
             stop: None,
@@ -385,24 +415,46 @@ impl Turn {
         if moved_from.is_some() {
             shared.deps.toolbox.move_shell(shared.conversation_id, &self.cwd).await;
         }
+        self.logged_shell_cwd = snapshot.agent_cwd();
         let agent_cwd = match shared.deps.toolbox.shell_cwd(shared.conversation_id).await {
             Some(cwd) => Some(cwd),
             None => snapshot.agent_cwd(),
         };
         let preamble = self.live_state(derivation.repo, agent_cwd, moved_from).render();
-        let mut messages = snapshot.history(turn_id, cache, &self.model_key(), config.history);
-        messages.push(Message::new(
-            Role::User,
-            vec![
-                ContentBlock::Text { text: preamble },
-                ContentBlock::Text { text: self.spec.text.clone() },
-            ],
-        ));
-        let tools = shared.deps.toolbox.definitions();
+        let fresh = match snapshot.summary() {
+            Some(compaction) => Some(self.fresh_for(compaction.compaction_id).await),
+            None => None,
+        };
+        let mut window = snapshot.window(
+            Some(turn_id),
+            cache,
+            &self.model_key(),
+            config.history,
+            fresh.as_deref(),
+        );
+        window.placed.push(Placed {
+            turn: turn_id,
+            index: 0,
+            message: Message::new(
+                Role::User,
+                vec![
+                    ContentBlock::Text { text: preamble },
+                    ContentBlock::Text { text: self.spec.text.clone() },
+                ],
+            ),
+        });
         let mut provider_options = config.provider_options.clone();
         if let Some(effort) = &settings.effort {
             provider_options.insert(REASONING_EFFORT.to_owned(), Value::String(effort.clone()));
         }
+        let base = Request {
+            model: settings.model.clone(),
+            system: config.system_prompt.clone().filter(|system| !system.is_empty()),
+            messages: Vec::new(),
+            tools: shared.deps.toolbox.definitions(),
+            max_output_tokens: config.max_output_tokens,
+            provider_options,
+        };
 
         for _ in 0..config.max_model_calls {
             if self.control.interrupt.is_raised() {
@@ -418,23 +470,40 @@ impl Turn {
             }
             for steer in steers {
                 self.user_messages.push(steer.text.clone());
-                self.push(&mut messages, Message::user(steer.text));
+                self.push(&mut window, Message::user(steer.text));
             }
-            let request = Request {
-                model: settings.model.clone(),
-                system: config.system_prompt.clone().filter(|system| !system.is_empty()),
-                messages: messages.clone(),
-                tools: tools.clone(),
-                max_output_tokens: config.max_output_tokens,
-                provider_options: provider_options.clone(),
+            let estimate = match self.guard(&mut window, &base).await? {
+                Guard::Send { estimate } => estimate,
+                Guard::Full(error) => return Ok(Ending::Failed(error)),
+                Guard::Interrupted => return Ok(Ending::Interrupted),
             };
-            let message = match self.respond(request).await? {
-                Response::Done(message) => message,
-                Response::Failed(error) => return Ok(Ending::Failed(provider_failure(&error))),
-                Response::Interrupted => return Ok(Ending::Interrupted),
+            let mut overflowed = false;
+            let message = loop {
+                match self.respond(with_window(&base, &window)).await? {
+                    Response::Done(message) => break message,
+                    // NOTE: never retried as a transient error: the same request fails
+                    // again. One compaction and one more try; a second refusal ends the
+                    // turn.
+                    Response::Failed(error) if error.is_context_overflow() => {
+                        if overflowed || !self.may_compact() {
+                            return Ok(Ending::Failed(self.full(estimate)));
+                        }
+                        overflowed = true;
+                        self.catch_up(&mut window);
+                        let trigger = CompactionTrigger::Overflow;
+                        match self.compact(trigger, estimate, &mut window, &base).await? {
+                            Compacted::Done { .. } => {}
+                            Compacted::NotDone => return Ok(Ending::Failed(self.full(estimate))),
+                            Compacted::Interrupted => return Ok(Ending::Interrupted),
+                        }
+                    }
+                    Response::Failed(error) => return Ok(Ending::Failed(provider_failure(&error))),
+                    Response::Interrupted => return Ok(Ending::Interrupted),
+                }
             };
             let calls = tool_calls(&message);
-            self.push(&mut messages, message);
+            self.push(&mut window, message);
+            self.count(&window);
             if calls.is_empty() {
                 if !self.control.steering.close_if_idle().await {
                     continue;
@@ -451,7 +520,7 @@ impl Turn {
                     break;
                 }
             }
-            self.push(&mut messages, Message::new(Role::User, results));
+            self.push(&mut window, Message::new(Role::User, results));
             if let Some(error) = self.stop.take() {
                 return Ok(Ending::Failed(error));
             }
@@ -502,7 +571,7 @@ impl Turn {
         }
         let cached =
             (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
-        TurnEnd { turn_id, cached, record: batch }
+        TurnEnd { turn_id, cached, record: batch, fresh: self.fresh }
     }
 
     /// The turn's messages as the store saves them, or `None` for a turn that never
@@ -542,10 +611,29 @@ impl Turn {
         self.settings.as_ref().map_or(self.config.mode, |settings| settings.mode)
     }
 
-    /// Adds `message` to the request and to the turn's transcript.
-    fn push(&mut self, messages: &mut Vec<Message>, message: Message) {
-        messages.push(message.clone());
+    /// Adds `message` to the request's window and to the turn's transcript, where its
+    /// place is.
+    fn push(&mut self, window: &mut Window, message: Message) {
+        let index = u32::try_from(self.transcript.len()).unwrap_or(u32::MAX);
+        window.placed.push(Placed { turn: self.turn_id(), index, message: message.clone() });
         self.transcript.push(message);
+    }
+
+    /// Adds to the window the messages of the transcript that it lacks: the text that
+    /// streamed before a refused call, which the user saw and the transcript keeps, so
+    /// the place of every later message stays that of the transcript.
+    fn catch_up(&self, window: &mut Window) {
+        let turn_id = self.turn_id();
+        let next = window
+            .placed
+            .iter()
+            .rev()
+            .find(|placed| placed.turn == turn_id)
+            .map_or(0, |placed| placed.index as usize + 1);
+        for (index, message) in self.transcript.iter().enumerate().skip(next) {
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            window.placed.push(Placed { turn: turn_id, index, message: message.clone() });
+        }
     }
 
     fn live_state(

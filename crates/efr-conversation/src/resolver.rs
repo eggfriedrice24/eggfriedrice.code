@@ -17,6 +17,13 @@ pub trait ScopeResolver: Send + Sync + fmt::Debug {
     /// The scope of a turn whose shell is in `cwd`, with the git work tree around it
     /// for the live-state preamble.
     async fn resolve(&self, cwd: &Path) -> Derivation;
+
+    /// The short git status of the work tree at `root`, with its branch line, for the
+    /// fresh context block after a compaction; `None` when git cannot tell. The default
+    /// cannot tell.
+    async fn status(&self, _root: &Path) -> Option<String> {
+        None
+    }
 }
 
 /// The production resolver: `efr_scope::derive` over the project registry file, read
@@ -75,6 +82,40 @@ impl ScopeResolver for GitScopeResolver {
             }
         }
     }
+
+    async fn status(&self, root: &Path) -> Option<String> {
+        // NOTE: the model can write the work tree, so git runs none of its programs.
+        let args = [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "status",
+            "--short",
+            "--branch",
+        ];
+        match self.git.run(root, &self.home, args).await {
+            Ok(Some(output)) => Some(short_status(&String::from_utf8_lossy(&output))),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::debug!(error = %error, "git status failed for the fresh context block");
+                None
+            }
+        }
+    }
+}
+
+/// The most lines of `git status` that the fresh context block carries.
+const STATUS_LINES: usize = 40;
+
+/// `status` cut to [`STATUS_LINES`] lines, with a line that counts the rest.
+pub(crate) fn short_status(status: &str) -> String {
+    let lines: Vec<&str> = status.lines().collect();
+    if lines.len() <= STATUS_LINES {
+        return lines.join("\n");
+    }
+    let more = lines.len() - STATUS_LINES;
+    format!("{}\n[{more} more lines]", lines[..STATUS_LINES].join("\n"))
 }
 
 /// The scope that widens nothing.

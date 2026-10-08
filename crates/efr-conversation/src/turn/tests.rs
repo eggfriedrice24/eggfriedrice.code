@@ -24,6 +24,7 @@ use crate::testing::{
 };
 use crate::{ConversationError, approvals};
 
+mod compaction;
 mod drafts;
 mod sandbox;
 

@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId};
+use efr_provider::ProviderError;
 use efr_stdx::StdxError;
 use efr_store::StoreError;
 use efr_store::receipts::Receipt;
@@ -187,6 +188,35 @@ pub enum ConversationError {
         #[source]
         source: serde_json::Error,
     },
+
+    /// A turn of the conversation runs, or a compaction does, so a manual compaction
+    /// cannot run now. The turn compacts on its own when it needs to.
+    #[error("the conversation {conversation_id} is busy with a turn or a compaction")]
+    CompactionBusy {
+        /// The conversation.
+        conversation_id: ConversationId,
+    },
+
+    /// Nothing lies before the verbatim tail of the conversation's history, so a
+    /// compaction would free no room.
+    #[error("the conversation {conversation_id} has nothing to compact")]
+    NothingToCompact {
+        /// The conversation.
+        conversation_id: ConversationId,
+    },
+
+    /// The summary request of a compaction failed; nothing was recorded.
+    #[error("the summary request of the compaction failed")]
+    Summary {
+        /// The provider's error.
+        #[source]
+        source: ProviderError,
+    },
+
+    /// The model answered the summary request of a compaction without text; nothing was
+    /// recorded.
+    #[error("the model wrote no summary")]
+    EmptySummary,
 
     /// The conversation's actor has stopped, so it takes no more requests.
     #[error("the conversation actor has stopped")]

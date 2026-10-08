@@ -124,6 +124,7 @@ impl Turn {
                     if let Some(usage) = completion.usage {
                         self.usage = Some(self.usage.unwrap_or_default() + usage);
                     }
+                    self.last_call = completion.usage;
                     self.complete_text(completion.message.text()).await?;
                     return Ok(Response::Done(completion.message));
                 }

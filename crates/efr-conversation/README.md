@@ -358,9 +358,11 @@ Each real count replaces the estimate as the new base.
    sends the call again once. A second overflow of the same call fails the turn.
    With auto off, the first overflow fails the turn.
 4. The breaker: a compaction whose `tokens_after` is at or above the trigger counts as
-   a miss. After `BREAKER_TRIES` (2) misses in a row in one turn, the turn makes no more
-   auto compactions. It goes on while its requests fit under the hard cap. The client
-   shows the breaker line (see "Display").
+   a miss, and so does a compaction that frees nothing and records nothing (nothing
+   lies before the tail, or the summary request fails). After `BREAKER_TRIES` (2)
+   misses in a row in one turn, the turn makes no more auto or overflow compactions.
+   It goes on while its requests fit under the hard cap. The client shows the breaker
+   line (see "Display").
 5. The safety net of `HistoryLimits` stays. When it leaves out earlier turns, the
    history starts with a user message `N earlier turns are omitted.` and the daemon
    logs one `warn` line with the count. It never leaves out turns without that note.
@@ -372,8 +374,9 @@ manual compaction runs them between turns.
 
 1. Prune. Take the model's history as the next request would send it. Walk its tool
    results from the oldest. Keep every result in the newest `PRUNE_KEEP_TOKENS` (40000)
-   of history as it is. Give every other result whose output is longer than
-   `PRUNED_OUTPUT_STUB` that stub as its output. When this frees fewer than
+   of history as it is, and every result of the shortest tail (step 3) however large,
+   so the model always reads the newest result. Give every other result whose output
+   is longer than `PRUNED_OUTPUT_STUB` that stub as its output. When this frees fewer than
    `PRUNE_MIN_TOKENS` (20000), do not prune: a new cache prefix costs more than it
    saves. When it frees enough and the estimate is then below the trigger, the
    compaction ends here, with no summary (an auto or overflow compaction only). The
@@ -387,6 +390,11 @@ manual compaction runs them between turns.
    - `max_output_tokens` of `SUMMARY_MAX_OUTPUT_TOKENS` (8000). The subscription
      backend refuses that member, so there the prompt alone asks for the length.
 
+   When the provider refuses the summary request itself as too large, the oldest
+   messages after the fresh block and the earlier summary go (never a tool result
+   without its call), until the estimate is below the trigger, and the request goes
+   once more.
+
    The answer's text is the summary. Tool calls in the answer are ignored. An answer
    without text fails the compaction. The summary covers the whole history it saw,
    the tail too: the tail repeats the newest part word for word, and the summary must
@@ -394,8 +402,10 @@ manual compaction runs them between turns.
    the one before it forward.
 3. Cut. Walk back from the newest message and keep messages in the tail while their
    estimate fits in `TAIL_TOKENS` (20000). The tail always holds at least the newest
-   tool call with its result, or the newest prompt. Move the cut back until it does not
-   start with tool results. The cut may fall inside a turn (`through_message`).
+   tool call with its result, or the newest prompt or steer, whichever is newer: the
+   shortest tail. Move the cut back until it does not start with tool results. The cut
+   may fall inside a turn (`through_message`). When the cut would be before the first
+   message, nothing lies before it, and the compaction frees no room.
 4. Record `conversation_compacted` (`Compaction`), see "Storage". `tokens_after` is the
    estimate of the rebuilt request.
 
@@ -405,8 +415,9 @@ fits under the hard cap; else the turn fails.
 
 ### The summary prompt and its record
 
-The summary prompt is one constant. It asks for these sections, as Markdown headings in
-this order, with `None.` under a heading that has nothing:
+The summary prompt is one constant, the text of `src/compaction/prompt.md`. It asks for
+these sections, as Markdown headings in this order, with `None.` under a heading that
+has nothing:
 
 1. `## Task and state`: what the user asked for, and how far the work is.
 2. `## Decisions`: the choices made and why; what the user approved or refused.
@@ -435,10 +446,10 @@ the event's `compaction_id`, `model`, time and conversation id.
   `window`, `limit`, `tokens_before`, `tokens_after`, the cut (`through_turn`,
   `through_message`), `kept_turns`, `pruned_outputs`, `pruned_tokens`, `summary` and
   the `usage` of the summary request.
-- The store keeps the newest compaction with a summary, and the newest compaction of
-  any kind, in a projection or a table of their own. A turn reads both with their own
-  query, never from the 4096-event page, so the page never decides what the model
-  sees.
+- The store keeps every compaction in the `compactions` projection
+  (`efr_store::compactions`). A turn reads the newest compaction with a summary and the
+  newest compaction of any kind with their own query (`compactions::latest`), never
+  from the 4096-event page, so the page never decides what the model sees.
 - Every event stays in the log. After the event is recorded, the `turn_messages` rows
   of the turns before `through_turn` may be deleted, and the row of `through_turn` too
   when `through_message` is absent.
@@ -450,13 +461,17 @@ the event's `compaction_id`, `model`, time and conversation id.
 A request after a compaction with a summary has these parts, in this order:
 
 1. the system prompt;
-2. a fresh context block, one user message read from disk when the compaction ends:
-   the user's directory and the hidden shell's directory, the git status of the
-   project, the `AGENTS.md` files from the project root down to the user's directory,
-   and the running jobs of the hidden shell (memory joins at milestone 4). The actor
-   keeps the block in memory with the compaction id, so every request until the next
-   compaction sends the same bytes. After a daemon restart, the next turn reads it
-   from disk again;
+2. a fresh context block, one user message read from disk when the compaction ends
+   (`fresh.rs`), between `<fresh-context>` and `</fresh-context>`: the user's directory
+   and the hidden shell's directory, the running jobs of the hidden shell
+   (`Toolbox::jobs`; left out when the toolbox cannot tell), the git status of the
+   project root (`ScopeResolver::status`, at most 40 lines, git runs none of the work
+   tree's programs), and the `AGENTS.md` files from the project root down to the user's
+   directory, each cut at 32 KiB (memory joins at milestone 4). The project root is the
+   registered project's, else the git work tree's; without one, only the user's
+   directory is read. The actor keeps the block in memory with the compaction id, so
+   every request until the next compaction sends the same bytes. After a daemon
+   restart, the next turn reads it from disk again;
 3. the summary, one user message: `<conversation-summary>`, the summary text,
    `</conversation-summary>`;
 4. the verbatim tail: the messages after the cut, from the turn's messages (the
@@ -473,15 +488,23 @@ history as before, with the stub in each pruned result.
 `conversation.compact { command_id, conversation_id, focus? }` (`efr compact [focus]`,
 `,compact [focus]`), scope `operate`:
 
-- While a turn of the conversation runs, it is refused with `conflict`. efrd does not
-  wait for the turn: the turn compacts on its own when it needs to, and a wait would
-  hold the client for an unknown time.
-- When nothing lies before the cut, it is refused with `conflict`.
-- Otherwise the actor runs the steps above as its one job; a prompt that arrives
-  meanwhile waits in the queue. A manual compaction always writes a summary: it does
-  not stop after the pruning. The event has trigger `manual`, no `turn_id`, and the
-  `focus`. The result has the event's `seq` and the compaction. A retry with the same
-  command id returns the first result.
+- While a turn of the conversation runs, or another compaction does, it is refused
+  with `conflict` (`ConversationError::CompactionBusy`). efrd does not wait for the
+  turn: the turn compacts on its own when it needs to, and a wait would hold the client
+  for an unknown time.
+- When nothing lies before the cut, it is refused with `conflict`
+  (`ConversationError::NothingToCompact`). A summary request that fails is
+  `ConversationError::Summary`, an answer without text `EmptySummary`; neither records
+  anything.
+- Otherwise the actor runs the steps above as its one job, in a task of its own
+  (`actor/compact.rs`), so it keeps answering, and `ConversationState::compacting` is
+  true. A prompt that arrives meanwhile waits in the queue (its result says `queued`)
+  and starts when the compaction ends. The summary request uses the model and the
+  effort of the newest turn, so it shares the prefix of the last request. A manual
+  compaction always writes a summary: it does not stop after the pruning. The event
+  has trigger `manual`, no `turn_id`, and the `focus`; it is recorded with the
+  command's receipt. The result has the event's `seq` and the compaction. A retry with
+  the same command id returns the first result.
 - It never starts a turn.
 
 ### Failures
@@ -577,7 +600,16 @@ withdraws by turn and by terminal with their refusals, a withdraw just before an
 after the queued prompt would start, an interrupt that withdraws and resends in one
 append (with the prompt of another terminal left queued and a retry that gets the same
 sequence numbers), a steer that a model call read, and a refused interrupt that
-changes nothing. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
+changes nothing. The compaction tests (`turn/tests/compaction.rs`,
+`actor/tests/compact.rs`, `compaction/tests.rs`) use a model with a window of 100000
+tokens, big prompts and big reads: an auto compaction at the trigger that goes on with
+the turn, the request of the next turn (an insta snapshot of its shape) and the same
+request after a restart, an overflow that compacts once and sends the call again, a
+second overflow and an overflow with auto off that fail the turn, the breaker, a
+pruning without a summary that the next turn rebuilds, a manual compaction with a
+focus, a prompt that waits for it, and its refusals; the pure steps (pruning frees at
+least 20000 tokens or does nothing, the tail rule, the cut) and the summary prompt's
+sections have unit tests. The `auto` tests (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,

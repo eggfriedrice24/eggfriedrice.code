@@ -20,6 +20,10 @@
 //! new prompt, all in the step that records `turn_interrupt_requested`, so no queued
 //! prompt starts and no model call reads a steer in between.
 //!
+//! A manual compaction (`conversation.compact`) runs only while no turn runs, in a task
+//! of its own; a prompt that arrives meanwhile queues behind it, and the compaction
+//! never starts a turn itself.
+//!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
 //! runs twice. A result that reports a sequence number is stored without it; the store
@@ -29,12 +33,15 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
+mod compact;
+
 use efr_protocol::{
-    ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationId, EffectiveSettings,
-    ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin, PromptSend, PromptSendResult,
-    PromptWithdraw, PromptWithdrawResult, QuestionId, ResentSteers, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationCompact,
+    ConversationCompactResult, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
+    QuestionId, ResentSteers, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq,
+    ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -46,6 +53,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tracing::Instrument as _;
 
 use crate::approvals::Approvals;
+use crate::fresh::Fresh;
 use crate::history::CachedTurn;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
@@ -78,6 +86,18 @@ pub struct ConversationActor {
     /// The exact messages of the newest turns this actor ran, for their provider items.
     cache: HashMap<TurnId, Arc<CachedTurn>>,
     cache_order: VecDeque<TurnId>,
+    /// The fresh context block of the newest compaction, so every request until the
+    /// next compaction sends the same bytes.
+    fresh: Option<Fresh>,
+    /// The manual compaction that runs, with the caller that waits for it.
+    compacting: Option<Compacting>,
+}
+
+/// A manual compaction in its task, and the caller that waits for its answer.
+#[derive(Debug)]
+struct Compacting {
+    task: JoinHandle<compact::Compacted>,
+    reply: Reply<ConversationCompactResult>,
 }
 
 /// A cheap, cloneable handle to a conversation's actor.
@@ -99,6 +119,8 @@ pub struct ConversationState {
     pub pending_approvals: Vec<CallId>,
     /// The quarantine questions that wait for the user's answer.
     pub pending_questions: Vec<QuestionId>,
+    /// True while a manual compaction runs.
+    pub compacting: bool,
 }
 
 #[derive(Debug)]
@@ -221,6 +243,10 @@ enum Request {
         origin: Origin,
         reply: Reply<SandboxSurfaceRespondResult>,
     },
+    Compact {
+        params: ConversationCompact,
+        reply: Reply<ConversationCompactResult>,
+    },
     State {
         reply: oneshot::Sender<ConversationState>,
     },
@@ -257,6 +283,8 @@ impl ConversationActor {
             running: None,
             cache: HashMap::new(),
             cache_order: VecDeque::new(),
+            fresh: None,
+            compacting: None,
         };
         let span = tracing::info_span!("conversation", conversation_id = %conversation_id);
         tokio::spawn(actor.run().instrument(span));
@@ -266,7 +294,7 @@ impl ConversationActor {
     async fn run(mut self) {
         let mut open = true;
         let mut stopped_reply = None;
-        while open || self.running.is_some() {
+        while open || self.running.is_some() || self.compacting.is_some() {
             tokio::select! {
                 message = self.mailbox.recv(), if open => match message {
                     Some(Message::Request(request)) => self.handle(*request).await,
@@ -277,7 +305,13 @@ impl ConversationActor {
                     None => open = false,
                 },
                 ended = turn_end(&mut self.running) => self.turn_ended(ended).await,
+                ended = compaction_end(&mut self.compacting) => self.compaction_ended(ended),
             }
+        }
+        if let Some(compacting) = self.compacting.take() {
+            // NOTE: nothing is recorded until the summary is back, so a compaction that
+            // stops here leaves no trace; its caller gets `Stopped`.
+            compacting.task.abort();
         }
         if let Some(running) = self.running.take() {
             // NOTE: the turn's events stop where it was; the reconciliation at the next
@@ -315,6 +349,7 @@ impl ConversationActor {
             Request::Surface { params, origin, reply } => {
                 let _ = reply.send(self.respond_surface(params, origin).await);
             }
+            Request::Compact { params, reply } => self.compact(params, reply),
             Request::State { reply } => {
                 let _ = reply.send(self.state());
             }
@@ -333,7 +368,7 @@ impl ConversationActor {
         self.check_conversation(params.conversation_id)?;
         let effective = self.admit(&params.settings, origin)?;
         let turn_id = self.new_turn_id();
-        let queued = self.running.is_some() || !self.queue.is_empty();
+        let queued = self.running.is_some() || self.compacting.is_some() || !self.queue.is_empty();
         let prompt = NewPrompt {
             command_id: params.command_id,
             text: params.text,
@@ -756,12 +791,58 @@ impl ConversationActor {
         Ok(SandboxSurfaceRespondResult { seq: committed.last_seq() })
     }
 
+    /// Starts a manual compaction in a task of its own, or refuses it while a turn or
+    /// another compaction runs. The answer goes to `reply` when the task ends.
+    fn compact(&mut self, params: ConversationCompact, reply: Reply<ConversationCompactResult>) {
+        if let Err(error) = self.check_conversation(Some(params.conversation_id)) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        // NOTE: the actor starts a queued prompt at once when nothing runs, so a queue
+        // that is not empty means a turn or a compaction runs.
+        if self.running.is_some() || self.compacting.is_some() {
+            let conversation_id = self.conversation_id();
+            let _ = reply.send(Err(ConversationError::CompactionBusy { conversation_id }));
+            return;
+        }
+        let job =
+            compact::run(Arc::clone(&self.shared), params, self.cache.clone(), self.fresh.clone());
+        let task = tokio::spawn(job.in_current_span());
+        self.compacting = Some(Compacting { task, reply });
+    }
+
+    /// Answers the caller of the manual compaction that ended, keeps its fresh block,
+    /// and starts the prompt that waited for it.
+    fn compaction_ended(&mut self, ended: Result<compact::Compacted, JoinError>) {
+        let Some(compacting) = self.compacting.take() else {
+            return;
+        };
+        let answer = match ended {
+            Ok(compacted) => {
+                if let Some(fresh) = compacted.fresh {
+                    self.fresh = Some(fresh);
+                }
+                compacted.result
+            }
+            Err(error) => {
+                tracing::error!(error = %error, "the compaction's task stopped unexpectedly");
+                Err(ConversationError::TaskPanicked { task: "compaction" })
+            }
+        };
+        if let Err(error) = &answer {
+            tracing::info!(error = %error, "the manual compaction did not compact");
+        }
+        let _ = compacting.reply.send(answer);
+        self.start_next();
+    }
+
     fn state(&self) -> ConversationState {
         ConversationState {
             running: self.running.as_ref().map(|running| running.turn_id),
             queued: self.queue.iter().map(|spec| spec.turn_id).collect(),
             pending_approvals: self.shared.approvals.parked(),
             pending_questions: self.shared.questions.parked(),
+            compacting: self.compacting.is_some(),
         }
     }
 
@@ -797,7 +878,7 @@ impl ConversationActor {
 
     /// Starts the oldest queued turn when none runs.
     fn start_next(&mut self) {
-        if self.running.is_some() {
+        if self.running.is_some() || self.compacting.is_some() {
             return;
         }
         let Some(spec) = self.queue.pop_front() else {
@@ -805,8 +886,13 @@ impl ConversationActor {
         };
         let turn_id = spec.turn_id;
         let control = Control::new();
-        let turn =
-            turn::run(Arc::clone(&self.shared), spec.clone(), control.clone(), self.cache.clone());
+        let turn = turn::run(
+            Arc::clone(&self.shared),
+            spec.clone(),
+            control.clone(),
+            self.cache.clone(),
+            self.fresh.clone(),
+        );
         let task = tokio::spawn(turn.in_current_span());
         self.running = Some(Running { turn_id, task, control, spec, interrupt_requested: false });
     }
@@ -825,6 +911,9 @@ impl ConversationActor {
         match ended {
             Ok(mut end) => {
                 self.record_end(std::mem::take(&mut end.record)).await;
+                if let Some(fresh) = end.fresh.take() {
+                    self.fresh = Some(fresh);
+                }
                 self.remember(end);
             }
             Err(error) => self.turn_lost(running.turn_id, &error).await,
@@ -886,6 +975,16 @@ impl ConversationActor {
             .fold(Batch::new(), |batch, event| batch.event(conversation_id, event))
             .receipt(receipt);
         self.shared.deps.writer.append(batch).await.map_err(ConversationError::from_store)
+    }
+}
+
+/// The end of the running manual compaction; never, when none runs.
+async fn compaction_end(
+    compacting: &mut Option<Compacting>,
+) -> Result<compact::Compacted, JoinError> {
+    match compacting {
+        Some(compacting) => (&mut compacting.task).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -1057,6 +1156,19 @@ impl ConversationHandle {
         origin: Origin,
     ) -> Result<SandboxSurfaceRespondResult, ConversationError> {
         self.request(|reply| Request::Surface { params, origin, reply }).await
+    }
+
+    /// Compacts the conversation's context now: prunes and writes a summary of the
+    /// history before the verbatim tail, records `conversation_compacted` with the
+    /// command's receipt, and answers when it is done. It never starts a turn. While a
+    /// turn or another compaction runs it is refused with `CompactionBusy`; with nothing
+    /// before the tail, with `NothingToCompact`. A prompt that arrives meanwhile queues
+    /// behind it.
+    pub async fn compact(
+        &self,
+        params: ConversationCompact,
+    ) -> Result<ConversationCompactResult, ConversationError> {
+        self.request(|reply| Request::Compact { params, reply }).await
     }
 
     /// What the conversation is doing.

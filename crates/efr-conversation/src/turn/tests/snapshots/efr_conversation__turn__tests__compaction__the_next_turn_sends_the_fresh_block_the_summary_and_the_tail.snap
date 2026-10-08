@@ -1,0 +1,73 @@
+---
+source: crates/efr-conversation/src/turn/tests/compaction.rs
+expression: "shape(&next, &root)"
+---
+{
+  "messages": [
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "<269 bytes, starts \"<fresh-context>\\nefr read\">"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "<conversation-summary>\n## Task and state\nRead the big files.\n\n## Decisions\nNone.\n</conversation-summary>"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "call_id": "call_1",
+          "input": {
+            "path": "<root>/home/big-90000"
+          },
+          "kind": "tool_call",
+          "name": "read_file"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "call_id": "call_1",
+          "kind": "tool_result",
+          "output": "<90000 bytes, starts \"xxxxxxxxxxxxxxxxxxxxxxxx\">"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "done"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "text": "<2824 bytes, starts \"<live_state>\\nThe user's \">"
+        },
+        {
+          "kind": "text",
+          "text": "four"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "test-model",
+  "system": "You are the efr test model."
+}
