@@ -472,6 +472,7 @@ fn the_diffs_of_all_files_together_stay_within_the_line_limit() {
         .map(|path| FileChange {
             path: PathBuf::from(path),
             kind: ChangeKind::Added { content: long.clone() },
+            from: None,
         })
         .collect();
 

@@ -90,7 +90,7 @@ fn anchor(
 /// - Without an anchor, the match after the previous hunk must be the only one.
 /// - When nothing matches and the last old line is empty, the hunk is tried again
 ///   without that line: models often write the file's final newline as an empty
-///   context line.
+///   context line. A hunk whose only old line is that empty line is not tried again.
 fn place<'h>(
     path: &Path,
     file: &[&str],
@@ -129,8 +129,11 @@ fn place<'h>(
             Found::Nowhere => {
                 let last_old = lines.iter().rposition(|line| !matches!(line, HunkLine::Add(_)));
                 match last_old {
+                    // NOTE: a retry that leaves no old line would turn the hunk into
+                    // an insertion at the end of the file, not the edit it asks for.
                     Some(at)
                         if !retried
+                            && old.len() > 1
                             && matches!(
                                 lines[at],
                                 HunkLine::Context(text) | HunkLine::Remove(text) if text.is_empty()

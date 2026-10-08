@@ -59,13 +59,16 @@ signatures. A change to them is a change of this contract.
   - The operations apply in order. Each operation sees the result of the operations
     before it: a file that an earlier operation removed is absent, and a file that
     it added is present.
-  - The result has one `FileChange { path, kind }` for each path that changes, in
+  - The result has one `FileChange { path, kind, from }` for each path that changes, in
     the order that the patch first names the path. A later operation on the same
     path folds into that change. `ChangeKind` is `Added { content }`,
     `Updated { content }`, `Deleted` or `Moved { to, content }`. A path whose text
     ends as it started has no change. `Moved` is for a file that leaves a path that
     had a file for a path that had none. Any other result of a move shows as a
-    delete and an add or an update.
+    delete and an add or an update. Then `from` of the add or the update names the
+    path that the file had before the patch, so the caller keeps that file's mode.
+    It is `None` for a new file, a file that stays at its path, a delete and a
+    `Moved`.
   - An add of a file that exists, and a move onto a file that exists, are
     `PatchError::Exists { path }`. An update, a delete or a move of a file that does
     not exist is `PatchError::Missing { path }`. A move to its own path is an update.
@@ -74,7 +77,10 @@ signatures. A change to them is a change of this contract.
   - Each `@@ <text>` anchor names the first line after the anchor before it (after
     the previous hunk for the first anchor) that it matches. An anchor matches a
     line in the passes below, and then in one more pass: the line starts with the
-    anchor. So `@@ fn run()` names the line `fn run() {`. A missing anchor is
+    anchor, and the anchor does not end inside a word (a letter, a digit or `_`
+    after it). So `@@ fn run()` names the line `fn run() {`, but `@@ impl Foo` does
+    not name `impl FooBar {` and `@@ fn run` does not name `fn run_all() {`. A
+    missing anchor is
     `PatchError::NoAnchor { path, hunk, anchor, nearest }`.
   - The old lines of a hunk (its context and `-` lines) match in passes. The first
     pass is exact. Then the engine ignores trailing whitespace. Then it ignores all
@@ -90,7 +96,8 @@ signatures. A change to them is a change of this contract.
     hunk does not move the start of the search for the next hunk.
   - When no pass finds a hunk and its last old line is empty, the engine tries once
     more without that line. Models often write the final newline of a file as an
-    empty context line.
+    empty context line. A hunk whose only old line is that empty line is not tried
+    again, because without it the hunk would append to the file.
   - A hunk that matches nowhere is `PatchError::NoMatch { path, hunk, nearest }`.
     `hunk` counts from 1 in its update. `nearest` holds at most 12 `NearLine
     { number, text }` of the file: the place that shares the most lines with the

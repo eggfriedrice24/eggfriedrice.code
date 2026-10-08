@@ -87,8 +87,10 @@ pub(crate) fn find(lines: &[&str], pattern: &[&str], from: usize, at_end: bool) 
 /// The first line from `from` on that an `@@` anchor names: the first line that the
 /// whole anchor matches in the first pass that finds one, else the first line that
 /// starts with the anchor (whitespace at both ends ignored, punctuation read as
-/// ASCII). The last pass lets `@@ fn run()` name the line `fn run() {`, and
-/// `@@ class Base` the line `class Base:`, as the format's own examples do.
+/// ASCII) where the anchor does not end inside a word. The last pass lets
+/// `@@ fn run()` name the line `fn run() {`, and `@@ class Base` the line
+/// `class Base:`, as the format's own examples do, but not `@@ impl Foo` the line
+/// `impl FooBar {`, nor `@@ fn run` the line `fn run_all() {`.
 pub(crate) fn find_anchor(lines: &[&str], anchor: &str, from: usize) -> Option<usize> {
     match find(lines, &[anchor], from, false) {
         Found::Once(at) => return Some(at),
@@ -99,11 +101,18 @@ pub(crate) fn find_anchor(lines: &[&str], anchor: &str, from: usize) -> Option<u
     if anchor.is_empty() {
         return None;
     }
+    let ends_in_word = anchor.last().is_some_and(|last| is_word(*last));
     let starts = |line: &str| {
         let mut chars = line.trim().chars().map(fold);
         anchor.iter().all(|want| chars.next() == Some(*want))
+            && !(ends_in_word && chars.next().is_some_and(is_word))
     };
     lines.iter().enumerate().skip(from).find(|(_, line)| starts(line)).map(|(at, _)| at)
+}
+
+/// Whether `c` can be part of a name in code: a letter, a digit or `_`.
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// The most lines a near-miss shows.

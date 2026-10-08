@@ -29,7 +29,12 @@ fn update(text: &str, hunks: &str) -> Result<String, PatchError> {
 }
 
 fn change(path: &str, kind: ChangeKind) -> FileChange {
-    FileChange { path: path.into(), kind }
+    FileChange { path: path.into(), kind, from: None }
+}
+
+/// A change whose content a move brought from `from`.
+fn moved_in(path: &str, kind: ChangeKind, from: &str) -> FileChange {
+    FileChange { path: path.into(), kind, from: Some(from.into()) }
 }
 
 fn near(lines: &[(usize, &str)]) -> Vec<NearLine> {
@@ -143,6 +148,26 @@ fn an_anchor_matches_with_tolerance() {
         update(text, "@@ def f(self):\n-        pass\n+        return 1\n"),
         Ok("class A:\n    def f(self):\n        return 1\n".to_owned())
     );
+}
+
+#[test]
+fn an_anchor_does_not_name_a_line_where_it_ends_inside_a_word() {
+    let text = "impl FooBar {\n    fn new() -> Self {\n        Self {}\n    }\n}\nimpl Foo {\n    fn new() -> Self {\n        Self {}\n    }\n}\n";
+    let hunks = "@@ impl Foo\n     fn new() -> Self {\n-        Self {}\n+        Self { x: 1 }\n";
+    assert_eq!(
+        update(text, hunks),
+        Ok("impl FooBar {\n    fn new() -> Self {\n        Self {}\n    }\n}\nimpl Foo {\n    fn new() -> Self {\n        Self { x: 1 }\n    }\n}\n"
+            .to_owned())
+    );
+    let text = "fn run_all() {\n    go();\n}\nfn run() {\n    go();\n}\n";
+    assert_eq!(
+        update(text, "@@ fn run\n-    go();\n+    stop();\n"),
+        Ok("fn run_all() {\n    go();\n}\nfn run() {\n    stop();\n}\n".to_owned())
+    );
+    assert!(matches!(
+        update("fn run_all() {\n}\n", "@@ fn run\n+x\n"),
+        Err(PatchError::NoAnchor { .. })
+    ));
 }
 
 #[test]
@@ -276,6 +301,17 @@ fn a_file_with_a_final_newline_keeps_it() {
 fn an_empty_context_line_for_the_final_newline_is_dropped() {
     assert_eq!(update("a\nb\n", "@@\n a\n-b\n+B\n \n"), Ok("a\nB\n".to_owned()));
     assert_eq!(update("a\nb\n", "@@\n a\n-b\n+B\n\n"), Ok("a\nB\n".to_owned()));
+}
+
+#[test]
+fn a_hunk_whose_only_old_line_is_empty_does_not_turn_into_an_append() {
+    for hunks in ["@@\n \n+x\n", "@@\n-\n+x\n"] {
+        assert_eq!(
+            update("a\nb\n", hunks),
+            Err(PatchError::NoMatch { path: "a.txt".into(), hunk: 1, nearest: Vec::new() }),
+            "{hunks:?}"
+        );
+    }
 }
 
 #[test]
@@ -437,7 +473,7 @@ fn a_move_onto_a_file_deleted_before_is_a_delete_and_an_update() {
     assert_eq!(
         run(patch, &[("a", "new\n"), ("b", "old\n")]),
         Ok(vec![
-            change("b", ChangeKind::Updated { content: "new\n".to_owned() }),
+            moved_in("b", ChangeKind::Updated { content: "new\n".to_owned() }, "a"),
             change("a", ChangeKind::Deleted),
         ])
     );
@@ -465,7 +501,25 @@ fn a_file_moved_away_and_added_again_is_an_update_and_an_add() {
         run(patch, &[("a", "old\n")]),
         Ok(vec![
             change("a", ChangeKind::Updated { content: "fresh\n".to_owned() }),
-            change("b", ChangeKind::Added { content: "old\n".to_owned() }),
+            moved_in("b", ChangeKind::Added { content: "old\n".to_owned() }, "a"),
+        ])
+    );
+}
+
+#[test]
+fn a_content_that_a_move_brought_names_where_it_came_from() {
+    let patch = "*** Begin Patch
+*** Update File: a.sh
+*** Move to: b.sh
+*** Update File: c.sh
+*** Move to: a.sh
+*** End Patch";
+    assert_eq!(
+        run(patch, &[("a.sh", "script\n"), ("c.sh", "other\n")]),
+        Ok(vec![
+            moved_in("a.sh", ChangeKind::Updated { content: "other\n".to_owned() }, "c.sh"),
+            moved_in("b.sh", ChangeKind::Added { content: "script\n".to_owned() }, "a.sh"),
+            change("c.sh", ChangeKind::Deleted),
         ])
     );
 }

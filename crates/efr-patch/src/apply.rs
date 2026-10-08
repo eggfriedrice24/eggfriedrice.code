@@ -36,6 +36,12 @@ pub struct FileChange {
     pub path: PathBuf,
     /// What happens to it.
     pub kind: ChangeKind,
+    /// For an [`Added`](ChangeKind::Added) or [`Updated`](ChangeKind::Updated)
+    /// content that is a file which a move of the patch brought from another path:
+    /// the path that file had before the patch, so the caller can keep its mode.
+    /// `None` for a new file, for a file that stays at `path`, and for a delete and a
+    /// move (whose source is `path`).
+    pub from: Option<PathBuf>,
 }
 
 /// What happens to the path of a [`FileChange`].
@@ -192,6 +198,7 @@ impl<'f> State<'f> {
                 Some(after) => after.take(),
                 None => continue,
             };
+            let from = self.origin.get(&path).filter(|origin| **origin != path).cloned();
             let kind = match (before, after, moves.get(&path)) {
                 (Some(_), None, Some(to)) => {
                     let content =
@@ -205,7 +212,11 @@ impl<'f> State<'f> {
                 }
                 _ => continue,
             };
-            changes.push(FileChange { path, kind });
+            let from = match kind {
+                ChangeKind::Added { .. } | ChangeKind::Updated { .. } => from,
+                ChangeKind::Deleted | ChangeKind::Moved { .. } => None,
+            };
+            changes.push(FileChange { path, kind, from });
         }
         changes
     }
