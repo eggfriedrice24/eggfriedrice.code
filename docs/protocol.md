@@ -173,7 +173,8 @@ No protocol version has shipped yet.
   the turn's first snapshot against its last, with the same caveat. New method `conversation.diff` (scope
   `read`, no command id) with an optional `conversation_id` (absent: the conversation
   of the named turn, else the active conversation of the hello's terminal), an
-  optional `turn_id` (absent: the newest finished turn of the conversation) and a `stat`
+  optional `turn_id` (absent: the newest turn of the conversation that started and
+  ended, not a cancelled one) and a `stat`
   flag, false when absent; its result has the `turn_id`,
   the `changes` and, without `stat`, the unified `diff`, at most 20000 lines. The
   fixtures `events/tool_call_completed.json` and `events/turn_completed.json` now set
