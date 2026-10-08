@@ -168,6 +168,34 @@ async fn a_plain_stop_leaves_the_unread_input_for_the_next_reader() {
 }
 
 #[tokio::test]
+async fn a_stop_for_the_row_keeps_every_key_that_the_thread_read() {
+    let (master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let reader = start_on(slave, Typeahead::Discard).unwrap();
+    wait_for_key_mode(&probe);
+    let typed: Vec<u8> = (b'a'..=b'z').chain(b'A'..=b'Z').take(2 * KEY_QUEUE).collect();
+    rustix::io::write(&master, &typed).unwrap();
+    // The thread holds one more key than the queue, blocked on its send.
+    full_queue(&reader).await;
+
+    let kept = reader.stop_keeping().await;
+    assert!(canonical(&probe) && echoes(&probe), "the terminal is restored");
+    let kept: Vec<u8> = kept.into_iter().map(Key::byte).collect();
+    assert_eq!(kept, typed[..=KEY_QUEUE], "the queue and the key that the thread held");
+    let rest = next_line(&master, &probe);
+    assert!(rest.starts_with(&typed[kept.len()..]), "the rest is for the shell: {rest:?}");
+}
+
+#[tokio::test]
+async fn a_stop_for_the_row_of_a_reader_without_a_thread_keeps_its_queue() {
+    let (sender, keys) = mpsc::channel(4);
+    let reader = KeyReader::from_channel(keys);
+    sender.send(byte(b'a')).await.unwrap();
+    sender.send(Read::Key(Key::Esc)).await.unwrap();
+    assert_eq!(reader.stop_keeping().await, [Key::Byte(b'a'), Key::Esc]);
+}
+
+#[tokio::test]
 async fn discarding_the_queue_drops_only_the_keys_that_wait_in_it() {
     let (sender, keys) = mpsc::channel(4);
     let mut reader = KeyReader::from_channel(keys);

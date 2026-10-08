@@ -185,14 +185,8 @@ pub(crate) async fn follow(
     };
     // NOTE: the terminal must be back in its normal mode before anything else is
     // written or the process exits, whichever way the loop ended.
-    if let Some((mut keys, asking)) = follower.keys.take() {
-        if matches!(asking, Asking::Row) {
-            // Keys that the row did not take yet are part of its text.
-            while let Some(key) = keys.queued() {
-                view.row_key(key);
-            }
-        }
-        stop(keys, &asking).await;
+    if let Some((keys, asking)) = follower.keys.take() {
+        stop_into(keys, &asking, view).await;
     }
     if let Err(error) = &result {
         // The last frame shows the cursor again and clears the progress bar before the
@@ -250,8 +244,8 @@ async fn interrupt(
     let call = client.call::<TurnInterruptResult>(method);
     match ctx.clock.timeout(INTERRUPT_TIMEOUT, call).await {
         Ok(Ok(result)) => Ok(result.withdrawn),
-        // The turn already ended, or it still waits behind another turn, which the
-        // daemon cannot take back yet.
+        // The turn already ended, or it still waits behind another turn. Ctrl+C leaves
+        // a queued prompt in the queue, as before the input row; Esc takes it back.
         Ok(Err(ClientError::Server { body })) if body.code == ErrorCode::Conflict => {
             Err("not interrupted: the turn is not running; a queued prompt still runs in its turn"
                 .to_owned())
@@ -316,6 +310,18 @@ impl Asking {
     /// they go to the input row, what is still unread is thrown away.
     fn guards(&self) -> bool {
         matches!(self, Asking::Input { .. } | Asking::Discard | Asking::Pending { .. })
+    }
+}
+
+/// Stops `keys` like [`stop`]. The keys that the input row did not take yet, also those
+/// that the reader reads until it stops, are part of the row's text.
+async fn stop_into(keys: KeyReader, asking: &Asking, view: &mut TurnView) {
+    if matches!(asking, Asking::Row) {
+        for key in keys.stop_keeping().await {
+            view.row_key(key);
+        }
+    } else {
+        stop(keys, asking).await;
     }
 }
 
@@ -676,14 +682,8 @@ impl Follower<'_> {
                 }
             }
             None if step.end.is_some() => {
-                if let Some((mut keys, asking)) = self.keys.take() {
-                    if matches!(asking, Asking::Row) {
-                        // Keys that the row did not take yet are part of its text.
-                        while let Some(key) = keys.queued() {
-                            view.row_key(key);
-                        }
-                    }
-                    stop(keys, &asking).await;
+                if let Some((keys, asking)) = self.keys.take() {
+                    stop_into(keys, &asking, view).await;
                 }
             }
             None if step.settled => match self.keys.take() {

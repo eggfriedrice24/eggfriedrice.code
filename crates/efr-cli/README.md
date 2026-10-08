@@ -403,7 +403,10 @@ last part of the live zone, below the status row. Inline only: no alternate scre
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
   turns bracketed paste on again.
 - When `efr` ends, the text that is still in the row, with the keys that the reader
-  did not hand over yet, goes back to the shell (`draft.rs`): written to
+  did not hand over yet, goes back to the shell (`draft.rs`). The reader also hands over
+  the keys that it reads until it stops (`KeyReader::stop_keeping`), so a key typed as
+  the turn ends is never lost; the keys typed after that stay for the shell. The text is
+  written to
   `EFR_DRAFT_FILE` as UTF-8, mode 0600, without a final newline, in a directory that it
   creates with mode 0700 when it is missing. The plugin's precmd puts it on the command
   line as `, <text>`. Without the variable, or when the write fails, one muted note
@@ -683,8 +686,8 @@ cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.
 `draft/tests.rs` checks the file's mode and content and the note without the plugin;
 `commands/send/tests.rs` the keys typed while the prompt goes out, a refused prompt
 and `render.turn_input = false`; the key thread tests on a pseudo-terminal check the
-typeahead that the row keeps, Enter and Ctrl+J, Esc, the flush and the mode after a
-stop. `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a
+typeahead that the row keeps, Enter and Ctrl+J, Esc, the flush, the keys that a stop
+for the row keeps, and the mode after a stop. `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a
 `TestDaemon` and checks that keys typed before it started go back to the shell's file
 and that the terminal's mode comes back.
 The integration tests are one test binary, `tests/it/main.rs`, with one module per

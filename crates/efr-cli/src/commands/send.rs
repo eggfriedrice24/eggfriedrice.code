@@ -141,12 +141,11 @@ fn row_wanted(ctx: &Context) -> bool {
 
 /// Stops `reader`, which no turn took over, and hands the keys that it read back to the
 /// shell.
-async fn give_back(ctx: &Context, out: &mut Output, mut reader: KeyReader) {
+async fn give_back(ctx: &Context, out: &mut Output, reader: KeyReader) {
     let mut line = RowLine::default();
-    while let Some(key) = reader.queued() {
+    for key in reader.stop_keeping().await {
         line.key(key);
     }
-    reader.stop().await;
     if let Some(note) = crate::draft::hand_back(ctx, line.text()).await {
         let options = ctx.render_options(effective_width(ctx.screen.size()));
         out.err(&render_trace(&note, &options));

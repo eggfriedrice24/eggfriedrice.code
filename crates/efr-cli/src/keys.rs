@@ -197,6 +197,33 @@ impl KeyReader {
         self.finish().await;
     }
 
+    /// Stops reading like [`stop`](Self::stop), and returns every key that the reader
+    /// read until it stopped, also the keys that it read after the stop was asked for.
+    /// The input row takes them, so a key typed as the turn ends is never lost; the keys
+    /// typed after the thread stopped stay for the shell.
+    pub(crate) async fn stop_keeping(mut self) -> Vec<Key> {
+        let mut kept = Vec::new();
+        if !self.threaded {
+            while let Some(key) = self.queued() {
+                kept.push(key);
+            }
+            self.finish().await;
+            return kept;
+        }
+        self.flags.stop.store(true, Ordering::Release);
+        // NOTE: the thread sees the stop flag within one read timeout. It drops its end
+        // of the queue once it has restored the terminal, so the queue ends then.
+        while let Some(read) = self.keys.recv().await {
+            match read {
+                Read::Flushed => self.flushing = false,
+                Read::Key(_) if self.flushing => {}
+                Read::Key(key) => kept.push(key),
+            }
+        }
+        self.finish().await;
+        kept
+    }
+
     /// Stops reading like [`stop`](Self::stop), but throws away input that is still
     /// unread before echo comes back: the rest of a password typed for a command that
     /// stopped reading must neither show nor reach the user's shell after `efr` exits.
