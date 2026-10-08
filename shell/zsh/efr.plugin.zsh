@@ -69,7 +69,7 @@
 
 zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
-zmodload -F zsh/datetime p:EPOCHSECONDS 2>/dev/null
+zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME 2>/dev/null
 zmodload -F zsh/stat b:zstat 2>/dev/null
 autoload -Uz add-zsh-hook
 
@@ -264,27 +264,52 @@ _efr_call() {
     EFR_DRAFT_FILE=$draft efr "$@"
 }
 
+# The name of this shell's draft files: the pid and the time the plugin loaded, so a
+# later shell that gets the same pid never takes a file of this one.
+typeset -g _efr_draft_name="$$.${${EPOCHREALTIME-}/./}"
+[[ $_efr_draft_name == *. ]] && _efr_draft_name+="$RANDOM$RANDOM"
+typeset -gi _efr_draft_count=0
+
 # Sets REPLY to the file where efr leaves the text that was still in the input row of a
-# turn when it ended: one file per shell, in the drafts directory of the runtime root
-# (see _efr_runtime_root), which efr creates with mode 0700. Returns 1 without a root.
+# turn when it ended: a new file for each efr run, named after this shell, in the drafts
+# directory of the runtime root (see _efr_runtime_root), which efr creates with mode
+# 0700. Two runs before the next prompt do not overwrite each other. Returns 1 without
+# a root.
 _efr_draft_file() {
   _efr_runtime_root || return 1
-  REPLY=$REPLY/drafts/$$
+  REPLY=$REPLY/drafts/$_efr_draft_name.$(( ++_efr_draft_count ))
 }
 
 # Puts the text that efr handed back on the command line as a prompt: `, ` and the
-# text, which may span several lines. The file goes once it is read, so the text comes
-# back once. $(<file) is read by zsh itself, without a fork.
+# texts of this shell's files, oldest first, which may span several lines. Each file
+# goes once it is read, so the text comes back once. $(<file) is read by zsh itself,
+# without a fork.
 _efr_take_draft() {
   emulate -L zsh
   local REPLY
-  _efr_draft_file || return 0
-  local file=$REPLY text
-  [[ -f $file ]] || return 0
-  text=$(<$file)
-  zf_rm -f -- $file 2>/dev/null
-  [[ -n ${text//[[:space:]]/} ]] || return 0
-  print -rz -- ", $text"
+  _efr_runtime_root || return 0
+  local file text
+  local -a texts
+  for file in $REPLY/drafts/$_efr_draft_name.*(N.non); do
+    text=$(<$file)
+    zf_rm -f -- $file 2>/dev/null
+    [[ -n ${text//[[:space:]]/} ]] && texts+=($text)
+  done
+  (( $#texts )) || return 0
+  print -rz -- ", ${(pj:\n:)texts}"
+}
+
+# Removes the draft files of shells that are gone, such as a terminal that closed while
+# efr followed a turn: no prompt of theirs comes again to take them.
+_efr_clean_drafts() {
+  emulate -L zsh
+  local REPLY file pid
+  _efr_runtime_root || return 0
+  for file in $REPLY/drafts/*(N.); do
+    pid=${${file:t}%%.*}
+    [[ $pid == <-> && $pid != $$ ]] || continue
+    kill -0 $pid 2>/dev/null || zf_rm -f -- $file 2>/dev/null
+  done
 }
 
 # Runs `efr settings` with the terminal's turn settings and the arguments "$@", such as
@@ -950,5 +975,6 @@ add-zsh-hook precmd _efr_precmd
 add-zsh-hook preexec _efr_preexec
 _efr_register_completion
 _efr_probe_background
+_efr_clean_drafts
 
 _efr_available || print -u2 -- "efr.plugin.zsh: efr is not on PATH; the , commands stay inactive until it is installed"

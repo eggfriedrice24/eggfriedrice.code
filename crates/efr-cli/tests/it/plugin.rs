@@ -860,12 +860,16 @@ fn e2e_send_and_new_name_the_draft_file_of_this_shell() {
         return;
     }
     let home = Home::new();
-    let pid = run_in(&home, ", hi\n,new start here\nprint -r -- $$\n");
+    let name = run_in(&home, ", hi\n,new start here\nprint -r -- $_efr_draft_name\n");
+    let name = name.trim();
     let calls = home.calls();
-    // Home::zsh sets XDG_RUNTIME_DIR to the home.
-    let expected = format!("{}/efr/drafts/{}", home.path().display(), pid.trim());
+    // Home::zsh sets XDG_RUNTIME_DIR to the home. The name starts with the pid and the
+    // time the plugin loaded, and each run gets a file of its own.
+    assert!(name.split('.').all(|part| part.parse::<u64>().is_ok()), "{name}");
+    let drafts = format!("{}/efr/drafts/{name}", home.path().display());
+    let expected = [format!("{drafts}.1"), format!("{drafts}.2")];
     let named: Vec<Option<&str>> = calls.iter().map(|call| call.draft_file.as_deref()).collect();
-    assert_eq!(named, [Some(expected.as_str()), Some(expected.as_str())]);
+    assert_eq!(named, [Some(expected[0].as_str()), Some(expected[1].as_str())]);
     for call in &calls {
         assert!(!call.cmdline.contains("drafts"), "never in the arguments: {call:?}");
     }
@@ -879,12 +883,12 @@ fn e2e_precmd_puts_the_text_that_efr_handed_back_on_the_command_line_once() {
     let home = Home::new();
     let script = r#"
         mkdir -p $XDG_RUNTIME_DIR/efr/drafts
-        print -rn -- $'fix the tests\nthen push' > $XDG_RUNTIME_DIR/efr/drafts/$$
+        print -rn -- $'fix the tests\nthen push' > $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1
         _efr_take_draft
         read -rz got
         print -r -- "[$got]"
         _efr_take_draft
-        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$$ ]] && print -r -- left
+        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1 ]] && print -r -- left
         print -r -- "[${BUFFERSTACK-}]"
     "#;
     let out = run_in(&home, script);
@@ -899,14 +903,40 @@ fn e2e_a_blank_text_that_efr_handed_back_puts_nothing_on_the_command_line() {
     let home = Home::new();
     let script = r#"
         mkdir -p $XDG_RUNTIME_DIR/efr/drafts
-        print -rn -- $'  \n' > $XDG_RUNTIME_DIR/efr/drafts/$$
+        print -rn -- $'  \n' > $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1
         _efr_take_draft
-        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$$ ]] && print -r -- left
+        [[ -e $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1 ]] && print -r -- left
         print -rz -- marker
         read -rz got
         print -r -- "[$got]"
     "#;
     assert_eq!(run_in(&home, script), "[marker]\n", "the file goes, and nothing is pushed");
+}
+
+/// The review finding: the draft file was named by the shell's pid alone, so a later
+/// shell with the same pid took the text of a shell that was gone, and two runs before
+/// a prompt overwrote each other. Now the name holds the time the plugin loaded and the
+/// run, the texts of two runs both come back, and the files of gone shells go.
+#[test]
+fn e2e_drafts_of_two_runs_both_come_back_and_those_of_gone_shells_go() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let drafts = home.path().join("efr").join("drafts");
+    std::fs::create_dir_all(&drafts).unwrap();
+    // A shell that is gone: a pid that no process has, as a fresh pid never reaches it.
+    let gone = drafts.join("4194303.1700000000123456.1");
+    std::fs::write(&gone, "old text").unwrap();
+    let script = r#"
+        print -rn -- 'first' > $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.1
+        print -rn -- 'second' > $XDG_RUNTIME_DIR/efr/drafts/$_efr_draft_name.2
+        _efr_take_draft
+        read -rz got
+        print -r -- "[$got]"
+    "#;
+    assert_eq!(run_in(&home, script), "[, first\nsecond]\n");
+    assert!(!gone.exists(), "the file of a gone shell goes when a plugin loads");
 }
 
 #[test]
