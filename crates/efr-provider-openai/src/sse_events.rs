@@ -143,6 +143,23 @@ impl EventMapper {
         result
     }
 
+    /// The canonical events for one message of the WebSocket transport: the same JSON
+    /// event as the data of a server-sent event, named by its `type`.
+    pub(crate) fn map_message(
+        &mut self,
+        event: &Value,
+    ) -> Result<Vec<ProviderEvent>, ProviderError> {
+        if self.done {
+            return Ok(Vec::new());
+        }
+        let kind = event.get("type").and_then(Value::as_str).unwrap_or_default();
+        let result = self.map_value(kind, event);
+        if result.is_err() {
+            self.done = true;
+        }
+        result
+    }
+
     fn map_value(
         &mut self,
         kind: &str,

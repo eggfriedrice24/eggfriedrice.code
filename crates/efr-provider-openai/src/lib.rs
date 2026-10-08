@@ -29,6 +29,8 @@ mod responses;
 mod sse_events;
 #[cfg(test)]
 mod testing;
+mod timing;
+mod websocket;
 
 pub use catalog::{
     Applied, CLIENT_VERSION, Catalog, CatalogClient, CatalogOrigin, Fetched, ModelCatalog,
@@ -36,6 +38,7 @@ pub use catalog::{
 };
 pub use config::{
     API_BASE_URL, Backend, DEFAULT_ORIGINATOR, OpenAiConfig, ReasoningMode, SUBSCRIPTION_BASE_URL,
+    WebSocketMode,
 };
 pub use error::OpenAiError;
 pub use responses::OpenAiProvider;

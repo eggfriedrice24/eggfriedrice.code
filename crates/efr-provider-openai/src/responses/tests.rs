@@ -14,7 +14,7 @@ use wiremock::{Mock, MockServer, Request as SeenRequest, ResponseTemplate};
 
 use super::OpenAiProvider;
 use crate::testing::{FakeTokens, FixedRng, InstantClock, fixture};
-use crate::{Backend, Catalog, Fetched, ModelCatalog, OpenAiConfig};
+use crate::{Backend, Catalog, Fetched, ModelCatalog, OpenAiConfig, WebSocketMode};
 use efr_stdx::time::Clock as _;
 
 const SUBSCRIPTION_PATH: &str = "/backend-api/codex/responses";
@@ -43,7 +43,11 @@ fn setup_with(
         Backend::Subscription => "/backend-api/codex",
         _ => "/v1",
     };
-    let config = config.with_base_url(&format!("{}{base}", server.uri())).unwrap();
+    // NOTE: these tests are about the HTTP path; websocket/tests.rs tests the socket.
+    let config = config
+        .with_base_url(&format!("{}{base}", server.uri()))
+        .unwrap()
+        .with_websocket(WebSocketMode::Off);
     let tokens = Arc::new(tokens);
     let provider = OpenAiProvider::new(
         ProviderId::new("openai-test").unwrap(),

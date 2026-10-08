@@ -1006,6 +1006,7 @@ dependencies = [
  "efr-http",
  "efr-provider",
  "efr-stdx",
+ "fastwebsockets",
  "futures",
  "jiff",
  "pretty_assertions",

@@ -52,6 +52,24 @@ pub enum ReasoningMode {
     Never,
 }
 
+/// Whether model calls go over the Responses WebSocket transport.
+///
+/// A WebSocket keeps one connection open for each conversation, so a model call skips
+/// the TCP and TLS setup and, while the same connection holds the previous answer, sends
+/// only the new input. Any call that the socket cannot serve goes over HTTP instead.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum WebSocketMode {
+    /// Follow the model: a model that prefers WebSockets uses one, any other model
+    /// uses HTTP.
+    #[default]
+    Auto,
+    /// Every model uses a WebSocket.
+    On,
+    /// Every model uses HTTP.
+    Off,
+}
+
 /// The settings of one [`OpenAiProvider`](crate::OpenAiProvider), built by the daemon
 /// from its config file.
 ///
@@ -70,6 +88,7 @@ pub struct OpenAiConfig {
     reasoning_effort: Option<String>,
     reasoning_summary: Option<String>,
     parallel_tool_calls: bool,
+    websocket: WebSocketMode,
 }
 
 impl OpenAiConfig {
@@ -99,6 +118,7 @@ impl OpenAiConfig {
             reasoning_effort: None,
             reasoning_summary: Some("auto".to_owned()),
             parallel_tool_calls: true,
+            websocket: WebSocketMode::Auto,
         }
     }
 
@@ -173,6 +193,13 @@ impl OpenAiConfig {
         self
     }
 
+    /// The same config choosing with `mode` whether model calls go over a WebSocket.
+    #[must_use]
+    pub fn with_websocket(mut self, mode: WebSocketMode) -> Self {
+        self.websocket = mode;
+        self
+    }
+
     /// The backend.
     pub fn backend(&self) -> Backend {
         self.backend
@@ -221,6 +248,24 @@ impl OpenAiConfig {
     /// Whether one answer may hold several tool calls by default.
     pub fn parallel_tool_calls(&self) -> bool {
         self.parallel_tool_calls
+    }
+
+    /// Whether model calls go over a WebSocket.
+    pub fn websocket(&self) -> WebSocketMode {
+        self.websocket
+    }
+
+    /// True when a call for `model` tries a WebSocket first: always with
+    /// [`WebSocketMode::On`], never with [`WebSocketMode::Off`], and with
+    /// [`WebSocketMode::Auto`] when the catalog says that the model prefers WebSockets
+    /// (`prefer_websockets`). A model that the catalog does not list uses HTTP under
+    /// [`WebSocketMode::Auto`].
+    pub(crate) fn uses_websocket(&self, model: Option<&ModelInfo>) -> bool {
+        match self.websocket {
+            WebSocketMode::Auto => model.is_some_and(|model| model.prefer_websockets),
+            WebSocketMode::On => true,
+            WebSocketMode::Off => false,
+        }
     }
 }
 

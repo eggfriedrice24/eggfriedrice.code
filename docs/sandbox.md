@@ -422,6 +422,7 @@ The steps, in the order of a call:
 | Phase | What takes the time |
 |---|---|
 | `model_open`, `model_first_event`, `model_first_tool_call`, `model_answer` | the model: from the request to the open stream, to the first event, to the first tool call and to the end of the answer; each request has these lines |
+| `provider_connect`, `provider_accepted`, `provider_first_event` | the transport of the request: a new WebSocket's handshake, then the time to the server's first event and to the first text, reasoning or tool call. The lines name the transport (`transport=http` or `websocket`), the connection (`new`, `reused`, or `pool` for HTTP) and the input (`full` or `incremental`), so you can compare the two transports |
 | `requirements` | what the call needs: `real_paths` (the links of its paths) and, in `auto`, `facts` (the programs, the files and git of the line) |
 | `engine`, `exit_prediction` | the permission engine, and the narrowest launch for the exits of the line |
 | `record_started` | the event log records the start of the call |

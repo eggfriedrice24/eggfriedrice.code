@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_http::{
     ByteStream, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest, HttpResponse,
-    SseStream, StatusCode, header,
+    SseStream, StatusCode, WebSocket, header,
 };
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
@@ -21,8 +21,10 @@ use tracing::Instrument as _;
 use crate::OpenAiConfig;
 use crate::catalog::{Catalog, ModelCatalog, with_extra};
 use crate::config::Backend;
-use crate::convert::request_body;
+use crate::convert::{ResponsesBody, request_body};
 use crate::sse_events::{EventMapper, retry_hint};
+use crate::timing::Timing;
+use crate::websocket::{Attempt, CONNECT_TIMEOUT, ConnectError, Sockets};
 
 /// The header that routes a subscription request to the account the token belongs to
 /// (goose `chatgpt_codex.rs`, `post_streaming`; Codex sends it as `ChatGPT-Account-ID`,
@@ -38,6 +40,13 @@ const ORIGINATOR_HEADER: &str = "originator";
 /// `codex-rs/core/src/client.rs`, `responses_session_id`, and
 /// `codex-rs/codex-api/src/requests/headers.rs`, `build_session_headers`).
 const SESSION_HEADER: &str = "session-id";
+
+/// The header that asks for the Responses WebSocket protocol that Codex speaks
+/// (`codex-rs/core/src/client.rs`, `RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE`).
+const BETA_HEADER: &str = "openai-beta";
+
+/// The value of [`BETA_HEADER`] on a WebSocket handshake.
+const WEBSOCKET_BETA: &str = "responses_websockets=2026-02-06";
 
 /// The response header that carries the server's id of the request, for the log.
 const REQUEST_ID_HEADER: &str = "x-request-id";
@@ -61,7 +70,10 @@ const QUOTA_CODES: &[&str] = &[
 /// the public API (see [`OpenAiConfig`]).
 ///
 /// Each [`Provider::stream`] posts `<base_url>/responses` with `stream: true` and
-/// turns the server-sent events into [`ProviderEvent`]s. The token comes from the
+/// turns the server-sent events into [`ProviderEvent`]s. A call for a model that uses
+/// the WebSocket transport (see [`WebSocketMode`](crate::WebSocketMode)) goes as a
+/// `response.create` message on the conversation's WebSocket instead, and over HTTP
+/// whenever the socket cannot serve it. The token comes from the
 /// [`TokenSource`] for every request; the provider never sees a refresh token. When the
 /// server answers 401, the provider invalidates the token, fetches a new one and sends
 /// the request once more; a second 401 is [`ProviderError::Unauthorized`]. Other
@@ -83,6 +95,7 @@ pub struct OpenAiProvider {
     http: HttpClient,
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
+    sockets: Sockets,
 }
 
 impl OpenAiProvider {
@@ -98,7 +111,8 @@ impl OpenAiProvider {
         clock: Arc<dyn Clock>,
     ) -> Self {
         let catalog = ModelCatalog::new(Catalog::builtin(config.backend()));
-        OpenAiProvider { id, config, catalog, http, tokens, clock }
+        let sockets = Sockets::new(Arc::clone(&clock));
+        OpenAiProvider { id, config, catalog, http, tokens, clock, sockets }
     }
 
     /// The same provider reading its models from `catalog`, which a fetch in the
@@ -109,6 +123,12 @@ impl OpenAiProvider {
         self
     }
 
+    /// The provider's WebSocket connections.
+    #[cfg(test)]
+    pub(crate) fn sockets(&self) -> &Sockets {
+        &self.sockets
+    }
+
     /// The provider's settings.
     pub fn config(&self) -> &OpenAiConfig {
         &self.config
@@ -116,11 +136,9 @@ impl OpenAiProvider {
 
     /// The request for `request` without its credentials: built once, then cloned for
     /// each attempt, since only the token may change between attempts.
-    fn unsigned(&self, request: &Request) -> Result<HttpRequest, HttpError> {
-        let model = self.models().into_iter().find(|model| model.id == request.model);
-        let body = request_body(request, &self.config, model.as_ref());
+    fn unsigned(&self, body: &ResponsesBody) -> Result<HttpRequest, HttpError> {
         let mut unsigned = HttpRequest::post(&self.config.responses_url())?
-            .json(&body)?
+            .json(body)?
             .header(header::ACCEPT, HeaderValue::from_static("text/event-stream"));
         if self.config.backend() == Backend::Subscription
             && let Some(key) = body.prompt_cache_key()
@@ -128,6 +146,44 @@ impl OpenAiProvider {
             unsigned = unsigned.header_text(HeaderName::from_static(SESSION_HEADER), key)?;
         }
         Ok(unsigned.recorded())
+    }
+
+    /// Opens a WebSocket to the Responses endpoint for the conversation of `body`, with
+    /// the headers of the HTTP path and the WebSocket beta header.
+    async fn connect(&self, body: &ResponsesBody) -> Result<WebSocket, ConnectError> {
+        let token = self.tokens.access_token().await.map_err(|error| ConnectError {
+            reason: format!("no access token: {error}"),
+            pause: false,
+        })?;
+        let request = self.websocket_request(body, &token).map_err(|error| ConnectError {
+            reason: format!("the handshake could not be built: {error}"),
+            pause: true,
+        })?;
+        self.http.websocket(&request).await.map_err(|error| {
+            // NOTE: a refused token is not the socket's fault; the HTTP path refreshes
+            // it, and the next call tries the socket again.
+            let unauthorized = matches!(
+                &error,
+                HttpError::UpgradeRefused { status, .. } if *status == StatusCode::UNAUTHORIZED
+            );
+            ConnectError { reason: error.to_string(), pause: !unauthorized }
+        })
+    }
+
+    fn websocket_request(
+        &self,
+        body: &ResponsesBody,
+        token: &AccessToken,
+    ) -> Result<HttpRequest, HttpError> {
+        let mut request = HttpRequest::get(&self.config.responses_url())?
+            .header(HeaderName::from_static(BETA_HEADER), HeaderValue::from_static(WEBSOCKET_BETA))
+            .timeout(CONNECT_TIMEOUT);
+        if self.config.backend() == Backend::Subscription
+            && let Some(key) = body.prompt_cache_key()
+        {
+            request = request.header_text(HeaderName::from_static(SESSION_HEADER), key)?;
+        }
+        sign(&request, &self.config, token)
     }
 
     /// Sends the request and returns the successful response, with one token refresh on
@@ -223,12 +279,34 @@ impl Provider for OpenAiProvider {
             model = %request.model,
             request_id = tracing::field::Empty,
         );
-        let unsigned = self.unsigned(&request).map_err(transport)?;
+        let timing = Timing::start();
+        let model = self.models().into_iter().find(|model| model.id == request.model);
+        let body = request_body(&request, &self.config, model.as_ref());
+        if self.config.uses_websocket(model.as_ref())
+            && let Some(key) = body.prompt_cache_key()
+        {
+            let connect = || self.connect(&body);
+            let attempt = self
+                .sockets
+                .stream(key, &body, connect, timing.clone(), span.clone())
+                .instrument(span.clone())
+                .await;
+            match attempt {
+                Attempt::Answered(stream) => return Ok(stream),
+                Attempt::Http(reason) => span.in_scope(|| {
+                    tracing::warn!(reason = %reason, "the websocket could not serve the model call; it goes over HTTP");
+                }),
+                Attempt::Skipped(reason) => span.in_scope(|| {
+                    tracing::debug!(reason = %reason, "the model call goes over HTTP");
+                }),
+            }
+        }
+        let unsigned = self.unsigned(&body).map_err(transport)?;
         let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });
-        Ok(events(response, span))
+        Ok(events(response, span, timing))
     }
 }
 
@@ -318,11 +396,12 @@ pub(crate) fn sign(
 }
 
 /// The events of a streaming response, until the answer is done or fails.
-fn events(response: HttpResponse, span: tracing::Span) -> ProviderStream {
+fn events(response: HttpResponse, span: tracing::Span, timing: Timing) -> ProviderStream {
     let state = EventState {
         sse: Some(response.into_sse()),
         mapper: EventMapper::new(),
         pending: VecDeque::new(),
+        timing,
     };
     Box::pin(stream::unfold(state, move |mut state| {
         let span = span.clone();
@@ -336,16 +415,24 @@ struct EventState {
     sse: Option<SseStream<ByteStream>>,
     mapper: EventMapper,
     pending: VecDeque<Result<ProviderEvent, ProviderError>>,
+    timing: Timing,
 }
 
 impl EventState {
     async fn next(&mut self) -> Option<Result<ProviderEvent, ProviderError>> {
         loop {
             if let Some(item) = self.pending.pop_front() {
+                if item.is_ok() {
+                    self.timing.first_event();
+                }
                 return Some(item);
             }
             let sse = self.sse.as_mut()?;
-            let ended = match sse.next().await {
+            let next = sse.next().await;
+            if matches!(next, Some(Ok(_))) {
+                self.timing.accepted();
+            }
+            let ended = match next {
                 Some(Ok(event)) => match self.mapper.map(&event) {
                     Ok(events) => {
                         self.pending.extend(events.into_iter().map(Ok));

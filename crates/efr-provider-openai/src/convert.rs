@@ -42,16 +42,23 @@ pub(crate) const CUSTOM_CALL: &str = "custom_tool_call";
 /// lets the next request continue the same chain of thought without server-side state.
 const ENCRYPTED_REASONING: &str = "reasoning.encrypted_content";
 
-/// The JSON body of one `POST /responses`.
+/// The JSON body of one `POST /responses`, and of the `response.create` message of the
+/// WebSocket transport.
 ///
-/// Field order follows Codex's `ResponsesApiRequest`, routing fields first, because
-/// gateways may read a large body incrementally.
+/// Field order follows Codex's `ResponsesApiRequest` and `ResponseCreateWsRequest`,
+/// routing fields first, because gateways may read a large body incrementally.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct ResponsesBody {
+    /// `response.create` on a WebSocket; absent from an HTTP body.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
     model: String,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     service_tier: Option<String>,
+    /// The answer this one continues on the same WebSocket; never sent over HTTP.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     input: Vec<Value>,
@@ -119,9 +126,11 @@ pub(crate) fn request_body(
     };
     let freeform = model.is_some_and(|model| model.freeform_tools);
     ResponsesBody {
+        kind: None,
         model: request.model.clone(),
         stream: true,
         service_tier: options.string("service_tier"),
+        previous_response_id: None,
         instructions: request.system.clone().filter(|system| !system.is_empty()),
         input: input_items(&request.messages, freeform),
         tools: request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect(),
@@ -140,6 +149,33 @@ impl ResponsesBody {
     /// The key that sends the request to its prompt cache, when the request names one.
     pub(crate) fn prompt_cache_key(&self) -> Option<&str> {
         self.prompt_cache_key.as_deref()
+    }
+
+    /// The `input` items.
+    pub(crate) fn input(&self) -> &[Value] {
+        &self.input
+    }
+
+    /// Every field but `input`: what must not change for a request to continue the
+    /// previous answer of a WebSocket with only its new items.
+    pub(crate) fn settings(&self) -> ResponsesBody {
+        ResponsesBody { input: Vec::new(), ..self.clone() }
+    }
+
+    /// The `response.create` message of the WebSocket transport for this body: the same
+    /// fields with `input` replaced by `input`, continuing the answer `previous` when
+    /// one is given.
+    pub(crate) fn websocket_create(
+        &self,
+        previous: Option<&str>,
+        input: &[Value],
+    ) -> ResponsesBody {
+        ResponsesBody {
+            kind: Some("response.create"),
+            previous_response_id: previous.map(str::to_owned),
+            input: input.to_vec(),
+            ..self.settings()
+        }
     }
 }
 

@@ -1,5 +1,5 @@
-//! Fakes shared by the unit tests of this crate: a clock, a random source, a token
-//! source and the fixture loader.
+//! Fakes shared by the unit tests of this crate: clocks, a random source, a token
+//! source, the fixture loader and a fake Responses server for both transports.
 //!
 //! The clock stays here instead of coming from `efr-test-support`: its `TestClock` can
 //! stand in only for a clock that nobody moves, not for one whose sleeps end at once,
@@ -18,6 +18,10 @@ use efr_provider::{AccessToken, ProviderError, SecretString, TokenSource};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
 use jiff::{SignedDuration, Timestamp};
+
+mod responses_server;
+
+pub(crate) use responses_server::{ResponsesServer, Socket, Step, sse_events};
 
 /// The instant the fake clock starts at: 2026-10-04T12:00:00Z.
 pub(crate) fn start() -> Timestamp {
@@ -148,4 +152,54 @@ pub(crate) fn catalog_fixture(name: &str) -> String {
 pub(crate) fn fixture_events(name: &str) -> Vec<SseEvent> {
     let mut decoder = SseDecoder::new();
     decoder.push(fixture(name).as_bytes()).unwrap()
+}
+
+/// A clock that stands still until a test moves it with [`ManualClock::advance`]. A
+/// sleep ends when the clock reaches its deadline.
+#[derive(Debug)]
+pub(crate) struct ManualClock {
+    state: Mutex<ManualState>,
+}
+
+#[derive(Debug)]
+struct ManualState {
+    now: Timestamp,
+    sleepers: Vec<(Timestamp, tokio::sync::oneshot::Sender<()>)>,
+}
+
+impl ManualClock {
+    pub(crate) fn new() -> Self {
+        ManualClock { state: Mutex::new(ManualState { now: start(), sleepers: Vec::new() }) }
+    }
+
+    /// Moves the clock forward by `duration` and ends every sleep that is due.
+    pub(crate) fn advance(&self, duration: Duration) {
+        let mut state = self.state.lock().unwrap();
+        state.now = state.now.checked_add(SignedDuration::try_from(duration).unwrap()).unwrap();
+        let now = state.now;
+        let (due, waiting) =
+            std::mem::take(&mut state.sleepers).into_iter().partition(|(at, _)| *at <= now);
+        state.sleepers = waiting;
+        for (_, sleeper) in due {
+            let _ = sleeper.send(());
+        }
+    }
+}
+
+impl Clock for ManualClock {
+    fn now(&self) -> Timestamp {
+        self.state.lock().unwrap().now
+    }
+
+    fn sleep(&self, duration: Duration) -> Sleep {
+        let mut state = self.state.lock().unwrap();
+        let at = state.now.checked_add(SignedDuration::try_from(duration).unwrap()).unwrap();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        state.sleepers.push((at, sender));
+        Box::pin(async move {
+            if receiver.await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        })
+    }
 }

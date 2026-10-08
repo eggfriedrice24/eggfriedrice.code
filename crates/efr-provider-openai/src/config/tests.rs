@@ -6,8 +6,26 @@ use pretty_assertions::assert_eq;
 
 use super::{
     API_BASE_URL, Backend, DEFAULT_ORIGINATOR, OpenAiConfig, ReasoningMode, SUBSCRIPTION_BASE_URL,
+    WebSocketMode,
 };
 use crate::OpenAiError;
+
+#[test]
+fn the_websocket_follows_the_catalog_unless_the_switch_says_otherwise() {
+    let prefers = ModelInfo::new("gpt-5.5").with_prefer_websockets(true);
+    let plain = ModelInfo::new("o3");
+    let config = OpenAiConfig::subscription();
+    assert_eq!(config.websocket(), WebSocketMode::Auto);
+    assert!(config.uses_websocket(Some(&prefers)));
+    assert!(!config.uses_websocket(Some(&plain)));
+    assert!(!config.uses_websocket(None), "a model outside the catalog uses HTTP");
+
+    let on = config.clone().with_websocket(WebSocketMode::On);
+    assert!(on.uses_websocket(Some(&plain)));
+    assert!(on.uses_websocket(None));
+    let off = config.with_websocket(WebSocketMode::Off);
+    assert!(!off.uses_websocket(Some(&prefers)));
+}
 
 #[test]
 fn the_subscription_defaults_follow_codex() {
