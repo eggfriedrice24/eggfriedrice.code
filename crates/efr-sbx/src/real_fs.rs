@@ -40,7 +40,34 @@ impl RealFs {
         let btime = (stat.stx_btime.tv_sec, stat.stx_btime.tv_nsec);
         ctime >= since || (born && btime >= since)
     }
+
+    /// The names in the directory `path`, without `.` and `..`, with the kinds of the
+    /// listing.
+    ///
+    /// NOTE: `getdents64` into one buffer of [`LISTING_BUFFER`] bytes on the descriptor
+    /// of the open: `rustix::fs::Dir` opens the directory a second time and reads it
+    /// in pieces of 768 bytes, which made the surface guard's two scans of a project of
+    /// 500 directories cost 8 ms of each call.
+    fn entries(path: &Path) -> io::Result<Vec<(OsString, FileType)>> {
+        let fd = RealFs::open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        let mut buffer = vec![std::mem::MaybeUninit::<u8>::uninit(); LISTING_BUFFER];
+        let mut dir = rustix::fs::RawDir::new(&fd, &mut buffer);
+        let mut entries = Vec::new();
+        while let Some(entry) = dir.next() {
+            let entry = entry?;
+            let name = entry.file_name().to_bytes();
+            if name != b"." && name != b".." {
+                let name = std::os::unix::ffi::OsStringExt::from_vec(name.to_vec());
+                entries.push((name, entry.file_type()));
+            }
+        }
+        Ok(entries)
+    }
 }
+
+/// The bytes of the buffer that one directory listing reads into: about 500 entries of
+/// a source tree per `getdents64`.
+const LISTING_BUFFER: usize = 16 * 1024;
 
 impl FsView for RealFs {
     fn lstat(&self, path: &Path) -> io::Result<FileKind> {
@@ -61,38 +88,21 @@ impl FsView for RealFs {
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>> {
-        let fd = RealFs::open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
-        let dir = rustix::fs::Dir::read_from(&fd)?;
-        let mut names = Vec::new();
-        for entry in dir {
-            let name = entry?.file_name().to_bytes().to_vec();
-            if name != b"." && name != b".." {
-                names.push(std::os::unix::ffi::OsStringExt::from_vec(name));
-            }
-        }
-        Ok(names)
+        Ok(RealFs::entries(path)?.into_iter().map(|(name, _)| name).collect())
     }
 
     fn read_dir_kinds(&self, path: &Path) -> io::Result<Vec<(OsString, Option<FileKind>)>> {
-        let fd = RealFs::open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
-        let dir = rustix::fs::Dir::read_from(&fd)?;
-        let mut entries = Vec::new();
-        for entry in dir {
-            let entry = entry?;
-            let name = entry.file_name().to_bytes().to_vec();
-            if name == b"." || name == b".." {
-                continue;
-            }
-            let kind = match entry.file_type() {
+        let entries = RealFs::entries(path)?.into_iter().map(|(name, kind)| {
+            let kind = match kind {
                 FileType::Directory => Some(FileKind::Dir),
                 FileType::RegularFile => Some(FileKind::File),
                 FileType::Symlink => Some(FileKind::Symlink),
                 FileType::Unknown => None,
                 _ => Some(FileKind::Other),
             };
-            entries.push((std::os::unix::ffi::OsStringExt::from_vec(name), kind));
-        }
-        Ok(entries)
+            (name, kind)
+        });
+        Ok(entries.collect())
     }
 
     fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
