@@ -155,7 +155,12 @@ async fn a_delete_asks_even_in_the_project_and_a_no_keeps_the_file() {
         .unwrap();
     assert_eq!(summary, "apply_patch: delete or move files");
     let path = daemon.cwd().join("src/lib.rs");
-    assert!(preview.starts_with(&format!("delete {}\n", path.display())), "{preview}");
+    assert_eq!(
+        preview,
+        "delete src/lib.rs\n--- a/src/lib.rs\n+++ /dev/null\n@@ -1,3 +0,0 @@\n\
+         -fn main() {\n-    old();\n-}\n",
+        "the question names the path as the project shows it"
+    );
     assert!(path.exists(), "the user said no");
     let output = output_sent_back(&server);
     assert!(output["output"].as_str().unwrap().contains("denied"), "{output:#}");
