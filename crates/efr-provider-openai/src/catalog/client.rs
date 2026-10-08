@@ -6,10 +6,11 @@
 //! and a 304 answer confirms it without a body.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use efr_http::{HeaderValue, HttpClient, HttpError, HttpRequest, StatusCode, Url, header};
-use efr_provider::{ProviderError, TokenSource};
+use efr_provider::{ExposeSecret as _, ProviderError, TokenSource};
 use efr_stdx::time::Clock;
 use serde_json::Value;
 
@@ -38,6 +39,10 @@ pub struct CatalogClient {
     http: HttpClient,
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
+    /// The last fetch got a 401 also with a token refreshed for it: the backend
+    /// refuses the catalog to tokens that it takes for model calls. Until a fetch
+    /// works, a 401 forces no refresh.
+    refuses_fresh: Arc<AtomicBool>,
 }
 
 impl CatalogClient {
@@ -49,7 +54,13 @@ impl CatalogClient {
         tokens: Arc<dyn TokenSource>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        CatalogClient { config, http, tokens, clock }
+        CatalogClient {
+            config,
+            http,
+            tokens,
+            clock,
+            refuses_fresh: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// The base URL of the backend, which the cache file records.
@@ -68,7 +79,9 @@ impl CatalogClient {
     /// Asks the backend for its catalog. `current` is the list that efr has: when the
     /// same backend sent it to this version of efr, its tag goes along, and the answer
     /// can be [`Fetched::NotModified`]. A 401 makes the token source forget its token,
-    /// and the request goes once more with a new one.
+    /// and the request goes once more with a new one. When that one gets a 401 too, a
+    /// 401 forces no refresh until a fetch works: the token source refreshes a token
+    /// by its age, and a model call refreshes a token that the backend refuses.
     pub async fn fetch(&self, current: &Catalog) -> Result<Fetched, ProviderError> {
         let etag = current.etag_for(self.config.base_url());
         let url = self.url().map_err(transport)?;
@@ -90,17 +103,30 @@ impl CatalogClient {
                 .map_err(transport)?;
             let status = response.status();
             if status == StatusCode::NOT_MODIFIED && etag.is_some() {
+                self.refuses_fresh.store(false, Ordering::Relaxed);
                 return Ok(Fetched::NotModified);
             }
             if status == StatusCode::UNAUTHORIZED {
                 if refreshed {
+                    self.refuses_fresh.store(true, Ordering::Relaxed);
+                    return Err(ProviderError::Unauthorized);
+                }
+                if self.refuses_fresh.load(Ordering::Relaxed) {
+                    tracing::debug!(
+                        "the backend still refuses the model catalog to a fresh token; no refresh"
+                    );
                     return Err(ProviderError::Unauthorized);
                 }
                 tracing::warn!(
                     "the backend refused the access token for the model catalog; refreshing it once"
                 );
                 drop(response);
-                self.tokens.invalidate().await;
+                // NOTE: a model call may have refreshed the token since this fetch read
+                // it; the new token was never refused, so it must not be forgotten.
+                let current = self.tokens.access_token().await?;
+                if current.secret().expose_secret() == token.secret().expose_secret() {
+                    self.tokens.invalidate().await;
+                }
                 refreshed = true;
                 continue;
             }
@@ -127,6 +153,7 @@ impl CatalogClient {
                     "the model catalog has no list of models".to_owned(),
                 ));
             };
+            self.refuses_fresh.store(false, Ordering::Relaxed);
             if broken > 0 {
                 tracing::debug!(broken, "the model catalog has entries that efr cannot read");
             }

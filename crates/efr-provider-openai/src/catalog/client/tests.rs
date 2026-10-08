@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
-use efr_provider::ProviderError;
+use efr_provider::{AccessToken, ProviderError, SecretString, TokenSource};
 use pretty_assertions::assert_eq;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -183,4 +184,98 @@ fn the_url_keeps_the_base_path() {
         format!("https://chatgpt.com/backend-api/codex/models?client_version={CLIENT_VERSION}")
     );
     assert_eq!(client.base_url(), "https://chatgpt.com/backend-api/codex");
+}
+
+#[tokio::test]
+async fn after_a_second_refusal_a_refusal_forces_no_refresh_until_a_fetch_works() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(401))
+        .up_to_n_times(3)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(catalog_answer("\"v1\""))
+        .mount(&server)
+        .await;
+    let tokens = FakeTokens::new(&["eyJ.access.one", "eyJ.access.two", "eyJ.access.three"])
+        .with_account_id("acct_7d1f");
+    let setup = setup(&server, tokens);
+    let builtin = Catalog::builtin(Backend::Subscription);
+
+    let first = setup.client.fetch(&builtin).await.unwrap_err();
+    let second = setup.client.fetch(&builtin).await.unwrap_err();
+
+    assert!(matches!(first, ProviderError::Unauthorized), "{first:?}");
+    assert!(matches!(second, ProviderError::Unauthorized), "{second:?}");
+    // The first fetch refreshed once; the second one sent one request and no refresh.
+    assert_eq!(setup.tokens.invalidations(), 1);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+
+    // A fetch that works lets the next 401 refresh again.
+    setup.client.fetch(&builtin).await.unwrap();
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(401))
+        .with_priority(1)
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    setup.client.fetch(&builtin).await.unwrap();
+    assert_eq!(setup.tokens.invalidations(), 2);
+}
+
+/// A source whose token a model call refreshed while a fetch was on its way: the first
+/// read gives the old token, every later read the new one.
+#[derive(Debug, Default)]
+struct RefreshedMeanwhile {
+    reads: AtomicUsize,
+    invalidations: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl TokenSource for RefreshedMeanwhile {
+    async fn access_token(&self) -> Result<AccessToken, ProviderError> {
+        let token = match self.reads.fetch_add(1, Ordering::SeqCst) {
+            0 => "eyJ.access.old",
+            _ => "eyJ.access.new",
+        };
+        Ok(AccessToken::new(SecretString::from(token)).with_account_id("acct_7d1f"))
+    }
+
+    async fn invalidate(&self) {
+        self.invalidations.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn a_refusal_of_a_token_that_was_refreshed_meanwhile_keeps_the_new_token() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .and(header("authorization", "Bearer eyJ.access.old"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .and(header("authorization", "Bearer eyJ.access.new"))
+        .respond_with(catalog_answer("\"v1\""))
+        .mount(&server)
+        .await;
+    let setup = setup(&server, tokens());
+    let source = Arc::new(RefreshedMeanwhile::default());
+    let client = CatalogClient::new(
+        setup.client.config.clone(),
+        setup.client.http.clone(),
+        source.clone(),
+        Arc::new(InstantClock::new()),
+    );
+
+    let fetched = client.fetch(&Catalog::builtin(Backend::Subscription)).await.unwrap();
+
+    assert!(matches!(fetched, Fetched::Changed(_)), "{fetched:?}");
+    assert_eq!(source.invalidations.load(Ordering::SeqCst), 0);
 }

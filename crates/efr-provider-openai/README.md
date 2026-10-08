@@ -28,7 +28,11 @@ Modules:
   `CatalogClient::fetch` sends it, with `If-None-Match` and the tag of the list that
   efr has when the same backend sent that list to the same version of efr. A 304 is
   `Fetched::NotModified`; a 401 makes the token source forget its token, and the
-  request goes once more. A `Catalog` is one list and its origin (`CatalogOrigin`:
+  request goes once more. The source forgets the token only when it still holds the
+  token that the backend refused, so a token that a model call refreshed meanwhile
+  stays. When the second request gets a 401 too, a 401 forces no refresh until a fetch
+  works: the backend then refuses the catalog to a token that it takes for model
+  calls, and a refresh every few minutes would only use up refresh tokens. A `Catalog` is one list and its origin (`CatalogOrigin`:
   `Backend`, `Cache` or `Builtin`) with the time of the fetch and the tag. Each entry
   has the members of Codex's `ModelInfo` that efr reads: `slug`, `display_name`,
   `description`, `priority`, `visibility`, `context_window`, `max_context_window`,
@@ -403,7 +407,9 @@ a hidden model, a model too new for efr, a broken window and two broken entries)
 models on offer and their order, the windows, the default, the version compare, the
 tag and what `apply` does with each answer. `catalog::cache` tests write and read the
 cache file in a temporary directory, and `catalog::client` tests fetch from `wiremock`:
-the query and the headers, a 304 for the tag, the 401 refresh and the failures. `websocket` tests drive it against a fake
+the query and the headers, a 304 for the tag, the 401 refresh (no refresh after a
+second 401 until a fetch works, and none for a token that was refreshed meanwhile) and
+the failures. `websocket` tests drive it against a fake
 server (`testing/responses_server.rs`) that speaks the WebSocket protocol as Codex
 expects it and also answers `POST /responses`: every fixture streams the same events
 over both transports, the handshake headers and the `response.create` body, the reuse
