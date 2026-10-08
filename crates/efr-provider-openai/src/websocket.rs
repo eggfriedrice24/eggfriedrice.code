@@ -16,18 +16,19 @@
 //! costs at most [`PROBE_TIMEOUT`] before the call goes over HTTP, and never the read
 //! timeout.
 //!
-//! A call that the socket cannot serve goes over HTTP: when the connection cannot be
-//! opened, when the server refuses the upgrade, or when the server does not take the
-//! request (it sends an `error` event or closes the connection before the first event
-//! of an answer). The server has then not started an answer, so the HTTP request is the
-//! first and only model call. After a failure that says that WebSockets do not work
+//! A call goes over HTTP when the server certainly did not act on its request: when the
+//! connection cannot be opened, when the server refuses the upgrade, when a quiet
+//! connection does not answer its ping, or when the server does not take the request
+//! (it closes the connection, or sends an `error` event without an error status that
+//! answers the request, before the first event of an answer). The HTTP request is then
+//! the first and only model call. After a failure that says that WebSockets do not work
 //! now, every call goes over HTTP for [`PAUSE`]. An `error` event with an HTTP error
 //! status, such as a rate limit or a context overflow, is the server's answer to the
-//! request, and the call fails with it as with that answer over HTTP. Once the request has gone out, a
-//! failure that does not show that the server refused it (a broken connection, a
-//! connection that ends without a close, or a timeout) is the call's failure, exactly
-//! as on the HTTP path, because the server may have acted on it and sending the call
-//! again could run the model twice.
+//! request, and the call fails with it as with that answer over HTTP. Once the request
+//! has gone out, a failure that does not show that the server refused it (a broken
+//! connection, a connection that ends without a close, or a timeout) is the call's
+//! failure, exactly as on the HTTP path, because the server may have acted on it and
+//! sending the call again could run the model twice.
 
 use std::collections::HashMap;
 use std::future::Future;
