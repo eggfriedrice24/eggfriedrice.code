@@ -68,8 +68,10 @@ pub(crate) struct FakeToolbox {
     /// What [`Toolbox::shell_cwd`] answers.
     pub(crate) shell_cwd: Mutex<Option<PathBuf>>,
     /// Every directory that [`Toolbox::move_shell`] moved the shell to. A move also sets
-    /// [`shell_cwd`](Self::shell_cwd).
+    /// [`shell_cwd`](Self::shell_cwd), except when [`stuck`](Self::stuck) is set.
     pub(crate) moved: Mutex<Vec<PathBuf>>,
+    /// When set, the shell cannot move, as when a command still runs in it.
+    pub(crate) stuck: AtomicBool,
     /// The context of every call that `requirements` was asked about.
     judged: Mutex<Vec<CallContext>>,
     /// The context of every call that reached `invoke`.
@@ -228,7 +230,10 @@ impl Toolbox for FakeToolbox {
 
     async fn move_shell(&self, _conversation_id: ConversationId, dir: &Path) {
         self.moved.lock().unwrap_or_else(PoisonError::into_inner).push(dir.to_path_buf());
-        *self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir.to_path_buf());
+        if !self.stuck.load(Ordering::SeqCst) {
+            *self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(dir.to_path_buf());
+        }
     }
 
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
@@ -426,6 +431,7 @@ impl Setup {
             ssh: false,
             scratch: self.scratch(title),
             agent_cwd: None,
+            moved_from: None,
             mode: Mode::Cautious,
             fallback: None,
             model: MODEL.to_owned(),

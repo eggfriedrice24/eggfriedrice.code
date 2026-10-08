@@ -376,17 +376,20 @@ impl Turn {
         // NOTE: a `cd` of the user between two prompts moves the hidden shell too, so
         // the model works where the user now is. Without such a move the shell stays
         // where the model left it.
-        if self.spec.context.is_some()
-            && let Some(before) = snapshot.previous_cwd(turn_id)
-            && before != self.cwd
-        {
+        let moved_from = match snapshot.previous_cwd(turn_id) {
+            Some(before) if self.spec.context.is_some() && before != self.cwd => {
+                Some(before.to_path_buf())
+            }
+            _ => None,
+        };
+        if moved_from.is_some() {
             shared.deps.toolbox.move_shell(shared.conversation_id, &self.cwd).await;
         }
         let agent_cwd = match shared.deps.toolbox.shell_cwd(shared.conversation_id).await {
             Some(cwd) => Some(cwd),
             None => snapshot.agent_cwd(),
         };
-        let preamble = self.live_state(derivation.repo, agent_cwd).render();
+        let preamble = self.live_state(derivation.repo, agent_cwd, moved_from).render();
         let mut messages = snapshot.history(turn_id, cache, &self.model_key(), config.history);
         messages.push(Message::new(
             Role::User,
@@ -548,7 +551,12 @@ impl Turn {
         self.transcript.push(message);
     }
 
-    fn live_state(&self, repo: Option<efr_scope::Repo>, agent_cwd: Option<PathBuf>) -> LiveState {
+    fn live_state(
+        &self,
+        repo: Option<efr_scope::Repo>,
+        agent_cwd: Option<PathBuf>,
+        moved_from: Option<PathBuf>,
+    ) -> LiveState {
         let context = self.spec.context.as_ref();
         let host = &self.config.host;
         LiveState {
@@ -565,6 +573,7 @@ impl Turn {
             ssh: context.is_some_and(|context| context.ssh_connection.is_some()),
             scratch: self.scratch.clone(),
             agent_cwd,
+            moved_from,
             mode: self.mode(),
             fallback: self.settings.as_ref().and_then(|settings| settings.fallback.clone()),
             model: self.model_key().model,

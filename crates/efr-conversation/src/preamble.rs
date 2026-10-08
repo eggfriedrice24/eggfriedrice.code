@@ -47,6 +47,8 @@ pub(crate) struct LiveState {
     /// Where the conversation's hidden shell last reported to be, when it differs from
     /// the user's directory.
     pub(crate) agent_cwd: Option<PathBuf>,
+    /// The user's directory at the previous prompt, when the user moved since then.
+    pub(crate) moved_from: Option<PathBuf>,
     /// The turn's permission mode.
     pub(crate) mode: Mode,
     /// Why the turn runs with a stricter mode than it asked for, such as `auto` without
@@ -72,6 +74,7 @@ impl fmt::Debug for LiveState {
             .field("ssh", &self.ssh)
             .field("scratch", &self.scratch)
             .field("agent_cwd", &self.agent_cwd)
+            .field("moved_from", &self.moved_from)
             .field("mode", &self.mode)
             .field("fallback", &self.fallback)
             .field("model", &self.model)
@@ -97,8 +100,33 @@ impl LiveState {
             "Commands you run with the shell tool start there in a new hidden shell; \
              the hidden shell keeps its own directory between calls.\n",
         );
-        if let Some(agent_cwd) = self.agent_cwd.as_ref().filter(|dir| **dir != self.cwd) {
-            let _ = writeln!(text, "Your hidden shell is in {}.", agent_cwd.display());
+        let agent_cwd = self.agent_cwd.as_ref().filter(|dir| **dir != self.cwd);
+        // NOTE: without this line the model reads a short follow-up, such as `and the
+        // tests?`, as about the directory of the previous prompt.
+        match (self.moved_from.as_ref().filter(|dir| **dir != self.cwd), agent_cwd) {
+            (Some(from), None) => {
+                let _ = writeln!(
+                    text,
+                    "The user moved from {} to {} since the last prompt; your hidden shell \
+                     moved with them.",
+                    from.display(),
+                    self.cwd.display()
+                );
+            }
+            (Some(from), Some(agent_cwd)) => {
+                let _ = writeln!(
+                    text,
+                    "The user moved from {} to {} since the last prompt; your hidden shell \
+                     could not move with them and is still in {}.",
+                    from.display(),
+                    self.cwd.display(),
+                    agent_cwd.display()
+                );
+            }
+            (None, Some(agent_cwd)) => {
+                let _ = writeln!(text, "Your hidden shell is in {}.", agent_cwd.display());
+            }
+            (None, None) => {}
         }
         if let Some(command) = &self.last_command {
             text.push_str(&last_command(command, self.last_status));

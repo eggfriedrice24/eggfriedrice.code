@@ -19,6 +19,7 @@ fn minimal() -> LiveState {
         ssh: false,
         scratch: PathBuf::from("/home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d"),
         agent_cwd: None,
+        moved_from: None,
         mode: Mode::Cautious,
         fallback: None,
         model: "gpt-5.5".to_owned(),
@@ -88,6 +89,39 @@ fn a_long_command_is_cut() {
 fn the_hidden_shell_is_left_out_when_it_is_where_the_user_is() {
     let state = LiveState { agent_cwd: Some(PathBuf::from("/home/u")), ..minimal() };
     assert!(!state.render().contains("Your hidden shell"));
+}
+
+#[test]
+fn a_move_of_the_user_since_the_last_prompt_is_one_line() {
+    let state = LiveState {
+        cwd: PathBuf::from("/home/u/p/efr"),
+        moved_from: Some(PathBuf::from("/home/u")),
+        ..minimal()
+    };
+    let text = state.render();
+    assert!(
+        text.contains(
+            "\nThe user moved from /home/u to /home/u/p/efr since the last prompt; your hidden \
+             shell moved with them.\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("Your hidden shell is in"), "{text}");
+
+    let shell_there = LiveState { agent_cwd: Some(PathBuf::from("/home/u/p/efr")), ..state };
+    assert_eq!(shell_there.render(), text, "a shell where the user is moved with them");
+    assert!(!minimal().render().contains("moved"), "no move, no line");
+}
+
+#[test]
+fn a_hidden_shell_that_could_not_move_says_where_it_stayed() {
+    let state = LiveState {
+        cwd: PathBuf::from("/home/u/p/efr"),
+        moved_from: Some(PathBuf::from("/home/u")),
+        agent_cwd: Some(PathBuf::from("/etc")),
+        ..minimal()
+    };
+    assert_snapshot!(state.render());
 }
 
 #[test]

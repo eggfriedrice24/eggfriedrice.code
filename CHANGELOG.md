@@ -102,6 +102,9 @@ into the GitHub release notes, and it stops when the section is missing.
   starts. The shell keeps its variables. When you did not move, the shell stays where
   the model put it. While a command still runs in the shell, the shell stays, and the
   model reads where it is.
+- The model now reads that you changed directories since the previous prompt, and
+  whether its hidden shell moved with you. Before, a short follow-up such as `and
+  here?` could go to the old directory.
 
 ## [0.0.2] - 2026-10-08
 

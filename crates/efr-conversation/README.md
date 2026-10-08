@@ -137,7 +137,9 @@ request:
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
-   shell's own directory when it differs, the turn's permission mode, model and
+   shell's own directory when it differs, one line when the user moved since the
+   previous prompt (where from, and whether the hidden shell moved too or where it
+   stayed), the turn's permission mode, model and
    effort, the three modes (`manual`, `cautious`, `auto`) with one line each, which
    is the one place that says what a mode allows, as `docs/permissions.md` does, and
    that only the user changes a terminal's mode, model and effort (`,mode`, `,model`,

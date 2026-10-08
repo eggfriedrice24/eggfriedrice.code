@@ -590,7 +590,8 @@ async fn the_scope_of_each_turn_decides_and_a_registered_project_writes_freely()
     let state = setup.live_state(&setup.cwd, "write main");
     let first = setup.prompt(&state, "write main");
     let output = format!("written {}", main_rs.display());
-    let second_state = setup.live_state(&elsewhere, "write main");
+    let mut second_state = setup.live_state(&elsewhere, "write main");
+    second_state.moved_from = Some(setup.cwd.clone());
     let records = vec![
         expect_request(request(vec![first.clone()])),
         answer(&tool_answer("call_1", "write_file", &input)),
@@ -842,7 +843,8 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
     );
     let mut first_state = setup.live_state(&setup.cwd, "first");
     first_state.repo = Some(repo);
-    let second_state = setup.live_state(&elsewhere, "first");
+    let mut second_state = setup.live_state(&elsewhere, "first");
+    second_state.moved_from = Some(setup.cwd.clone());
     let records = vec![
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
@@ -890,6 +892,7 @@ async fn a_cd_of_the_user_between_prompts_moves_the_hidden_shell_there() {
     first_state.agent_cwd = Some(shell.clone());
     let mut moved_state = setup.live_state(&elsewhere, "first");
     moved_state.agent_cwd = Some(elsewhere.clone());
+    moved_state.moved_from = Some(setup.cwd.clone());
     let records = vec![
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
@@ -921,6 +924,50 @@ async fn a_cd_of_the_user_between_prompts_moves_the_hidden_shell_there() {
     h.wait_end(third.turn_id).await;
 
     assert_eq!(*h.toolbox.moved.lock().unwrap(), vec![elsewhere]);
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_preamble_says_when_the_hidden_shell_could_not_move_with_the_user() {
+    let setup = Setup::new();
+    let elsewhere = setup.dirs.create_dir("home/elsewhere").expect("directory");
+    let shell = PathBuf::from("/var/log");
+    let mut first_state = setup.live_state(&setup.cwd, "first");
+    first_state.agent_cwd = Some(shell.clone());
+    let mut stuck_state = setup.live_state(&elsewhere, "first");
+    stuck_state.agent_cwd = Some(shell.clone());
+    stuck_state.moved_from = Some(setup.cwd.clone());
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&first_state, "first")])),
+        answer(&text_answer("One.")),
+        expect_request(request(vec![
+            Message::user("first"),
+            Message::assistant("One."),
+            setup.prompt(&stuck_state, "and here?"),
+        ])),
+        answer(&text_answer("Two.")),
+    ];
+    let mut h = setup.start(records).await;
+    *h.toolbox.shell_cwd.lock().unwrap() = Some(shell.clone());
+    h.toolbox.stuck.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let first = h.prompt("first").await;
+    h.wait_end(first.turn_id).await;
+    let second = h.prompt_in(&elsewhere, "and here?").await;
+    h.wait_end(second.turn_id).await;
+
+    assert_eq!(*h.toolbox.moved.lock().unwrap(), vec![elsewhere.clone()]);
+    let preamble = stuck_state.render();
+    assert!(
+        preamble.contains(&format!(
+            "The user moved from {} to {} since the last prompt; your hidden shell could not \
+             move with them and is still in /var/log.\n",
+            h.cwd.display(),
+            elsewhere.display()
+        )),
+        "{preamble}"
+    );
+    assert!(!preamble.contains("Your hidden shell is in"), "{preamble}");
     h.finish();
 }
 
