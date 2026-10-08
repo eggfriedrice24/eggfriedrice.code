@@ -135,10 +135,6 @@ pub(crate) enum CliError {
     #[error("efr send --steer needs --conversation, or a shell context with a tty")]
     SteerNeedsConversation,
 
-    /// `efr compact` cannot tell which conversation to compact.
-    #[error("efr compact needs --conversation, or a terminal on stdin")]
-    CompactNeedsConversation,
-
     /// The terminal has no active conversation to steer.
     #[error("no conversation is active in {tty}")]
     NoActiveConversation { tty: String },
@@ -154,6 +150,10 @@ pub(crate) enum CliError {
     /// `efr diff` found no conversation, so there is no turn to show.
     #[error("there is no conversation yet, so no turn changed a file")]
     NoConversation,
+
+    /// `efr compact` found no conversation, so there is no context to compact.
+    #[error("there is no conversation yet, so there is no context to compact")]
+    NothingToCompact,
 
     /// The daemon has no diff of the turn that `efr diff` asked for: the conversation
     /// has no turn, or efr took no snapshot of it.
@@ -257,7 +257,6 @@ impl CliError {
             | CliError::EmptyPrompt
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
-            | CliError::CompactNeedsConversation
             | CliError::NoWorkingDirectory
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,

@@ -77,6 +77,14 @@
 //! tokens, and a progress bar in the terminal's tab (OSC 9;4) runs while the turn does,
 //! when the terminal draws one.
 //!
+//! The model's context shows as a gauge, `ctx 43%` in the colour of its level
+//! (`format::context`): in the status row and in the running call's line, from the
+//! newest `context` draft, and in the end-of-turn line, from the end event. While the
+//! turn compacts the context (a `compacting` draft), the status row says `compacting
+//! context`; each `conversation_compacted` of the turn ends that and leaves one muted
+//! line in the scrollback, such as `context compacted (auto): 231k -> 24k tokens, kept
+//! 3 turns, summary 3.2k`.
+//!
 //! What a call changed comes with its end: a file write shows the first lines of its
 //! diff in its block (`render.diff_lines`), a patch the first lines of each file's
 //! diff, and a call that changed files without a
@@ -104,15 +112,16 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use efr_protocol::{
-    ApprovalDecision, CallId, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
-    ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq, SurfaceChange,
-    TurnId, TurnInterruptResult, looks_secret,
+    ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
+    ExitInfo, ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq,
+    SurfaceChange, TurnId, TurnInterruptResult, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
+use crate::format::context::{self as gauge, GaugedLine};
 use crate::format::{self, Block, Spacing, Tone, sandbox};
 use crate::keys::Key;
 use crate::live::{LiveZone, Measured, effective_width, fits, rows_of};
@@ -122,9 +131,9 @@ use crate::terminal::{Size, at_width};
 use call::{Call, Outcome};
 use input::{Input, Queued, user_message};
 use message::Message;
-use status::{State, Status, spinner};
+use status::{State, Status};
 
-pub(crate) use status::TICK;
+pub(crate) use status::{TICK, spinner};
 
 /// Hides the cursor while the status row shows.
 const HIDE_CURSOR: &str = "\x1b[?25l";
@@ -875,6 +884,14 @@ impl TurnView {
                 }
                 Step::default()
             }
+            DraftPart::Context(context) => {
+                self.context(*context);
+                Step::default()
+            }
+            DraftPart::Compacting { .. } => {
+                self.state(State::Compacting);
+                Step::default()
+            }
             _ => Step::default(),
         }
     }
@@ -1055,6 +1072,18 @@ impl TurnView {
     fn state(&mut self, state: State) {
         if let Some(status) = &mut self.status {
             status.set(state);
+            self.dirty = true;
+        }
+    }
+
+    /// The model's context holds `context` now: the gauge shows it, and a count ends
+    /// a compaction that the status row shows.
+    fn context(&mut self, context: ContextUse) {
+        if let Some(status) = &mut self.status {
+            status.set_context(context);
+            if *status.state() == State::Compacting {
+                status.set(State::Model);
+            }
             self.dirty = true;
         }
     }
@@ -1401,25 +1430,35 @@ impl TurnView {
                 self.commit(committed)
             }
             Event::PromptWithdrawn { .. } => {
-                self.end(TurnEnd::Withdrawn, &[WITHDRAWN.to_owned()], size)
+                self.end(TurnEnd::Withdrawn, &[WITHDRAWN.to_owned().into()], size)
             }
             Event::TurnInterruptRequested { .. } if self.interrupting => Step::default(),
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
             }
-            Event::TurnCompleted { usage, changes, .. } => {
+            Event::ConversationCompacted(compaction) => {
+                self.context(gauge::after(compaction));
+                let before = self.finish_message();
+                let rows = |options: &RenderOptions| gauge::compacted_rows(compaction, options);
+                self.rendered_after(before, rows, size)
+            }
+            Event::TurnCompleted { usage, changes, context, .. } => {
                 // NOTE: the files that the turn changed stand right before its end, also
                 // without the end's line: they say what the turn left behind.
                 let changed = changes.as_ref().and_then(format::changes::turn_line);
-                let line = self.summary().then(|| format::turn_done(self.took(), usage.as_ref()));
-                let lines: Vec<String> = changed.into_iter().chain(line).collect();
+                let line = self
+                    .summary()
+                    .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
+                let lines: Vec<GaugedLine> =
+                    changed.map(GaugedLine::from).into_iter().chain(line).collect();
                 self.end(TurnEnd::Completed, &lines, size)
             }
             Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), &[], size),
-            Event::TurnInterrupted { .. } => {
-                let line = match self.took().filter(|_| self.summary()) {
-                    Some(took) => format!("interrupted after {}", format::took(took)),
-                    None => "interrupted".to_owned(),
+            Event::TurnInterrupted { context, .. } => {
+                let line = if self.summary() {
+                    format::turn_interrupted(self.took(), context.as_ref())
+                } else {
+                    GaugedLine::from("interrupted".to_owned())
                 };
                 self.end(TurnEnd::Interrupted, &[line], size)
             }
@@ -1713,16 +1752,31 @@ impl TurnView {
 
     /// A note written after `before`, the end of a message.
     fn note_after(&mut self, before: String, text: &str, size: Size) -> Step {
+        self.line_after(before, &GaugedLine::from(text.to_owned()), size)
+    }
+
+    /// A muted line, with its gauge in the colour of its level, written after `before`.
+    fn line_after(&mut self, before: String, line: &GaugedLine, size: Size) -> Step {
+        self.rendered_after(before, |options| line.render(options), size)
+    }
+
+    /// A note that `render` makes at the screen's width, written after `before`: on a
+    /// terminal to the scrollback, otherwise to stderr.
+    fn rendered_after(
+        &mut self,
+        before: String,
+        render: impl FnOnce(&RenderOptions) -> String,
+        size: Size,
+    ) -> Step {
         let options = self.options_at(size);
         if !self.terminal() {
-            let text =
-                format!("{}{}", self.err_spacing.before(Block::Note), render_trace(text, &options));
+            let text = format!("{}{}", self.err_spacing.before(Block::Note), render(&options));
             let err = self.raw_err(text);
             return Step { out: before, err, ..Step::default() };
         }
         let mut committed = before;
         committed.push_str(self.spacing.before(Block::Note));
-        committed.push_str(&render_trace(text, &options));
+        committed.push_str(&render(&options));
         self.stage(&committed);
         Step::default()
     }
@@ -2254,7 +2308,7 @@ impl TurnView {
         settled
     }
 
-    fn end(&mut self, end: TurnEnd, notes: &[String], size: Size) -> Step {
+    fn end(&mut self, end: TurnEnd, notes: &[GaugedLine], size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
@@ -2272,15 +2326,15 @@ impl TurnView {
         let mut notes = notes.to_vec();
         // The last turn's failure is the command's error; an earlier one is a note.
         if next.is_some() {
-            notes.extend(ended_note(&end));
+            notes.extend(ended_note(&end).map(GaugedLine::from));
         }
         // The steers that this view's interrupt sent again run next: the note says so
         // after all that the interrupted turn showed, in the order that it happened.
         if std::mem::take(&mut self.resent_note) {
-            notes.push(RESENT.to_owned());
+            notes.push(RESENT.to_owned().into());
         }
         for note in &notes {
-            let noted = self.note(note, size);
+            let noted = self.line_after(String::new(), note, size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
         }
@@ -2325,8 +2379,14 @@ impl TurnView {
             input.prompt = Some(next.text);
         }
         if self.terminal() {
+            // The next turn has the same conversation, so the same context until it
+            // counts again.
+            let context = self.status.as_ref().and_then(|status| status.context().copied());
             let mut status = Status::new(self.look.motion);
             status.set(State::Queued);
+            if let Some(context) = context {
+                status.set_context(context);
+            }
             self.status = Some(status);
         }
         self.dirty = true;
@@ -2445,7 +2505,8 @@ impl TurnView {
                 Some(status) => status.spinner(now),
                 None => spinner(self.look.motion, 0),
             };
-            live.push_str(&call.running(spinner, now, &options));
+            let context = self.status.as_ref().and_then(Status::context);
+            live.push_str(&call.running(spinner, now, context, &options));
         }
         if let Some(running) = &self.running {
             live.push_str(&call::tail(&running.lines, running.asking.is_some(), &options));

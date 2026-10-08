@@ -8,7 +8,7 @@
 //! - `efr send`
 //! - `efr send --steer` (without `EFR_LAST_COMMAND`)
 //! - `efr new`
-//! - `efr compact` (only `EFR_PROMPT`, which holds the focus)
+//! - `efr compact` (`,compact`, with the focus in `EFR_PROMPT`)
 //!
 //! The flags `--context-json` and `--last-command` and the prompt words do the same by
 //! hand, and each wins over its variable.
@@ -53,10 +53,10 @@ pub(crate) enum Command {
     History(HistoryArgs),
     /// Show what the last turn changed in the files of its project and $SCRATCH.
     Diff(DiffArgs),
-    /// Compact the context of this terminal's conversation now.
+    /// Make room in the model's context of this terminal's conversation now.
     ///
-    /// efr writes a summary of the older history and keeps the newest messages. It
-    /// starts no turn.
+    /// efrd writes a summary of the earlier turns and keeps the newest ones word for
+    /// word. It starts no turn.
     Compact(CompactArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
@@ -261,13 +261,13 @@ pub(crate) struct DiffArgs {
 /// The arguments of `efr compact`.
 #[derive(Debug, Args)]
 pub(crate) struct CompactArgs {
-    /// Compact this conversation: its id, or the start of it. Without it, the active
-    /// conversation of the terminal on stdin.
+    /// The conversation to compact: its id, or the start of it. Without it, this
+    /// terminal's conversation, else the newest of all.
     #[arg(long, value_name = "ID")]
     pub(crate) conversation: Option<String>,
 
-    /// What the summary must keep, in your words; the words are joined with spaces
-    /// [env: EFR_PROMPT]
+    /// What the summary must keep, such as: the failing test and its fix; the words are
+    /// joined with spaces [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "FOCUS")]
     pub(crate) focus: Vec<String>,
 }

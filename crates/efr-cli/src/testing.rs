@@ -17,10 +17,11 @@ use std::time::Duration;
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    ActionFacts, CallId, Capabilities, ClientFrame, ConversationId, ConversationSubscribeItem,
-    DaemonPaths, ErrorBody, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, Hello, HelloResult, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
-    PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId,
+    ActionFacts, CallId, Capabilities, ClientFrame, Compaction, CompactionTrigger, ConversationId,
+    ConversationSubscribeItem, DaemonPaths, ErrorBody, Event, EventEnvelope, ExitFacts, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, Hello, HelloResult, Launch, Method, ModelInfo, ModelSource,
+    ModelsListResult, PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId,
+    Usage,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
@@ -316,6 +317,28 @@ pub(crate) fn models() -> ModelsListResult {
                 context_window: None,
             },
         ],
+    }
+}
+
+/// A compaction of `trigger` from 231k to `after` tokens with a summary of 3.2k.
+pub(crate) fn compaction(trigger: CompactionTrigger, after: u64) -> Compaction {
+    Compaction {
+        compaction_id: "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap(),
+        turn_id: (trigger != CompactionTrigger::Manual).then(turn),
+        trigger,
+        focus: None,
+        model: "gpt-5.5".to_owned(),
+        window: 272_000,
+        limit: 206_720,
+        tokens_before: 231_400,
+        tokens_after: after,
+        through_turn: turn(),
+        through_message: None,
+        kept_turns: 3,
+        pruned_outputs: 0,
+        pruned_tokens: 0,
+        summary: Some("## Task and state\n".to_owned()),
+        usage: Some(Usage::new(231_400, 3_250)),
     }
 }
 

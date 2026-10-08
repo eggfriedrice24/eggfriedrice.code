@@ -105,7 +105,7 @@ fn a_long_command_goes_on_in_the_next_row_and_is_never_cut() {
         // The live row is cut with a mark, and keeps its time.
         let mut running = shell(&long);
         running.show(now());
-        let row = running.running('⠋', at(12_000), &RenderOptions::new(columns));
+        let row = running.running('⠋', at(12_000), None, &RenderOptions::new(columns));
         let width = efr_render::display_width(row.trim_end(), WidthMethod::CodePoint);
         assert_eq!(width, usize::from(columns), "{}", readable(&row));
         assert!(row.contains('\u{2026}') && row.ends_with("12s\u{1b}[0m\n"), "{}", readable(&row));
@@ -121,19 +121,19 @@ fn the_running_rows_show_the_time_from_one_second_on_and_a_few_lines() {
     let mut call = shell("cargo build");
     call.show(at(0));
     assert_eq!(
-        readable(&call.running('⠹', at(900), &options)),
+        readable(&call.running('⠹', at(900), None, &options)),
         "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m\n"
     );
     assert_eq!(
-        readable(&call.running('⠹', at(12_300), &options)),
+        readable(&call.running('⠹', at(12_300), None, &options)),
         "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m  \\e[2m12s\\e[0m\n"
     );
     // An approval answered later starts the time again.
     call.approved(Some(at(20_000)));
     call.show(at(20_000));
-    assert!(!call.running('⠹', at(20_500), &options).contains("s\u{1b}[0m\n"));
+    assert!(!call.running('⠹', at(20_500), None, &options).contains("s\u{1b}[0m\n"));
     let several = shell("cd src\nls\nmake\nmake test\nmake install");
-    let rows = several.running('⠹', at(0), &options.with_colour(ColourMode::None));
+    let rows = several.running('⠹', at(0), None, &options.with_colour(ColourMode::None));
     assert_eq!(
         readable(&rows),
         "\\e[1m\u{2839}\\e[0m $ cd src\n    ls\n    make\n    \\e[2m(2 more lines)\\e[0m\n"

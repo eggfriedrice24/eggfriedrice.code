@@ -7,9 +7,11 @@
 #   ,! <text>      steer the running turn instead of queueing (from another terminal;
 #                  the input row below steers from this one)
 #   ,compact [focus]
-#                  compact the context of this terminal's conversation now: efr writes
-#                  a summary of the older history and keeps the newest messages; the
-#                  words say what the summary must keep. It starts no turn.
+#                  make room in the model's context of this terminal's conversation
+#                  now: efrd writes a summary of the earlier turns, keeps the newest
+#                  ones word for word and starts no turn; the focus says what the
+#                  summary must keep. While a turn runs, efrd refuses it: the turn
+#                  compacts on its own when its context is full
 #   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious
 #                  or auto; without a value, show it with its source and the
 #                  choices; `default` lets the config decide again
@@ -20,7 +22,8 @@
 #                  sends `run make`; a `,word` command of the user's own still runs,
 #                  as does a line that defines one (`,mine() { ... }`),
 #                  `,!word` steers with `word`, and a typo of a plugin command such
-#                  as `,moed` stays on the line with a hint instead of running
+#                  as `,moed` or `,compcat` stays on the line with a hint instead of
+#                  running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just `mode`, `model` or `effort`,
@@ -212,16 +215,16 @@ _efr_alias_sticky_word() {
   [[ ${aliases[$REPLY]-} == "$_efr_sticky_alias" ]] || alias -- "$REPLY=$_efr_sticky_alias"
 }
 
-# Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,!`,
-# `,compact`, `,` or the sticky word.
+# Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,compact`,
+# `,!`, `,` or the sticky word.
 _efr_command_pattern() {
   local word=
   _efr_sticky_word && word="|${(b)REPLY}"
-  REPLY=",new|,!|,compact|,$word"
+  REPLY=",new|,compact|,!|,$word"
 }
 
-# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, the sticky
-# word), which is not a shell command worth reporting as the last command.
+# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, `,compact`, the
+# sticky word), which is not a shell command worth reporting as the last command.
 _efr_is_plugin_line() {
   emulate -L zsh -o extended_glob
   local REPLY
@@ -462,15 +465,20 @@ function ,! {
   _efr_call "$REPLY" '' "$text" send --steer
 }
 
-# Compacts the context of this terminal's conversation now, through `efr compact`. The
-# words are the focus: what the summary must keep. The focus goes to efr in EFR_PROMPT,
-# as a prompt does, never in its arguments.
+# Makes room in the model's context of this terminal's conversation now, through
+# `efr compact`: efrd prunes old tool output and writes a summary of the earlier turns.
+# The words are the focus, which says what the summary must keep, and reach efr as
+# EFR_PROMPT, as a prompt does. It starts no turn, so it hands over no last command and
+# none of the terminal's turn settings: the compaction uses the conversation's model.
 function ,compact {
   emulate -L zsh
   _efr_prompt_text "$@"
   local text=$REPLY
   _efr_available || { _efr_missing; return 127 }
-  EFR_PROMPT=$text efr compact
+  _efr_context_json ''
+  # The locals hide the terminal's values from _efr_call, as for `,!`.
+  local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
+  _efr_call "$REPLY" '' "$text" compact
 }
 
 # --- turn settings ----------------------------------------------------------------
@@ -711,8 +719,8 @@ _efr_mistyped_command() {
   REPLY="efr: ,$word is no command; did you mean ,$meant? \`, $word\` sends a prompt"
 }
 
-# For a one-line plugin line $1 (`,`, `,new`, `,!` or the sticky word, followed by a
-# prompt): saves the prompt for the command and the user's two options for
+# For a one-line plugin line $1 (`,`, `,new`, `,!`, `,compact` or the sticky word,
+# followed by a prompt or a focus): saves the prompt for the command and the user's two options for
 # _efr_restore_options, and returns 0. The caller then sets the options, because an
 # emulate here would undo them. Any other line returns 1 and changes nothing.
 _efr_stash_line() {

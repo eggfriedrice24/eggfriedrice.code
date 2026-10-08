@@ -2,8 +2,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use efr_protocol::{
-    AdminStatusResult, ConversationStatus, ConversationSummary, ConversationsListResult,
-    PageCursor, ProviderStatus, Seq, Usage,
+    AdminStatusResult, ContextUse, ConversationStatus, ConversationSummary,
+    ConversationsListResult, PageCursor, ProviderStatus, Seq, Usage,
 };
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role, WidthMethod};
 use jiff::{SignedDuration, Timestamp};
@@ -13,7 +13,7 @@ use serde_json::json;
 use super::{
     Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, conversations, cut,
     elapsed, keys, lines, one_line, paint, run_heading, size, status, tokens, took, tool_call,
-    tool_result, turn_done, until,
+    tool_result, turn_done, turn_interrupted, until,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -426,11 +426,43 @@ fn sizes_count_in_thousands() {
 #[test]
 fn the_end_of_turn_line_leaves_out_what_is_not_known() {
     let usage = Usage::new(18_250, 1_100);
+    let done = |took, usage, context| turn_done(took, usage, context).plain();
     assert_eq!(
-        turn_done(Some(Duration::from_secs(42)), Some(&usage)),
+        done(Some(Duration::from_secs(42)), Some(&usage), None),
         "done in 42s, 18.2k tokens in, 1.1k out"
     );
-    assert_eq!(turn_done(None, Some(&usage)), "done, 18.2k tokens in, 1.1k out");
-    assert_eq!(turn_done(Some(Duration::from_millis(1_500)), None), "done in 1.5s");
-    assert_eq!(turn_done(None, None), "done");
+    assert_eq!(done(None, Some(&usage), None), "done, 18.2k tokens in, 1.1k out");
+    assert_eq!(done(Some(Duration::from_millis(1_500)), None, None), "done in 1.5s");
+    assert_eq!(done(None, None, None), "done");
+}
+
+#[test]
+fn with_the_context_the_end_of_turn_line_shows_it_in_place_of_the_input() {
+    let usage = Usage::new(918_250, 1_100);
+    let context = ContextUse { tokens: 89_400, limit: 206_720, window: 272_000 };
+    let took = Some(Duration::from_secs(42));
+    assert_eq!(
+        turn_done(took, Some(&usage), Some(&context)).plain(),
+        "done in 42s, ctx 43% (89k/206k), 1.1k out"
+    );
+    assert_eq!(turn_done(None, None, Some(&context)).plain(), "done, ctx 43% (89k/206k)");
+    assert_eq!(
+        turn_interrupted(Some(Duration::from_millis(12_400)), Some(&context)).plain(),
+        "interrupted after 12s, ctx 43% (89k/206k)"
+    );
+    assert_eq!(turn_interrupted(None, None).plain(), "interrupted");
+    // The gauge is in the colour of its level, the rest is muted.
+    let options = RenderOptions::new(80);
+    assert_eq!(
+        turn_done(took, Some(&usage), Some(&context)).render(&options),
+        "\x1b[2mdone in 42s, \x1b[0m\x1b[32mctx 43%\x1b[0m\x1b[2m (89k/206k), 1.1k out\x1b[0m\n"
+    );
+    // Too wide for the screen: one muted trace line, cut, as before.
+    let narrow = turn_done(took, Some(&usage), Some(&context)).render(&RenderOptions::new(30));
+    assert!(!narrow.contains("\x1b[32m") && narrow.contains('\u{2026}'), "{narrow:?}");
+    let piped = RenderOptions::new(80).with_terminal(false);
+    assert_eq!(
+        turn_done(took, Some(&usage), Some(&context)).render(&piped),
+        "done in 42s, ctx 43% (89k/206k), 1.1k out\n"
+    );
 }

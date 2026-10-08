@@ -16,9 +16,9 @@ state and never writes the daemon's database or credentials.
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`) |
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the efforts of each; `--names` prints only the ids, for completion |
 | `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network none)` or `unavailable: <reason>; auto runs as cautious` with its fix |
-| `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); the lines of each turn show together, and the turns show in the order that they started, not in event order; a prompt that never started (taken back, cancelled or still waiting) shows where it was in the queue, after the turns whose prompts were queued before it, with its note (`withdrawn before it ran`); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, quarantine questions and turn-end reports show as dim lines; each compaction of the context shows as a dim line where it happened (`context compacted (auto): 231k -> 24.0k tokens, kept 3 turns, summary 3.2k`, or a `context full:` line for an overflow or a compaction that left the context too full), and `--verbose` adds its summary; `--verbose` adds the record of each exit (`exit_requested`: its line, targets, hosts, programs and counts, never a user message) and how it was judged; `--verbose` without a conversation shows the newest conversation of this terminal (the first listed whose `tty` is the terminal on stdin), else the newest of all, after a dim line that says which; `--limit` and `--cursor` then page its events |
-| `efr compact [--conversation <id>] [--] [focus]` | `conversations.list` to find the tty's active conversation, `conversation.compact` | compacts the context of the active conversation of the terminal on stdin now (`--conversation` takes an id or the start of one); the focus words, else `EFR_PROMPT` (the zsh plugin's `,compact`), say what the summary must keep; waits for the daemon and prints the compaction's dim line, such as `context compacted (efr compact): 140k -> 19.0k tokens, kept 1 turn, summary 2.1k`; without a terminal and without `--conversation` it exits 2; a refusal of the daemon (a running turn, nothing to compact) is an error (exit 1) |
+| `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); the lines of each turn show together, and the turns show in the order that they started, not in event order; a prompt that never started (taken back, cancelled or still waiting) shows where it was in the queue, after the turns whose prompts were queued before it, with its note (`withdrawn before it ran`); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, quarantine questions and turn-end reports show as dim lines; each compaction of the model's context shows at its place with the line that the turn showed (see "Context" below); `--verbose` adds the record of each exit (`exit_requested`: its line, targets, hosts, programs and counts, never a user message) and how it was judged, and the focus and the summary of each compaction as dim lines; `--verbose` without a conversation shows the newest conversation of this terminal (the first listed whose `tty` is the terminal on stdin), else the newest of all, after a dim line that says which; `--limit` and `--cursor` then page its events |
 | `efr diff [--turn <id>] [--conversation <id>] [--stat]` | `conversations.list` to find the conversation, `conversation.diff` (read scope) | what a turn changed in the files of its project and `$SCRATCH`, from the daemon's snapshots: by default the last turn of this terminal's conversation (the newest whose `tty` is the terminal on stdin), else of the newest conversation, with a dim line on stderr that says which; `--turn` asks for that turn and looks nothing up, `--conversation` takes an id or the start of one; on a terminal the diff is painted in the `diff.*` roles with the files' syntax colours, then a dim `… N more lines` for a diff the daemon cut and a dim `3 files changed, +24 −7`; in a pipe stdout holds the daemon's diff alone (tabs and newlines kept, other control characters as stand-ins), for `git apply` or a pager; `--stat` lists each file with its kind, path and counts, then the totals; an ignored file such as `.env` shows in the list, and the daemon's diff has only a line `<path>: ignored file, content not shown` for it; a turn that changed nothing says so on stderr (exit 0); no conversation, an unknown turn or a conversation with no finished turn (`not_found`) is an error (exit 1) that names the turn |
+| `efr compact [--conversation <id>] [focus]` | `conversations.list` to find the conversation, `conversation.compact` (operate scope) | makes room in the model's context now: efrd writes a summary of the earlier turns and keeps the newest ones word for word; it never starts a turn. The focus (the words, else `EFR_PROMPT`; blank is none) says what the summary must keep. By default it compacts this terminal's conversation, else the newest one, with a dim line on stderr that says which; `--conversation` takes an id or the start of one. On a terminal a status row (`⠼ compacting context  4s`) shows while efrd works and goes before the result. Then one line says what came of it, as a turn shows a compaction: `context compacted (efr compact): 140k -> 19k tokens, kept 3 turns, summary 3.2k`, muted on a terminal. A refusal of efrd (`conflict` while a turn runs or when nothing lies before the newest turns) is an error (exit 1) with its message. No conversation is an error (exit 1). Ctrl+C stops the wait, not the compaction (exit 130, with a note) |
 | `efr sandbox check` | `admin.sandbox_check` | the daemon runs its sandbox probe now; one line per check (`ok`, `warn`, `fail` with its fix, `skip`), the warnings, the launch cost, then `auto: ready` or `auto: unavailable: <reason>`; exit 1 when it is unavailable |
 | `efr sandbox explain PATH` | `sandbox.explain` (read scope) | whether a contained command can read and write PATH (relative to the current directory, which also picks the project), and why: `read yes`, `write no: a shell startup file (floor); a write is a persistence exit, user only` |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
@@ -39,10 +39,11 @@ CLI may not depend on it; without a daemon it exits 3 like the other daemon comm
 A command that finds an error in a config file prints it and exits 1. Without a
 daemon, the commands that change the file say that it reads the file when it starts.
 
-The zsh plugin runs a bare `efr send`, `efr send --steer` or `efr new` and hands the
-shell context, the last command line and the prompt over in the environment:
-`EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`. Its `,compact` runs a bare
-`efr compact` with the focus in `EFR_PROMPT`. Any local user can read a command
+The zsh plugin runs a bare `efr send`, `efr send --steer`, `efr new` or `efr compact`
+and hands the shell context, the last command line and the prompt over in the
+environment: `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`. For `efr compact`,
+`EFR_PROMPT` holds the focus, and the plugin hands over no last command and no turn
+settings. Any local user can read a command
 line in `/proc/<pid>/cmdline`; `/proc/<pid>/environ` is readable only by the user's
 own processes. `--context-json`, `--last-command` and the prompt words do the same by
 hand, and each wins over its variable. The variables reach no child process (`efr`
@@ -116,9 +117,11 @@ Replies:
   the newest bold title of the reasoning), `writing`, `preparing <tool>, 3.2 KB` (a
   tool input draft, the newest call of the answer), `running <tool>` (a call of the
   running turn that a queued prompt waits behind), `waiting for an answer` (an approval
-  that another client must answer), and, after
-  20 s without an event or a draft while it waits for the model or writes,
-  `waiting for the model, no data for 25s`. A band of three characters in the
+  that another client must answer), `compacting context` (a `compacting` draft, until
+  the turn's `conversation_compacted`, the next `context` draft or the end of the
+  turn), and, after 20 s without an event or a draft while it waits for the model or
+  writes, `waiting for the model, no data for 25s`. After the time comes the gauge of
+  the model's context (see "Context" below), such as `⠼ writing  12s  ctx 43%`. A band of three characters in the
   `text` role moves over the state one character per tick, then rests for a second. The
   band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with
   a colour. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
@@ -134,10 +137,42 @@ Replies:
   shows it again after any line that ran `efr`, for a `kill -9`.
 - A completed turn ends with one muted line after a blank line, such as `done in 42s,
   18.2k tokens in, 1.1k out`: the time from the `at` of `turn_started` to the `at` of
-  `turn_completed`, and `turn_completed.usage`. An interrupted turn ends with
+  `turn_completed`, and `turn_completed.usage`. When the event carries `context`, the
+  gauge takes the place of the input tokens: `done in 42s, ctx 43% (89k/206k), 1.1k
+  out` (see "Context" below). An interrupted turn ends with
   `interrupted after 12s`, also after Ctrl+C, which counts the time on efr's clock
-  without the time of questions; a failed one has no such line. `render.turn_summary = false`
-  leaves the line out. Piped output keeps its notes as they were.
+  without the time of questions, and with the gauge when `turn_interrupted` carries
+  `context` (`interrupted after 12s, ctx 43% (89k/206k)`); a failed one has no such
+  line. `render.turn_summary = false` leaves the line out. Piped output keeps its notes
+  as they were.
+- Context. A turn shows how full the model's context is with a gauge, `ctx N%`
+  (`format/context.rs`). N is the tokens as a percent of the limit, rounded down: the
+  limit is the point where efrd compacts (`[compaction] auto_at` percent of the
+  model's window), or the hard cap (95%) when `[compaction] auto` is off, so 100% means
+  that a compaction runs now. The gauge is in the `success` role below 50%, in the
+  `warning` role from 50% and in the `error` role from 90%, each in the colour of the
+  role only (`RenderOptions::tint`), so the warning level is not bold. Under `NO_COLOR`
+  only the `error` level stands out, in bold. The status row has it always once a
+  `context` draft came (the turn sends one before and after each model call), and so
+  does the line of a running call, which takes the row's place; the newest count wins,
+  and a compaction's `tokens_after` counts too. On a screen too narrow for it, the
+  gauge goes first, so that the state keeps 10 columns. The end-of-turn line has it
+  from the end event. Each `conversation_compacted` of the turn leaves one muted line
+  in the scrollback (on stderr in a pipe), wrapped at the width with the rows after
+  the first indented 2 columns, so its way out is never cut off:
+  - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`, with
+    `pruned 12 outputs` in place of the summary when pruning alone made room, and
+    `(efr compact)` for a manual one;
+  - `context full: the request was 281k of 272k tokens; compacted and retried` for an
+    `overflow` one;
+  - `context full: compaction did not free enough room (still 240k); run ,compact or
+    efr new` when `tokens_after` is at or above the limit (a miss of the breaker),
+    and `...; run efr new` after a manual one.
+
+  The summary size is the `output_tokens` of the summary request, else the summary's
+  bytes / 4. The counts read `999`, `3.2k`, `24k`, `207k`, `1.2M`. A turn that fails
+  for its context (`internal` with `data.cause = "context_overflow"`) shows the
+  daemon's message, which names `,compact`.
 - A turn whose `turn_completed` carries `changes` (its first snapshot against its
   last) ends with one more muted line right before that one, such as `3 files
   changed, +24 −7`, also with `render.turn_summary = false` and in a pipe (on
@@ -193,7 +228,8 @@ Replies:
   `…`.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
   spinner (accent), the call (code) cut to the width with `…` at the cut, and from 1 s
-  on how long it has run, such as `⠹ $ cargo test -p app  12s`; up to three more lines
+  on how long it has run, then the gauge of the context, such as `⠹ $ cargo test -p
+  app  12s  ctx 43%`; up to three more lines
   of a command of several (or two and `(5 more lines)`); then the last three lines of
   its output with text in them (from `tool_call_output_updated`), each after `  │ `,
   muted and cut to the width. The status row hides meanwhile, because the call's row
@@ -749,7 +785,22 @@ checks the rows, the turn line, the split of a diff and the list of `efr diff
 --stat`; `commands/diff/tests.rs` runs `efr diff` against a fake daemon (the
 conversation it picks, `--turn`, a terminal, a pipe, a turn that changed nothing, no
 snapshot, no conversation) and snapshots its diff at 40 and 80 columns with colour
-and with `NO_COLOR`. The card tests check
+and with `NO_COLOR`. The context tests: `format/context/tests.rs` checks the percent
+(rounded down, over 100, no limit), the level of each percent, the colour of each
+level without bold and under `NO_COLOR`, the short counts and the line of each kind of
+compaction (auto, manual, prune-only, overflow, a miss after auto and after manual);
+`follow/view/tests/context.rs` snapshots the gauge in the status row at each level in
+16 colours and under `NO_COLOR`, `compacting context` until the event and until the
+next count, the gauge in a running call's line and where it goes on a narrow screen,
+the end-of-turn line at each level, an interrupted turn with and without a count, a
+pipe with the lines on stderr and no gauge, and a compaction of another turn; the
+layout case `a_turn_that_compacts_its_context` plays a whole turn with three
+compactions at 40 and 80 columns, with colour, under `NO_COLOR` and in a pipe.
+`commands/compact/tests.rs` runs `efr compact` against a fake daemon (the
+conversation it picks, the focus from the words and from `EFR_PROMPT`, a refusal, no
+conversation, the status row on a terminal, Ctrl+C), and a history test shows the
+compaction lines and, with `--verbose`, the focus and the summary with its control
+characters as stand-ins. The card tests check
 that every row fits the width and that the rows give the command back whole. The
 colour tests run the status row, a call and a question in 16 colours, in truecolor and
 under `NO_COLOR` with a palette of the user's, and check that `COLOR_ROLES` equals the
@@ -792,7 +843,10 @@ line; one test runs the built `efr` behind the plugin against a `TestDaemon`. Th
 fake prints canned output for `efr settings` and `efr models`, so the tests cover
 `,mode`, `,model` and `,effort` (a value is kept only when `efr settings` accepts it,
 `default` clears it, a bare one prints its line), the handover of `EFR_MODE`,
-`EFR_MODEL` and `EFR_EFFORT` to `,` and `,new` and not to `,!`, completion after
+`EFR_MODEL` and `EFR_EFFORT` to `,` and `,new` and not to `,!` or `,compact`,
+`,compact` with its focus in `EFR_PROMPT` and no last command (a bare one too, and
+one typed at a terminal with quotes, `$`, `*` and `!!`, which arrive as typed, and
+the typo `,compcat`, which stays on the line with a hint), completion after
 `compinit`, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
 temporary tree). The hand-back of the input row: `,` and `,new` name the shell's draft

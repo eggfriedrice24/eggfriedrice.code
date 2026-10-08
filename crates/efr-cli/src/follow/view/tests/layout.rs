@@ -1,14 +1,15 @@
 //! The layout of the interactive part of a turn, case by case: tool calls, their
-//! results, refusals, questions and their answers, the spacing between blocks and the
-//! sandbox note. Each case plays on a terminal 40 and 80 columns wide, with colour and
+//! results, refusals, questions and their answers, the spacing between blocks, the
+//! sandbox note and the compactions of the model's context. Each case plays on a terminal 40 and 80 columns wide, with colour and
 //! with `NO_COLOR`, and through a pipe. A snapshot shows the screen that a terminal
 //! keeps after each step that the case names, and what the pipe got.
 
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, CallId, ChangeKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
-    ExitSource, FileChange, FileChanges, Grant, Launch, Origin, ProgramFact, Scope, Seq, Usage,
+    ApprovalDecision, CallId, ChangeKind, CompactionTrigger, ContextUse, Draft, DraftPart, Event,
+    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, FileChange, FileChanges, Grant,
+    Launch, Origin, ProgramFact, Scope, Seq, Usage,
 };
 use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use serde_json::{Value, json};
@@ -16,7 +17,7 @@ use serde_json::{Value, json};
 use super::super::{Look, TurnView};
 use super::at;
 use crate::terminal::Size;
-use crate::testing::{FROM_SRC, exit_info, exit_record, program_fact, readable, turn};
+use crate::testing::{FROM_SRC, compaction, exit_info, exit_record, program_fact, readable, turn};
 
 /// What a case does, step by step.
 #[expect(clippy::large_enum_variant, reason = "a short list of steps in a test")]
@@ -26,11 +27,13 @@ enum Act {
     Event(i64, Event),
     /// The user answers the question about call `n` with a key.
     Key(u8, ApprovalDecision),
+    /// The daemon sends this draft of the turn, after the last event.
+    Drafted(DraftPart),
     /// The snapshot shows the screen now, under this name.
     Look(&'static str),
 }
 
-use Act::{Event as Sent, Key, Look as Shot};
+use Act::{Drafted, Event as Sent, Key, Look as Shot};
 
 fn id(n: u8) -> CallId {
     format!("019a9b1c-3d00-7a10-8b20-0000000000{n:02x}").parse().unwrap()
@@ -250,6 +253,11 @@ fn play_with(look: Look, options: RenderOptions, size: Size, acts: &[Act]) -> St
                 view.envelope(&envelope, size, true)
             }
             Key(n, decision) => view.answered(id(*n), *decision, size),
+            Drafted(part) => {
+                let draft =
+                    Draft { turn_id: turn(), after_seq: Seq::new(seq), draft: part.clone() };
+                view.draft(&draft, size)
+            }
             Shot(name) => {
                 if terminal {
                     shots.push(format!("[{name}]\n{}", screen.shown()));
@@ -874,4 +882,37 @@ fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
         ],
         "{shown}"
     );
+}
+
+fn counted(tokens: u64) -> DraftPart {
+    DraftPart::Context(ContextUse { tokens, limit: 206_720, window: 272_000 })
+}
+
+#[test]
+fn a_turn_that_compacts_its_context() {
+    let end = Event::TurnCompleted {
+        turn_id: turn(),
+        usage: Some(Usage::new(918_200, 1_100)),
+        changes: None,
+        context: Some(ContextUse { tokens: 196_000, limit: 206_720, window: 272_000 }),
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Drafted(counted(98_400)),
+        Shot("counted"),
+        Sent(10, shell(1, "cargo test --workspace")),
+        Shot("running"),
+        Sent(1_400, ended(1, Some(0), None)),
+        Drafted(counted(205_000)),
+        Drafted(DraftPart::Compacting { trigger: CompactionTrigger::Auto }),
+        Shot("compacting"),
+        Sent(6_000, Event::ConversationCompacted(compaction(CompactionTrigger::Auto, 24_100))),
+        Drafted(counted(24_100)),
+        Sent(9_000, Event::ConversationCompacted(compaction(CompactionTrigger::Overflow, 30_000))),
+        Sent(12_000, Event::ConversationCompacted(compaction(CompactionTrigger::Auto, 240_000))),
+        Drafted(counted(240_000)),
+        Shot("full"),
+        Sent(42_000, message(0, "The tests pass.")),
+        Sent(42_000, end),
+    ]));
 }

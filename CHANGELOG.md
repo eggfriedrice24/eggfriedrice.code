@@ -121,13 +121,20 @@ into the GitHub release notes, and it stops when the section is missing.
   the `AGENTS.md` files from the project root down), the summary, and the newest
   messages word for word, about 20000 tokens. The turn goes on after the compaction.
   `[compaction] auto = false` turns it off. All events stay in the log.
-- `efr compact [focus]`, and `,compact [focus]` in zsh, compact the context of the
-  terminal's conversation now. The focus words tell the summary what it must keep. A
-  manual compaction starts no turn, and a prompt that you send meanwhile waits for it.
-  While a turn runs, efr refuses it.
-- `efr history` shows a line where each compaction happened, such as `context
-  compacted (auto): 231k -> 24.0k tokens, kept 3 turns, summary 3.2k`. With
-  `--verbose` it also shows the summary.
+- `efr` shows how full the model's context is. The status row of a running turn, and
+  the line of a running command, end with `ctx 43%`, and the end-of-turn line reads
+  `done in 42s, ctx 43% (89k/206k), 1.1k out`. 100% is the point where efr compacts
+  the context. The field is green below 50%, yellow from 50% and red from 90%, in the
+  colours of your theme. While efr compacts the context, the status row says
+  `compacting context`. Each compaction leaves one dim line, such as `context
+  compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`, or a line that
+  says that the context is full and what to do. `efr history` shows the same line at
+  the place of each compaction, and `--verbose` adds the summary.
+- `efr compact [focus]` and `,compact [focus]` compact the context of a conversation
+  now, between turns: efr writes a summary of the earlier turns and keeps the newest
+  turns word for word. The focus says what the summary must keep. It starts no turn,
+  and a prompt that you send meanwhile waits for it. While a turn runs, efr refuses
+  it. The plugin hands the focus to `efr` in its environment, as it does a prompt.
 
 ### Changed
 

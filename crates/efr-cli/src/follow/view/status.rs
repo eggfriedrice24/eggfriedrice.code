@@ -1,5 +1,7 @@
 //! The status row of a running turn: the last row of the live zone, with a spinner, what
-//! the turn does now and how long it has run, such as `⠼ thinking: Reading the logs  4s`.
+//! the turn does now, how long it has run and how full the model's context is, such as
+//! `⠼ thinking: Reading the logs  4s  ctx 43%`. The gauge (`format::context`) comes
+//! from the newest `context` draft or compaction, and it is in the colour of its level.
 //!
 //! The row exists only while the turn runs on a terminal, and it goes before the prompt
 //! comes back. It hides while the user is asked something, and the time stops then.
@@ -10,11 +12,13 @@
 
 use std::time::Duration;
 
-use efr_render::{RenderOptions, Role};
+use efr_protocol::ContextUse;
+use efr_render::{RenderOptions, Role, text_width};
 use jiff::Timestamp;
 
 use crate::follow::since_then;
 use crate::format;
+use crate::format::context::Gauge;
 
 /// The frames of the spinner, one per tick: one turn a second. Braille takes one column
 /// in every font, so the row never changes its width.
@@ -38,6 +42,10 @@ const REST: usize = 10;
 /// The time from which the row shows how long the turn has run.
 const SHOW_ELAPSED: Duration = Duration::from_secs(1);
 
+/// The columns that the state keeps at least before the gauge leaves the row: on a
+/// screen too narrow for both, what the turn does comes first.
+const MIN_WORDS: usize = 10;
+
 /// What the turn does now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum State {
@@ -55,6 +63,8 @@ pub(crate) enum State {
     Tool(String),
     /// An approval waits for an answer from another client.
     Answer,
+    /// The turn compacts the model's context before its next model call.
+    Compacting,
 }
 
 impl State {
@@ -75,6 +85,7 @@ impl State {
             }
             State::Tool(tool) => format!("running {tool}"),
             State::Answer => "waiting for an answer".to_owned(),
+            State::Compacting => "compacting context".to_owned(),
         }
     }
 }
@@ -99,6 +110,8 @@ pub(crate) struct Status {
     data: Option<Timestamp>,
     /// A sign of life came since the last frame.
     stirred: bool,
+    /// How full the model's context is, from the newest count.
+    context: Option<ContextUse>,
 }
 
 impl Status {
@@ -114,6 +127,7 @@ impl Status {
             pause: None,
             data: None,
             stirred: false,
+            context: None,
         }
     }
 
@@ -124,6 +138,16 @@ impl Status {
     /// The turn does `state` now.
     pub(crate) fn set(&mut self, state: State) {
         self.state = state;
+    }
+
+    /// The model's context holds `context` now.
+    pub(crate) fn set_context(&mut self, context: ContextUse) {
+        self.context = Some(context);
+    }
+
+    /// How full the model's context is, from the newest count.
+    pub(crate) fn context(&self) -> Option<&ContextUse> {
+        self.context.as_ref()
     }
 
     /// The turn started: its time counts from the next frame.
@@ -181,7 +205,8 @@ impl Status {
         let suffix = (elapsed >= SHOW_ELAPSED).then(|| format::elapsed(elapsed));
         let columns = usize::from(options.width());
         // The spinner, a space, and the time after two spaces.
-        let room = columns.saturating_sub(2 + suffix.as_ref().map_or(0, |time| time.len() + 2));
+        let mut room = columns.saturating_sub(2 + suffix.as_ref().map_or(0, |time| time.len() + 2));
+        let gauge = gauge_room(self.context.as_ref(), &mut room, options);
         let words = if room == 0 {
             String::new()
         } else {
@@ -197,9 +222,28 @@ impl Status {
             row.push_str("  ");
             row.push_str(&options.paint(Role::Muted, &time));
         }
+        if let Some(gauge) = gauge {
+            row.push_str("  ");
+            row.push_str(&gauge.paint(options));
+        }
         row.push('\n');
         row
     }
+}
+
+/// The gauge of `context` for a row that has `room` columns left, which it then takes
+/// with the two spaces before it; `None` when there is no count, or when the rest of the
+/// row would keep fewer than [`MIN_WORDS`] columns.
+pub(crate) fn gauge_room(
+    context: Option<&ContextUse>,
+    room: &mut usize,
+    options: &RenderOptions,
+) -> Option<Gauge> {
+    let gauge = context.and_then(Gauge::of)?;
+    let width = 2 + text_width(&gauge.text(), options.width_method());
+    let left = room.checked_sub(width).filter(|left| *left >= MIN_WORDS)?;
+    *room = left;
+    Some(gauge)
 }
 
 impl Status {

@@ -1,0 +1,15 @@
+---
+source: crates/efr-cli/src/follow/view/tests/context.rs
+expression: "shown.join(\"\\n===\\n\")"
+---
+16 colours:
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 43%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m  \e[33mctx 50%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m  \e[31mctx 90%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m  \e[31mctx 116%\e[0m
+===
+NO_COLOR:
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  ctx 43%
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m  ctx 50%
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m  \e[1mctx 90%\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m  \e[1mctx 116%\e[0m

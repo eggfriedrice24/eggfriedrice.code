@@ -93,7 +93,7 @@ use crate::output::Output;
 use crate::row::Action;
 use view::AnswerKind;
 
-pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView};
+pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView, spinner};
 
 /// What the input row sends with: the shell context, the last command line and the
 /// turn settings that the plugin handed to this command, so a prompt or a late steer

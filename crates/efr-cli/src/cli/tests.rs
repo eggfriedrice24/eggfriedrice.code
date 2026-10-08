@@ -144,6 +144,20 @@ fn diff_takes_a_turn_a_conversation_and_stat() {
 }
 
 #[test]
+fn compact_takes_a_conversation_and_the_words_of_a_focus() {
+    // The plugin's call is bare: the focus comes in EFR_PROMPT.
+    let Command::Compact(args) = command(&["compact"]) else { panic!("not compact") };
+    assert_eq!((args.conversation, args.focus.len()), (None, 0));
+    let Command::Compact(args) =
+        command(&["compact", "--conversation", "019a9b1c", "the", "--failing", "test"])
+    else {
+        panic!("not compact");
+    };
+    assert_eq!(args.conversation.as_deref(), Some("019a9b1c"));
+    assert_eq!(args.focus, ["the", "--failing", "test"]);
+}
+
+#[test]
 fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
     assert_eq!(parse_error(&["login", "anthropic"]), ErrorKind::InvalidSubcommand);

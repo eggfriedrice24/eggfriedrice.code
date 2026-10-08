@@ -408,6 +408,47 @@ fn e2e_a_steer_carries_no_last_command() {
 }
 
 #[test]
+fn e2e_compact_hands_its_focus_over_as_the_prompt_and_nothing_of_a_turn() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        _efr_turn_mode=auto _efr_turn_model=gpt-5.4 _efr_turn_effort=high
+        _efr_preexec 'make test'
+        false; _efr_precmd
+        ,compact the failing test
+        ,compact
+    "#);
+    let [focused, bare] = calls.as_slice() else { panic!("two calls expected: {calls:?}") };
+    assert_eq!(focused.args, ["compact"]);
+    assert_eq!(focused.prompt.as_deref(), Some("the failing test"));
+    assert!(!focused.cmdline.contains("failing"), "{}", focused.cmdline);
+    assert_eq!(focused.last_command(), None);
+    assert_eq!(focused.settings(), [None, None, None], "the conversation's model compacts");
+    assert!(focused.context()["pwd"].is_string(), "{:?}", focused.context);
+    assert_eq!(bare.args, ["compact"]);
+    assert_eq!(bare.prompt.as_deref(), Some(""));
+}
+
+#[test]
+fn e2e_a_focus_typed_at_a_terminal_reaches_efr_as_typed_and_a_typo_stays() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // Ctrl+U clears the line that the typo left, so `exit` starts an empty line.
+    let screen = type_lines(
+        &home,
+        &[",compact keep 'quotes', $HOME, * and !! as they are", ",compact", ",compcat x", "\x15"],
+    );
+    assert!(screen.contains("efr: ,compcat is no command; did you mean ,compact?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["compact"], vec!["compact"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("keep 'quotes', $HOME, * and !! as they are"));
+    assert_eq!(calls[1].prompt.as_deref(), Some(""));
+}
+
+#[test]
 fn e2e_the_hooks_are_registered_once_even_when_sourced_twice() {
     if !zsh_tests_enabled() {
         return;
@@ -707,33 +748,6 @@ fn e2e_the_rewrite_quotes_only_plugin_lines() {
             r",compact keep\ \*.rs\?",
         ]
     );
-}
-
-#[test]
-fn e2e_compact_hands_its_focus_over_in_the_environment() {
-    if !zsh_tests_enabled() {
-        return;
-    }
-    let calls = run(r#"
-        ,compact keep the s3cret-focus
-        ,compact
-    "#);
-    assert_eq!(args(&calls), [vec!["compact"], vec!["compact"]]);
-    assert_eq!(calls[0].prompt.as_deref(), Some("keep the s3cret-focus"));
-    assert!(!calls[0].cmdline.contains("s3cret"), "readable by every user: {:?}", calls[0]);
-    assert_eq!(calls[1].prompt.as_deref(), Some(""), "no focus");
-}
-
-#[test]
-fn e2e_a_compact_focus_with_shell_syntax_reaches_efr_as_typed() {
-    if !zsh_tests_enabled() {
-        return;
-    }
-    let home = Home::new();
-    type_lines(&home, &[",compact keep the *.rs list; and 'quotes'?"]);
-    let calls = home.calls();
-    assert_eq!(args(&calls), [vec!["compact"]]);
-    assert_eq!(calls[0].prompt.as_deref(), Some("keep the *.rs list; and 'quotes'?"));
 }
 
 #[test]

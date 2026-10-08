@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/follow/view/tests/context.rs
+expression: "shown.join(\"\\n\")"
+---
+16 colours, 89400: \e[2mdone in 42s, \e[0m\e[32mctx 43%\e[0m\e[2m (89k/206k), 1.1k out\e[0m
+16 colours, 120000: \e[2mdone in 42s, \e[0m\e[33mctx 58%\e[0m\e[2m (120k/206k), 1.1k out\e[0m
+16 colours, 196000: \e[2mdone in 42s, \e[0m\e[31mctx 94%\e[0m\e[2m (196k/206k), 1.1k out\e[0m
+NO_COLOR, 89400: \e[2mdone in 42s, \e[0mctx 43%\e[2m (89k/206k), 1.1k out\e[0m
+NO_COLOR, 120000: \e[2mdone in 42s, \e[0mctx 58%\e[2m (120k/206k), 1.1k out\e[0m
+NO_COLOR, 196000: \e[2mdone in 42s, \e[0m\e[1mctx 94%\e[0m\e[2m (196k/206k), 1.1k out\e[0m

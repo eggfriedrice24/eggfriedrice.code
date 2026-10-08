@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use efr_protocol::{
-    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError,
+    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, ConfigFileError, ContextUse,
     ConversationStatus, ConversationsListResult, EffectiveSettings, Origin, Usage,
 };
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
@@ -23,7 +23,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 
 pub(crate) mod card;
 pub(crate) mod changes;
-pub(crate) mod compaction;
+pub(crate) mod context;
 pub(crate) mod patch;
 pub(crate) mod sandbox;
 
@@ -841,13 +841,26 @@ pub(crate) fn size(bytes: u64) -> String {
     }
 }
 
-/// The end-of-turn line of a completed turn, such as `done in 42s, 18.2k tokens in,
-/// 1.1k out`. The time and the tokens are left out when they are not known.
-pub(crate) fn turn_done(took: Option<Duration>, usage: Option<&Usage>) -> String {
+/// The end-of-turn line of a completed turn, such as `done in 42s, ctx 43% (89k/207k),
+/// 1.1k out` when the turn says how full the context is, else `done in 42s, 18.2k
+/// tokens in, 1.1k out`. The time and the tokens are left out when they are not known.
+pub(crate) fn turn_done(
+    took: Option<Duration>,
+    usage: Option<&Usage>,
+    context: Option<&ContextUse>,
+) -> context::GaugedLine {
     let mut line = match took {
         Some(time) => format!("done in {}", self::took(time)),
         None => "done".to_owned(),
     };
+    if let Some((gauge, rest)) = context.and_then(context::end_part) {
+        line.push_str(", ");
+        let mut after = rest;
+        if let Some(usage) = usage {
+            let _ = write!(after, ", {} out", tokens(usage.output_tokens));
+        }
+        return context::GaugedLine::new(line, Some(gauge), after);
+    }
     if let Some(usage) = usage {
         let _ = write!(
             line,
@@ -856,7 +869,23 @@ pub(crate) fn turn_done(took: Option<Duration>, usage: Option<&Usage>) -> String
             tokens(usage.output_tokens)
         );
     }
-    line
+    line.into()
+}
+
+/// The end of an interrupted turn, such as `interrupted after 12s, ctx 43% (89k/207k)`;
+/// `interrupted` alone when neither is known.
+pub(crate) fn turn_interrupted(
+    took: Option<Duration>,
+    context: Option<&ContextUse>,
+) -> context::GaugedLine {
+    let line = match took {
+        Some(time) => format!("interrupted after {}", self::took(time)),
+        None => "interrupted".to_owned(),
+    };
+    match context.and_then(context::end_part) {
+        Some((gauge, rest)) => context::GaugedLine::new(format!("{line}, "), Some(gauge), rest),
+        None => line.into(),
+    }
 }
 
 /// `efr status`: the daemon's identity and health, one fact per line.

@@ -2,6 +2,12 @@
 //!
 //! A conversation is named by its id or by the start of it, which is matched against
 //! the listed conversations.
+//!
+//! Every event stays in the log after a compaction of the model's context, so the
+//! transcript shows the whole conversation and marks the place of each compaction with
+//! the line that the turn showed, such as `context compacted (auto): 231k -> 24k
+//! tokens, kept 3 turns, summary 3.2k`. `--verbose` adds what the user asked the
+//! summary to keep and the summary itself.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -18,7 +24,7 @@ use efr_render::{RenderOptions, render, render_trace};
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format::{self, Block, Spacing, Tone, sandbox};
+use crate::format::{self, Block, Spacing, Tone, context, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -153,7 +159,8 @@ pub(crate) async fn resolve(client: &Client, query: &str) -> Result<Conversation
 
 /// One page of a conversation's events as a transcript: prompts, rendered replies,
 /// and dim notes for each turn's mode, model and effort, tool calls, approvals, the
-/// sandbox's notes and how turns ended. Verbose, also each exit's record and verdict.
+/// sandbox's notes, the compactions of the context and how turns ended. Verbose, also
+/// each exit's record and verdict, and the summary of each compaction.
 pub(crate) fn transcript(
     conversation_id: ConversationId,
     page: &ConversationHistoryResult,
@@ -421,22 +428,18 @@ impl<'a> Transcript<'a> {
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)));
             }
+            Event::ConversationCompacted(compaction) => {
+                self.out.push_str(self.spacing.before(Block::Note));
+                self.out.push_str(&context::compacted_rows(compaction, self.options));
+                if self.verbose {
+                    self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
+                }
+            }
             Event::TurnInterrupted { .. } => self.note("interrupted"),
             Event::TurnFailed { error, .. } => {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
-            // NOTE: the mark of the place where the model's history now starts; the
-            // events before it stay, and `--verbose` shows the summary that replaced
-            // them.
-            Event::ConversationCompacted(compaction) => {
-                self.note(&format::compaction::compacted(compaction));
-                if let Some(summary) = compaction.summary.as_deref().filter(|_| self.verbose) {
-                    let lines: Vec<String> =
-                        format::lines(summary).lines().map(|line| format!("  {line}")).collect();
-                    self.dim_lines(&lines);
-                }
-            }
             Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
             Event::SteeringWithdrawn { steers, .. } => {
                 let what = if steers.len() == 1 { "a steer" } else { "steers" };
@@ -469,6 +472,25 @@ impl<'a> Transcript<'a> {
             heading.push(rest.to_owned());
         }
         self.dim_lines(&heading);
+    }
+
+    /// What a compaction kept, for `--verbose`: the focus that the user asked for, then
+    /// the summary as the model wrote it, each line dim and indented.
+    fn summary(&mut self, focus: Option<&str>, summary: Option<&str>) {
+        let mut lines = Vec::new();
+        if let Some(focus) = focus {
+            lines.push(format!("  focus: {}", format::one_line(focus)));
+        }
+        if let Some(summary) = summary {
+            lines.push("  summary:".to_owned());
+            lines.extend(format::lines(summary).lines().map(|line| match line {
+                "" => String::new(),
+                line => format!("    {line}"),
+            }));
+        }
+        if !lines.is_empty() {
+            self.dim_lines(&lines);
+        }
     }
 
     fn prompt(&mut self, text: &str) {

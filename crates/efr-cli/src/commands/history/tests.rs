@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    ApprovalDecision, BlockReason, Blocked, CommandId, ConversationHistoryResult,
-    ConversationStatus, ConversationSummary, ConversationsListResult, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, JudgeKind, Launch,
-    Method, Mode, ModeFallback, Origin, OverriddenSettings, PageCursor, QuestionId, ReportedFile,
-    SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings, Verdict,
+    ApprovalDecision, BlockReason, Blocked, CommandId, CompactionTrigger,
+    ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
+    ExitSource, JudgeKind, Launch, Method, Mode, ModeFallback, Origin, OverriddenSettings,
+    PageCursor, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings,
+    Verdict,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -15,8 +16,8 @@ use super::{Shown, transcript};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{
-    CONVERSATION, FAILED_UNITS, FROM_SRC, TestEnv, call, capture, command, conversation, envelope,
-    exit_info, exit_record, now, program_fact, readable, turn,
+    CONVERSATION, FAILED_UNITS, FROM_SRC, TestEnv, call, capture, command, compaction,
+    conversation, envelope, exit_info, exit_record, now, program_fact, readable, turn,
 };
 
 /// The transcript of `page`, not verbose.
@@ -881,51 +882,49 @@ async fn history_verbose_is_a_flag() {
     assert!(stdout.contains("  program sudo /usr/bin/sudo\n"), "{stdout}");
 }
 
-#[test]
-fn a_compaction_marks_its_place_and_verbose_shows_its_summary() {
-    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
-    let compaction = efr_protocol::Compaction {
-        compaction_id: "019a9b1c-3d00-7a10-8b20-0000000000c3".parse().unwrap(),
-        turn_id: None,
-        trigger: efr_protocol::CompactionTrigger::Manual,
-        focus: Some("the disk".to_owned()),
-        model: "gpt-5.5".to_owned(),
-        window: 272_000,
-        limit: 206_720,
-        tokens_before: 140_000,
-        tokens_after: 19_000,
-        through_turn: turn(),
-        through_message: None,
-        kept_turns: 1,
-        pruned_outputs: 0,
-        pruned_tokens: 0,
-        summary: Some("## Task and state\nFree space on /var.".to_owned()),
-        usage: None,
-    };
-    let events = vec![
+/// A turn that compacted its context on its own, then a compaction that the user asked
+/// for between turns, with a focus.
+fn compaction_events() -> Vec<EventEnvelope> {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let mut manual = compaction(CompactionTrigger::Manual, 19_000);
+    manual.focus = Some("the failing test\u{1b}[2J".to_owned());
+    manual.summary = Some(
+        "## Task and state\nFix the failing test.\n\n## Decisions\nNone.\u{1b}[2J\n".to_owned(),
+    );
+    let events = [
         Event::PromptQueued {
             turn_id: turn(),
             command_id,
-            text: "free space".to_owned(),
+            text: "run the tests".to_owned(),
             origin: Origin::Shell,
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
         },
-        Event::ConversationCompacted(compaction),
+        Event::ConversationCompacted(compaction(CompactionTrigger::Auto, 24_100)),
+        Event::AssistantMessageCompleted {
+            turn_id: turn(),
+            index: 0,
+            text: "The tests pass.".to_owned(),
+        },
+        Event::ConversationCompacted(manual),
     ];
-    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
-    let page = ConversationHistoryResult { events, next_cursor: None };
-    let options = RenderOptions::new(100).with_terminal(false);
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
 
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home: None });
-
-    let line = "context compacted (efr compact): 140k -> 19.0k tokens, kept 1 turn, summary 10";
-    assert!(plain.contains(line), "{plain}");
-    assert!(!plain.contains("Free space on /var."), "{plain}");
-    assert!(verbose.contains(line), "{verbose}");
-    assert!(verbose.contains("  ## Task and state\n  Free space on /var.\n"), "{verbose}");
+#[test]
+fn a_compaction_marks_its_place_and_verbose_adds_its_summary() {
+    let page = ConversationHistoryResult { events: compaction_events(), next_cursor: None };
+    let mut shown = Vec::new();
+    for (name, options) in [
+        ("terminal, 40 columns", RenderOptions::new(40)),
+        ("pipe", RenderOptions::new(80).with_terminal(false)),
+    ] {
+        for verbose in [false, true] {
+            let shown_as = Shown { options: &options, verbose, home: None };
+            let text = transcript(conversation(), &page, &shown_as);
+            shown.push(format!("=== {name}, verbose {verbose}\n{}", readable(&text)));
+        }
+    }
+    insta::assert_snapshot!(shown.join("\n"));
 }

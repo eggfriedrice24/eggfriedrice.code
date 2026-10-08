@@ -1,0 +1,5 @@
+---
+source: crates/efr-cli/src/commands/compact/tests.rs
+expression: readable(&ran.stdout)
+---
+\r\e[2K\e[33m⠋\e[0m \e[2mcompacting context\e[0m\r\e[2K\e[2mcontext compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k\e[0m

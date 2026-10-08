@@ -555,21 +555,25 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
 `efr` shows the context inline, never in an alternate screen:
 
 - The status row of a running turn always has `ctx N%`, from the newest `context`
-  draft. N is `tokens` times 100 divided by `limit`, rounded down. The colour roles
-  are `Success` below 50, `Warning` (not bold) from 50 and `Error` from 90.
+  draft or compaction (`tokens_after`), and so does the line of a running call, which
+  takes the row's place. N is `tokens` times 100 divided by `limit`, rounded down. The
+  colour roles are `Success` below 50, `Warning` (not bold) from 50 and `Error` from
+  90. On a screen that is too narrow, the gauge goes first.
 - The end-of-turn line has `ctx N% (<tokens>/<limit>)` from the end event's `context`,
   such as `done in 42s, ctx 43% (89k/207k), 1.1k out`. A turn without `context` keeps
   today's line.
 - After a `compacting` draft the status row says `compacting context`, until the
   `conversation_compacted` event, the next `context` draft or the end of the turn.
-- Each `conversation_compacted` prints one muted line:
+- Each `conversation_compacted` prints one muted line, wrapped at the width so that
+  its way out is never cut off:
   - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`
     (`(efr compact)` for a manual one; `pruned 12 outputs` in place of the summary
     for a prune-only one);
   - for trigger `overflow`: `context full: the request was 281k of 272k tokens;
     compacted and retried`;
   - when `tokens_after` is at or above `limit` (a breaker miss): `context full:
-    compaction did not free enough room (still 240k); run ,compact or efr new`.
+    compaction did not free enough room (still 240k); run ,compact or efr new`, and
+    `...; run efr new` after a manual one, which another `,compact` cannot help.
 
 ## Tier
 
