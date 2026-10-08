@@ -106,3 +106,15 @@ fn a_root_shows_as_the_project_scratch_home_or_absolute() {
     assert_eq!(prefix("/etc/nixos"), "/etc/nixos/");
     assert_eq!(prefix("/"), "/");
 }
+
+#[test]
+fn merge_of_many_changes_keeps_each_once() {
+    let many = |root: &str, shown: &str| Shown {
+        root: PathBuf::from(root),
+        shown: shown.to_owned(),
+        changes: (0..50_000).map(|n| change(&format!("f{n}"), ChangeKind::Added, 1, 0)).collect(),
+    };
+    let changes = merge(vec![many("/p", ""), many("/q", "~/q/")]).unwrap();
+    assert_eq!(changes.files.len() as u32 + changes.more, 100_000);
+    assert_eq!(changes.added, 100_000);
+}

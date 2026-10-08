@@ -2,6 +2,7 @@
 //! `git diff-tree` or `git diff-index --cached` with `-z -M --raw --numstat`, and the
 //! list of a call or a turn across its roots.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -119,28 +120,28 @@ pub(crate) struct Shown {
 /// and cut by [`FileChanges::from_files`]. A path that two nested roots both list is
 /// kept once, from the deeper root. `None` when nothing changed.
 pub(crate) fn merge(roots: Vec<Shown>) -> Option<FileChanges> {
-    let mut seen: Vec<(PathBuf, FileChange)> = Vec::new();
+    // NOTE: a call can change tens of thousands of files (a checkout, an install), so
+    // the paths seen go in a set, not a list searched for each change.
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut files: Vec<FileChange> = Vec::new();
     let mut roots = roots;
     // Deeper roots first, so their names win.
     roots.sort_by_key(|root| std::cmp::Reverse(root.root.components().count()));
     for root in roots {
         for change in root.changes {
-            let absolute = root.root.join(&change.path);
-            if seen.iter().any(|(path, _)| path == &absolute) {
+            if !seen.insert(root.root.join(&change.path)) {
                 continue;
             }
-            let file = FileChange {
+            files.push(FileChange {
                 path: format!("{}{}", root.shown, change.path),
                 kind: change.kind,
                 from: change.from.map(|from| format!("{}{from}", root.shown)),
                 added: change.added,
                 removed: change.removed,
                 binary: change.binary,
-            };
-            seen.push((absolute, file));
+            });
         }
     }
-    let files: Vec<FileChange> = seen.into_iter().map(|(_, file)| file).collect();
     (!files.is_empty()).then(|| FileChanges::from_files(files))
 }
 
