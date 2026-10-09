@@ -366,7 +366,7 @@
           ]
         },
         "name": {
-          "description": "The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the\nbest priority in the provider's model catalog, which comes from the backend.",
+          "description": "The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the\nbest priority in the provider's model catalog (today the table built into efr).",
           "type": [
             "string",
             "null"

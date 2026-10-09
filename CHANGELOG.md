@@ -161,14 +161,15 @@ into the GitHub release notes, and it stops when the section is missing.
   and a prompt that you send meanwhile waits for it. While a turn runs, efr refuses
   it. A retry of the same command waits for the compaction that runs. The plugin
   hands the focus to `efr` in its environment, as it does a prompt.
-- The model list comes from the ChatGPT backend. efrd asks for it in the background
-  at start, after `efr login openai` and then every hour, with efr's own version. An
-  unchanged list costs a short answer. A prompt never waits for this request: a new
-  list applies from the next turn on. efrd keeps the last list in its state directory
-  (`~/.local/state/efr/model_catalog.json` by default), so a start without network
-  offers it. The
-  list built into efr stands in only when no list came yet, and for an API key. Models
-  that the backend hides, or whose tools efr cannot send, are not offered.
+- efr knows the current OpenAI models (gpt-6.1-sol first) with their windows and
+  efforts, from a table built into efr. efrd also asks the ChatGPT backend for its
+  model list in the background, at start, after `efr login openai` and then every
+  hour, with efr's own version. Today the backend lists its models only for Codex
+  versions, so the built-in table stays in use. A prompt never waits for this
+  request. When the backend sends a list that efr can use, it applies from the next
+  turn on, and efrd keeps it in its state directory
+  (`~/.local/state/efr/model_catalog.json` by default) for a start without network.
+  Models that the backend hides, or whose tools efr cannot send, are not offered.
 - `efr models` shows the context window of each model and the largest window that
   `[openai] models` can set, such as `gpt-6.1-sol  272k (up to 872k)`, and a last line
   that says where the list came from: `models: from the backend, fetched 5m ago`,

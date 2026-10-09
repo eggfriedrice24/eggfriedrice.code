@@ -120,7 +120,7 @@ pub struct ModelSettings {
     /// `openai-api` (an API key). Needs a restart.
     pub provider: String,
     /// The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the
-    /// best priority in the provider's model catalog, which comes from the backend.
+    /// best priority in the provider's model catalog (today the table built into efr).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The default reasoning effort, such as `low`, `medium` or `high`. Unset: the

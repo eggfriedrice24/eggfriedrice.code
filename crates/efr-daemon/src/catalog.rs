@@ -182,7 +182,10 @@ impl Models {
                 write(&refresh.cache, catalog).await;
             }
             Applied::Refused { listed } => {
-                tracing::warn!(
+                // NOTE: the ChatGPT backend lists its models only for a Codex
+                // `client_version`, so efr gets an empty list today, and the built-in
+                // table stays. A warning every hour would only be noise.
+                tracing::debug!(
                     listed,
                     "the backend's model catalog offers no model that efr can use; the current list stays"
                 );
