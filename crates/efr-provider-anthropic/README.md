@@ -142,9 +142,10 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
 "ttl": "5m"}` (or `"1h"`), always the last member of its block. The rules:
 
 - Places: the conversion never merges user messages, and the API joins a run of
-  adjacent user messages into one. Only the last message of a run ever ended the
-  request of a call, so a run is one place, at its last message, and markers sit only
-  there.
+  adjacent user messages into one. A run is one place, at its last message, and
+  markers sit only there. An inner message of a run can have ended the request of a
+  call that failed, such as the tool results before a new prompt; the API's lookback
+  from the markers after it reads the entry of that call.
 - At most four markers, in the order of the prefix: S (the system block, else the last
   tool), A (the last anchor before the tail), P (the previous tail: the last place
   before the tail, where the call before put its T) and T (the tail, the last
