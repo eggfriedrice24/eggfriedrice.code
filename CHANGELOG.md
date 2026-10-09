@@ -190,6 +190,21 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- Each request to the model now starts with the request before it and its answer, so
+  the provider's prompt cache reads the earlier turns again and a long conversation
+  costs less. The prompts of earlier turns keep their `<live_state>` block, and the
+  system prompt tells the model that only the newest block is current. efr keeps the
+  exact messages of every turn since the last summary, not of the newest 50 turns
+  only, and a conversation of more than 4096 events no longer leaves out its oldest
+  turns. Before, each turn changed the prompt of the turn before it, and from the 51st
+  turn on each turn also changed the oldest turn.
+- When the history would leave out a turn, such as after a change to a model with a
+  smaller window, the turn compacts first, also below `[compaction] auto_at`. Before,
+  the history left out one more turn at each turn.
+- The fresh context block of a compaction (your directories, the git status and the
+  `AGENTS.md` files) is now part of its record, and `conversation_compacted` carries
+  it as `fresh`. After a restart of efrd, a request sends the same block. Before, the
+  next turn read the files again.
 - With an OpenAI API key (`openai-api`), a key that the server refuses now fails the
   turn at once, and the error shows the server's reason, such as an expired key or a
   missing scope. Before, efr sent the same key a second time and showed no reason.
@@ -281,6 +296,16 @@ into the GitHub release notes, and it stops when the section is missing.
   it read the steer during that turn. Before, a turn without saved messages showed a
   steer where you typed it, and also showed steers that the model never read, such as
   a steer of a failed turn or a steer that you took back.
+
+### Security
+
+- The `<live_state>` block shows your last command with its secrets redacted: the
+  value of an assignment to a name that looks like a secret, such as
+  `export GITHUB_TOKEN=...` or `--api-key=...`, and each word in the form of a known
+  key (`sk-ant-`, `sk-proj-`, `sk-`, `ghp_` and the other GitHub token forms). efr now
+  saves the block with the turn and sends it again with every later request, so a
+  secret there would reach the disk and every request after it. The list of patterns
+  cannot find every secret: a secret in another form stays in the command.
 
 ## [0.0.2] - 2026-10-08
 
