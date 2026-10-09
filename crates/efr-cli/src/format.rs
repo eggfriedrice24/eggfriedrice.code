@@ -922,13 +922,19 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         row("providers", "none configured");
     }
     for provider in &status.providers {
-        let state = match (provider.logged_in, provider.expires_at) {
+        let mut state = match (provider.logged_in, provider.expires_at) {
             (false, _) => "not logged in".to_owned(),
             (true, None) => "logged in".to_owned(),
             (true, Some(expires)) => {
                 format!("logged in, token expires {expires:.0} ({})", until(expires, now))
             }
         };
+        if let Some(hint) = &provider.key_hint {
+            let _ = write!(state, ", key {}", one_line(hint));
+        }
+        if provider.active {
+            state.push_str(" (active)");
+        }
         row("provider", &format!("{}: {state}", one_line(&provider.provider)));
     }
     if let Some(models) = &status.catalog {

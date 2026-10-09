@@ -1,13 +1,13 @@
 //! Everything a command needs from the world, gathered once: the directories, the
 //! environment, the terminal, time, randomness, keys, Ctrl+C, `Ctrl+\`, window resizes,
-//! the return from a stop and the browser.
+//! the return from a stop, the browser and where an API key comes from.
 //!
 //! Commands take a [`Context`] instead of reaching for process state themselves, so a
 //! test can run a whole command against a fake daemon with a fixed screen, scripted
 //! keys and a Ctrl+C it triggers.
 
 use std::fmt;
-use std::io;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
@@ -22,6 +22,7 @@ use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 use futures::{Stream, stream};
 use tokio::signal::unix::{SignalKind, signal};
+use zeroize::Zeroizing;
 
 use crate::error::CliError;
 use crate::keys::{Keys, TtyKeys};
@@ -176,6 +177,39 @@ impl Browser for XdgOpen {
     }
 }
 
+/// Where an API key comes from when no terminal asks for it: stdin, or a variable of
+/// this process for `--from-env`. Each buffer that held the key is zeroed when it is
+/// dropped.
+pub(crate) trait KeyInput: Send + Sync + fmt::Debug {
+    /// The value of the variable `name` of this process; `None` when it is unset or
+    /// not UTF-8.
+    fn var(&self, name: &str) -> Option<Zeroizing<String>>;
+
+    /// Stdin to its end, but at most `limit` bytes and one more, so a caller can tell
+    /// that there was more. It blocks.
+    fn stdin(&self, limit: usize) -> io::Result<Zeroizing<Vec<u8>>>;
+}
+
+/// The variables and the stdin of this process.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProcessKeyInput;
+
+impl KeyInput for ProcessKeyInput {
+    fn var(&self, name: &str) -> Option<Zeroizing<String>> {
+        // NOTE: OPENAI_API_KEY and ANTHROPIC_API_KEY are the providers' conventions, not
+        // efr settings, so they are read here and not through efr_stdx::env::Var, and
+        // only when `--from-env` asks for one.
+        std::env::var(name).ok().map(Zeroizing::new)
+    }
+
+    fn stdin(&self, limit: usize) -> io::Result<Zeroizing<Vec<u8>>> {
+        let mut bytes = Zeroizing::new(Vec::with_capacity(limit.saturating_add(1)));
+        let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+        io::stdin().lock().take(cap).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+}
+
 /// The directory that a leading `~` stands for: `home`, or without one `~` itself, so
 /// such a path stays as it is written and its error names it.
 fn tilde(home: &Option<PathBuf>) -> &Path {
@@ -208,6 +242,9 @@ pub(crate) struct Context {
     /// `Ctrl+\`, which asks to type an input for a command that prints nothing.
     pub(crate) quit: Arc<dyn Quit>,
     pub(crate) browser: Arc<dyn Browser>,
+    /// Where `efr login openai-api` and `efr login anthropic` read a key when no
+    /// terminal asks for it.
+    pub(crate) key_input: Arc<dyn KeyInput>,
     /// The working directory, for a prompt sent without the plugin's context.
     pub(crate) cwd: Option<PathBuf>,
     /// The terminal on stdin, for a prompt sent without the plugin's context.
@@ -257,6 +294,7 @@ impl Context {
             terminate: Arc::new(TermOrHangup),
             quit: Arc::new(CtrlBackslash::new()),
             browser: Arc::new(XdgOpen),
+            key_input: Arc::new(ProcessKeyInput),
             cwd: std::env::current_dir().ok(),
             tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },
             home,

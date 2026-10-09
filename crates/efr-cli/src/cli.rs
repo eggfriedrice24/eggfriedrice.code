@@ -63,9 +63,11 @@ pub(crate) enum Command {
     Settings(TurnSettingsArgs),
     /// List the models that a prompt may name.
     Models(ModelsArgs),
-    /// Log in to a model provider.
+    /// Log in to a model provider: the OpenAI subscription in a browser, or an API key.
     #[command(subcommand)]
     Login(LoginCommand),
+    /// Forget the stored login of a model provider.
+    Logout(LogoutArgs),
     /// Show, check, edit and change config.toml.
     #[command(subcommand)]
     Config(ConfigCommand),
@@ -278,6 +280,84 @@ pub(crate) enum LoginCommand {
     /// Log in to the OpenAI subscription in a browser. The daemon runs the login; this
     /// prints the URL to open and waits for the browser to finish.
     Openai,
+    /// Store an OpenAI API key for the openai-api provider.
+    ///
+    /// On a terminal, efr asks for the key and does not show it; otherwise it reads the
+    /// key from stdin. Never put a key on the command line: other users can read it in
+    /// the process list, and it stays in the shell's history.
+    OpenaiApi(KeyArgs),
+    /// Store an Anthropic API key for the anthropic-api provider.
+    ///
+    /// On a terminal, efr asks for the key and does not show it; otherwise it reads the
+    /// key from stdin. Never put a key on the command line: other users can read it in
+    /// the process list, and it stays in the shell's history.
+    #[command(alias = "anthropic-api")]
+    Anthropic(KeyArgs),
+}
+
+/// The arguments of `efr login openai-api` and `efr login anthropic`.
+#[derive(Debug, Args)]
+pub(crate) struct KeyArgs {
+    /// Read the key from OPENAI_API_KEY or ANTHROPIC_API_KEY of this shell. The daemon
+    /// never reads these variables.
+    #[arg(long)]
+    pub(crate) from_env: bool,
+
+    /// Store the key without a check with the provider, such as on a computer that is
+    /// offline.
+    #[arg(long)]
+    pub(crate) no_check: bool,
+}
+
+/// The arguments of `efr logout`.
+#[derive(Debug, Args)]
+pub(crate) struct LogoutArgs {
+    /// The provider: openai (the subscription), openai-api or anthropic.
+    #[arg(value_name = "PROVIDER", value_parser = provider_parser())]
+    pub(crate) provider: ProviderName,
+}
+
+/// A model provider by the name that a user types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderName {
+    /// The OpenAI subscription: `openai` or `openai-subscription`.
+    OpenAi,
+    /// OpenAI with an API key: `openai-api`.
+    OpenAiApi,
+    /// Anthropic with an API key: `anthropic` or `anthropic-api`.
+    Anthropic,
+}
+
+impl ProviderName {
+    /// Every name, the short ones first.
+    const NAMES: [(&'static str, ProviderName); 5] = [
+        ("openai", ProviderName::OpenAi),
+        ("openai-api", ProviderName::OpenAiApi),
+        ("anthropic", ProviderName::Anthropic),
+        ("openai-subscription", ProviderName::OpenAi),
+        ("anthropic-api", ProviderName::Anthropic),
+    ];
+
+    /// The provider's id, as the daemon and the config name it.
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            ProviderName::OpenAi => "openai-subscription",
+            ProviderName::OpenAiApi => "openai-api",
+            ProviderName::Anthropic => "anthropic-api",
+        }
+    }
+}
+
+/// Reads a provider by one of its names, and lists the names in the help and the
+/// error.
+fn provider_parser() -> impl clap::builder::TypedValueParser<Value = ProviderName> {
+    PossibleValuesParser::new(ProviderName::NAMES.map(|(name, _)| name)).try_map(|name| {
+        ProviderName::NAMES
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, provider)| *provider)
+            .ok_or_else(|| format!("no provider is named {name:?}"))
+    })
 }
 
 /// The `efr project` commands, which change projects.toml through the daemon.

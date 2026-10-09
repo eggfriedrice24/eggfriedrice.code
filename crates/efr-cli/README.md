@@ -15,13 +15,15 @@ state and never writes the daemon's database or credentials.
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`) |
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the context window of each and the largest one that `[openai] models` can set (`272k (up to 872k)`), its efforts, and a last line that says where the list came from (`models: from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m ago` or `built into efr`); `--names` prints only the ids, for completion |
-| `efr status` | `admin.status` | says on stderr how to log in when no provider is logged in; shows where the model list came from (the `models` line, as in `efr models`), the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network none)` or `unavailable: <reason>; auto runs as cautious` with its fix |
+| `efr status` | `admin.status` | one `provider` line for each provider with its login: `anthropic-api: logged in, key sk-ant-...a1b2 (active)`, where the key shows only as its hint and `(active)` marks the provider of new conversations; says on stderr how to log in when the active provider is not logged in (an earlier daemon that names none: when no provider is logged in); shows where the model list came from (the `models` line, as in `efr models`), the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network none)` or `unavailable: <reason>; auto runs as cautious` with its fix |
 | `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); the lines of each turn show together, and the turns show in the order that they started, not in event order; a prompt that never started (taken back, cancelled or still waiting) shows where it was in the queue, after the turns whose prompts were queued before it, with its note (`withdrawn before it ran`); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, quarantine questions and turn-end reports show as dim lines; each compaction of the model's context shows at its place with the line that the turn showed (see "Context" below); `--verbose` adds the record of each exit (`exit_requested`: its line, targets, hosts, programs and counts, never a user message) and how it was judged, and the focus and the summary of each compaction as dim lines; `--verbose` without a conversation shows the newest conversation of this terminal (the first listed whose `tty` is the terminal on stdin), else the newest of all, after a dim line that says which; `--limit` and `--cursor` then page its events |
 | `efr diff [--turn <id>] [--conversation <id>] [--stat]` | `conversations.list` to find the conversation, `conversation.diff` (read scope) | what a turn changed in the files of its project and `$SCRATCH`, from the daemon's snapshots: by default the last turn of this terminal's conversation (the newest whose `tty` is the terminal on stdin), else of the newest conversation, with a dim line on stderr that says which; `--turn` asks for that turn and looks nothing up, `--conversation` takes an id or the start of one; on a terminal the diff is painted in the `diff.*` roles with the files' syntax colours, then a dim `… N more lines` for a diff the daemon cut and a dim `3 files changed, +24 −7`; in a pipe stdout holds the daemon's diff alone (tabs and newlines kept, other control characters as stand-ins), for `git apply` or a pager; `--stat` lists each file with its kind, path and counts, then the totals; an ignored file such as `.env` shows in the list, and the daemon's diff has only a line `<path>: ignored file, content not shown` for it; a turn that changed nothing says so on stderr (exit 0); no conversation, an unknown turn or a conversation with no finished turn (`not_found`) is an error (exit 1) that names the turn |
 | `efr compact [--conversation <id>] [focus]` | `conversations.list` to find the conversation, `conversation.compact` (operate scope) | makes room in the model's context now: efrd writes a summary of the earlier turns and keeps the newest ones word for word; it never starts a turn. The focus (the words, else `EFR_PROMPT`; blank is none) says what the summary must keep. By default it compacts this terminal's conversation, else the newest one, with a dim line on stderr that says which; `--conversation` takes an id or the start of one. On a terminal a status row (`⠼ compacting context  4s`) shows while efrd works and goes before the result. Then one line says what came of it, as a turn shows a compaction: `context compacted (efr compact): 140k -> 19k tokens, kept 3 turns, summary 3.2k`, muted on a terminal. A refusal of efrd (`conflict` while a turn runs or when nothing lies before the newest turns) is an error (exit 1) with its message. No conversation is an error (exit 1). Ctrl+C stops the wait, not the compaction (exit 130, with a note) |
 | `efr sandbox check` | `admin.sandbox_check` | the daemon runs its sandbox probe now; one line per check (`ok`, `warn`, `fail` with its fix, `skip`), the warnings, the launch cost, then `auto: ready` or `auto: unavailable: <reason>`; exit 1 when it is unavailable |
 | `efr sandbox explain PATH` | `sandbox.explain` (read scope) | whether a contained command can read and write PATH (relative to the current directory, which also picks the project), and why: `read yes`, `write no: a shell startup file (floor); a write is a persistence exit, user only` |
 | `efr login openai` | `admin.login_openai` (stream) | prints the authorize URL, opens it only when `EFR_OPEN_BROWSER` is on, waits for completion |
+| `efr login openai-api [--from-env] [--no-check]`, `efr login anthropic [--from-env] [--no-check]` (also `anthropic-api`) | `admin.login_api_key` | the key comes from a prompt that does not show it when stdin is a terminal, else from stdin (at most 4096 bytes), or with `--from-env` from `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` of this process; never from an argument. It is trimmed and goes to the daemon as `SecretText`. `checking the key...` on stderr while the daemon checks it, unless `--no-check`; then `logged in to <provider> with key <hint>` (`(not checked)` without the check). When the provider is not the one of new conversations, a line says how to set `[model] provider` (`efr config set model.provider <id>`) and that efrd needs a restart (`systemctl --user restart efrd`). An unset variable, an empty key or more than a key on stdin exits 2 before any connection; a refused key exits 1 with the server's message; a check that got no answer exits 1 with a hint for `--no-check` |
+| `efr logout <provider>` | `admin.logout` | `openai` (or `openai-subscription`), `openai-api` or `anthropic` (or `anthropic-api`); says that a key stays valid at its provider and where to revoke it, or that the provider was not logged in |
 | `efr config show` | `admin.status` when the daemon runs | every key of `config.toml` with its value and source, then what `efr` uses (the theme, and for `auto` the background that chose it, the code theme, colour, roots), then the file the daemon reads, its reload error and `restart_needed`, with a warning when the daemon reads another file; as TOML |
 | `efr config check [path]` | none, else `models.list` | the file checked with the daemon's schema, the theme names, the theme file of `render.palette` and its code theme; an error names its line, column and key; exit 0 or 1. When the daemon runs, a `context_window` of `[openai] models` above the largest window of its model gets a note: efrd uses the largest one |
 | `efr config edit` | `admin.config_reload` | creates a missing file from the commented example (never through a link to nothing), runs `$VISUAL`, else `$EDITOR`, else `vi` (through `sh`, so an editor with arguments works) on the file behind a link when `config.toml` is one, so an editor that saves by replacing the file keeps the link, checks the file, offers to edit again on an error when stdin is a terminal, then asks the daemon to reload |
@@ -668,13 +670,14 @@ SIGTERM and SIGHUP during a turn.
 A failure that a first run meets gets a second line with the command that fixes it:
 no daemon (`systemctl --user start efrd`, or `just run` for one in the foreground), a
 turn that fails as `unauthorized` because the provider has no usable credentials
-(`efr login openai`), a turn that fails as `invalid` because the provider does not
+(the login of the provider that `[model] provider` names: `efr login openai`,
+`efr login openai-api` or `efr login anthropic`), a turn that fails as `invalid` because the provider does not
 serve the model (`name` under `[model]` in the daemon's `config.toml`, then a restart),
 a daemon that does not answer (`journalctl --user -u efrd`), a socket path too long
 for a socket address (a shorter `EFR_RUNTIME_DIR` or `EFR_HOME`), a missing
 `XDG_RUNTIME_DIR` or `HOME` (`EFR_HOME` replaces both), and `efr` and `efrd` from
 different builds.
-`efr status` adds the login line on stderr when no provider is logged in.
+`efr status` adds the login line on stderr when the active provider is not logged in.
 
 Logs go to stderr, filtered by `EFR_LOG` (default `warn`, because stderr shares the
 terminal with the reply).
@@ -704,7 +707,10 @@ handler is installed, without unsafe code).
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX`, `STY`,
 `ZELLIJ` and `WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
-conventions that `efr_stdx::env::Var` does not name. `HOME` shortens the paths of the
+conventions that `efr_stdx::env::Var` does not name. `OPENAI_API_KEY` and
+`ANTHROPIC_API_KEY` are read in `context.rs` (`ProcessKeyInput`) only for
+`efr login ... --from-env`, into a buffer that is zeroed when it is dropped: they are
+the providers' conventions, and the daemon never reads them. `HOME` shortens the paths of the
 sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme file.
 `EFR_TERMINAL_BG` is read through `efr_stdx::env`.
 
@@ -729,6 +735,9 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - A hidden answer, one whose prompt looks secret, and a manual one are never written
   to stdout or stderr, never logged and never handed to the view; they leave the
   process only inside `input.respond`.
+- An API key is never an argument and is never written to stdout or stderr or
+  logged; it leaves the process only inside `admin.login_api_key`, and efr shows only
+  the hint that the daemon answers.
 - No key goes to a command while it is merely silent: only `Ctrl+\`, while the view
   offers it, opens an answer line. Without the input row, no key is read then at all;
   a SIGQUIT while no key is read and nothing is offered ends `efr` as it would without
@@ -752,7 +761,12 @@ Unit tests cover argument parsing (with `efr --help` snapshots), output formatti
 (insta snapshots of status, listings, transcripts, config and rendered turns), the
 live-zone redraw arithmetic for wrapped lines (including a proptest that the CLI's row
 count agrees with the renderer's), the key thread on a real pseudo-terminal, and the
-editing of an answer line. The frame tests drive the view and the follow loop with
+editing of an answer line. The login tests run `efr login openai-api` and
+`efr login anthropic` against the fake daemon: a key from stdin (trimmed), from
+`--from-env` and from the prompt that does not show it, an unset variable and an empty
+stdin, a refused key, a check without an answer, the line about `[model] provider`,
+and `efr logout`; no key shows in what efr prints. The `binary` tests run the built
+`efr` with a key on stdin and in `ANTHROPIC_API_KEY`. The frame tests drive the view and the follow loop with
 `efr-test-support`'s `TestClock`: snapshots of the frames and the status row at its
 ticks, a burst of 50 events inside one frame time that gives one frame, a question
 and the end that never wait, a tick that writes only the status row, a resize that

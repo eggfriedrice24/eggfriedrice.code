@@ -33,10 +33,11 @@ use serde::Serialize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Notify, mpsc, watch};
+use zeroize::Zeroizing;
 
 use crate::cli::{Cli, Command};
 use crate::context::{
-    Browser, Context, Ending, Interrupt, Resize, Resume, Signals, Stop, Terminate,
+    Browser, Context, Ending, Interrupt, KeyInput, Resize, Resume, Signals, Stop, Terminate,
 };
 use crate::error::CliError;
 use crate::keys::{Key, KeyReader, Keys, Read};
@@ -752,6 +753,25 @@ impl Browser for RecordingBrowser {
     }
 }
 
+/// Variables and a stdin that the test gives, for a key read without a terminal.
+#[derive(Debug, Default)]
+pub(crate) struct FixedKeyInput {
+    pub(crate) vars: Vec<(&'static str, &'static str)>,
+    pub(crate) stdin: &'static str,
+}
+
+impl KeyInput for FixedKeyInput {
+    fn var(&self, name: &str) -> Option<Zeroizing<String>> {
+        let value = self.vars.iter().find(|(known, _)| *known == name).map(|(_, value)| value);
+        value.map(|value| Zeroizing::new((*value).to_owned()))
+    }
+
+    fn stdin(&self, limit: usize) -> io::Result<Zeroizing<Vec<u8>>> {
+        let bytes = self.stdin.as_bytes();
+        Ok(Zeroizing::new(bytes[..bytes.len().min(limit + 1)].to_vec()))
+    }
+}
+
 /// An [`Output`] that keeps what was written, and the handle to read it.
 pub(crate) fn capture() -> (Output, Captured) {
     let captured = Captured::default();
@@ -858,6 +878,7 @@ impl TestEnv {
             terminate: Arc::new(TestTerminate::default()),
             quit: Arc::new(TestQuit::default()),
             browser: Arc::new(RecordingBrowser::default()),
+            key_input: Arc::new(FixedKeyInput::default()),
             cwd: Some(PathBuf::from("/home/user/project")),
             tty: None,
             home: Some(PathBuf::from("/home/user")),

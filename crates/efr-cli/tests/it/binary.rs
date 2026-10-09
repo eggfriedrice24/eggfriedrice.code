@@ -11,15 +11,17 @@ use std::io::{Read as _, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use assert_cmd::Command;
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    AdminStatusResult, Capabilities, ClientFrame, ConversationSubscribeItem, DaemonPaths,
-    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, HelloResult, Method, Mode,
-    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PROTOCOL_VERSION,
-    PromptSendResult, RequestId, Seq, ServerFrame, TurnSettings,
+    AdminLoginApiKey, AdminLoginApiKeyResult, AdminStatusResult, Capabilities, ClientFrame,
+    ConversationSubscribeItem, DaemonPaths, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, HelloResult, Method, Mode, ModelInfo, ModelSource, ModelsListResult,
+    OverriddenSettings, PROTOCOL_VERSION, PromptSendResult, RequestId, Seq, ServerFrame,
+    TurnSettings,
 };
 use serde::Serialize;
 
@@ -229,6 +231,79 @@ fn status_prints_the_daemons_health() {
     let stdout = stdout_of(&output);
     assert!(stdout.starts_with("daemon         efrd 0.1.0, protocol "), "{stdout}");
     assert!(stdout.contains(&format!("socket         {}\n", roots.socket().display())));
+}
+
+/// A daemon that takes one `admin.login_api_key`, answers that the key is stored and
+/// hands the request to the test.
+fn storing_a_key(roots: &Roots) -> (JoinHandle<()>, mpsc::Receiver<AdminLoginApiKey>) {
+    let (sender, received) = mpsc::channel();
+    let daemon = roots.serve(move |conn| {
+        let (id, method) = conn.request();
+        let Method::AdminLoginApiKey(params) = method else { panic!("{}", method.name()) };
+        let result = AdminLoginApiKeyResult {
+            provider: params.provider.clone(),
+            key_hint: "sk-...9f3c".to_owned(),
+            checked: params.check,
+            active: true,
+        };
+        conn.reply(id, &result);
+        sender.send(params).unwrap();
+        conn.drain();
+    });
+    (daemon, received)
+}
+
+/// A key as a test spells it; it must never show in what efr prints.
+const KEY: &str = "sk-proj-efr-binary-test-key-9f3c";
+
+#[test]
+fn a_key_piped_to_stdin_reaches_the_daemon_and_not_the_output() {
+    let roots = Roots::new();
+    let (daemon, received) = storing_a_key(&roots);
+    let output = roots.efr().args(["login", "openai-api"]).write_stdin(format!("{KEY}\n")).output();
+    let output = output.unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    let params = received.recv().unwrap();
+    assert_eq!(params.provider, "openai-api");
+    assert_eq!(params.key.expose_secret(), KEY);
+    assert!(params.check);
+    assert_eq!(stdout_of(&output), "logged in to openai-api with key sk-...9f3c\n");
+    assert_eq!(stderr_of(&output), "checking the key...\n");
+}
+
+#[test]
+fn from_env_reads_the_key_variable_of_the_cli_process() {
+    let roots = Roots::new();
+    let (daemon, received) = storing_a_key(&roots);
+    let output = roots
+        .efr()
+        .args(["login", "anthropic", "--from-env", "--no-check"])
+        .env("ANTHROPIC_API_KEY", KEY)
+        .write_stdin("sk-ant-not-this-one\n")
+        .output()
+        .unwrap();
+    daemon.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    let params = received.recv().unwrap();
+    assert_eq!(params.provider, "anthropic-api");
+    assert_eq!(params.key.expose_secret(), KEY);
+    assert!(!params.check);
+    assert!(!stdout_of(&output).contains(KEY));
+    assert!(!stderr_of(&output).contains(KEY));
+}
+
+#[test]
+fn a_key_variable_that_is_not_set_exits_two_before_any_connection() {
+    let roots = Roots::new();
+    // No daemon listens: a connection would exit with three.
+    let output = roots.efr().args(["login", "openai-api", "--from-env"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr_of(&output).starts_with("efr: OPENAI_API_KEY is not set in this shell\n"),
+        "{}",
+        stderr_of(&output)
+    );
 }
 
 /// A daemon that takes one prompt and answers it with `reply` or fails the turn.
@@ -459,7 +534,7 @@ fn a_failed_turn_exits_one_with_the_reason() {
 #[test]
 fn sigterm_while_a_turn_runs_ends_efr_by_the_signal() {
     let roots = Roots::new();
-    let (subscribed, waits) = std::sync::mpsc::channel();
+    let (subscribed, waits) = mpsc::channel();
     let daemon = roots.serve(move |conn| {
         let (id, _) = conn.request();
         let turn_id = TURN.parse().unwrap();

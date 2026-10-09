@@ -15,7 +15,8 @@ Commands:
   compact   Make room in the model's context of this terminal's conversation now
   settings  Show the mode, model and effort that a prompt would use, with where each comes from
   models    List the models that a prompt may name
-  login     Log in to a model provider
+  login     Log in to a model provider: the OpenAI subscription in a browser, or an API key
+  logout    Forget the stored login of a model provider
   config    Show, check, edit and change config.toml
   project   List, add and remove the projects that the permission modes trust
   paths     Show where efr keeps its files, and where the daemon keeps them

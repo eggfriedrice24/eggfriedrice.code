@@ -10,8 +10,15 @@ use efr_stdx::env::Var;
 
 use crate::turn_settings::SettingSource;
 
-/// The next step when the model provider has no usable credentials.
-pub(crate) const LOGIN_HINT: &str = "log in with: efr login openai";
+/// The next step when the model provider `provider` (an id of `[model] provider`) has
+/// no usable credentials.
+pub(crate) fn login_hint(provider: &str) -> &'static str {
+    match provider {
+        "openai-api" => "log in with: efr login openai-api",
+        "anthropic-api" => "log in with: efr login anthropic",
+        _ => "log in with: efr login openai",
+    }
+}
 
 /// The next step when the provider refuses the model. Which model ids the
 /// subscription serves to efr is unknown until it answers, so a first run may meet it.
@@ -184,6 +191,30 @@ pub(crate) enum CliError {
     #[error("the daemon ended the login before it completed")]
     LoginIncomplete,
 
+    /// `--from-env` named a variable that this shell does not set.
+    #[error("{name} is not set in this shell")]
+    KeyVariableUnset { name: &'static str },
+
+    /// The prompt, stdin or the variable gave no key.
+    #[error("no key came from {from}")]
+    NoKey { from: &'static str },
+
+    /// Stdin held more than any API key.
+    #[error("{from} holds more than an API key")]
+    KeyTooLong { from: &'static str },
+
+    /// Stdin could not be read.
+    #[error("the key could not be read from stdin")]
+    KeyInput {
+        #[source]
+        source: io::Error,
+    },
+
+    /// The check of a key with its provider got no answer, or a busy one. `retry` is
+    /// the command that stores the key without the check.
+    #[error("the daemon failed the login with {}: {}", .body.code, .body.message)]
+    KeyNotChecked { body: ErrorBody, retry: &'static str },
+
     /// The user pressed Ctrl+C.
     #[error("interrupted")]
     Interrupted,
@@ -258,6 +289,9 @@ impl CliError {
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
             | CliError::NoWorkingDirectory
+            | CliError::KeyVariableUnset { .. }
+            | CliError::NoKey { .. }
+            | CliError::KeyTooLong { .. }
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
@@ -266,9 +300,17 @@ impl CliError {
         }
     }
 
-    /// A next step for the user, printed on its own line after the error. The ones a
-    /// first run meets most (no daemon, no login) name the command that fixes them.
+    /// A next step for the user, printed on its own line after the error, with the
+    /// default provider in a login hint. See [`hint_for`](Self::hint_for).
+    #[cfg(test)]
     pub(crate) fn hint(&self) -> Option<&'static str> {
+        self.hint_for(efr_config::DEFAULT_PROVIDER)
+    }
+
+    /// A next step for the user, printed on its own line after the error. The ones a
+    /// first run meets most (no daemon, no login) name the command that fixes them; a
+    /// login hint names the login of `provider`, the provider of the config.
+    pub(crate) fn hint_for(&self, provider: &str) -> Option<&'static str> {
         match self {
             CliError::Client(ClientError::DaemonNotRunning { .. }) => Some(
                 "start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one",
@@ -288,8 +330,12 @@ impl CliError {
             CliError::Dirs { source: StdxError::HomeNotFound } => Some("set HOME, or EFR_HOME"),
             // A turn fails as unauthorized when the provider has no usable credentials.
             CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
-                Some(LOGIN_HINT)
+                Some(login_hint(provider))
             }
+            CliError::KeyNotChecked { retry, .. } => Some(retry),
+            CliError::KeyVariableUnset { .. } | CliError::NoKey { .. } => Some(
+                "give the key on a terminal, which does not show it, or on stdin, such as: printenv OPENAI_API_KEY | efr login openai-api",
+            ),
             // The daemon names the refused model in the data of an `invalid` turn: the
             // provider's refusal has a `model`, a turn setting that no longer fits has a
             // `setting`, which names the model for an effort too.

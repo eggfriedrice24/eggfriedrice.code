@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    AdminStatusResult, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, Method,
-    NetworkMode, Origin, ProviderStatus, SandboxStatus,
+    AdminStatusResult, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, LoginKind,
+    Method, NetworkMode, Origin, ProviderStatus, SandboxStatus,
 };
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
@@ -27,6 +27,9 @@ fn result() -> AdminStatusResult {
             provider: "openai".to_owned(),
             logged_in: false,
             expires_at: None,
+            active: false,
+            login: None,
+            key_hint: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
             origin: efr_protocol::CatalogOrigin::Cache,
@@ -76,6 +79,9 @@ async fn a_logged_in_provider_needs_no_login_hint() {
         provider: "openai-subscription".to_owned(),
         logged_in: true,
         expires_at: None,
+        active: false,
+        login: None,
+        key_hint: None,
     });
     let script = async {
         let mut conn = daemon.accept().await;
@@ -87,6 +93,88 @@ async fn a_logged_in_provider_needs_no_login_hint() {
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     assert_eq!(captured.stderr(), "");
+}
+
+/// The three providers of a daemon that uses `anthropic-api`, with a subscription login
+/// and no key for it.
+fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
+    let provider = |id: &str| ProviderStatus {
+        provider: id.to_owned(),
+        logged_in: false,
+        expires_at: None,
+        active: false,
+        login: None,
+        key_hint: None,
+    };
+    vec![
+        ProviderStatus {
+            logged_in: true,
+            expires_at: Some(now() + SignedDuration::from_hours(150)),
+            login: Some(LoginKind::Subscription),
+            ..provider("openai-subscription")
+        },
+        provider("openai-api"),
+        ProviderStatus {
+            logged_in: anthropic_key.is_some(),
+            active: true,
+            login: anthropic_key.map(|_| LoginKind::ApiKey),
+            key_hint: anthropic_key.map(str::to_owned),
+            ..provider("anthropic-api")
+        },
+    ]
+}
+
+#[tokio::test]
+async fn status_shows_every_provider_with_its_key_hint_and_the_active_one() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.providers = three_providers(Some("sk-ant-...a1b2"));
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let stdout = captured.stdout();
+    let rows: Vec<&str> = stdout.lines().filter(|line| line.starts_with("provider")).collect();
+    assert_eq!(
+        rows,
+        [
+            "provider       openai-subscription: logged in, token expires 2026-10-10T18:00:00Z (in 6d 6h)",
+            "provider       openai-api: not logged in",
+            "provider       anthropic-api: logged in, key sk-ant-...a1b2 (active)",
+        ]
+    );
+    assert_eq!(captured.stderr(), "");
+}
+
+#[tokio::test]
+async fn an_active_provider_without_a_login_gets_the_hint_of_its_own_login() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.providers = three_providers(None);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        captured.stderr(),
+        "efr: anthropic-api is not logged in; log in with: efr login anthropic\n"
+    );
 }
 
 #[tokio::test]

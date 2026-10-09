@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 
 use crate::cli::{Cli, Command};
 use crate::commands::{
-    compact, config, diff, history, login, models, new, paths, project, sandbox, send, settings,
-    status,
+    compact, config, diff, history, login, logout, models, new, paths, project, sandbox, send,
+    settings, status,
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
@@ -26,7 +26,7 @@ pub(crate) async fn main(cli: Cli, term: TermFacts) -> Exit {
     let mut out = Output::process();
     match Context::from_process(term).await {
         Ok(ctx) => run(&cli.command, &ctx, &mut out).await,
-        Err(error) => report(&error, &mut out),
+        Err(error) => report(&error, &mut out, efr_config::DEFAULT_PROVIDER),
     }
 }
 
@@ -48,6 +48,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::Settings(args) => settings::run(ctx, out, args).await,
         Command::Models(args) => models::run(ctx, out, args).await,
         Command::Login(command) => login::run(ctx, out, command).await,
+        Command::Logout(args) => logout::run(ctx, out, args).await,
         Command::Config(command) => config::run(ctx, out, command).await,
         Command::Paths(args) => paths::run(ctx, out, args).await,
         Command::Project(command) => project::run(ctx, out, command).await,
@@ -55,24 +56,31 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
     };
     match result {
         Ok(()) => Exit::Success,
-        Err(error) => report(&error, out),
+        Err(error) => report(&error, out, ctx.settings.provider()),
     }
 }
 
-/// Writes the message for `error`, unless it needs none, and returns its exit code.
-fn report(error: &CliError, out: &mut Output) -> Exit {
+/// Writes the message for `error`, unless it needs none, and returns its exit code. A
+/// login hint names the login of `provider`.
+fn report(error: &CliError, out: &mut Output, provider: &str) -> Exit {
     if !error.is_silent() {
-        out.err(&message(error));
+        out.err(&message_for(error, provider));
     }
     error.exit()
 }
 
 /// `efr: ` and the error with its sources on one line, then the hint on a line of its
-/// own when there is one.
+/// own when there is one, with the default provider in a login hint.
+#[cfg(test)]
 pub(crate) fn message(error: &CliError) -> String {
+    message_for(error, efr_config::DEFAULT_PROVIDER)
+}
+
+/// [`message`] with the login of `provider` in a login hint.
+pub(crate) fn message_for(error: &CliError, provider: &str) -> String {
     let text = efr_stdx::with_causes(error);
     let mut out = format!("efr: {}\n", format::one_line(&text));
-    if let Some(hint) = error.hint() {
+    if let Some(hint) = error.hint_for(provider) {
         let _ = writeln!(out, "efr: {hint}");
     }
     out

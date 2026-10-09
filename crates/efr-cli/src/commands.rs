@@ -6,6 +6,7 @@ pub(crate) mod config;
 pub(crate) mod diff;
 pub(crate) mod history;
 pub(crate) mod login;
+pub(crate) mod logout;
 pub(crate) mod models;
 pub(crate) mod new;
 pub(crate) mod paths;

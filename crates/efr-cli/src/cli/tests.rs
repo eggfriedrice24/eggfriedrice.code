@@ -4,7 +4,10 @@ use pretty_assertions::assert_eq;
 
 use efr_protocol::Mode;
 
-use super::{Cli, Command, ConfigCommand, LastCommand, LoginCommand, PathsArgs, ProjectCommand};
+use super::{
+    Cli, Command, ConfigCommand, KeyArgs, LastCommand, LoginCommand, PathsArgs, ProjectCommand,
+    ProviderName,
+};
 use crate::testing::{CONVERSATION, command, conversation};
 
 fn parse_error(args: &[&str]) -> ErrorKind {
@@ -160,7 +163,44 @@ fn compact_takes_a_conversation_and_the_words_of_a_focus() {
 #[test]
 fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
-    assert_eq!(parse_error(&["login", "anthropic"]), ErrorKind::InvalidSubcommand);
+    assert!(matches!(
+        command(&["login", "openai-api"]),
+        Command::Login(LoginCommand::OpenaiApi(KeyArgs { from_env: false, no_check: false }))
+    ));
+    for name in ["anthropic", "anthropic-api"] {
+        assert!(matches!(
+            command(&["login", name, "--from-env", "--no-check"]),
+            Command::Login(LoginCommand::Anthropic(KeyArgs { from_env: true, no_check: true }))
+        ));
+    }
+    assert_eq!(parse_error(&["login", "gemini"]), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn a_key_is_never_an_argument() {
+    assert_eq!(parse_error(&["login", "openai-api", "sk-proj-abc"]), ErrorKind::UnknownArgument);
+    assert_eq!(
+        parse_error(&["login", "anthropic", "--key", "sk-ant-abc"]),
+        ErrorKind::UnknownArgument
+    );
+}
+
+#[test]
+fn logout_takes_a_provider_by_its_short_name_or_its_id() {
+    let cases = [
+        ("openai", ProviderName::OpenAi),
+        ("openai-subscription", ProviderName::OpenAi),
+        ("openai-api", ProviderName::OpenAiApi),
+        ("anthropic", ProviderName::Anthropic),
+        ("anthropic-api", ProviderName::Anthropic),
+    ];
+    for (name, provider) in cases {
+        let Command::Logout(args) = command(&["logout", name]) else { panic!("not logout") };
+        assert_eq!(args.provider, provider, "{name}");
+    }
+    assert_eq!(ProviderName::Anthropic.id(), "anthropic-api");
+    assert_eq!(parse_error(&["logout", "gemini"]), ErrorKind::InvalidValue);
+    assert_eq!(parse_error(&["logout"]), ErrorKind::MissingRequiredArgument);
 }
 
 #[test]

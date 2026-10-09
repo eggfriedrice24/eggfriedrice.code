@@ -52,6 +52,8 @@ pub(crate) struct Settings {
     pub(crate) render: efr_config::RenderSettings,
     /// The turn defaults that the file sets.
     pub(crate) turn: TurnDefaults,
+    /// `model.provider` of a valid file, which the login hints name.
+    pub(crate) provider: Option<String>,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
 }
@@ -247,6 +249,12 @@ impl Settings {
         settings
     }
 
+    /// The provider of new conversations that the file names, else the default one.
+    /// The daemon reads its own copy of the file, and a change waits for its restart.
+    pub(crate) fn provider(&self) -> &str {
+        self.provider.as_deref().unwrap_or(efr_config::DEFAULT_PROVIDER)
+    }
+
     /// The settings in `text`, the contents of the file at `path`, on a terminal whose
     /// background is not known.
     #[cfg(test)]
@@ -281,6 +289,7 @@ impl Settings {
             model: file.model.name.clone(),
             effort: file.model.effort.clone(),
         };
+        settings.provider = Some(file.model.provider.clone());
         settings.render = file.render.clone();
         let render = &file.render;
         let name = match render.theme.as_deref() {

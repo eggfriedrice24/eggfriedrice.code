@@ -50,7 +50,7 @@ shipped binary.
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table), which also says which models take freeform (`custom`) tools and prefer WebSockets; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
@@ -59,7 +59,7 @@ shipped binary.
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login openai`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -237,6 +237,13 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider-openai/src/models.rs`; when efrd fetches, the effective model
   list, the default model and the windows of `[openai] models` in
   `crates/efr-daemon/src/catalog.rs`.
+- Logins with an API key: where `efr` reads a key (a hidden prompt, stdin or
+  `--from-env`) in `crates/efr-cli/src/commands/login/key.rs`; the method in
+  `crates/efr-daemon/src/methods/admin_login_api_key.rs`; the checks of the key's text,
+  its hint and the check with its provider in
+  `crates/efr-daemon/src/providers/api_key.rs`; the requests of the check in
+  `crates/efr-provider-openai/src/catalog/client.rs` and
+  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`).
 - The Responses WebSocket transport: the contract in
   `crates/efr-provider-openai/README.md`, section "WebSocket transport"; the
   connection of each conversation and the fallback to HTTP in
