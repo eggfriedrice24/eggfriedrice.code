@@ -272,3 +272,16 @@ No protocol version has shipped yet.
   absent for a compaction without a summary and for one from before the field. The
   fixtures `events/conversation_compacted.json` and `conversation_compact_result.json`
   now set it.
+- Version 1, additive: logins with an API key. New method `admin.login_api_key` (scope
+  `admin`, unary, no command id) with `provider` (`openai-api` or `anthropic-api`),
+  `key` (a plain string that the daemon never logs) and `check` (true when absent),
+  whose result has the `provider`, the `key_hint` (the known prefix and the last four
+  characters of the key, such as `sk-ant-...a1b2`), `checked` (false when the check was
+  skipped) and `active` (true when the provider is the one of new conversations). New
+  method `admin.logout` (scope `admin`, unary, no command id) with `provider`, whose
+  result has the `provider` and `logged_out` (false when nothing was stored). A
+  provider of the `admin.status` result gains `active` (false when absent), an optional
+  `login` (`subscription` or `api_key`) and an optional `key_hint`, and the daemon now
+  lists `anthropic-api` too. New fixtures `admin_login_api_key_params.json`,
+  `admin_login_api_key_result.json`, `admin_logout_params.json` and
+  `admin_logout_result.json`; `admin_status_result.json` now sets the new members.

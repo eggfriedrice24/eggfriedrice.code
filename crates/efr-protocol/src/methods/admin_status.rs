@@ -60,13 +60,35 @@ pub struct AdminStatusResult {
 /// The state of one model provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderStatus {
-    /// The provider, such as `openai`.
+    /// The provider, such as `openai-subscription`.
     pub provider: String,
     /// True when credentials are stored.
     pub logged_in: bool,
     /// When the current access token expires, for a provider with refreshable tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<Timestamp>,
+    /// True for the provider of new conversations, `[model] provider` of the running
+    /// daemon. False when absent, as from an earlier daemon.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub active: bool,
+    /// How the provider is logged in. Absent when it is not, or from an earlier daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<LoginKind>,
+    /// For an API key: its known prefix and its last four characters, such as
+    /// `sk-ant-...a1b2`. Never the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_hint: Option<String>,
+}
+
+/// How a provider is logged in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LoginKind {
+    /// A subscription login in a browser, with tokens that the daemon refreshes.
+    Subscription,
+    /// An API key, which cannot refresh.
+    ApiKey,
 }
 
 /// The daemon's four root directories.

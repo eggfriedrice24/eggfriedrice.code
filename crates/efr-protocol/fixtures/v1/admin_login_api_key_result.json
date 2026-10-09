@@ -1,0 +1,6 @@
+{
+  "provider": "anthropic-api",
+  "key_hint": "sk-ant-...a1b2",
+  "checked": true,
+  "active": false
+}

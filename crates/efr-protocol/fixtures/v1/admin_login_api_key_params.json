@@ -1,0 +1,8 @@
+{
+  "method": "admin.login_api_key",
+  "params": {
+    "provider": "anthropic-api",
+    "key": "sk-ant-api03-efr-fixture-a1b2",
+    "check": false
+  }
+}

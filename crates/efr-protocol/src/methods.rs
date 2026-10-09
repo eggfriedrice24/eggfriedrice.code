@@ -15,7 +15,9 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 
 pub(crate) mod admin_config_reload;
+pub(crate) mod admin_login_api_key;
 pub(crate) mod admin_login_openai;
+pub(crate) mod admin_logout;
 pub(crate) mod admin_project_add;
 pub(crate) mod admin_project_remove;
 pub(crate) mod admin_sandbox_check;

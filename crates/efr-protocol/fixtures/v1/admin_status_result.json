@@ -9,9 +9,17 @@
   "shells": 1,
   "providers": [
     {
-      "provider": "openai",
+      "provider": "openai-subscription",
       "logged_in": true,
-      "expires_at": "2026-10-03T20:00:00Z"
+      "expires_at": "2026-10-03T20:00:00Z",
+      "login": "subscription"
+    },
+    {
+      "provider": "anthropic-api",
+      "logged_in": true,
+      "active": true,
+      "login": "api_key",
+      "key_hint": "sk-ant-...a1b2"
     }
   ],
   "catalog": {

@@ -61,16 +61,18 @@ fn method_index(method: &Method) -> usize {
         Method::AdminStatus(_) => 17,
         Method::AdminConfigReload(_) => 18,
         Method::AdminLoginOpenAi(_) => 19,
-        Method::SandboxExplain(_) => 20,
-        Method::SandboxSurfaceRespond(_) => 21,
-        Method::AdminSandboxCheck(_) => 22,
-        Method::ConversationDiff(_) => 23,
-        Method::PromptWithdraw(_) => 24,
-        Method::ConversationCompact(_) => 25,
+        Method::AdminLoginApiKey(_) => 20,
+        Method::AdminLogout(_) => 21,
+        Method::SandboxExplain(_) => 22,
+        Method::SandboxSurfaceRespond(_) => 23,
+        Method::AdminSandboxCheck(_) => 24,
+        Method::ConversationDiff(_) => 25,
+        Method::PromptWithdraw(_) => 26,
+        Method::ConversationCompact(_) => 27,
     }
 }
 
-const METHOD_COUNT: usize = 26;
+const METHOD_COUNT: usize = 28;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

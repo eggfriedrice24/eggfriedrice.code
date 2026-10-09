@@ -4,11 +4,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
-    AdminStatus, ApprovalRespond, CommandId, ConversationCompact, ConversationDiff,
-    ConversationHistory, ConversationSubscribe, ConversationsList, Hello, InputRespond,
-    LeaseReport, ModelsList, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
-    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
+    AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
+    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CommandId,
+    ConversationCompact, ConversationDiff, ConversationHistory, ConversationSubscribe,
+    ConversationsList, Hello, InputRespond, LeaseReport, ModelsList, ProjectsList, PromptSend,
+    PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond,
+    ScopeName, TurnInterrupt, TurnSteer,
 };
 
 /// A request: the wire method name and its params.
@@ -85,6 +86,12 @@ pub enum Method {
     /// only).
     #[serde(rename = "admin.login_openai")]
     AdminLoginOpenAi(AdminLoginOpenAi),
+    /// `admin.login_api_key`: store an API key for a provider (Unix socket only).
+    #[serde(rename = "admin.login_api_key")]
+    AdminLoginApiKey(AdminLoginApiKey),
+    /// `admin.logout`: forget the credentials of a provider (Unix socket only).
+    #[serde(rename = "admin.logout")]
+    AdminLogout(AdminLogout),
     /// `sandbox.explain`: what the `auto` sandbox does with one path.
     #[serde(rename = "sandbox.explain")]
     SandboxExplain(SandboxExplain),
@@ -130,6 +137,8 @@ impl Method {
             Method::AdminStatus(_) => "admin.status",
             Method::AdminConfigReload(_) => "admin.config_reload",
             Method::AdminLoginOpenAi(_) => "admin.login_openai",
+            Method::AdminLoginApiKey(_) => "admin.login_api_key",
+            Method::AdminLogout(_) => "admin.logout",
             Method::SandboxExplain(_) => "sandbox.explain",
             Method::SandboxSurfaceRespond(_) => "sandbox.surface_respond",
             Method::AdminSandboxCheck(_) => "admin.sandbox_check",
@@ -167,6 +176,8 @@ impl Method {
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
             | Method::AdminLoginOpenAi(_)
+            | Method::AdminLoginApiKey(_)
+            | Method::AdminLogout(_)
             | Method::SandboxExplain(_)
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_) => None,
@@ -197,6 +208,8 @@ impl Method {
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
+            | Method::AdminLoginApiKey(_)
+            | Method::AdminLogout(_)
             | Method::SandboxExplain(_)
             | Method::SandboxSurfaceRespond(_)
             | Method::AdminSandboxCheck(_)
@@ -242,6 +255,8 @@ impl ScopeName {
             | Method::AdminStatus(_)
             | Method::AdminConfigReload(_)
             | Method::AdminLoginOpenAi(_)
+            | Method::AdminLoginApiKey(_)
+            | Method::AdminLogout(_)
             | Method::AdminSandboxCheck(_) => ScopeName::Admin,
         }
     }

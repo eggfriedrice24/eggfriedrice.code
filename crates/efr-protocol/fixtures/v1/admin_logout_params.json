@@ -1,0 +1,6 @@
+{
+  "method": "admin.logout",
+  "params": {
+    "provider": "anthropic-api"
+  }
+}

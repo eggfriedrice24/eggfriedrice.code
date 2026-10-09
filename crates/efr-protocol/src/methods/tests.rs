@@ -4,10 +4,11 @@ use serde_json::json;
 use crate::{
     AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
     ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
-    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, LateSteer, Mode,
-    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo,
-    PromptSend, PromptSendResult, PromptWithdraw, RootSource, Seq, ShellContext, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, LateSteer,
+    LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
+    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RootSource, Seq,
+    ShellContext, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
+    WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -311,6 +312,25 @@ fn a_status_from_before_roots_and_config_parses_without_them() {
     assert_eq!(status.roots, None);
     assert_eq!(status.config, None);
     assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+}
+
+#[test]
+fn a_provider_from_before_logins_by_key_is_inactive_with_no_login_kind() {
+    let old = json!({ "provider": "openai", "logged_in": true });
+    let status: ProviderStatus = serde_json::from_value(old.clone()).unwrap();
+    assert!(!status.active);
+    assert_eq!(status.login, None);
+    assert_eq!(status.key_hint, None);
+    assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+}
+
+#[test]
+fn login_kinds_are_snake_case_names_on_the_wire() {
+    let names: Vec<_> = [LoginKind::Subscription, LoginKind::ApiKey]
+        .iter()
+        .map(|kind| serde_json::to_value(kind).unwrap())
+        .collect();
+    assert_eq!(names, [json!("subscription"), json!("api_key")]);
 }
 
 #[test]

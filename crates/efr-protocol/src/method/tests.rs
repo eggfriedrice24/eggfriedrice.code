@@ -4,13 +4,14 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
-    AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationCompact, ConversationDiff, ConversationHistory, ConversationId,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList,
-    Origin, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite,
-    QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt,
-    TurnSettings, TurnSteer, WithdrawTarget,
+    AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
+    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
+    Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationDiff,
+    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
+    InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList, PromptSend,
+    PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
+    WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -212,6 +213,24 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             true,
         ),
         (
+            Method::AdminLoginApiKey(AdminLoginApiKey {
+                provider: "openai-api".into(),
+                key: SecretText::new("sk-proj-test"),
+                check: true,
+            }),
+            "admin.login_api_key",
+            ScopeName::Admin,
+            false,
+            false,
+        ),
+        (
+            Method::AdminLogout(AdminLogout { provider: "openai-api".into() }),
+            "admin.logout",
+            ScopeName::Admin,
+            false,
+            false,
+        ),
+        (
             Method::SandboxExplain(SandboxExplain { path: "/home/u/.zshrc".into(), cwd: None }),
             "sandbox.explain",
             ScopeName::Read,
@@ -346,4 +365,19 @@ fn params_with_the_wrong_shape_are_rejected() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("size"), "{err}");
+}
+
+#[test]
+fn an_api_key_login_keeps_the_key_out_of_debug_and_checks_unless_told_not_to() {
+    let params = json!({
+        "method": "admin.login_api_key",
+        "params": { "provider": "anthropic-api", "key": "sk-ant-api03-secret-a1b2" },
+    });
+    let method: Method = serde_json::from_value(params).unwrap();
+    let Method::AdminLoginApiKey(login) = &method else { panic!("{}", method.name()) };
+    assert!(login.check, "a login without check checks the key");
+    assert_eq!(login.key.expose_secret(), "sk-ant-api03-secret-a1b2");
+    let debug = format!("{method:?}");
+    assert!(!debug.contains("secret"), "{debug}");
+    assert!(debug.contains("anthropic-api"), "{debug}");
 }

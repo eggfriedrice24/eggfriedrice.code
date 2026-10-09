@@ -9,9 +9,10 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde_json::{Value, json};
 
 use crate::{
-    AdminConfigReload, AdminConfigReloadResult, AdminLoginOpenAi, AdminLoginOpenAiItem,
-    AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
-    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalRespond,
+    AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey, AdminLoginApiKeyResult,
+    AdminLoginOpenAi, AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult, AdminProjectAdd,
+    AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult, AdminSandboxCheck,
+    AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalRespond,
     ApprovalRespondResult, ConversationCompact, ConversationCompactResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
     ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
@@ -92,6 +93,12 @@ pub fn document() -> Value {
             "admin.login_openai",
             ScopeName::Admin,
         ),
+        unary::<AdminLoginApiKey, AdminLoginApiKeyResult>(
+            &mut generator,
+            "admin.login_api_key",
+            ScopeName::Admin,
+        ),
+        unary::<AdminLogout, AdminLogoutResult>(&mut generator, "admin.logout", ScopeName::Admin),
         unary::<SandboxExplain, SandboxExplainResult>(
             &mut generator,
             "sandbox.explain",

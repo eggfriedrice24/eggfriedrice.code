@@ -55,12 +55,15 @@ pub use ids::{
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
+pub use methods::admin_login_api_key::{AdminLoginApiKey, AdminLoginApiKeyResult};
 pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
+pub use methods::admin_logout::{AdminLogout, AdminLogoutResult};
 pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
 pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
 pub use methods::admin_sandbox_check::{AdminSandboxCheck, AdminSandboxCheckResult};
 pub use methods::admin_status::{
-    AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, ProviderStatus, RootDir, RootSource,
+    AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, LoginKind, ProviderStatus, RootDir,
+    RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
