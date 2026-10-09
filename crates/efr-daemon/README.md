@@ -641,7 +641,7 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -663,6 +663,16 @@ The `catalog` module runs the real subscription provider against the local serve
 `/models`: the backend's list applies with its default, windows and tool form, a
 restart while the backend is down offers the cached list and asks with its tag, a 304
 confirms the cached list, and a prompt completes while a fetch hangs.
+
+The `anthropic` module runs the real Anthropic provider against the local Messages
+API (`MessagesServer`): one conversation with an `edit` call and its approval, a second
+turn and an auto compaction before its call, where every request keeps the request
+before it as its prefix outside the compaction, carries the cache markers S, A, P and
+T with their times to live, the `drop_block` beta, the effort `medium` and no member of
+another provider, and the turn's usage carries the cache writes; the first prompt that
+waits for the model list, which a restart reads back from its own cache file while the
+API is down; and a turn without a key that fails as `unauthorized` and calls no model.
+No file but the credential and no log line holds the key.
 
 The `turn_input` module holds each turn in a model that waits for the test: a late
 steer that becomes a prompt (also for a conversation with no live actor after a
