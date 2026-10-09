@@ -8,9 +8,7 @@ use efr_test_support::{Record, TestRng};
 use pretty_assertions::assert_eq;
 
 use crate::ConversationError;
-use crate::compaction::{
-    LeftOut, dropped_note, gap_note, request_tokens, summary_message, summary_request,
-};
+use crate::compaction::{LeftOut, request_tokens, summary_message, summary_request};
 use crate::testing::{
     Harness, MODEL, SUMMARY, Setup, TRIGGER, WINDOW, answer, compacting, compactions, done,
     expect_request, failure, fresh, hold, request, run_two_big_turns, text_answer, two_big_turns,
@@ -235,27 +233,22 @@ async fn a_summary_cut_off_at_the_output_limit_records_nothing() {
 }
 
 #[tokio::test]
-async fn a_summary_request_that_does_not_fit_leaves_out_the_oldest_messages_and_says_so() {
+async fn a_summary_request_that_does_not_fit_leaves_out_the_tail_first_and_loses_nothing() {
     let setup = compacting();
     let state = setup.live_state(&setup.cwd, "one");
     let (mut records, history) = two_big_turns(&setup);
     let base = request(Vec::new());
-    let mut fitting = vec![dropped_note(1)];
-    fitting.extend(history[1..].iter().cloned());
-    let after = vec![
-        fresh(&setup),
-        summary_message(SUMMARY),
-        gap_note(0, 1).expect("a note"),
-        history[2].clone(),
-        history[3].clone(),
-    ];
+    // The tail, the second turn, goes on word for word after the summary, so the
+    // request leaves it out before any message that only the summary keeps.
+    let fitting = history[..2].to_vec();
+    let after =
+        vec![fresh(&setup), summary_message(SUMMARY), history[2].clone(), history[3].clone()];
     let mut next = after.clone();
     next.push(setup.prompt(&state, "three"));
     records.extend([
         expect_request(summary_request(&base, history.clone(), None, LeftOut::default())),
         failure(serde_json::from_str(OVERFLOW).expect("json")),
-        // The prompt names the message that the request leaves out.
-        expect_request(summary_request(&base, fitting, None, LeftOut { turns: 0, messages: 1 })),
+        expect_request(summary_request(&base, fitting, None, LeftOut::default())),
         answer(&text_answer(SUMMARY)),
         expect_request(request(next)),
         answer(&text_answer("ok 3")),
@@ -266,9 +259,8 @@ async fn a_summary_request_that_does_not_fit_leaves_out_the_oldest_messages_and_
     let params = params(&mut h, None);
     let result = h.handle.compact(params).await.expect("compacted");
 
-    assert_eq!((result.compaction.omitted_turns, result.compaction.omitted_messages), (0, 1));
+    assert_eq!((result.compaction.omitted_turns, result.compaction.omitted_messages), (0, 0));
     assert_eq!(result.compaction.tokens_after, request_tokens(&request(after)));
-    // The next turn rebuilds the note from the compaction in the store.
     let three = h.prompt("three").await.turn_id;
     let end = h.wait_end(three).await;
     assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");

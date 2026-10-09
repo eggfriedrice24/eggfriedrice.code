@@ -207,14 +207,15 @@ const OVERFLOW: &str = r#"{"kind": "api", "code": "context_length_exceeded", "me
 
 /// The records of a third turn whose first request the provider refuses as too large.
 /// The summary request of the same history would be refused too, so it leaves out the
-/// oldest message, and the history after the compaction says so.
+/// tail, which the history after the compaction keeps, and then the oldest message,
+/// and the history after the compaction says so.
 fn overflow_records(setup: &Setup) -> (Vec<Record>, Request, Vec<Message>) {
     let state = setup.live_state(&setup.cwd, "one");
     let (mut records, history) = two_big_turns(setup);
     let mut first = history;
     first.push(setup.prompt(&state, "three"));
     let mut fitting = vec![dropped_note(1)];
-    fitting.extend(first[1..].iter().cloned());
+    fitting.extend(first[1..3].iter().cloned());
     let after = vec![
         fresh(setup),
         summary_message(SUMMARY),
@@ -447,14 +448,15 @@ async fn a_failed_summary_above_the_hard_cap_names_the_failure_and_its_cause() {
     let mut refused = first.clone();
     refused.extend([call, result]);
     // NOTE: a summary request above the hard cap never goes out. The newest result
-    // alone passes the trigger, so every message goes, and the note takes their place.
-    let fitting = vec![dropped_note(5)];
+    // alone passes the trigger, so the tail goes, the call with its result, which the
+    // new history keeps after the summary. Every message before the tail stays.
+    let fitting = first.clone();
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "hello")])),
         answer(&text_answer("hi")),
         expect_request(request(first)),
         answer(&tool_answer("call_1", "read_file", &input)),
-        expect_request(summary_without(fitting, 0, 5)),
+        expect_request(summary(fitting)),
         failure(json!({ "kind": "rate_limited", "retry_after_ms": 11_000 })),
     ];
     assert!(request_tokens(&request(refused.clone())) > HARD_CAP);

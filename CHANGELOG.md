@@ -392,8 +392,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A conversation that grew on a model with a large window now goes on with a model of
   a smaller window, such as a move from a Claude model (1M tokens) to an OpenAI model
   (272k tokens). The first turn on the new model compacts before its first call, and
-  the summary request leaves out the oldest messages until it fits the new window. The
-  summary says that it left them out. Before, efr sent the whole history in the
+  the summary request fits the new window: it first leaves out the newest messages,
+  which stay after the summary word for word, and then the oldest messages. The
+  summary says when it left out old messages. Before, efr sent the whole history in the
   summary request, and the provider refused it once as too large.
 - When you change to a model with another edit tool, such as from a Claude model with
   `edit` to an OpenAI model with `apply_patch`, the new model reads the earlier calls of

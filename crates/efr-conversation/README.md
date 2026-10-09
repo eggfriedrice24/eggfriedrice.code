@@ -543,9 +543,13 @@ manual compaction runs them between turns.
      in the model's entry of `[openai] models` wins over it. So the 8000 is a budget
      that the prompt asks for, not a cap that efr can make the provider keep.
 
-   Some messages do not fit in the summary request. Then the oldest messages after the
-   fresh block and the earlier summary go (never so that a tool result comes first, so
-   a tool call never loses its result), and one user message in their place says `N
+   Some messages do not fit in the summary request. Then the newest messages go first,
+   from the end down to the start of the tail: the new history keeps them word for
+   word after the summary, so the summary loses nothing, and the request keeps the
+   prefix of the last request. The request never ends with a tool call. When the
+   request without the tail still does not fit, the oldest messages after the fresh
+   block and the earlier summary go (never so that a tool result comes first, so a
+   tool call never loses its result), and one user message in their place says `N
    earlier messages are omitted: they did not fit in this request.` The summary prompt
    also says it: `This request leaves out N earlier messages of the conversation: they
    did not fit in the model's context. Say so under the first heading.` (with the

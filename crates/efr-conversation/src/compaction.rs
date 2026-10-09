@@ -335,17 +335,32 @@ pub(crate) fn summary_request(
     }
 }
 
-/// The summary request of `messages` (the head first), without the `dropped` oldest
-/// messages after the head, which a note replaces.
-fn summary_of(job: &Job<'_>, messages: &[Message], dropped: usize) -> Request {
+/// Which messages a summary request leaves out to fit in the model's context.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct Trim {
+    /// The newest messages that it leaves out: messages of the verbatim tail, which the
+    /// new history keeps after the summary anyway. A tail message goes before any
+    /// message that only the summary keeps.
+    back: usize,
+    /// The oldest messages after the head that it leaves out, which a note replaces;
+    /// the summary loses them.
+    front: usize,
+}
+
+/// The summary request of `messages` (the head first), without the messages that
+/// `trim` leaves out.
+fn summary_of(job: &Job<'_>, messages: &[Message], trim: Trim) -> Request {
     let head = job.window.head.len().min(messages.len());
+    let end = messages.len().saturating_sub(trim.back).max(head);
     let mut sent = messages[..head].to_vec();
-    if dropped > 0 {
-        sent.push(dropped_note(dropped));
+    if trim.front > 0 {
+        sent.push(dropped_note(trim.front));
     }
-    sent.extend(messages[head.saturating_add(dropped).min(messages.len())..].iter().cloned());
-    let left_out =
-        LeftOut { turns: job.window.omitted, messages: u32::try_from(dropped).unwrap_or(u32::MAX) };
+    sent.extend(messages[head.saturating_add(trim.front).min(end)..end].iter().cloned());
+    let left_out = LeftOut {
+        turns: job.window.omitted,
+        messages: u32::try_from(trim.front).unwrap_or(u32::MAX),
+    };
     summary_request(job.base, sent, job.focus, left_out)
 }
 
@@ -430,8 +445,8 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     let overflow = job.trigger == CompactionTrigger::Overflow;
     let mut messages = job.window.messages();
     let mut used = None;
-    let too_large =
-        overflow || request_tokens(&summary_of(&job, &messages, 0)) > job.limits.hard_cap;
+    let too_large = overflow
+        || request_tokens(&summary_of(&job, &messages, Trim::default())) > job.limits.hard_cap;
     if too_large && pruning.outputs > 0 {
         let pruned = Window {
             head: job.window.head.clone(),
@@ -446,27 +461,28 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     // oldest messages go before the first try. A history that grew on a model with a
     // larger window fits the window of the turn's model this way.
     let refused = overflow.then(|| request_tokens(&with_window(job.base, job.window)));
-    let whole = request_tokens(&summary_of(&job, &messages, 0));
-    let mut dropped = 0;
+    let whole = request_tokens(&summary_of(&job, &messages, Trim::default()));
+    let mut trim = Trim::default();
     if whole > job.limits.hard_cap || refused.is_some_and(|refused| whole >= refused) {
         let target = fit_target(job.limits, refused.unwrap_or(job.limits.window));
-        dropped = shrink(&job, &messages, 0, target).unwrap_or(0);
+        trim = shrink(&job, &messages, tail, trim, target).unwrap_or_default();
     }
-    let mut request = summary_of(&job, &messages, dropped);
+    let mut request = summary_of(&job, &messages, trim);
     let mut answer = summarize(&job, request.clone()).await;
     if matches!(&answer, Answer::Failed(error) if error.is_context_overflow()) {
-        // NOTE: the summary request itself did not fit: the oldest messages go, never
-        // the head with an earlier summary, and the rest is summarized.
+        // NOTE: the summary request itself did not fit: the tail goes first, then the
+        // oldest messages, never the head with an earlier summary, and the rest is
+        // summarized.
         let target = fit_target(job.limits, request_tokens(&request));
-        if let Some(fewer) = shrink(&job, &messages, dropped, target) {
-            dropped = fewer;
-            request = summary_of(&job, &messages, dropped);
+        if let Some(more) = shrink(&job, &messages, tail, trim, target) {
+            trim = more;
+            request = summary_of(&job, &messages, trim);
             answer = summarize(&job, request).await;
         }
     }
-    // NOTE: the messages after the tail's start stay word for word; only those before
-    // it are lost to the summary.
-    let omitted = u32::try_from(dropped.min(tail)).unwrap_or(u32::MAX);
+    // NOTE: the messages after the tail's start stay word for word, also when the
+    // summary request left them out; only those before it are lost to the summary.
+    let omitted = u32::try_from(trim.front).unwrap_or(u32::MAX);
     match answer {
         Answer::Done {
             stop: stop @ (StopReason::MaxTokens | StopReason::ContentFilter), ..
@@ -501,22 +517,39 @@ fn fit_target(limits: ContextLimits, refused: u64) -> u64 {
     limits.trigger.min(refused.saturating_mul(limits.trigger) / limits.window.max(1))
 }
 
-/// How many of the oldest messages after the head of `messages` the summary request
-/// must leave out, more than `dropped`, to be estimated below `target` tokens
-/// ([`fit_target`]). The messages after the note never start with tool results, so a
-/// tool call never loses its result. `None` when nothing more can go.
-fn shrink(job: &Job<'_>, messages: &[Message], dropped: usize, target: u64) -> Option<usize> {
+/// The messages that the summary request must leave out, more than `trim`, to be
+/// estimated below `target` tokens ([`fit_target`]). `tail` is where the verbatim tail
+/// starts in the window's messages after the head. The newest messages go first, down
+/// to the start of the tail, because the new history keeps them after the summary;
+/// then the oldest messages after the head go. The kept messages never end with a tool
+/// call, and those after the note never start with tool results, so a tool call never
+/// loses its result. `None` when nothing more can go.
+fn shrink(
+    job: &Job<'_>,
+    messages: &[Message],
+    tail: usize,
+    trim: Trim,
+    target: u64,
+) -> Option<Trim> {
     let head = job.window.head.len().min(messages.len());
-    let movable = messages.len() - head;
-    for drop in dropped.saturating_add(1)..=movable {
-        if messages.get(head + drop).is_some_and(is_results) {
-            continue;
+    let tail_len = messages.len().saturating_sub(head.saturating_add(tail));
+    let backs = (1..=tail_len)
+        .filter(|&back| {
+            let last = messages.len().checked_sub(back + 1);
+            !last.and_then(|last| messages.get(last)).is_some_and(calls_tool)
+        })
+        .map(|back| Trim { back, front: 0 });
+    let fronts = (1..=tail)
+        .filter(|&front| front == tail || !messages.get(head + front).is_some_and(is_results))
+        .map(|front| Trim { back: tail_len, front });
+    let mut last = None;
+    for candidate in backs.chain(fronts).filter(|candidate| *candidate > trim) {
+        if request_tokens(&summary_of(job, messages, candidate)) < target {
+            return Some(candidate);
         }
-        if drop == movable || request_tokens(&summary_of(job, messages, drop)) < target {
-            return Some(drop);
-        }
+        last = Some(candidate);
     }
-    None
+    last
 }
 
 /// How the summary call ended.
