@@ -12,7 +12,11 @@
 //!
 //! Without a provider, the daemon gets a replay provider with an empty transcript, so a
 //! test can never reach the network by accident.
+//!
+//! [`MessagesServer`] stands in for Anthropic's Messages API and its model list, for a
+//! daemon that runs the Anthropic provider.
 
+mod messages;
 mod responses;
 
 use std::collections::BTreeMap;
@@ -36,6 +40,7 @@ use jiff::tz::TimeZone;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+pub use self::messages::{MessagesAnswer, MessagesRequest, MessagesServer, ModelsPageRequest};
 pub use self::responses::{
     ModelsAnswer, ModelsRequest, ReceivedRequest, ResponsesAnswer, ResponsesServer, TokenRequest,
 };

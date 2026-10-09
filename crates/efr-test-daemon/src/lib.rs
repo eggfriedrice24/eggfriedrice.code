@@ -6,6 +6,8 @@
 //!   in-memory (or file) store, the [`FakePtyHolder`] or the build's own PTY holder,
 //!   and a `ReplayProvider` or the real OpenAI provider against a [`ResponsesServer`].
 //!   It hands out `efr_client::Client`s and reads the event log back.
+//! - [`MessagesServer`]: a stand-in for Anthropic's Messages API and its model list,
+//!   for a daemon that runs the Anthropic provider.
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
 //!   with scripted bytes ([`PtyScript`], [`FakeTerminal`]).
 //! - [`Replay`]: drives a [`Scenario`], an NDJSON transcript from `fixtures/`, through a
@@ -37,8 +39,9 @@ pub use replay::{
     ScenarioSpec,
 };
 pub use test_daemon::{
-    API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME, ModelsAnswer, ModelsRequest, OS,
-    ReceivedRequest, ResponsesAnswer, ResponsesServer, SUBSCRIPTION_ACCESS_TOKEN,
-    SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL, SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY,
-    TestDaemon, TestDaemonBuilder, TokenRequest, command_id, events_until,
+    API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME, MessagesAnswer, MessagesRequest,
+    MessagesServer, ModelsAnswer, ModelsPageRequest, ModelsRequest, OS, ReceivedRequest,
+    ResponsesAnswer, ResponsesServer, SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT,
+    SUBSCRIPTION_CREDENTIAL, SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY, TestDaemon,
+    TestDaemonBuilder, TokenRequest, command_id, events_until,
 };

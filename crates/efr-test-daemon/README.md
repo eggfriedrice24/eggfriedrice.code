@@ -34,6 +34,19 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   bare status such as 304 or 503, and a delay for a backend that hangs), else with a
   404. It keeps each fetch as a `ModelsRequest` (`client_version`, `If-None-Match`,
   `originator`).
+- `test_daemon/messages`: `MessagesServer`, a wiremock server in place of Anthropic's
+  Messages API. It answers `POST /v1/messages` from a queue of `MessagesAnswer`s (a
+  status, a body and an optional `retry-after`; `MessagesAnswer::text` streams one text
+  block that ends the turn, `MessagesAnswer::tool_use` one tool call whose input
+  streams in two parts, `MessagesAnswer::events` any scripted events, and
+  `MessagesAnswer::error` an error body of the API), with a `request-id` header on
+  each answer. It keeps every call as a `MessagesRequest` (the body, `Authorization`,
+  `x-api-key`, `anthropic-version`, `anthropic-beta` and `anthropic-workspace-id`;
+  `Debug` hides the key). It also answers `GET /v1/models` in pages by `limit` (20
+  when absent) and `after_id`, from the list of `set_models` (`MessagesServer::model`
+  makes an active entry), or with the answer of `refuse_models`, else with a 404, and
+  keeps each request as a `ModelsPageRequest`. The provider's catalog fetch and its
+  key check both reach it.
 - `pty_script`: `FakePtyHolder`, a `PtyHolder` whose masters are socketpairs. The test
   takes the other end of the n-th spawned PTY as a `FakeTerminal`, reads what the
   session types (`typed_line`, `typed_against`) and prints what a zsh with the efr
@@ -82,7 +95,7 @@ types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder
 
 Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `futures`,
 `async-trait` (the holder trait), `serde_json`, `jiff` (the time zone), `wiremock`
-(the Responses server) and `thiserror`.
+(the Responses and Messages servers) and `thiserror`.
 
 ## Invariant
 
@@ -103,7 +116,8 @@ cargo nextest run -p efr-test-daemon
 ```
 
 The unit tests drive the fake holder over its socketpairs (typing, printing, scripts,
-signals, `wait`, release), the id placeholders, the Responses server over plain HTTP,
+signals, `wait`, release), the id placeholders, the Responses and Messages servers
+over plain HTTP (the Messages server's answers, its kept headers and its model pages),
 the test daemon's start, stop and restart (with and without a file store), and the
 replay: the scenario table against the fixture directory, a whole scenario, and the
 failures a fixture can show (a different event, typed line or request, an unbound
