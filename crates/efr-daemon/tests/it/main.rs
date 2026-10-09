@@ -10,6 +10,7 @@
 mod apply_patch;
 mod approvals;
 mod backtrace;
+mod cache_prefix;
 mod catalog;
 mod compact;
 mod drafts;
