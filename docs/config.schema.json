@@ -406,7 +406,7 @@
       "description": "`[model]`: the provider, the default model of a turn and what each request carries.",
       "properties": {
         "effort": {
-          "description": "The default reasoning effort, such as `low`, `medium` or `high`. Unset: the\nbackend's own default for the model.",
+          "description": "The default reasoning effort, such as `low`, `medium` or `high`. Unset: the\nprovider's default for the model (`medium` for Claude models).",
           "type": [
             "string",
             "null"
@@ -422,7 +422,7 @@
           ]
         },
         "name": {
-          "description": "The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the\nbest priority in the provider's model catalog (today the table built into efr).",
+          "description": "The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset:\nthe default of the provider's model catalog: for OpenAI the model with the best\npriority, for Anthropic `claude-opus-5-5` when the API lists it.",
           "type": [
             "string",
             "null"
@@ -430,7 +430,7 @@
         },
         "provider": {
           "default": "openai-subscription",
-          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan),\n`openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key, which\nthis version of efrd cannot use yet). Needs a restart.",
+          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan),\n`openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs\na restart.",
           "type": "string"
         },
         "system_prompt": {

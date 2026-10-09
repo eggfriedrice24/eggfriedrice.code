@@ -36,9 +36,9 @@ The provider, the default model of a turn and what each request carries.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `provider` | `"openai-subscription"` | restart | The provider of new conversations: `openai-subscription` (the ChatGPT plan), `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key, which this version of efrd cannot use yet). Needs a restart. |
-| `name` | unset | live | The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the best priority in the provider's model catalog (today the table built into efr). |
-| `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`. Unset: the backend's own default for the model. |
+| `provider` | `"openai-subscription"` | restart | The provider of new conversations: `openai-subscription` (the ChatGPT plan), `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs a restart. |
+| `name` | unset | live | The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset: the default of the provider's model catalog: for OpenAI the model with the best priority, for Anthropic `claude-opus-5-5` when the API lists it. |
+| `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`. Unset: the provider's default for the model (`medium` for Claude models). |
 | `system_prompt` | built in | live | The system prompt of every request. |
 | `max_output_tokens` | unset | live | The most tokens one model call may produce. Unset: the provider's default. |
 

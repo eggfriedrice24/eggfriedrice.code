@@ -19,8 +19,8 @@ Modules:
   max_output_tokens }` (`ModelLimits`); the key is still a list of strings for
   `efr config set` and an override, and only an editor writes the tables. The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
-  `validate` when it needs one, and its line in the example. The keys of
-  `[anthropic]` are read and checked, but efrd does not use them yet.
+  `validate` when it needs one, and its line in the example. efrd builds the
+  provider of `anthropic-api` from the keys of `[anthropic]`.
 - `tables/render`: `[render]` (`RenderSettings`): `theme` (`auto`, `AUTO_THEME`,
   takes `theme_dark` or `theme_light` by the terminal's background), `theme_dark`
   (default `catppuccin-mocha`), `theme_light` (default `catppuccin-latte`), `palette`

@@ -121,15 +121,16 @@ pub enum SudoCache {
 #[non_exhaustive]
 pub struct ModelSettings {
     /// The provider of new conversations: `openai-subscription` (the ChatGPT plan),
-    /// `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key, which
-    /// this version of efrd cannot use yet). Needs a restart.
+    /// `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs
+    /// a restart.
     pub provider: String,
-    /// The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the
-    /// best priority in the provider's model catalog (today the table built into efr).
+    /// The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset:
+    /// the default of the provider's model catalog: for OpenAI the model with the best
+    /// priority, for Anthropic `claude-opus-5-5` when the API lists it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The default reasoning effort, such as `low`, `medium` or `high`. Unset: the
-    /// backend's own default for the model.
+    /// provider's default for the model (`medium` for Claude models).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
     /// The system prompt of every request.
