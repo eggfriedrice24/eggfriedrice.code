@@ -3,7 +3,7 @@
 //! 60 turns and past the 4096-event page. The one exception is the first request after
 //! a compaction. The README, "The history only grows", is the contract.
 
-use efr_protocol::{ConversationCompact, Event};
+use efr_protocol::{ConversationCompact, Event, Origin};
 use efr_provider::{ContentBlock, Request, Role};
 use pretty_assertions::assert_eq;
 
@@ -166,5 +166,45 @@ async fn a_custom_system_prompt_keeps_the_rule_of_the_live_state_and_old_blocks_
     }
     assert_eq!(check(2, one, two), None);
     assert_eq!(check(3, two, three), None);
+    h.finish();
+}
+
+/// A last command with a secret in each form that the preamble redacts.
+const SECRET_COMMAND: &str = "mysql -u root -phunter2 db && git clone https://me:t0ken@example.com/r \
+                              && curl -H 'Authorization: Bearer abc123' x";
+
+/// The secrets in [`SECRET_COMMAND`].
+const SECRETS: &[&str] = &["hunter2", "t0ken", "abc123"];
+
+/// The redaction runs when the preamble is rendered, so the prompt that the store keeps
+/// is the prompt that the model read: after a restart, the next request sends the first
+/// prompt again byte for byte, from the store, and no request holds a secret.
+#[tokio::test]
+async fn the_kept_preamble_is_redacted_once_and_sent_again_as_it_was() {
+    let setup = Setup::new();
+    let model = Recorder::new(2);
+    let mut h = setup.start_model(model.clone()).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "why did it fail");
+    params.last_command = Some(SECRET_COMMAND.to_owned());
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.expect("prompt accepted");
+    h.wait_end(sent.turn_id).await;
+    h = h.restart_model(model.clone()).await;
+    let sent = h.prompt("and now?").await;
+    h.wait_end(sent.turn_id).await;
+
+    let requests = model.requests();
+    let [first, second] = requests.as_slice() else {
+        panic!("two requests: {}", requests.len());
+    };
+    assert_eq!(first_edit(first, second), None, "the stored prompt is the sent prompt");
+    let prompt = first_text(&first.messages[0]);
+    let redacted = "mysql -u root -p[redacted] db && git clone https://me:[redacted]@example.com/r \
+                    && curl -H 'Authorization: Bearer [redacted]' x";
+    assert!(prompt.contains(redacted), "{prompt}");
+    let sent = format!("{requests:?}");
+    for secret in SECRETS {
+        assert!(!sent.contains(secret), "{secret} reached a request");
+    }
     h.finish();
 }

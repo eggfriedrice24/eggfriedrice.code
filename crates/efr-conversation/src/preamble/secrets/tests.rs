@@ -194,6 +194,89 @@ fn a_header_without_a_secret_stays(#[case] line: &str) {
     assert_eq!(redact(line), line);
 }
 
+#[rstest]
+#[case::mysql("mysql -u root -phunter2 app", "mysql -u root -p[redacted] app")]
+#[case::mysql_quoted("mysql -uroot -p'a b' app", "mysql -uroot -p'[redacted]' app")]
+#[case::mysqldump("mysqldump -pabc app > dump.sql", "mysqldump -p[redacted] app > dump.sql")]
+#[case::mariadb_long("mariadb --password=abc", "mariadb --password=[redacted]")]
+#[case::sudo("sudo -u mysql mysql -pabc", "sudo -u mysql mysql -p[redacted]")]
+#[case::env("env -i A=1 mysql -pabc", "env -i A=1 mysql -p[redacted]")]
+#[case::path_of_the_program("/usr/bin/mysql -pabc", "/usr/bin/mysql -p[redacted]")]
+#[case::after_an_assignment("LANG=C mysql -pabc", "LANG=C mysql -p[redacted]")]
+#[case::timeout("timeout -s KILL 5 mysql -pabc", "timeout -s KILL 5 mysql -p[redacted]")]
+#[case::second_command("cd x && mysql -pabc", "cd x && mysql -p[redacted]")]
+#[case::sshpass("sshpass -p abc ssh host", "sshpass -p [redacted] ssh host")]
+#[case::sshpass_attached("sshpass -pabc ssh host", "sshpass -p[redacted] ssh host")]
+#[case::docker_login(
+    "docker login -u me -p abc registry.io",
+    "docker login -u me -p [redacted] registry.io"
+)]
+#[case::docker_login_long(
+    "docker login --password abc registry.io",
+    "docker login --password [redacted] registry.io"
+)]
+#[case::helm_repo(
+    "helm repo add r https://x --username u --password abc",
+    "helm repo add r https://x --username u --password [redacted]"
+)]
+#[case::redis("redis-cli -h h -a abc ping", "redis-cli -h h -a [redacted] ping")]
+#[case::mongosh("mongosh -u admin -p abc", "mongosh -u admin -p [redacted]")]
+#[case::curl_user("curl -u me:abc https://x", "curl -u me:[redacted] https://x")]
+#[case::curl_user_attached("curl -ume:abc https://x", "curl -ume:[redacted] https://x")]
+#[case::curl_user_long("curl --user 'me:a b' https://x", "curl --user 'me:[redacted]' https://x")]
+#[case::zip("zip -P abc out.zip f", "zip -P [redacted] out.zip f")]
+#[case::seven_zip("7z a -pabc out.7z f", "7z a -p[redacted] out.7z f")]
+#[case::ldap("ldapsearch -D cn=me -w abc", "ldapsearch -D cn=me -w [redacted]")]
+#[case::openssl(
+    "openssl rsa -in k.pem -passin pass:abc",
+    "openssl rsa -in k.pem -passin pass:[redacted]"
+)]
+#[case::openssl_key("openssl enc -aes-256-cbc -k abc", "openssl enc -aes-256-cbc -k [redacted]")]
+#[case::wget("wget --http-password abc x", "wget --http-password [redacted] x")]
+#[case::gpg("gpg --batch --passphrase abc -d f", "gpg --batch --passphrase [redacted] -d f")]
+#[case::kubectl("kubectl --token abc get pods", "kubectl --token [redacted] get pods")]
+fn the_value_of_a_password_option_is_redacted(#[case] line: &str, #[case] redacted: &str) {
+    assert_eq!(redact(line), redacted);
+}
+
+#[rstest]
+#[case::mysql_asks("mysql -u root -p app")]
+#[case::mysql_asks_last("mysql -u root -p")]
+#[case::mysql_port("mysql -P 3306 -h db")]
+#[case::mysql_long_asks("mysql --password app")]
+#[case::psql_asks("psql --password -d app")]
+#[case::docker_run("docker run -p 8080:80 nginx")]
+#[case::podman_port("podman run -p 80:80 img")]
+#[case::other_program("grep -p abc file")]
+#[case::ssh_port("ssh -p 2222 host")]
+#[case::scp_port("scp -P 2222 f host:")]
+#[case::mongosh_asks("mongosh -u admin -p --authenticationDatabase admin")]
+#[case::curl_user_asks("curl -u me https://x")]
+#[case::curl_agent("curl --user-agent 'x:y' https://x")]
+#[case::openssl_env("openssl rsa -in k.pem -passin env:KEY")]
+#[case::reference(r#"mysql -p"$MYSQL_PWD" app"#)]
+#[case::reference_next("sshpass -p $PASS ssh host")]
+#[case::after_double_dash("sshpass -- -p abc")]
+#[case::program_as_argument("echo mysql -pabc")]
+#[case::stdin("docker login -u me --password-stdin registry.io")]
+fn an_option_that_takes_no_password_here_stays(#[case] line: &str) {
+    assert_eq!(redact(line), line);
+}
+
+#[test]
+fn secrets_in_several_forms_on_one_line_each_go_once() {
+    let line = "A_TOKEN=x curl -u me:pw -H 'Authorization: Bearer sk-proj-ABCDEFGHIJKLMNOPQRST' \
+                https://u:p@h && mysql -pq";
+    assert_eq!(
+        redact(line),
+        "A_TOKEN=[redacted] curl -u me:[redacted] -H 'Authorization: Bearer [redacted]' \
+         https://u:[redacted]@h && mysql -p[redacted]"
+    );
+}
+
+/// Parts of lines that end a pattern early or late: quotes that do not close, a
+/// backslash at the end, characters outside ASCII next to the characters that the
+/// patterns look for.
 const FRAGMENTS: &[&str] = &[
     "mysql -p",
     "ü",

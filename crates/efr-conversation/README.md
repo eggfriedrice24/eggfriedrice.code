@@ -346,12 +346,20 @@ The design:
    of each block says that only the newest live-state block is current, so a system
    prompt replaced in `config.toml` cannot lose the rule (the default system prompt
    says it too). A block keeps the bytes it was sent with, so a newer efr whose
-   preamble says more changes only the blocks of new prompts. The preamble shows
-   the user's last command with its secrets redacted when it is rendered (the value of
-   an assignment to a name that `efr_sandbox::secret_like` matches, and key forms such
-   as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`), so the bytes that the store keeps are
-   the bytes that went to the model. The events keep only the prompt's text; a turn
-   rebuilt from its events has no preamble.
+   preamble says more changes only the blocks of new prompts. The preamble shows the
+   user's last command with its secrets redacted when it is rendered, so the bytes
+   that the store keeps are the bytes that went to the model (`preamble/secrets.rs`).
+   It redacts the value of an assignment to a name that `efr_sandbox::secret_like`
+   matches; key forms such as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`; the password of
+   a URL (`https://user:[redacted]@host`); the value of a secret header
+   (`Authorization`, `Proxy-Authorization`, `Cookie` and the names that look like
+   secrets) after its scheme (`Authorization: Bearer [redacted]`); and the value of an
+   option that takes a password, only for the programs in its list
+   (`mysql -p[redacted]`, `sshpass -p`, `docker login -p`, `curl -u user:[redacted]`).
+   The list is per program because the same option means something else elsewhere
+   (`docker run -p 8080:80`, `psql --password`). A value that names another value
+   (`$TOKEN`) stays. The events keep only the prompt's text; a turn rebuilt from its
+   events has no preamble.
 2. The list of earlier turns comes from the conversation's turns
    (`efr_store::conversations::turns`) and the saved messages, never from the
    4096-event page. A turn counts when it started and finished and the newest summary
@@ -836,9 +844,11 @@ facts and the record against the real engine. The calls of tools that a request 
 not offer are covered by table tests (`unoffered/tests.rs`) and by turns that move an
 `edit` call from a Claude model to an OpenAI model and an `apply_patch` call the other
 way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The
-preamble is covered by insta
-snapshots, and the redaction of the last command by table tests
-(`preamble/secrets/tests.rs`). The append-only test (`turn/tests/append_only.rs`) runs
+preamble is covered by insta snapshots, and the redaction of the last command by table
+tests with the lines that must change and the lines that must stay
+(`preamble/secrets/tests.rs`, and the shell words in `preamble/secrets/words/tests.rs`);
+`append_only.rs` checks that a redacted prompt goes again, byte for byte from the
+store, after a restart. The append-only test (`turn/tests/append_only.rs`) runs
 64 turns against a model that keeps every request (`testing::Recorder`), with tool
 calls, a manual compaction, a restart and more than 4096 events, and checks that each
 request starts with the request before it, except the first one after the

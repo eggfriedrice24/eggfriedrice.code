@@ -6,10 +6,11 @@
 //! disk and every request after it. [`redact`] runs when the preamble is rendered, so
 //! the bytes that the store keeps are the bytes that the model read. It is a pattern
 //! list, not a shell parser: it redacts too much rather than too little, but it does
-//! not touch words that only look like the patterns (`http://host:8080/`,
-//! `grep -r "password:" .`).
+//! not touch words that only look like the patterns (`docker run -p 8080:80`,
+//! `http://host:8080/`, `grep -r "password:" .`).
 
 mod header;
+mod options;
 mod url;
 mod words;
 
@@ -38,7 +39,9 @@ const KEY_MIN_CHARS: usize = 16;
 ///   [`KEY_MIN_CHARS`] key characters;
 /// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]);
 /// - the value of a header that carries a secret, such as `Authorization: Bearer x`,
-///   without its scheme ([`header::values`]).
+///   without its scheme ([`header::values`]);
+/// - the value of an option that takes a password, for the programs known to take one
+///   there, such as `mysql -psecret` ([`options::values`]).
 ///
 /// A value that starts with `$` or a backtick names another value and stays. When two
 /// secrets overlap or touch, one marker replaces both.
@@ -48,6 +51,7 @@ pub(crate) fn redact(line: &str) -> String {
     found.extend(keys(line));
     found.extend(url::passwords(line));
     found.extend(header::values(&commands));
+    found.extend(options::values(&commands));
     replace(line, found)
 }
 

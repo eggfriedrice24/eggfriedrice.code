@@ -419,9 +419,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - The `<live_state>` block shows your last command with its secrets redacted: the
   value of an assignment to a name that looks like a secret, such as
-  `export GITHUB_TOKEN=...` or `--api-key=...`, and each word in the form of a known
-  key (`sk-ant-`, `sk-proj-`, `sk-`, `ghp_` and the other GitHub token forms). efr now
-  saves the block with the turn and sends it again with every later request, so a
+  `export GITHUB_TOKEN=...` or `--api-key=...`; each word in the form of a known key
+  (`sk-ant-`, `sk-proj-`, `sk-`, `ghp_` and the other GitHub token forms); the password
+  of a URL, such as `https://user:...@host`; the value of an `Authorization`,
+  `Cookie` or other secret header, such as `-H 'Authorization: Bearer ...'`, without
+  its scheme; and the password option of the programs that take one, such as
+  `mysql -p...`, `sshpass -p ...`, `docker login -p ...` and `curl -u user:...`. efr
+  now saves the block with the turn and sends it again with every later request, so a
   secret there would reach the disk and every request after it. The list of patterns
   cannot find every secret: a secret in another form stays in the command.
 
