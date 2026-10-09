@@ -236,9 +236,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - New keys `[openai] organization` and `[openai] project`, sent as the
   `OpenAI-Organization` and `OpenAI-Project` headers of every request with an API
   key. Both need a restart of efrd.
+- A new page, `docs/providers.md`, tells how to log in with an API key, how to change
+  the provider, which settings the Claude models have (`[anthropic] cache_ttl` and what
+  `auto` does, the workspace id, a smaller window), and what makes the prompt cache
+  miss.
 - Do not put an API key in the environment of the efrd service: efrd does not read
   it, and it gives its environment to the hidden shells, where a command of the agent
-  can read it outside the `auto` sandbox. The README says more.
+  can read it outside the `auto` sandbox. `docs/providers.md` says more.
 
 ### Changed
 

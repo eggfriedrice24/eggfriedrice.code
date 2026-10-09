@@ -248,7 +248,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   its hint and the check with its provider in
   `crates/efr-daemon/src/providers/api_key.rs`; the requests of the check in
   `crates/efr-provider-openai/src/catalog/client.rs` and
-  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`).
+  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`). The user's
+  guide to the providers, their logins and the Claude settings: `docs/providers.md`.
 - The Responses WebSocket transport: the contract in
   `crates/efr-provider-openai/README.md`, section "WebSocket transport"; the
   connection of each conversation and the fallback to HTTP in
@@ -258,8 +259,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-config/src/tables.rs`.
 - The Anthropic provider: the contract (the request, the prompt cache markers, the
   catalog, the token counts and the failures) in `crates/efr-provider-anthropic/README.md`;
-  the placement of the cache markers in
-  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`; which error answers are
+  the placement of the cache markers and their debug line in
+  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`, and the gap before each
+  model call (`gap_ms`, for the measurement of the time to live) in
+  `crates/efr-conversation/src/gap.rs`; which error answers are
   sent again in `crates/efr-provider-anthropic/src/failure.rs`; the fake Messages API
   and model list for daemon tests, `MessagesServer`, in
   `crates/efr-test-daemon/src/test_daemon/messages.rs` (`TestDaemonBuilder::messages`

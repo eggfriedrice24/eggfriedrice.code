@@ -21,7 +21,7 @@ The daemon owns the model loop. It talks to the model API directly. It does not 
 
 ## Status
 
-Pre-alpha. The first milestone runs: the daemon with its event log, one model provider (the OpenAI subscription), the shell tool, the permission rules, the zsh plugin and the `efr` CLI. MCP, skills, memory, attaching to a hidden shell and the phone come in later milestones.
+Pre-alpha. The first milestone runs: the daemon with its event log, the model providers (the OpenAI subscription, an OpenAI API key and Anthropic's Claude models with an API key), the shell tool, the permission rules, the zsh plugin and the `efr` CLI. MCP, skills, memory, attaching to a hidden shell and the phone come in later milestones.
 
 ## Install
 
@@ -51,7 +51,7 @@ The daemon starts one hidden zsh for each conversation, and that zsh reads your 
 
 ### API keys
 
-You can use the OpenAI API with an API key instead of the ChatGPT plan. Anthropic's Claude models also need an API key; efrd cannot use them yet, but it can keep the key.
+You can use the OpenAI API with an API key instead of the ChatGPT plan. Anthropic's Claude models need an API key. [`docs/providers.md`](docs/providers.md) tells more: the Claude models and their settings, the workspace id and the prompt cache.
 
 ```sh
 efr login openai-api                  # type the key at a prompt that does not show it
@@ -62,14 +62,15 @@ efr logout anthropic                  # forget the key; revoke it at the provide
 
 - efr never takes a key as an argument: other users can read the arguments of a process, and the shell keeps them in its history.
 - efrd checks the key with one request that runs no model. Then it keeps the key in `secrets/` of its data root, in a file that only you can read. `--no-check` stores the key without the check, for a computer that is offline. `efr status` shows the start and the last four characters of each key, such as `sk-ant-...a1b2`.
-- A login does not change the provider of new conversations. Set `provider` under `[model]`, such as `efr config set model.provider openai-api`, and restart efrd: `systemctl --user restart efrd`.
+- A login does not change the provider of new conversations. Set `provider` under `[model]`, such as `efr config set model.provider anthropic-api`, and restart efrd: `systemctl --user restart efrd`.
+- For Claude, efrd gets the list of models from the API. The default model is `claude-opus-5-5` with the effort `medium`, as in Claude Code. `[anthropic] cache_ttl` sets how long the prompt cache keeps the conversation (`auto` by default), and `[anthropic] workspace_id` names the workspace of a key that is not scoped to one.
 - `organization` and `project` under `[openai]` choose the organization and the project that an OpenAI key bills.
 - Do not put a key in the environment of the efrd service (`~/.config/environment.d`, `systemctl --user set-environment` or the unit file). efrd does not read it there. efrd gives its whole environment to the hidden shells, so in the `manual` and `cautious` modes a command of the agent can read the key with `env`. Only the `auto` sandbox removes names such as `*API_KEY*`. Use `efr login`.
 
 ## Use
 
 - `, <prompt>` sends a prompt with the current directory, the terminal and the last command, and the reply streams below it. A prompt sent while a turn runs waits for it.
-- efr is not a full-screen program: the reply goes into your scrollback like the output of any command, and the prompt comes back at once when the turn ends. While the turn runs, the last row shows a spinner, what the turn does, its time and how full the model's context is, such as `⠴ writing  12s  ctx 43%`. A command of the agent shows on one line with the spinner and its time, such as `⠹ $ cargo test -p app  12s`, and its last three output lines below. When the command ends, one line stays, such as `$ cargo test -p app  exit 101  6.2s`; a failed command also keeps its last three output lines. The turn ends with one dim line, such as `done in 42s, ctx 43% (89k/206k), 1.1k out`. In Ghostty 1.2 or later, the tab shows a progress bar while the turn runs.
+- efr is not a full-screen program: the reply goes into your scrollback like the output of any command, and the prompt comes back at once when the turn ends. While the turn runs, the last row shows a spinner, what the turn does, its time and how full the model's context is, such as `⠴ writing  12s  ctx 43%`. A command of the agent shows on one line with the spinner and its time, such as `⠹ $ cargo test -p app  12s`, and its last three output lines below. When the command ends, one line stays, such as `$ cargo test -p app  exit 101  6.2s`; a failed command also keeps its last three output lines. The turn ends with one dim line, such as `done in 42s, ctx 43% (89k/206k), 1.1k out, cache 91%`: `cache 91%` is the part of the turn's input that came from the provider's prompt cache. In Ghostty 1.2 or later, the tab shows a progress bar while the turn runs.
 - `,` alone, or Ctrl+Space, switches sticky agent mode on: a robot (🤖) stands before the text you type, and every line goes to the agent. Your prompt itself does not change. When you press Enter, the robot becomes the first word of the line, so the screen and history show `🤖 <prompt>`, and that line goes to the agent again when you recall it from history. `!<command>` runs one shell command, a line that starts with `,` runs that command, and `,` alone switches sticky mode off. A line of just `mode`, `model` or `effort`, alone or with one value that efr accepts (`mode auto`, `effort high`), runs as `,mode`, `,model` or `,effort`; any other line that starts with one of these words (`model the database schema`) goes to the agent.
 - A `,word` that is not a plugin command and that zsh cannot run is a prompt that starts with the word: `,run sudo pacman -Syu` sends `run sudo pacman -Syu`, and the line shows as `, run sudo pacman -Syu`. A `,word` command, function or alias of your own still runs, and so does a line that defines one, such as `,mine() { ... }`. `,!stop` steers with `stop`, as `,! stop` does, and a typo of a plugin command such as `,moed auto` stays on the line with a hint instead of reaching the model; `, moed auto` sends it as a prompt.
 - `,new [prompt]` starts a new conversation in this terminal. Without a prompt, the next `,` line starts it.
@@ -124,7 +125,7 @@ Where efr keeps its files: each root is its own variable (`EFR_CONFIG_DIR`, `EFR
 |---|---|
 | `ARCHITECTURE.md` | The crate map, the dependency rule and the threading model |
 | `CONVENTIONS.md` | How code in this repository is written |
-| `docs/` | Protocol, storage, permissions, the auto sandbox, the config reference and schema (generated by `cargo xtask config-docs`), the ghostty pin and the decision records |
+| `docs/` | Protocol, storage, permissions, the auto sandbox, the providers and their logins, the config reference and schema (generated by `cargo xtask config-docs`), the ghostty pin and the decision records |
 | `crates/` | The Rust workspace, one crate for each bounded context |
 | `shell/zsh/` | The zsh plugin |
 | `systemd/` | The user unit for the daemon |
