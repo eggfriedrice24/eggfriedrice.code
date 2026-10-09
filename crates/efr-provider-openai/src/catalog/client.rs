@@ -207,9 +207,9 @@ impl CatalogClient {
 /// of `config`, the API key backend's, before a login stores the key. `Ok` for a 200;
 /// a 401 is `ProviderError::Unauthorized` and any other status an `Api` error, each
 /// with the server's message; no answer is a `Transport` error. The request runs no
-/// model, and it is sent again only after an answer that says the server did not
-/// handle it. The key never reaches an error or a log line: a server message that
-/// quotes it shows a placeholder.
+/// model and goes once: a person waits for the answer and can ask again. The key never
+/// reaches an error or a log line: a server message that quotes it shows a
+/// placeholder.
 pub async fn check_key(
     http: &HttpClient,
     config: &OpenAiConfig,
@@ -220,7 +220,7 @@ pub async fn check_key(
         .header(header::ACCEPT, HeaderValue::from_static("application/json"))
         .timeout(CHECK_TIMEOUT);
     let request = sign(&unsigned, config, &AccessToken::new(key.clone())).map_err(transport)?;
-    let response = http.send_with_retry(&request, config.retry()).await.map_err(transport)?;
+    let response = http.send(&request).await.map_err(transport)?;
     let status = response.status();
     if status.is_success() {
         return Ok(());
