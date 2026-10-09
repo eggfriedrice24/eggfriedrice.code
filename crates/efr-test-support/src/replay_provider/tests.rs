@@ -188,12 +188,18 @@ type Check = fn(&ProviderError) -> bool;
 
 #[tokio::test]
 async fn error_events_end_the_answer_with_a_provider_error() {
-    let cases: [(&str, Check); 6] = [
+    let cases: [(&str, Check); 7] = [
         (r#"{"kind":"api","code":"context_length_exceeded","message":"too long"}"#, |e| {
             matches!(e, ProviderError::ContextOverflow { status: None, code: Some(code), .. }
                 if code == "context_length_exceeded")
         }),
-        (r#"{"kind":"unauthorized"}"#, |e| matches!(e, ProviderError::Unauthorized)),
+        (r#"{"kind":"unauthorized"}"#, |e| {
+            matches!(e, ProviderError::Unauthorized { message: None })
+        }),
+        (
+            r#"{"kind":"unauthorized","message":"invalid x-api-key"}"#,
+            |e| matches!(e, ProviderError::Unauthorized { message: Some(m) } if m == "invalid x-api-key"),
+        ),
         (r#"{"kind":"not_logged_in"}"#, |e| matches!(e, ProviderError::NotLoggedIn)),
         (r#"{"kind":"incomplete"}"#, |e| matches!(e, ProviderError::Incomplete)),
         (r#"{"kind":"rate_limited","retry_after_ms":1500}"#, |e| {

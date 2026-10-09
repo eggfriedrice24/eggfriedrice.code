@@ -63,13 +63,23 @@ pub trait TokenSource: Send + Sync + fmt::Debug {
     /// The next [`access_token`](TokenSource::access_token) refreshes instead of
     /// returning it again. A source that cannot refresh does nothing.
     async fn invalidate(&self);
+
+    /// True when [`invalidate`](TokenSource::invalidate) can get a new token, so a
+    /// provider that gets a 401 invalidates the token and sends the request once more.
+    /// False for a token that never changes, such as an API key: the same token would
+    /// get the same 401, so the provider fails at once with
+    /// [`ProviderError::Unauthorized`]. True by default.
+    fn refreshable(&self) -> bool {
+        true
+    }
 }
 
 /// A token that never changes: an API key from the config or the credential store.
 ///
-/// [`invalidate`](TokenSource::invalidate) does nothing, so a rejected key stays
-/// rejected and the provider reports [`ProviderError::Unauthorized`] after its one
-/// retry. The key names no account. `Debug` does not show the key.
+/// It is not [`refreshable`](TokenSource::refreshable) and
+/// [`invalidate`](TokenSource::invalidate) does nothing, so a provider reports
+/// [`ProviderError::Unauthorized`] at the first 401. The key names no account. `Debug`
+/// does not show the key.
 #[derive(Debug, Clone)]
 pub struct StaticToken {
     token: SecretString,
@@ -89,6 +99,10 @@ impl TokenSource for StaticToken {
     }
 
     async fn invalidate(&self) {}
+
+    fn refreshable(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

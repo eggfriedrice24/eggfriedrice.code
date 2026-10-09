@@ -107,15 +107,18 @@ impl CatalogClient {
                 return Ok(Fetched::NotModified);
             }
             if status == StatusCode::UNAUTHORIZED {
+                if !self.tokens.refreshable() {
+                    return Err(ProviderError::Unauthorized { message: None });
+                }
                 if refreshed {
                     self.refuses_fresh.store(true, Ordering::Relaxed);
-                    return Err(ProviderError::Unauthorized);
+                    return Err(ProviderError::Unauthorized { message: None });
                 }
                 if self.refuses_fresh.load(Ordering::Relaxed) {
                     tracing::debug!(
                         "the backend still refuses the model catalog to a fresh token; no refresh"
                     );
-                    return Err(ProviderError::Unauthorized);
+                    return Err(ProviderError::Unauthorized { message: None });
                 }
                 tracing::warn!(
                     "the backend refused the access token for the model catalog; refreshing it once"

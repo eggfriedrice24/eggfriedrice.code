@@ -22,9 +22,11 @@ pub type ProviderStream = Pin<Box<dyn Stream<Item = Result<ProviderEvent, Provid
 /// conversation an `Arc<dyn Provider>`.
 ///
 /// A provider takes its credentials from a [`TokenSource`](crate::TokenSource) and
-/// never learns how a token was obtained. On a 401 it calls
+/// never learns how a token was obtained. On a 401 from a source that is
+/// [`refreshable`](crate::TokenSource::refreshable) it calls
 /// [`TokenSource::invalidate`](crate::TokenSource::invalidate), retries once, and on a
-/// second 401 fails with [`ProviderError::Unauthorized`].
+/// second 401 fails with [`ProviderError::Unauthorized`]; from any other source it
+/// fails at the first 401. The error carries the server's message.
 #[async_trait]
 pub trait Provider: Send + Sync + fmt::Debug {
     /// The provider's configured name, for logs, the event log and deciding whether a

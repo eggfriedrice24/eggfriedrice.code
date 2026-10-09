@@ -37,7 +37,7 @@ impl Provider for FakeProvider {
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let Some(answer) = self.answer.clone() else {
-            return Err(ProviderError::Unauthorized);
+            return Err(ProviderError::Unauthorized { message: None });
         };
         Ok(Box::pin(stream::iter(answer.into_iter().map(Ok))))
     }
@@ -117,7 +117,7 @@ async fn stream_yields_the_events_in_order() {
 async fn complete_passes_on_a_failure_to_start() {
     let provider = FakeProvider { answer: None, ..FakeProvider::answering(Vec::new()) };
     let result = provider.complete(Request::new("m")).await;
-    assert!(matches!(result, Err(ProviderError::Unauthorized)));
+    assert!(matches!(result, Err(ProviderError::Unauthorized { .. })));
 }
 
 #[test]

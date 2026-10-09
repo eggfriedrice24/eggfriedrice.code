@@ -76,7 +76,8 @@ const QUOTA_CODES: &[&str] = &[
 /// whenever the socket cannot serve it. The token comes from the
 /// [`TokenSource`] for every request; the provider never sees a refresh token. When the
 /// server answers 401, the provider invalidates the token, fetches a new one and sends
-/// the request once more; a second 401 is [`ProviderError::Unauthorized`]. Other
+/// the request once more; a second 401 is [`ProviderError::Unauthorized`], and so is
+/// the first one for a token source that cannot refresh, such as an API key. Other
 /// retries follow the config's `efr_http::RetryPolicy`, which sends a `POST` again only
 /// when the server certainly did not act on it, so a model call never runs twice.
 ///
@@ -186,7 +187,7 @@ impl OpenAiProvider {
     }
 
     /// Sends the request and returns the successful response, with one token refresh on
-    /// a 401.
+    /// a 401 when the token source can refresh.
     async fn post(
         &self,
         unsigned: &HttpRequest,
@@ -213,8 +214,8 @@ impl OpenAiProvider {
             if status != StatusCode::UNAUTHORIZED {
                 return Err(self.status_error(response, model).await);
             }
-            if refreshed {
-                return Err(ProviderError::Unauthorized);
+            if refreshed || !self.tokens.refreshable() {
+                return Err(unauthorized(response).await);
             }
             tracing::warn!("the provider refused the access token; refreshing it once");
             drop(response);
@@ -349,6 +350,15 @@ impl Provider for OpenAiProvider {
         });
         Ok(events(response, span, timing))
     }
+}
+
+/// The error for a 401 that no refresh can fix, with the message of its body.
+async fn unauthorized(response: HttpResponse) -> ProviderError {
+    let message = match response.text().await {
+        Ok(body) => ErrorDetails::parse(&body).message,
+        Err(_) => None,
+    };
+    ProviderError::Unauthorized { message }
 }
 
 /// The error body of a failed response, in the shapes OpenAI's servers use:

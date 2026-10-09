@@ -115,7 +115,10 @@ dropped, because a reasoning item without its encrypted content is refused when
 Failures:
 
 - a 401 makes the provider call `TokenSource::invalidate`, fetch a new token and send
-  the request once more; a second 401 is `ProviderError::Unauthorized`;
+  the request once more; a second 401 is `ProviderError::Unauthorized` with the
+  message of the server's body. A token source that is not `refreshable`, such as an
+  API key, gets no second try: its first 401 is `Unauthorized`. The catalog fetch
+  follows the same rule;
 - other retries follow the config's `efr_http::RetryPolicy`, which sends a `POST`
   again only when the server certainly did not act on it (no connection, or 408, 429
   or 503), so a model call never runs twice;

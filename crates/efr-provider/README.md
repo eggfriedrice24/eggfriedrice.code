@@ -56,8 +56,10 @@ Modules:
   assistant message by the order rules of `ProviderEvent` and reject a stream that
   breaks them. The conversation pushes each event into a builder as it forwards it,
   so the stored message and what clients saw come from the same events.
-- `token_source`: the `TokenSource` trait (`access_token`, `invalidate`) and
-  `StaticToken` for an API key. A provider holds an `Arc<dyn TokenSource>` and never
+- `token_source`: the `TokenSource` trait (`access_token`, `invalidate`,
+  `refreshable`) and `StaticToken` for an API key. `refreshable` is true by default
+  and false for a token that never changes, such as an API key: a provider then fails
+  at the first 401 and does not send the same key again. A provider holds an `Arc<dyn TokenSource>` and never
   sees a refresh token; `efr-oauth-openai` implements the trait for the subscription
   login. `access_token` returns an `AccessToken`: the token as a
   `secrecy::SecretString` (re-exported with `ExposeSecret`), whose `Debug` is
@@ -65,9 +67,11 @@ Modules:
   `chatgpt-account-id`. The source reads the account from the token's claims, so a
   provider never parses a JWT and the token and its account come from one login.
 - `error`: `ProviderError`, the crate's one error type, shared by every provider.
-  `Unauthorized` is what a provider reports after a 401 survived one
-  `TokenSource::invalidate` and retry; `RateLimited` carries the delay the provider
-  asked for. `ContextOverflow` says that the request does not fit in the model's
+  `Unauthorized { message }` is what a provider reports after a 401 survived one
+  `TokenSource::invalidate` and retry, or at the first 401 from a source that is not
+  `refreshable`; `message` is the server's own text when it sent one (an expired key,
+  a missing scope), never text from the request. `RateLimited` carries the delay the
+  provider asked for. `ContextOverflow` says that the request does not fit in the model's
   context window; it is never transient, and the conversation compacts before it sends
   again. A provider builds an error answer of its API with `ProviderError::api`, which
   picks `ContextOverflow` for the code `context_length_exceeded`, HTTP 413 or a message

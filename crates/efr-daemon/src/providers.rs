@@ -300,7 +300,8 @@ fn websocket_mode(choice: WebSocketChoice) -> WebSocketMode {
 }
 
 /// The API key of the `openai-api` credential, read at each request so a key saved
-/// while the daemon runs is used without a restart.
+/// while the daemon runs is used without a restart. A key cannot refresh, so a provider
+/// fails at its first 401 and does not send the same key again.
 #[derive(Debug)]
 struct StoredApiKey {
     store: Arc<dyn SecretStore>,
@@ -323,6 +324,10 @@ impl TokenSource for StoredApiKey {
     }
 
     async fn invalidate(&self) {}
+
+    fn refreshable(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

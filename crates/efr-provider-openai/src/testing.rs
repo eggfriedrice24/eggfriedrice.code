@@ -81,6 +81,7 @@ impl Rng for FixedRng {
 pub(crate) struct FakeTokens {
     tokens: Vec<&'static str>,
     account_id: Option<&'static str>,
+    refreshable: bool,
     fetches: AtomicUsize,
     invalidations: AtomicUsize,
 }
@@ -91,6 +92,7 @@ impl FakeTokens {
         FakeTokens {
             tokens: tokens.to_vec(),
             account_id: None,
+            refreshable: true,
             fetches: AtomicUsize::new(0),
             invalidations: AtomicUsize::new(0),
         }
@@ -98,6 +100,12 @@ impl FakeTokens {
 
     pub(crate) fn with_account_id(mut self, account_id: &'static str) -> Self {
         self.account_id = Some(account_id);
+        self
+    }
+
+    /// The same source, which says that it cannot refresh, as an API key does.
+    pub(crate) fn without_refresh(mut self) -> Self {
+        self.refreshable = false;
         self
     }
 
@@ -127,6 +135,10 @@ impl TokenSource for FakeTokens {
 
     async fn invalidate(&self) {
         self.invalidations.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn refreshable(&self) -> bool {
+        self.refreshable
     }
 }
 

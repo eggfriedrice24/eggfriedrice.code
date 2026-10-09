@@ -11,10 +11,16 @@ use std::time::Duration;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProviderError {
-    /// The provider rejected the credentials, after the token source was invalidated
-    /// and asked once more.
-    #[error("the provider rejected the credentials")]
-    Unauthorized,
+    /// The provider rejected the credentials: at once for a token source that cannot
+    /// refresh, such as an API key, else after the source was invalidated and asked
+    /// once more.
+    #[error("the provider rejected the credentials{}", server_text(.message.as_deref()))]
+    Unauthorized {
+        /// The provider's own message, when it sent one, such as a missing scope of a
+        /// restricted key or an expired key. It comes from the server's error body and
+        /// never from the request, so it never holds the credentials.
+        message: Option<String>,
+    },
 
     /// The provider is rate limiting requests.
     #[error("the provider is rate limiting requests{}", retry_hint(*.retry_after))]
@@ -140,6 +146,14 @@ impl ProviderError {
     /// True for [`ProviderError::ContextOverflow`].
     pub fn is_context_overflow(&self) -> bool {
         matches!(self, ProviderError::ContextOverflow { .. })
+    }
+}
+
+/// The tail of a message that the server's own text completes.
+fn server_text(message: Option<&str>) -> String {
+    match message {
+        Some(message) => format!(": {message}"),
+        None => String::new(),
     }
 }
 

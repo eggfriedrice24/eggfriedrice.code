@@ -104,7 +104,10 @@ enum Failure {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ErrorRecord {
-    Unauthorized {},
+    Unauthorized {
+        #[serde(default)]
+        message: Option<String>,
+    },
     RateLimited {
         #[serde(default)]
         retry_after_ms: Option<u64>,
@@ -324,7 +327,7 @@ impl Failure {
 impl ErrorRecord {
     fn into_error(self) -> ProviderError {
         match self {
-            ErrorRecord::Unauthorized {} => ProviderError::Unauthorized,
+            ErrorRecord::Unauthorized { message } => ProviderError::Unauthorized { message },
             ErrorRecord::RateLimited { retry_after_ms } => ProviderError::RateLimited {
                 retry_after: retry_after_ms.map(Duration::from_millis),
             },

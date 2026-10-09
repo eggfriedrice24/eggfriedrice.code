@@ -135,7 +135,24 @@ async fn a_second_refusal_is_unauthorized() {
 
     let error = setup.client.fetch(&Catalog::builtin(Backend::Subscription)).await.unwrap_err();
 
-    assert!(matches!(error, ProviderError::Unauthorized), "{error:?}");
+    assert!(matches!(error, ProviderError::Unauthorized { .. }), "{error:?}");
+}
+
+#[tokio::test]
+async fn a_refusal_of_a_key_that_cannot_refresh_is_unauthorized_at_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(401))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let setup = setup(&server, tokens().without_refresh());
+
+    let error = setup.client.fetch(&Catalog::builtin(Backend::Subscription)).await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::Unauthorized { .. }), "{error:?}");
+    assert_eq!(setup.tokens.invalidations(), 0);
 }
 
 #[tokio::test]
@@ -208,8 +225,8 @@ async fn after_a_second_refusal_a_refusal_forces_no_refresh_until_a_fetch_works(
     let first = setup.client.fetch(&builtin).await.unwrap_err();
     let second = setup.client.fetch(&builtin).await.unwrap_err();
 
-    assert!(matches!(first, ProviderError::Unauthorized), "{first:?}");
-    assert!(matches!(second, ProviderError::Unauthorized), "{second:?}");
+    assert!(matches!(first, ProviderError::Unauthorized { .. }), "{first:?}");
+    assert!(matches!(second, ProviderError::Unauthorized { .. }), "{second:?}");
     // The first fetch refreshed once; the second one sent one request and no refresh.
     assert_eq!(setup.tokens.invalidations(), 1);
     assert_eq!(server.received_requests().await.unwrap().len(), 3);

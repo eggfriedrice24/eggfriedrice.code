@@ -380,9 +380,36 @@ async fn a_second_401_is_unauthorized() {
 
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
-    assert!(matches!(error, ProviderError::Unauthorized), "{error:?}");
+    assert!(matches!(error, ProviderError::Unauthorized { .. }), "{error:?}");
     assert_eq!(setup.tokens.invalidations(), 1);
     assert_eq!(seen(&server).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_401_for_a_key_that_cannot_refresh_fails_at_once_with_the_servers_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(ResponseTemplate::new(401).set_body_raw(
+            r#"{"error":{"message":"You have insufficient permissions for this operation. Missing scopes: api.responses.write.","type":"invalid_request_error","param":null,"code":null}}"#,
+            "application/json",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = FakeTokens::new(&["sk-proj-test"]).without_refresh();
+    let setup = setup(&server, OpenAiConfig::api(), tokens);
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    let message = "You have insufficient permissions for this operation. Missing scopes: \
+                   api.responses.write.";
+    assert!(
+        matches!(&error, ProviderError::Unauthorized { message: Some(text) } if text == message),
+        "{error:?}"
+    );
+    assert_eq!(setup.tokens.invalidations(), 0);
+    assert_eq!(seen(&server).await.len(), 1);
 }
 
 #[tokio::test]

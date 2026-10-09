@@ -1372,9 +1372,9 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
         // whether none were saved, the saved ones are of the wrong kind or the refresh
         // grant was refused; `unauthorized` is what tells the client to send the user
         // to `efr login`.
-        ProviderError::Unauthorized | ProviderError::NotLoggedIn | ProviderError::Token { .. } => {
-            ErrorCode::Unauthorized
-        }
+        ProviderError::Unauthorized { .. }
+        | ProviderError::NotLoggedIn
+        | ProviderError::Token { .. } => ErrorCode::Unauthorized,
         ProviderError::RateLimited { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,

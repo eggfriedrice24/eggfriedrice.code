@@ -9,7 +9,11 @@ use super::ProviderError;
 #[test]
 fn messages_name_what_failed_in_one_sentence() {
     let cases = [
-        (ProviderError::Unauthorized, "the provider rejected the credentials"),
+        (ProviderError::Unauthorized { message: None }, "the provider rejected the credentials"),
+        (
+            ProviderError::Unauthorized { message: Some("invalid x-api-key".to_owned()) },
+            "the provider rejected the credentials: invalid x-api-key",
+        ),
         (ProviderError::NotLoggedIn, "no credentials are stored for the provider"),
         (
             ProviderError::UnknownModel { model: "gpt-0".to_owned() },

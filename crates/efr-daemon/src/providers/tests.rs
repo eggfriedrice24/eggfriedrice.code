@@ -122,6 +122,7 @@ async fn the_api_key_is_read_from_its_credential_at_each_request() {
     let token = tokens.access_token().await.unwrap();
     assert_eq!(token.secret().expose_secret(), "sk-test");
     assert_eq!(token.account_id(), None);
+    assert!(!tokens.refreshable(), "a key cannot refresh, so a 401 fails at once");
 }
 
 #[tokio::test]

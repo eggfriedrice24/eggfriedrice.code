@@ -651,9 +651,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
 /// failed turn.
 fn summary_code(error: &ProviderError) -> ErrorCode {
     match error {
-        ProviderError::Unauthorized | ProviderError::NotLoggedIn | ProviderError::Token { .. } => {
-            ErrorCode::Unauthorized
-        }
+        ProviderError::Unauthorized { .. }
+        | ProviderError::NotLoggedIn
+        | ProviderError::Token { .. } => ErrorCode::Unauthorized,
         ProviderError::RateLimited { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,

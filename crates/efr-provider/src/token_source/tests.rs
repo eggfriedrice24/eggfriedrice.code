@@ -17,6 +17,11 @@ async fn a_static_token_returns_its_key_without_an_account() {
     assert_eq!(token.account_id(), None);
 }
 
+#[test]
+fn a_static_token_cannot_refresh() {
+    assert!(!source().refreshable());
+}
+
 #[tokio::test]
 async fn invalidating_a_static_token_changes_nothing() {
     let source = source();
