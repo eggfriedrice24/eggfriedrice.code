@@ -4,7 +4,9 @@
 //! out the authorize URL, runs one login at a time and ends with what the browser said.
 //!
 //! `admin.login_api_key` checks a key against the local server's `/v1/models` with the
-//! organization and project headers, stores it and shows only its hint; a refused key,
+//! organization and project headers, or an Anthropic key against the local Messages
+//! API with its version and workspace headers, stores it and shows only its hint; a
+//! refused key,
 //! a check without an answer and a key with whitespace store nothing; `check: false`
 //! stores without a request; a login to the running provider fetches the new key's
 //! model list; `admin.logout` deletes the key, and `admin.status` lists every
@@ -19,10 +21,10 @@ use efr_protocol::{
     ModelsList, ModelsListResult, PromptSendResult, SecretText,
 };
 use efr_test_daemon::{
-    API_KEY, Client, ClientError, ItemStream, ModelsAnswer, REFRESHED_ACCESS_TOKEN,
-    REFRESHED_REFRESH_TOKEN, Replay, ResponsesAnswer, ResponsesServer, SUBSCRIPTION_ACCESS_TOKEN,
-    SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL, SUBSCRIPTION_REFRESH_TOKEN, TTY, TestDaemon,
-    events_until,
+    API_KEY, Client, ClientError, ItemStream, MessagesAnswer, MessagesServer, ModelsAnswer,
+    REFRESHED_ACCESS_TOKEN, REFRESHED_REFRESH_TOKEN, Replay, ResponsesAnswer, ResponsesServer,
+    SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL,
+    SUBSCRIPTION_REFRESH_TOKEN, TTY, TestDaemon, events_until,
 };
 use efr_test_support::Wait;
 use futures::StreamExt as _;
@@ -200,7 +202,7 @@ async fn the_login_hands_out_the_url_runs_alone_and_ends_with_the_browsers_answe
 /// An OpenAI key, as a test spells it. Only the local server ever sees it.
 const OPENAI_KEY: &str = "sk-proj-efr-login-test-key-9f3c";
 
-/// An Anthropic key, as a test spells it. No server sees it.
+/// An Anthropic key, as a test spells it. Only the local server ever sees it.
 const ANTHROPIC_KEY: &str = "sk-ant-api03-efr-login-test-key-a1b2";
 
 /// The credential file of the `openai-api` provider, below the data root.
@@ -420,6 +422,100 @@ async fn an_anthropic_key_that_its_check_does_not_accept_is_not_stored() {
     assert!(!daemon.dirs().dirs().data().join(ANTHROPIC_CREDENTIAL).exists());
     drop(client);
     daemon.stop().await.unwrap();
+}
+
+/// A daemon whose Anthropic key checks go to `server`, with a workspace id.
+async fn checked_by_anthropic(server: &MessagesServer) -> TestDaemon {
+    let base_url = server.base_url();
+    TestDaemon::builder()
+        .persistent()
+        .config(|config| {
+            config.anthropic.base_url = Some(base_url);
+            config.anthropic.workspace_id = Some("wrkspc_efr".to_owned());
+        })
+        .start()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn an_anthropic_key_is_checked_with_its_headers_and_stored() {
+    let logs = logs();
+    let server = MessagesServer::start().await;
+    server.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = checked_by_anthropic(&server).await;
+    let client = daemon.client().await.unwrap();
+
+    let result: AdminLoginApiKeyResult =
+        client.call(login("anthropic-api", ANTHROPIC_KEY, true)).await.unwrap();
+
+    assert_eq!(
+        result,
+        AdminLoginApiKeyResult {
+            provider: "anthropic-api".to_owned(),
+            key_hint: "sk-ant-...a1b2".to_owned(),
+            checked: true,
+            active: false,
+        }
+    );
+    let [check] = server.models_requests().try_into().unwrap();
+    assert_eq!(check.limit.as_deref(), Some("1"));
+    assert_eq!(check.authorization, Some(format!("Bearer {ANTHROPIC_KEY}")));
+    assert_eq!(check.version.as_deref(), Some("2023-06-01"));
+    assert_eq!(check.workspace_id.as_deref(), Some("wrkspc_efr"));
+    assert!(server.received().is_empty(), "the check runs no model");
+
+    drop(client);
+    let dirs = Arc::clone(daemon.dirs());
+    daemon.stop().await.unwrap();
+    let credential = dirs.dirs().data().join(ANTHROPIC_CREDENTIAL).display().to_string();
+    assert_eq!(files_holding(dirs.root(), ANTHROPIC_KEY.as_bytes()), [credential]);
+    assert!(!logged().contains(ANTHROPIC_KEY), "a log line holds the key");
+    drop(logs);
+}
+
+#[tokio::test]
+async fn a_refused_anthropic_key_is_unauthorized_with_the_servers_message() {
+    let cases = [
+        (
+            MessagesAnswer::error(401, "authentication_error", "invalid x-api-key"),
+            "the provider rejected the credentials: invalid x-api-key",
+        ),
+        (
+            MessagesAnswer::error(
+                400,
+                "invalid_request_error",
+                "anthropic-workspace-id is required when authenticating with an identity-linked API key",
+            ),
+            "anthropic-workspace-id is required when authenticating with an identity-linked API key",
+        ),
+    ];
+    for (answer, said) in cases {
+        let server = MessagesServer::start().await;
+        server.refuse_models(answer);
+        let daemon = checked_by_anthropic(&server).await;
+        let client = daemon.client().await.unwrap();
+
+        let error = client
+            .call::<AdminLoginApiKeyResult>(login("anthropic-api", ANTHROPIC_KEY, true))
+            .await;
+
+        let body = refusal(error.unwrap_err());
+        assert_eq!(body.code, ErrorCode::Unauthorized, "{}", body.message);
+        assert!(
+            body.message.starts_with("the check of the key for anthropic-api failed: "),
+            "{}",
+            body.message
+        );
+        assert!(body.message.contains(said), "{}", body.message);
+        assert!(!body.message.contains(ANTHROPIC_KEY));
+        assert_eq!(server.models_requests().len(), 1, "a person waits, so the check goes once");
+        let dirs = Arc::clone(daemon.dirs());
+        assert!(!dirs.dirs().data().join(ANTHROPIC_CREDENTIAL).exists());
+        drop(client);
+        daemon.stop().await.unwrap();
+        assert_eq!(files_holding(dirs.root(), ANTHROPIC_KEY.as_bytes()), Vec::<String>::new());
+    }
 }
 
 #[tokio::test]
