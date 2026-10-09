@@ -19,8 +19,8 @@ use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    CATALOG_FILE, Clamp, Models, REFRESH_INTERVAL, RETRY_INTERVAL, default_model, effective_models,
-    load, status,
+    CATALOG_FILE, Clamp, Models, REFRESH_INTERVAL, default_model, effective_models, load,
+    retry_wait, status,
 };
 use crate::providers::API;
 
@@ -333,9 +333,48 @@ async fn a_failed_fetch_keeps_the_list_and_tries_again_soon() {
 
     let wait = setup.models.fetch(refresh).await;
 
-    assert_eq!(wait, RETRY_INTERVAL);
+    assert_eq!(wait, Duration::from_secs(15));
     assert_eq!(setup.models.current().origin(), CatalogOrigin::Cache, "the cache stays");
     assert!(!setup.cache.exists(), "nothing is written");
+}
+
+#[test]
+fn the_wait_after_a_failed_fetch_grows_to_five_minutes() {
+    let waits: Vec<u64> = (1..=7).map(|failures| retry_wait(failures).as_secs()).collect();
+    assert_eq!(waits, [15, 30, 60, 120, 300, 300, 300]);
+    assert_eq!(retry_wait(u32::MAX), Duration::from_secs(300));
+}
+
+#[tokio::test]
+async fn failed_fetches_wait_longer_each_time_and_a_good_one_starts_over() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(5)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(backend_list()))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    let setup = fetching(&server, builtin(), token());
+    let refresh = setup.models.refresh.as_ref().unwrap();
+
+    let mut waits = Vec::new();
+    for _ in 0..7 {
+        waits.push(setup.models.fetch(refresh).await.as_secs());
+    }
+
+    assert_eq!(waits, [15, 30, 60, 120, 300, REFRESH_INTERVAL.as_secs(), 15]);
+    assert_eq!(setup.models.current().origin(), CatalogOrigin::Backend, "the good list stays");
 }
 
 #[tokio::test]

@@ -147,11 +147,13 @@ a new list applies from the next turn on.
   tag in `If-None-Match`, so an unchanged list costs a 304, which confirms it. A new
   list or a confirmed one goes to the cache file in one step. Without a login, efrd
   waits for one. After a failed fetch it keeps the list that it has and tries again
-  after five minutes (`RETRY_INTERVAL`). A list that offers no model that efr can use
-  is refused with a debug line, and the current list stays. Today the backend sends
-  an empty list: it lists each model only for a Codex `client_version` at or above
-  the model's minimum, and efr sends its own version. So the built-in table is the
-  list in use, and a new release of efr updates it.
+  sooner (`retry_wait`): after 15 s, 30 s, 1 min and 2 min for the first four
+  failures in a row, then every 5 min, so a start before the network is up gets a
+  list soon. A good fetch starts the waits over. A list that offers no model that
+  efr can use is refused with a debug line, and the current list stays. Today the
+  backend sends an empty list: it lists each model only for a Codex `client_version`
+  at or above the model's minimum, and efr sends its own version. So the built-in
+  table is the list in use, and a new release of efr updates it.
 - The API key backend keeps the built-in table, because its `/v1/models` says
   nothing about windows. A daemon with a `ProviderFactory` (an in-process test) never
   fetches, so a test never reaches the network by accident.

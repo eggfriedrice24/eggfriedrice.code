@@ -5,8 +5,10 @@
 //! `CatalogClient`). efrd starts with the cache file of the last fetch in its state
 //! root ([`CATALOG_FILE`]), else with the table built into efr, and fetches in the
 //! background: at start, after a login, then every [`REFRESH_INTERVAL`] with the tag of
-//! the list it has, so an unchanged list costs a 304. A failed fetch tries again after
-//! [`RETRY_INTERVAL`] and keeps the list it has. Each new list goes to the cache file.
+//! the list it has, so an unchanged list costs a 304. A failed fetch keeps the list it
+//! has and tries again sooner: after 15 s, 30 s, 1 min and 2 min, then every 5 min
+//! ([`retry_wait`]), so a start before the network is up gets a list soon. Each new
+//! list goes to the cache file.
 //! The API key backend keeps the built-in table, because its `/v1/models` says nothing
 //! about windows. A daemon whose provider a test injects never fetches.
 //!
@@ -21,6 +23,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -44,8 +47,24 @@ pub(crate) const CATALOG_FILE: &str = "model_catalog.json";
 /// How often efrd asks the backend again after an answer.
 pub(crate) const REFRESH_INTERVAL: Duration = Duration::from_secs(3600);
 
-/// How soon efrd asks again after a fetch that failed.
-pub(crate) const RETRY_INTERVAL: Duration = Duration::from_secs(300);
+/// How soon efrd asks again after one, two, three and four fetches in a row that
+/// failed.
+const RETRY_WAITS: [Duration; 4] = [
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+];
+
+/// How soon efrd asks again after five or more fetches in a row that failed.
+const LONGEST_RETRY_WAIT: Duration = Duration::from_secs(300);
+
+/// How soon efrd asks again after `failures` fetches in a row that failed (1 or more):
+/// the waits grow from 15 s to 5 min, and stay at 5 min.
+pub(crate) fn retry_wait(failures: u32) -> Duration {
+    let index = usize::try_from(failures.saturating_sub(1)).unwrap_or(usize::MAX);
+    RETRY_WAITS.get(index).copied().unwrap_or(LONGEST_RETRY_WAIT)
+}
 
 /// One entry of `[openai] models` whose window is above the model's largest one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -71,6 +90,8 @@ struct Refresh {
     client: CatalogClient,
     cache: PathBuf,
     clock: Arc<dyn Clock>,
+    /// The fetches in a row that failed, which set the wait before the next one.
+    failures: AtomicU32,
 }
 
 impl Models {
@@ -86,7 +107,8 @@ impl Models {
         cache: PathBuf,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        Models { refresh: Some(Refresh { client, cache, clock }), ..Models::fixed(catalog) }
+        let refresh = Refresh { client, cache, clock, failures: AtomicU32::new(0) };
+        Models { refresh: Some(refresh), ..Models::fixed(catalog) }
     }
 
     /// True when efrd fetches the catalog from the backend.
@@ -160,13 +182,17 @@ impl Models {
             Ok(fetched) => fetched,
             Err(ProviderError::NotLoggedIn) => {
                 tracing::debug!("no login yet, so the model catalog is not fetched");
+                refresh.failures.store(0, Ordering::Relaxed);
                 return REFRESH_INTERVAL;
             }
             Err(error) => {
-                tracing::warn!(error = %efr_stdx::with_causes(&error), origin = ?current.origin(), "the model catalog could not be fetched; the current list stays");
-                return RETRY_INTERVAL;
+                let failures = refresh.failures.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+                let wait = retry_wait(failures);
+                tracing::warn!(error = %efr_stdx::with_causes(&error), origin = ?current.origin(), failures, retry_in_s = wait.as_secs(), "the model catalog could not be fetched; the current list stays");
+                return wait;
             }
         };
+        refresh.failures.store(0, Ordering::Relaxed);
         match self.catalog.apply(fetched, refresh.clock.now()) {
             Applied::Changed(catalog) => {
                 tracing::info!(

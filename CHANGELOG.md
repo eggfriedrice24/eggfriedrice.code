@@ -225,6 +225,10 @@ into the GitHub release notes, and it stops when the section is missing.
   the efforts, the default effort and the tool form of each model come from the
   backend's list too. With an API key, the built-in list stands in, so a model that
   it does not hold needs an entry in `[openai] models`.
+- When efrd cannot fetch the model list, it tries again after 15 seconds, then after
+  30 seconds, 1 minute and 2 minutes, then every 5 minutes. A good fetch starts the
+  waits over. Before, it waited 5 minutes each time, so after a start before the
+  network was up, the list came late.
 
 - A long command no longer leaves a short first word alone in its row (`cp \`). A row
   breaks at a space only when it is at least half full; else it breaks inside the word
