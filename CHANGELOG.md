@@ -439,8 +439,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `curl -u user:...`, also among other short options in one word
   (`curl -su user:...`). efr now saves the block with the turn and sends it again with
   every later request, so a secret there would reach the disk and every request after
-  it. The list of patterns
-  cannot find every secret: a secret in another form stays in the command.
+  it. The list of patterns cannot find every secret: a secret in another form stays in
+  the command.
 
 ## [0.0.2] - 2026-10-08
 
