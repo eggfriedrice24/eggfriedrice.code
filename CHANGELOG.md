@@ -196,6 +196,27 @@ into the GitHub release notes, and it stops when the section is missing.
   the other one does not run. An edit needs approval where a `write_file` of the same
   file does. The question shows the diff of the file, and `efr` shows the call as
   `edit <path>`.
+- Logins with an API key: `efr login openai-api` and `efr login anthropic` (also
+  `anthropic-api`). efr reads the key at a prompt that does not show it when stdin is
+  a terminal, else from stdin, or with `--from-env` from `OPENAI_API_KEY` or
+  `ANTHROPIC_API_KEY` of your shell. It never takes the key as an argument. efrd
+  checks the key with one request that runs no model, `--no-check` skips the check,
+  and then efrd keeps the key in its `secrets/` directory. A login does not change
+  the provider of new conversations: efr says how to set `[model] provider` and that
+  efrd needs a restart. The check of an Anthropic key fails until efrd can reach
+  Anthropic, so use `--no-check` for now.
+- `efr logout <provider>` forgets the login of `openai`, `openai-api` or `anthropic`.
+  A key stays valid at its provider; efr says where to revoke it.
+- `efr status` lists every provider (`openai-subscription`, `openai-api` and
+  `anthropic-api`), shows the start and the last four characters of each stored key,
+  such as `sk-ant-...a1b2`, and marks the provider of new conversations with
+  `(active)`. Its line about a missing login names the login of that provider.
+- New keys `[openai] organization` and `[openai] project`, sent as the
+  `OpenAI-Organization` and `OpenAI-Project` headers of every request with an API
+  key. Both need a restart of efrd.
+- Do not put an API key in the environment of the efrd service: efrd does not read
+  it, and it gives its environment to the hidden shells, where a command of the agent
+  can read it outside the `auto` sandbox. The README says more.
 
 ### Changed
 
@@ -216,6 +237,13 @@ into the GitHub release notes, and it stops when the section is missing.
   next turn read the files again.
 - The default system prompt tells the model to change files with the edit tool that
   it has, `apply_patch` or `edit`, not with `apply_patch` only.
+- With an OpenAI API key, efrd asks the API for the ids of the models that the key
+  can use, at start, after a login and every hour, and offers only those models of
+  its built-in list. The efforts are the API's: no model offers `ultra`, and
+  `medium` is the default effort of every model.
+- An OpenAI answer of 429 for a used-up quota or a spend limit, such as
+  `insufficient_quota`, now fails the turn at once. Before, efr sent the same request
+  up to three more times.
 - With an OpenAI API key (`openai-api`), a key that the server refuses now fails the
   turn at once, and the error shows the server's reason, such as an expired key or a
   missing scope. Before, efr sent the same key a second time and showed no reason.

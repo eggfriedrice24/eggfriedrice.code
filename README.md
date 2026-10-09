@@ -49,6 +49,23 @@ efr login openai                      # log in to your ChatGPT plan in a browser
 
 The daemon starts one hidden zsh for each conversation, and that zsh reads your `.zshrc` with `EFR_HIDDEN_SHELL=1` set. If your `.zshrc` runs `exec tmux` or an instant prompt, skip it when that variable is set.
 
+### API keys
+
+You can use the OpenAI API with an API key instead of the ChatGPT plan. Anthropic's Claude models also need an API key; efrd cannot use them yet, but it can keep the key.
+
+```sh
+efr login openai-api                  # type the key at a prompt that does not show it
+printenv ANTHROPIC_API_KEY | efr login anthropic
+efr login openai-api --from-env       # read OPENAI_API_KEY of this shell
+efr logout anthropic                  # forget the key; revoke it at the provider too
+```
+
+- efr never takes a key as an argument: other users can read the arguments of a process, and the shell keeps them in its history.
+- efrd checks the key with one request that runs no model. Then it keeps the key in `secrets/` of its data root, in a file that only you can read. `--no-check` stores the key without the check, for a computer that is offline. `efr status` shows the start and the last four characters of each key, such as `sk-ant-...a1b2`.
+- A login does not change the provider of new conversations. Set `provider` under `[model]`, such as `efr config set model.provider openai-api`, and restart efrd: `systemctl --user restart efrd`.
+- `organization` and `project` under `[openai]` choose the organization and the project that an OpenAI key bills.
+- Do not put a key in the environment of the efrd service (`~/.config/environment.d`, `systemctl --user set-environment` or the unit file). efrd does not read it there. efrd gives its whole environment to the hidden shells, so in the `manual` and `cautious` modes a command of the agent can read the key with `env`. Only the `auto` sandbox removes names such as `*API_KEY*`. Use `efr login`.
+
 ## Use
 
 - `, <prompt>` sends a prompt with the current directory, the terminal and the last command, and the reply streams below it. A prompt sent while a turn runs waits for it.
@@ -67,7 +84,7 @@ The daemon starts one hidden zsh for each conversation, and that zsh reads your 
 - When the agent writes a file, the call shows the diff: its first 20 lines (`diff_lines` under `[render]`; 0 shows none) and then a dim `… 12 more lines`. When a command changes files in the project or in `$SCRATCH`, one dim line under its result names them, such as `changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)`. This works in every registered project, with or without git, because efr keeps its own snapshots and never touches the project's `.git`. A turn that changed files ends with a line such as `3 files changed, +24 −7`, and `efr diff` prints the whole diff of the last turn into your scrollback (`--stat` lists the files, `--turn <id>` picks another turn). In a pipe, `efr diff` writes the plain diff.
 - When a turn ends or an approval waits in a terminal that does not follow it, the next prompt there shows one line about it.
 
-The plugin hands the context, the last command, the prompt and the settings of the terminal to `efr` in its environment, never in its arguments, because any user on the machine can read a command line. The text of the input row comes back the same way: efr writes it to a private file in the runtime directory (`EFR_DRAFT_FILE`), and the plugin reads and removes it at the next prompt. The same commands work by hand: `efr send <prompt>`, `efr new <prompt>` (both take `--mode`, `--model` and `--effort`), `efr send --steer <text>`, `efr settings`, `efr models`, `efr status`, `efr history [conversation]` (with the mode, model and effort of each turn; `--verbose` adds the record of each exit from the sandbox, and without a conversation shows the newest one of the terminal), `efr diff` (the files that the last turn changed), `efr compact [focus]`, `efr login openai`, `efr paths`, `efr project`, `efr sandbox check`, `efr sandbox explain PATH` and the `efr config` commands below. `efr --help` lists the flags.
+The plugin hands the context, the last command, the prompt and the settings of the terminal to `efr` in its environment, never in its arguments, because any user on the machine can read a command line. The text of the input row comes back the same way: efr writes it to a private file in the runtime directory (`EFR_DRAFT_FILE`), and the plugin reads and removes it at the next prompt. The same commands work by hand: `efr send <prompt>`, `efr new <prompt>` (both take `--mode`, `--model` and `--effort`), `efr send --steer <text>`, `efr settings`, `efr models`, `efr status`, `efr history [conversation]` (with the mode, model and effort of each turn; `--verbose` adds the record of each exit from the sandbox, and without a conversation shows the newest one of the terminal), `efr diff` (the files that the last turn changed), `efr compact [focus]`, `efr login openai`, `efr login openai-api`, `efr login anthropic`, `efr logout`, `efr paths`, `efr project`, `efr sandbox check`, `efr sandbox explain PATH` and the `efr config` commands below. `efr --help` lists the flags.
 
 ## The auto mode
 
@@ -87,7 +104,7 @@ All settings are in one optional file, `config.toml` in the config root (`~/.con
 - `efr config edit` opens the file in `$VISUAL` or `$EDITOR` (`vi` otherwise). A missing file starts as the commented example, which names every key. When you save, `efr` checks the file and offers to edit it again if it has an error.
 - `efr config set model.name gpt-5.4` and `efr config unset model.name` change one key and keep your comments and layout.
 - `efr config check [path]` checks a file and names the line, the column and the key of an error. `efr config show` prints every setting with where it comes from, and the file that the daemon reads.
-- The daemon reloads the file when it changes, on `efr config reload` and on `systemctl --user reload efrd`. A running turn keeps its settings; the next one uses the new ones. A file with an error changes nothing: the old settings stay, `efr status` shows the error, and the next prompt in each terminal shows one line about it. A few keys (`screen`, `model.provider`, `openai.originator` and the two base URLs) apply only after `systemctl --user restart efrd`, and `efr config reload` says so.
+- The daemon reloads the file when it changes, on `efr config reload` and on `systemctl --user reload efrd`. A running turn keeps its settings; the next one uses the new ones. A file with an error changes nothing: the old settings stay, `efr status` shows the error, and the next prompt in each terminal shows one line about it. A few keys (such as `screen`, `model.provider`, `openai.originator`, the base URLs and the organization and project of `[openai]`) apply only after `systemctl --user restart efrd`, and `efr config reload` says so.
 - Colours: efr uses the 16 colours of your terminal's theme by default, so it follows your Ghostty theme. `[render.colors]` sets the colour of one role, such as `accent = "#f2c14e"` or `muted = 8`, and `[render] palette = "~/path/theme.toml"` names a theme file with a `[colors]` table of the same roles and an optional `code_theme`, the path of a `.tmTheme` file for code. A design system can generate that file. `[render] theme` names a theme for code, such as `catppuccin-mocha`; `theme = "auto"` takes `theme_dark` or `theme_light` by the background of the terminal, which the zsh plugin asks the terminal for once when it loads (set `EFR_TERMINAL_BG` to `dark` or `light` to skip the question). `NO_COLOR` turns colours off. `render.motion = false` stops the spinner, `render.turn_summary = false` removes the last line of a turn, and `render.progress` (`auto`, `on` or `off`) controls the progress bar.
 - The file holds no secrets, so it can live in a dotfiles repository: make `~/.config/efr/config.toml` a symbolic link to it. The daemon also watches the file behind the link, `efr config set` writes that file and keeps the link, and `efr config edit` opens that file, so an editor that saves by replacing the file cannot turn the link into a plain file.
 - You can also ask efr itself, as in `, make gpt-5.4 my default model` or `, always allow cargo test in this project`. The model reads the settings freely with its settings tool, but it changes the file only after you approve the change. The question shows the diff of the file, also in `auto` mode and whatever your rules say, and it says "loosens permissions" when the change lets more run without a question. The tool never writes a rule about secrets, a turn from the phone cannot change settings, and no other tool may write the file. For the current terminal only, use `,model`, `,effort` and `,mode` instead.
@@ -96,7 +113,7 @@ Where efr keeps its files: each root is its own variable (`EFR_CONFIG_DIR`, `EFR
 
 ## First use
 
-- Without a login, the first prompt fails as `unauthorized`, and `efr` says to run `efr login openai`.
+- Without a login, the first prompt fails as `unauthorized`, and `efr` says how to log in to the provider of `[model]`, such as `efr login openai`.
 - Without a daemon, `efr` exits with 3 and says to run `systemctl --user start efrd`.
 - Which client name and models the ChatGPT backend accepts from efr is known only after the first real request. When it refuses the model, `efr` says so and names the line to change: `name` under `[model]` in `~/.config/efr/config.toml` (`efr config set model.name <model>`), which the next turn uses without a restart. When it refuses the client, the error shows the backend's message; `originator` under `[openai]` changes the name that efr sends (`efr` by default), and that key needs `systemctl --user restart efrd`. `efr config show` and `efrd --print-config` show every setting and where it comes from.
 - To try efr without installing it, `just run` starts a daemon in the foreground with throwaway directories. In the shell that you test from, export the `EFR_RUNTIME_DIR` that it prints and put `target/debug` on `PATH` after `cargo build -p efr-cli`; the plugin then shows that daemon's notices too.
