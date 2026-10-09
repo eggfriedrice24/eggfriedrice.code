@@ -35,7 +35,8 @@
 //! 5. A `tool_use` without a `tool_result` in the next message gets an `is_error`
 //!    result with one fixed text. The conversation closes every call, so this is only a
 //!    guard.
-//! 6. Empty text blocks are dropped, and so is a message that becomes empty.
+//! 6. Empty text blocks are dropped, also from a `provider_raw` (then the other
+//!    blocks go back one by one, each exact), and so is a message that becomes empty.
 //! 7. A tool id outside `[a-zA-Z0-9_-]` has each other character replaced by `_`.
 //!
 //! The prompt cache markers come from `breakpoints`, a pure function of the shape of
@@ -406,14 +407,23 @@ fn drafts(messages: &[Message]) -> Vec<Draft> {
     drafts
 }
 
-/// The start of one raw block: enough to check that it is a block and to read the id of
-/// a `tool_use`.
+/// The start of one raw block: enough to check that it is a block, to read the id of a
+/// `tool_use` and to find an empty `text` block.
 #[derive(Debug, Deserialize)]
 struct RawHead {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+impl RawHead {
+    /// True for a `text` block without text, which the API refuses.
+    fn is_empty_text(&self) -> bool {
+        self.kind == "text" && self.text.as_deref().is_none_or(str::is_empty)
+    }
 }
 
 /// The draft of an assistant message from its `provider_raw`, when that holds the
@@ -436,14 +446,21 @@ fn raw_draft(message: &Message) -> Option<Draft> {
             return None;
         }
         let mut draft = Draft::new(Role::Assistant);
-        for block in &blocks {
+        let mut dropped = false;
+        for block in blocks {
             let head: RawHead = serde_json::from_str(block.get()).ok()?;
+            if head.is_empty_text() {
+                dropped = true;
+                continue;
+            }
             if head.kind == "tool_use" {
                 draft.calls.push(head.id?);
             }
+            draft.rest.push(Part::Raw(block));
         }
-        draft.whole = Some(RawValue::from_string(text.clone()).ok()?);
-        draft.rest = blocks.into_iter().map(Part::Raw).collect();
+        if !dropped {
+            draft.whole = Some(RawValue::from_string(text.clone()).ok()?);
+        }
         Some(draft)
     };
     let draft = read();

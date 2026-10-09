@@ -413,6 +413,37 @@ fn an_answer_without_blocks_has_no_raw_content() {
 }
 
 #[test]
+fn an_empty_text_block_stays_out_of_the_raw_content() {
+    let mut events = vec![start()];
+    events.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}));
+    events.push(json!({"type": "content_block_stop", "index": 0}));
+    events.push(json!({"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "toolu_1", "name": "shell", "input": {}}}));
+    events.push(json!({"type": "content_block_stop", "index": 1}));
+    events.extend(stop("tool_use"));
+    let (mapped, error) = map_all(&sse(&events));
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(
+        mapped.last(),
+        Some(&done(
+            StopReason::ToolUse,
+            r#"[{"type":"tool_use","id":"toolu_1","name":"shell","input":{}}]"#
+        ))
+    );
+}
+
+#[test]
+fn an_answer_of_one_empty_text_block_has_no_raw_content() {
+    let mut events = vec![start()];
+    events.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}));
+    events.extend(stop("max_tokens"));
+    let (mapped, _) = map_all(&sse(&events));
+    assert_eq!(
+        mapped.last(),
+        Some(&ProviderEvent::Done { stop_reason: StopReason::MaxTokens, provider_raw: None })
+    );
+}
+
+#[test]
 fn data_that_is_not_json_fails_the_stream() {
     let events = SseDecoder::new().push(b"event: message_start\ndata: {not json\n\n").unwrap();
     let (_, error) = map_all(&events);

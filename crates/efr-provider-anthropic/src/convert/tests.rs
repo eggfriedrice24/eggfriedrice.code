@@ -309,6 +309,32 @@ fn the_raw_content_goes_back_byte_for_byte() {
 }
 
 #[test]
+fn an_empty_text_block_of_the_raw_content_is_dropped() {
+    let raw = r#"[{"type":"thinking","thinking":"a","signature":"s1"},{"type":"text","text":""},{"type":"tool_use","id":"toolu_1","name":"shell","input":{"command":"ls"}}]"#;
+    let request = request(vec![
+        Message::user("Go."),
+        written(vec![call("toolu_1", "ls")], raw),
+        user(vec![result("toolu_1", "a.txt")]),
+    ]);
+    let text = serde_json::to_string(&body(&request)).unwrap();
+    let expected = r#"{"role":"assistant","content":[{"type":"thinking","thinking":"a","signature":"s1"},{"type":"tool_use","id":"toolu_1","name":"shell","input":{"command":"ls"}}]}"#;
+    assert!(text.contains(expected), "{text}");
+}
+
+#[test]
+fn raw_content_of_only_an_empty_text_block_sends_no_message() {
+    let request = request(vec![
+        Message::user("Go."),
+        written(vec![text("")], r#"[{"type":"text","text":""}]"#),
+        Message::user("Again."),
+    ]);
+    let body = value(&body(&request));
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0]["role"], "user");
+}
+
+#[test]
 fn merged_raw_messages_keep_each_block_exact() {
     let first = r#"[{"type":"thinking","thinking":"a","signature":"s1"},{"z":1,"type":"text","text":"one"}]"#;
     let second = r#"[{"type":"text","text":"two"}]"#;

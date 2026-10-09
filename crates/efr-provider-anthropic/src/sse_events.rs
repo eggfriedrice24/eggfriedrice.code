@@ -23,12 +23,15 @@
 //! | any other event, block or delta type | `Raw`, never a failure: the API adds types within a version |
 //!
 //! `provider_raw` is the content array of the assistant message as one JSON string:
-//! the exact text that efr built from the stream, with every `thinking`,
-//! `redacted_thinking`, `text` and `tool_use` block, the empty ones too, so the next
-//! request sends it back byte for byte. A `tool_use` keeps its input as the text that
-//! the model wrote, and a `redacted_thinking` block, or a block of a type that efr does
-//! not know, the text that the API sent. An answer without blocks has no
-//! `provider_raw`.
+//! the text that efr built from the stream, with every `thinking`, `redacted_thinking`,
+//! `text` and `tool_use` block, so the next request sends it back byte for byte. efr
+//! writes the `text`, `thinking` and `tool_use` blocks itself, in the API's member
+//! order; a `tool_use` keeps its input as the text that the model wrote, and a
+//! `redacted_thinking` block, or a block of a type that efr does not know, the text
+//! that the API sent. An empty `thinking` block stays, because its signature counts.
+//! An empty `text` block is left out: the API refuses one in a request, and the block
+//! would go back in every later request of the conversation. An answer without blocks
+//! has no `provider_raw`.
 //!
 //! Stop reasons: `end_turn` and `stop_sequence` are `EndTurn`, `tool_use` is
 //! `ToolUse`, `max_tokens` is `MaxTokens`, `refusal` is `ContentFilter` (the turn runs
@@ -431,14 +434,12 @@ impl EventMapper {
     }
 
     /// The content array of the answer as one JSON string, or nothing for an answer
-    /// without blocks.
+    /// without blocks. An empty text block is left out.
     fn provider_raw(&self) -> Result<Option<Value>, ProviderError> {
-        if self.blocks.is_empty() {
-            return Ok(None);
-        }
         let mut blocks = Vec::with_capacity(self.blocks.len());
         for block in &self.blocks {
             blocks.push(match &block.kind {
+                Kind::Text { text } if text.is_empty() => continue,
                 Kind::Text { text } => RawBlock::Built(BuiltBlock::Text { text }),
                 Kind::Thinking { thinking, signature } => {
                     RawBlock::Built(BuiltBlock::Thinking { thinking, signature })
@@ -453,6 +454,9 @@ impl EventMapper {
                 }
                 Kind::Verbatim(raw) => RawBlock::Verbatim(raw),
             });
+        }
+        if blocks.is_empty() {
+            return Ok(None);
         }
         let text =
             serde_json::to_string(&blocks).map_err(|source| ProviderError::Decode { source })?;

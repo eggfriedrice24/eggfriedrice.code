@@ -89,10 +89,11 @@ Modules:
 - An assistant message that this provider wrote goes back as the exact JSON text of
   its content (`provider_raw`, a JSON string, written through
   `serde_json::value::RawValue`), thinking blocks included. The conversation drops
-  `provider_raw` when the model changes. Any other assistant message, or a
-  `provider_raw` that is not such a text, is built from its text and tool calls, and
-  its reasoning is dropped; a tool call input that is not an object goes as
-  `{"input": <value>}`.
+  `provider_raw` when the model changes. An empty `text` block in a `provider_raw` is
+  dropped, and the other blocks then go back one by one, each exact. Any other
+  assistant message, or a `provider_raw` that is not such a text, is built from its
+  text and tool calls, and its reasoning is dropped; a tool call input that is not an
+  object goes as `{"input": <value>}`.
 - Adjacent messages of one role merge, and the blocks of merged raw messages stay
   exact. `tool_result` blocks come first in a user message, and a result with an empty
   output has no `content`. Empty text blocks are dropped, and so is a message that
@@ -181,8 +182,11 @@ the full table. In short:
 - `message_stop` gives one `Usage` and `Done`. `provider_raw` is a JSON string that
   holds the content array: `text`, `thinking` (with its signature) and `tool_use`
   blocks built from the stream with the API's member order and the input text that the
-  model wrote, and `redacted_thinking` or unknown blocks as the API sent them. Empty
-  blocks stay. An answer without blocks has no `provider_raw`.
+  model wrote, and `redacted_thinking` or unknown blocks as the API sent them. An
+  empty `thinking` block stays, because its signature counts. An empty `text` block is
+  left out: the API refuses one in a request (`text content blocks must be
+  non-empty`), and it would go back in every later request. An answer without blocks
+  has no `provider_raw`.
 - Stop reasons: `end_turn` and `stop_sequence` are `EndTurn`, `tool_use` is `ToolUse`,
   `max_tokens` and `model_context_window_exceeded` are `MaxTokens`, `refusal` is
   `ContentFilter`, `pause_turn` is `EndTurn`; an unknown or missing one is `ToolUse`
