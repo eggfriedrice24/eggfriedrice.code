@@ -125,6 +125,75 @@ fn a_url_without_a_password_stays(#[case] line: &str) {
     assert_eq!(redact(line), line);
 }
 
+#[rstest]
+#[case::bearer(
+    "curl -H 'Authorization: Bearer abc.def' x",
+    "curl -H 'Authorization: Bearer [redacted]' x"
+)]
+#[case::token(
+    r#"curl -H "Authorization: token abc" https://api.github.com"#,
+    r#"curl -H "Authorization: token [redacted]" https://api.github.com"#
+)]
+#[case::basic_without_a_blank(
+    "curl -H 'authorization:Basic dXNlcjpwYXNz' x",
+    "curl -H 'authorization:Basic [redacted]' x"
+)]
+#[case::no_scheme("curl -H 'Authorization: abc' x", "curl -H 'Authorization: [redacted]' x")]
+#[case::digest(
+    r#"curl -H 'Authorization: Digest username="u", response="r"' x"#,
+    "curl -H 'Authorization: Digest [redacted]' x"
+)]
+#[case::proxy(
+    "curl -H 'Proxy-Authorization: Basic abc' x",
+    "curl -H 'Proxy-Authorization: Basic [redacted]' x"
+)]
+#[case::api_key_header("curl -H 'X-Api-Key: abc' x", "curl -H 'X-Api-Key: [redacted]' x")]
+#[case::gitlab(
+    "curl --header 'PRIVATE-TOKEN: glpat-abc' x",
+    "curl --header 'PRIVATE-TOKEN: [redacted]' x"
+)]
+#[case::cookie("curl -H 'Cookie: a=1; session=abc' x", "curl -H 'Cookie: [redacted]' x")]
+#[case::attached_option(
+    "curl '-HAuthorization: Bearer abc' x",
+    "curl '-HAuthorization: Bearer [redacted]' x"
+)]
+#[case::long_option(
+    "wget '--header=Authorization: Bearer abc' x",
+    "wget '--header=Authorization: Bearer [redacted]' x"
+)]
+#[case::httpie(
+    "http GET x Authorization:'Bearer abc'",
+    "http GET x Authorization:'Bearer [redacted]'"
+)]
+#[case::git_config(
+    r#"git -c http.extraHeader="Authorization: Basic abc" clone x"#,
+    r#"git -c http.extraHeader="Authorization: Basic [redacted]" clone x"#
+)]
+#[case::echo("echo Authorization: Bearer abc && ls", "echo Authorization: Bearer [redacted] && ls")]
+#[case::one_word_is_the_secret("echo Authorization: abc", "echo Authorization: [redacted]")]
+#[case::here_document_line(
+    "cat <<EOF\nAuthorization: Bearer abc\nEOF",
+    "cat <<EOF\nAuthorization: Bearer [redacted]\nEOF"
+)]
+fn the_value_of_a_secret_header_is_redacted(#[case] line: &str, #[case] redacted: &str) {
+    assert_eq!(redact(line), redacted);
+}
+
+#[rstest]
+#[case::reference(r#"curl -H "Authorization: Bearer $TOKEN" x"#)]
+#[case::substitution(r#"curl -H "Authorization: Bearer $(gh auth token)" x"#)]
+#[case::reference_without_a_scheme(r#"curl -H "X-Api-Key: $KEY" x"#)]
+#[case::other_headers("curl -H 'Content-Type: application/json' -H 'Accept: */*' x")]
+#[case::grep_pattern(r#"grep -rn "password:" config/"#)]
+#[case::grep_pattern_unquoted("grep -rn token: src")]
+#[case::empty_value("curl -H 'Authorization:' x")]
+#[case::path("cargo run -- token::parse x")]
+#[case::url("curl token://host/x")]
+#[case::mid_text(r#"git commit -m "fix the token: it leaked""#)]
+fn a_header_without_a_secret_stays(#[case] line: &str) {
+    assert_eq!(redact(line), line);
+}
+
 const FRAGMENTS: &[&str] = &[
     "mysql -p",
     "ü",

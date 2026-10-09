@@ -6,9 +6,12 @@
 //! disk and every request after it. [`redact`] runs when the preamble is rendered, so
 //! the bytes that the store keeps are the bytes that the model read. It is a pattern
 //! list, not a shell parser: it redacts too much rather than too little, but it does
-//! not touch words that only look like the patterns (`http://host:8080/`).
+//! not touch words that only look like the patterns (`http://host:8080/`,
+//! `grep -r "password:" .`).
 
+mod header;
 mod url;
+mod words;
 
 use std::ops::Range;
 
@@ -33,14 +36,18 @@ const KEY_MIN_CHARS: usize = 16;
 ///   underscores), unquoted or in quotes;
 /// - each word that starts with a key prefix ([`KEY_PREFIXES`]) followed by at least
 ///   [`KEY_MIN_CHARS`] key characters;
-/// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]).
+/// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]);
+/// - the value of a header that carries a secret, such as `Authorization: Bearer x`,
+///   without its scheme ([`header::values`]).
 ///
 /// A value that starts with `$` or a backtick names another value and stays. When two
 /// secrets overlap or touch, one marker replaces both.
 pub(crate) fn redact(line: &str) -> String {
+    let commands = words::commands(line);
     let mut found = assignments(line);
     found.extend(keys(line));
     found.extend(url::passwords(line));
+    found.extend(header::values(&commands));
     replace(line, found)
 }
 
