@@ -55,7 +55,7 @@ fn turn_started() -> Event {
 fn completed(tokens: u64) -> Event {
     Event::TurnCompleted {
         turn_id: turn(),
-        usage: Some(Usage::new(918_000, 1_100)),
+        usage: Some(Usage { cached_input_tokens: 870_000, ..Usage::new(918_000, 1_100) }),
         changes: None,
         context: Some(context(tokens)),
     }
@@ -200,14 +200,14 @@ fn an_interrupted_turn_shows_the_gauge_and_one_without_a_count_keeps_its_line() 
         view.envelope(&sent(11, 0, turn_started()), SIZE, false);
         let end = Event::TurnCompleted {
             turn_id: turn(),
-            usage: Some(Usage::new(18_250, 1_100)),
+            usage: Some(Usage { cached_input_tokens: 16_700, ..Usage::new(18_250, 1_100) }),
             changes: None,
             context: None,
         };
         view.envelope(&sent(12, 42_000, end), SIZE, false);
         bare(&view.frame(SIZE, at(42_000)))
     };
-    assert!(done.contains("done in 42s, 18.2k tokens in, 1.1k out\n"), "{done}");
+    assert!(done.contains("done in 42s, 18.2k tokens in, 1.1k out, cache 91%\n"), "{done}");
 }
 
 #[test]

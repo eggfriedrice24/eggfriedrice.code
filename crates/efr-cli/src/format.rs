@@ -849,9 +849,16 @@ pub(crate) fn size(bytes: u64) -> String {
     }
 }
 
+/// The smallest input of a turn, in tokens, for which the end-of-turn line shows the
+/// share that the prompt cache served. Below the providers' minimums (512 tokens on
+/// Claude, 1024 on OpenAI) no cache entry forms, so `cache 0%` there is only noise.
+pub(crate) const CACHE_SHOWN_FROM: u64 = 2_048;
+
 /// The end-of-turn line of a completed turn, such as `done in 42s, ctx 43% (89k/207k),
-/// 1.1k out` when the turn says how full the context is, else `done in 42s, 18.2k
-/// tokens in, 1.1k out`. The time and the tokens are left out when they are not known.
+/// 1.1k out, cache 91%` when the turn says how full the context is, else `done in 42s,
+/// 18.2k tokens in, 1.1k out, cache 91%`. The time and the tokens are left out when
+/// they are not known, and the cache share when the input is below
+/// [`CACHE_SHOWN_FROM`].
 pub(crate) fn turn_done(
     took: Option<Duration>,
     usage: Option<&Usage>,
@@ -866,6 +873,7 @@ pub(crate) fn turn_done(
         let mut after = rest;
         if let Some(usage) = usage {
             let _ = write!(after, ", {} out", tokens(usage.output_tokens));
+            after.push_str(&cache_part(usage));
         }
         return context::GaugedLine::new(line, Some(gauge), after);
     }
@@ -876,8 +884,21 @@ pub(crate) fn turn_done(
             tokens(usage.input_tokens),
             tokens(usage.output_tokens)
         );
+        line.push_str(&cache_part(usage));
     }
     line.into()
+}
+
+/// `, cache 91%`: the turn's cached input as a percent of its whole input, rounded
+/// down, as Claude Code's hit ratio counts it, so cache writes count as misses. Empty
+/// when the input is below [`CACHE_SHOWN_FROM`].
+fn cache_part(usage: &Usage) -> String {
+    if usage.input_tokens < CACHE_SHOWN_FROM {
+        return String::new();
+    }
+    let cached = usage.cached_input_tokens.min(usage.input_tokens);
+    let percent = u128::from(cached) * 100 / u128::from(usage.input_tokens);
+    format!(", cache {percent}%")
 }
 
 /// The end of an interrupted turn, such as `interrupted after 12s, ctx 43% (89k/207k)`;

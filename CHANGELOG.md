@@ -183,6 +183,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `cache_write_1h_tokens` for the part that it keeps for an hour. efr reads OpenAI's
   count of cache writes. Like `cached_input_tokens`, both are parts of
   `input_tokens`.
+- The end-of-turn line shows the part of the turn's input that the provider's prompt
+  cache served, such as `done in 42s, ctx 43% (89k/207k), 1.1k out, cache 91%`. A
+  cache write counts as a miss. The line shows it only when the turn's input is 2048
+  tokens or more, because a smaller input never makes a cache entry.
 - Claude models with an Anthropic API key, provider `anthropic-api`. Log in with
   `efr login anthropic`, set `[model] provider = "anthropic-api"` and restart efrd.
   efrd streams Anthropic's Messages API, sends the signed thinking of each answer back

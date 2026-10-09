@@ -33,7 +33,7 @@ It is there. Now I copy it out of the sandbox.
 Done: \e[36m~/lib/libghostty.so\e[0m is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
 [asked]
@@ -66,7 +66,7 @@ It is there. Now I copy it out of the sandbox.
 Done: `~/lib/libghostty.so` is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
 [asked]
@@ -97,7 +97,7 @@ It is there. Now I copy it out of the sandbox.
 Done: \e[36m~/lib/libghostty.so\e[0m is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [asked]
@@ -128,7 +128,7 @@ It is there. Now I copy it out of the sandbox.
 Done: `~/lib/libghostty.so` is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
 [asked]

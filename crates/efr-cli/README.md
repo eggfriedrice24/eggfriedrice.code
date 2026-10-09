@@ -138,10 +138,15 @@ Replies:
   error, a panic (the hook in `output.rs`) and the default action of SIGQUIT. The zsh plugin's precmd
   shows it again after any line that ran `efr`, for a `kill -9`.
 - A completed turn ends with one muted line after a blank line, such as `done in 42s,
-  18.2k tokens in, 1.1k out`: the time from the `at` of `turn_started` to the `at` of
-  `turn_completed`, and `turn_completed.usage`. When the event carries `context`, the
-  gauge takes the place of the input tokens: `done in 42s, ctx 43% (89k/206k), 1.1k
-  out` (see "Context" below). An interrupted turn ends with
+  18.2k tokens in, 1.1k out, cache 91%`: the time from the `at` of `turn_started` to
+  the `at` of `turn_completed`, and `turn_completed.usage`. When the event carries
+  `context`, the gauge takes the place of the input tokens: `done in 42s, ctx 43%
+  (89k/206k), 1.1k out, cache 91%` (see "Context" below). `cache N%` is the part of
+  the turn's input that the provider's prompt cache served: `cached_input_tokens`
+  times 100 divided by `input_tokens`, rounded down, so a cache write counts as a
+  miss. It is muted like the rest of the line, and it shows only when the input is at
+  least 2048 tokens (`CACHE_SHOWN_FROM` in `format.rs`), because below 512 tokens on
+  Claude and 1024 on OpenAI no cache entry forms. An interrupted turn ends with
   `interrupted after 12s`, also after Ctrl+C, which counts the time on efr's clock
   without the time of questions, and with the gauge when `turn_interrupted` carries
   `context` (`interrupted after 12s, ctx 43% (89k/206k)`); a failed one has no such

@@ -68,7 +68,7 @@ I will greet the user and run the formatter.
 The greeting is in \e[36msrc/main.rs\e[0m.
 
 \e[2m2 files changed, +25 −3\e[0m
-\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
 [running]
@@ -136,7 +136,7 @@ I will greet the user and run the formatter.
 The greeting is in `src/main.rs`.
 
 \e[2m2 files changed, +25 −3\e[0m
-\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
 [running]
@@ -202,7 +202,7 @@ I will greet the user and run the formatter.
 The greeting is in \e[36msrc/main.rs\e[0m.
 
 \e[2m2 files changed, +25 −3\e[0m
-\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [running]
@@ -268,7 +268,7 @@ I will greet the user and run the formatter.
 The greeting is in `src/main.rs`.
 
 \e[2m2 files changed, +25 −3\e[0m
-\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
 [running]

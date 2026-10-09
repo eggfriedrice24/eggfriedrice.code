@@ -7,28 +7,28 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(900, message(0, \"Done.\"
 Done.
 
 \e[2m3 files changed, +24 −7\e[0m
-\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
 [end]
 Done.
 
 \e[2m3 files changed, +24 −7\e[0m
-\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
 [end]
 Done.
 
 \e[2m3 files changed, +24 −7\e[0m
-\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [end]
 Done.
 
 \e[2m3 files changed, +24 −7\e[0m
-\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out\e[0m
+\e[2mdone in 1.0s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
 [end]

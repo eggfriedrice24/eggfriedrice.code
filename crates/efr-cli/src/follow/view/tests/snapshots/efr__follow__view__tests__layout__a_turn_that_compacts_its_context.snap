@@ -117,7 +117,7 @@ The tests pass.
 
 The tests pass.
 
-\e[2mdone in 42s, \e[0m\e[31mctx 94%\e[0m\e[2m (196k/206k), 1.1k out\e[0m
+\e[2mdone in 42s, \e[0m\e[31mctx 94%\e[0m\e[2m (196k/206k), 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [counted]
@@ -152,7 +152,7 @@ The tests pass.
 
 The tests pass.
 
-\e[2mdone in 42s, \e[0m\e[1mctx 94%\e[0m\e[2m (196k/206k), 1.1k out\e[0m
+\e[2mdone in 42s, \e[0m\e[1mctx 94%\e[0m\e[2m (196k/206k), 1.1k out, cache 0%\e[0m
 
 === not a terminal
 [counted]

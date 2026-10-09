@@ -665,8 +665,9 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
   colour roles are `Success` below 50, `Warning` (not bold) from 50 and `Error` from
   90. On a screen that is too narrow, the gauge goes first.
 - The end-of-turn line has `ctx N% (<tokens>/<limit>)` from the end event's `context`,
-  such as `done in 42s, ctx 43% (89k/207k), 1.1k out`. A turn without `context` keeps
-  today's line.
+  such as `done in 42s, ctx 43% (89k/207k), 1.1k out, cache 91%`. A turn without
+  `context` keeps today's line. `cache N%` comes from the event's `usage` (the README
+  of `efr-cli`).
 - After a `compacting` draft the status row says `compacting context`, until the
   `conversation_compacted` event, the next `context` draft or the end of the turn.
 - A client that subscribes while a turn runs gets the turn's newest `context` draft
