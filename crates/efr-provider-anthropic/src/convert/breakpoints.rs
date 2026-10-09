@@ -15,10 +15,12 @@
 //! - T, the tail: the last message, which is a user message.
 //!
 //! Places. The conversion never merges user messages; the API joins a run of adjacent
-//! user messages into one. Only the last message of a run ever ended the request of a
-//! call, so a run is one place, at its last message: a new prompt after a turn that
-//! ended on its tool results or on its prompt, a steer after tool results, the parts of
-//! the head after a compaction, and a summary prompt after the turn's last message.
+//! user messages into one. A run is one place, at its last message: a new prompt after
+//! a turn that ended on its tool results or on its prompt, a steer after tool results,
+//! the parts of the head after a compaction, and a summary prompt after the turn's last
+//! message. An inner message of a run can have ended the request of a call that failed,
+//! such as the tool results before a new prompt of the next turn. No marker goes on
+//! it: the API's lookback from the markers after it reads the entry of that call.
 //!
 //! Anchors. Every place ends the request of one call. The call that ends at a place
 //! marks an anchor there when a message of its run opens a turn (it holds no

@@ -411,9 +411,9 @@ into the GitHub release notes, and it stops when the section is missing.
   loop does. Before, efr read the result of that call, which it shows as text, as a
   new prompt and wrote every entry for one hour, which costs more.
 - On Claude, a prompt after a turn that ended early now goes as a message of its own,
-  as after an interrupt while a tool ran or after a model call that failed. Before,
-  efr joined it to the last message of that turn, so the request lost the prompt
-  cache of that message and the new turn had no one-hour cache entry.
+  as after an interrupt while a tool ran or after a model call that failed, and the
+  new turn now gets its one-hour cache entry. Before, efr joined the prompt to the
+  last message of that turn, and the new turn had no one-hour cache entry.
 - Each `<live_state>` block now starts with the rule that only the newest block is
   current. Before, only the default system prompt said so, and a `[model]
   system_prompt` of your own lost the rule, so the model could read an old directory
