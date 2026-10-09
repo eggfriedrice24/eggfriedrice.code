@@ -1,6 +1,6 @@
 //! Provider credentials over a `TestDaemon`: the real subscription provider against a
 //! local Responses server refreshes its login once on a 401 and saves the new tokens,
-//! the API key provider retries once and then fails, and `admin.login_openai` hands
+//! the API key provider fails at the first 401 with the server's message, and `admin.login_openai` hands
 //! out the authorize URL, runs one login at a time and ends with what the browser said.
 
 use efr_protocol::{
@@ -54,34 +54,8 @@ async fn provider_401_refresh_once() {
 }
 
 #[tokio::test]
-async fn the_api_key_provider_retries_a_401_once_with_the_same_key() {
+async fn the_api_key_provider_fails_the_turn_at_the_first_401_with_the_servers_message() {
     let server = ResponsesServer::start().await;
-    server.push(ResponsesAnswer::new(401, UNAUTHORIZED));
-    server.push(ResponsesAnswer::text("Hello after the retry."));
-    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
-    let client = daemon.client_for_tty(TTY).await.unwrap();
-
-    let sent: PromptSendResult = client.call(daemon.prompt(1, "hello", TTY)).await.unwrap();
-    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
-    let events = events_until(&mut follow, |event| {
-        matches!(event, Event::TurnFailed { .. } | Event::TurnCompleted { .. })
-    })
-    .await
-    .unwrap();
-
-    assert_eq!(events.last().unwrap().event.kind(), "turn_completed");
-    let bearer = format!("Bearer {API_KEY}");
-    let received = server.received();
-    assert_eq!(received.len(), 2);
-    assert!(received.iter().all(|request| request.authorization.as_deref() == Some(&bearer)));
-    drop((follow, client));
-    daemon.stop().await.unwrap();
-}
-
-#[tokio::test]
-async fn a_second_401_fails_the_turn_as_unauthorized() {
-    let server = ResponsesServer::start().await;
-    server.push(ResponsesAnswer::new(401, UNAUTHORIZED));
     server.push(ResponsesAnswer::new(401, UNAUTHORIZED));
     server.push(ResponsesAnswer::text("never sent"));
     let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
@@ -99,7 +73,14 @@ async fn a_second_401_fails_the_turn_as_unauthorized() {
         panic!("{events:#?}")
     };
     assert_eq!(error.code, ErrorCode::Unauthorized);
-    assert_eq!(server.received().len(), 2, "one refresh, never a third try");
+    assert_eq!(
+        error.message,
+        "the provider rejected the credentials: Your authentication token has expired."
+    );
+    let bearer = format!("Bearer {API_KEY}");
+    let received = server.received();
+    assert_eq!(received.len(), 1, "a key cannot refresh, so the same key is not sent again");
+    assert_eq!(received[0].authorization.as_deref(), Some(bearer.as_str()));
     assert_eq!(server.remaining(), 1);
     drop((follow, client));
     daemon.stop().await.unwrap();
