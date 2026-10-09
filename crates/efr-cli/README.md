@@ -494,8 +494,10 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   first: the row hides, keeps its text, and comes back after. The keys typed before
   the question appeared go into the row: those that the reader queued, and those still
   in the terminal (`KeyReader::mark`). The mark counts them at once: the keys that
-  the key thread took and the bytes that wait in the terminal (`FIONREAD`). So a key
-  that the thread reads a moment after the question showed never goes into the row. A paste that the question cut goes on into the row until its end, for
+  the key thread took and the bytes that wait in the terminal (`FIONREAD`), in that
+  order, and count again when the thread read a key meanwhile. So the count is never
+  too high, and a key that the thread reads a moment after the question showed never
+  goes into the row. A paste that the question cut goes on into the row until its end, for
   at most 1 s; then the row ends it with the text that came. A key among them that
   would send stays text there. When the keys come back, the row drops an escape
   sequence that the question cut. Before the keys go back to the row after an answer line, a call that
@@ -861,7 +863,8 @@ cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.
 `commands/send/tests.rs` the keys typed while the prompt goes out, a refused prompt
 and `render.turn_input = false`; the key thread tests on a pseudo-terminal check the
 typeahead that the row keeps, Enter and Ctrl+J, Esc, the flush, the keys that a stop
-for the row keeps, and the mode after a stop. `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a
+for the row keeps, and the mode after a stop; table tests check the count of a mark
+while the thread reads (`keys/tests.rs`). `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a
 `TestDaemon` and checks that keys typed before it started go back to the shell's file
 and that the terminal's mode comes back.
 The integration tests are one test binary, `tests/it/main.rs`, with one module per

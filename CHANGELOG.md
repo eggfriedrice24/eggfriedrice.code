@@ -410,6 +410,10 @@ into the GitHub release notes, and it stops when the section is missing.
   current. Before, only the default system prompt said so, and a `[model]
   system_prompt` of your own lost the rule, so the model could read an old directory
   as the current one. Blocks that efr sent before keep their bytes.
+- The first key that you type after a question or a password prompt appears no longer
+  goes to the input row. Before, when efr read a key from the terminal at the moment
+  the question appeared, efr could count that key twice, and then the next key, such
+  as the first letter of a password, went to the row.
 
 ### Security
 

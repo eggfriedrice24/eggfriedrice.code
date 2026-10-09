@@ -1,4 +1,6 @@
+use std::cell::Cell;
 use std::os::fd::OwnedFd;
+use std::sync::atomic::Ordering;
 
 use efr_protocol::ApprovalDecision;
 use efr_test_support::Wait;
@@ -8,7 +10,9 @@ use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
 use rustix::termios::{InputModes, LocalModes, OptionalActions, tcgetattr, tcsetattr};
 use tokio::sync::mpsc;
 
-use super::{KEY_QUEUE, Key, KeyReader, Read, Typeahead, decision, start_on};
+use super::{
+    COUNT_TRIES, KEY_QUEUE, Key, KeyReader, Read, Typeahead, decision, start_on, typed_so_far,
+};
 
 /// A pseudo-terminal pair: the master, which plays the person typing, and the slave,
 /// which plays the terminal on stdin.
@@ -132,11 +136,23 @@ fn next_line(master: &OwnedFd, probe: &OwnedFd) -> Vec<u8> {
 }
 
 /// A reader whose thread is blocked on a full queue, with keys still unread behind it.
+/// Every key typed is either taken by the thread or waits in the terminal.
 async fn full_reader(master: &OwnedFd, slave: OwnedFd, probe: &OwnedFd) -> KeyReader {
     let reader = start_on(slave, Typeahead::Discard).unwrap();
     wait_for_key_mode(probe);
     rustix::io::write(master, &[b'x'; 2 * KEY_QUEUE]).unwrap();
     full_queue(&reader).await;
+    // NOTE: a full queue is not enough for a mark. The thread may hold the next byte in
+    // a read that did not count it yet, and the pseudo-terminal passes the written bytes
+    // to the input queue of its other end later, on a kernel worker; a mark counts
+    // neither. Under load, the test of the mark saw a key typed before it as typed
+    // after it.
+    Wait::new("every key taken or waiting in the terminal")
+        .until_blocking(|| {
+            let taken = reader.flags.taken.load(Ordering::Acquire);
+            taken + rustix::io::ioctl_fionread(probe).unwrap() == 2 * KEY_QUEUE as u64
+        })
+        .unwrap();
     reader
 }
 
@@ -389,4 +405,92 @@ async fn after_a_stop_the_reader_sets_its_mode_again() {
     wait_for_key_mode(&probe);
     assert!(!echoes(&probe));
     reader.stop().await;
+}
+
+/// The key thread and the terminal while a mark counts: the thread took `taken` keys and
+/// `waiting` bytes wait in the terminal.
+struct Typing {
+    taken: Cell<u64>,
+    waiting: Cell<u64>,
+}
+
+impl Typing {
+    fn new(taken: u64, waiting: u64) -> Typing {
+        Typing { taken: Cell::new(taken), waiting: Cell::new(waiting) }
+    }
+
+    /// The thread reads one key from the terminal and counts it.
+    fn read(&self) {
+        if self.waiting.get() > 0 {
+            self.waiting.set(self.waiting.get() - 1);
+            self.taken.set(self.taken.get() + 1);
+        }
+    }
+
+    fn typed(&self) -> u64 {
+        self.taken.get() + self.waiting.get()
+    }
+}
+
+/// The stress finding: the mark counted the terminal first, and a key that the thread
+/// read before the count of the keys it took was in both. The first key typed after
+/// the mark then counted as typed before it and went to the row, also the first letter
+/// of a password.
+#[test]
+fn a_key_that_the_thread_reads_after_the_terminal_count_counts_once() {
+    let typing = Typing::new(16, 16);
+    let first = Cell::new(true);
+    let typed = typed_so_far(
+        || typing.taken.get(),
+        || {
+            let waiting = typing.waiting.get();
+            if first.replace(false) {
+                typing.read();
+            }
+            Some(waiting)
+        },
+    );
+    assert_eq!(typed, Some(typing.typed()));
+}
+
+#[test]
+fn a_key_that_the_thread_reads_between_the_counts_is_counted() {
+    let typing = Typing::new(16, 16);
+    let first = Cell::new(true);
+    let typed = typed_so_far(
+        || {
+            let taken = typing.taken.get();
+            if first.replace(false) {
+                typing.read();
+            }
+            taken
+        },
+        || Some(typing.waiting.get()),
+    );
+    assert_eq!(typed, Some(typing.typed()));
+}
+
+/// A thread that reads a paste during every count: the count stops after a few tries
+/// and is short, never too high.
+#[test]
+fn a_count_during_a_paste_stops_and_is_never_too_high() {
+    let typing = Typing::new(0, 100);
+    let counts = Cell::new(0);
+    let typed = typed_so_far(
+        || typing.taken.get(),
+        || {
+            counts.set(counts.get() + 1);
+            let waiting = typing.waiting.get();
+            typing.read();
+            Some(waiting)
+        },
+    )
+    .unwrap();
+    assert_eq!(counts.get(), COUNT_TRIES);
+    assert!(typed <= typing.typed(), "{typed} of {}", typing.typed());
+}
+
+#[test]
+fn a_terminal_that_cannot_count_gives_no_count() {
+    assert_eq!(typed_so_far(|| 3, || None), None);
 }

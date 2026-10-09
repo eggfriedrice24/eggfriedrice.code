@@ -248,13 +248,20 @@ impl KeyReader {
     /// typed after the mark answer a question that appears now. The count is taken
     /// now, so a key that the thread reads a moment later is never counted before the
     /// mark.
+    ///
+    /// A byte that the terminal did not put into its input queue yet, or that a read of
+    /// the thread holds and did not count yet, counts as typed after the mark: the count
+    /// can be short, but it is never too high, so a key typed after the mark never
+    /// counts as typed before it.
     pub(crate) fn mark(&mut self) {
-        let waiting = self.tty.as_ref().and_then(|tty| rustix::io::ioctl_fionread(tty).ok());
-        match waiting {
-            Some(waiting) => {
-                let taken = self.flags.taken.load(Ordering::Acquire);
-                self.mark_end = taken.saturating_add(waiting);
-            }
+        let typed = self.tty.as_ref().and_then(|tty| {
+            typed_so_far(
+                || self.flags.taken.load(Ordering::Acquire),
+                || rustix::io::ioctl_fionread(tty).ok(),
+            )
+        });
+        match typed {
+            Some(typed) => self.mark_end = typed,
             None if self.confirms => {
                 self.flags.mark.store(true, Ordering::Release);
                 self.marking = true;
@@ -349,6 +356,31 @@ impl KeyReader {
         // means it is gone.
         let _ = done.await;
     }
+}
+
+/// How many times a mark counts again when the thread read a key while it counted.
+const COUNT_TRIES: usize = 4;
+
+/// How many keys were typed so far: the keys that the thread took (`taken`) and the
+/// bytes that wait in the terminal (`waiting`); `None` when the terminal cannot count.
+///
+/// The thread reads on while the count runs. `taken` goes first: a key that the thread
+/// reads between the two counts is in neither of them, so the sum is short. In the
+/// other order the key is in both, the sum is too high, and the first key typed after a
+/// mark counts as typed before it. When `taken` changed during the count, the count
+/// runs again, at most [`COUNT_TRIES`] times; then the short count stays.
+fn typed_so_far(taken: impl Fn() -> u64, mut waiting: impl FnMut() -> Option<u64>) -> Option<u64> {
+    let mut before = taken();
+    let mut typed = before;
+    for _ in 0..COUNT_TRIES {
+        typed = before.saturating_add(waiting()?);
+        let after = taken();
+        if after == before {
+            break;
+        }
+        before = after;
+    }
+    Some(typed)
 }
 
 /// The terminal on stdin.
