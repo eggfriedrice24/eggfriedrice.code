@@ -458,7 +458,9 @@ fn location_of_item(event: &Value, item: &Value) -> Location {
     at
 }
 
-/// The usage of a finished response. Missing or `null` parts count as zero.
+/// The usage of a finished response. Missing or `null` parts count as zero. OpenAI's
+/// `input_tokens` holds the cached and the written tokens already, so the parts map
+/// one to one; the API has no cache time to live to choose, so no write is for an hour.
 fn usage(value: &Value) -> Option<TokenUsage> {
     if !value.is_object() {
         return None;
@@ -471,6 +473,8 @@ fn usage(value: &Value) -> Option<TokenUsage> {
         output_tokens: count(&["output_tokens"]),
         cached_input_tokens: count(&["input_tokens_details", "cached_tokens"]),
         reasoning_tokens: count(&["output_tokens_details", "reasoning_tokens"]),
+        cache_write_tokens: count(&["input_tokens_details", "cache_write_tokens"]),
+        cache_write_1h_tokens: 0,
     })
 }
 

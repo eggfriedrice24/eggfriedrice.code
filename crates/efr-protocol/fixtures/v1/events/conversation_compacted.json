@@ -19,6 +19,7 @@
     "output_tokens": 3200,
     "cached_input_tokens": 198000,
     "reasoning_tokens": 900,
+    "cache_write_tokens": 6000,
     "context_tokens": 208200
   }
 }

@@ -701,9 +701,11 @@ pub enum InputWait {
 
 /// Tokens that a turn used, as the provider reported them.
 ///
-/// `input_tokens`, `output_tokens`, `cached_input_tokens` and `reasoning_tokens` are
-/// sums over the model calls of the turn. `context_tokens` is not a sum: it is the size
-/// of the context at the last call.
+/// `input_tokens`, `output_tokens`, `cached_input_tokens`, `reasoning_tokens`,
+/// `cache_write_tokens` and `cache_write_1h_tokens` are sums over the model calls of the
+/// turn. `context_tokens` is not a sum: it is the size of the context at the last call.
+/// The cache counts are parts of `input_tokens` for every provider, so
+/// `cached_input_tokens / input_tokens` is the part of the input that the cache served.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Usage {
     /// Tokens sent to the model, cached ones included.
@@ -718,6 +720,14 @@ pub struct Usage {
     /// or when the provider did not say.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub reasoning_tokens: u64,
+    /// The part of `input_tokens` that the provider wrote to its prompt cache, with
+    /// every time to live. Absent when none, or when the provider did not say.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub cache_write_tokens: u64,
+    /// The part of `cache_write_tokens` written with a time to live of one hour. Absent
+    /// when none, and always for a provider without such a choice, such as OpenAI.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub cache_write_1h_tokens: u64,
     /// The tokens in the context at the last model call: its input plus its output.
     /// Absent when no call reported its usage, and in turns recorded before efr counted
     /// it.
@@ -733,6 +743,8 @@ impl Usage {
             output_tokens,
             cached_input_tokens: 0,
             reasoning_tokens: 0,
+            cache_write_tokens: 0,
+            cache_write_1h_tokens: 0,
             context_tokens: 0,
         }
     }

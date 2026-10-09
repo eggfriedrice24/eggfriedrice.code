@@ -51,12 +51,16 @@ fn events_have_a_kind_and_data() {
                 output_tokens: 2,
                 cached_input_tokens: 0,
                 reasoning_tokens: 0,
+                cache_write_tokens: 8,
+                cache_write_1h_tokens: 0,
             }),
             json!({"kind": "usage", "data": {
                 "input_tokens": 10,
                 "output_tokens": 2,
                 "cached_input_tokens": 0,
                 "reasoning_tokens": 0,
+                "cache_write_tokens": 8,
+                "cache_write_1h_tokens": 0,
             }}),
         ),
         (

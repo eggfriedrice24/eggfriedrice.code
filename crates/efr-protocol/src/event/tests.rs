@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use crate::{
     CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
-    ShellContext, TurnId, TurnSettings,
+    ShellContext, TurnId, TurnSettings, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -450,4 +450,29 @@ fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not
     });
     assert_eq!(serde_json::to_value(requested(false)).unwrap(), old);
     assert_eq!(serde_json::from_value::<Event>(old).unwrap(), requested(false));
+}
+
+#[test]
+fn a_usage_says_its_cache_writes_and_an_old_one_reads_as_none() {
+    let usage = Usage {
+        cached_input_tokens: 9_000,
+        cache_write_tokens: 2_500,
+        cache_write_1h_tokens: 2_000,
+        ..Usage::new(12_000, 300)
+    };
+    let wire = json!({
+        "input_tokens": 12_000,
+        "output_tokens": 300,
+        "cached_input_tokens": 9_000,
+        "cache_write_tokens": 2_500,
+        "cache_write_1h_tokens": 2_000,
+    });
+    assert_eq!(serde_json::to_value(usage).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Usage>(wire).unwrap(), usage);
+    // A usage from before the cache writes reads as one without them, and such a usage
+    // leaves them out.
+    let old = json!({ "input_tokens": 12_000, "output_tokens": 300, "cached_input_tokens": 9_000 });
+    let read: Usage = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(read, Usage { cached_input_tokens: 9_000, ..Usage::new(12_000, 300) });
+    assert_eq!(serde_json::to_value(read).unwrap(), old);
 }

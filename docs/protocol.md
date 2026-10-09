@@ -258,3 +258,10 @@ No protocol version has shipped yet.
   optional `catalog` (`origin`: `backend`, `cache` or `builtin`, and an optional
   `fetched_at`). The fixtures `models_list_result.json` and `admin_status_result.json`
   now set the new members.
+- Version 1, additive: cache writes. `usage` gains optional `cache_write_tokens` (the
+  part of `input_tokens` that the provider wrote to its prompt cache) and
+  `cache_write_1h_tokens` (the part of `cache_write_tokens` written with a time to live
+  of one hour), both sums over the turn's model calls and absent when zero. For every
+  provider, `cached_input_tokens` and the two write counts are parts of `input_tokens`.
+  The fixtures `events/turn_completed.json`, `events/conversation_compacted.json` and
+  `conversation_compact_result.json` now set them.

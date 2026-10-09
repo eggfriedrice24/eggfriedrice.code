@@ -30,8 +30,9 @@ Modules:
   a provider keeps is documented on the type: a tool call is start, deltas, end (with
   the complete arguments); `Done` is last and carries the message's `provider_raw`;
   provider events with no canonical form become `Raw` instead of being dropped.
-- `usage`: `TokenUsage` with cached and reasoning parts; usages add with saturation
-  and convert to the wire's `efr_protocol::Usage`.
+- `usage`: `TokenUsage` with cached, cache write and reasoning parts; usages add with
+  saturation and convert to the wire's `efr_protocol::Usage`. See "Token counts"
+  below for what each count means.
 - `provider`: the `Provider` trait, dyn-compatible through `async-trait`.
   `stream(Request) -> ProviderStream` is the one model call a provider implements;
   `complete` collects it by default, and `models` defaults to an empty list. `models`
@@ -81,6 +82,25 @@ call whose input is `{"input": "<text>"}`. The flag stays with the call in the
 stored turn messages and in the event log (`tool_call_started`), so the next request
 sends the call, and its result, back in the form the model wrote it. A tool reads
 both forms the same way (`efr_tools::freeform_text`).
+
+Token counts. Every provider reports the counts of one call in the same sense, so the
+context gauge, the compaction trigger and the cache hit rate work alike for all of
+them:
+
+| Count | Meaning | OpenAI Responses | Anthropic Messages |
+|---|---|---|---|
+| `input_tokens` | The whole input of the call | `input_tokens` | `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` |
+| `cached_input_tokens` | The part of `input_tokens` read from the prompt cache | `input_tokens_details.cached_tokens` | `cache_read_input_tokens` |
+| `cache_write_tokens` | The part of `input_tokens` written to the prompt cache, every time to live | `input_tokens_details.cache_write_tokens` | `cache_creation_input_tokens` |
+| `cache_write_1h_tokens` | The part of `cache_write_tokens` written for one hour | always 0 | `cache_creation.ephemeral_1h_input_tokens` |
+| `output_tokens` | Everything the model produced | `output_tokens` | `output_tokens` |
+| `reasoning_tokens` | The part of `output_tokens` spent on reasoning | `output_tokens_details.reasoning_tokens` | `output_tokens_details.thinking_tokens` |
+
+The cache counts are parts of `input_tokens` and are never added to it again. The
+Anthropic sum matters: that API's `input_tokens` is only the part after the last cache
+breakpoint, and without the sum a warm cache shows a context of about 0% and the
+compaction never runs. A missing part counts as zero. The hit rate of a turn is
+`cached_input_tokens / input_tokens` over its calls.
 
 Serde forms: names are snake_case, internally tagged enums use the member `kind`,
 optional members are left out when empty and unknown members are ignored, as on the

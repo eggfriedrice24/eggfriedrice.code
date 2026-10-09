@@ -194,6 +194,8 @@ fn compaction() -> Compaction {
             output_tokens: 3_200,
             cached_input_tokens: 198_000,
             reasoning_tokens: 900,
+            cache_write_tokens: 6_000,
+            cache_write_1h_tokens: 0,
             context_tokens: 208_200,
         }),
     }
@@ -1153,6 +1155,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 output_tokens: 340,
                 cached_input_tokens: 1024,
                 reasoning_tokens: 128,
+                cache_write_tokens: 160,
+                cache_write_1h_tokens: 160,
                 context_tokens: 89_000,
             }),
             context: Some(context_use()),

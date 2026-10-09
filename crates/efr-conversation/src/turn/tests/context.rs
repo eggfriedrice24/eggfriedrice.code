@@ -44,6 +44,7 @@ fn usage(input: u64, output: u64, cached: u64, reasoning: u64) -> ProviderEvent 
         output_tokens: output,
         cached_input_tokens: cached,
         reasoning_tokens: reasoning,
+        ..TokenUsage::default()
     })
 }
 
@@ -129,6 +130,7 @@ async fn a_turn_ends_with_the_sums_and_the_context_of_its_last_call() {
         cached_input_tokens: 1800,
         reasoning_tokens: 20,
         context_tokens: 1230,
+        ..Usage::default()
     };
     assert_eq!(
         end,

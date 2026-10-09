@@ -6,6 +6,8 @@
     "output_tokens": 340,
     "cached_input_tokens": 1024,
     "reasoning_tokens": 128,
+    "cache_write_tokens": 160,
+    "cache_write_1h_tokens": 160,
     "context_tokens": 89000
   },
   "context": {

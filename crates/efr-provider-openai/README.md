@@ -279,10 +279,12 @@ What efr does not copy:
   `ProviderEvent::Raw`, as on the HTTP path.
 - A WebSocket exchange is not recorded through `efr_http`'s `Recorder`.
 
-The usage of a finished response gives `input_tokens` (cached ones included),
-`output_tokens` (reasoning included), `input_tokens_details.cached_tokens` and
-`output_tokens_details.reasoning_tokens`; a missing or `null` part counts as zero. The
-tests check them on the recorded streams in `fixtures/responses/`, and the overflow on
+The usage of a finished response gives `input_tokens` (cached and written ones
+included), `output_tokens` (reasoning included), `input_tokens_details.cached_tokens`,
+`input_tokens_details.cache_write_tokens` and `output_tokens_details.reasoning_tokens`;
+a missing or `null` part counts as zero. OpenAI has no cache time to live to choose, so
+`cache_write_1h_tokens` is always zero. The tests check them on the recorded streams in
+`fixtures/responses/` (`tool_call.sse` has a cache write), and the overflow on
 `context_length_exceeded.sse`, a 400 with that code and a 413.
 
 ## Tier

@@ -9,6 +9,13 @@ use serde::{Deserialize, Serialize};
 /// A turn that calls tools makes several model calls; the conversation adds their
 /// usages with `+` (which saturates instead of overflowing) and records the sum on the
 /// wire as an `efr_protocol::Usage`.
+///
+/// The counts have one meaning for every provider. `input_tokens` is the whole input
+/// of the call; the cache counts are parts of it, never added to it. A provider whose
+/// API reports the parts apart adds them: for Anthropic's Messages API,
+/// `input_tokens` is its `input_tokens + cache_creation_input_tokens +
+/// cache_read_input_tokens`. The context gauge and the compaction trigger read
+/// `input_tokens`, so a provider that leaves out a part makes them read too low.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TokenUsage {
     /// Tokens sent to the model, cached ones included.
@@ -21,6 +28,14 @@ pub struct TokenUsage {
     /// The part of `output_tokens` the model spent on reasoning.
     #[serde(default)]
     pub reasoning_tokens: u64,
+    /// The part of `input_tokens` the provider wrote to its prompt cache, with every
+    /// time to live.
+    #[serde(default)]
+    pub cache_write_tokens: u64,
+    /// The part of `cache_write_tokens` written with a time to live of one hour. Zero
+    /// for a provider without such a choice, such as OpenAI.
+    #[serde(default)]
+    pub cache_write_1h_tokens: u64,
 }
 
 impl Add for TokenUsage {
@@ -32,6 +47,10 @@ impl Add for TokenUsage {
             output_tokens: self.output_tokens.saturating_add(other.output_tokens),
             cached_input_tokens: self.cached_input_tokens.saturating_add(other.cached_input_tokens),
             reasoning_tokens: self.reasoning_tokens.saturating_add(other.reasoning_tokens),
+            cache_write_tokens: self.cache_write_tokens.saturating_add(other.cache_write_tokens),
+            cache_write_1h_tokens: self
+                .cache_write_1h_tokens
+                .saturating_add(other.cache_write_1h_tokens),
         }
     }
 }
@@ -51,6 +70,8 @@ impl From<TokenUsage> for efr_protocol::Usage {
             output_tokens: usage.output_tokens,
             cached_input_tokens: usage.cached_input_tokens,
             reasoning_tokens: usage.reasoning_tokens,
+            cache_write_tokens: usage.cache_write_tokens,
+            cache_write_1h_tokens: usage.cache_write_1h_tokens,
             context_tokens: 0,
         }
     }

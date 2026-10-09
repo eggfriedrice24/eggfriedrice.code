@@ -53,6 +53,26 @@ fn usage(input: u64, output: u64, cached: u64, reasoning: u64) -> ProviderEvent 
         output_tokens: output,
         cached_input_tokens: cached,
         reasoning_tokens: reasoning,
+        cache_write_tokens: 0,
+        cache_write_1h_tokens: 0,
+    })
+}
+
+/// `usage` with `written` input tokens written to the prompt cache.
+fn usage_with_writes(
+    input: u64,
+    output: u64,
+    cached: u64,
+    reasoning: u64,
+    written: u64,
+) -> ProviderEvent {
+    ProviderEvent::Usage(TokenUsage {
+        input_tokens: input,
+        output_tokens: output,
+        cached_input_tokens: cached,
+        reasoning_tokens: reasoning,
+        cache_write_tokens: written,
+        cache_write_1h_tokens: 0,
     })
 }
 
@@ -127,7 +147,7 @@ fn a_tool_call_starts_grows_and_ends_with_the_whole_arguments() {
                 call_id: call_id.clone(),
                 arguments: "{\"command\":\"ls -la\"}".to_owned(),
             },
-            usage(1530, 46, 1280, 28),
+            usage_with_writes(1530, 46, 1280, 28, 250),
             ProviderEvent::Done {
                 stop_reason: StopReason::ToolUse,
                 provider_raw: Some(done_items(&events)),
