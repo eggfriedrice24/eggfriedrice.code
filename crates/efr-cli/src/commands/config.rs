@@ -9,7 +9,9 @@
 //! - `check` reads a file with the daemon's checks and the theme names of
 //!   `efr-render`; an error names its line, its column and its key, and exits 1. When
 //!   the daemon runs, a window of `[openai] models` above the largest window of its
-//!   model in the daemon's catalog gets a note: efrd uses the largest one.
+//!   model in the daemon's catalog gets a note: efrd uses the largest one. A
+//!   `[model] name` of another company than `[model] provider` gets a warning with the
+//!   fix: the file is valid, but every turn that does not name its own model fails.
 //! - `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `vi`, after it creates a
 //!   missing one from the commented example (never through a link to nothing); when
 //!   `config.toml` is a symbolic link, the editor gets the file behind it, so the link
@@ -284,6 +286,9 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
         None => {
             out.out(&format!("{}: ok\n", path.display()))?;
             if let Ok(settings) = efr_config::Settings::parse(&path, text.as_deref()) {
+                if let Some(warning) = foreign_model_warning(&settings) {
+                    out.out(&format!("{}: warning: {warning}\n", path.display()))?;
+                }
                 for note in window_notes(ctx, &settings).await {
                     out.out(&format!("{}: note: {note}\n", path.display()))?;
                 }
@@ -295,6 +300,16 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
             Err(CliError::ConfigInvalid)
         }
     }
+}
+
+/// The warning for a `[model] name` of another company than `[model] provider`, with
+/// the fix, or `None` when the name fits the provider.
+pub(crate) fn foreign_model_warning(settings: &efr_config::Settings) -> Option<String> {
+    let foreign = settings.foreign_model()?;
+    Some(format::one_line(&format!(
+        "{foreign}, so every turn that does not name its own model fails; {}",
+        foreign.fix()
+    )))
 }
 
 /// A note for each window of the config's list of models (`[openai] models`, or

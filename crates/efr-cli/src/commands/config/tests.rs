@@ -545,3 +545,33 @@ async fn edit_refuses_a_link_to_nothing() {
     assert!(stderr.contains("which does not exist"), "{stderr}");
     assert!(!env.dirs.data().join("gone.toml").exists());
 }
+
+#[tokio::test]
+async fn check_warns_about_a_model_name_of_another_company_with_the_fix() {
+    let env = TestEnv::new();
+    let ctx = env.context();
+    let path = env.dirs.config().join("config.toml");
+    let shown = path.display().to_string();
+    let mut outputs = Vec::new();
+    for text in [
+        "[model]\nprovider = \"anthropic-api\"\nname = \"gpt-5.5\"\n",
+        "[model]\nname = \"claude-opus-5-5\"\n",
+    ] {
+        std::fs::write(&path, text).unwrap();
+        let (exit, stdout, stderr) = efr(&ctx, &["config", "check"]).await;
+        assert_eq!(exit, Exit::Success, "the file is valid; only its turns fail");
+        assert_eq!(stderr, "");
+        outputs.push(stdout.replace(&shown, "<config.toml>"));
+    }
+    insta::assert_snapshot!(outputs.join(""));
+
+    for fits in [
+        "[model]\nprovider = \"anthropic-api\"\nname = \"claude-opus-5-5\"\n",
+        "[model]\nprovider = \"anthropic-api\"\nname = \"gpt-5.5\"\n[anthropic]\nmodels = [\"gpt-5.5\"]\n",
+        "[model]\nname = \"my-model\"\n",
+    ] {
+        std::fs::write(&path, fits).unwrap();
+        let (exit, stdout, _) = efr(&ctx, &["config", "check"]).await;
+        assert_eq!((exit, stdout), (Exit::Success, format!("{shown}: ok\n")), "{fits}");
+    }
+}

@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/commands/config/tests.rs
+expression: "outputs.join(\"\")"
+---
+<config.toml>: ok
+<config.toml>: warning: [model] name gpt-5.5 is a model of OpenAI, but [model] provider is anthropic-api, so every turn that does not name its own model fails; set [model] name to a model of anthropic-api, or remove it
+<config.toml>: ok
+<config.toml>: warning: [model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is openai-subscription, so every turn that does not name its own model fails; set [model] name to a model of openai-subscription, or remove it
