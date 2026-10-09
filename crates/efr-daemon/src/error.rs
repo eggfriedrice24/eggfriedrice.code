@@ -223,6 +223,13 @@ pub enum DaemonError {
         #[source]
         source: ProviderError,
     },
+    /// The config names a provider that this efrd cannot build, such as
+    /// `anthropic-api` before efrd can reach Anthropic.
+    #[error("efrd cannot build the provider {id:?}")]
+    UnknownProvider {
+        /// The provider id of the config.
+        id: String,
+    },
     /// The OpenAI provider config is invalid.
     #[error("the OpenAI provider settings are invalid")]
     OpenAi {
@@ -479,6 +486,7 @@ impl DaemonError {
             | DaemonError::Tool { .. }
             | DaemonError::Http { .. }
             | DaemonError::Provider { .. }
+            | DaemonError::UnknownProvider { .. }
             | DaemonError::OpenAi { .. }
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }

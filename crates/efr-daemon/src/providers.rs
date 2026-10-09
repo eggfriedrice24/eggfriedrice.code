@@ -10,6 +10,9 @@
 //! - `openai-api`: the public API with the `openai-api` credential, an API key, read
 //!   at each request and handed over through `StaticToken`.
 //!
+//! Any other id that the config accepts, such as `anthropic-api`, stops the start with
+//! `DaemonError::UnknownProvider` until efrd can build it.
+//!
 //! The config picks the provider of new conversations; a [`ProviderFactory`] given to
 //! the daemon replaces how it is built, which is how an in-process daemon answers from
 //! a replay instead of the network. After a login the token source forgets its cached
@@ -233,15 +236,22 @@ struct CredentialProviders {
 impl ProviderFactory for CredentialProviders {
     fn provider(&self, id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
         let provider_id = ProviderId::new(id).map_err(|source| DaemonError::Provider { source })?;
-        let (config, tokens) = if id == API {
-            let tokens: Arc<dyn TokenSource> =
-                Arc::new(StoredApiKey { store: Arc::clone(&self.store), id: credential(API)? });
-            let base_url = self.openai.api_base_url.as_deref();
-            (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
-        } else {
-            let tokens: Arc<dyn TokenSource> = self.subscription.clone();
-            let base_url = self.openai.subscription_base_url.as_deref();
-            (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
+        let (config, tokens) = match id {
+            API => {
+                let tokens: Arc<dyn TokenSource> =
+                    Arc::new(StoredApiKey { store: Arc::clone(&self.store), id: credential(API)? });
+                let base_url = self.openai.api_base_url.as_deref();
+                (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
+            }
+            SUBSCRIPTION => {
+                let tokens: Arc<dyn TokenSource> = self.subscription.clone();
+                let base_url = self.openai.subscription_base_url.as_deref();
+                (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
+            }
+            // NOTE: a provider id that the config accepts but efrd cannot build yet,
+            // such as `anthropic-api`, stops the start; an OpenAI provider under its
+            // name would send the user's prompts to the wrong company.
+            _ => return Err(DaemonError::UnknownProvider { id: id.to_owned() }),
         };
         let provider = OpenAiProvider::new(
             provider_id,

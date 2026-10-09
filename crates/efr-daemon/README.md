@@ -46,7 +46,8 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    cancelled. A prompt never runs by surprise after a restart.
 5. The PTY table, the recording sink, the shells, the model catalog (`catalog.rs`: the
    cache file in the state root, else the built-in table), the providers
-   (`providers.rs`), the tool registry and the settings tool (`tools.rs`), the permission engine and the
+   (`providers.rs`; a `model.provider` that efrd cannot build yet, such as
+   `anthropic-api`, stops the start with `UnknownProvider`), the tool registry and the settings tool (`tools.rs`), the permission engine and the
    conversation registry.
    The engine is built in one place, `engine.rs`, from the settings, the project
    registry and the config directory. It holds one machine policy for each permission

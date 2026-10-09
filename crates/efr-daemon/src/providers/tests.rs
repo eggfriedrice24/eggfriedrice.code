@@ -9,6 +9,7 @@ use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
+use crate::DaemonError;
 use crate::providers::{
     API, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION, StoredApiKey, openai_config,
     provider_status,
@@ -141,6 +142,23 @@ async fn the_configured_provider_is_built_without_touching_the_network() {
     assert_eq!(
         status.iter().map(|s| (s.provider.as_str(), s.logged_in)).collect::<Vec<_>>(),
         [("openai-subscription", false), ("openai-api", false)]
+    );
+}
+
+#[test]
+fn a_provider_that_efrd_cannot_build_stops_the_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let mut config = Settings::default();
+    config.model.provider = "anthropic-api".to_owned();
+
+    let error = Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None))
+        .map(|_| ())
+        .unwrap_err();
+
+    assert!(
+        matches!(&error, DaemonError::UnknownProvider { id } if id == "anthropic-api"),
+        "{error:?}"
     );
 }
 
