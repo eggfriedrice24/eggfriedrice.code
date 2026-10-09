@@ -26,7 +26,9 @@
 //! of its model, and efr never guesses it. A fetch that ends without a list keeps why
 //! ([`NoList`]): no key is stored, the fetch failed, or the list has no active model, so
 //! the prompt that needs the list fails with the cause (`prompt_send.rs`).
-
+//!
+//! A fetch with a stored key reports a 401 to the key's refusals
+//! (`providers/refusals.rs`), and a fetch that works says that the key works.
 //!
 //! A daemon whose provider a test injects never fetches.
 //!
@@ -56,6 +58,7 @@ use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::list::{ModelList, ProviderCatalog, Vendor, backend};
+use crate::providers::KeyRefusals;
 
 /// How often efrd asks the backend again after an answer.
 pub(crate) const REFRESH_INTERVAL: Duration = Duration::from_secs(3600);
@@ -109,6 +112,9 @@ pub(crate) struct Models {
     warned: Mutex<HashSet<Clamp>>,
     /// Why the last fetch ended without a list, for a catalog that has none.
     no_list: Mutex<NoList>,
+    /// Where a fetch with a stored API key reports whether the key works; `None` for
+    /// a provider without a key.
+    refusals: Option<Arc<KeyRefusals>>,
 }
 
 /// Why a catalog that efrd fetches has no list.
@@ -164,7 +170,14 @@ impl Models {
             ended: watch::Sender::new(0),
             warned: Mutex::default(),
             no_list: Mutex::new(NoList::NotFetched),
+            refusals: None,
         }
+    }
+
+    /// The same models, whose fetches report whether the stored key of the provider
+    /// works to `refusals`.
+    pub(crate) fn with_refusals(self, refusals: Arc<KeyRefusals>) -> Self {
+        Models { refusals: Some(refusals), ..self }
     }
 
     /// The models of the catalog of `fetcher`, fetched again with it and kept in
@@ -284,10 +297,17 @@ impl Models {
 
     /// One fetch, and the wait until the next one.
     async fn fetch(&self, refresh: &Refresh) -> Duration {
+        let used = self.refusals.as_ref().map(|refusals| refusals.start(&self.provider));
         let fetched = match &refresh.fetcher {
             Fetcher::OpenAi(catalog, client) => fetch_openai(catalog, client, refresh).await,
             Fetcher::Anthropic(catalog, client) => fetch_anthropic(catalog, client, refresh).await,
         };
+        if let Some(used) = &used {
+            match &fetched {
+                Ok(()) => used.worked(),
+                Err(error) => used.failed(error),
+            }
+        }
         let (wait, no_list) = match fetched {
             Ok(()) => {
                 refresh.failures.store(0, Ordering::Relaxed);

@@ -9,9 +9,10 @@
 //! refused key,
 //! a check without an answer and a key with whitespace store nothing; `check: false`
 //! stores without a request; a login to the running provider fetches the new key's
-//! model list; `admin.logout` deletes the key, and `admin.status` lists every
-//! provider. No key reaches a log line, an error, the event log or any file but its
-//! credential.
+//! model list; `admin.logout` deletes the key, says whether the provider is the active
+//! one and records `logout_completed`, and `admin.status` lists every provider, with
+//! the time of a refused key. No key reaches a log line, an error, the event log or any
+//! file but its credential.
 
 use std::sync::Arc;
 
@@ -593,5 +594,82 @@ async fn a_new_key_for_the_running_provider_brings_the_model_list_of_that_key() 
         "the check and the fetch after it send the new key"
     );
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// Every daemon-wide event in the log of `daemon`, oldest first.
+async fn global_events(daemon: &TestDaemon) -> Vec<efr_protocol::EventEnvelope> {
+    let database = daemon.dirs().dirs().data().join(efr_store::DATABASE_FILE);
+    let readers = efr_store::Readers::open(database, 1);
+    let events = readers
+        .with(|conn| efr_store::events::read_after(conn, efr_protocol::Seq::ZERO, 10_000))
+        .await
+        .unwrap();
+    events.into_iter().filter(|envelope| envelope.conversation_id.is_none()).collect()
+}
+
+#[tokio::test]
+async fn a_logout_of_the_active_provider_says_so_and_records_an_event_without_the_key() {
+    let logs = logs();
+    let server = ResponsesServer::start().await;
+    let daemon = TestDaemon::builder().responses(&server).persistent().start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+
+    let active: AdminLogoutResult = client.call(logout("openai-api")).await.unwrap();
+    let other: AdminLogoutResult = client.call(logout("anthropic-api")).await.unwrap();
+
+    assert_eq!(
+        active,
+        AdminLogoutResult { provider: "openai-api".to_owned(), logged_out: true, active: true }
+    );
+    assert_eq!(
+        other,
+        AdminLogoutResult {
+            provider: "anthropic-api".to_owned(),
+            logged_out: false,
+            active: false
+        },
+        "nothing was stored, so nothing is recorded"
+    );
+    let logouts: Vec<Event> = global_events(&daemon)
+        .await
+        .into_iter()
+        .map(|envelope| envelope.event)
+        .filter(|event| event.kind() == "logout_completed")
+        .collect();
+    assert_eq!(logouts, [Event::LogoutCompleted { provider: "openai-api".to_owned() }]);
+
+    drop(client);
+    let dirs = Arc::clone(daemon.dirs());
+    daemon.stop().await.unwrap();
+    assert_eq!(files_holding(dirs.root(), API_KEY.as_bytes()), Vec::<String>::new());
+    assert!(!logged().contains(API_KEY), "a log line holds the key");
+    drop(logs);
+}
+
+#[tokio::test]
+async fn a_refused_openai_key_shows_in_the_status_with_the_time_of_the_refusal() {
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::new(401, UNAUTHORIZED));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let before = status(&client).await.providers;
+    assert!(before.iter().all(|provider| provider.key_refused_at.is_none()), "{before:?}");
+
+    let sent: PromptSendResult = client.call(daemon.prompt(1, "hello", TTY)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    events_until(&mut follow, |event| matches!(event, Event::TurnFailed { .. })).await.unwrap();
+
+    let providers = status(&client).await.providers;
+    let api = providers.iter().find(|provider| provider.provider == "openai-api").unwrap();
+    assert_eq!(api.key_refused_at, Some(efr_stdx::time::Clock::now(daemon.clock())));
+    assert!(api.logged_in, "the key stays stored");
+    let others = providers.iter().filter(|provider| provider.provider != "openai-api");
+    assert!(others.clone().all(|provider| provider.key_refused_at.is_none()), "{providers:?}");
+
+    let _: AdminLogoutResult = client.call(logout("openai-api")).await.unwrap();
+    let after = status(&client).await.providers;
+    assert!(after.iter().all(|provider| provider.key_refused_at.is_none()), "{after:?}");
+    drop((follow, client));
     daemon.stop().await.unwrap();
 }

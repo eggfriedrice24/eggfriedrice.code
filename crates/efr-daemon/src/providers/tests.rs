@@ -7,6 +7,7 @@ use efr_protocol::{CatalogOrigin, LoginKind, SecretText};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
 use efr_provider_anthropic::CacheTtl;
 use efr_provider_openai::{Backend, Catalog, ModelCatalog, OpenAiConfig, WebSocketMode};
+use efr_stdx::time::Clock as _;
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
@@ -349,4 +350,51 @@ fn each_provider_names_its_login() {
     assert_eq!(login_command(ANTHROPIC), "efr login anthropic");
     assert_eq!(login_command(API), "efr login openai-api");
     assert_eq!(login_command(SUBSCRIPTION), "efr login openai");
+}
+
+#[tokio::test]
+async fn a_login_or_a_logout_forgets_that_the_old_key_was_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let mut config = Settings::default();
+    config.model.provider = ANTHROPIC.to_owned();
+    let mut parts = parts(&clock, dir.path(), None);
+    parts.catalog = ProviderCatalog::Anthropic(efr_provider_anthropic::ModelCatalog::new());
+    let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
+    let key = SecretText::new("sk-ant-api03-efr-test-a1b2");
+    providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
+    let anthropic = |status: Vec<efr_protocol::ProviderStatus>| status[2].clone();
+
+    providers.refusals.start(ANTHROPIC).failed(&ProviderError::Unauthorized { message: None });
+
+    let refused = anthropic(providers.status().await);
+    assert_eq!(refused.key_refused_at, Some(clock.shared().now()));
+    providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
+    assert_eq!(anthropic(providers.status().await).key_refused_at, None, "a new login");
+
+    providers.refusals.start(ANTHROPIC).failed(&ProviderError::Unauthorized { message: None });
+    assert!(providers.logout(ANTHROPIC).await.unwrap());
+    providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
+    assert_eq!(anthropic(providers.status().await).key_refused_at, None, "a logout forgets it");
+
+    providers.refusals.start(SUBSCRIPTION).failed(&ProviderError::Unauthorized { message: None });
+    let subscription = providers.status().await[0].clone();
+    assert_eq!(subscription.key_refused_at, None, "a provider without a stored key shows none");
+}
+
+#[test]
+fn only_a_provider_with_a_stored_key_watches_its_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let subscription =
+        Providers::build(&Settings::default(), store(dir.path()), parts(&clock, dir.path(), None))
+            .unwrap();
+    assert!(!format!("{:?}", subscription.active()).contains("Watched"));
+
+    let mut config = Settings::default();
+    config.model.provider = API.to_owned();
+    let api =
+        Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None)).unwrap();
+    assert!(format!("{:?}", api.active()).starts_with("Watched"), "{:?}", api.active());
+    assert_eq!(api.active().id().as_str(), "openai-api");
 }

@@ -58,6 +58,8 @@ efr-stdx.workspace = true
 efr-store.workspace = true
 efr-tools.workspace = true
 efr-transport.workspace = true
+# The stream of a model call, which the refusals of a stored key watch.
+futures.workspace = true
 jiff.workspace = true
 nix.workspace = true
 rustix.workspace = true
@@ -80,7 +82,6 @@ tracing-subscriber.workspace = true
 # second copy of this crate's types.
 efr-test-daemon.workspace = true
 efr-test-support.workspace = true
-futures.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true

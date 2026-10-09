@@ -179,6 +179,8 @@ the list came from and when.
   server's message for a refused key (`unauthorized`), with the code of that error. A
   prompt on a model whose output limit the config gives (`[anthropic] models` or
   `[model] max_output_tokens`) runs without a list, unless no key is stored.
+- A fetch with a stored key reports to the key's refusals (`providers/refusals.rs`): a
+  401 marks the key as refused at that time, and a fetch that works clears the mark.
 - A daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
   reaches the network by accident.
 - The effective list (`effective_models`) is the catalog's models on offer (OpenAI's
@@ -319,11 +321,21 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   error text; `StoredApiKey` reads it again at each request, so a new key works
   without a restart.
 - `admin.logout` (`methods/admin_logout.rs`) deletes the credential of a provider and
-  answers whether one was stored. After a logout of the subscription, the running
-  provider forgets its cached token.
+  answers whether one was stored and whether the provider is the one of
+  `[model] provider` (`active`), whose turns then fail until a new login. A logout
+  that deleted a credential records `logout_completed`, with the provider and nothing
+  of the credential. After a logout of the subscription, the running provider forgets
+  its cached token.
 - `admin.status` lists every provider (`openai-subscription`, `openai-api`,
   `anthropic-api`) with its login (`subscription` or `api_key`), the expiry of a
-  subscription token, the hint of a key and which one is active.
+  subscription token, the hint of a key, which one is active and, for a stored key that
+  its provider refused, when (`key_refused_at`). When `[model] provider` uses a key
+  (`openai-api`, `anthropic-api`), its model calls go through `Watched`
+  (`providers/refusals.rs`), and they and the fetches of its model list report each
+  answer to `KeyRefusals`: a 401 marks the key as refused at that time, and a request
+  that works clears the mark (a stream counts as working from its first event). A
+  login or a logout of the provider clears it too, and an answer to the old key that
+  comes after it changes nothing.
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`):
   `invalid`, with the cause and the fix (set `[model] name` to a model of the provider,
@@ -572,6 +584,7 @@ snapshots before and after each call that can write, the turn's changes and
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
+`futures` (the stream of a model call, whose answers say whether a stored key works),
 `serde`, `serde_json`, `jiff`, `nix` (`flock`), `base64` (the hello
 challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `rustix`
 (inotify, for the config file watcher), `toml_edit` (the values that the settings tool
@@ -600,6 +613,8 @@ conventions that `efr_stdx::env::Var` does not name.
 - A turn, a prompt and `models.list` never wait for a fetch of the model catalog,
   with one exception: while the Anthropic catalog has no list at all, a prompt and a
   manual compaction wait for one fetch.
+- A refused key is a time in memory; nothing of the key goes to the refusals, the
+  status, the `logout_completed` event or a log line.
 - efrd names itself to the backend as efr, with efr's own version.
 - A daemon with an injected provider never fetches the model catalog.
 
@@ -665,7 +680,9 @@ local server's `/v1/models`: a key that is checked with its organization and pro
 headers and stored, a refused key with the server's message, a check without an
 answer and a store without a check, keys and providers refused before a check, an
 Anthropic key whose check fails, a logout and the status of every provider, a new
-key for the running provider that brings the model list of that key. With every log
+key for the running provider that brings the model list of that key, a logout of the
+active provider that says so and records `logout_completed`, and a refused OpenAI key
+whose time shows in the status until a logout. With every log
 line of the process captured, no key shows in a log line, an error, the status or
 any file of the daemon's tree but its credential.
 
@@ -682,8 +699,11 @@ T with their times to live, the `drop_block` beta, the effort `medium` and no me
 another provider, and the turn's usage carries the cache writes; the first prompt that
 waits for the model list, which a restart reads back from its own cache file while the
 API is down; a prompt without a key or a list that fails as `unauthorized` with the
-login and calls no model; a failed fetch with the server's answer; a model with its
-output limit in the config that runs without a list; a `[model] name` of OpenAI that fails a prompt with the cause and the fix, and a
+login and calls no model; a refused key at the fetch that fails the prompt with the
+server's message and shows in the status until a fetch works; another failed fetch
+with the server's answer; a model with its output limit in the config that runs
+without a list; a refused model call in the status until a call works or a new login;
+a `[model] name` of OpenAI that fails a prompt with the cause and the fix, and a
 warning at start, while a prompt's own model runs;
 a login to the running provider that fetches the list with the new key; and a restart
 between two turns, after which the next request still starts with the one before it,

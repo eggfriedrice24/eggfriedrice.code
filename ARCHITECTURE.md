@@ -249,7 +249,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   its hint and the check with its provider in
   `crates/efr-daemon/src/providers/api_key.rs`; the requests of the check in
   `crates/efr-provider-openai/src/catalog/client.rs` and
-  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`). The user's
+  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`); when the
+  provider refused a stored key, for `admin.status`, in
+  `crates/efr-daemon/src/providers/refusals.rs`. The user's
   guide to the providers, their logins and the Claude settings: `docs/providers.md`.
 - The Responses WebSocket transport: the contract in
   `crates/efr-provider-openai/README.md`, section "WebSocket transport"; the

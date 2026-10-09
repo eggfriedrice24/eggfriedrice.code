@@ -3,9 +3,10 @@
 //! fetches one, so the first prompt waits for the fetch; the list then comes back from
 //! its own cache file after a restart. A prompt without a key and without a list says
 //! to log in, a prompt whose list could not be fetched says why, and a login brings the
-//! list of the new key. A `[model] name` of OpenAI fails a prompt with the cause and the
-//! fix. A restart between two turns edits nothing of
-//! the request before the new turn.
+//! list of the new key. A 401 on the fetch or on a model call shows in `admin.status`
+//! until a request with the key works or a new login, and a `[model] name` of OpenAI
+//! fails a prompt with the cause and the fix. A restart between two turns edits nothing
+//! of the request before the new turn.
 //!
 //! One conversation runs a Claude turn with a call of the `edit` tool and its approval,
 //! a second turn, and an auto compaction before the second turn's call. Every request
@@ -15,11 +16,12 @@
 //! carries the cache writes.
 
 use efr_protocol::{
-    AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, ApprovalDecision,
-    ApprovalRespond, ApprovalRespondResult, CatalogOrigin, CompactionTrigger, ErrorBody, ErrorCode,
-    Event, EventEnvelope, Method, ModelsList, ModelsListResult, PromptSendResult, SecretText,
-    Usage,
+    AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, AdminStatus,
+    AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CatalogOrigin,
+    CompactionTrigger, ErrorBody, ErrorCode, Event, EventEnvelope, Method, ModelsList,
+    ModelsListResult, PromptSendResult, ProviderStatus, SecretText, Usage,
 };
+use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
     ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, Client, ClientError, MessagesAnswer, MessagesServer,
     TTY, TestDaemon, command_id, events_until,
@@ -466,6 +468,12 @@ async fn refused(client: &Client, method: Method) -> ErrorBody {
     }
 }
 
+/// The status of `anthropic-api` in `admin.status`.
+async fn anthropic_status(client: &Client) -> ProviderStatus {
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    status.providers.into_iter().find(|provider| provider.provider == "anthropic-api").unwrap()
+}
+
 #[tokio::test]
 async fn without_a_key_a_claude_prompt_fails_as_unauthorized_with_the_login_and_calls_no_model() {
     let server = MessagesServer::start().await;
@@ -491,6 +499,34 @@ async fn without_a_key_a_claude_prompt_fails_as_unauthorized_with_the_login_and_
 }
 
 #[tokio::test]
+async fn a_refused_key_fails_the_prompt_with_the_cause_and_shows_in_the_status_until_it_works() {
+    let server = MessagesServer::start().await;
+    server.refuse_models(MessagesAnswer::error(401, "authentication_error", "invalid x-api-key"));
+    server.push(MessagesAnswer::text("Hello."));
+    let daemon = TestDaemon::builder().messages(&server).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    let error = refused(&client, daemon.prompt(1, "hello", TTY)).await;
+
+    assert_eq!(error.code, ErrorCode::Unauthorized, "{error:?}");
+    assert_eq!(
+        error.message,
+        "efr could not fetch Claude's model list: the provider rejected the credentials: invalid x-api-key"
+    );
+    assert!(server.received().is_empty(), "no model call without a list");
+    let refused_at = anthropic_status(&client).await.key_refused_at;
+    assert_eq!(refused_at, Some(daemon.clock().now()), "the fetch's 401 marks the key");
+
+    server.set_models(vec![model()]);
+    let events = run_turn(&daemon, 2, "hello").await;
+
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    assert_eq!(anthropic_status(&client).await.key_refused_at, None, "the key works again");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_fetch_that_fails_for_another_reason_names_the_servers_answer() {
     let server = MessagesServer::start().await;
     server.refuse_models(MessagesAnswer::error(
@@ -510,6 +546,7 @@ async fn a_fetch_that_fails_for_another_reason_names_the_servers_answer() {
         error.message
     );
     assert!(error.message.contains("anthropic-workspace-id is required"), "{}", error.message);
+    assert_eq!(anthropic_status(&client).await.key_refused_at, None, "a 400 is no refusal");
     drop(client);
     daemon.stop().await.unwrap();
 }
@@ -530,6 +567,45 @@ async fn a_model_with_its_output_limit_in_the_config_runs_without_a_list() {
 
     assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
     assert_eq!(server.received()[0].body["max_tokens"], 8_000);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refused_model_call_shows_in_the_status_until_a_call_works_or_a_new_login() {
+    let server = MessagesServer::start().await;
+    server.push(MessagesAnswer::error(401, "authentication_error", "invalid x-api-key"));
+    server.push(MessagesAnswer::text("Hello."));
+    server.push(MessagesAnswer::error(401, "authentication_error", "invalid x-api-key"));
+    let daemon = claude_daemon(&server).await;
+    let client = daemon.client().await.unwrap();
+
+    let first = run_turn(&daemon, 1, "hello").await;
+
+    let Event::TurnFailed { error, .. } = &first.last().unwrap().event else {
+        panic!("{first:#?}")
+    };
+    assert_eq!(error.code, ErrorCode::Unauthorized);
+    let status = anthropic_status(&client).await;
+    assert_eq!(status.key_refused_at, Some(daemon.clock().now()));
+    assert!(status.logged_in, "the key is still stored");
+
+    let second = run_turn(&daemon, 2, "hello").await;
+
+    assert_eq!(second.last().unwrap().event.kind(), "turn_completed", "{second:#?}");
+    assert_eq!(anthropic_status(&client).await.key_refused_at, None, "the key works again");
+
+    let third = run_turn(&daemon, 3, "hello").await;
+    assert_eq!(third.last().unwrap().event.kind(), "turn_failed", "{third:#?}");
+    assert!(anthropic_status(&client).await.key_refused_at.is_some());
+    let login = Method::AdminLoginApiKey(AdminLoginApiKey {
+        provider: "anthropic-api".to_owned(),
+        key: SecretText::new("sk-ant-api03-efr-new-key-0000-c3d4"),
+        check: false,
+    });
+    let _: AdminLoginApiKeyResult = client.call(login).await.unwrap();
+
+    assert_eq!(anthropic_status(&client).await.key_refused_at, None, "a new key is not refused");
+    drop(client);
     daemon.stop().await.unwrap();
 }
 

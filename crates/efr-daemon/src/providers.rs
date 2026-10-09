@@ -16,6 +16,11 @@
 //! with its provider (`api_key.rs`) unless the client says not to, and stores it under
 //! the provider's id. `admin.logout` deletes a provider's credential.
 //!
+//! When the provider of new conversations uses a stored key, its model calls and the
+//! fetches of its model list report a 401 to [`KeyRefusals`] (`refusals.rs`), and
+//! `admin.status` shows when the key was refused until a request with it works again or
+//! a login or a logout replaces it.
+//!
 //! The config picks the provider of new conversations; a [`ProviderFactory`] given to
 //! the daemon replaces how it is built, which is how an in-process daemon answers from
 //! a replay instead of the network. The provider and the fetch of the model catalog
@@ -47,8 +52,11 @@ use crate::DaemonError;
 use crate::catalog::{Fetcher, Models, NoList, ProviderCatalog, backend};
 
 mod api_key;
+mod refusals;
 
 use self::api_key::{KEY_PROVIDERS, KeyChecks};
+pub(crate) use self::refusals::KeyRefusals;
+use self::refusals::Watched;
 
 /// The subscription provider and its credential.
 pub const SUBSCRIPTION: &str = "openai-subscription";
@@ -78,6 +86,7 @@ pub(crate) struct Providers {
     configured: String,
     active: Arc<dyn Provider>,
     models: Arc<Models>,
+    refusals: Arc<KeyRefusals>,
 }
 
 /// What a login with an API key stored.
@@ -139,6 +148,7 @@ impl Providers {
         let api = openai_config(OpenAiConfig::api(), &config.openai, api_base_url)?;
         let anthropic = anthropic_config(&config.anthropic)?;
         let checks = KeyChecks::new(http.clone(), api.clone(), anthropic.clone());
+        let refusals = Arc::new(KeyRefusals::new(Arc::clone(&clock)));
         let provider = config.model.provider.as_str();
         let fetcher = match (provider, &catalog) {
             _ if factory.is_some() => None,
@@ -171,8 +181,12 @@ impl Providers {
             }
             _ => None,
         };
+        let uses_key = KEY_PROVIDERS.contains(&provider);
         let models = match fetcher {
-            Some(fetcher) => Models::fetched(provider, fetcher, catalog_cache, Arc::clone(&clock)),
+            Some(fetcher) => {
+                let models = Models::fetched(provider, fetcher, catalog_cache, Arc::clone(&clock));
+                if uses_key { models.with_refusals(Arc::clone(&refusals)) } else { models }
+            }
             None => Models::fixed(provider, catalog.clone()),
         };
         let factory: Arc<dyn ProviderFactory> = match factory {
@@ -188,13 +202,16 @@ impl Providers {
                 catalog,
             }),
         };
-        let active = factory.provider(&config.model.provider)?;
+        let mut active = factory.provider(&config.model.provider)?;
+        if uses_key {
+            active = Arc::new(Watched::new(active, provider, Arc::clone(&refusals)));
+        }
         let models = Arc::new(models);
         let model = models.default_model(config);
         warn_unfit_defaults(config, &models);
         tracing::info!(provider = %active.id(), model = %model, fetches_catalog = models.fetches(), "provider ready");
         let configured = config.model.provider.clone();
-        Ok(Providers { store, subscription, login, checks, configured, active, models })
+        Ok(Providers { store, subscription, login, checks, configured, active, models, refusals })
     }
 
     /// The provider of new conversations.
@@ -205,6 +222,11 @@ impl Providers {
     /// The model catalog and its fetch.
     pub(crate) fn models(&self) -> Arc<Models> {
         Arc::clone(&self.models)
+    }
+
+    /// True when `provider` is the provider of new conversations, `[model] provider`.
+    pub(crate) fn is_active(&self, provider: &str) -> bool {
+        provider == self.configured
     }
 
     /// Refuses a prompt whose turn cannot run because the catalog still has no list
@@ -289,6 +311,7 @@ impl Providers {
             .await
             .map_err(|_| DaemonError::TaskPanicked { task: "store an API key" })?
             .map_err(|source| DaemonError::Credentials { source })?;
+        self.refusals.reset(provider);
         let active = provider == self.configured;
         if active {
             self.models.refresh_now();
@@ -310,6 +333,9 @@ impl Providers {
         if provider == SUBSCRIPTION {
             // The running provider must not keep the token of the deleted login.
             self.subscription.clear_cache();
+        }
+        if deleted {
+            self.refusals.reset(provider);
         }
         Ok(deleted)
     }
@@ -335,7 +361,13 @@ impl Providers {
         };
         loaded
             .into_iter()
-            .map(|(id, record)| provider_status(id, record.as_ref(), id == self.configured))
+            .map(|(id, record)| {
+                let mut status = provider_status(id, record.as_ref(), id == self.configured);
+                if status.login == Some(LoginKind::ApiKey) {
+                    status.key_refused_at = self.refusals.refused_at(id);
+                }
+                status
+            })
             .collect()
     }
 }
