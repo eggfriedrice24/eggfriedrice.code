@@ -3,7 +3,9 @@
 ## Purpose
 
 The tools the model calls, and the registry that offers them: `shell`,
-`read_file`, `write_file` and `apply_patch`.
+`read_file`, `write_file`, `apply_patch` and `edit`. A request offers a model one of
+the two edit tools, `apply_patch` or `edit`, never both: the daemon picks the one that
+the model's `efr_provider::ModelInfo::edit_tool` names.
 
 - `Tool`: `spec()` (a `ToolSpec`: name, description and the input's JSON Schema,
   generated with schemars from the input type, without `$schema` and `title`; or,
@@ -152,6 +154,8 @@ The tools:
 
 - `ApplyPatchTool` (`apply_patch`) edits files with a patch: the section "The
   apply_patch tool" below.
+- `EditTool` (`edit`) replaces exact text in one file: the section "The edit tool"
+  below.
 
 The file tools refuse a path that goes through a symbolic link, and name the real
 path in the error, because the permission engine judged the path as written: a
@@ -190,10 +194,11 @@ Definition:
   patch is plain text and not JSON (in the function form, the whole patch goes in
   `input`), and says that paths are relative to the working directory or absolute.
 - The input is `freeform_text(input)`. Any other input is `ToolError::InvalidInput`.
-- The daemon registers the tool after `write_file`. `efr_config::DEFAULT_SYSTEM_PROMPT`
-  (`efr-config/src/tables.rs`) tells the model to edit files with `apply_patch`, and
-  never with `sed -i`, `perl -pi` or a `write_file` of the whole file for a small
-  change.
+- The daemon registers the tool after `write_file`, and `edit` after it.
+  `efr_config::DEFAULT_SYSTEM_PROMPT` (`efr-config/src/tables.rs`) tells the model to
+  edit files with the edit tool that it has (`apply_patch` or `edit`), and never with
+  `sed -i`, `perl -pi` or a `write_file` of the whole file for a small change. The
+  description of each edit tool says the same.
 
 Requirements (pure, like every `requirements`):
 
@@ -270,6 +275,64 @@ Result:
   `tool_call_completed`, the diff of every file in patch order, one after the other,
   so the CLI shows one diff block per file.
 
+## The edit tool
+
+`EditTool` changes one file with an old and a new string, in the shape of Claude
+Code's edit tool, so a Claude model edits files in the form that it knows. The engine
+is `efr_patch::replace`; this tool does the IO around it (`src/edit.rs`).
+
+Definition:
+
+- Name: `edit`.
+- Input (a function tool, `ToolSpec::for_input`): `path`, `old_string`, `new_string`
+  and `replace_all` (a boolean, false by default). Unknown members are refused.
+- The description says to use the tool for each change to a file and not `sed -i`,
+  `perl -pi` or a `write_file` of the whole file, that `old_string` is the exact text
+  of the file and must occur once unless `replace_all` is true, and that a new file
+  is made with `write_file`. It does not say that the model must read the file first,
+  because the tool does not check it.
+
+Requirements: the path, resolved as `write_file` resolves it, as a write. The tool is
+never destructive: it changes one file that exists and never makes, deletes or moves
+one. So its approvals follow `write_file`.
+
+Invoke:
+
+1. An empty `old_string` and the same text in `old_string` and `new_string` are error
+   results before any file is read.
+2. Read the file with the checks of `apply_patch`: a path through a symbolic link,
+   anything that is not a regular file, a file over 16 MiB and a binary file are
+   refused. A path with no file is an error result that says to use `write_file`.
+3. Line ends: when every line of the file ends with `\r\n` and neither string holds a
+   `\r`, each `\n` of both strings becomes `\r\n` before the match, so the exact
+   match works and the new lines keep the file's line ends. A file with mixed line
+   ends takes the strings as written.
+4. `efr_patch::replace` with `Occurrences::One`, or `Occurrences::All` for
+   `replace_all`.
+5. Record the original in the context's `WriteJournal`, and write nothing when the
+   journal fails; then write atomically with the mode, the owner and the group of the
+   file. An interrupt drops the call's future before the write, or after it; never in
+   the middle.
+
+Result:
+
+- Success: `Success. Replaced 1 match in src/a.rs.` (`N matches` with `replace_all`),
+  with the path as the model wrote it. `ToolResult::written` holds the file as
+  `WrittenKind::Changed` with its diff.
+- Failure, as error results that the model reads:
+  - several matches: `Found 3 matches of old_string, but replace_all is false. Give
+    more context to make one match, or set replace_all to true.`
+  - no match: `old_string was not found in the file.`, the nearest lines of the file
+    with their numbers (as `apply_patch` shows them), and a request to read the file
+    again.
+  - `old_string is empty. Use write_file to make a new file.`
+  - `No change: old_string and new_string are the same.`
+
+Preview (the approval card): the diff of the file in the form of one file of
+`apply_patch`'s preview (`written_diff`, at most `MAX_CALL_DIFF_LINES` lines), with
+the absolute path. The daemon shows the path as it does for `apply_patch`. A call that
+would fail has no preview.
+
 ## Tier
 
 Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.
@@ -277,8 +340,8 @@ Tier 2. The only edge inside the tier is `efr-tools -> efr-shell`.
 ## Allowed dependencies
 
 `efr-shell` (the `CommandRunner` trait and its request and result types),
-`efr-scope` (`Home`, the home directory in both forms), `efr-patch` (the patch
-engine of `apply_patch`), `efr-protocol` (ids, `Scope`, `Origin`) and `efr-stdx`
+`efr-scope` (`Home`, the home directory in both forms), `efr-patch` (the engine of
+`apply_patch` and `edit`), `efr-protocol` (ids, `Scope`, `Origin`) and `efr-stdx`
 (`Clock`, atomic writes). `xtask/src/deps.rs` holds the
 allowlist and forbids `efr-tools -> efr-permissions`, directly or through any chain.
 
@@ -302,8 +365,8 @@ cargo nextest run -p efr-tools
 ```
 
 The file tools run against temporary directories (a home and a working directory,
-with symbolic links made where a test needs one). The tests of `apply_patch` run on
-the engine of `efr-patch`; the shell tool runs against a fake
+with symbolic links made where a test needs one). The tests of `apply_patch` and
+`edit` run on the engine of `efr-patch`; the shell tool runs against a fake
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
 shell, uses the network or touches the user's home.

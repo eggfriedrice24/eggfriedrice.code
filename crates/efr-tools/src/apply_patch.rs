@@ -453,8 +453,12 @@ fn read_originals(home: &Home, paths: &[PathBuf]) -> Result<Originals, ToolError
 }
 
 /// The original at `path` and its text: refused through a symbolic link, for anything
-/// that is not a regular file, over 16 MiB, and for bytes that are not text.
-fn original(home: &Home, path: &Path) -> Result<(FileSnapshot, Option<String>), ToolError> {
+/// that is not a regular file, over 16 MiB, and for bytes that are not text. The text
+/// is `None` when no file is there. The `edit` tool reads its file the same way.
+pub(crate) fn original(
+    home: &Home,
+    path: &Path,
+) -> Result<(FileSnapshot, Option<String>), ToolError> {
     check_real(home, path)?;
     let read_error = |source| ToolError::Read { path: path.to_path_buf(), source };
     let metadata = match fs::symlink_metadata(path) {
@@ -660,8 +664,14 @@ fn nearest_lines(lines: &mut Vec<String>, nearest: &[NearLine], what: &str) {
         lines.push(format!("No line of the file is near {what}."));
     } else {
         lines.push("The nearest lines of the file:".to_owned());
-        lines.extend(nearest.iter().map(|line| format!("{:>6} | {}", line.number, line.text)));
+        lines.extend(nearest.iter().map(near_line));
     }
+}
+
+/// One of the nearest lines of a file as the model reads it: the line number,
+/// right-aligned, and the text. The `edit` tool shows them the same way.
+pub(crate) fn near_line(line: &NearLine) -> String {
+    format!("{:>6} | {}", line.number, line.text)
 }
 
 /// What the model reads when a write failed after the patch applied: the error, then

@@ -1,6 +1,6 @@
 [package]
 name = "efr-tools"
-description = "The tools the model calls in efr: the Tool trait, the registry, and the shell, read_file, write_file and apply_patch tools"
+description = "The tools the model calls in efr: the Tool trait, the registry, and the shell, read_file, write_file, apply_patch and edit tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

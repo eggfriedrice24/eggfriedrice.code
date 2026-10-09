@@ -4,8 +4,8 @@
 
 The patch engine. It reads the text of an `apply_patch` call and computes the new
 content of each file. It does no IO: the caller reads the files, gives their text to
-the engine, and writes the result. The same engine serves the `apply_patch` tool now
-and an edit tool with an old and a new string later (for the Claude provider).
+the engine, and writes the result. The same engine serves the `apply_patch` tool and
+the `edit` tool with an old and a new string (`replace`), which Claude models get.
 
 The format is the `apply_patch` format of Codex. `GRAMMAR` is its Lark grammar,
 written for efr: it describes the same language as

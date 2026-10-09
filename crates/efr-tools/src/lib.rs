@@ -19,6 +19,9 @@
 //!   call shows after it ran.
 //! - [`ApplyPatchTool`]: edits files with a patch on the engine of `efr-patch`, all or
 //!   nothing, and marks a delete or a move as destructive in its requirements.
+//! - [`EditTool`]: replaces exact text in one file with `efr_patch::replace`, once or
+//!   at every match, for the models that know that shape. A request offers a model
+//!   either this tool or [`ApplyPatchTool`], never both.
 //! - [`ToolContext`] and [`CallIds`]: where a call runs.
 //! - [`truncate_middle`]: head and tail with a marker, [`DEFAULT_OUTPUT_LIMIT`]
 //!   (32 KiB) unless a tool says otherwise.
@@ -31,6 +34,7 @@
 mod apply_patch;
 mod context;
 mod diff;
+mod edit;
 mod error;
 mod journal;
 mod output;
@@ -46,6 +50,7 @@ mod write_file;
 pub use apply_patch::ApplyPatchTool;
 pub use context::{CallIds, ToolContext};
 pub use diff::{MAX_WRITTEN_BYTES, WrittenDiff, unified_diff, written_diff};
+pub use edit::EditTool;
 pub use error::ToolError;
 pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJournal};
 pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
