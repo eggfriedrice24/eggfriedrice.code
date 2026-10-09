@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
-use efr_protocol::{CompactionTrigger, Event, ModelInfo, ModelSource, Origin};
+use efr_protocol::{CompactionTrigger, ConversationCompact, Event, ModelInfo, ModelSource, Origin};
 use efr_provider::{
     ContentBlock, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
     Role, StopReason, TokenUsage,
@@ -339,6 +339,31 @@ async fn the_count_of_the_old_model_is_no_base_for_the_first_turn_on_the_new_one
     // The next turn on the same model counts from the new model's own count again.
     let end = turn_on(&mut h, SMALL, "and then").await;
     assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_manual_compaction_after_a_switch_uses_the_new_default_model() {
+    let (claude, openai) = (Windowed::new("anthropic-api"), Windowed::new("openai-api"));
+    let mut h = grown_then_switched(&claude, &openai).await;
+    // The new provider lists only its own model, as after a switch of the provider.
+    let mut config = (**h.settings.borrow()).clone();
+    config.models = vec![model(SMALL, SMALL_WINDOW, true)];
+    h.settings.send_replace(Arc::new(config));
+
+    let params = ConversationCompact {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        focus: None,
+    };
+    let result = h.handle.compact(params).await.expect("compacted");
+
+    let requests = openai.requests();
+    let summary = requests.first().expect("a summary request");
+    assert_eq!(summary.model, SMALL, "not the model of the newest turn, {WIDE}");
+    assert_eq!(result.compaction.model, SMALL);
+    assert_eq!(result.compaction.window, SMALL_WINDOW);
+    assert!(openai.refused().is_empty());
     h.finish();
 }
 

@@ -696,7 +696,9 @@ history as before, with the stub in each pruned result.
   (`actor/compact.rs`), so it keeps answering, and `ConversationState::compacting` is
   true. A prompt that arrives meanwhile waits in the queue (its result says `queued`)
   and starts when the compaction ends. The summary request uses the model and the
-  effort of the newest turn, so it shares the prefix of the last request. A manual
+  effort of the newest turn, so it shares the prefix of the last request; when the
+  model list no longer has that model, as after a switch of `[model] provider`, it
+  uses the default model and effort of the config. A manual
   compaction always writes a summary: it does not stop after the pruning. The event
   has trigger `manual`, no `turn_id`, and the `focus`; it is recorded with the
   command's receipt. The result has the event's `seq` and the compaction. A retry with

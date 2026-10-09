@@ -406,6 +406,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - After a switch of `[model] provider`, the first turn on the new model estimates its
   request. Before, it started from the context that the old model reported last, and
   when that count was above the cap of the new window, the turn failed as full.
+- `,compact` right after a switch of `[model] provider` now uses the default model of
+  the new provider. Before, it sent the summary request with the model of the newest
+  turn, which the new provider does not serve, and the compaction failed.
 - When the newest messages alone do not fit in the context, the error now says to
   start a new conversation. Before, it said to run `,compact`, which then answered
   that there was nothing to compact.

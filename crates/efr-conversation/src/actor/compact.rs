@@ -60,8 +60,12 @@ async fn compact(
     let config = shared.config.current();
     let snapshot = Snapshot::read(&shared.deps.readers, conversation_id, config.history).await?;
     // NOTE: the model and the effort of the newest turn, so the summary request shares
-    // the prefix of the last request and hits the prompt cache.
-    let settings = snapshot.newest_settings();
+    // the prefix of the last request and hits the prompt cache. A model that the model
+    // list no longer has, as after a switch of `[model] provider`, gives way to the
+    // defaults: the provider serves only its own models.
+    let listed =
+        |model: &str| config.models.is_empty() || config.models.iter().any(|info| info.id == model);
+    let settings = snapshot.newest_settings().filter(|settings| listed(&settings.model));
     let model = settings.map_or_else(|| config.model.clone(), |settings| settings.model.clone());
     let effort = settings.map_or_else(|| config.effort.clone(), |settings| settings.effort.clone());
     let cwd = snapshot
