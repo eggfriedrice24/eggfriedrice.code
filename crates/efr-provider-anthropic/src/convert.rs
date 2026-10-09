@@ -265,9 +265,13 @@ pub(crate) fn request_body(
 
     let mut shapes = Vec::with_capacity(request.messages.len());
     let mut messages = Vec::with_capacity(request.messages.len());
+    let mut after_calls = false;
     for draft in drafts(request) {
         let role = draft.role;
-        let opens_turn = role == Role::User && draft.answers.is_empty();
+        // NOTE: a user message right after the calls of an assistant message answers
+        // them, also when it holds their results as text, so it opens no turn.
+        let opens_turn = role == Role::User && draft.answers.is_empty() && !after_calls;
+        after_calls = role == Role::Assistant && draft.called;
         let message = draft.into_message();
         shapes.push(Shape { role, opens_turn, tokens: estimate(&message) });
         messages.push(message);
@@ -328,6 +332,9 @@ struct Draft {
     rest: Vec<Part>,
     /// The ids of the `tool_use` blocks of an assistant message.
     calls: Vec<String>,
+    /// True for an assistant message that called a tool: a `tool_use` block, or a raw
+    /// one that goes as text because the request does not offer its tool.
+    called: bool,
     /// The ids that the `tool_result` blocks of a user message answer.
     answers: Vec<String>,
 }
@@ -340,6 +347,7 @@ impl Draft {
             results: Vec::new(),
             rest: Vec::new(),
             calls: Vec::new(),
+            called: false,
             answers: Vec::new(),
         }
     }
@@ -354,6 +362,7 @@ impl Draft {
         self.results.extend(next.results);
         self.rest.extend(next.rest);
         self.calls.extend(next.calls);
+        self.called |= next.called;
         self.answers.extend(next.answers);
     }
 
@@ -475,6 +484,7 @@ fn raw_draft(message: &Message, request: &Request) -> Option<Draft> {
             }
             if head.kind == "tool_use" {
                 let id = head.id?;
+                draft.called = true;
                 let name = head.name.unwrap_or_default();
                 if !request.offers(&name) {
                     let input = head.input.unwrap_or(Value::Null);
@@ -508,6 +518,7 @@ fn assistant_draft(message: &Message) -> Draft {
             ContentBlock::Text { text } => push_text(&mut draft, text),
             ContentBlock::ToolCall { call_id, name, input, .. } => {
                 let id = tool_id(call_id);
+                draft.called = true;
                 draft.calls.push(id.clone());
                 draft.rest.push(Part::Block(Block::ToolUse {
                     id,

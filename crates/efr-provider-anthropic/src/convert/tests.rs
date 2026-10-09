@@ -466,6 +466,32 @@ fn a_raw_call_that_the_request_does_not_offer_goes_as_text_and_the_thinking_stay
 }
 
 #[test]
+fn a_result_shown_as_text_opens_no_turn_and_marks_no_new_anchor() {
+    let raw = r#"[{"type":"thinking","thinking":"I patch.","signature":"c2lnLTM="},{"type":"tool_use","id":"toolu_02","name":"apply_patch","input":{"input":"x"}}]"#;
+    let shown =
+        efr_provider::unoffered_call_text("toolu_02", "apply_patch", &json!({"input": "x"}));
+    let shown_result =
+        efr_provider::unoffered_result_text("toolu_02", "apply_patch", "patched", false);
+    let request = request(vec![
+        Message::user("Patch it."),
+        written(vec![text(&shown)], raw),
+        user(vec![text(&shown_result)]),
+    ]);
+
+    let body = value(&body(&request));
+
+    // The prompt keeps the anchor of the first call; the call inside the tool loop puts
+    // five minutes on its tail.
+    let ttl = |message: usize| {
+        let content = body["messages"][message]["content"].as_array().unwrap();
+        content.last().unwrap()["cache_control"]["ttl"].clone()
+    };
+    assert_eq!(ttl(0), json!("1h"), "{body}");
+    assert_eq!(ttl(2), json!("5m"), "{body}");
+    assert_eq!(body["messages"][1]["content"][0]["type"], json!("thinking"));
+}
+
+#[test]
 fn tool_results_come_before_text_in_a_user_message() {
     let request = request(vec![
         Message::user("Go."),

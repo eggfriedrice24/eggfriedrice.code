@@ -22,7 +22,8 @@
 //!
 //! Anchors. Every place ends the request of one call. The call that ends at a place
 //! marks an anchor there when a message of its run opens a turn (it holds no
-//! `tool_result`), or when the messages after the last anchor, the run included, hold
+//! `tool_result` and does not follow an assistant message with tool calls, whose
+//! results the request can show as text), or when the messages after the last anchor, the run included, hold
 //! more than [`ANCHOR_STEP_TOKENS`]. A side call (`Request::side_call`) never marks
 //! one. Each message's tokens are the estimate of the conversion, the same for the same
 //! bytes, so every later request finds the same anchors. So the first call of every
@@ -127,8 +128,10 @@ pub(crate) struct Breakpoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Shape {
     pub(crate) role: Role,
-    /// True for a user message that holds no `tool_result`: the prompt that opens a
-    /// turn, a steer, or a part of the head after a compaction.
+    /// True for a user message that holds no `tool_result` and does not follow an
+    /// assistant message with tool calls: the prompt that opens a turn, a steer, or a
+    /// part of the head after a compaction. The results of calls that the request shows
+    /// as text open no turn.
     pub(crate) opens_turn: bool,
     /// The conversion's estimate of the message's tokens.
     pub(crate) tokens: u64,

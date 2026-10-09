@@ -406,6 +406,10 @@ into the GitHub release notes, and it stops when the section is missing.
   tool that it offers, in one answer, the next request of the turn keeps the thinking
   of that answer. Before, efr sent that answer without its thinking, and the Messages
   API can refuse such a request, so the turn failed.
+- On Claude, the next call of a tool loop after a call of a tool that the request does
+  not offer writes its cache entries for five minutes, as every call inside a tool
+  loop does. Before, efr read the result of that call, which it shows as text, as a
+  new prompt and wrote every entry for one hour, which costs more.
 - On Claude, a prompt after a turn that ended early now goes as a message of its own,
   as after an interrupt while a tool ran or after a model call that failed. Before,
   efr joined it to the last message of that turn, so the request lost the prompt

@@ -96,7 +96,9 @@ Modules:
   block with `efr_provider::unoffered_call_text`, the text that the conversation put
   in the canonical content; the other blocks then go back one by one, each exact. So
   the last assistant message of a tool loop keeps its thinking block when the model
-  also called a tool that the request does not offer. Any other
+  also called a tool that the request does not offer. A user message right after an
+  assistant message with tool calls opens no turn for the cache markers, also when it
+  holds their results as text. Any other
   assistant message, or a `provider_raw` that is not such a text, is built from its
   text and tool calls, and its reasoning is dropped; a tool call input that is not an
   object goes as `{"input": <value>}`.
