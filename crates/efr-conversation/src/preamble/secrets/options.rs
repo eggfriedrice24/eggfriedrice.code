@@ -51,7 +51,9 @@ const fn option(name: &'static str, takes: Takes) -> PasswordOption {
 #[derive(Debug)]
 struct Program {
     names: &'static [&'static str],
-    /// A word that must come after the program, such as `login` for `docker login`.
+    /// A word that must come after the program, such as `login` for `docker login`: one
+    /// of the first [`SUBCOMMAND_WORDS`] words that are not options (`docker --config d
+    /// login`, `helm registry login`). The password options count only after it.
     subcommand: Option<&'static str>,
     options: &'static [PasswordOption],
 }
@@ -102,6 +104,10 @@ const LDAP: &[&str] = &[
     "ldapmodrdn",
     "ldapexop",
 ];
+
+/// How many of the first words after a program, options left out, can be its
+/// subcommand.
+const SUBCOMMAND_WORDS: usize = 2;
 
 /// The container tools whose `login` takes a password.
 const REGISTRY_LOGIN: &[&str] =
@@ -243,13 +249,18 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
         let Some((program, args)) = program(command) else {
             continue;
         };
-        let options: Vec<&PasswordOption> = PROGRAMS
+        // NOTE: each option with the index of the first word where it counts.
+        let options: Vec<(&PasswordOption, usize)> = PROGRAMS
             .iter()
             .filter(|known| known.names.contains(&program))
-            .filter(|known| {
-                known.subcommand.is_none_or(|sub| args.iter().any(|arg| arg.text == sub))
+            .filter_map(|known| {
+                let from = match known.subcommand {
+                    None => 0,
+                    Some(sub) => subcommand_at(args, sub)? + 1,
+                };
+                Some(known.options.iter().map(move |option| (option, from)))
             })
-            .flat_map(|known| known.options)
+            .flatten()
             .collect();
         let mut index = 0;
         while index < args.len() {
@@ -257,7 +268,8 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
             if word.text == "--" {
                 break;
             }
-            for option in &options {
+            let counting = options.iter().filter(|(_, from)| index >= *from);
+            for (option, _) in counting {
                 if let Some(at) = attached(&word.text, option) {
                     found.extend(secret(word, at, option.part));
                     break;
@@ -276,6 +288,17 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
         }
     }
     found
+}
+
+/// The index in `args` of the word `sub` when it is one of the first
+/// [`SUBCOMMAND_WORDS`] words that are not options.
+fn subcommand_at(args: &[Word], sub: &str) -> Option<usize> {
+    args.iter()
+        .enumerate()
+        .filter(|(_, arg)| !arg.text.starts_with('-'))
+        .take(SUBCOMMAND_WORDS)
+        .find(|(_, arg)| arg.text == sub)
+        .map(|(index, _)| index)
 }
 
 /// Where the value of `option` starts in `word` when it is attached: right after a

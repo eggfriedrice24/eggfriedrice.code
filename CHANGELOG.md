@@ -428,7 +428,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - The `<live_state>` block shows your last command with its secrets redacted: the
   value of an assignment to a name that looks like a secret, such as
   `export GITHUB_TOKEN=...` or `--api-key=...`, also inside the value of an option,
-  such as `--env=API_TOKEN=...` or `--from-literal=password=...`; each word in the form of a known key
+  such as `--env=API_TOKEN=...` or `--from-literal=password=...` (a count such as
+  `--max-tokens=4096` or `TOKEN_COUNT=5` stays); each word in the form of a known key
   (`sk-ant-`, `sk-proj-`, `sk-`, `ghp_` and the other GitHub token forms); the password
   of a URL, such as `https://user:...@host`; the value of an `Authorization`,
   `Cookie` or other secret header, such as `-H 'Authorization: Bearer ...'`, without

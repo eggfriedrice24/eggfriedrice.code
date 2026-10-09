@@ -30,10 +30,18 @@ const KEY_PREFIXES: &[&str] =
 /// `sk-learn`, is a name.
 const KEY_MIN_CHARS: usize = 16;
 
+/// The last words of a name that make it a number, such as `TOKEN_COUNT` or
+/// `PASSWORD_LENGTH`, and not a secret.
+const COUNT_WORDS: &[&str] = &["COUNT", "COUNTS", "LIMIT", "LEN", "LENGTH", "SIZE", "MAX", "MIN"];
+
+/// Words of a name that [`secret_like`] matches but that name a count or a model part,
+/// such as `MAX_TOKENS` or `TOKENIZER`, and not a secret.
+const COUNTED_WORDS: &[&str] = &["TOKENS", "TOKENIZER", "TOKENIZERS"];
+
 /// `line` with each secret replaced by [`REDACTED`]:
 ///
 /// - the value of an assignment `NAME=value` whose name looks like a secret
-///   ([`secret_like`], with the dashes of an option such as `--api-key=` read as
+///   ([`secret_name`], with the dashes of an option such as `--api-key=` read as
 ///   underscores), unquoted or in quotes;
 /// - each word that starts with a key prefix ([`KEY_PREFIXES`]) followed by at least
 ///   [`KEY_MIN_CHARS`] key characters;
@@ -77,6 +85,23 @@ fn replace(line: &str, mut found: Vec<Range<usize>>) -> String {
     out
 }
 
+/// True when `name` (words joined by `_`) looks like a secret: [`secret_like`] matches
+/// it, and it is not a number (its last word is one of [`COUNT_WORDS`]) and not a
+/// secret only through one of [`COUNTED_WORDS`]. So `GITHUB_TOKEN` is one, and
+/// `MAX_TOKENS`, `TOKENIZER` and `TOKEN_COUNT` are not.
+fn secret_name(name: &str) -> bool {
+    if !secret_like(name) {
+        return false;
+    }
+    let upper = name.to_ascii_uppercase();
+    let words: Vec<&str> = upper.split('_').filter(|word| !word.is_empty()).collect();
+    if words.last().is_some_and(|word| COUNT_WORDS.contains(word)) {
+        return false;
+    }
+    let rest: Vec<&str> = words.into_iter().filter(|word| !COUNTED_WORDS.contains(word)).collect();
+    secret_like(&rest.join("_"))
+}
+
 /// True for a value that names another value: `$NAME`, `$(...)`, `${...}` or a
 /// backtick. `$'...'` is a quoted value, not a name.
 fn names_another_value(value: &str) -> bool {
@@ -107,7 +132,7 @@ fn assignments(line: &str) -> Vec<Range<usize>> {
         let start = at + 1;
         let value = value_len(&line[start..]);
         from = start;
-        if value > 0 && !name.is_empty() && secret_like(&name) {
+        if value > 0 && !name.is_empty() && secret_name(&name) {
             found.push(start..start + value);
             from = start + value;
         }

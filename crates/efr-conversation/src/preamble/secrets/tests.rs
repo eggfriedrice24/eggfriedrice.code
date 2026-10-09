@@ -16,6 +16,10 @@ use super::redact;
 )]
 #[case::ansi_c_quotes("MY_TOKEN=$'a\\tb' run", "MY_TOKEN=[redacted] run")]
 #[case::lowercase_name("api_key=abc ./run", "api_key=[redacted] ./run")]
+#[case::tokens_with_a_secret_word(
+    "export GITHUB_TOKENS_SECRET=abc",
+    "export GITHUB_TOKENS_SECRET=[redacted]"
+)]
 #[case::option("tool --api-key=abc --verbose", "tool --api-key=[redacted] --verbose")]
 #[case::inside_quotes(
     r#"curl -d "user=me&password=hunter2" x"#,
@@ -53,6 +57,11 @@ fn the_value_of_a_secret_assignment_is_redacted(#[case] line: &str, #[case] reda
 #[case::backticks("TOKEN=`pass show x` run")]
 #[case::empty("unset TOKEN; TOKEN= run")]
 #[case::other_names("PATH=/usr/bin:$PATH RUST_LOG=debug KEYBOARD=us cargo test")]
+#[case::max_tokens("llm --max-tokens=4096")]
+#[case::tokenizer("python train.py --tokenizer=gpt2 --max_tokens=512")]
+#[case::token_count("make TOKEN_COUNT=5")]
+#[case::tokenizers_parallelism("TOKENIZERS_PARALLELISM=false python x.py")]
+#[case::password_length("pwgen PASSWORD_LENGTH=20")]
 #[case::comparison("[ \"$a\" == b ]")]
 #[case::a_name_alone("echo $GITHUB_TOKEN")]
 fn a_line_without_a_secret_stays(#[case] line: &str) {
@@ -246,6 +255,14 @@ fn a_header_without_a_secret_stays(#[case] line: &str) {
     "docker login --password abc registry.io",
     "docker login --password [redacted] registry.io"
 )]
+#[case::docker_login_after_a_global_option(
+    "docker --config d login -p abc registry.io",
+    "docker --config d login -p [redacted] registry.io"
+)]
+#[case::helm_registry_login(
+    "helm registry login r.io -u me -p abc",
+    "helm registry login r.io -u me -p [redacted]"
+)]
 #[case::helm_repo(
     "helm repo add r https://x --username u --password abc",
     "helm repo add r https://x --username u --password [redacted]"
@@ -277,6 +294,8 @@ fn the_value_of_a_password_option_is_redacted(#[case] line: &str, #[case] redact
 #[case::mysql_long_asks("mysql --password app")]
 #[case::psql_asks("psql --password -d app")]
 #[case::docker_run("docker run -p 8080:80 nginx")]
+#[case::docker_run_with_login_later("docker run -p 8080:80 nginx login")]
+#[case::option_before_login("docker -p x login")]
 #[case::podman_port("podman run -p 80:80 img")]
 #[case::other_program("grep -p abc file")]
 #[case::ssh_port("ssh -p 2222 host")]

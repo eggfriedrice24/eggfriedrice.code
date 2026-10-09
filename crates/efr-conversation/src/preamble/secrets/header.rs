@@ -4,13 +4,11 @@
 
 use std::ops::Range;
 
-use efr_sandbox::secret_like;
-
-use super::names_another_value;
 use super::words::Word;
+use super::{names_another_value, secret_name};
 
 /// Headers whose value is a secret, compared without case; a name that
-/// [`secret_like`] matches, with dashes read as underscores, is one too.
+/// [`secret_name`] matches, with dashes read as underscores, is one too.
 const SECRET_HEADERS: &[&str] = &["authorization", "proxy-authorization", "cookie"];
 
 /// The commands that print their words, so a header may stand among them unquoted.
@@ -153,7 +151,7 @@ fn header_at(text: &str, start: usize) -> Option<(&str, usize)> {
         return None;
     }
     let secret = SECRET_HEADERS.iter().any(|header| name.eq_ignore_ascii_case(header))
-        || secret_like(&name.replace('-', "_"));
+        || secret_name(&name.replace('-', "_"));
     if !secret {
         return None;
     }
