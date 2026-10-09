@@ -4,15 +4,17 @@
 //! The block is one user message before the summary: the user's directory and the
 //! hidden shell's directory, the running jobs of the hidden shell, the git status of
 //! the project, and the `AGENTS.md` files from the project root down to the user's
-//! directory. The actor keeps it in memory with the compaction's id, so every request
-//! until the next compaction sends the same bytes and the prompt cache hits. After a
-//! daemon restart the next turn reads it from disk again.
+//! directory. The compaction stores it (`Compaction::fresh`), so every request until
+//! the next compaction sends the same bytes and the prompt cache hits, also after a
+//! daemon restart. Only for a compaction from an efrd before the stored block is the
+//! block read from disk again; the actor then keeps it in memory with the compaction's
+//! id.
 
 use std::fmt::Write as _;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{CompactionId, ConversationId, Scope};
+use efr_protocol::{Compaction, CompactionId, ConversationId, Scope};
 
 use crate::ConversationDeps;
 
@@ -93,6 +95,17 @@ impl FreshFacts {
         out.push_str(FRESH_CLOSE);
         out
     }
+}
+
+/// The fresh block of `compaction` without a read of the disk: the block that the
+/// compaction stored, else `kept`, the block that the actor holds, when it belongs to
+/// that compaction. `None` for a compaction from an efrd before the stored block whose
+/// block the actor does not hold.
+pub(crate) fn stored(compaction: &Compaction, kept: Option<&Fresh>) -> Option<String> {
+    compaction.fresh.clone().or_else(|| {
+        kept.filter(|fresh| fresh.compaction_id == compaction.compaction_id)
+            .map(|fresh| fresh.text.clone())
+    })
 }
 
 /// Reads the facts of the block now: the scope resolver gives the project root and its

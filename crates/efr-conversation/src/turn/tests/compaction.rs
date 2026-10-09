@@ -70,6 +70,7 @@ fn auto_compaction_records(setup: &Setup) -> (Vec<Record>, Request, Vec<Message>
 async fn an_auto_compaction_at_the_trigger_summarizes_and_the_turn_goes_on() {
     let setup = compacting();
     let (records, before, after) = auto_compaction_records(&setup);
+    let fresh_text = fresh(&setup).text();
     assert!(request_tokens(&before) >= TRIGGER, "{}", request_tokens(&before));
     let mut receiver = setup.drafts.subscribe();
     let mut h = setup.start(records).await;
@@ -124,6 +125,7 @@ async fn an_auto_compaction_at_the_trigger_summarizes_and_the_turn_goes_on() {
             pruned_tokens: 0,
             omitted_turns: 0,
             omitted_messages: 0,
+            fresh: Some(fresh_text),
             summary: Some(SUMMARY.to_owned()),
             usage: None,
         }
@@ -185,8 +187,10 @@ async fn after_a_restart_the_request_is_rebuilt_from_the_compaction_and_the_tail
     h.finish();
     let cwd = h.cwd.clone();
 
-    // The cache and the fresh block of the actor are gone: the summary comes from the
-    // store's compactions, the tail from the saved messages, the block from the disk.
+    // The cache and the fresh block of the actor are gone: the summary and the fresh
+    // block come from the store's compactions, the tail from the saved messages. The
+    // disk has changed since, and the request still sends the stored block.
+    std::fs::write(cwd.join("AGENTS.md"), "Changed after the compaction.\n").expect("AGENTS.md");
     let records = vec![expect_request(next), answer(&text_answer("ok 4"))];
     let mut h = h.restart(records, "replay").await;
     let four = h.prompt_in(&cwd, "four").await.turn_id;

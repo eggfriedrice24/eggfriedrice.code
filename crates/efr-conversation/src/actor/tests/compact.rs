@@ -45,6 +45,7 @@ async fn a_manual_compaction_summarizes_with_the_focus_and_starts_no_turn() {
     let setup = compacting();
     let state = setup.live_state(&setup.cwd, "one");
     let (mut records, before, after) = manual_records(&setup);
+    let fresh_text = fresh(&setup).text();
     records.push(answer(&text_answer(SUMMARY)));
     let mut next = after.clone();
     next.push(setup.prompt(&state, "three"));
@@ -72,6 +73,7 @@ async fn a_manual_compaction_summarizes_with_the_focus_and_starts_no_turn() {
         pruned_tokens: 0,
         omitted_turns: 0,
         omitted_messages: 0,
+        fresh: Some(fresh_text),
         summary: Some(SUMMARY.to_owned()),
         usage: None,
     };

@@ -285,6 +285,7 @@ impl Turn {
             pruned_tokens: built.pruned_tokens,
             omitted_turns: built.omitted_turns,
             omitted_messages: built.omitted_messages,
+            fresh: built.fresh,
             summary: built.summary,
             usage: built.usage.map(wire_usage),
         };
@@ -313,13 +314,12 @@ impl Turn {
     }
 
     /// The fresh context block for a history that starts with the summary of
-    /// `compaction_id`: the actor's copy when it belongs to that compaction, else read
-    /// from disk now, as after a daemon restart.
-    pub(super) async fn fresh_for(&mut self, compaction_id: CompactionId) -> String {
-        if let Some(fresh) =
-            self.fresh.as_ref().filter(|fresh| fresh.compaction_id == compaction_id)
-        {
-            return fresh.text.clone();
+    /// `compaction`: the block that it stored ([`fresh::stored`]), else read from disk
+    /// now and kept for the next turns, for a compaction from an efrd before the stored
+    /// block.
+    pub(super) async fn fresh_for(&mut self, compaction: &Compaction) -> String {
+        if let Some(text) = fresh::stored(compaction, self.fresh.as_ref()) {
+            return text;
         }
         let text = read_fresh(
             &self.shared.deps,
@@ -328,7 +328,7 @@ impl Turn {
             self.logged_shell_cwd.clone(),
         )
         .await;
-        self.fresh = Some(Fresh { compaction_id, text: text.clone() });
+        self.fresh = Some(Fresh { compaction_id: compaction.compaction_id, text: text.clone() });
         text
     }
 }
@@ -360,6 +360,8 @@ pub(crate) struct Built {
     pub(crate) pruned_tokens: u64,
     pub(crate) omitted_turns: u32,
     pub(crate) omitted_messages: u32,
+    /// The fresh context block that the history after a summary starts with.
+    pub(crate) fresh: Option<String>,
     pub(crate) summary: Option<String>,
     pub(crate) usage: Option<TokenUsage>,
 }
@@ -380,6 +382,7 @@ fn pruned(window: &Window, pruning: Pruning) -> Option<Built> {
         pruned_tokens: pruning.tokens,
         omitted_turns: 0,
         omitted_messages: 0,
+        fresh: None,
         summary: None,
         usage: None,
     })
@@ -412,6 +415,7 @@ pub(crate) fn summarized(
         pruned_tokens,
         omitted_turns: window.omitted,
         omitted_messages: omitted,
+        fresh: Some(fresh.text.clone()),
         summary: Some(summary),
         usage,
     })

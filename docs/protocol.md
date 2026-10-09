@@ -265,3 +265,10 @@ No protocol version has shipped yet.
   provider, `cached_input_tokens` and the two write counts are parts of `input_tokens`.
   The fixtures `events/turn_completed.json`, `events/conversation_compacted.json` and
   `conversation_compact_result.json` now set them.
+- Version 1, additive: the stored fresh context block. `Compaction` (in
+  `conversation_compacted` and in the result of `conversation.compact`) gains an
+  optional `fresh`: the fresh context block that every request after a compaction with
+  a summary sends before the summary, as efrd read it when the compaction ended. It is
+  absent for a compaction without a summary and for one from before the field. The
+  fixtures `events/conversation_compacted.json` and `conversation_compact_result.json`
+  now set it.

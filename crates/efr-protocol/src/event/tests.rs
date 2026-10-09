@@ -6,7 +6,7 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    CallId, CommandId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    CallId, CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
     ShellContext, TurnId, TurnSettings, Usage,
 };
@@ -475,4 +475,34 @@ fn a_usage_says_its_cache_writes_and_an_old_one_reads_as_none() {
     let read: Usage = serde_json::from_value(old.clone()).unwrap();
     assert_eq!(read, Usage { cached_input_tokens: 9_000, ..Usage::new(12_000, 300) });
     assert_eq!(serde_json::to_value(read).unwrap(), old);
+}
+
+#[test]
+fn a_compaction_keeps_its_fresh_block_and_an_old_one_reads_without_it() {
+    let old = json!({
+        "kind": "conversation_compacted",
+        "compaction_id": "019a9b1c-3d00-7a10-8b20-00000000000b",
+        "trigger": "manual",
+        "model": "gpt-5.5",
+        "window": 272_000,
+        "limit": 206_720,
+        "tokens_before": 231_000,
+        "tokens_after": 24_000,
+        "through_turn": TURN,
+        "kept_turns": 1,
+        "summary": "## Task and state\nNone.",
+    });
+    let Event::ConversationCompacted(read) = serde_json::from_value::<Event>(old.clone()).unwrap()
+    else {
+        panic!("a compaction");
+    };
+    assert_eq!(read.fresh, None, "a compaction from before the field has no fresh block");
+    let event = Event::ConversationCompacted(read.clone());
+    assert_eq!(serde_json::to_value(&event).unwrap(), old, "and writes none");
+
+    let fresh = "<fresh-context>\n</fresh-context>";
+    let stored = Event::ConversationCompacted(Compaction { fresh: Some(fresh.to_owned()), ..read });
+    let wire = serde_json::to_value(&stored).unwrap();
+    assert_eq!(wire["fresh"], fresh);
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), stored);
 }

@@ -22,7 +22,7 @@ use super::receipt;
 use crate::ConversationError;
 use crate::compaction::{self, Job, Outcome, request_tokens, with_window};
 use crate::context::ContextLimits;
-use crate::fresh::Fresh;
+use crate::fresh::{self, Fresh};
 use crate::history::{CachedTurn, ModelKey, Snapshot};
 use crate::turn::{Shared, read_fresh, summarized, wire_usage};
 
@@ -70,12 +70,12 @@ async fn compact(
         .and_then(|summary| summary.cwd.clone())
         .unwrap_or_else(|| shared.deps.home.path().to_path_buf());
     let logged_shell_cwd = snapshot.agent_cwd();
+    // NOTE: the stored block, so the summary request starts with the bytes of the last
+    // request; only a compaction from before the stored block reads the disk again.
     let head = match snapshot.summary() {
-        Some(compaction) => match fresh.as_ref() {
-            Some(fresh) if fresh.compaction_id == compaction.compaction_id => {
-                Some(fresh.text.clone())
-            }
-            _ => Some(
+        Some(compaction) => match fresh::stored(compaction, fresh.as_ref()) {
+            Some(text) => Some(text),
+            None => Some(
                 read_fresh(&shared.deps, conversation_id, &cwd, logged_shell_cwd.clone()).await,
             ),
         },
@@ -147,6 +147,7 @@ async fn compact(
         pruned_tokens: built.pruned_tokens,
         omitted_turns: built.omitted_turns,
         omitted_messages: built.omitted_messages,
+        fresh: built.fresh,
         summary: built.summary,
         usage: built.usage.map(wire_usage),
     };

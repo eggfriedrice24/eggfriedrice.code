@@ -71,6 +71,7 @@ fn counts_are_short_and_cut() {
 fn each_compaction_has_its_line() {
     use CompactionTrigger::{Auto, Manual, Overflow};
     let pruned = Compaction {
+        fresh: None,
         summary: None,
         usage: None,
         pruned_outputs: 12,

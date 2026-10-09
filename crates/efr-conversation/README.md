@@ -546,8 +546,8 @@ the event's `compaction_id`, `model`, time and conversation id.
   id, the turn that ran it (absent for a manual one), `trigger`, `focus`, `model`,
   `window`, `limit`, `tokens_before`, `tokens_after`, the cut (`through_turn`,
   `through_message`), `kept_turns`, `pruned_outputs`, `pruned_tokens`, what the
-  summary never saw (`omitted_turns`, `omitted_messages`), `summary` and the `usage`
-  of the summary request.
+  summary never saw (`omitted_turns`, `omitted_messages`), the fresh context block
+  (`fresh`, with a summary only), `summary` and the `usage` of the summary request.
 - The store keeps every compaction in the `compactions` projection
   (`efr_store::compactions`). A turn reads the newest compaction with a summary and the
   newest compaction of any kind with their own query (`compactions::latest`), never
@@ -571,9 +571,11 @@ A request after a compaction with a summary has these parts, in this order:
    tree's programs), and the `AGENTS.md` files from the project root down to the user's
    directory, each cut at 32 KiB (memory joins at milestone 4). The project root is the
    registered project's, else the git work tree's; without one, only the user's
-   directory is read. The actor keeps the block in memory with the compaction id, so
-   every request until the next compaction sends the same bytes. After a daemon
-   restart, the next turn reads it from disk again;
+   directory is read. The compaction stores the block (`Compaction::fresh`), so every
+   request until the next compaction sends the same bytes, also after a daemon
+   restart. Only for a compaction from an efrd before the stored block does the next
+   turn read it from disk again, and the actor keeps that copy in memory with the
+   compaction id;
 3. the summary, one user message: `<conversation-summary>`, the summary text,
    `</conversation-summary>`; when the summary never saw some turns or messages
    (`omitted_turns`, `omitted_messages`), one more user message after it says so:

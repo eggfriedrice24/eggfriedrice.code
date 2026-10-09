@@ -100,6 +100,13 @@ pub struct Compaction {
     /// when none.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub omitted_messages: u32,
+    /// The fresh context block that every request after this compaction sends before
+    /// the summary: what efrd read from disk when the compaction ended, such as the
+    /// directories, the git status and the `AGENTS.md` files. Stored, so a request after
+    /// a restart sends the same bytes. Absent without a summary, and in a compaction
+    /// from before the field; efrd then reads the block from disk again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh: Option<String>,
     /// The summary that replaces the history before the cut. Absent when pruning alone
     /// freed enough room.
     #[serde(default, skip_serializing_if = "Option::is_none")]

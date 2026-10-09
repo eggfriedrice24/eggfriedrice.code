@@ -13,6 +13,7 @@
     "kept_turns": 3,
     "pruned_outputs": 12,
     "pruned_tokens": 41000,
+    "fresh": "<fresh-context>\n## Directories\n- The user's directory: /var\n</fresh-context>",
     "summary": "## Task and state\nFree space on /var.",
     "usage": {
       "input_tokens": 205000,

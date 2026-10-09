@@ -349,6 +349,7 @@ pub(crate) fn compaction(trigger: CompactionTrigger, after: u64) -> Compaction {
         pruned_tokens: 0,
         omitted_turns: 0,
         omitted_messages: 0,
+        fresh: Some("<fresh-context>\n</fresh-context>".to_owned()),
         summary: Some("## Task and state\n".to_owned()),
         usage: Some(Usage::new(231_400, 3_250)),
     }

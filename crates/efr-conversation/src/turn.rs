@@ -447,7 +447,7 @@ impl Turn {
         };
         let preamble = self.live_state(derivation.repo, agent_cwd, moved_from).render();
         let fresh = match snapshot.summary() {
-            Some(compaction) => Some(self.fresh_for(compaction.compaction_id).await),
+            Some(compaction) => Some(self.fresh_for(compaction).await),
             None => None,
         };
         // NOTE: the safety net of the history scales with the model's window, so a

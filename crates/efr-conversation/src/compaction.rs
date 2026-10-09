@@ -5,7 +5,7 @@
 //! model calls (`turn/compact.rs`), and the actor runs a manual one between turns. Both
 //! hand a [`Job`] to [`run`], which prunes, and summarizes when pruning is not enough or
 //! not allowed. The caller then reads the fresh context block from disk, builds the new
-//! window and records `conversation_compacted`.
+//! window and records `conversation_compacted`, which stores the block.
 
 use std::collections::HashSet;
 
