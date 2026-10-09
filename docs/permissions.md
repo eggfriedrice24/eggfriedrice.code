@@ -527,6 +527,14 @@ no file stays changed.
   and it refuses a file over 16 MiB, a binary file and anything that is not a regular
   file.
 
+A Claude model gets the `edit` tool in place of `apply_patch`: it replaces exact text
+in one file that exists, once or at every match. It never makes, deletes or moves a
+file, so it never asks for that reason. Its file counts as a write and the path rules
+decide it as they decide a `write_file`. The question shows the unified diff of the
+file. It runs in the daemon and refuses the same paths and files as `apply_patch`. A
+model never gets both tools, and a call of the tool that the model did not get does
+not run.
+
 ## The settings tool
 
 The model reads and changes efr's settings with its `settings` tool, never with
