@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-10-09
+
 ### Added
 
 - Model calls to OpenAI can go over a WebSocket, which cuts the time to the first
@@ -550,6 +552,7 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/eggfriedrice24/eggfriedrice.code/releases/tag/v0.0.1

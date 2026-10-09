@@ -10,7 +10,7 @@
 # build. The ghostty source is the commit that the libghostty-vt pin names.
 # All downloads happen in the sources and in prepare(); build() needs no network.
 pkgname=efr-code
-pkgver=0.0.2
+pkgver=0.0.3
 pkgrel=1
 pkgdesc='Terminal-first AI agent harness that lives in zsh, with a daemon that owns the state'
 arch=('x86_64')
