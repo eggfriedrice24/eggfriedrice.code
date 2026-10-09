@@ -189,25 +189,34 @@ impl Meter {
     }
 }
 
-/// The context at the end of the newest turn of `page`, the base of the next turn's
-/// estimate. `None` when a compaction came after it, when the newest turn was
-/// cancelled or has no end (its messages are in the history, but in no count), or when
-/// the newest ended turn has no `context` (a turn from before efr counted it, or one
-/// that ended before it sent anything) or no real count (no call of it reported its
-/// usage): its messages are then not in any count, and an estimate is no base.
-pub(crate) fn context_base(page: &[EventEnvelope]) -> Option<u64> {
-    page.iter().rev().find_map(|envelope| match &envelope.event {
+/// The context at the end of the newest turn of `page`, the base of the estimate of the
+/// next turn, which runs with `model`. `None` when a compaction came after it, when the
+/// newest turn was cancelled or has no end (its messages are in the history, but in no
+/// count), when the newest ended turn has no `context` (a turn from before efr counted
+/// it, or one that ended before it sent anything) or no real count (no call of it
+/// reported its usage): its messages are then not in any count, and an estimate is no
+/// base. `None` too when the newest turn ran with another model, as before a switch to
+/// another provider: that model's count says nothing about the tokens of `model`.
+pub(crate) fn context_base(page: &[EventEnvelope], model: &str) -> Option<u64> {
+    let (turn, tokens) = page.iter().rev().find_map(|envelope| match &envelope.event {
         Event::ConversationCompacted(_)
         | Event::TurnCancelled { .. }
         | Event::TurnStarted { .. } => Some(None),
-        Event::TurnCompleted { context, usage, .. }
-        | Event::TurnFailed { context, usage, .. }
-        | Event::TurnInterrupted { context, usage, .. } => {
+        Event::TurnCompleted { turn_id, context, usage, .. }
+        | Event::TurnFailed { turn_id, context, usage, .. }
+        | Event::TurnInterrupted { turn_id, context, usage, .. } => {
             let counted = usage.is_some_and(|usage| usage.context_tokens > 0);
-            Some(context.filter(|_| counted).map(|context| context.tokens))
+            Some(context.filter(|_| counted).map(|context| (*turn_id, context.tokens)))
         }
         _ => None,
-    })?
+    })??;
+    let other_model = page.iter().rev().find_map(|envelope| match &envelope.event {
+        Event::TurnStarted { turn_id, settings, .. } if *turn_id == turn => {
+            Some(settings.as_ref().is_some_and(|settings| settings.model != model))
+        }
+        _ => None,
+    });
+    (other_model != Some(true)).then_some(tokens)
 }
 
 /// Why a turn's context does not fit.
@@ -219,8 +228,12 @@ pub(crate) enum Full {
     Refused,
     /// The compaction to make room failed: after the provider refused the request
     /// (`refused`), or before a request above the hard cap. `failure` is why the
-    /// summary failed, in one sentence; `None` when nothing lay before the tail.
-    CompactionFailed { refused: bool, failure: Option<String> },
+    /// summary failed, in one sentence.
+    CompactionFailed { refused: bool, failure: String },
+    /// Nothing lay before the tail, so a compaction frees no room: after the provider
+    /// refused the request (`refused`), or before a request above the hard cap. A
+    /// manual compaction frees nothing either, so the way out is a new conversation.
+    TailTooLarge { refused: bool },
     /// The compactions of this turn did not free enough room.
     Breaker,
     /// The provider refused the request again after a compaction.
@@ -232,6 +245,7 @@ pub(crate) enum Full {
 /// message that names the cause and the way out.
 pub(crate) fn context_full(why: Full, tokens: u64, limits: &ContextLimits) -> ErrorBody {
     let (size, window, cap) = (kilo(tokens), kilo(limits.window), kilo(limits.hard_cap));
+    let why_tail = matches!(why, Full::TailTooLarge { .. });
     let message = match why {
         Full::Cap => {
             format!("the context is full: about {size} of {window} tokens, above the cap of {cap}")
@@ -240,12 +254,7 @@ pub(crate) fn context_full(why: Full, tokens: u64, limits: &ContextLimits) -> Er
             format!("the context is full: the model refused about {size} of {window} tokens")
         }
         Full::CompactionFailed { refused, failure } => {
-            let failed = match failure {
-                Some(failure) => {
-                    format!("the context is full and the compaction failed ({failure})")
-                }
-                None => "the context is full and the compaction failed".to_owned(),
-            };
+            let failed = format!("the context is full and the compaction failed ({failure})");
             if refused {
                 format!("{failed}: the model refused about {size} of {window} tokens")
             } else {
@@ -258,16 +267,28 @@ pub(crate) fn context_full(why: Full, tokens: u64, limits: &ContextLimits) -> Er
         Full::StillRefused => format!(
             "the context is still full after a compaction: the model refused about {size} of {window} tokens"
         ),
+        Full::TailTooLarge { refused } => {
+            let full = "the context is full and the newest messages alone do not fit";
+            if refused {
+                format!("{full}: the model refused about {size} of {window} tokens")
+            } else {
+                format!("{full}: about {size} of {window} tokens, above the cap of {cap}")
+            }
+        }
     };
-    ErrorBody::new(
-        ErrorCode::Internal,
-        format!("{message}; run ,compact or start a new conversation"),
+    // NOTE: a manual compaction keeps the same tail, so it frees nothing either.
+    let way_out = if why_tail {
+        "start a new conversation"
+    } else {
+        "run ,compact or start a new conversation"
+    };
+    ErrorBody::new(ErrorCode::Internal, format!("{message}; {way_out}")).with_data(
+        serde_json::json!({
+            "cause": CONTEXT_OVERFLOW,
+            "tokens": tokens,
+            "window": limits.window,
+        }),
     )
-    .with_data(serde_json::json!({
-        "cause": CONTEXT_OVERFLOW,
-        "tokens": tokens,
-        "window": limits.window,
-    }))
 }
 
 /// The `cause` of a `turn_failed` whose context did not fit.

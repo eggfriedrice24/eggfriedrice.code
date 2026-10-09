@@ -421,7 +421,7 @@ impl Turn {
                 Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
             };
         self.settings = Some(settings.clone());
-        self.meter = Meter::new(context::context_base(&snapshot.page));
+        self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
         self.user_messages = exit::user_messages(&snapshot.page, turn_id);
         let mut started = vec![Event::TurnStarted {
             turn_id,

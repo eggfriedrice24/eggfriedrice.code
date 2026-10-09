@@ -32,12 +32,14 @@ const SMALL_WINDOW: u64 = 272_000;
 /// fit. It answers a summary request with [`SUMMARY`], any other request with `ok`, and
 /// reports the estimate as the input of the call. With `reads`, it answers a prompt
 /// with a call of `read_file` of that file whose input carries that many more bytes,
-/// so each turn is a tool loop.
+/// so each turn is a tool loop. With `reports`, it reports that input in place of the
+/// estimate.
 #[derive(Debug)]
 struct Windowed {
     id: ProviderId,
     windows: HashMap<String, u64>,
     reads: Option<(PathBuf, usize)>,
+    reports: Option<u64>,
     requests: Mutex<Vec<Request>>,
     refused: Mutex<Vec<Request>>,
 }
@@ -45,6 +47,11 @@ struct Windowed {
 impl Windowed {
     fn new(id: &str) -> Arc<Self> {
         Arc::new(Windowed::build(id, None))
+    }
+
+    /// A provider that reports `tokens` as the input of every call.
+    fn reporting(id: &str, tokens: u64) -> Arc<Self> {
+        Arc::new(Windowed { reports: Some(tokens), ..Windowed::build(id, None) })
     }
 
     /// A provider whose turns read the file `path` in a tool loop before they answer,
@@ -60,6 +67,7 @@ impl Windowed {
             id: ProviderId::new(id).expect("provider id"),
             windows,
             reads,
+            reports: None,
             requests: Mutex::new(Vec::new()),
             refused: Mutex::new(Vec::new()),
         }
@@ -98,7 +106,8 @@ impl Provider for Windowed {
         requests.push(request);
         let call_id = format!("call_{}", requests.len());
         drop(requests);
-        let usage = TokenUsage { input_tokens: tokens, output_tokens: 1, ..TokenUsage::default() };
+        let input_tokens = self.reports.unwrap_or(tokens);
+        let usage = TokenUsage { input_tokens, output_tokens: 1, ..TokenUsage::default() };
         let mut events = match reads {
             Some((path, pad)) => {
                 tool_answer(&call_id, "read_file", &json!({ "path": path, "pad": big_text(pad) }))
@@ -308,6 +317,28 @@ async fn a_summary_request_of_tool_loops_never_parts_a_call_from_its_result() {
         }
         assert_eq!(calls, results, "every call has its result");
     }
+    h.finish();
+}
+
+#[tokio::test]
+async fn the_count_of_the_old_model_is_no_base_for_the_first_turn_on_the_new_one() {
+    // The old model reported a context above the hard cap of the new window, and every
+    // message of the history fits in the tail, so a compaction frees nothing.
+    let claude = Windowed::reporting("anthropic-api", 500_000);
+    let openai = Windowed::new("openai-api");
+    let mut h = two_models().start_model(claude.clone()).await;
+    let end = turn_on(&mut h, WIDE, "hello").await;
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    let mut h = h.restart_model(openai.clone()).await;
+
+    let end = turn_on(&mut h, SMALL, "go on").await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "the estimate of the request: {end:?}");
+    assert_eq!(openai.requests().len(), 1, "the turn's call, no compaction");
+    assert!(compactions(&h).await.is_empty());
+    // The next turn on the same model counts from the new model's own count again.
+    let end = turn_on(&mut h, SMALL, "and then").await;
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
     h.finish();
 }
 

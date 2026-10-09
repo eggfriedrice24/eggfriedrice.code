@@ -118,19 +118,20 @@ impl Turn {
             // compaction or with a model of a larger window: the breaker closes.
             self.misses = 0;
         }
-        let mut failure = None;
+        let mut not_done = None;
         if (full || omits) && self.may_compact() {
             match self.compact(CompactionTrigger::Auto, estimate, window, base).await? {
                 Compacted::Done => estimate = self.estimate(&with_window(base, window)),
-                Compacted::NotDone { failure: failed } => failure = failed,
+                Compacted::NotDone { failure } => not_done = Some(failure),
                 Compacted::Interrupted => return Ok(Guard::Interrupted),
             }
         }
         if estimate <= limits.hard_cap {
             return Ok(Guard::Send { estimate });
         }
-        let why = match failure {
-            Some(failure) => Full::CompactionFailed { refused: false, failure: Some(failure) },
+        let why = match not_done {
+            Some(Some(failure)) => Full::CompactionFailed { refused: false, failure },
+            Some(None) => Full::TailTooLarge { refused: false },
             None if limits.auto && !self.may_compact() => Full::Breaker,
             None => Full::Cap,
         };
@@ -168,8 +169,11 @@ impl Turn {
         self.catch_up(window);
         match self.compact(CompactionTrigger::Overflow, refused, window, base).await? {
             Compacted::Done => {}
-            Compacted::NotDone { failure } => {
+            Compacted::NotDone { failure: Some(failure) } => {
                 return stop(Full::CompactionFailed { refused: true, failure });
+            }
+            Compacted::NotDone { failure: None } => {
+                return stop(Full::TailTooLarge { refused: true });
             }
             Compacted::Interrupted => return Ok(Recovered::Stop(Ending::Interrupted)),
         }

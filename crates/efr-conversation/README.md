@@ -462,8 +462,10 @@ Before each model call, the turn estimates the context of the request (`Meter` i
   holds it, so it survives a restart;
 - without one (the first turn, the first call after a compaction, a newest turn that
   was cancelled or has no end, as after a daemon restart, or a newest ended turn
-  without `context`, without a real count in its `usage`, or with a
-  `conversation_compacted` after it):
+  without `context`, without a real count in its `usage`, with a
+  `conversation_compacted` after it, or that ran with another model than this turn,
+  as before a switch of `[model] provider`, because that model's count says nothing
+  about the tokens of this one):
   `estimate_tokens` of the JSON of the whole request (system prompt, tool definitions
   and messages).
 
@@ -715,7 +717,11 @@ A turn that fails for its context records `turn_failed` with code `internal`, da
 - a refusal whose compaction failed: `the context is full and the compaction failed
   (<why>): the model refused about 281k of 272k tokens; ...`, where `<why>` is the
   sentence of the provider's error (such as `the provider is rate limiting requests`)
-  or of the summary's failure, and is left out when nothing lay before the tail;
+  or of the summary's failure;
+- a refusal or a request above the hard cap when nothing lies before the tail, so no
+  compaction frees room: `the context is full and the newest messages alone do not
+  fit: about 260k of 272k tokens, above the cap of 258k; start a new conversation`
+  (without `,compact`, because a manual compaction keeps the same tail);
 - a request above the hard cap whose auto compaction failed: `the context is full and
   the compaction failed (<why>): about 260k of 272k tokens, above the cap of 258k;
   ...`;

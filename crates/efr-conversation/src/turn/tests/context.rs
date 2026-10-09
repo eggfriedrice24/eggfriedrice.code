@@ -323,7 +323,13 @@ async fn an_auto_compaction_that_frees_nothing_above_the_hard_cap_fails_the_turn
         panic!("the turn fails, got {end:?}");
     };
     assert_eq!(error.data, full(estimate, estimate));
-    assert!(error.message.starts_with("the context is full: about"), "{}", error.message);
+    // Nothing lies before the tail, so `,compact` would free nothing either.
+    assert!(
+        error.message.starts_with("the context is full and the newest messages alone do not fit"),
+        "{}",
+        error.message
+    );
+    assert!(error.message.ends_with("; start a new conversation"), "{}", error.message);
     assert!(compactions(&h.events().await).is_empty());
     h.finish();
 }

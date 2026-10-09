@@ -1,5 +1,6 @@
 use efr_protocol::{
-    ContextUse, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Seq, TurnId, Usage,
+    ContextUse, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope,
+    Mode, OverriddenSettings, Seq, TurnId, Usage,
 };
 use efr_provider::{Message, Request};
 use efr_stdx::id::uuid_v7;
@@ -12,6 +13,9 @@ use super::{
     CompactionConfig, ContextLimits, DEFAULT_CONTEXT_WINDOW, Full, HARD_CAP_PERCENT, Meter,
     context_base, context_full, estimate_tokens, kilo, message_tokens, request_tokens,
 };
+
+/// The model of the turns of the tests.
+const MODEL: &str = "gpt-5.5";
 
 #[test]
 fn the_trigger_is_auto_at_percent_of_the_window_and_the_cap_95() {
@@ -101,23 +105,23 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         context: Some(limits.gauge(900)),
     };
 
-    assert_eq!(context_base(&[envelope(1, ended(800)), envelope(2, ended(900))]), Some(900));
+    assert_eq!(context_base(&[envelope(1, ended(800)), envelope(2, ended(900))], MODEL), Some(900));
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, uncounted)]),
+        context_base(&[envelope(1, ended(800)), envelope(2, uncounted)], MODEL),
         None,
         "the newest turn is in no count"
     );
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, estimated)]),
+        context_base(&[envelope(1, ended(800)), envelope(2, estimated)], MODEL),
         None,
         "no call of the newest turn reported a count"
     );
-    assert_eq!(context_base(&[]), None);
+    assert_eq!(context_base(&[], MODEL), None);
     assert_eq!(
-        context_base(&[
-            envelope(1, ended(800)),
-            envelope(2, Event::TurnCancelled { turn_id: turn })
-        ]),
+        context_base(
+            &[envelope(1, ended(800)), envelope(2, Event::TurnCancelled { turn_id: turn })],
+            MODEL
+        ),
         None,
         "a cancelled turn, as after a restart, is in no count"
     );
@@ -128,9 +132,42 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         settings: None,
     };
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, started)]),
+        context_base(&[envelope(1, ended(800)), envelope(2, started)], MODEL),
         None,
         "a turn without an end is in no count"
+    );
+}
+
+#[test]
+fn the_count_of_another_model_is_no_base() {
+    let turn = TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(3)));
+    let limits = ContextLimits::new(Some(1_000_000), CompactionConfig::default());
+    let started = |model: &str| Event::TurnStarted {
+        turn_id: turn,
+        cwd: "/home/u".into(),
+        scope: efr_protocol::Scope::Machine,
+        settings: Some(EffectiveSettings {
+            mode: Mode::Cautious,
+            model: model.to_owned(),
+            effort: None,
+            overridden: OverriddenSettings::default(),
+            fallback: None,
+        }),
+    };
+    let ended = Event::TurnCompleted {
+        turn_id: turn,
+        usage: Some(Usage { context_tokens: 500_000, ..Usage::default() }),
+        context: Some(limits.gauge(500_887)),
+        changes: None,
+    };
+    let claude = [envelope(1, started("claude-opus-5-5")), envelope(2, ended.clone())];
+
+    assert_eq!(context_base(&claude, "claude-opus-5-5"), Some(500_887));
+    assert_eq!(context_base(&claude, "gpt-5.5"), None, "a switch drops the base");
+    assert_eq!(
+        context_base(&[envelope(2, ended)], "gpt-5.5"),
+        Some(500_887),
+        "a turn whose start is not in the page keeps its count"
     );
 }
 
@@ -143,13 +180,18 @@ fn a_full_context_names_the_cause_and_the_way_out() {
     let failed = context_full(
         Full::CompactionFailed {
             refused: false,
-            failure: Some("the provider is rate limiting requests".to_owned()),
+            failure: "the provider is rate limiting requests".to_owned(),
         },
         260_000,
         &limits,
     );
-    let failed_refused =
-        context_full(Full::CompactionFailed { refused: true, failure: None }, 281_000, &limits);
+    let failed_refused = context_full(
+        Full::CompactionFailed { refused: true, failure: "the summary was empty".to_owned() },
+        281_000,
+        &limits,
+    );
+    let tail = context_full(Full::TailTooLarge { refused: false }, 260_000, &limits);
+    let tail_refused = context_full(Full::TailTooLarge { refused: true }, 281_000, &limits);
 
     assert_eq!(refused.code, ErrorCode::Internal);
     assert_eq!(
@@ -174,8 +216,19 @@ fn a_full_context_names_the_cause_and_the_way_out() {
     );
     assert_eq!(
         failed_refused.message,
-        "the context is full and the compaction failed: the model refused about 281k of 272k \
-         tokens; run ,compact or start a new conversation"
+        "the context is full and the compaction failed (the summary was empty): the model \
+         refused about 281k of 272k tokens; run ,compact or start a new conversation"
+    );
+    // Nothing lies before the tail: a manual compaction frees nothing either.
+    assert_eq!(
+        tail.message,
+        "the context is full and the newest messages alone do not fit: about 260k of 272k \
+         tokens, above the cap of 258k; start a new conversation"
+    );
+    assert_eq!(
+        tail_refused.message,
+        "the context is full and the newest messages alone do not fit: the model refused \
+         about 281k of 272k tokens; start a new conversation"
     );
 }
 
