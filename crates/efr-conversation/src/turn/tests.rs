@@ -226,15 +226,15 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
     first_answer[1] = done(StopReason::EndTurn, Some(raw.clone()));
     let switched = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
     let mut second = request(vec![
-        Message::user("first"),
+        setup.prompt(&state, "first"),
         Message::assistant("One."),
         setup.prompt(&switched, "second"),
     ]);
     second.model = "test-model-2".to_owned();
     let third = request(vec![
-        Message::user("first"),
+        setup.prompt(&state, "first"),
         Message::assistant("One.").with_provider_raw(raw),
-        Message::user("second"),
+        setup.prompt(&switched, "second"),
         Message::assistant("Two."),
         setup.prompt(&state, "third"),
     ]);
@@ -655,7 +655,7 @@ async fn the_scope_of_each_turn_decides_and_a_registered_project_writes_freely()
         ])),
         answer(&text_answer("Written.")),
         expect_request(request(vec![
-            Message::user("write main"),
+            first.clone(),
             tool_message("call_1", "write_file", &input),
             result_message("call_1", &output, false),
             Message::assistant("Written."),
@@ -997,7 +997,7 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&first_state, "first"),
             Message::assistant("One."),
             setup.prompt(&second_state, "second"),
         ])),
@@ -1045,15 +1045,15 @@ async fn a_cd_of_the_user_between_prompts_moves_the_hidden_shell_there() {
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&first_state, "first"),
             Message::assistant("One."),
             setup.prompt(&first_state, "second"),
         ])),
         answer(&text_answer("Two.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&first_state, "first"),
             Message::assistant("One."),
-            Message::user("second"),
+            setup.prompt(&first_state, "second"),
             Message::assistant("Two."),
             setup.prompt(&moved_state, "third"),
         ])),
@@ -1089,7 +1089,7 @@ async fn the_preamble_says_when_the_hidden_shell_could_not_move_with_the_user() 
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&first_state, "first"),
             Message::assistant("One."),
             setup.prompt(&stuck_state, "and here?"),
         ])),
@@ -1257,7 +1257,7 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
         ])),
         answer(&final_answer),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             tool_message("call_1", "read_file", &input),
             result_message("call_1", &output, false),
             Message::assistant("One.").with_provider_raw(raw),
@@ -1275,11 +1275,11 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
     // After a restart the cache is gone and another provider answers: the history comes
     // from the saved messages, as it would from the cache, without provider items.
     let third = vec![
-        Message::user("first"),
+        user_prompt(&state, "first"),
         tool_message("call_1", "read_file", &input),
         result_message("call_1", &output, false),
         Message::assistant("One."),
-        Message::user("second"),
+        user_prompt(&state, "second"),
         Message::assistant("Two."),
         user_prompt(&state, "third"),
     ];
@@ -1305,7 +1305,7 @@ fn second_request_after_raw_items(
     raw: &serde_json::Value,
 ) -> Vec<Message> {
     vec![
-        Message::user("first"),
+        setup.prompt(state, "first"),
         tool_message("call_1", "read_file", input).with_provider_raw(json!([{ "id": "fc_1" }])),
         result_message("call_1", output, false),
         Message::assistant("One.").with_provider_raw(raw.clone()),
@@ -1420,7 +1420,7 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
     let first = setup.prompt(&state, "tidy up");
     let changed_state = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
     let mut next = request(vec![
-        Message::user("tidy up"),
+        setup.prompt(&state, "tidy up"),
         Message::assistant("Working."),
         Message::user("also empty the trash"),
         Message::assistant("Done."),
@@ -1785,7 +1785,7 @@ async fn a_missing_scratch_directory_is_made_again_under_the_same_name() {
         expect_request(request(vec![setup.prompt(&first_state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&first_state, "first"),
             Message::assistant("One."),
             setup.prompt(&first_state, "second"),
         ])),

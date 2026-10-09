@@ -319,7 +319,8 @@ async fn the_breaker_stops_compacting_after_two_misses_and_the_turn_fails_at_the
         (tool_message("call_1", "read_file", &input), result_message("call_1", &output, false));
     let (call_2, result_2) =
         (tool_message("call_2", "read_file", &input), result_message("call_2", &output, false));
-    let first = vec![Message::user("hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
+    let first =
+        vec![setup.prompt(&state, "hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
     let mut refused = first.clone();
     refused.extend([call_1.clone(), result_1.clone()]);
     let after_1 = vec![fresh(&setup), summary_message(SUMMARY), call_1.clone(), result_1.clone()];
@@ -401,7 +402,6 @@ async fn a_pruning_that_frees_enough_compacts_without_a_summary() {
     records.push(answer(&text_answer("done")));
     // The next turn rebuilds the stubs from the compaction in the store.
     let mut history = messages.clone();
-    history[0] = Message::user("go");
     history.push(Message::assistant("done"));
     history.push(setup.prompt(&state, "next"));
     records.push(expect_request(request(history)));
@@ -435,7 +435,8 @@ async fn a_failed_summary_above_the_hard_cap_names_the_failure_and_its_cause() {
     let output = big_text(400_000);
     let call = tool_message("call_1", "read_file", &input);
     let result = result_message("call_1", &output, false);
-    let first = vec![Message::user("hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
+    let first =
+        vec![setup.prompt(&state, "hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
     let mut refused = first.clone();
     refused.extend([call, result]);
     let records = vec![

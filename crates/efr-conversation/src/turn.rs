@@ -248,8 +248,9 @@ struct Turn {
     cwd: PathBuf,
     scope: Scope,
     scratch: PathBuf,
-    /// The turn's messages for the cache: the prompt without the preamble, then every
-    /// message after it.
+    /// The turn's messages for the cache: the prompt as the model read it, with the
+    /// preamble (only its text when the turn stopped before the preamble was made),
+    /// then every message after it.
     transcript: Vec<Message>,
     /// The position of the next assistant message with text.
     assistant_index: u32,
@@ -464,6 +465,11 @@ impl Turn {
         // NOTE: the history is in the base already, the context at the end of the
         // previous turn; only the new prompt comes after it.
         self.meter.add(&prompt);
+        // NOTE: the prompt is kept as the model reads it, with its preamble, so every
+        // later request sends the same bytes and the provider's cache reads them.
+        if let Some(first) = self.transcript.first_mut() {
+            first.clone_from(&prompt);
+        }
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
         let base = Request {
             model: settings.model.clone(),

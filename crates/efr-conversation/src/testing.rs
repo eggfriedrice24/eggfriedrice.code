@@ -1055,16 +1055,16 @@ pub(crate) fn two_big_turns(setup: &Setup) -> (Vec<Record>, Vec<Message>) {
         expect_request(request(vec![setup.prompt(&state, &one)])),
         answer(&text_answer("ok 1")),
         expect_request(request(vec![
-            Message::user(one.clone()),
+            setup.prompt(&state, &one),
             Message::assistant("ok 1"),
             setup.prompt(&state, &two),
         ])),
         answer(&text_answer("ok 2")),
     ];
     let history = vec![
-        Message::user(one),
+        setup.prompt(&state, &one),
         Message::assistant("ok 1"),
-        Message::user(two),
+        setup.prompt(&state, &two),
         Message::assistant("ok 2"),
     ];
     (records, history)

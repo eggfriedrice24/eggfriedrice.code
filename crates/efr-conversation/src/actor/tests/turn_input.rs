@@ -62,7 +62,7 @@ async fn a_steer_after_an_interrupt_is_never_recorded_and_can_become_a_prompt() 
         expect_request(request(vec![setup.prompt(&state, "first")])),
         answer(&tool_answer("call_1", "hang", &json!({}))),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             tool_message("call_1", "hang", &json!({})),
             result_message("call_1", STOPPED, true),
             setup.prompt(&state, "in French"),
@@ -115,7 +115,7 @@ async fn a_steer_at_the_moment_steering_closes_queues_in_the_same_step() {
         expect_request(request(vec![setup.prompt(&state, "hi")])),
         answer(&text_answer("Hello.")),
         expect_request(request(vec![
-            Message::user("hi"),
+            setup.prompt(&state, "hi"),
             Message::assistant("Hello."),
             setup.prompt(&state, "and in French"),
         ])),
@@ -164,7 +164,7 @@ async fn a_late_steer_without_a_running_turn_starts_at_once() {
         ])),
         answer(&text_answer("Hi.")),
         expect_request(request(vec![
-            Message::user("hi"),
+            setup.prompt(&state, "hi"),
             Message::assistant("Hello."),
             Message::user("shorter"),
             Message::assistant("Hi."),
@@ -299,7 +299,7 @@ async fn a_withdraw_after_the_prompt_started_is_refused() {
         expect_request(request(vec![setup.prompt(&state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             Message::assistant("One."),
             setup.prompt(&state, "second"),
         ])),
@@ -333,7 +333,7 @@ async fn an_interrupt_hands_back_steers_and_prompts_in_one_append() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "first");
     let stopped = [
-        Message::user("first"),
+        setup.prompt(&state, "first"),
         tool_message("call_1", "hang", &json!({})),
         result_message("call_1", STOPPED, true),
     ];
@@ -341,7 +341,7 @@ async fn an_interrupt_hands_back_steers_and_prompts_in_one_append() {
     resent_history.push(setup.prompt(&state, "steer a\nsteer b"));
     let mut other_history = stopped.to_vec();
     other_history.extend([
-        Message::user("steer a\nsteer b"),
+        setup.prompt(&state, "steer a\nsteer b"),
         Message::assistant("Both done."),
         setup.prompt(&state, "other terminal"),
     ]);

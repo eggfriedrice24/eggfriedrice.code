@@ -133,7 +133,9 @@ async fn a_manual_compaction_is_recorded_answered_again_from_its_receipt_and_sen
     let texts: Vec<String> = next.messages.iter().map(Message::text).collect();
     assert!(texts[0].starts_with("<fresh-context>\n"), "{}", texts[0]);
     assert!(texts[1].starts_with("<conversation-summary>\n## Task and state"), "{}", texts[1]);
-    assert_eq!(texts[2..4], ["ok", "what now?"], "the tail starts after the long log");
+    assert_eq!(texts[2], "ok", "the tail starts after the long log");
+    assert!(texts[3].starts_with("<live_state>\n"), "the prompt keeps its preamble: {}", texts[3]);
+    assert!(texts[3].ends_with("</live_state>\n\nwhat now?"), "{}", texts[3]);
     assert!(!texts.iter().any(|text| text.contains("error: disk full")));
     daemon.stop().await.unwrap();
 }

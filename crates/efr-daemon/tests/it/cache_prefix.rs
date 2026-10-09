@@ -52,9 +52,12 @@ fn prefix_report(bodies: &[Value]) -> String {
         let new = after["input"].as_array().unwrap_or(&empty);
         let edit = old.iter().zip(new).position(|(old, new)| old != new);
         let line = match edit {
-            None if new.len() >= old.len() => {
-                format!("request {number}: keeps the {} items before it", old.len())
-            }
+            None if new.len() >= old.len() => format!(
+                "request {number}: starts with request {} ({} of {} items)",
+                number - 1,
+                old.len(),
+                new.len()
+            ),
             None => format!("request {number}: drops items from {} on", new.len()),
             Some(item) => {
                 let role = old[item]["role"].as_str().unwrap_or("none");

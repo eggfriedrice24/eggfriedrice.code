@@ -113,7 +113,8 @@ impl ModelKey {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedTurn {
     pub(crate) key: ModelKey,
-    /// The prompt without the preamble, then every message of the turn in order.
+    /// The prompt with its preamble, then every message of the turn in order: the
+    /// messages as the model read them.
     pub(crate) messages: Vec<Message>,
 }
 

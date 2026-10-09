@@ -187,7 +187,7 @@ async fn the_next_turn_estimates_from_the_context_at_the_end_of_the_last_one() {
         expect_request(request(vec![setup.prompt(&state, "first")])),
         answer(&counted_answer("One.", 900, 100)),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             Message::assistant("One."),
             second.clone(),
         ])),
@@ -259,20 +259,23 @@ async fn an_auto_compaction_that_frees_nothing_lets_the_turn_go_on_under_the_har
 #[tokio::test]
 async fn the_breaker_stays_open_from_turn_to_turn_while_the_context_is_over_the_trigger() {
     let mut setup = Setup::new();
-    let state = setup.live_state(&setup.cwd, "hello");
-    let first = request(vec![setup.prompt(&state, "hello")]);
+    // NOTE: a long prompt, so the preambles that the later requests send again are small
+    // beside it.
+    let hello = format!("hello\n{}", "x".repeat(60_000));
+    let state = setup.live_state(&setup.cwd, &hello);
+    let first = request(vec![setup.prompt(&state, &hello)]);
     // At 80% of the window, past the trigger; nothing lies before the tail, so each
     // compaction is a miss.
     let limits = with_window(&mut setup, request_tokens(&first) * 100 / 80);
     let second = request(vec![
-        Message::user("hello"),
+        setup.prompt(&state, &hello),
         Message::assistant("Hi."),
         setup.prompt(&state, "again"),
     ]);
     let third = request(vec![
-        Message::user("hello"),
+        setup.prompt(&state, &hello),
         Message::assistant("Hi."),
-        Message::user("again"),
+        setup.prompt(&state, "again"),
         Message::assistant("Hi again."),
         setup.prompt(&state, "more"),
     ]);
@@ -289,7 +292,7 @@ async fn the_breaker_stays_open_from_turn_to_turn_while_the_context_is_over_the_
     let mut h = setup.start(records).await;
 
     let mut tries = Vec::new();
-    for text in ["hello", "again", "more"] {
+    for text in [hello.as_str(), "again", "more"] {
         let sent = h.prompt(text).await;
         h.wait_end(sent.turn_id).await;
         let mut compacting = 0;
@@ -361,15 +364,17 @@ async fn the_safety_net_scales_with_the_window_and_never_drops_turns_below_the_t
         expect_request(request(vec![setup.prompt(&state, &big)])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user(big.clone()),
+            setup.prompt(&state, &big),
             Message::assistant("One."),
             setup.prompt(&state, "second"),
         ])),
         answer(&text_answer("Two.")),
+        // NOTE: the cache and the store keep the exact messages of one turn, so the
+        // first turn comes back from its events, without its preamble.
         expect_request(request(vec![
             Message::user(big.clone()),
             Message::assistant("One."),
-            Message::user("second"),
+            setup.prompt(&state, "second"),
             Message::assistant("Two."),
             setup.prompt(&state, "third"),
         ])),
@@ -396,14 +401,14 @@ async fn the_history_tells_the_model_how_many_turns_it_leaves_out() {
         expect_request(request(vec![setup.prompt(&state, "first")])),
         answer(&text_answer("One.")),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             Message::assistant("One."),
             setup.prompt(&state, "second"),
         ])),
         answer(&text_answer("Two.")),
         expect_request(request(vec![
             Message::user("1 earlier turn is omitted."),
-            Message::user("second"),
+            setup.prompt(&state, "second"),
             Message::assistant("Two."),
             setup.prompt(&state, "third"),
         ])),

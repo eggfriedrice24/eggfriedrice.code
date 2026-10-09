@@ -32,7 +32,7 @@ async fn a_second_prompt_queues_behind_the_running_turn() {
         hold(),
         answer(&[done(StopReason::EndTurn, None)]),
         expect_request(request(vec![
-            Message::user("first"),
+            setup.prompt(&state, "first"),
             Message::assistant("One."),
             setup.prompt(&state, "second"),
         ])),
@@ -470,7 +470,7 @@ fn a_client_that_sees_the_end_of_a_turn_finds_no_running_turn() {
             expect_request(request(vec![setup.prompt(&state, "hi")])),
             answer(&text_answer("Hello.")),
             expect_request(request(vec![
-                Message::user("hi"),
+                setup.prompt(&state, "hi"),
                 Message::assistant("Hello."),
                 setup.prompt(&state, "again"),
             ])),
