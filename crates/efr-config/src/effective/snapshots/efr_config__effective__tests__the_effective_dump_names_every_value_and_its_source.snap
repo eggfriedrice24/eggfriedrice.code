@@ -15,6 +15,10 @@ openai.models = (built in)  # default
 openai.subscription_base_url = (unset)  # default
 openai.api_base_url = (unset)  # default
 openai.websocket = "auto"  # default
+anthropic.base_url = (unset)  # default
+anthropic.models = (from the API)  # default
+anthropic.cache_ttl = "auto"  # default
+anthropic.workspace_id = (unset)  # default
 permissions.mode = "cautious"  # default
 permissions.secret_paths = []  # default
 permissions.rules = [{ action = "execute", resource = { command = { program = "cargo", args = ["test"] } }, effect = "allow" }]  # file

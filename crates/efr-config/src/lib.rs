@@ -2,6 +2,7 @@
 //! `efr`.
 //!
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
+//!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
 //!   [`CompactionSettings`],
 //!   [`SandboxSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
@@ -58,6 +59,7 @@ pub use keys::{Applies, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema
 pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
+pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
 pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,

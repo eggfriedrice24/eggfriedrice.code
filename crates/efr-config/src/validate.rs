@@ -26,6 +26,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         log,
         model,
         openai,
+        anthropic,
         permissions,
         shell,
         conversation,
@@ -41,7 +42,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         return Err(invalid(
             "model.provider",
             text(&model.provider),
-            "openai-subscription or openai-api",
+            "openai-subscription, openai-api or anthropic-api",
         ));
     }
     if let Some(name) = &model.name {
@@ -67,13 +68,29 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
 
     non_empty("openai.originator", &openai.originator, "a name such as efr")?;
     for entry in openai.models.iter().flatten() {
-        check_model_entry(entry)?;
+        check_model_entry("openai.models", entry)?;
     }
     if let Some(url) = &openai.subscription_base_url {
         http_url("openai.subscription_base_url", url)?;
     }
     if let Some(url) = &openai.api_base_url {
         http_url("openai.api_base_url", url)?;
+    }
+
+    if let Some(url) = &anthropic.base_url {
+        http_url("anthropic.base_url", url)?;
+    }
+    for entry in anthropic.models.iter().flatten() {
+        check_model_entry("anthropic.models", entry)?;
+    }
+    if let Some(workspace) = &anthropic.workspace_id
+        && (workspace.is_empty() || !workspace.chars().all(|c| c.is_ascii_graphic()))
+    {
+        return Err(invalid(
+            "anthropic.workspace_id",
+            text(workspace),
+            "a workspace id such as wrkspc_01AbC, without spaces",
+        ));
     }
 
     if let Some(path) =
@@ -163,14 +180,15 @@ pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 13]) -> Result
     }
 }
 
-/// The checks of one entry of `[openai] models`.
-fn check_model_entry(entry: &ModelEntry) -> Result<(), Invalid> {
+/// The checks of one entry of `[openai] models` or `[anthropic] models`, the list that
+/// `key` names.
+fn check_model_entry(key: &'static str, entry: &ModelEntry) -> Result<(), Invalid> {
     const EXPECTED: &str = "a list of model ids, or of tables { id, context_window, \
                             max_output_tokens } with a window from 1000 to 100000000 and \
                             an output limit from 1 to 1000000 below the window";
     let id = entry.id();
     if id.trim().is_empty() {
-        return Err(invalid("openai.models", text(id), EXPECTED));
+        return Err(invalid(key, text(id), EXPECTED));
     }
     let window = entry.context_window();
     let output = entry.max_output_tokens().map(u64::from);
@@ -181,7 +199,7 @@ fn check_model_entry(entry: &ModelEntry) -> Result<(), Invalid> {
         _ => true,
     };
     if !(window_fits && output_fits && output_below) {
-        return Err(invalid("openai.models", text(id), EXPECTED));
+        return Err(invalid(key, text(id), EXPECTED));
     }
     Ok(())
 }

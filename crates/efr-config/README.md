@@ -10,15 +10,17 @@ live in a dotfiles repository behind a symbolic link.
 Modules:
 
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
+  `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
   `SandboxSettings`, `SnapshotSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
-  `ScreenChoice`, `SudoCache`, `WriteProjects`, `ModelEntry` and the default constants
+  `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
-  `openai.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
+  `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
   max_output_tokens }` (`ModelLimits`); the key is still a list of strings for
   `efr config set` and an override, and only an editor writes the tables. The doc comment of a field
   is its description in the JSON schema. A new key is one field here, its check in
-  `validate` when it needs one, and its line in the example.
+  `validate` when it needs one, and its line in the example. The keys of
+  `[anthropic]` are read and checked, but efrd does not use them yet.
 - `tables/render`: `[render]` (`RenderSettings`): `theme` (`auto`, `AUTO_THEME`,
   takes `theme_dark` or `theme_light` by the terminal's background), `theme_dark`
   (default `catppuccin-mocha`), `theme_light` (default `catppuccin-latte`), `palette`

@@ -12,9 +12,9 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    CompactionSettings, ConversationSettings, DiffColors, ModelSettings, OpenAiSettings,
-    PermissionSettings, RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
-    SnapshotSettings,
+    AnthropicSettings, CompactionSettings, ConversationSettings, DiffColors, ModelSettings,
+    OpenAiSettings, PermissionSettings, RenderColors, RenderSettings, SandboxSettings, Settings,
+    ShellSettings, SnapshotSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -31,6 +31,9 @@ pub const RESTART_KEYS: &[&str] = &[
     "openai.subscription_base_url",
     "openai.api_base_url",
     "openai.websocket",
+    "anthropic.base_url",
+    "anthropic.cache_ttl",
+    "anthropic.workspace_id",
 ];
 
 /// What a key holds, as the JSON schema says.
@@ -97,6 +100,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
     Some(match table {
         "model" => fields::<ModelSettings>(),
         "openai" => fields::<OpenAiSettings>(),
+        "anthropic" => fields::<AnthropicSettings>(),
         "permissions" => fields::<PermissionSettings>(),
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
@@ -222,7 +226,8 @@ fn kind_of(schema: &Json, node: &Json) -> Option<Kind> {
         Some("boolean") => Some(Kind::Boolean),
         Some("array") => {
             let items = node.get("items").map(|items| resolve(schema, items));
-            // NOTE: an entry of `openai.models` is a string or a table. Such a list is
+            // NOTE: an entry of `openai.models` or `anthropic.models` is a string or a
+            // table. Such a list is
             // still set from text as a list of strings; only an editor writes tables.
             let takes_string = |items: &Json| {
                 items.get("type").and_then(Json::as_str) == Some("string")

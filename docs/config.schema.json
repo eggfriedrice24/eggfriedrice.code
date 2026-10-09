@@ -30,6 +30,42 @@
         }
       ]
     },
+    "AnthropicSettings": {
+      "additionalProperties": false,
+      "description": "`[anthropic]`: the Anthropic provider, with an API key.",
+      "properties": {
+        "base_url": {
+          "description": "Replaces the Messages API's base URL. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cache_ttl": {
+          "$ref": "#/$defs/CacheTtlChoice",
+          "default": "auto",
+          "description": "How long the prompt cache keeps what a request writes: `auto` keeps the system\nprompt, the tools and the conversation up to the start of the turn (and then\nabout every 20000 tokens of a tool loop) for an hour and the rest for five\nminutes, `5m` keeps everything for five minutes, `1h` keeps everything for an\nhour. An hour costs more per write and survives a longer pause. Needs a restart."
+        },
+        "models": {
+          "description": "Models added to the provider's model list, such as a model that the API does\nnot list yet. A prompt may then name them; their efforts are not checked. An\nentry is a model id, or a table `{ id, context_window, max_output_tokens }` that\nalso gives the model's limits in tokens. A table may name a model of the API's\nlist to lower its window or its output limit.",
+          "items": {
+            "$ref": "#/$defs/ModelEntry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "workspace_id": {
+          "description": "The workspace of your API key, sent as the `anthropic-workspace-id` header of\nevery request. A key that is not scoped to one workspace needs it. Needs a\nrestart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CacheMode": {
       "description": "How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of\n`sandbox.caches`).",
       "oneOf": [
@@ -46,6 +82,26 @@
         {
           "const": "readonly",
           "description": "The caches stay read-only.",
+          "type": "string"
+        }
+      ]
+    },
+    "CacheTtlChoice": {
+      "description": "How long Anthropic's prompt cache keeps the entries that a request writes.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "One hour on the system prompt, the tools and a moving anchor in the\nconversation, five minutes on the rest of a tool loop.",
+          "type": "string"
+        },
+        {
+          "const": "5m",
+          "description": "Five minutes on every cache entry.",
+          "type": "string"
+        },
+        {
+          "const": "1h",
+          "description": "One hour on every cache entry.",
           "type": "string"
         }
       ]
@@ -374,7 +430,7 @@
         },
         "provider": {
           "default": "openai-subscription",
-          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan) or\n`openai-api` (an API key). Needs a restart.",
+          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan),\n`openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key, which\nthis version of efrd cannot use yet). Needs a restart.",
           "type": "string"
         },
         "system_prompt": {
@@ -1148,6 +1204,13 @@
   "additionalProperties": false,
   "description": "The effective settings: the built-in defaults, then `config.toml`, then whatever\nenvironment variables and flags the program applies with\n[`apply_override`](Self::apply_override).\n\nA missing file is an empty one, so every value is its default. The fields are\npublic so a test can start from [`Settings::default`] and change what it needs; a\nchanged field keeps the source it had.",
   "properties": {
+    "anthropic": {
+      "$ref": "#/$defs/AnthropicSettings",
+      "default": {
+        "cache_ttl": "auto"
+      },
+      "description": "The Anthropic provider."
+    },
     "compaction": {
       "$ref": "#/$defs/CompactionSettings",
       "default": {

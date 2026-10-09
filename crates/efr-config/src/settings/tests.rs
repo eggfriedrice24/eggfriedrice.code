@@ -6,8 +6,8 @@ use efr_stdx::env::Var;
 use pretty_assertions::assert_eq;
 
 use crate::{
-    CompactionSettings, ConfigError, Location, ModelEntry, Progress, ScreenChoice, Settings,
-    Source, SudoCache, WebSocketChoice,
+    CacheTtlChoice, CompactionSettings, ConfigError, Location, ModelEntry, ModelLimits, Progress,
+    ScreenChoice, Settings, Source, SudoCache, WebSocketChoice,
 };
 
 const PATH: &str = "/home/u/.config/efr/config.toml";
@@ -64,6 +64,12 @@ fn the_file_sets_what_it_names() {
         models = ["gpt-6-sol", "gpt-5.5"]
         websocket = "off"
 
+        [anthropic]
+        base_url = "http://127.0.0.1:4000/v1"
+        models = ["claude-opus-5-5", { id = "claude-haiku-5-5", context_window = 100000 }]
+        cache_ttl = "5m"
+        workspace_id = "wrkspc_01AbC"
+
         [permissions]
         mode = "auto"
         secret_paths = ["~/.config/rclone/rclone.conf", "/srv/vault"]
@@ -100,6 +106,22 @@ fn the_file_sets_what_it_names() {
         settings.openai.models.as_deref(),
         Some(&["gpt-6-sol".into(), "gpt-5.5".into()][..])
     );
+    assert_eq!(settings.anthropic.base_url.as_deref(), Some("http://127.0.0.1:4000/v1"));
+    assert_eq!(
+        settings.anthropic.models.as_deref(),
+        Some(
+            &[
+                "claude-opus-5-5".into(),
+                ModelLimits {
+                    context_window: Some(100_000),
+                    ..ModelLimits::new("claude-haiku-5-5")
+                }
+                .into(),
+            ][..]
+        )
+    );
+    assert_eq!(settings.anthropic.cache_ttl, CacheTtlChoice::FiveMinutes);
+    assert_eq!(settings.anthropic.workspace_id.as_deref(), Some("wrkspc_01AbC"));
     assert_eq!(settings.permissions.mode, Mode::Auto);
     assert_eq!(
         settings.permissions.secret_paths,
@@ -192,6 +214,10 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         ("[openai]\nmodels = [\"gpt-5.5\", \" \"]\n", "openai.models"),
         ("[openai]\nsubscription_base_url = \"chatgpt.com\"\n", "openai.subscription_base_url"),
         ("[openai]\napi_base_url = \"ftp://x\"\n", "openai.api_base_url"),
+        ("[anthropic]\nbase_url = \"api.anthropic.com\"\n", "anthropic.base_url"),
+        ("[anthropic]\nmodels = [{ id = \"m\", context_window = 999 }]\n", "anthropic.models"),
+        ("[anthropic]\nworkspace_id = \"my workspace\"\n", "anthropic.workspace_id"),
+        ("[anthropic]\nworkspace_id = \"\"\n", "anthropic.workspace_id"),
         ("[permissions]\nsecret_paths = [\"vault\"]\n", "permissions.secret_paths"),
         ("[shell]\nprogram = \"zsh\"\n", "shell.program"),
         ("[shell]\nidle_minutes = 600000\n", "shell.idle_minutes"),

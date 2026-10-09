@@ -84,6 +84,7 @@ impl Settings {
 fn unset(key: &str) -> &'static str {
     match key {
         "openai.models" => "(built in)",
+        "anthropic.models" => "(from the API)",
         _ => "(unset)",
     }
 }

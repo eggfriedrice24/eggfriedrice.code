@@ -12,6 +12,7 @@ use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub(crate) mod anthropic;
 pub(crate) mod compaction;
 pub(crate) mod render;
 pub(crate) mod sandbox;
@@ -24,7 +25,7 @@ pub const DEFAULT_LOG: &str = "info";
 pub const DEFAULT_PROVIDER: &str = "openai-subscription";
 
 /// The providers the daemon knows how to build.
-pub const PROVIDERS: &[&str] = &["openai-subscription", "openai-api"];
+pub const PROVIDERS: &[&str] = &["openai-subscription", "openai-api", "anthropic-api"];
 
 /// The `originator` of the subscription login and its requests when nothing names one.
 pub const DEFAULT_ORIGINATOR: &str = "efr";
@@ -116,8 +117,9 @@ pub enum SudoCache {
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ModelSettings {
-    /// The provider of new conversations: `openai-subscription` (the ChatGPT plan) or
-    /// `openai-api` (an API key). Needs a restart.
+    /// The provider of new conversations: `openai-subscription` (the ChatGPT plan),
+    /// `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key, which
+    /// this version of efrd cannot use yet). Needs a restart.
     pub provider: String,
     /// The default model of a turn, such as `gpt-6.1-sol`. Unset: the model with the
     /// best priority in the provider's model catalog (today the table built into efr).

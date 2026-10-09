@@ -18,7 +18,8 @@
 
 [model]
 # The provider of new conversations: openai-subscription (the ChatGPT plan, after
-# efr login openai) or openai-api (an API key). (restart)
+# efr login openai), openai-api (an OpenAI API key) or anthropic-api (an Anthropic
+# API key; efrd cannot use it yet). (restart)
 # provider = "openai-subscription"
 
 # The default model of a turn. Unset: the model with the best priority in the
@@ -63,6 +64,28 @@
 # call skips the connection setup. A call that the WebSocket cannot serve goes over
 # HTTP. (restart)
 # websocket = "auto"
+
+[anthropic]
+# Replaces the Messages API's base URL. Unset: api.anthropic.com. (restart)
+# base_url = "https://api.anthropic.com/v1"
+
+# Models added to the provider's model list, such as a model that the API does not
+# list yet. A prompt may then name them; their efforts are not checked. An entry is a
+# model id, or a table that also gives the model's context window (1000 to 100000000
+# tokens) and its output limit (1 to 1000000 tokens, below the window). A table may
+# name a model of the API's list to lower its window or its output limit.
+# models = ["claude-opus-5-5", { id = "claude-haiku-5-5", context_window = 100000 }]
+
+# How long the prompt cache keeps what a request writes: auto keeps the system prompt,
+# the tools and the conversation up to the start of the turn (and then about every
+# 20000 tokens of a tool loop) for an hour and the rest for five minutes, 5m keeps
+# everything for five minutes, 1h keeps everything for an hour. An hour costs more per
+# write and survives a longer pause. (restart)
+# cache_ttl = "auto"
+
+# The workspace of your API key, sent as the anthropic-workspace-id header of every
+# request. A key that is not scoped to one workspace needs it. (restart)
+# workspace_id = "wrkspc_01AbC"
 
 [permissions]
 # The default permission mode of a turn: manual (every call asks, except what your

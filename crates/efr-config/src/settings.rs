@@ -13,9 +13,9 @@ use crate::keys::{self, Kind};
 use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
-    CompactionSettings, ConfigError, ConversationSettings, DEFAULT_LOG, Location, ModelSettings,
-    OpenAiSettings, PermissionSettings, RenderSettings, SandboxSettings, ScreenChoice,
-    ShellSettings, SnapshotSettings, Source,
+    AnthropicSettings, CompactionSettings, ConfigError, ConversationSettings, DEFAULT_LOG,
+    Location, ModelSettings, OpenAiSettings, PermissionSettings, RenderSettings, SandboxSettings,
+    ScreenChoice, ShellSettings, SnapshotSettings, Source,
 };
 
 /// The file name under the config root.
@@ -45,6 +45,8 @@ pub struct Settings {
     pub model: ModelSettings,
     /// The OpenAI providers.
     pub openai: OpenAiSettings,
+    /// The Anthropic provider.
+    pub anthropic: AnthropicSettings,
     /// The permission mode, extra secrets and the user's rules.
     pub permissions: PermissionSettings,
     /// How hidden shells start and when idle ones stop.
@@ -71,6 +73,7 @@ impl Default for Settings {
             screen: ScreenChoice::Auto,
             model: ModelSettings::default(),
             openai: OpenAiSettings::default(),
+            anthropic: AnthropicSettings::default(),
             permissions: PermissionSettings::default(),
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
