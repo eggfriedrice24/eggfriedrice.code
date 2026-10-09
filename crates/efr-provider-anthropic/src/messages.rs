@@ -15,15 +15,22 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use efr_http::HttpClient;
+use efr_http::{HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest};
 use efr_provider::{
-    ModelInfo, Provider, ProviderError, ProviderId, ProviderStream, Request, TokenSource,
+    ModelInfo, Provider, ProviderError, ProviderId, ProviderStream, Request, SecretString,
+    TokenSource,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::failure::not_built;
-use crate::{AnthropicConfig, ModelCatalog};
+use crate::{ANTHROPIC_VERSION, AnthropicConfig, ModelCatalog};
+
+/// The header that names the version of the API.
+const VERSION_HEADER: &str = "anthropic-version";
+
+/// The header that names the workspace of a key that is not scoped to one.
+const WORKSPACE_HEADER: &str = "anthropic-workspace-id";
 
 /// A [`Provider`] over Anthropic's Messages API with an API key (see
 /// [`AnthropicConfig`]).
@@ -98,4 +105,21 @@ impl Provider for AnthropicProvider {
         drop(request);
         Err(not_built())
     }
+}
+
+/// `unsigned` with the key and the headers of every request to the API: model calls,
+/// fetches of the model list and key checks send the same.
+pub(crate) fn sign(
+    unsigned: &HttpRequest,
+    config: &AnthropicConfig,
+    key: &SecretString,
+) -> Result<HttpRequest, HttpError> {
+    let mut request = unsigned.clone().bearer_auth(key)?.header(
+        HeaderName::from_static(VERSION_HEADER),
+        HeaderValue::from_static(ANTHROPIC_VERSION),
+    );
+    if let Some(workspace_id) = config.workspace_id() {
+        request = request.header_text(HeaderName::from_static(WORKSPACE_HEADER), workspace_id)?;
+    }
+    Ok(request)
 }
