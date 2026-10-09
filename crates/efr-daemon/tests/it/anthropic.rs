@@ -2,7 +2,8 @@
 //! local Messages API (`MessagesServer`). efrd has no list of Claude models until it
 //! fetches one, so the first prompt waits for the fetch; the list then comes back from
 //! its own cache file after a restart. A turn without a key says to log in, and a
-//! login brings the list of the new key.
+//! login brings the list of the new key. A restart between two turns edits nothing of
+//! the request before the new turn.
 //!
 //! One conversation runs a Claude turn with a call of the `edit` tool and its approval,
 //! a second turn, and an auto compaction before the second turn's call. Every request
@@ -475,5 +476,63 @@ async fn a_login_to_the_running_provider_fetches_the_list_of_the_new_key() {
     let last = server.models_requests().pop().unwrap();
     assert_eq!(last.authorization, Some(format!("Bearer {NEW_KEY}")), "the new key asks");
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// A text answer whose thinking is signed with `signature`.
+fn think_then_text(signature: &str, text: &str) -> MessagesAnswer {
+    let delta = |index: u32, delta: Value| json!({"index": index, "delta": delta});
+    MessagesAnswer::events(&[
+        ("message_start", message_start(2_000, 0, 1_000, 0)),
+        (
+            "content_block_start",
+            json!({"index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}),
+        ),
+        ("content_block_delta", delta(0, json!({"type": "thinking_delta", "thinking": "Short."}))),
+        (
+            "content_block_delta",
+            delta(0, json!({"type": "signature_delta", "signature": signature})),
+        ),
+        ("content_block_stop", json!({"index": 0})),
+        ("content_block_start", json!({"index": 1, "content_block": {"type": "text", "text": ""}})),
+        ("content_block_delta", delta(1, json!({"type": "text_delta", "text": text}))),
+        ("content_block_stop", json!({"index": 1})),
+        ("message_delta", message_delta("end_turn", 20)),
+        ("message_stop", json!({})),
+    ])
+}
+
+#[tokio::test]
+async fn after_a_restart_the_next_request_still_starts_with_the_one_before_it() {
+    let server = MessagesServer::start().await;
+    server.push(think_then_text("sig-efr-before", "Hello."));
+    server.push(MessagesAnswer::text("Again."));
+    let mut daemon = claude_daemon(&server).await;
+
+    let first = run_turn(&daemon, 1, "hello").await;
+    assert_eq!(first.last().unwrap().event.kind(), "turn_completed", "{first:#?}");
+    daemon.restart().await.unwrap();
+    let second = run_turn(&daemon, 2, "again").await;
+    assert_eq!(second.last().unwrap().event.kind(), "turn_completed", "{second:#?}");
+
+    let received = server.received();
+    let [before, after] = [&received[0].body, &received[1].body];
+    assert!(starts_with(after, before), "the restart edits nothing before the new turn");
+    assert_eq!(without_markers(&after["system"]), without_markers(&before["system"]));
+    assert_eq!(without_markers(&after["tools"]), without_markers(&before["tools"]));
+    let replayed = &after["messages"][1]["content"];
+    assert_eq!(
+        replayed,
+        &json!([
+            {"type": "thinking", "thinking": "Short.", "signature": "sig-efr-before"},
+            {"type": "text", "text": "Hello."},
+        ]),
+        "the stored answer goes back as the stream built it"
+    );
+    assert_eq!(
+        markers(after),
+        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "1h")]),
+        "the anchor of the first turn and a new one at the second prompt"
+    );
     daemon.stop().await.unwrap();
 }
