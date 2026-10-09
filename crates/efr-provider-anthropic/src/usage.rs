@@ -21,11 +21,54 @@
 //! object, overwrites each member that an event sends, and converts it once at the end.
 
 use efr_provider::TokenUsage;
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+/// The usage of one call while its stream runs. `message_start` gives the first counts,
+/// each `message_delta` overwrites the counts that it sends, and
+/// [`token_usage`](Self::token_usage) converts the result once, at `message_stop`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct StreamUsage {
+    /// The usage object so far: `null` before the first count, else an object.
+    counts: Value,
+}
+
+impl StreamUsage {
+    /// Starts over from `usage`, the `message.usage` object of `message_start`.
+    pub(crate) fn start(&mut self, usage: &Value) {
+        self.counts = Value::Null;
+        self.update(usage);
+    }
+
+    /// Overwrites each member of `usage`, the `usage` object of a `message_delta`, that
+    /// is not `null`. A member that the event leaves out keeps its value: the counts are
+    /// cumulative, and an event may send only some of them.
+    pub(crate) fn update(&mut self, usage: &Value) {
+        let Some(usage) = usage.as_object() else {
+            return;
+        };
+        if !self.counts.is_object() {
+            self.counts = Value::Object(Map::new());
+        }
+        if let Value::Object(counts) = &mut self.counts {
+            for (name, count) in usage.iter().filter(|(_, count)| !count.is_null()) {
+                counts.insert(name.clone(), count.clone());
+            }
+        }
+    }
+
+    /// True before any event has sent a count.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.counts.as_object().is_none_or(Map::is_empty)
+    }
+
+    /// The canonical counts of the usage so far.
+    pub(crate) fn token_usage(&self) -> TokenUsage {
+        token_usage(&self.counts)
+    }
+}
 
 /// The canonical counts of `usage`, a usage object of the Messages API after the last
 /// `message_delta`. A missing or `null` count is zero.
-#[cfg_attr(not(test), expect(dead_code, reason = "the stream mapper is not built yet"))]
 pub(crate) fn token_usage(usage: &Value) -> TokenUsage {
     let count = |path: &[&str]| {
         path.iter().try_fold(usage, |at, key| at.get(key)).and_then(Value::as_u64).unwrap_or(0)

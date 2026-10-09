@@ -32,6 +32,7 @@ mod sse_events;
 #[cfg(test)]
 mod testing;
 mod timing;
+#[cfg_attr(not(test), expect(dead_code, reason = "the model call is not built yet"))]
 mod usage;
 
 pub use catalog::{
