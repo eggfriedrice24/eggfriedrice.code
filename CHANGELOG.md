@@ -403,6 +403,12 @@ into the GitHub release notes, and it stops when the section is missing.
   offer, which a provider can refuse. The text is the same in every request, so the
   prompt cache still reads it. When you change back, the calls go in their own form
   again.
+- After a switch of `[model] provider`, the first turn on the new model estimates its
+  request. Before, it started from the context that the old model reported last, and
+  when that count was above the cap of the new window, the turn failed as full.
+- When the newest messages alone do not fit in the context, the error now says to
+  start a new conversation. Before, it said to run `,compact`, which then answered
+  that there was nothing to compact.
 - On Claude, when the model calls a tool that the request does not offer next to a
   tool that it offers, in one answer, the next request of the turn keeps the thinking
   of that answer. Before, efr sent that answer without its thinking, and the Messages
