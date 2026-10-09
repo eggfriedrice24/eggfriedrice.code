@@ -10,7 +10,7 @@ default-members = [
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
   "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "crates/efr-sbx", "crates/efr-snapshot",
-  "crates/efr-patch",
+  "crates/efr-patch", "crates/efr-provider-anthropic",
   "xtask",
 ]
 
@@ -162,6 +162,7 @@ efr-shell = { path = "crates/efr-shell" }
 efr-tools = { path = "crates/efr-tools" }
 efr-snapshot = { path = "crates/efr-snapshot" }
 efr-provider-openai = { path = "crates/efr-provider-openai" }
+efr-provider-anthropic = { path = "crates/efr-provider-anthropic" }
 efr-oauth-openai = { path = "crates/efr-oauth-openai" }
 efr-config = { path = "crates/efr-config" }
 efr-conversation = { path = "crates/efr-conversation" }

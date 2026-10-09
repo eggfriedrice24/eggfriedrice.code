@@ -51,6 +51,7 @@ shipped binary.
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file and apply_patch tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table), which also says which models take freeform (`custom`) tools and prefer WebSockets; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
@@ -75,6 +76,7 @@ and `efr-daemon -> (everything)`.
    has no allowlist entry;
 2. one of these edges exists, directly or through any chain of normal dependencies:
    `efr-tools -> efr-permissions`, `efr-provider-openai -> efr-oauth-openai`,
+   `efr-provider-anthropic -> efr-oauth-openai`,
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
    `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
@@ -92,7 +94,7 @@ What each forbidden edge protects:
 
 - The permission check happens in exactly one place, `efr-conversation/src/turn.rs`,
   so tools cannot ask for or bypass it.
-- The OpenAI provider never sees a refresh token.
+- The model providers never see a refresh token.
 - The conversation reaches shells only through `ShellTool`.
 - The engine does not know about transports, and the transport does not touch the
   database.
@@ -231,5 +233,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider-openai/src/websocket/continuation.rs`; the WebSocket client in
   `crates/efr-http/src/websocket.rs`; `[openai] websocket` in
   `crates/efr-config/src/tables.rs`.
+- The Anthropic provider: the contract (the request, the prompt cache markers, the
+  catalog, the token counts and the failures) in `crates/efr-provider-anthropic/README.md`;
+  the placement of the cache markers in
+  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`; the canonical token counts
+  of every provider in `crates/efr-provider/README.md`, section "Token counts".
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.

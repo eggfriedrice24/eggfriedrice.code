@@ -73,6 +73,7 @@ jobs:
           }
           forbid efr-tools efr-permissions
           forbid efr-provider-openai efr-oauth-openai
+          forbid efr-provider-anthropic efr-oauth-openai
           forbid efr-conversation efr-shell
           forbid efr-conversation efr-transport
           forbid efr-transport efr-store

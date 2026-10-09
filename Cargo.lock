@@ -999,6 +999,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-provider-anthropic"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "efr-http",
+ "efr-provider",
+ "efr-stdx",
+ "jiff",
+ "pretty_assertions",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "efr-provider-openai"
 version = "0.0.2"
 dependencies = [

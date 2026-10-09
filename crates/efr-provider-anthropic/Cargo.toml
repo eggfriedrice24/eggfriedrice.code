@@ -1,0 +1,27 @@
+[package]
+name = "efr-provider-anthropic"
+description = "The Anthropic Messages API client of efr, with an API key"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-http.workspace = true
+efr-provider.workspace = true
+efr-stdx.workspace = true
+jiff.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

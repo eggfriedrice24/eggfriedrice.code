@@ -1,0 +1,200 @@
+use efr_provider::Role;
+use pretty_assertions::assert_eq;
+
+use super::{ANCHOR_STEP_TOKENS, Breakpoint, Layout, Shape, Slot, Target, Ttl, place_breakpoints};
+use crate::CacheTtl;
+
+const H: Ttl = Ttl::OneHour;
+const M: Ttl = Ttl::FiveMinutes;
+
+/// A user message that opens a turn: a prompt, or the head after a compaction.
+fn prompt(tokens: u64) -> Shape {
+    Shape { role: Role::User, opens_turn: true, tokens }
+}
+
+/// A user message with tool results, maybe with a steer after them.
+fn results(tokens: u64) -> Shape {
+    Shape { role: Role::User, opens_turn: false, tokens }
+}
+
+fn answer(tokens: u64) -> Shape {
+    Shape { role: Role::Assistant, opens_turn: false, tokens }
+}
+
+fn system(ttl: Ttl) -> Breakpoint {
+    Breakpoint { slot: Slot::System, target: Target::System, ttl }
+}
+
+fn at(slot: Slot, index: usize, ttl: Ttl) -> Breakpoint {
+    Breakpoint { slot, target: Target::Message(index), ttl }
+}
+
+fn place(messages: &[Shape], side_call: bool, ttl: CacheTtl) -> Vec<Breakpoint> {
+    let layout = Layout { system: true, tools: true, messages, side_call };
+    let marks = place_breakpoints(&layout, ttl);
+    assert_rules(&marks);
+    marks
+}
+
+/// The rules of the API that every placement keeps: at most four markers, in the order
+/// of the prefix, one per block, and no one-hour marker after a five-minute one.
+fn assert_rules(marks: &[Breakpoint]) {
+    assert!(marks.len() <= 4, "{marks:?}");
+    let indexes: Vec<usize> = marks
+        .iter()
+        .filter_map(|mark| match mark.target {
+            Target::Message(index) => Some(index),
+            _ => None,
+        })
+        .collect();
+    assert!(indexes.windows(2).all(|pair| pair[0] < pair[1]), "{marks:?}");
+    let first_short = marks.iter().position(|mark| mark.ttl == Ttl::FiveMinutes);
+    if let Some(first_short) = first_short {
+        assert!(marks[first_short..].iter().all(|mark| mark.ttl == Ttl::FiveMinutes), "{marks:?}");
+    }
+}
+
+#[test]
+fn the_walkthrough_of_two_turns_with_a_tool_loop() {
+    let turn_one = [prompt(1_000)];
+    let call_two = [prompt(1_000), answer(500), results(300)];
+    let call_three = [prompt(1_000), answer(500), results(300), answer(400), results(200)];
+    let turn_two = [
+        prompt(1_000),
+        answer(500),
+        results(300),
+        answer(400),
+        results(200),
+        answer(100),
+        prompt(800),
+    ];
+    let cases: [(&[Shape], Vec<Breakpoint>); 4] = [
+        // The first call of a turn marks an anchor at its tail.
+        (&turn_one, vec![system(H), at(Slot::Tail, 0, H)]),
+        // The anchor is also the previous tail: one marker, one hour.
+        (&call_two, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
+        (
+            &call_three,
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 2, M), at(Slot::Tail, 4, M)],
+        ),
+        // A new turn marks a new anchor: every marker is one hour.
+        (
+            &turn_two,
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, H), at(Slot::Tail, 6, H)],
+        ),
+    ];
+    for (messages, expected) in cases {
+        assert_eq!(place(messages, false, CacheTtl::Auto), expected, "{messages:?}");
+    }
+}
+
+#[test]
+fn a_tool_loop_marks_a_new_anchor_once_it_grows_past_the_step() {
+    // 18,000 tokens after the anchor at the first results, more than the step at the
+    // second ones.
+    let grown = [prompt(1_000), answer(15_000), results(3_000), answer(2_000), results(1_000)];
+    assert!((18_000..21_000).contains(&ANCHOR_STEP_TOKENS));
+    assert_eq!(
+        place(&grown, false, CacheTtl::Auto),
+        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 2, H), at(Slot::Tail, 4, H)]
+    );
+    // The next call finds the anchor that the call before marked.
+    let next = [
+        prompt(1_000),
+        answer(15_000),
+        results(3_000),
+        answer(2_000),
+        results(1_000),
+        answer(500),
+        results(500),
+    ];
+    assert_eq!(
+        place(&next, false, CacheTtl::Auto),
+        vec![system(H), at(Slot::Anchor, 4, H), at(Slot::Tail, 6, M)]
+    );
+}
+
+#[test]
+fn a_side_call_never_marks_an_anchor() {
+    // A summary request after a finished turn ends with a text message, like a prompt.
+    let summary = [prompt(1_000), answer(500), prompt(200)];
+    assert_eq!(
+        place(&summary, true, CacheTtl::Auto),
+        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]
+    );
+    let big = [prompt(1_000), answer(50_000), results(200)];
+    assert_eq!(
+        place(&big, true, CacheTtl::Auto),
+        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]
+    );
+}
+
+#[test]
+fn a_fixed_time_to_live_puts_one_time_on_every_marker() {
+    let messages = [prompt(1_000), answer(500), results(300), answer(400), results(200)];
+    for (ttl, time) in [(CacheTtl::FiveMinutes, M), (CacheTtl::OneHour, H)] {
+        assert_eq!(
+            place(&messages, false, ttl),
+            vec![
+                system(time),
+                at(Slot::Anchor, 0, time),
+                at(Slot::Previous, 2, time),
+                at(Slot::Tail, 4, time),
+            ]
+        );
+    }
+}
+
+#[test]
+fn the_system_marker_falls_back_to_the_last_tool_or_to_nothing() {
+    let messages = [prompt(10)];
+    let tools_only = Layout { system: false, tools: true, messages: &messages, side_call: false };
+    assert_eq!(
+        place_breakpoints(&tools_only, CacheTtl::Auto),
+        vec![
+            Breakpoint { slot: Slot::System, target: Target::LastTool, ttl: H },
+            at(Slot::Tail, 0, H),
+        ]
+    );
+    let bare = Layout { system: false, tools: false, messages: &messages, side_call: false };
+    assert_eq!(place_breakpoints(&bare, CacheTtl::Auto), vec![at(Slot::Tail, 0, H)]);
+}
+
+#[test]
+fn a_body_without_a_user_tail_marks_only_the_system() {
+    assert_eq!(place(&[], false, CacheTtl::Auto), vec![system(H)]);
+    assert_eq!(place(&[prompt(10), answer(10)], false, CacheTtl::Auto), vec![system(H)]);
+}
+
+#[test]
+fn every_placement_keeps_the_rules_of_the_api() {
+    // Every history of up to four calls, each with a small or a large tool loop and
+    // with or without a new prompt, under every time to live and as a side call.
+    let kinds = [results(100), results(25_000), prompt(100), prompt(25_000)];
+    let mut histories: Vec<Vec<Shape>> = vec![vec![prompt(100)]];
+    for _ in 0..3 {
+        let mut longer = Vec::new();
+        for history in &histories {
+            for kind in kinds {
+                let mut next = history.clone();
+                next.push(answer(300));
+                next.push(kind);
+                longer.push(next);
+            }
+        }
+        histories.extend(longer);
+    }
+    for history in &histories {
+        for ttl in [CacheTtl::Auto, CacheTtl::FiveMinutes, CacheTtl::OneHour] {
+            for side_call in [false, true] {
+                place(history, side_call, ttl);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_ttl_is_written_as_the_api_names_it() {
+    assert_eq!(Ttl::FiveMinutes.as_str(), "5m");
+    assert_eq!(Ttl::OneHour.as_str(), "1h");
+}

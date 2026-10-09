@@ -3,8 +3,8 @@
 ## Purpose
 
 The model boundary. The conversation talks to every model through the types in this
-crate and never sees a provider's API: `efr-provider-openai` (and later
-`efr-provider-anthropic`) converts them to and from the wire.
+crate and never sees a provider's API: `efr-provider-openai` and
+`efr-provider-anthropic` convert them to and from the wire.
 
 Modules:
 

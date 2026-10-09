@@ -489,7 +489,9 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-oauth-openai`, `efr-config`, `efr-conversation`,
+`efr-provider-openai`, `efr-provider-anthropic` (allowed, not used yet: the daemon
+does not build the Anthropic provider yet), `efr-oauth-openai`, `efr-config`,
+`efr-conversation`,
 `efr-transport`, `efr-sandbox` (the spec of a sandboxed call, the worktree record,
 the probe's report and the plan that `sandbox.explain` reads) and `efr-snapshot` (the
 snapshots before and after each call that can write, the turn's changes and
