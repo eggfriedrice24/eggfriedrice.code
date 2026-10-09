@@ -846,7 +846,8 @@ refusals. `turn/tests/switch.rs` grows a history of about 500k tokens on a model
 a window of 1M, then goes on with another provider's model of 272k against a fake that
 refuses every request above its model's window: the turn compacts before its first
 call, the summary request leaves out the oldest prompts and says so in its prompt, and
-no request is refused; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
+no request is refused; a history of tool loops shows that no request parts a tool call
+from its result; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
 rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests
 (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
