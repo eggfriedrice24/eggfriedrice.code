@@ -23,6 +23,9 @@
 //! - [`ThemeFile`]: the theme file that `render.palette` names: a `[colors]` table and
 //!   an optional `code_theme`, read and checked like the config file.
 //! - [`FileState`]: what is at the file's path, a file, nothing, or a symbolic link.
+//! - [`ModelCompany`] and [`ForeignModel`]: the company of a model id and of a
+//!   provider, and a `[model] name` of another company than `[model] provider`
+//!   ([`Settings::foreign_model`]).
 //! - [`ConfigFile`] and [`Edit`]: the format-preserving writer, which keeps comments and
 //!   layout, writes the file behind a symlink, refuses a file that changed since it was
 //!   read, and adds and removes rules for the settings tool.
@@ -43,6 +46,7 @@ mod example;
 mod file;
 mod keys;
 mod location;
+mod model_company;
 mod reference;
 mod reload;
 mod settings;
@@ -56,6 +60,7 @@ pub use error::{ConfigError, Location};
 pub use example::EXAMPLE;
 pub use file::FileState;
 pub use keys::{Applies, Kind, RESTART_KEYS, SCHEMA_URL, description, json_schema, keys, kind};
+pub use model_company::{ForeignModel, ModelCompany};
 pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};

@@ -76,6 +76,13 @@ Modules:
   a restart key that changed keeps its running value and is listed in
   `Reloaded::restart_needed`, and a key an environment variable or a flag set keeps
   that value, because the override still wins over the file.
+- `model_company`: `ModelCompany`, the company of a model id by its form (`claude-` is
+  Anthropic; `gpt-`, `chatgpt-`, `codex-` and `o1`, `o3`, `o4` are OpenAI; any other id
+  has none) and of a provider, and `Settings::foreign_model`, a `[model] name` of
+  another company than `[model] provider` (`ForeignModel`, with the cause as its text
+  and `fix`). An id in the config's list of the provider's company is never foreign.
+  efrd warns about it at start and at a reload and refuses a prompt that uses it;
+  `efr config check` notes it.
 - `file`: `FileState`, what is at the file's path (nothing, a file, or a symbolic link
   and its resolved target) and the directories a watcher must watch for it.
 - `reference`: `reference()` and `schema_text()`, the text of `docs/config.md` (every
