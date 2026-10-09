@@ -3,11 +3,16 @@
 //! efr reads the subscription's models from the backend (`catalog`): the list, each
 //! model's window, its efforts and its tool forms. This table stands in only when no
 //! catalog came from the backend and no cache of one is on disk, such as at the first
-//! start while offline, and for the API key backend, whose `/v1/models` says nothing
-//! about windows. It is a copy of Codex's bundled catalog
+//! start while offline. It is a copy of Codex's bundled catalog
 //! (`codex-rs/models-manager/models.json`), which Codex uses for the same purpose.
+//!
+//! The API key backend reads its list from this table too, because its `/v1/models`
+//! gives only ids: a model is on offer when the key lists its id (`catalog`). Its
+//! efforts are the API's, which the model pages give: the subscription's list without
+//! `ultra`, and `medium` as the default of every model.
 
 use crate::catalog::{CatalogEntry, Visibility};
+use crate::config::Backend;
 
 /// The input budget Codex gives every listed model
 /// (`codex-rs/models-manager/models.json`, `context_window`).
@@ -25,6 +30,13 @@ const UP_TO_MAX: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 /// The efforts of gpt-5.5.
 const UP_TO_XHIGH: &[&str] = &["low", "medium", "high", "xhigh"];
+
+/// The effort that only the subscription offers. No model page of the API lists it.
+const SUBSCRIPTION_ONLY: &str = "ultra";
+
+/// The default effort of every model on the API, which its model pages state (the
+/// page of gpt-6-astra states none, and the API's own default is `medium`).
+const API_DEFAULT_EFFORT: &str = "medium";
 
 /// One model of the built-in table.
 struct Builtin {
@@ -125,8 +137,10 @@ const TABLE: &[Builtin] = &[
 /// parameter and encrypted reasoning.
 const REASONING_PREFIXES: &[&str] = &["gpt-5", "gpt-6", "o1", "o3", "o4", "codex-"];
 
-/// The entries of the built-in table, as a catalog from the backend would list them.
-pub(crate) fn builtin_entries() -> Vec<CatalogEntry> {
+/// The entries of the built-in table for `backend`, as a catalog from the backend
+/// would list them.
+pub(crate) fn builtin_entries(backend: Backend) -> Vec<CatalogEntry> {
+    let api = backend == Backend::Api;
     TABLE
         .iter()
         .map(|builtin| CatalogEntry {
@@ -140,9 +154,12 @@ pub(crate) fn builtin_entries() -> Vec<CatalogEntry> {
             supported_reasoning_levels: builtin
                 .efforts
                 .iter()
+                .filter(|effort| !api || **effort != SUBSCRIPTION_ONLY)
                 .map(|effort| (*effort).into())
                 .collect(),
-            default_reasoning_level: Some(builtin.default_effort.to_owned()),
+            default_reasoning_level: Some(
+                if api { API_DEFAULT_EFFORT } else { builtin.default_effort }.to_owned(),
+            ),
             apply_patch_tool_type: Some(crate::catalog::FREEFORM.to_owned()),
             prefer_websockets: true,
             supported_in_api: true,

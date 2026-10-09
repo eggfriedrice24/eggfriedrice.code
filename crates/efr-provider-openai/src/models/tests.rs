@@ -66,11 +66,23 @@ fn every_builtin_model_reasons_takes_freeform_tools_and_has_a_window() {
 }
 
 #[test]
-fn the_api_backend_falls_back_to_the_same_table() {
-    assert_eq!(
-        Catalog::builtin(Backend::Api).models(),
-        Catalog::builtin(Backend::Subscription).models()
-    );
+fn the_api_backend_has_the_same_models_without_ultra_and_with_medium_by_default() {
+    let api = Catalog::builtin(Backend::Api).models();
+    let subscription = Catalog::builtin(Backend::Subscription).models();
+    let ids = |models: &[efr_provider::ModelInfo]| -> Vec<String> {
+        models.iter().map(|model| model.id.clone()).collect()
+    };
+    assert_eq!(ids(&api), ids(&subscription));
+    for (api, subscription) in api.iter().zip(&subscription) {
+        let expected: Vec<&String> =
+            subscription.efforts.iter().filter(|effort| *effort != "ultra").collect();
+        assert_eq!(api.efforts.iter().collect::<Vec<_>>(), expected, "{}", api.id);
+        assert_eq!(api.default_effort.as_deref(), Some("medium"), "{}", api.id);
+        assert_eq!(api.context_window, subscription.context_window, "{}", api.id);
+        assert_eq!(api.max_context_window, subscription.max_context_window, "{}", api.id);
+    }
+    let gpt_6_1 = api.iter().find(|model| model.id == "gpt-6.1-sol").unwrap();
+    assert_eq!(gpt_6_1.efforts, ["low", "medium", "high", "xhigh", "max"]);
 }
 
 #[rstest]

@@ -11,7 +11,9 @@
 //!
 //! The models come from a [`Catalog`]: the backend's own list, which a
 //! [`CatalogClient`] fetches, its cache file ([`read_cache`], [`write_cache`]), or the
-//! table built into efr. A [`ModelCatalog`] holds the current one for the provider.
+//! table built into efr, which the API key backend cuts down to the ids that its key
+//! lists. A [`ModelCatalog`] holds the current one for the provider. [`check_key`]
+//! checks an API key with one request that runs no model, before a login stores it.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-http`, `efr-protocol` and `efr-stdx`.
 //! What does not belong here: how a token is obtained or refreshed (`efr-oauth-openai`,
@@ -34,7 +36,7 @@ mod websocket;
 
 pub use catalog::{
     Applied, CLIENT_VERSION, Catalog, CatalogClient, CatalogOrigin, Fetched, ModelCatalog,
-    read_cache, write_cache,
+    check_key, read_cache, write_cache,
 };
 pub use config::{
     API_BASE_URL, Backend, DEFAULT_ORIGINATOR, OpenAiConfig, ReasoningMode, SUBSCRIPTION_BASE_URL,

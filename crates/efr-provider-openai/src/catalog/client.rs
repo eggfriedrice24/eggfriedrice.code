@@ -1,26 +1,38 @@
-//! The fetch of the model catalog from the backend.
+//! The fetch of the model catalog from the backend, and the check of an API key.
 //!
-//! `GET <base_url>/models?client_version=<efr's version>` with the same credentials and
-//! headers as a model request (Codex `codex-rs/codex-api/src/endpoint/models.rs`,
-//! `ModelsClient`). A list that efr already has goes with its tag in `If-None-Match`,
-//! and a 304 answer confirms it without a body.
+//! The subscription: `GET <base_url>/models?client_version=<efr's version>` with the
+//! same credentials and headers as a model request (Codex
+//! `codex-rs/codex-api/src/endpoint/models.rs`, `ModelsClient`). The API key backend:
+//! `GET <base_url>/models`, whose ids cut the built-in table down. A list that efr
+//! already has goes with its tag in `If-None-Match`, and a 304 answer confirms it
+//! without a body.
+//!
+//! [`check_key`] sends the API key backend's request once with a key that is not
+//! stored yet, before a login stores it. The request runs no model.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use efr_http::{HeaderValue, HttpClient, HttpError, HttpRequest, StatusCode, Url, header};
-use efr_provider::{ExposeSecret as _, ProviderError, TokenSource};
+use efr_provider::{AccessToken, ExposeSecret as _, ProviderError, SecretString, TokenSource};
 use efr_stdx::time::Clock;
 use serde_json::Value;
 
-use super::{CLIENT_VERSION, Catalog, entries_of};
+use super::{CLIENT_VERSION, Catalog, api_ids_of, entries_of};
 use crate::OpenAiConfig;
-use crate::responses::sign;
+use crate::config::Backend;
+use crate::responses::{server_error, sign};
 
 /// How long one fetch may take. The fetch runs in the background, so this only bounds
 /// how long a hung backend holds a connection.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the check of a key may take. A person waits for it.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// What a server message shows in place of the key, when it quotes the key.
+const KEY_PLACEHOLDER: &str = "<the key>";
 
 /// What a fetch got.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,11 +80,14 @@ impl CatalogClient {
         self.config.base_url()
     }
 
-    /// The URL of the catalog, with efr's own version as `client_version`.
+    /// The URL of the catalog, with efr's own version as `client_version` on the
+    /// subscription.
     pub fn url(&self) -> Result<Url, HttpError> {
-        let mut url = Url::parse(&format!("{}/models", self.config.base_url()))
+        let mut url = Url::parse(&self.config.models_url())
             .map_err(|source| HttpError::InvalidUrl { source })?;
-        url.query_pairs_mut().append_pair("client_version", CLIENT_VERSION);
+        if self.config.backend() == Backend::Subscription {
+            url.query_pairs_mut().append_pair("client_version", CLIENT_VERSION);
+        }
         Ok(url)
     }
 
@@ -149,6 +164,23 @@ impl CatalogClient {
             let body = response.bytes().await.map_err(transport)?;
             let body: Value =
                 serde_json::from_slice(&body).map_err(|source| ProviderError::Decode { source })?;
+            if self.config.backend() == Backend::Api {
+                let Some(ids) = api_ids_of(&body) else {
+                    return Err(ProviderError::api(
+                        Some(status.as_u16()),
+                        None,
+                        "the model list has no data member".to_owned(),
+                    ));
+                };
+                self.refuses_fresh.store(false, Ordering::Relaxed);
+                let base_url = self.config.base_url();
+                return Ok(Fetched::Changed(Catalog::from_api(
+                    base_url,
+                    &ids,
+                    tag,
+                    self.clock.now(),
+                )));
+            }
             let Some((entries, broken)) = entries_of(&body) else {
                 return Err(ProviderError::api(
                     Some(status.as_u16()),
@@ -169,6 +201,49 @@ impl CatalogClient {
             )));
         }
     }
+}
+
+/// Checks `key` with `GET <base_url>/models` and the organization and project headers
+/// of `config`, the API key backend's, before a login stores the key. `Ok` for a 200;
+/// a 401 is `ProviderError::Unauthorized` and any other status an `Api` error, each
+/// with the server's message; no answer is a `Transport` error. The request runs no
+/// model, and it is sent again only after an answer that says the server did not
+/// handle it. The key never reaches an error or a log line: a server message that
+/// quotes it shows a placeholder.
+pub async fn check_key(
+    http: &HttpClient,
+    config: &OpenAiConfig,
+    key: &SecretString,
+) -> Result<(), ProviderError> {
+    let unsigned = HttpRequest::get(&config.models_url())
+        .map_err(transport)?
+        .header(header::ACCEPT, HeaderValue::from_static("application/json"))
+        .timeout(CHECK_TIMEOUT);
+    let request = sign(&unsigned, config, &AccessToken::new(key.clone())).map_err(transport)?;
+    let response = http.send_with_retry(&request, config.retry()).await.map_err(transport)?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    let (code, message) = server_error(&body);
+    let message = message.map(|message| hide_key(&message, key));
+    if status == StatusCode::UNAUTHORIZED {
+        return Err(ProviderError::Unauthorized { message });
+    }
+    let message = message.unwrap_or_else(|| {
+        let reason = status.canonical_reason().unwrap_or("no reason");
+        format!("the key check failed: {} {reason}", status.as_u16())
+    });
+    // NOTE: built directly, not through `ProviderError::api`, which reads a 413 or an
+    // overflow code as a full context window; a key check sends no context.
+    Err(ProviderError::Api { status: Some(status.as_u16()), code, message })
+}
+
+/// `message` with every copy of `key` replaced by a placeholder.
+fn hide_key(message: &str, key: &SecretString) -> String {
+    let key = key.expose_secret();
+    if key.is_empty() { message.to_owned() } else { message.replace(key, KEY_PLACEHOLDER) }
 }
 
 fn transport(error: HttpError) -> ProviderError {

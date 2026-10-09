@@ -14,6 +14,13 @@
 //! `supported_in_api`. The default model is the offered model with the best (lowest)
 //! `priority`. An entry that cannot be read is left out; the others stay.
 //!
+//! The API key backend answers `GET <base_url>/models` with ids only (`{"object":
+//! "list", "data": [{"id": ...}]}`), and no window, effort or tool form. Its catalog is
+//! the table built into efr cut down to the ids that the key lists: a model that the
+//! key cannot use is not offered, and a model that the table does not know is not
+//! offered either, because efr does not know its tools. `[openai] models` can still
+//! add one.
+//!
 //! efr ignores `minimal_client_version`: it is a version of Codex, which efr's own
 //! version cannot be compared with.
 
@@ -28,7 +35,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 pub use self::cache::{read_cache, write_cache};
-pub use self::client::{CatalogClient, Fetched};
+pub use self::client::{CatalogClient, Fetched, check_key};
 use crate::config::Backend;
 use crate::models::builtin_entries;
 
@@ -70,7 +77,7 @@ impl Catalog {
     pub fn builtin(backend: Backend) -> Catalog {
         Catalog {
             backend,
-            entries: builtin_entries(),
+            entries: builtin_entries(backend),
             origin: CatalogOrigin::Builtin,
             fetched_at: None,
             etag: None,
@@ -96,6 +103,22 @@ impl Catalog {
             base_url: Some(base_url.to_owned()),
             client_version: Some(CLIENT_VERSION.to_owned()),
         }
+    }
+
+    /// The catalog of the API key backend at `base_url`, whose `/models` listed `ids`
+    /// with the tag `etag` at `now`: the models of the built-in table whose id the key
+    /// lists.
+    pub(crate) fn from_api(
+        base_url: &str,
+        ids: &[String],
+        etag: Option<String>,
+        now: Timestamp,
+    ) -> Catalog {
+        let entries = builtin_entries(Backend::Api)
+            .into_iter()
+            .filter(|entry| ids.contains(&entry.slug))
+            .collect();
+        Catalog::from_backend(Backend::Api, base_url, entries, etag, now)
     }
 
     /// Where the catalog came from.
@@ -359,6 +382,19 @@ pub(crate) fn entries_of(body: &Value) -> Option<(Vec<CatalogEntry>, usize)> {
         })
         .collect();
     Some((entries, broken))
+}
+
+/// The model ids of an API key backend's list, `{"data": [{"id": ...}]}`. `None` when
+/// the body has no such list. An entry without an id is left out.
+pub(crate) fn api_ids_of(body: &Value) -> Option<Vec<String>> {
+    let listed = body.get("data")?.as_array()?;
+    let ids = listed
+        .iter()
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_owned)
+        .collect();
+    Some(ids)
 }
 
 #[cfg(test)]

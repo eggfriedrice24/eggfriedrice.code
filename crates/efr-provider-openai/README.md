@@ -12,11 +12,15 @@ over a streaming `POST <base_url>/responses`, or over a WebSocket to the same UR
   `prompt_cache_key` also sends it as the `session-id` header, as Codex does with its
   session id: that backend routes a request to its prompt cache by the header. The
   conversation sends its id as the key on every request;
-- the public API, `https://api.openai.com/v1`, with an API key.
+- the public API, `https://api.openai.com/v1`, with an API key. A request names the
+  `OpenAI-Organization` and `OpenAI-Project` headers when the config gives them
+  (`[openai] organization` and `project`), on HTTP, on the WebSocket handshake, on
+  the catalog fetch and on the key check alike.
 
 Modules:
 
-- `config`: `OpenAiConfig` (backend, base URL, originator, the models that the config
+- `config`: `OpenAiConfig` (backend, base URL, originator, organization and project of
+  the API path, the models that the config
   lays over the catalog, retry policy, reasoning mode, default reasoning effort and
   summary, parallel tool calls, the WebSocket switch) and the `Backend`,
   `ReasoningMode` and `WebSocketMode` enums. A request's `effort` overrides the
@@ -52,7 +56,17 @@ Modules:
   `ModelCatalog` holds the current catalog for the provider and the daemon: a reader
   takes it from memory, and `ModelCatalog::apply` makes a fetch current, except a list
   that offers no model that efr can use (`Applied::Refused`), which keeps the
-  current one. `read_cache` and `write_cache` keep a fetched list in a file (JSON:
+  current one. The API key backend answers `GET <base_url>/models` (no
+  `client_version`) with ids only, `{"object": "list", "data": [{"id": ...}]}`. Its
+  catalog is the built-in table cut down to the ids that the key lists
+  (`Catalog::from_api`): a model that the key cannot use is not offered, and an id
+  that the table does not know is not offered either, because efr does not know its
+  tools; `[openai] models` can add it. A list that keeps no model of the table is
+  refused like an empty one. `check_key` sends the same request once with a key
+  that a login has not stored yet: 200 is `Ok`, 401 `Unauthorized` and any other
+  status an `Api` error, each with the server's message, and no answer a
+  `Transport` error. A server message that quotes the key shows `<the key>` in its
+  place. The request runs no model. `read_cache` and `write_cache` keep a fetched list in a file (JSON:
   `version`, `base_url`, `client_version`, `fetched_at`, `etag` and the entries in
   the backend's form), written in one step with mode 0600; a file of another version
   or another backend is not used. They block; the daemon calls them off its async
@@ -60,8 +74,12 @@ Modules:
 - `models`: the table built into efr, the last fallback of the catalog: the listed
   models of Codex's bundled catalog (`codex-rs/models-manager/models.json`, read at
   c0c230e on 2026-10-08), in priority order, with gpt-6.1-sol first and gpt-5.5 as the
-  legacy model. It stands in when no fetch worked yet and no cache is on disk, and for
-  the API key backend, whose `/v1/models` says nothing about windows. Every model in
+  legacy model. It stands in when no fetch worked yet and no cache is on disk. The API
+  key backend takes its windows, efforts and tool forms from it, because the API's
+  `/v1/models` gives only ids. On the API, the efforts are those of the API's model
+  pages: the subscription's list without `ultra`, which no page lists, and `medium`
+  as the default of every model. efr leaves out `none`, which some pages list,
+  because it asks every request of these models to reason. Every model in
   it takes freeform tools. The lists are hints: a model that is not listed is still
   sent, and an answer that says the model is not served becomes
   `ProviderError::UnknownModel`. Every model outside the catalog gets the function
@@ -99,7 +117,8 @@ Modules:
   `continuation` module decides when a call sends only its new input.
 - `timing`: the `provider_accepted` and `provider_first_event` debug lines.
 - `error`: `OpenAiError`, for settings refused when the config is built (a base URL
-  that is not `http` or `https`, an originator that cannot be a header value). A
+  that is not `http` or `https`, an originator, organization or project that cannot
+  be a header value). A
   request fails with `efr_provider::ProviderError`, the error every provider shares.
 
 Native passthrough: the `Done` event carries every `response.output_item.done` item
@@ -121,7 +140,11 @@ Failures:
   follows the same rule;
 - other retries follow the config's `efr_http::RetryPolicy`, which sends a `POST`
   again only when the server certainly did not act on it (no connection, or 408, 429
-  or 503), so a model call never runs twice;
+  or 503), so a model call never runs twice. The provider runs the policy itself
+  (`RetryPolicy::run`, with the injected clock and generator) and reads the body of a
+  429 before the policy decides: a 429 for a used-up quota or a plan without access
+  (`insufficient_quota`, `usage_not_included`, `credit_balance_exhausted` and the
+  spend and usage limit codes) is never sent again;
 - a 429 is `RateLimited`, with the wait from `Retry-After`, from the subscription's
   `resets_at` (on the injected clock), or from the message; a 429 for a used-up quota
   or a plan without access is an `Api` error, because waiting does not help;
@@ -406,7 +429,8 @@ model. `sse_events` tests run the mapper over the streams in `fixtures/responses
 content, an error event, a failed response with a rate limit, a response stopped at
 the output limit) and over small inline streams. `responses` tests drive
 `OpenAiProvider` against a `wiremock` server on the loopback interface: the headers of
-both backends, the reasoning round trip across two requests, the 401 refresh (with
+both backends (the organization and project on the API only), a quota 429 that is
+sent once and a rate limit that is sent again after its wait, the reasoning round trip across two requests, the 401 refresh (with
 `fixtures/responses/unauthorized.json`), retries on the injected clock, the error
 mappings, the redacted transcript record, and a new catalog that changes the tool form
 from the next request. `catalog` tests read `fixtures/catalog/models.json` (a list,
@@ -416,7 +440,9 @@ windows, the default, the tag and what `apply` does with each answer. `catalog::
 cache file in a temporary directory, and `catalog::client` tests fetch from `wiremock`:
 the query and the headers, a 304 for the tag, the 401 refresh (no refresh after a
 second 401 until a fetch works, and none for a token that was refreshed meanwhile) and
-the failures. `websocket` tests drive it against a fake
+the failures, the API list cut down to the key's ids, and `check_key` (a good key with
+its headers, a refused key whose message hides the key, a 403 and a 500 with their
+status, and no answer). `models` tests pin the table of each backend. `websocket` tests drive it against a fake
 server (`testing/responses_server.rs`) that speaks the WebSocket protocol as Codex
 expects it and also answers `POST /responses`: every fixture streams the same events
 over both transports, the handshake headers and the `response.create` body, the reuse

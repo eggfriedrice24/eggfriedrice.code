@@ -4,10 +4,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
 use efr_provider::{AccessToken, ProviderError, SecretString, TokenSource};
 use pretty_assertions::assert_eq;
+use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use super::{CatalogClient, Fetched};
+use super::{CatalogClient, Fetched, check_key};
 use crate::OpenAiConfig;
 use crate::catalog::{CLIENT_VERSION, Catalog, CatalogOrigin};
 use crate::config::Backend;
@@ -295,4 +296,180 @@ async fn a_refusal_of_a_token_that_was_refreshed_meanwhile_keeps_the_new_token()
 
     assert!(matches!(fetched, Fetched::Changed(_)), "{fetched:?}");
     assert_eq!(source.invalidations.load(Ordering::SeqCst), 0);
+}
+
+const API_MODELS_PATH: &str = "/v1/models";
+
+/// A key, as a test spells it. Only the fakes ever see it.
+const KEY: &str = "sk-proj-efr-test-key-9f3c";
+
+/// The API key backend at `server`, naming an organization and a project.
+fn api_config(server: &MockServer) -> OpenAiConfig {
+    OpenAiConfig::api()
+        .with_base_url(&format!("{}/v1", server.uri()))
+        .unwrap()
+        .with_organization("org-AbC")
+        .unwrap()
+        .with_project("proj_AbC")
+        .unwrap()
+        .with_retry(RetryPolicy::none())
+}
+
+fn http() -> HttpClient {
+    HttpClient::new(&HttpConfig::default(), Arc::new(InstantClock::new()), Arc::new(FixedRng(0)))
+        .unwrap()
+}
+
+fn api_list(ids: &[&str]) -> ResponseTemplate {
+    let data: Vec<_> = ids
+        .iter()
+        .map(|id| json!({ "id": id, "object": "model", "created": 1, "owned_by": "openai" }))
+        .collect();
+    ResponseTemplate::new(200).set_body_json(json!({ "object": "list", "data": data }))
+}
+
+#[tokio::test]
+async fn the_api_list_cuts_the_built_in_table_down_to_the_ids_of_the_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .and(header("authorization", "Bearer sk-test"))
+        .and(header("openai-organization", "org-AbC"))
+        .and(header("openai-project", "proj_AbC"))
+        .respond_with(api_list(&["gpt-5.5", "gpt-6-luna", "text-embedding-3-small"]))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = CatalogClient::new(
+        api_config(&server),
+        http(),
+        Arc::new(FakeTokens::new(&["sk-test"]).without_refresh()),
+        Arc::new(InstantClock::new()),
+    );
+
+    let fetched = client.fetch(&Catalog::builtin(Backend::Api)).await.unwrap();
+
+    let Fetched::Changed(catalog) = fetched else { panic!("{fetched:?}") };
+    let ids: Vec<String> = catalog.models().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, ["gpt-6-luna", "gpt-5.5"], "the table's order, only the listed ids");
+    assert_eq!(catalog.origin(), CatalogOrigin::Backend);
+    assert_eq!(catalog.default_model().as_deref(), Some("gpt-6-luna"));
+    let seen = server.received_requests().await.unwrap();
+    assert_eq!(seen[0].url.query(), None, "the API gets no client_version");
+}
+
+#[tokio::test]
+async fn an_api_answer_without_a_data_list_is_an_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "models": [] })))
+        .mount(&server)
+        .await;
+    let client = CatalogClient::new(
+        api_config(&server),
+        http(),
+        Arc::new(FakeTokens::new(&["sk-test"]).without_refresh()),
+        Arc::new(InstantClock::new()),
+    );
+
+    let error = client.fetch(&Catalog::builtin(Backend::Api)).await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::Api { status: Some(200), .. }), "{error:?}");
+}
+
+#[tokio::test]
+async fn a_key_check_lists_the_models_with_the_key_and_the_headers() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .and(header("authorization", format!("Bearer {KEY}").as_str()))
+        .and(header("openai-organization", "org-AbC"))
+        .and(header("openai-project", "proj_AbC"))
+        .respond_with(api_list(&["gpt-5.5"]))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    check_key(&http(), &api_config(&server), &SecretString::from(KEY)).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refused_key_is_unauthorized_with_the_servers_message_and_never_the_key() {
+    let server = MockServer::start().await;
+    let message =
+        format!("Incorrect API key provided: {KEY}. You can find your API key at the dashboard.");
+    let body = json!({ "error": {
+        "message": message, "type": "invalid_request_error", "code": "invalid_api_key",
+    }});
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .respond_with(ResponseTemplate::new(401).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let error =
+        check_key(&http(), &api_config(&server), &SecretString::from(KEY)).await.unwrap_err();
+
+    let ProviderError::Unauthorized { message: Some(message) } = &error else {
+        panic!("{error:?}")
+    };
+    assert_eq!(
+        message,
+        "Incorrect API key provided: <the key>. You can find your API key at the dashboard."
+    );
+    for shown in [error.to_string(), format!("{error:?}")] {
+        assert!(!shown.contains(KEY), "{shown}");
+    }
+}
+
+#[tokio::test]
+async fn a_forbidden_key_or_a_server_error_is_an_api_error_with_its_status() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({ "error": {
+            "message": "Country, region, or territory not supported",
+            "type": "request_forbidden",
+            "code": "unsupported_country_region_territory",
+        }})))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(API_MODELS_PATH))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let config = api_config(&server);
+    let key = SecretString::from(KEY);
+
+    let forbidden = check_key(&http(), &config, &key).await.unwrap_err();
+    let failed = check_key(&http(), &config, &key).await.unwrap_err();
+
+    match forbidden {
+        ProviderError::Api { status: Some(403), code, message } => {
+            assert_eq!(code.as_deref(), Some("unsupported_country_region_territory"));
+            assert_eq!(message, "Country, region, or territory not supported");
+        }
+        other => panic!("{other:?}"),
+    }
+    match failed {
+        ProviderError::Api { status: Some(500), message, .. } => {
+            assert_eq!(message, "the key check failed: 500 Internal Server Error");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_key_check_without_an_answer_is_a_transport_error() {
+    // NOTE: nothing listens on the discard port of the loopback.
+    let config = OpenAiConfig::api().with_base_url("http://127.0.0.1:9/v1").unwrap();
+
+    let error = check_key(&http(), &config, &SecretString::from(KEY)).await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::Transport { .. }), "{error:?}");
+    assert!(!format!("{error:?}").contains(KEY));
 }
