@@ -48,8 +48,8 @@ Modules:
   such as `openai-subscription` or `openai-api`, which decides whose `provider_raw` a
   message carries. `ModelInfo` describes a model's limits (its window, the largest
   window that a setting can raise it to, its output limit), the reasoning efforts it
-  takes with the backend's default, whether it takes freeform tools, and whether the
-  backend prefers a WebSocket transport for it.
+  takes with the backend's default, whether it takes freeform tools, whether the
+  backend prefers a WebSocket transport for it, and its `edit_tool`.
 - `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
   logs, the config and the event log.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
@@ -108,6 +108,15 @@ Anthropic sum matters: that API's `input_tokens` is only the part after the last
 breakpoint, and without the sum a warm cache shows a context of about 0% and the
 compaction never runs. A missing part counts as zero. The hit rate of a turn is
 `cached_input_tokens / input_tokens` over its calls.
+
+Edit tools. `ModelInfo::edit_tool` says with which tool a model changes a file, the
+form that it was trained on: `EditTool::ApplyPatch` (`apply_patch`, a patch in the
+Codex format, the default of `ModelInfo::new`) for OpenAI's models, and
+`EditTool::Replace` (`edit`: `path`, `old_string`, `new_string`, `replace_all`, on
+`efr_patch::replace`) for Anthropic's models. The code that builds a request's tool
+list offers the model only the tool that `edit_tool` names, beside `write_file` and
+`read_file`. The tool list then stays the same while the model stays, so it does not
+break the prompt cache.
 
 Serde forms: names are snake_case, internally tagged enums use the member `kind`,
 optional members are left out when empty and unknown members are ignored, as on the

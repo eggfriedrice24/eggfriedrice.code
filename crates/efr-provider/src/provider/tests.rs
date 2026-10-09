@@ -5,7 +5,7 @@ use futures::{StreamExt as _, stream};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{ModelInfo, Provider, ProviderStream};
+use super::{EditTool, ModelInfo, Provider, ProviderStream};
 use crate::{ContentBlock, Message, ProviderError, ProviderEvent, ProviderId, Request, StopReason};
 
 /// A provider that answers every request with the same events and remembers the
@@ -152,6 +152,14 @@ fn model_info_records_the_facts_of_a_catalog() {
     assert_eq!(plain.max_context_window, None);
     assert!(!plain.freeform_tools);
     assert!(!plain.prefer_websockets);
+}
+
+#[test]
+fn a_model_changes_files_with_apply_patch_unless_it_says_otherwise() {
+    assert_eq!(ModelInfo::new("gpt-6.1-sol").edit_tool, EditTool::ApplyPatch);
+    assert_eq!(EditTool::default(), EditTool::ApplyPatch);
+    let claude = ModelInfo::new("claude-opus-5-5").with_edit_tool(EditTool::Replace);
+    assert_eq!(claude.edit_tool, EditTool::Replace);
 }
 
 #[test]

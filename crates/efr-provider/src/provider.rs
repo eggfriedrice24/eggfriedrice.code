@@ -12,8 +12,8 @@ use crate::{Completion, ProviderError, ProviderEvent, ProviderId, Request};
 /// stays dyn-compatible and the conversation can poll it from any task.
 pub type ProviderStream = Pin<Box<dyn Stream<Item = Result<ProviderEvent, ProviderError>> + Send>>;
 
-/// A way of reaching a model: the OpenAI subscription, an OpenAI API key, later
-/// Anthropic, and the replay provider in tests.
+/// A way of reaching a model: the OpenAI subscription, an OpenAI API key, an Anthropic
+/// API key, and the replay provider in tests.
 ///
 /// [`stream`](Provider::stream) is the one model call a provider implements;
 /// [`complete`](Provider::complete) collects it for callers that want the whole answer,
@@ -77,10 +77,32 @@ pub struct ModelInfo {
     /// and not over a streamed HTTP response. It is a fact for the transport to read;
     /// a provider without such a transport ignores it.
     pub prefer_websockets: bool,
+    /// The tool with which the model changes a file. The code that builds a request's
+    /// tool list offers the model this one and not the other.
+    pub edit_tool: EditTool,
+}
+
+/// The tool with which a model changes a file: the form that it was trained on.
+///
+/// A request offers a model exactly one of them, with `write_file` and `read_file`
+/// beside it. The choice follows the model, so the tool list and the prompt cache stay
+/// the same from call to call while the model stays.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EditTool {
+    /// `apply_patch`: a patch in the Codex format, which can change, add, delete and
+    /// move several files in one call. OpenAI's models know it.
+    #[default]
+    ApplyPatch,
+    /// `edit`: the exact text `old_string` in one file becomes `new_string`, once or
+    /// at every place (`replace_all`), as Claude Code's edit tool does. Anthropic's
+    /// models know it.
+    Replace,
 }
 
 impl ModelInfo {
-    /// A model with no known limits.
+    /// A model with no known limits, which changes files with
+    /// [`EditTool::ApplyPatch`].
     pub fn new(id: impl Into<String>) -> Self {
         ModelInfo {
             id: id.into(),
@@ -91,7 +113,15 @@ impl ModelInfo {
             default_effort: None,
             freeform_tools: false,
             prefer_websockets: false,
+            edit_tool: EditTool::ApplyPatch,
         }
+    }
+
+    /// The same model, which changes files with `edit_tool`.
+    #[must_use]
+    pub fn with_edit_tool(mut self, edit_tool: EditTool) -> Self {
+        self.edit_tool = edit_tool;
+        self
     }
 
     /// The same model with a known context window.

@@ -42,7 +42,7 @@ pub use completion::{Completion, CompletionBuilder};
 pub use error::ProviderError;
 pub use event::{ProviderEvent, StopReason};
 pub use message::{ContentBlock, Message, Role};
-pub use provider::{ModelInfo, Provider, ProviderStream};
+pub use provider::{EditTool, ModelInfo, Provider, ProviderStream};
 pub use provider_id::ProviderId;
 pub use request::{
     FREEFORM_INPUT, GrammarSyntax, Request, ToolDefinition, ToolGrammar, freeform_input_schema,
