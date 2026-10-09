@@ -19,7 +19,8 @@
       "logged_in": true,
       "active": true,
       "login": "api_key",
-      "key_hint": "sk-ant-...a1b2"
+      "key_hint": "sk-ant-...a1b2",
+      "key_refused_at": "2026-10-03T07:45:00Z"
     }
   ],
   "catalog": {

@@ -2,13 +2,13 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
-    CatalogOrigin, CatalogStatus, ConfigFileError, ConfigStatus, ConversationId,
-    ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings,
-    InputRespond, LateSteer, LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult,
-    OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw,
-    ProviderStatus, RootSource, Seq, ShellContext, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
+    AdminStatusResult, Base64Bytes, CatalogOrigin, CatalogStatus, ConfigFileError, ConfigStatus,
+    ConversationId, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
+    EffectiveSettings, InputRespond, LateSteer, LoginKind, Mode, ModelInfo, ModelSource,
+    ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult,
+    PromptWithdraw, ProviderStatus, RootSource, Seq, ShellContext, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -321,7 +321,39 @@ fn a_provider_from_before_logins_by_key_is_inactive_with_no_login_kind() {
     assert!(!status.active);
     assert_eq!(status.login, None);
     assert_eq!(status.key_hint, None);
+    assert_eq!(status.key_refused_at, None);
     assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+}
+
+#[test]
+fn a_refused_key_is_the_time_of_the_refusal_and_a_working_key_writes_none() {
+    let refused = json!({
+        "provider": "anthropic-api",
+        "logged_in": true,
+        "login": "api_key",
+        "key_hint": "sk-ant-...a1b2",
+        "key_refused_at": "2026-10-09T12:03:00Z",
+    });
+    let status: ProviderStatus = serde_json::from_value(refused.clone()).unwrap();
+    assert_eq!(status.key_refused_at, Some("2026-10-09T12:03:00Z".parse().unwrap()));
+    assert_eq!(serde_json::to_value(&status).unwrap(), refused);
+
+    let working = ProviderStatus { key_refused_at: None, ..status };
+    let value = serde_json::to_value(&working).unwrap();
+    assert_eq!(value.get("key_refused_at"), None, "a key that works writes no member");
+}
+
+#[test]
+fn a_logout_answer_from_before_the_active_flag_is_not_active() {
+    let old = json!({ "provider": "openai-api", "logged_out": true });
+    let result: AdminLogoutResult = serde_json::from_value(old.clone()).unwrap();
+    assert!(!result.active);
+    assert_eq!(serde_json::to_value(&result).unwrap(), old, "nothing new is written");
+    let active = AdminLogoutResult { active: true, ..result };
+    assert_eq!(
+        serde_json::to_value(&active).unwrap(),
+        json!({ "provider": "openai-api", "logged_out": true, "active": true })
+    );
 }
 
 #[test]

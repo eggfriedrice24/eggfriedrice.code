@@ -323,6 +323,7 @@ pub(crate) fn provider_status(
         active,
         login,
         key_hint,
+        key_refused_at: None,
     }
 }
 

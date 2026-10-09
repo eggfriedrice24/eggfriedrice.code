@@ -18,7 +18,8 @@ async fn logout(name: &str, logged_out: bool) -> (String, String) {
         let Method::AdminLogout(AdminLogout { provider }) = method else {
             panic!("{}", method.name())
         };
-        conn.reply(id, &AdminLogoutResult { provider: provider.clone(), logged_out }).await;
+        let result = AdminLogoutResult { provider: provider.clone(), logged_out, active: false };
+        conn.reply(id, &result).await;
         conn.until_closed().await;
         provider
     };

@@ -78,6 +78,11 @@ pub struct ProviderStatus {
     /// `sk-ant-...a1b2`. Never the key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_hint: Option<String>,
+    /// For an API key: when the provider last refused it (a 401 on a model call or on
+    /// the fetch of the model list). Absent while the key works, after a new login, and
+    /// from an earlier daemon. A request with the key that works again removes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_refused_at: Option<Timestamp>,
 }
 
 /// How a provider is logged in.

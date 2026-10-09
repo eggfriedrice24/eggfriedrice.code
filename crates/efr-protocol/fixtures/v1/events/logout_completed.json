@@ -1,0 +1,4 @@
+{
+  "kind": "logout_completed",
+  "provider": "anthropic-api"
+}

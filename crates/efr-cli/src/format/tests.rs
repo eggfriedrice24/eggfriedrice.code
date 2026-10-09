@@ -260,6 +260,7 @@ fn status_result() -> AdminStatusResult {
                 active: false,
                 login: None,
                 key_hint: None,
+                key_refused_at: None,
             },
             ProviderStatus {
                 provider: "anthropic".to_owned(),
@@ -268,6 +269,7 @@ fn status_result() -> AdminStatusResult {
                 active: false,
                 login: None,
                 key_hint: None,
+                key_refused_at: None,
             },
         ],
         catalog: Some(efr_protocol::CatalogStatus {

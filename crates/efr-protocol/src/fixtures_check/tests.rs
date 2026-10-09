@@ -113,10 +113,11 @@ fn event_index(event: &Event) -> usize {
         Event::SteeringDelivered { .. } => 33,
         Event::SteeringWithdrawn { .. } => 34,
         Event::ConversationCompacted(_) => 35,
+        Event::LogoutCompleted { .. } => 36,
     }
 }
 
-const EVENT_COUNT: usize = 36;
+const EVENT_COUNT: usize = 37;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

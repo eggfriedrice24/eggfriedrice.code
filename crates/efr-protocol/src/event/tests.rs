@@ -289,6 +289,27 @@ fn turn_id_names_the_turn_of_turn_events_only() {
     let shell = Event::ShellExited { pty_id: PtyId::from_str(PTY).unwrap(), exit_code: Some(0) };
     assert_eq!(shell.turn_id(), None);
     assert_eq!(Event::LoginCompleted { provider: "openai".to_owned() }.turn_id(), None);
+    assert_eq!(Event::LogoutCompleted { provider: "openai-api".to_owned() }.turn_id(), None);
+}
+
+#[test]
+fn a_logout_is_a_daemon_wide_event_with_the_provider_only() {
+    let envelope: EventEnvelope = serde_json::from_value(json!({
+        "seq": 3,
+        "at": "2026-10-09T12:03:00Z",
+        "event": { "kind": "logout_completed", "provider": "anthropic-api" },
+    }))
+    .unwrap();
+    assert_eq!(envelope.conversation_id, None);
+    assert_eq!(envelope.event, Event::LogoutCompleted { provider: "anthropic-api".to_owned() });
+    assert_eq!(envelope.event.kind(), "logout_completed");
+    let extra = json!({ "kind": "logout_completed", "provider": "openai-api", "key": "sk-x" });
+    let event: Event = serde_json::from_value(extra).unwrap();
+    assert_eq!(
+        serde_json::to_value(&event).unwrap(),
+        json!({ "kind": "logout_completed", "provider": "openai-api" }),
+        "the event has no member that could hold a key"
+    );
 }
 
 #[test]

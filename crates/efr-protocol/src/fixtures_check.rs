@@ -879,6 +879,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         active: false,
                         login: Some(LoginKind::Subscription),
                         key_hint: None,
+                        key_refused_at: None,
                     },
                     ProviderStatus {
                         provider: "anthropic-api".into(),
@@ -887,6 +888,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         active: true,
                         login: Some(LoginKind::ApiKey),
                         key_hint: Some("sk-ant-...a1b2".into()),
+                        key_refused_at: Some(at("2026-10-03T07:45:00Z")),
                     },
                 ],
                 catalog: Some(CatalogStatus {
@@ -1011,7 +1013,11 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture(
             "admin_logout_result.json",
-            &AdminLogoutResult { provider: "anthropic-api".into(), logged_out: true },
+            &AdminLogoutResult {
+                provider: "anthropic-api".into(),
+                logged_out: true,
+                active: true,
+            },
         ),
     ]
 }
@@ -1212,6 +1218,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::ShellExited { pty_id: pty_id(), exit_code: Some(0) },
         Event::CwdChanged { pty_id: pty_id(), cwd: "/var/log".into(), host: Some("desk".into()) },
         Event::LoginCompleted { provider: "openai".into() },
+        Event::LogoutCompleted { provider: "anthropic-api".into() },
         Event::ExitRequested {
             turn_id: turn_id(),
             call_id: call_id(),

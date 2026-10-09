@@ -30,6 +30,7 @@ fn result() -> AdminStatusResult {
             active: false,
             login: None,
             key_hint: None,
+            key_refused_at: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
             provider: None,
@@ -83,6 +84,7 @@ async fn a_logged_in_provider_needs_no_login_hint() {
         active: false,
         login: None,
         key_hint: None,
+        key_refused_at: None,
     });
     let script = async {
         let mut conn = daemon.accept().await;
@@ -106,6 +108,7 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
         active: false,
         login: None,
         key_hint: None,
+        key_refused_at: None,
     };
     vec![
         ProviderStatus {

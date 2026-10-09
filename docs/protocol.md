@@ -291,3 +291,12 @@ No protocol version has shipped yet.
   no fetch worked, no cache is on disk and the provider has no list built into efr
   (`anthropic-api`). The fixtures `models_list_result.json` and
   `admin_status_result.json` now set `provider`.
+- Version 1, additive: refused keys and logouts. A provider of the `admin.status`
+  result gains an optional `key_refused_at`: when the provider last refused its stored
+  API key (a 401 on a model call or on the fetch of the model list). It is absent while
+  the key works, after a new login and from an earlier daemon. The result of
+  `admin.logout` gains `active` (false when absent): true when the provider is the one
+  of new conversations, whose turns fail until a new login. New event kind
+  `logout_completed` with the `provider` only; it belongs to no conversation, like
+  `login_completed`. New fixture `events/logout_completed.json`;
+  `admin_status_result.json` and `admin_logout_result.json` now set the new members.

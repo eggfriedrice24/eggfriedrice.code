@@ -434,6 +434,13 @@ pub enum Event {
         provider: String,
     },
 
+    /// `admin.logout` deleted the stored credentials of a provider. It holds no part of
+    /// them.
+    LogoutCompleted {
+        /// The provider, such as `anthropic-api`.
+        provider: String,
+    },
+
     /// A `shell` call in `auto` leaves the sandbox: the exits, what an approval opens,
     /// and the record that a classifier would judge (phase 3), stored once per call.
     ExitRequested {
@@ -618,6 +625,7 @@ impl Event {
             | Event::ShellExited { .. }
             | Event::CwdChanged { .. }
             | Event::LoginCompleted { .. }
+            | Event::LogoutCompleted { .. }
             | Event::SandboxUnavailable { .. }
             | Event::Unknown { .. } => None,
         }
@@ -655,7 +663,7 @@ pub struct EventEnvelope {
     /// The event's global sequence number.
     pub seq: Seq,
     /// The conversation the event belongs to; absent for daemon-wide events such as
-    /// [`Event::LoginCompleted`].
+    /// [`Event::LoginCompleted`] and [`Event::LogoutCompleted`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<ConversationId>,
     /// When the daemon recorded the event.

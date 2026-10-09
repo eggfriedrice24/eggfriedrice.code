@@ -17,6 +17,6 @@ pub(crate) async fn handle(
     let AdminLogout { provider } = params;
     let logged_out = state.providers.logout(&provider).await?;
     tracing::info!(provider = %provider, logged_out, "logout");
-    responder.item(&AdminLogoutResult { provider, logged_out }).await?;
+    responder.item(&AdminLogoutResult { provider, logged_out, active: false }).await?;
     Ok(())
 }

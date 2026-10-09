@@ -362,6 +362,16 @@ async fn a_change_of_the_sandbox_probe_belongs_to_no_conversation() {
 }
 
 #[tokio::test]
+async fn a_logout_belongs_to_no_conversation() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+
+    let logout = Event::LogoutCompleted { provider: "anthropic-api".to_owned() };
+    let committed = writer.append(Batch::new().global_event(logout)).await;
+
+    assert!(committed.is_ok(), "{committed:?}");
+}
+
+#[tokio::test]
 async fn rebuilding_the_projections_reproduces_them_exactly() {
     let clock = TestClock::new();
     let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
