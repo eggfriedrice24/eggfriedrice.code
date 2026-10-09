@@ -2270,9 +2270,12 @@ impl TurnView {
             card = sandbox::exit_card(exit, record, self.home.as_deref(), subject);
         }
         // NOTE: a patch shows the diff of each of its files after a row that names it,
-        // so a delete or a move stands out before the user answers.
+        // so a delete or a move stands out before the user answers. An edit is a patch
+        // of one file.
         match (request.diff, tool) {
-            (Some(diff), Some(format::patch::TOOL)) => card.rows.extend(card::patch_rows(diff)),
+            (Some(diff), Some(format::patch::TOOL | format::EDIT_TOOL)) => {
+                card.rows.extend(card::patch_rows(diff));
+            }
             (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
             (None, _) => {}
         }
@@ -2446,7 +2449,8 @@ impl TurnView {
         let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
         if let Some(diff) = diff {
             // NOTE: the line of a patch's call is its files with their counts, no path:
-            // each file's diff names its own.
+            // each file's diff names its own. The line of an `edit` call names its one
+            // file, as a write's does.
             let patch =
                 self.tools.get(&call.call_id).is_some_and(|tool| tool == format::patch::TOOL);
             let path = if patch { None } else { call.subject() };

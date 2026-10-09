@@ -311,9 +311,15 @@ pub(crate) fn columns(options: &RenderOptions) -> Option<(usize, WidthMethod)> {
     options.is_terminal().then(|| (usize::from(options.width()), options.width_method()))
 }
 
+/// The name of the tool with which a Claude model changes a file: the exact text
+/// `old_string` of the file at `path` becomes `new_string`. A call of it names its file
+/// as a `write_file` call does, and its diff and its question show as those of a patch
+/// of one file.
+pub(crate) const EDIT_TOOL: &str = "edit";
+
 /// The words that name a call of `tool`: `$` for a shell call, `read` and `write` for
-/// the file tools, `settings` and `apply_patch` for those tools, else the tool's name
-/// and a colon.
+/// the file tools, `settings`, `apply_patch` and `edit` for those tools, else the
+/// tool's name and a colon.
 fn call_name(tool: &str) -> String {
     match tool {
         "shell" => "$".to_owned(),
@@ -321,6 +327,7 @@ fn call_name(tool: &str) -> String {
         "write_file" => "write".to_owned(),
         "settings" => "settings".to_owned(),
         patch::TOOL => patch::TOOL.to_owned(),
+        EDIT_TOOL => EDIT_TOOL.to_owned(),
         other => format!("{}:", one_line(other)),
     }
 }
@@ -390,7 +397,7 @@ impl CallLine {
 }
 
 /// What a call does, for the block of a call: the words that name it (`$`, `read`,
-/// `write`, `settings`, `apply_patch`, else the tool and a colon) and each line of what
+/// `write`, `settings`, `apply_patch`, `edit`, else the tool and a colon) and each line of what
 /// it does, safe to print. Nothing of it is ever left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CallText {

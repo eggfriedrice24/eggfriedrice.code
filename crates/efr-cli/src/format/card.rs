@@ -179,8 +179,8 @@ fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
     }
 }
 
-/// The rows of the preview of an `apply_patch` call: for each file of the patch a row
-/// that names it, then its diff. The row of a file that the patch deletes or moves is
+/// The rows of the preview of an `apply_patch` or `edit` call: for each file of the
+/// patch a row that names it, then its diff; an `edit` call has one file. The row of a file that the patch deletes or moves is
 /// in the `warning` role (`delete old.rs`, `move a.rs → b.rs`), and a new file's row
 /// starts with a muted `new`. Nothing of a diff is left out but what the daemon cut.
 pub(crate) fn patch_rows(diff: &str) -> Vec<Row> {
@@ -227,6 +227,7 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
         Some("shell") => "allow this command",
         Some("write_file") => "allow this write",
         Some(super::patch::TOOL) => "allow this patch",
+        Some(super::EDIT_TOOL) => "allow this edit",
         Some("read_file") => "allow this read",
         Some("settings") => "allow this change of the settings",
         _ => "allow this call",

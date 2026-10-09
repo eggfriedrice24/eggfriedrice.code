@@ -238,6 +238,17 @@ fn a_card_at_40_and_80_columns_with_colour_and_without() {
 }
 
 #[test]
+fn each_tool_names_what_a_yes_allows() {
+    let title = |tool| approval("x", Some(tool), None).title;
+    assert_eq!(title("shell"), "allow this command");
+    assert_eq!(title("write_file"), "allow this write");
+    assert_eq!(title("apply_patch"), "allow this patch");
+    assert_eq!(title("edit"), "allow this edit");
+    assert_eq!(title("read_file"), "allow this read");
+    assert_eq!(approval("x", None, None).title, "allow this call");
+}
+
+#[test]
 fn a_summary_that_does_not_quote_the_command_shows_as_one_row() {
     let card = approval("write_file: write ~/.zshrc (user config)", Some("write_file"), None);
     assert_eq!(card.title, "allow this write");

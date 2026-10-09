@@ -884,6 +884,52 @@ fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
     );
 }
 
+/// The diff of an `edit` call that changes one line of `~/.zshrc`, with the shown
+/// path, as the daemon sends it for the question and for the call that ran.
+const ZSHRC_EDIT: &str = "--- a/~/.zshrc\n+++ b/~/.zshrc\n@@ -1,2 +1,2 @@\n export EDITOR=nvim\n-alias ll='ls -l'\n+alias ll='ls -la'\n";
+
+/// The start of call `n` of `edit`, which a Claude model calls to change one line of
+/// `~/.zshrc`.
+fn edit(n: u8) -> Event {
+    let input = json!({
+        "path": "~/.zshrc",
+        "old_string": "alias ll='ls -l'",
+        "new_string": "alias ll='ls -la'",
+    });
+    started(n, "edit", input, None)
+}
+
+#[test]
+fn an_edit_names_its_file_and_its_question_shows_the_diff() {
+    let asked = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: id(1),
+        summary: "edit: write ~/.zshrc (user config)".to_owned(),
+        diff_preview: Some(ZSHRC_EDIT.to_owned()),
+        interactive: false,
+        exit: None,
+    };
+    let resolved = Event::ApprovalResolved {
+        turn_id: turn(),
+        call_id: id(1),
+        decision: ApprovalDecision::Allow,
+        origin: Origin::Shell,
+    };
+    let changes = file_changes(vec![file("~/.zshrc", ChangeKind::Modified, 1, 1)], 0);
+    let shown = every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, edit(1)),
+        Sent(20, asked),
+        Shot("asked"),
+        Key(1, ApprovalDecision::Allow),
+        Sent(1_000, resolved),
+        Sent(1_100, changed(1, changes, Some(ZSHRC_EDIT))),
+    ]);
+    assert!(shown.contains("? allow this edit"), "{shown}");
+    assert!(shown.contains("edit ~/.zshrc"), "{shown}");
+    insta::assert_snapshot!(shown);
+}
+
 fn counted(tokens: u64) -> DraftPart {
     DraftPart::Context(ContextUse { tokens, limit: 206_720, window: 272_000 })
 }

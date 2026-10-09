@@ -192,7 +192,8 @@ Replies:
   and the call that it allowed.
 - A tool call is named by what it does: `$ cargo test` for a shell call, `read
   src/main.rs` and `write src/main.rs` for the file tools, `settings ...` for the
-  settings tool, `apply_patch <files>` for a patch, `<tool>: <detail>` for any other.
+  settings tool, `apply_patch <files>` for a patch, `edit <path>` for the edit tool of
+  a Claude model, `<tool>: <detail>` for any other.
   The block of a call starts with `·` in the `accent` role and what the call does in
   the `code` role:
 
@@ -305,6 +306,9 @@ Replies:
   approval of the turn that the followed one waits behind starts `the running turn
   asks:`. A diff preview shows after the bar, rendered as a diff at the width less the
   bar.
+- The approval of an `edit` call has the title `allow this edit`, and its preview shows
+  as that of a patch of one file: a row that names the file, then its diff. Under the
+  call that ran, its diff shows as a write's does.
 - The approval of an `apply_patch` call has the title `allow this patch`. Its preview
   shows the diff of every file of the patch, none left out but what the daemon cut,
   each after a row that names the file: the path, `new <path>` with `new` muted, and
@@ -773,7 +777,8 @@ rename, a binary file, the files left out), the line of a turn that changed file
 a whole turn that writes a file and runs a command, an `apply_patch` call of five
 files (its line, one diff block per file with the limit on each, a new, a deleted and
 a moved file), the question about that patch with every line of every file and the
-delete and the move in the `warning` role, and a patch of one file.
+delete and the move in the `warning` role, a patch of one file, and an `edit` call
+with its question and the diff of its file.
 `format/patch/tests.rs` checks the files and counts that the line of a patch reads
 (both forms of the input, markers with spaces, a path with an escape), the rows of
 the line, the split of a diff of several files (a removed line that looks like a

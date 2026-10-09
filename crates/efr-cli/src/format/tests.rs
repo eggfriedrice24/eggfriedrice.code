@@ -130,6 +130,8 @@ fn a_tool_call_shows_its_most_telling_input() {
     assert_eq!(call("shell", json!({"command": "ls -la", "timeout": 30})), "$ ls -la");
     assert_eq!(call("read_file", json!({"path": "/etc/hosts"})), "read /etc/hosts");
     assert_eq!(call("write_file", json!({"path": "src/main.rs"})), "write src/main.rs");
+    let edit = json!({"path": "src/a.rs", "old_string": "a", "new_string": "b"});
+    assert_eq!(call("edit", edit), "edit src/a.rs");
     assert_eq!(call("settings", json!({"key": "model.name"})), r#"settings {"key":"model.name"}"#);
     assert_eq!(call("shell", json!({"command": ""})), "$");
     assert_eq!(call("fetch", json!({"url": "https://x"})), "fetch: https://x");
