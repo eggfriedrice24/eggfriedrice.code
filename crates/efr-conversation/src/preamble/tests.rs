@@ -130,6 +130,27 @@ fn debug_leaves_out_the_last_command() {
     assert!(!format!("{state:?}").contains("hunter2"));
 }
 
+#[test]
+fn the_preamble_shows_the_last_command_with_its_secrets_redacted() {
+    let key = format!("sk-ant-api03-{}", "a".repeat(400));
+    let state = LiveState {
+        last_command: Some(format!("export TOKEN=hunter2 && curl -H 'x-api-key: {key}' x")),
+        last_status: Some(0),
+        ..minimal()
+    };
+
+    let text = state.render();
+
+    assert!(
+        text.contains(
+            "The user's last command was `export TOKEN=[redacted] && curl -H 'x-api-key: \
+             [redacted]' x`; it exited with status 0."
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("hunter2") && !text.contains("aaaa"), "{text}");
+}
+
 /// The part of the preamble from the mode line on.
 fn settings_part(state: &LiveState) -> String {
     let text = state.render();

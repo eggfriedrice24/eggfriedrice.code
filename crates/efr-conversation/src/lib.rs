@@ -36,7 +36,8 @@
 //!   classifier (phase 3).
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
-//! `efr-protocol` and `efr-stdx`. The allowlist also names `efr-tools`, but that crate
+//! `efr-sandbox` (only `secret_like`), `efr-protocol` and `efr-stdx`. The allowlist
+//! also names `efr-tools`, but that crate
 //! depends on `efr-shell`, and `efr-conversation -> efr-shell` is forbidden through any
 //! chain, so the tools arrive through [`Toolbox`]. What does not belong here: shells
 //! (reached only through the daemon's shell tool), transports, the mapping of errors to

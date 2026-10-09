@@ -67,7 +67,17 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
         // No efr-tools edge: efr-tools depends on efr-shell, and efr-conversation ->
         // efr-shell is forbidden through any chain. The conversation drives tools through
         // its own Toolbox trait, which efr-daemon implements over the tool registry.
-        &["efr-provider", "efr-permissions", "efr-scope", "efr-store", "efr-protocol", "efr-stdx"],
+        // efr-sandbox gives the preamble the names that look like secrets, the list that
+        // the sandbox's environment filter uses.
+        &[
+            "efr-provider",
+            "efr-permissions",
+            "efr-scope",
+            "efr-store",
+            "efr-sandbox",
+            "efr-protocol",
+            "efr-stdx",
+        ],
     ),
     ("efr-transport", &["efr-protocol", "efr-stdx"]),
     ("efr-client", &["efr-protocol", "efr-stdx"]),

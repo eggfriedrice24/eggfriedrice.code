@@ -677,8 +677,10 @@ Tier 3, the engine.
 
 `efr-provider` (the `Provider` trait and canonical messages), `efr-permissions` (the
 engine at the check point), `efr-scope` (scope derivation, `Home`), `efr-store` (the
-writer and the readers), `efr-protocol` (events, ids, method params and results) and
-`efr-stdx` (the clock, the generator, ids, `claim_dir`). The allowlist also names
+writer and the readers), `efr-sandbox` (`secret_like`, the names that look like
+secrets, which the sandbox's environment filter uses too; the preamble redacts the
+values of such names in the last command), `efr-protocol` (events, ids, method params
+and results) and `efr-stdx` (the clock, the generator, ids, `claim_dir`). The allowlist also names
 `efr-tools`; see above for why it is not used. `xtask/src/deps.rs` forbids
 `efr-conversation -> efr-shell` and `efr-conversation -> efr-transport`.
 
@@ -702,7 +704,8 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
   less.
 - The scope is derived again on every turn; it is never cached.
 - The last command of a prompt never enters an event or a log field; `Debug` of the
-  types that hold it leaves it out.
+  types that hold it leaves it out. It reaches the saved messages only inside the
+  turn's preamble, with its secrets redacted.
 - Every change a request makes is one batch with its receipt, so a retried command
   runs once.
 - Time and randomness come from the injected clock and generator.

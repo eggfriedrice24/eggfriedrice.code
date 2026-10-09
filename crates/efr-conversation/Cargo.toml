@@ -16,6 +16,7 @@ async-trait.workspace = true
 efr-permissions.workspace = true
 efr-protocol.workspace = true
 efr-provider.workspace = true
+efr-sandbox.workspace = true
 efr-scope.workspace = true
 efr-stdx.workspace = true
 efr-store.workspace = true
@@ -31,6 +32,7 @@ tracing.workspace = true
 efr-test-support.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
+rstest.workspace = true
 tracing-subscriber.workspace = true
 
 [lints]
