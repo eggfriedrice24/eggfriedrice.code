@@ -187,6 +187,15 @@ into the GitHub release notes, and it stops when the section is missing.
   `base_url`, `models`, `cache_ttl` (`auto`, `5m` or `1h`) and `workspace_id`. efrd
   cannot use the provider yet: when `[model] provider` names it, efrd does not start
   and its log says why.
+- A new `edit` tool for Claude models. It replaces the exact text `old_string` of one
+  file with `new_string`, once, or at every match with `replace_all`. When the text
+  occurs more than once without `replace_all`, or does not occur, no file changes and
+  the model gets the count or the nearest lines of the file. In a file with Windows
+  line ends, the model's line breaks match them. A request offers a model either
+  `apply_patch` (OpenAI models) or `edit` (Claude models), never both, and a call of
+  the other one does not run. An edit needs approval where a `write_file` of the same
+  file does. The question shows the diff of the file, and `efr` shows the call as
+  `edit <path>`.
 
 ### Changed
 
@@ -205,6 +214,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `AGENTS.md` files) is now part of its record, and `conversation_compacted` carries
   it as `fresh`. After a restart of efrd, a request sends the same block. Before, the
   next turn read the files again.
+- The default system prompt tells the model to change files with the edit tool that
+  it has, `apply_patch` or `edit`, not with `apply_patch` only.
 - With an OpenAI API key (`openai-api`), a key that the server refuses now fails the
   turn at once, and the error shows the server's reason, such as an expired key or a
   missing scope. Before, efr sent the same key a second time and showed no reason.
