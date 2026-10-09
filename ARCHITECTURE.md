@@ -247,7 +247,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - The Anthropic provider: the contract (the request, the prompt cache markers, the
   catalog, the token counts and the failures) in `crates/efr-provider-anthropic/README.md`;
   the placement of the cache markers in
-  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`; the canonical token counts
+  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`; which error answers are
+  sent again in `crates/efr-provider-anthropic/src/failure.rs`; the fake Messages API
+  and model list for daemon tests, `MessagesServer`, in
+  `crates/efr-test-daemon/src/test_daemon/messages.rs`; the canonical token counts
   of every provider in `crates/efr-provider/README.md`, section "Token counts".
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.
