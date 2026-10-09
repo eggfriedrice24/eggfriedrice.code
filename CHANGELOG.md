@@ -178,9 +178,21 @@ into the GitHub release notes, and it stops when the section is missing.
 - A `context_window` in `[openai] models` can raise or lower the window of a model of
   the list, up to its largest window. Above that, efrd uses the largest window and
   warns once in its log, and `efr config check` adds a note.
+- The token counts of a turn on the protocol now include the input tokens that the
+  provider wrote to its prompt cache: `cache_write_tokens`, and
+  `cache_write_1h_tokens` for the part that it keeps for an hour. efr reads OpenAI's
+  count of cache writes. Like `cached_input_tokens`, both are parts of
+  `input_tokens`.
+- The config accepts the provider `anthropic-api` and a new `[anthropic]` table with
+  `base_url`, `models`, `cache_ttl` (`auto`, `5m` or `1h`) and `workspace_id`. efrd
+  cannot use the provider yet: when `[model] provider` names it, efrd does not start
+  and its log says why.
 
 ### Changed
 
+- With an OpenAI API key (`openai-api`), a key that the server refuses now fails the
+  turn at once, and the error shows the server's reason, such as an expired key or a
+  missing scope. Before, efr sent the same key a second time and showed no reason.
 - The default model is now the first model of the backend's list (gpt-6.1-sol today),
   not gpt-5.5, which the backend lists as its legacy model. `[model] name` still wins.
   The first id of `[openai] models` no longer picks the default model. The window,
