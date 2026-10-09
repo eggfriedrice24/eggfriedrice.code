@@ -11,7 +11,7 @@
 //! | `tools` | `{name, description, input_schema}` in the request's order; a freeform tool goes in its function form; left out when there is no tool |
 //! | `tool_choice` | `{"type": "auto"}`, never `any` or `tool`; left out when there is no tool |
 //! | `thinking` | `{"type": "adaptive", "display": "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}` |
-//! | `output_config` | `{"effort": ...}`: `Request::effort`, else the model's default effort, else [`DEFAULT_EFFORT`](crate::DEFAULT_EFFORT); always sent |
+//! | `output_config` | `{"effort": ...}`: `Request::effort`, else the model's default effort (the catalog's [`DEFAULT_EFFORT`](crate::DEFAULT_EFFORT) when the model lists it); left out when neither gives one |
 //! | `messages` | the canonical messages, by the rules below |
 //!
 //! Never sent: `temperature`, `top_p`, `top_k`, `stop_sequences`, `metadata`,
@@ -58,7 +58,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
 use self::breakpoints::{Layout, Shape, Target, Ttl, place_breakpoints, summary};
-use crate::{AnthropicConfig, DEFAULT_EFFORT};
+use crate::AnthropicConfig;
 
 /// The beta that turns on `thinking.block_binding`. Every request sends it in the
 /// `anthropic-beta` header, because every body asks for `drop_block`.
@@ -84,7 +84,8 @@ pub(crate) struct MessagesBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<ToolChoice>,
     thinking: Thinking,
-    output_config: OutputConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<OutputConfig>,
     messages: Vec<BodyMessage>,
 }
 
@@ -231,11 +232,11 @@ pub(crate) fn request_body(
         (Some(limit), None) | (None, Some(limit)) => limit,
         (None, None) => return Err(ProviderError::UnknownModel { model: request.model.clone() }),
     };
-    let effort = request
-        .effort
-        .clone()
-        .or_else(|| model.and_then(|model| model.default_effort.clone()))
-        .unwrap_or_else(|| DEFAULT_EFFORT.to_owned());
+    // NOTE: a model without efforts, such as one that the API lists with
+    // `capabilities.effort.supported` false or one only the config names, gets no
+    // `output_config`: the API refuses an effort that the model does not take.
+    let effort =
+        request.effort.clone().or_else(|| model.and_then(|model| model.default_effort.clone()));
     let mut system: Vec<SystemBlock> = request
         .system
         .iter()
@@ -300,7 +301,7 @@ pub(crate) fn request_body(
             display: "summarized",
             block_binding: BlockBinding { prefix_mismatch_behavior: "drop_block" },
         },
-        output_config: OutputConfig { effort },
+        output_config: effort.map(|effort| OutputConfig { effort }),
         messages,
     })
 }

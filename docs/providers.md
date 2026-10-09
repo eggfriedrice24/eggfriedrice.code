@@ -85,7 +85,8 @@ output limits and their efforts come from the model list of the API (`GET
 - The default model is `claude-opus-5-5` when the API lists it. `[model] name` sets
   another model, such as `claude-sonnet-5-5`. `,model` sets one for a terminal.
 - The default effort is `medium`, as in Claude Code. `[model] effort` and `,effort`
-  set another one. efr always sends the effort.
+  set another one. efr sends the effort to each model that lists it. A model that
+  takes no effort gets none.
 - The context window is the window of the list: 1M tokens on the current models.
   efr compacts at `[compaction] auto_at` of the window (76% by default).
 - efr sends the signed thinking of each answer back unchanged, so the model keeps its

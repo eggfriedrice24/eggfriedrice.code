@@ -230,19 +230,31 @@ fn thinking_is_adaptive_and_summarized_and_drops_a_stale_block() {
 }
 
 #[rstest]
-#[case::the_request_wins(Some("high"), Some("low"), "high")]
-#[case::else_the_model_default(None, Some("low"), "low")]
-#[case::else_medium(None, None, "medium")]
-fn the_effort_is_always_sent(
+#[case::the_request_wins(Some("high"), &["low", "medium", "high"], Some("low"), Some("high"))]
+#[case::else_the_model_default(None, &["low", "medium", "high"], Some("low"), Some("low"))]
+#[case::a_model_without_efforts_gets_none(None, &[], None, None)]
+#[case::a_model_without_medium_gets_none(None, &["low", "high"], None, None)]
+#[case::the_request_still_wins(Some("high"), &[], None, Some("high"))]
+fn the_effort_is_sent_only_when_the_request_or_the_model_gives_one(
     #[case] asked: Option<&str>,
+    #[case] efforts: &[&str],
     #[case] model_default: Option<&str>,
-    #[case] sent: &str,
+    #[case] sent: Option<&str>,
 ) {
     let mut request = request(vec![Message::user("Hello.")]);
     request.effort = asked.map(str::to_owned);
-    let model = opus().with_efforts(["low", "medium", "high"], model_default);
+    let model = opus().with_efforts(efforts.iter().copied(), model_default);
     let body = request_body(&request, &AnthropicConfig::new(), Some(&model)).unwrap();
-    assert_eq!(value(&body)["output_config"], json!({ "effort": sent }));
+    let expected = sent.map(|effort| json!({ "effort": effort }));
+    assert_eq!(value(&body).get("output_config").cloned(), expected);
+}
+
+#[test]
+fn a_model_that_only_the_config_names_gets_no_effort() {
+    let mut request = request(vec![Message::user("Hello.")]);
+    request.max_output_tokens = Some(1_000);
+    let body = request_body(&request, &AnthropicConfig::new(), None).unwrap();
+    assert_eq!(value(&body).get("output_config"), None);
 }
 
 #[rstest]

@@ -71,16 +71,19 @@ Modules:
   (a freeform tool in its function form); `tool_choice: {"type": "auto"}`, left out
   with the tools when there is none; `thinking: {"type": "adaptive", "display":
   "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}`;
-  `output_config: {"effort": ...}`; `messages`. Never sent: sampling members,
+  `output_config: {"effort": ...}`, left out without an effort; `messages`. Never sent: sampling members,
   `stop_sequences`, `metadata`, `service_tier` and `inference_geo`.
 - `max_tokens`: the request's limit, at most the model's `max_tokens` from the
   catalog; without a request limit, the model's. When neither is known, the body is
   not built and the call fails with `UnknownModel`: efr guesses no model fact. A model
   that the list does not hold first needs a key: without one, the call fails with
   `NotLoggedIn`, because a missing login is also why no list came.
-- Effort: `Request::effort`, else the model's default effort from the catalog, else
-  `DEFAULT_EFFORT`, always sent, because the API's own default differs by model. A
-  change of the effort inside a conversation costs a rebuild of the messages cache.
+- Effort: `Request::effort`, else the model's default effort from the catalog
+  (`DEFAULT_EFFORT` when the model lists it), because the API's own default differs
+  by model. A model without such an effort, such as one whose `capabilities.effort`
+  is not supported or one that only `[anthropic] models` names, gets no
+  `output_config`: the API refuses an effort that the model does not take. A change
+  of the effort inside a conversation costs a rebuild of the messages cache.
 - The provider reads no key of `Request::provider_options`: the conversation sends
   OpenAI's `prompt_cache_key` to every provider, and an unknown body member is a 400.
 - An assistant message that this provider wrote goes back as the exact JSON text of

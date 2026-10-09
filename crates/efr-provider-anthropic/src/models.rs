@@ -9,9 +9,10 @@
 /// The model of a turn that names none, when the API lists it: Claude Code's default.
 pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 
-/// The effort of a request that names none, when the model takes it: Claude Code's
-/// default. The provider always sends an effort, because the API's own default differs
-/// from model to model.
+/// The effort of a request that names none, when the model lists it: Claude Code's
+/// default. The catalog makes it the model's default effort, so the provider sends it,
+/// because the API's own default differs from model to model. A model that does not
+/// list it gets no effort from efr.
 pub const DEFAULT_EFFORT: &str = "medium";
 
 /// The fewest tokens that a prompt cache entry holds on the current Claude models. A

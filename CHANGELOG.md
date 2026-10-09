@@ -190,9 +190,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - Claude models with an Anthropic API key, provider `anthropic-api`. Log in with
   `efr login anthropic`, set `[model] provider = "anthropic-api"` and restart efrd.
   efrd streams Anthropic's Messages API, sends the signed thinking of each answer back
-  unchanged, and always sends an effort: `medium` unless you set another. A new
-  `[anthropic]` table has `base_url`, `models`, `cache_ttl` and `workspace_id` (for a
-  key that is not scoped to one workspace). `cache_ttl = "auto"`, the default, keeps
+  unchanged, and sends an effort to each model that takes one: `medium` unless you
+  set another. A new `[anthropic]` table has `base_url`, `models`, `cache_ttl` and
+  `workspace_id` (for a key that is not scoped to one workspace). `cache_ttl = "auto"`, the default, keeps
   the system prompt, the tools and the conversation up to the start of each turn in
   the prompt cache for an hour, and the rest of a tool loop for five minutes; `5m` and
   `1h` put one time on everything.
