@@ -172,8 +172,8 @@ impl DaemonToolbox {
         self.snapshots.as_ref()?.after_call(before).await
     }
 
-    /// Before a `write_file`, `apply_patch` or `edit` call: the turn's first snapshot of each
-    /// root that holds one of its targets.
+    /// Before a `write_file`, `apply_patch` or `edit` call: the turn's first snapshot of
+    /// each root that holds one of its targets.
     async fn snapshot_before_write(&self, call: &ToolCall) {
         let Some(snapshots) = &self.snapshots else { return };
         let context = self.context(&call.context);
