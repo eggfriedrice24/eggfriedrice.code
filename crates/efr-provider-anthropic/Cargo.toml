@@ -17,11 +17,15 @@ efr-http.workspace = true
 efr-provider.workspace = true
 efr-stdx.workspace = true
 jiff.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 pretty_assertions.workspace = true
+rstest.workspace = true
 
 [lints]
 workspace = true

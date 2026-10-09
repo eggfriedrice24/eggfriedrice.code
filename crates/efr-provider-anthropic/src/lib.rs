@@ -23,6 +23,7 @@
 
 mod catalog;
 mod config;
+#[cfg_attr(not(test), expect(dead_code, reason = "the model call is not built yet"))]
 mod convert;
 mod error;
 mod failure;
