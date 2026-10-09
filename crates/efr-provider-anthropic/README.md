@@ -72,7 +72,9 @@ Modules:
   `stop_sequences`, `metadata`, `service_tier` and `inference_geo`.
 - `max_tokens`: the request's limit, at most the model's `max_tokens` from the
   catalog; without a request limit, the model's. When neither is known, the body is
-  not built and the call fails with `UnknownModel`: efr guesses no model fact.
+  not built and the call fails with `UnknownModel`: efr guesses no model fact. A model
+  that the list does not hold first needs a key: without one, the call fails with
+  `NotLoggedIn`, because a missing login is also why no list came.
 - Effort: `Request::effort`, else the model's default effort from the catalog, else
   `DEFAULT_EFFORT`, always sent, because the API's own default differs by model. A
   change of the effort inside a conversation costs a rebuild of the messages cache.

@@ -519,6 +519,17 @@ async fn a_model_without_a_known_output_limit_is_never_called() {
 }
 
 #[tokio::test]
+async fn an_unlisted_model_without_a_login_is_not_logged_in() {
+    let server = MockServer::start().await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::none());
+
+    let error = setup.provider.complete(Request::new("claude-unlisted-1")).await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::NotLoggedIn), "{error:?}");
+    assert!(seen(&server).await.is_empty());
+}
+
+#[tokio::test]
 async fn the_provider_names_itself_and_has_no_model_without_a_list() {
     let clock = Arc::new(InstantClock::new());
     let rng = Arc::new(FixedRng(0));

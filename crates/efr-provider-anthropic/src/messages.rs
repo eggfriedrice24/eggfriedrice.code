@@ -213,6 +213,11 @@ impl Provider for AnthropicProvider {
         );
         let timing = Timing::start();
         let model = self.models().into_iter().find(|model| model.id == request.model);
+        if model.is_none() {
+            // NOTE: without a login no catalog fetch could run, so the model is not
+            // listed; the missing login is what the user must fix, not the model.
+            self.tokens.access_token().await?;
+        }
         let body = request_body(&request, &self.config, model.as_ref())?;
         let unsigned = self.unsigned(&body).map_err(transport)?;
         let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
