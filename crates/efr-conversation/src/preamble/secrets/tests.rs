@@ -191,6 +191,15 @@ fn a_url_without_a_password_stays(#[case] line: &str) {
     "cat <<EOF\nAuthorization: Bearer abc\nEOF",
     "cat <<EOF\nAuthorization: Bearer [redacted]\nEOF"
 )]
+#[case::bundled_option(
+    "curl -sH 'Authorization: Bearer abc' x",
+    "curl -sH 'Authorization: Bearer [redacted]' x"
+)]
+#[case::echo_quoted(
+    r#"echo "Authorization: Bearer abc" > h.txt"#,
+    r#"echo "Authorization: Bearer [redacted]" > h.txt"#
+)]
+#[case::xh("xh x X-Api-Key:abc", "xh x X-Api-Key:[redacted]")]
 fn the_value_of_a_secret_header_is_redacted(#[case] line: &str, #[case] redacted: &str) {
     assert_eq!(redact(line), redacted);
 }
@@ -206,6 +215,12 @@ fn the_value_of_a_secret_header_is_redacted(#[case] line: &str, #[case] redacted
 #[case::path("cargo run -- token::parse x")]
 #[case::url("curl token://host/x")]
 #[case::mid_text(r#"git commit -m "fix the token: it leaked""#)]
+#[case::grep_scheme(r#"grep -rn "Authorization: Bearer" ."#)]
+#[case::rg_value(r#"rg "password: true" config.yml"#)]
+#[case::echo_other_header(r#"echo "Token: done""#)]
+#[case::echo_other_header_unquoted("echo Token: done")]
+#[case::scheme_alone("curl -H 'Authorization: Bearer' x")]
+#[case::scheme_alone_unquoted("echo Authorization: Bearer")]
 fn a_header_without_a_secret_stays(#[case] line: &str) {
     assert_eq!(redact(line), line);
 }

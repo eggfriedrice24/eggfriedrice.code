@@ -432,7 +432,8 @@ into the GitHub release notes, and it stops when the section is missing.
   (`sk-ant-`, `sk-proj-`, `sk-`, `ghp_` and the other GitHub token forms); the password
   of a URL, such as `https://user:...@host`; the value of an `Authorization`,
   `Cookie` or other secret header, such as `-H 'Authorization: Bearer ...'`, without
-  its scheme; and the password option of the programs that take one, such as
+  its scheme, where a header stands (a search pattern such as
+  `grep "Authorization: Bearer"` stays); and the password option of the programs that take one, such as
   `mysql -p...`, `sshpass -p ...`, `docker login -p ...` and `curl -u user:...`. efr
   now saves the block with the turn and sends it again with every later request, so a
   secret there would reach the disk and every request after it. The list of patterns

@@ -39,7 +39,7 @@ const KEY_MIN_CHARS: usize = 16;
 ///   [`KEY_MIN_CHARS`] key characters;
 /// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]);
 /// - the value of a header that carries a secret, such as `Authorization: Bearer x`,
-///   without its scheme ([`header::values`]);
+///   without its scheme, where a header stands ([`header::values`]);
 /// - the value of an option that takes a password, for the programs known to take one
 ///   there, such as `mysql -psecret` ([`options::values`]).
 ///

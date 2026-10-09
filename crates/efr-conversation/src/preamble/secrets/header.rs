@@ -19,37 +19,84 @@ const ECHOES: &[&str] = &["echo", "printf"];
 /// Headers whose value starts with a scheme that stays (`Bearer`, `Basic`, `token`).
 const SCHEME_HEADERS: &[&str] = &["authorization", "proxy-authorization"];
 
+/// The authorization schemes, compared without case. A value that is one of them alone
+/// holds no secret, as in the pattern of `grep -r "Authorization: Bearer" .`.
+const SCHEMES: &[&str] = &[
+    "basic",
+    "bearer",
+    "digest",
+    "token",
+    "negotiate",
+    "ntlm",
+    "hoba",
+    "mutual",
+    "vapid",
+    "oauth",
+    "bot",
+    "aws4-hmac-sha256",
+    "scram-sha-1",
+    "scram-sha-256",
+];
+
+/// The options that take a header as their next word.
+const HEADER_OPTIONS: &[&str] = &["-H", "--header"];
+
+/// The HTTP clients that take a header as a plain argument (`Name:value`).
+const HEADER_CLIENTS: &[&str] = &["http", "https", "xh", "xhs"];
+
 /// The bytes of the line that hold the value of each secret header in `commands`.
 ///
 /// A header is a word, or the part of a word after `-H` or after its first `=`, that
-/// starts with a header name and a colon. Its value is the rest of the word (a
-/// header in quotes). When the colon ends the word, the value is the words after it in
-/// the same command, but only for a header that starts the command (a line of a
-/// here-document) or follows `echo` or `printf`: elsewhere such a word is an argument,
-/// such as the pattern of `grep -r "password:" .`. A value that names another value
-/// (`$TOKEN`) stays.
+/// starts with a header name and a colon, where a header stands: after `-H` or
+/// `--header` (also in the same word), after a `=`, at the start of a command (a line
+/// of a here-document), among the arguments of an HTTP client that takes plain
+/// headers (`http`, `xh`), or after `echo` or `printf` for the headers that always
+/// carry a secret (`Authorization`, `Cookie`). Elsewhere such a word is an argument,
+/// such as the pattern of `grep -r "password: true" .`. Its value is the rest of the
+/// word (a header in quotes). When the colon ends the word, the value is the words
+/// after it in the same command, but only at the start of a command or after `echo`
+/// or `printf`. A value that names another value (`$TOKEN`), and a value that is only
+/// an authorization scheme (`Bearer`), stays.
 pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
     let mut found = Vec::new();
     for command in commands {
+        let program = command.first().map_or("", |word| program_name(&word.text));
+        let echoes = ECHOES.contains(&program);
         for (index, word) in command.iter().enumerate() {
-            let Some((name, value_at)) = header(&word.text) else {
+            let Some((name, value_at, start)) = header(&word.text) else {
                 continue;
             };
+            let always = SECRET_HEADERS.iter().any(|header| name.eq_ignore_ascii_case(header));
+            let after_option = index
+                .checked_sub(1)
+                .and_then(|before| command.get(before))
+                .is_some_and(|before| takes_header(&before.text));
+            let stands = start > 0
+                || index == 0
+                || after_option
+                || HEADER_CLIENTS.contains(&program)
+                || (echoes && always);
+            if !stands {
+                continue;
+            }
             let scheme = SCHEME_HEADERS.iter().any(|header| name.eq_ignore_ascii_case(header));
             if value_at < word.text.len() {
                 let value = &word.text[value_at..];
                 let from = value_at + if scheme { scheme_len(value) } else { 0 };
                 let to = value_at + value.trim_end().len();
-                if from < to && !names_another_value(&word.text[from..]) {
+                let secret = &word.text[from..to.max(from)];
+                if from < to && !names_another_value(secret) && !(scheme && is_known_scheme(secret))
+                {
                     found.extend(word.line_range_to(from, to));
                 }
-            } else if index == 0 || (index == 1 && ECHOES.contains(&command[0].text.as_str())) {
+            } else if index == 0 || (index == 1 && echoes) {
                 let rest = &command[index + 1..];
                 let skip = usize::from(scheme && rest.len() > 1 && is_scheme(&rest[0].text));
                 let (Some(first), Some(last)) = (rest.get(skip), rest.last()) else {
                     continue;
                 };
-                if names_another_value(&first.text) {
+                let alone = rest.len() == 1 && scheme && is_known_scheme(&first.text);
+                if alone || names_another_value(&first.text) {
                     continue;
                 }
                 if let (Some(start), Some(end)) = (first.line_range(0), last.line_range(0)) {
@@ -61,12 +108,38 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
     found
 }
 
-/// The name of the header in `text` and where its value starts (after the colon and
-/// the blanks after it). The header starts the text, follows a leading `-H`, or follows
-/// the first `=` (`--header=`, `http.extraHeader=`).
-fn header(text: &str) -> Option<(&str, usize)> {
+/// The name of the header in `text`, where its value starts (after the colon and the
+/// blanks after it) and where the header starts. The header starts the text, follows a
+/// leading `-H`, or follows the first `=` (`--header=`, `http.extraHeader=`).
+fn header(text: &str) -> Option<(&str, usize, usize)> {
     let starts = [Some(0), text.starts_with("-H").then_some(2), text.find('=').map(|at| at + 1)];
-    starts.into_iter().flatten().find_map(|start| header_at(text, start))
+    starts
+        .into_iter()
+        .flatten()
+        .find_map(|start| header_at(text, start).map(|(name, value_at)| (name, value_at, start)))
+}
+
+/// The name of the program that a command's first word runs, without its directory.
+fn program_name(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+/// True for a word after which a header follows: `-H`, `--header`, or short options
+/// in one word that end with `H` (`-sH`).
+fn takes_header(word: &str) -> bool {
+    if HEADER_OPTIONS.contains(&word) {
+        return true;
+    }
+    word.strip_prefix('-').is_some_and(|flags| {
+        !flags.starts_with('-')
+            && flags.ends_with('H')
+            && flags.chars().all(|c| c.is_ascii_alphabetic())
+    })
+}
+
+/// True for a value that is only an authorization scheme, such as `Bearer`.
+fn is_known_scheme(value: &str) -> bool {
+    SCHEMES.iter().any(|scheme| value.eq_ignore_ascii_case(scheme))
 }
 
 /// The header that starts at byte `start` of `text`, as [`header`] returns it.

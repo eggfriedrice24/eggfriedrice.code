@@ -355,12 +355,15 @@ The design:
    that the store keeps are the bytes that went to the model (`preamble/secrets.rs`).
    It redacts the value of an assignment to a name that `efr_sandbox::secret_like`
    matches, also inside the value of another assignment
-   (`--env=API_TOKEN=[redacted]`); key forms such as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`; the password of
-   a URL (`https://user:[redacted]@host`); the value of a secret header
-   (`Authorization`, `Proxy-Authorization`, `Cookie` and the names that look like
-   secrets) after its scheme (`Authorization: Bearer [redacted]`); and the value of an
-   option that takes a password, only for the programs in its list
-   (`mysql -p[redacted]`, `sshpass -p`, `docker login -p`, `curl -u user:[redacted]`).
+   (`--env=API_TOKEN=[redacted]`); key forms such as `sk-ant-`, `sk-proj-`, `sk-` and
+   `ghp_`; the password of a URL (`https://user:[redacted]@host`); the value of a
+   secret header (`Authorization`, `Proxy-Authorization`, `Cookie` and the names that
+   look like secrets) after its scheme (`Authorization: Bearer [redacted]`), where a
+   header stands: after `-H` or `--header`, after a `=`, at the start of a command,
+   among the arguments of `http` or `xh`, or after `echo` for `Authorization` and
+   `Cookie`; and the value of an option that takes a password, only for the programs
+   in its list (`mysql -p[redacted]`, `sshpass -p`, `docker login -p`,
+   `curl -u user:[redacted]`).
    The list is per program because the same option means something else elsewhere
    (`docker run -p 8080:80`, `psql --password`). A value that names another value
    (`$TOKEN`) stays. The events keep only the prompt's text; a turn rebuilt from its
