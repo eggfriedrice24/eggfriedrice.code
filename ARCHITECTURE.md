@@ -233,10 +233,15 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-conversation/src/preamble/secrets.rs`; the measurement on the OpenAI path
   in `crates/efr-daemon/tests/it/cache_prefix.rs`.
 - The model catalog: the fetch, the cache file and which models are on offer in
-  `crates/efr-provider-openai/src/catalog.rs`; the built-in table, the last fallback, in
-  `crates/efr-provider-openai/src/models.rs`; when efrd fetches, the effective model
-  list, the default model and the windows of `[openai] models` in
-  `crates/efr-daemon/src/catalog.rs`.
+  `crates/efr-provider-openai/src/catalog.rs` and
+  `crates/efr-provider-anthropic/src/catalog.rs`; the built-in OpenAI table, the last
+  fallback, in `crates/efr-provider-openai/src/models.rs` (Claude models have none);
+  the catalog of either company and its cache file name in
+  `crates/efr-daemon/src/catalog/list.rs`; when efrd fetches, the wait of a prompt for
+  a first Claude list (`Models::ready`), the effective model list, the default model
+  and the windows of `[openai] models` and `[anthropic] models` in
+  `crates/efr-daemon/src/catalog.rs`; which provider efrd builds for `[model] provider`
+  in `crates/efr-daemon/src/providers.rs`.
 - Logins with an API key: where `efr` reads a key (a hidden prompt, stdin or
   `--from-env`) in `crates/efr-cli/src/commands/login/key.rs`; the method in
   `crates/efr-daemon/src/methods/admin_login_api_key.rs`; the checks of the key's text,
@@ -257,7 +262,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider-anthropic/src/convert/breakpoints.rs`; which error answers are
   sent again in `crates/efr-provider-anthropic/src/failure.rs`; the fake Messages API
   and model list for daemon tests, `MessagesServer`, in
-  `crates/efr-test-daemon/src/test_daemon/messages.rs`; the canonical token counts
+  `crates/efr-test-daemon/src/test_daemon/messages.rs` (`TestDaemonBuilder::messages`
+  runs the real provider against it), and a whole Claude conversation over it in
+  `crates/efr-daemon/tests/it/anthropic.rs`; the canonical token counts
   of every provider in `crates/efr-provider/README.md`, section "Token counts".
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.
