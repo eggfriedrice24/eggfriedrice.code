@@ -23,18 +23,15 @@
 
 mod catalog;
 mod config;
-#[cfg_attr(not(test), expect(dead_code, reason = "the model call is not built yet"))]
 mod convert;
 mod error;
 mod failure;
 mod messages;
 mod models;
-#[cfg_attr(not(test), expect(dead_code, reason = "the model call is not built yet"))]
 mod sse_events;
 #[cfg(test)]
 mod testing;
 mod timing;
-#[cfg_attr(not(test), expect(dead_code, reason = "the model call is not built yet"))]
 mod usage;
 
 pub use catalog::{

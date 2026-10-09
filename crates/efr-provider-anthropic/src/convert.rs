@@ -42,6 +42,9 @@
 //! the request; the conversion puts each marker as the last member of the block that it
 //! names. Two following requests of one conversation give the same bytes for `tools`,
 //! `system` and every earlier message, apart from the markers.
+//!
+//! The provider calls [`request_body`] once per call and sends the body's
+//! [`betas`](MessagesBody::betas) as the `anthropic-beta` header.
 
 mod breakpoints;
 
@@ -83,6 +86,13 @@ pub(crate) struct MessagesBody {
     thinking: Thinking,
     output_config: OutputConfig,
     messages: Vec<BodyMessage>,
+}
+
+impl MessagesBody {
+    /// The values of the `anthropic-beta` header that the body needs, in order.
+    pub(crate) fn betas(&self) -> &'static [&'static str] {
+        &[THINKING_BINDING_BETA]
+    }
 }
 
 /// `{"type": "ephemeral", "ttl": ...}`: a prompt cache marker.

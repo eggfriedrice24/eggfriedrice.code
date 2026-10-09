@@ -6,12 +6,9 @@ The Anthropic Messages API client. `AnthropicProvider` implements
 `efr_provider::Provider` over a streaming `POST <base_url>/messages` at
 `https://api.anthropic.com/v1`, with an API key. Its provider id is `anthropic-api`.
 
-Status: the pure parts are built: the config, the request body with its cache markers,
-the stream mapping and the usage sums. The HTTP model call, the catalog fetch, its cache
-file and the key check are not. Until they are, `AnthropicProvider::stream`,
-`CatalogClient::fetch` and `check_key` fail with an `Api` error of code `not_built`,
-`read_cache` finds no file and `write_cache` writes nothing. The daemon does not build
-this provider yet.
+Status: the config, the request body with its cache markers, the stream mapping, the
+usage sums, the HTTP exchange with its retries, the catalog fetch, its cache file and
+the key check are built. The daemon does not build this provider yet.
 
 Modules:
 
@@ -30,22 +27,29 @@ Modules:
   `check_key` checks a key.
 - `convert`: `request_body`, the request body and its messages as a pure function,
   and `THINKING_BINDING_BETA`, the one beta header; its `breakpoints` module places
-  the prompt cache markers (see "Prompt cache" below).
+  the prompt cache markers (see "Prompt cache" below). The provider calls
+  `request_body(&Request, &AnthropicConfig, Option<&ModelInfo>) -> Result<MessagesBody,
+  ProviderError>` once per call and sends `MessagesBody::betas()` as the
+  `anthropic-beta` header.
 - `sse_events`: `EventMapper`, a pure state machine from the stream's events to
-  `ProviderEvent`s (see "The stream" below).
+  `ProviderEvent`s (see "The stream" below). The provider calls `EventMapper::new()`,
+  then `map(&SseEvent) -> Result<Vec<ProviderEvent>, ProviderError>` for each event
+  until `is_done()`; an `error` event goes through `failure::event`.
 - `usage`: Anthropic's counts in efr's canonical sense, and `StreamUsage`, which keeps
   the cumulative counts of one stream (see "Token counts" below).
 - `failure`: what an error answer means and whether to send the request again (see
   "Failures" below).
 - `messages`: `AnthropicProvider`, the HTTP exchange, the retries and the event
-  stream.
+  stream, and `sign`, the headers of every request to the API.
 - `timing`: the `provider_accepted` and `provider_first_event` debug lines, in the
   form of `efr-provider-openai`, with `transport=http`.
 - `error`: `AnthropicError`, for settings refused when the config is built (a base URL
   that is not `http` or `https`, a workspace id that cannot be a header value) and for
   the cache file. A request fails with `efr_provider::ProviderError`.
-- `testing` (tests only): fakes and the loader of the stream fixtures in
-  `fixtures/messages/`.
+- `testing` (tests only): a clock whose sleeps end at once, a fixed random source, a
+  token source of one test key, model list entries and pages, server-sent events, a
+  log that a test reads and the loader of the stream fixtures in `fixtures/messages/`.
+  The fake API is `wiremock`.
 
 ## The request
 
@@ -54,6 +58,11 @@ Modules:
   `anthropic-workspace-id` when `[anthropic] workspace_id` is set (a key that is not
   scoped to one workspace needs it); `anthropic-beta:
   thinking-binding-controls-2026-08-01`. No other beta header: an unknown one is a 400.
+  No `x-api-key`: the API takes Bearer as its main form and calls `x-api-key` the
+  legacy one, and efr sends one credential header only. Also `Accept:
+  text/event-stream` and `Content-Type: application/json`. The model call goes to the
+  `efr_http` recorder with the key hidden; the fetch of the list and the key check do
+  not.
 - Body, in this member order: `model`; `stream: true`; `max_tokens`; `system` as one
   text block, left out when empty; `tools` as function tools in the request's order
   (a freeform tool in its function form); `tool_choice: {"type": "auto"}`, left out
@@ -173,14 +182,26 @@ the full table. In short:
 
 ## Catalog
 
-- `GET <base_url>/models?limit=1000`, more pages through `after_id` while `has_more` is
-  true. A model is offered only when its `lifecycle` is `active` (the API's default
-  filter also returns `deprecated` ones). An entry that cannot be read is left out.
+- `GET <base_url>/models?limit=1000`, more pages through `after_id` (the page's
+  `last_id`) while `has_more` is true, with the headers of a model call but no
+  `anthropic-beta`. A page that says `has_more` but names no new `last_id`, or a list
+  of more than 100 pages, fails the fetch. A model is offered only when its
+  `lifecycle` is `active` (the API's default filter also returns `deprecated` ones);
+  an entry without a `lifecycle` counts as `active`. An entry that cannot be read is
+  left out.
 - An offered model: `context_window` and `max_context_window` from `max_input_tokens`
   (1M on the current models; `[anthropic] models` can lower the window),
-  `max_output_tokens` from `max_tokens`, `efforts` from `capabilities`,
-  `default_effort` `DEFAULT_EFFORT` when the model takes it, `edit_tool`
-  `EditTool::Replace`, no freeform tools, no WebSockets.
+  `max_output_tokens` from `max_tokens` (a missing or zero count stays unknown),
+  `efforts` from `capabilities.effort` (each level whose `supported` is true, from
+  `low` to `max`, then any new level by name), `default_effort` `DEFAULT_EFFORT` when
+  the model takes it, `edit_tool` `EditTool::Replace`, no freeform tools, no
+  WebSockets.
+- `AnthropicProvider::models` lays the models of the config over the catalog: an
+  entry of the same id sets the window and the output limit, each up to the catalog's
+  limit, and any other entry comes after the catalog's models.
+- A 401 fails the fetch with `Unauthorized { message }` at once; a token source that
+  can refresh gets one refresh first. The fetch's other errors follow the classes of
+  "Failures" below; the request itself is sent again by `efr_http`'s rules for a `GET`.
 - `Catalog::default_model` is `DEFAULT_MODEL` when it is on offer, else the first model
   on offer. The compaction stays at efr's `auto_at` (76%) of the window.
 - No table of models and no guessed window: without a list the provider offers no
@@ -190,9 +211,10 @@ the full table. In short:
 - The cache file holds `version`, `base_url`, `fetched_at` and the entries in the
   API's form, with mode 0600, under its own name beside the OpenAI catalog's file.
 - `check_key(http, config, key)`: `GET <base_url>/models?limit=1` with the request's
-  headers. `Ok` for a 200; a 401 is `Unauthorized { message }` and a 403 an `Api`
-  error, each with the server's message; another status is `Api` with the status, and
-  no answer is `Transport`.
+  headers. `Ok` for a 200; a 401 is `Unauthorized { message }`; any other status is
+  `Api` with the status and the server's message (such as a 403, or the 400 that asks
+  for `anthropic-workspace-id`), else the status's reason; no answer is `Transport`.
+  The check is never recorded, and no error holds the key.
 
 ## Token counts
 
@@ -226,13 +248,20 @@ at `message_stop`.
 | 413 `request_too_large` | `Api` (not `ContextOverflow`: a body over 32 MB) | no |
 | 429 with `error.details.error_code` `enforced_spend_limit_reached` | `Api` | no |
 | any other 429 | `RateLimited { retry_after }` | yes, after `retry-after` |
-| 500 `api_error`, 504 `timeout_error` | `Api` after the last try | yes, with backoff |
+| 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
 | 529 `overloaded_error` | `Overloaded` after the last try | yes, with backoff |
+| any other status | `Api` with the server's message | no |
 | an `error` event after a 200 | the same class by `error.type` | never |
 
 The attempts go through `efr_http::RetryPolicy::run` on the injected clock: one
 attempt reads the error body and classifies it before the policy decides, so a spend
 cap is never sent four times. `efr_http::is_retryable_status` does not decide here.
+A `retry-after` header sets the wait; a wait above the policy's longest ends the
+attempts at once. A request that could not connect is sent again, because the server
+never saw it; a request that timed out or broke after it was sent is not. A message
+comes from the error body's `error.message`, else from the body as text, else from the
+status, clipped to 1000 characters. Each failed attempt writes one debug line with
+the status and the `request-id`, which is also a field of the request's span.
 The conversation fails a turn with `unauthorized` for `Unauthorized`, `busy` for
 `RateLimited` and `Overloaded`, and `invalid` for `UnknownModel`.
 
@@ -251,10 +280,12 @@ It must never depend on `efr-oauth-openai`: the key arrives through
 `efr_provider::TokenSource`, which says that it cannot refresh. That edge is
 forbidden in `xtask/src/deps.rs`.
 
-Third-party crates: `async-trait`, `jiff` (the time of a fetched catalog), `serde`
-(the typed body and the blocks of `provider_raw`), `serde_json` (with `raw_value`, for
-the exact replay of assistant content), `thiserror` and `tracing`. Tests also use
-`insta` (the body snapshots), `rstest` and `pretty_assertions`.
+Third-party crates: `async-trait`, `futures` (the event stream), `jiff` (the time of a
+fetched catalog), `serde` (the typed body, the blocks of `provider_raw`, the entries of
+the catalog and its cache file), `serde_json` (with `raw_value`, for the exact replay
+of assistant content), `thiserror` and `tracing`. The tests also use `insta` (the body
+snapshots), `rstest`, `pretty_assertions`, `tempfile`, `tokio`, `tracing-subscriber`
+(to read the log) and `wiremock` (the fake API).
 
 ## Invariant
 
@@ -278,12 +309,17 @@ cargo nextest run -p efr-provider-anthropic
 
 `config` tests pin the defaults, the URLs and the refused settings. `usage` tests check
 the three-part input sum, the one-hour writes, the thinking count and the cumulative
-stream counts. `catalog` tests check the default model and what `apply` does with a
-list. `convert::breakpoints` tests are table tests of the placement: the walkthrough of
-two turns with a tool loop, a steer, a summary request and the calls after a
-compaction, the anchor of a grown tool loop, a side call, each time to live, the
-fallbacks of S, and every short history under every setting against the rules of the
-API (at most four markers, in order, no one-hour marker after a five-minute one).
+stream counts. `catalog` tests check an entry as a model, the `lifecycle` filter, the
+efforts, the default model, what `apply` does with a list and the models of the config
+over the catalog; its `cache` tests the round trip of the file, its form, its 0600 mode
+and the files that are not used; its `client` tests, on `wiremock`, the pages, the
+headers, the refused key, the broken lists and every result of `check_key`. `failure`
+tests are table tests of each answer's class and of each `error` event.
+`convert::breakpoints` tests are table tests of the placement: the walkthrough of two
+turns with a tool loop, a steer, a summary request and the calls after a compaction,
+the anchor of a grown tool loop, a side call, each time to live, the fallbacks of S,
+and every short history under every setting against the rules of the API (at most four
+markers, in order, no one-hour marker after a five-minute one).
 
 `convert` tests pin the body with insta snapshots (`src/convert/snapshots/`: the
 first call, a tool loop, a steer, the head after a compaction, a summary request, no
@@ -294,5 +330,11 @@ prefix of the next. `sse_events` tests read the hand-written streams in
 `fixtures/messages/` (text, a tool call, thinking, omitted thinking, redacted
 thinking, an error after the start, `max_tokens`, `refusal`) and cover each stop
 reason, each error type, unknown events and broken tool calls.
+
+`messages` tests, on `wiremock` and a clock whose sleeps end at once, check the
+headers of a model call, that no `provider_options` key reaches the body, the retries
+of a 429, a 5xx and a 529 with their waits, the classes that are sent once, an `error`
+event after the stream started, a cut stream, a refused connection, and that no
+recorded request, error or log line holds the key.
 
 The tests make no network call, sleep on no real time and need no Zig.

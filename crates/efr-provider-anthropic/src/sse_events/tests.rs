@@ -362,7 +362,7 @@ fn an_error_event_without_an_error_object_still_fails() {
     let (_, error) = map_all(&sse(&[json!({"type": "error"})]));
     match error {
         Some(ProviderError::Api { code: None, message, .. }) => {
-            assert_eq!(message, "the API sent an error event");
+            assert_eq!(message, "no message");
         }
         other => panic!("{other:?}"),
     }

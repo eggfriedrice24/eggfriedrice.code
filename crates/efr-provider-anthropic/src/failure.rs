@@ -278,49 +278,5 @@ fn clip(message: &str) -> String {
     message.chars().take(MAX_ERROR_MESSAGE).collect()
 }
 
-/// The error code of a part of the provider that efr does not have yet.
-const NOT_BUILT: &str = "not_built";
-
-/// The error of an `error` event after a 200, from its `error` object, by
-/// `error.type`: the class of the table above. The stream has started, so the caller
-/// never sends the request again, whatever the class.
-pub(crate) fn stream_error(error: Option<&Value>) -> ProviderError {
-    let field = |key: &str| error.and_then(|error| error.get(key)).and_then(Value::as_str);
-    let kind = field("type");
-    let message = field("message")
-        .filter(|message| !message.trim().is_empty())
-        .unwrap_or("the API sent an error event")
-        .to_owned();
-    let code = kind.map(str::to_owned);
-    let details = error
-        .and_then(|error| error.get("details"))
-        .and_then(|details| details.get("error_code"))
-        .and_then(Value::as_str);
-    match kind {
-        // NOTE: `ProviderError::api` reads `prompt is too long` as an overflow.
-        Some("invalid_request_error") => ProviderError::api(None, code, message),
-        Some("authentication_error") => ProviderError::Unauthorized { message: Some(message) },
-        Some("rate_limit_error") if details == Some(SPEND_LIMIT_CODE) => {
-            ProviderError::Api { status: None, code: Some(SPEND_LIMIT_CODE.to_owned()), message }
-        }
-        Some("rate_limit_error") => ProviderError::RateLimited { retry_after: None },
-        Some("overloaded_error") => ProviderError::Overloaded { status: None, message },
-        // NOTE: built here, not through `ProviderError::api`: a `request_too_large` is a
-        // body over 32 MB, not a context overflow.
-        _ => ProviderError::Api { status: None, code, message },
-    }
-}
-
-/// The error of a call into a part of the provider that is not built yet. It is an
-/// `Api` error without a status, so the conversation fails the turn with `internal`
-/// and never retries it.
-pub(crate) fn not_built() -> ProviderError {
-    ProviderError::Api {
-        status: None,
-        code: Some(NOT_BUILT.to_owned()),
-        message: "efr cannot reach Anthropic's models yet".to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests;

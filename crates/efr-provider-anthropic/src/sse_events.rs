@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
-use crate::failure::stream_error;
+use crate::failure;
 use crate::usage::StreamUsage;
 
 /// The longest event or block type the debug log shows, so a hostile stream cannot
@@ -190,7 +190,7 @@ impl EventMapper {
             }
             "message_stop" => self.message_stop(out)?,
             "ping" => tracing::trace!("a ping of the Messages stream"),
-            "error" => return Err(stream_error(value.get("error"))),
+            "error" => return Err(failure::event(&value)),
             other => {
                 tracing::debug!(event_type = %shown(other), "passed on an unknown Messages event");
                 out.push(ProviderEvent::Raw(value.clone()));
