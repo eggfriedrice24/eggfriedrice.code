@@ -18,7 +18,7 @@ use efr_protocol::{
     CallId, ConversationId, FileChanges, InputWait, Launch, Origin, ReportedFile, SandboxSummary,
     Scope, SurfaceChange, TurnId,
 };
-use efr_provider::ToolDefinition;
+use efr_provider::{EditTool, ToolDefinition};
 use serde_json::Value;
 
 /// The tools a conversation offers the model.
@@ -29,8 +29,10 @@ use serde_json::Value;
 #[async_trait]
 pub trait Toolbox: Send + Sync + fmt::Debug {
     /// The tools for the provider request, in a stable order, so that the request stays
-    /// the same from one model call to the next.
-    fn definitions(&self) -> Vec<ToolDefinition>;
+    /// the same from one model call to the next. Of the two tools that change files,
+    /// `apply_patch` and `edit`, it offers only the one that `edit` names: the tool that
+    /// the request's model knows ([`efr_provider::ModelInfo::edit_tool`]).
+    fn definitions(&self, edit: EditTool) -> Vec<ToolDefinition>;
 
     /// What `call` needs: every path with its access, the command line it runs, network
     /// and terminal input. Nothing runs and nothing is written; a toolbox may read the
@@ -193,12 +195,16 @@ pub struct CallContext {
     /// cap of its origin). Only `auto` reads the facts of a shell call, so the toolbox
     /// collects them only then.
     pub auto: bool,
+    /// The tool with which the turn's model changes files, the one that the request
+    /// offered. A call of the other one was not offered, and the toolbox refuses it.
+    pub edit_tool: EditTool,
 }
 
 impl CallContext {
     /// The context of the call `call_id` of the turn `turn_id`, in the machine scope
-    /// from the shell origin until [`with_scope`](Self::with_scope) and
-    /// [`with_origin`](Self::with_origin) say otherwise.
+    /// from the shell origin, for a model that changes files with `apply_patch`, until
+    /// [`with_scope`](Self::with_scope), [`with_origin`](Self::with_origin) and
+    /// [`with_edit_tool`](Self::with_edit_tool) say otherwise.
     pub fn new(
         conversation_id: ConversationId,
         turn_id: TurnId,
@@ -219,7 +225,15 @@ impl CallContext {
             launch: Launch::Direct,
             exits: Vec::new(),
             auto: false,
+            edit_tool: EditTool::default(),
         }
+    }
+
+    /// Sets the tool with which the turn's model changes files.
+    #[must_use]
+    pub fn with_edit_tool(mut self, edit_tool: EditTool) -> Self {
+        self.edit_tool = edit_tool;
+        self
     }
 
     /// Sets whether the turn runs in `auto`.

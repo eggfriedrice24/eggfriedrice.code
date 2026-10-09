@@ -31,6 +31,7 @@ mod compaction;
 mod context;
 mod drafts;
 mod sandbox;
+mod tools;
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()

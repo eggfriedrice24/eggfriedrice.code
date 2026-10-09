@@ -203,7 +203,7 @@ impl CallSnapshots {
         (Some(FileChanges::from_files(files)), diff)
     }
 
-    /// The preview of an `apply_patch` call with each path as a client shows it, as
+    /// The preview of an `apply_patch` or `edit` call with each path as a client shows it, as
     /// the diff of the finished call names them: the `---` and `+++` lines of each
     /// file and the lines that mark a delete or a move.
     pub(crate) fn shown_preview(&self, call: &CallContext, text: &str) -> String {

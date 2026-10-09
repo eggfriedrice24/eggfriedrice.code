@@ -22,8 +22,8 @@ use efr_protocol::{
     TurnInterrupt, TurnSettings, TurnSteer, WithdrawTarget,
 };
 use efr_provider::{
-    ContentBlock, Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
-    Request, Role, StopReason, ToolDefinition, ToolGrammar,
+    ContentBlock, EditTool, Message, Provider, ProviderError, ProviderEvent, ProviderId,
+    ProviderStream, Request, Role, StopReason, ToolDefinition, ToolGrammar,
 };
 use efr_scope::{Derivation, Home};
 use efr_stdx::id::uuid_v7;
@@ -65,7 +65,11 @@ pub(crate) const OS: &str = "TestOS";
 /// - `apply_patch`, a freeform tool, declares the path of each `*** Add File:`,
 ///   `*** Update File:`, `*** Delete File:` and `*** Move to:` line of its text as a
 ///   write, marks a delete or a move as destructive, as the real tool does, and
-///   answers `patched`.
+///   answers `patched`;
+/// - `edit {path, old_string, new_string}` writes a path and answers `edited <path>`.
+///
+/// The definitions offer `apply_patch` or `edit`, the one that the request's model
+/// knows, in the same place of the list; a call of either one runs.
 ///
 /// A `shell` input may also declare `reads` and `writes` (lists of paths), `network`,
 /// `nested_shell` and `needs`, as the real shell tool does. The command `plant-hook`
@@ -115,7 +119,13 @@ pub(crate) fn edited() -> FileChanges {
 }
 
 impl FakeToolbox {
+    /// The definitions for a model that changes files with `apply_patch`.
     pub(crate) fn tools() -> Vec<ToolDefinition> {
+        FakeToolbox::tools_for(EditTool::ApplyPatch)
+    }
+
+    /// The definitions for a model that changes files with `edit`.
+    pub(crate) fn tools_for(edit: EditTool) -> Vec<ToolDefinition> {
         let tool = |name: &str, description: &str, properties: Value| {
             ToolDefinition::function(
                 name,
@@ -133,11 +143,22 @@ impl FakeToolbox {
             tool("shell", "Runs a command.", json!({"command": {"type": "string"}})),
             tool("hang", "Never ends.", json!({})),
             ToolDefinition::freeform("note", "Takes a note.", ToolGrammar::lark("start: /.+/")),
-            ToolDefinition::freeform(
-                "apply_patch",
-                "Edits files.",
-                ToolGrammar::lark("start: /(.|\\n)+/"),
-            ),
+            match edit {
+                EditTool::Replace => tool(
+                    "edit",
+                    "Replaces text in a file.",
+                    json!({
+                        "path": {"type": "string"},
+                        "old_string": {"type": "string"},
+                        "new_string": {"type": "string"},
+                    }),
+                ),
+                _ => ToolDefinition::freeform(
+                    "apply_patch",
+                    "Edits files.",
+                    ToolGrammar::lark("start: /(.|\\n)+/"),
+                ),
+            },
         ]
     }
 
@@ -207,15 +228,17 @@ fn text_input(input: &Value, key: &str) -> Result<String, String> {
 
 #[async_trait]
 impl Toolbox for FakeToolbox {
-    fn definitions(&self) -> Vec<ToolDefinition> {
-        FakeToolbox::tools()
+    fn definitions(&self, edit: EditTool) -> Vec<ToolDefinition> {
+        FakeToolbox::tools_for(edit)
     }
 
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         self.judged.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
         match call.name.as_str() {
             "read_file" => Ok(Requirements::none().with_read(text_input(&call.input, "path")?)),
-            "write_file" => Ok(Requirements::none().with_write(text_input(&call.input, "path")?)),
+            "write_file" | "edit" => {
+                Ok(Requirements::none().with_write(text_input(&call.input, "path")?))
+            }
             "shell" => {
                 let command = text_input(&call.input, "command")?;
                 let interactive = command.starts_with("sudo ");
@@ -302,6 +325,7 @@ impl Toolbox for FakeToolbox {
             },
             "note" => ToolOutcome::ok(format!("noted {}", call.input.as_str().unwrap_or("?"))),
             "apply_patch" => ToolOutcome::ok("patched"),
+            "edit" => ToolOutcome::ok(format!("edited {path}")),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
             "shell" if call.input["command"] == "ask-password" => {
                 out.update("pw: ", 4);

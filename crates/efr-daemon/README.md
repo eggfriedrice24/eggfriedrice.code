@@ -164,6 +164,19 @@ a new list applies from the next turn on.
 - The default model (`default_model`) is `[model] name`, else the catalog's model with
   the best priority, else the first id of `[openai] models`.
 
+### The edit tool of a model
+
+The registry (`tools.rs`) holds both tools that change files, `apply_patch` and
+`edit`, but a request offers only one: `DaemonToolbox::definitions(edit)` leaves out
+the one that the model does not know (`efr_provider::ModelInfo::edit_tool`, which the
+turn passes). OpenAI models get `apply_patch`, Claude models `edit`. The registry keeps
+both, so a model can still name the other one, such as an `apply_patch` call of an
+earlier model in the history: `requirements` refuses such a call before the engine
+judges it, from `CallContext::edit_tool`, and the model reads
+`This model has no apply_patch tool, and the call did not run. Use the edit tool to
+change a file.` Both tools write in the daemon (`FILE_WRITERS`): the plan lock, the
+turn's first snapshot and the shown paths of the approval preview are the same.
+
 ### The settings tool
 
 `tools/settings_tool.rs` is the model's way to efr's own settings. It lives here and not
@@ -389,8 +402,8 @@ spec; `docs/sandbox.md` for the user's view):
   `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>` (0700) with `spec.json` and `nonce`
   (0600). The toolbox (`tools.rs`) hands the run to the shell tool and lets the lock go
   once the launcher wrote `started`, so a call that runs on past its timeout blocks
-  no other plan and no `write_file` or `apply_patch`, which take the same lock for
-  their own writes.
+  no other plan and no `write_file`, `apply_patch` or `edit`, which take the same lock
+  for their own writes.
   Before `prepare`, the toolbox waits until the conversation's shell has no other run
   (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
   a command still running holds no lock while it waits.
@@ -420,7 +433,7 @@ spec; `docs/sandbox.md` for the user's view):
   in every mode, and in `auto` the registered projects that the line names (the
   plan's project roots; that snapshot is taken under the plan lock). Nothing outside
   these roots is snapshotted, git repository or not.
-- A `write_file` or `apply_patch` call: the tool's own diffs and line counts (the
+- A `write_file`, `apply_patch` or `edit` call: the tool's own diffs and line counts (the
   `efr_tools::WrittenFile` of each file it changed) go to `tool_call_completed` as
   `changes` and `diff`, in every directory. A created file is `added`, a deleted one
   `deleted` and a moved one `renamed` with the path it came from. The diff holds the
@@ -428,9 +441,9 @@ spec; `docs/sandbox.md` for the user's view):
   each header naming the shown paths (`/dev/null` for the side that is missing). A
   shown path that is absolute keeps its `/` after `a/` and `b/`, such as
   `+++ b//etc/x.conf`, so a client does not show it as a path in the project.
-  The approval preview of an `apply_patch` call names the same shown paths, in its
-  headers and in its `delete` and `move` lines; the lines of each hunk stay as
-  they are.
+  The approval preview of an `apply_patch` or `edit` call names the same shown
+  paths, in its headers and in the `delete` and `move` lines of a patch; the lines of
+  each hunk stay as they are.
   Before the call writes into a root, the turn gets its first snapshot of that
   root.
 - At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the

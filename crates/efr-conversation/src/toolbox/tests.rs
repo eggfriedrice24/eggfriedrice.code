@@ -1,4 +1,5 @@
 use efr_protocol::{CallId, ConversationId, Grant, Launch, Origin, SandboxSummary, Scope, TurnId};
+use efr_provider::EditTool;
 use efr_stdx::id::uuid_v7;
 use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
@@ -26,6 +27,12 @@ fn a_context_starts_in_the_machine_scope_from_the_shell() {
     let phone = context.with_origin(Origin::Phone).with_scope(Scope::Path("/etc".into()));
     assert_eq!(phone.origin, Origin::Phone);
     assert_eq!(phone.scope, Scope::Path("/etc".into()));
+}
+
+#[test]
+fn a_context_is_for_a_model_that_edits_with_apply_patch_until_it_says_otherwise() {
+    assert_eq!(context().edit_tool, EditTool::ApplyPatch);
+    assert_eq!(context().with_edit_tool(EditTool::Replace).edit_tool, EditTool::Replace);
 }
 
 #[test]

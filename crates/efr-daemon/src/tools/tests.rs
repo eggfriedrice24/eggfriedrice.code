@@ -15,6 +15,7 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{CallId, ConversationId, Launch, Mode, Origin, Scope, TurnId};
+use efr_provider::EditTool;
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
 use efr_test_support::{TestClock, TestRng};
@@ -175,13 +176,65 @@ fn a_freeform_spec_becomes_a_freeform_definition_with_the_same_function_form() {
 #[test]
 fn the_model_is_offered_the_shell_the_file_tools_and_the_settings() {
     let home = tempfile::tempdir().unwrap();
-    let definitions = toolbox(home.path()).definitions();
+    let definitions = toolbox(home.path()).definitions(EditTool::ApplyPatch);
 
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
     assert_eq!(names, ["shell", "read_file", "write_file", "apply_patch", "settings"]);
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
     let patch = &definitions[3];
     assert_eq!(patch.grammar, Some(efr_provider::ToolGrammar::lark(efr_patch_grammar())));
+}
+
+#[test]
+fn a_model_that_replaces_text_is_offered_edit_in_place_of_apply_patch() {
+    let home = tempfile::tempdir().unwrap();
+    let definitions = toolbox(home.path()).definitions(EditTool::Replace);
+
+    let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
+    assert_eq!(names, ["shell", "read_file", "write_file", "edit", "settings"]);
+    let edit = &definitions[3];
+    assert_eq!(edit.grammar, None, "edit is a function tool");
+    assert_eq!(edit.input_schema["required"], json!(["path", "old_string", "new_string"]));
+}
+
+#[tokio::test]
+async fn a_call_of_the_edit_tool_that_the_request_did_not_offer_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    let patch = "*** Begin Patch\n*** Delete File: old.rs\n*** End Patch\n";
+    let mut patched = call("apply_patch", json!(patch), home.path());
+    patched.context = patched.context.with_edit_tool(EditTool::Replace);
+    let edited =
+        call("edit", json!({"path": "a.rs", "old_string": "a", "new_string": "b"}), home.path());
+
+    let refused = toolbox.requirements(&patched).await;
+    let other = toolbox.requirements(&edited).await;
+
+    assert_eq!(
+        refused,
+        Err("This model has no apply_patch tool, and the call did not run. Use the edit tool \
+             to change a file."
+            .to_owned())
+    );
+    assert_eq!(
+        other,
+        Err("This model has no edit tool, and the call did not run. Use the apply_patch tool \
+             to change a file."
+            .to_owned())
+    );
+}
+
+#[tokio::test]
+async fn an_edit_declares_its_path_as_a_write_and_is_never_destructive() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    let mut edit =
+        call("edit", json!({"path": "a.rs", "old_string": "a", "new_string": "b"}), home.path());
+    edit.context = edit.context.with_edit_tool(EditTool::Replace);
+
+    let requirements = toolbox.requirements(&edit).await;
+
+    assert_eq!(requirements, Ok(Requirements::none().with_write(home.path().join("a.rs"))));
 }
 
 /// The grammar that `apply_patch` sends, as its spec gives it.

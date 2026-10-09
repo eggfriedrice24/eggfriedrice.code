@@ -1,7 +1,8 @@
 //! `apply_patch` end to end, through the real subscription provider against a local
 //! Responses server: the request offers the tool in its freeform (`custom`) form with
 //! its grammar, the model answers with a `custom_tool_call` whose input is the patch
-//! text, and the result goes back as a `custom_tool_call_output`.
+//! text, and the result goes back as a `custom_tool_call_output`. Such a model is not
+//! offered the `edit` tool of the Claude models, and a call of it does not run.
 
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
@@ -164,5 +165,41 @@ async fn a_delete_asks_even_in_the_project_and_a_no_keeps_the_file() {
     assert!(path.exists(), "the user said no");
     let output = output_sent_back(&server);
     assert!(output["output"].as_str().unwrap().contains("denied"), "{output:#}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_model_with_apply_patch_gets_no_edit_tool_and_a_call_of_it_does_not_run() {
+    let server = ResponsesServer::start().await;
+    let input = json!({"path": "src/lib.rs", "old_string": "old", "new_string": "new"});
+    server.push(ResponsesAnswer::tool_call("call_edit_1", "edit", &input));
+    server.push(ResponsesAnswer::text("Done."));
+    let daemon = TestDaemon::builder().subscription(&server).start().await.unwrap();
+    std::fs::create_dir_all(daemon.cwd().join("src")).unwrap();
+    std::fs::write(daemon.cwd().join("src/lib.rs"), "fn main() {\n    old();\n}\n").unwrap();
+
+    let events = run_turn(&daemon, ApprovalDecision::Allow).await;
+
+    let tools = server.received()[0].body["tools"].as_array().unwrap().clone();
+    let names: Vec<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
+    assert!(names.contains(&"apply_patch"), "{names:?}");
+    assert!(!names.contains(&"edit"), "{names:?}");
+    let completed = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { is_error, output, .. } => Some((*is_error, output.clone())),
+        _ => None,
+    });
+    assert_eq!(
+        completed,
+        Some((
+            true,
+            "This model has no edit tool, and the call did not run. Use the apply_patch tool \
+             to change a file."
+                .to_owned()
+        ))
+    );
+    assert_eq!(
+        std::fs::read_to_string(daemon.cwd().join("src/lib.rs")).unwrap(),
+        "fn main() {\n    old();\n}\n"
+    );
     daemon.stop().await.unwrap();
 }

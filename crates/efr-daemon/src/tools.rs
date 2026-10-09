@@ -35,9 +35,9 @@ use efr_scope::Home;
 use efr_shell::{ShellError, ShellSessions};
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
-    AccessMode, ApplyPatchTool, CallIds, JournalEntry, ReadFileTool, ShellTool, ToolContext,
-    ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec, WriteFileTool,
-    WriteJournal, not_ready_message,
+    AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
+    ToolContext, ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec,
+    WriteFileTool, WriteJournal, not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -60,11 +60,32 @@ pub(crate) const SANDBOX_NOT_STARTED: &str =
 
 /// The tools that write files in the daemon, outside the hidden shell: they take the
 /// plan lock of their projects and the turn's first snapshot before they write.
-const FILE_WRITERS: [&str; 2] = [WriteFileTool::NAME, ApplyPatchTool::NAME];
+const FILE_WRITERS: [&str; 3] = [WriteFileTool::NAME, ApplyPatchTool::NAME, EditTool::NAME];
 
-/// The registry: the shell, `read_file`, `write_file` and `apply_patch`. A provider
-/// sends `apply_patch` in its freeform form to a model that takes it, and in its
-/// function form to every other model.
+/// The tools that change files, of which a request offers the model one: the one that
+/// the model knows ([`efr_provider::EditTool`]).
+const EDIT_TOOLS: [&str; 2] = [ApplyPatchTool::NAME, EditTool::NAME];
+
+/// The name of the tool with which a model that knows `edit` changes files.
+fn edit_tool_name(edit: efr_provider::EditTool) -> &'static str {
+    match edit {
+        efr_provider::EditTool::Replace => EditTool::NAME,
+        // NOTE: `apply_patch` is the default; a kind that this daemon does not know yet
+        // gets it too.
+        _ => ApplyPatchTool::NAME,
+    }
+}
+
+/// True when a request for a model that knows `edit` offers the tool `name`: every tool
+/// but the edit tool that the model does not know.
+fn offered(name: &str, edit: efr_provider::EditTool) -> bool {
+    !EDIT_TOOLS.contains(&name) || name == edit_tool_name(edit)
+}
+
+/// The registry: the shell, `read_file`, `write_file`, `apply_patch` and `edit`. A
+/// request offers a model `apply_patch` or `edit`, never both. A provider sends
+/// `apply_patch` in its freeform form to a model that takes it, and in its function
+/// form to every other model.
 pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonError> {
     let mut registry = ToolRegistry::new();
     let shell = ShellTool::new(Arc::new(shells.clone()));
@@ -78,6 +99,7 @@ pub(crate) fn registry(shells: &ShellSessions) -> Result<ToolRegistry, DaemonErr
     // NOTE: a delete or a move of a patch declares itself destructive, and the engine
     // asks about it in every mode (`efr_permissions::Requirements::destructive`).
     registry.register(Arc::new(ApplyPatchTool)).map_err(|source| DaemonError::Tool { source })?;
+    registry.register(Arc::new(EditTool)).map_err(|source| DaemonError::Tool { source })?;
     Ok(registry)
 }
 
@@ -150,7 +172,7 @@ impl DaemonToolbox {
         self.snapshots.as_ref()?.after_call(before).await
     }
 
-    /// Before a `write_file` or `apply_patch` call: the turn's first snapshot of each
+    /// Before a `write_file`, `apply_patch` or `edit` call: the turn's first snapshot of each
     /// root that holds one of its targets.
     async fn snapshot_before_write(&self, call: &ToolCall) {
         let Some(snapshots) = &self.snapshots else { return };
@@ -250,8 +272,8 @@ impl DaemonToolbox {
         Some(facts::collect(&input, sandbox.git(), &self.home).await)
     }
 
-    /// Takes the plan lock of the projects that a `write_file` or `apply_patch` call
-    /// writes, for the write; `None` for another tool or without a sandbox.
+    /// Takes the plan lock of the projects that a `write_file`, `apply_patch` or `edit`
+    /// call writes, for the write; `None` for another tool or without a sandbox.
     async fn lock_write(&self, call: &ToolCall) -> Option<lock::PlanGuard> {
         let (sandbox, _) = self.sandbox.as_ref()?;
         if !FILE_WRITERS.contains(&call.name.as_str()) {
@@ -394,6 +416,16 @@ impl DaemonToolbox {
     }
 }
 
+/// What the model reads for a call of the edit tool `name` that its request did not
+/// offer: the call did not run, and which tool changes files.
+fn not_offered(name: &str, edit: efr_provider::EditTool) -> String {
+    format!(
+        "This model has no {name} tool, and the call did not run. Use the {} tool to \
+         change a file.",
+        edit_tool_name(edit)
+    )
+}
+
 /// The provider's definition of a registered tool: a field-by-field copy, with a
 /// freeform tool's grammar.
 pub(crate) fn definition(spec: ToolSpec) -> ToolDefinition {
@@ -406,9 +438,14 @@ pub(crate) fn definition(spec: ToolSpec) -> ToolDefinition {
 
 #[async_trait]
 impl Toolbox for DaemonToolbox {
-    fn definitions(&self) -> Vec<ToolDefinition> {
-        let mut definitions: Vec<ToolDefinition> =
-            self.registry.specs().into_iter().map(definition).collect();
+    fn definitions(&self, edit: efr_provider::EditTool) -> Vec<ToolDefinition> {
+        let mut definitions: Vec<ToolDefinition> = self
+            .registry
+            .specs()
+            .into_iter()
+            .filter(|spec| offered(&spec.name, edit))
+            .map(definition)
+            .collect();
         definitions.push(SettingsTool::definition());
         definitions
     }
@@ -416,6 +453,11 @@ impl Toolbox for DaemonToolbox {
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         if call.name == settings_tool::NAME {
             return self.settings_tool.requirements(call).await;
+        }
+        // NOTE: the registry keeps both edit tools, so a model could name the one that
+        // its request did not offer, such as `apply_patch` from an earlier model's calls.
+        if !offered(&call.name, call.context.edit_tool) {
+            return Err(not_offered(&call.name, call.context.edit_tool));
         }
         let context = self.context(&call.context);
         let declared = self
@@ -460,9 +502,9 @@ impl Toolbox for DaemonToolbox {
         }
         let context = self.context(&call.context);
         let preview = self.registry.preview(&call.name, &context, &call.input).await?;
-        // NOTE: the patch tool names absolute paths; the question shows them as the
+        // NOTE: the edit tools name absolute paths; the question shows them as the
         // finished call's diff does.
-        match (&self.snapshots, call.name == ApplyPatchTool::NAME) {
+        match (&self.snapshots, EDIT_TOOLS.contains(&call.name.as_str())) {
             (Some(snapshots), true) => Some(snapshots.shown_preview(&call.context, &preview)),
             _ => Some(preview),
         }

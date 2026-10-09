@@ -159,7 +159,7 @@ request:
    prompt, so a system prompt replaced in `config.toml` cannot drop them. The turn
    saves the prompt with its preamble, and later requests send both again unchanged
    (see "The history only grows");
-4. the tool definitions.
+4. the tool definitions, with the one edit tool that the turn's model knows.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at
 most one per `update_interval` on the injected clock, the text held back sent when the
@@ -214,8 +214,15 @@ the registry's shape in its own terms, and the daemon implements it over its
 `efr_tools::ToolRegistry` in `efr-daemon/src/tools.rs`. The adapter is a copy, field
 by field:
 
-- `definitions`: each `ToolSpec` (`name`, `description`, `input_schema`) as an
-  `efr_provider::ToolDefinition`;
+- `definitions(edit)`: each `ToolSpec` (`name`, `description`, `input_schema`) as an
+  `efr_provider::ToolDefinition`, with one of the two tools that change files: the one
+  that `edit` names (`efr_provider::EditTool`), `apply_patch` or `edit`. The turn, and
+  the manual compaction for its summary request, pass the edit tool of the request's
+  model: the one that `Provider::models` names for it, else the one that every listed
+  model shares, else `apply_patch` (`turn::edit_tool`). The turn reads it once when it
+  starts, so the tool list stays the same for each call of the turn. Each call carries
+  it in `CallContext::edit_tool`, so the toolbox refuses a call of the other edit tool,
+  which the request did not offer;
 - `requirements`: build an `efr_tools::ToolContext` from the `CallContext` (plus the
   home, the clock and the write journal the daemon holds), call
   `ToolRegistry::requirements`, add what each path reaches through a symbolic link

@@ -91,7 +91,10 @@ async fn compact(
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
-        tools: shared.deps.toolbox.definitions(),
+        tools: shared
+            .deps
+            .toolbox
+            .definitions(crate::turn::edit_tool(&*shared.deps.provider, &model)),
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,

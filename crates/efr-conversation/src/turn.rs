@@ -46,7 +46,9 @@ use efr_protocol::{
     InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
     TurnId, TurnSettings, Verdict,
 };
-use efr_provider::{ContentBlock, Message, ProviderError, Request, Role, TokenUsage};
+use efr_provider::{
+    ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, TokenUsage,
+};
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
 use efr_store::turn_messages::NewTurnMessages;
@@ -247,6 +249,10 @@ struct Turn {
     /// The mode, the model and the effort of the turn, resolved when it starts; `None`
     /// until then.
     settings: Option<EffectiveSettings>,
+    /// The tool with which the turn's model changes files, from the provider's model
+    /// list when the turn starts: the request offers only this one of the two edit
+    /// tools, and each call carries it so the toolbox refuses the other one.
+    edit_tool: EditTool,
     spec: TurnSpec,
     control: Control,
     cwd: PathBuf,
@@ -350,6 +356,7 @@ impl Turn {
             shared,
             config,
             settings: None,
+            edit_tool: EditTool::default(),
             spec,
             control,
             cwd,
@@ -479,11 +486,12 @@ impl Turn {
             first.clone_from(&prompt);
         }
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
+        self.edit_tool = edit_tool(&*shared.deps.provider, &settings.model);
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
             messages: Vec::new(),
-            tools: shared.deps.toolbox.definitions(),
+            tools: shared.deps.toolbox.definitions(self.edit_tool),
             max_output_tokens: config.max_output_tokens,
             effort: settings.effort.clone(),
             side_call: false,
@@ -761,6 +769,7 @@ impl Turn {
                 launch: Launch::Direct,
                 exits: Vec::new(),
                 auto: efr_permissions::effective_mode(self.mode(), self.spec.origin) == Mode::Auto,
+                edit_tool: self.edit_tool,
             };
             let mut tool_call = ToolCall::new(call.name, call.input, context);
             let skipped = skip || self.control.interrupt.is_raised();
@@ -1380,6 +1389,22 @@ pub(crate) fn provider_options(
     let mut options = config.provider_options.clone();
     options.entry(PROMPT_CACHE_KEY).or_insert_with(|| Value::String(conversation_id.to_string()));
     options
+}
+
+/// The tool with which `model` changes files: the one that the provider's model list
+/// names for it. A model that the list does not name gets the tool that every listed
+/// model shares, as all models of one provider do today, else `apply_patch`.
+pub(crate) fn edit_tool(provider: &dyn Provider, model: &str) -> EditTool {
+    let models = provider.models();
+    if let Some(info) = models.iter().find(|info| info.id == model) {
+        return info.edit_tool;
+    }
+    match models.split_first() {
+        Some((first, rest)) if rest.iter().all(|info| info.edit_tool == first.edit_tool) => {
+            first.edit_tool
+        }
+        _ => EditTool::default(),
+    }
 }
 
 /// The context of a model call: its input, cached tokens included, plus its output.
