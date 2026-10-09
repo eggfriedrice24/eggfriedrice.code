@@ -89,6 +89,65 @@ fn the_walkthrough_of_two_turns_with_a_tool_loop() {
 }
 
 #[test]
+fn the_walkthrough_of_a_steer_a_summary_and_a_compaction() {
+    // A steer merges into the results after them, so the message still holds a
+    // `tool_result` and does not open a turn.
+    let steered = [prompt(1_000), answer(500), results(400)];
+    // The summary request of a compaction inside a turn ends with the summary prompt
+    // merged after the last results.
+    let summary = [
+        prompt(1_000),
+        answer(500),
+        results(300),
+        answer(400),
+        results(200),
+        answer(100),
+        results(900),
+    ];
+    // The first call after a compaction inside a turn: the head (fresh block, summary,
+    // gap note) is one user message that opens a turn, then the kept tail.
+    let compacted_in_turn = [prompt(6_000), answer(300), results(200)];
+    // After a compaction at the start of a turn the head and the new prompt merge.
+    let compacted_at_start = [prompt(7_000)];
+    let cases: [(&[Shape], bool, Vec<Breakpoint>); 4] = [
+        (&steered, false, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
+        (
+            &summary,
+            true,
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, M), at(Slot::Tail, 6, M)],
+        ),
+        (&compacted_in_turn, false, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
+        (&compacted_at_start, false, vec![system(H), at(Slot::Tail, 0, H)]),
+    ];
+    for (messages, side_call, expected) in cases {
+        assert_eq!(place(messages, side_call, CacheTtl::Auto), expected, "{messages:?}");
+    }
+}
+
+#[test]
+fn a_pause_inside_a_turn_loses_at_most_the_step() {
+    // Every call of a long tool loop: the five-minute part after the anchor never
+    // holds more than the step and one message.
+    let mut messages = vec![prompt(1_000)];
+    for _ in 0..40 {
+        messages.push(answer(1_500));
+        messages.push(results(1_500));
+        let marks = place(&messages, false, CacheTtl::Auto);
+        let anchor = marks
+            .iter()
+            .filter(|mark| mark.ttl == H)
+            .filter_map(|mark| match mark.target {
+                Target::Message(index) => Some(index),
+                _ => None,
+            })
+            .max()
+            .unwrap();
+        let after: u64 = messages[anchor + 1..].iter().map(|shape| shape.tokens).sum();
+        assert!(after <= ANCHOR_STEP_TOKENS, "{after} after the anchor at {anchor}");
+    }
+}
+
+#[test]
 fn a_tool_loop_marks_a_new_anchor_once_it_grows_past_the_step() {
     // 18,000 tokens after the anchor at the first results, more than the step at the
     // second ones.

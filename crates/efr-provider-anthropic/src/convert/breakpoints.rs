@@ -21,13 +21,21 @@
 //! Each message's tokens are the estimate of the conversion, the same for the same
 //! bytes, so every later request finds the same anchors.
 //!
+//! State. An anchor needs to know where the last anchor is and how many tokens came
+//! after it. Nothing keeps these numbers: the placement computes them again from
+//! [`Layout::messages`] on every call. The state is the history itself, which the
+//! conversation (`efr-conversation`) keeps append-only and sends whole with every
+//! request; the provider keeps nothing between calls. So the anchors survive a restart
+//! of the daemon, and two requests over the same history agree.
+//!
 //! Times to live under [`CacheTtl::Auto`]: S and A are one hour. A call that marks an
 //! anchor puts one hour on every marker, because the API refuses a one-hour marker
 //! after a five-minute one; any other call puts five minutes on P and T. So a pause of
 //! any length loses at most the tool loop after the last anchor. [`CacheTtl::FiveMinutes`]
 //! and [`CacheTtl::OneHour`] put their one time on every marker. When two places are
 //! the same message, it gets one marker with the longer time. Markers sit only on the
-//! system block, a tool and user messages, never on a `thinking` block.
+//! system block, a tool and the last block of a user message, so never on a `thinking`
+//! block; the conversion drops empty text blocks, so never on an empty text either.
 //!
 //! A known gap: a new prompt after an interrupted call merges into the user message of
 //! the call's results, so that call does not open a turn here; it marks an anchor only
