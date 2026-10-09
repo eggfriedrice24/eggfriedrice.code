@@ -24,7 +24,9 @@ Modules:
   Anthropic's `output_config.effort`. `provider_options` holds options that only one
   provider reads, such as OpenAI's `prompt_cache_key`; the conversation sends them to
   every provider, so a provider ignores the keys it does not know and never puts them
-  into its request body.
+  into its request body. `side_call` is true for a call whose last message and answer
+  never join the history, such as a compaction's summary request; a provider with
+  explicit cache markers does not make its tail a long-lived cache entry.
   `efr-tools` has its own `ToolSpec`; the conversation converts between the two,
   because neither crate depends on the other. A tool is a function tool
   (`ToolDefinition::function`: a JSON Schema of its input object) or a freeform tool

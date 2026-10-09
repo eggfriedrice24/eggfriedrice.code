@@ -94,6 +94,7 @@ async fn compact(
         tools: shared.deps.toolbox.definitions(),
         max_output_tokens: config.max_output_tokens,
         effort,
+        side_call: false,
         provider_options: crate::turn::provider_options(&config, shared.conversation_id),
     };
     let tokens_before = request_tokens(&with_window(&base, &window));

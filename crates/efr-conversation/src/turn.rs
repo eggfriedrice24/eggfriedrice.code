@@ -472,6 +472,7 @@ impl Turn {
             tools: shared.deps.toolbox.definitions(),
             max_output_tokens: config.max_output_tokens,
             effort: settings.effort.clone(),
+            side_call: false,
             provider_options: provider_options(&config, shared.conversation_id),
         };
 

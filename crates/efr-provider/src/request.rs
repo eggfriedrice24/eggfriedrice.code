@@ -34,6 +34,12 @@ pub struct Request {
     /// own field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// True for a call whose last message and answer never join the conversation's
+    /// history, such as the summary request of a compaction. A provider with explicit
+    /// prompt cache markers does not make such a call's tail a long-lived cache entry,
+    /// because no later request reads it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub side_call: bool,
     /// Options only one provider understands, such as OpenAI's `prompt_cache_key`,
     /// passed through as they are. A provider ignores keys it does not know, and never
     /// sends a key it does not know to its API.

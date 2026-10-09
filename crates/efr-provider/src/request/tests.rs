@@ -54,6 +54,7 @@ fn a_full_request_round_trips_with_raw_items_intact() {
     request.tools = vec![shell_tool()];
     request.max_output_tokens = Some(4096);
     request.effort = Some("medium".to_owned());
+    request.side_call = true;
     request.provider_options.insert("prompt_cache_key".to_owned(), json!("conversation-1"));
 
     let wire = json!({
@@ -79,6 +80,7 @@ fn a_full_request_round_trips_with_raw_items_intact() {
         }],
         "max_output_tokens": 4096,
         "effort": "medium",
+        "side_call": true,
         "provider_options": {"prompt_cache_key": "conversation-1"},
     });
     assert_eq!(serde_json::to_value(&request).unwrap(), wire);
