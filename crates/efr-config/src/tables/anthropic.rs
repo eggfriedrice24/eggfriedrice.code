@@ -10,8 +10,8 @@ use crate::ModelEntry;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[non_exhaustive]
 pub enum CacheTtlChoice {
-    /// One hour on the system prompt, the tools and a moving anchor in the
-    /// conversation, five minutes on the rest of a tool loop.
+    /// efr's choice, today one hour on every cache entry: an entry for one hour cannot
+    /// build on an entry for five minutes, so a mix writes more than it saves.
     #[default]
     #[serde(rename = "auto")]
     Auto,
@@ -38,11 +38,10 @@ pub struct AnthropicSettings {
     /// list to lower its window or its output limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ModelEntry>>,
-    /// How long the prompt cache keeps what a request writes: `auto` keeps the system
-    /// prompt, the tools and the conversation up to the start of the turn (and then
-    /// about every 20000 tokens of a tool loop) for an hour and the rest for five
-    /// minutes, `5m` keeps everything for five minutes, `1h` keeps everything for an
-    /// hour. An hour costs more per write and survives a longer pause. Needs a restart.
+    /// How long the prompt cache keeps what a request writes: `auto` is efr's choice,
+    /// today everything for an hour, `5m` keeps everything for five minutes, `1h` keeps
+    /// everything for an hour. An hour costs more per write and survives a longer
+    /// pause. Needs a restart.
     pub cache_ttl: CacheTtlChoice,
     /// The workspace of your API key, sent as the `anthropic-workspace-id` header of
     /// every request. A key that is not scoped to one workspace needs it. Needs a

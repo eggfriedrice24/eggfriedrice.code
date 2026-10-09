@@ -99,7 +99,7 @@ expression: pretty(&body(&request))
           "content": "Cargo.toml\nsrc",
           "cache_control": {
             "type": "ephemeral",
-            "ttl": "5m"
+            "ttl": "1h"
           }
         }
       ]

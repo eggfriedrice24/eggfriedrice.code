@@ -149,7 +149,7 @@ fn the_head_after_a_compaction_keeps_a_message_for_each_part() {
 }
 
 #[test]
-fn a_summary_request_keeps_five_minutes_on_its_tail() {
+fn a_summary_request_marks_its_tail_for_one_hour() {
     let mut request = request(vec![
         Message::user("Which files are here?"),
         written(vec![call("toolu_01", "ls")], THINK_AND_CALL),
@@ -419,7 +419,7 @@ fn a_rebuilt_answer_keeps_text_and_calls_and_drops_reasoning() {
                 "type": "tool_result",
                 "tool_use_id": "call_2",
                 "is_error": true,
-                "cache_control": {"type": "ephemeral", "ttl": "5m"},
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
             },
         ])
     );
@@ -472,22 +472,27 @@ fn a_result_shown_as_text_opens_no_turn_and_marks_no_new_anchor() {
         efr_provider::unoffered_call_text("toolu_02", "apply_patch", &json!({"input": "x"}));
     let shown_result =
         efr_provider::unoffered_result_text("toolu_02", "apply_patch", "patched", false);
+    let next = r#"[{"type":"tool_use","id":"toolu_03","name":"shell","input":{"command":"ls"}}]"#;
     let request = request(vec![
         Message::user("Patch it."),
         written(vec![text(&shown)], raw),
         user(vec![text(&shown_result)]),
+        written(vec![call("toolu_03", "ls")], next),
+        user(vec![result("toolu_03", "src")]),
     ]);
 
     let body = value(&body(&request));
 
-    // The prompt keeps the anchor of the first call; the call inside the tool loop puts
-    // five minutes on its tail.
-    let ttl = |message: usize| {
+    // The anchor stays at the prompt: the results shown as text opened no turn, so the
+    // call after them keeps A on message 0 and puts P on message 2. Had they opened a
+    // turn, A and P would both sit on message 2, and message 0 would have no marker.
+    let marked = |message: usize| {
         let content = body["messages"][message]["content"].as_array().unwrap();
         content.last().unwrap()["cache_control"]["ttl"].clone()
     };
-    assert_eq!(ttl(0), json!("1h"), "{body}");
-    assert_eq!(ttl(2), json!("5m"), "{body}");
+    assert_eq!(marked(0), json!("1h"), "{body}");
+    assert_eq!(marked(2), json!("1h"), "{body}");
+    assert_eq!(marked(4), json!("1h"), "{body}");
     assert_eq!(body["messages"][1]["content"][0]["type"], json!("thinking"));
 }
 

@@ -103,7 +103,7 @@ expression: pretty(&body(&request))
           "text": "Summarise the conversation.",
           "cache_control": {
             "type": "ephemeral",
-            "ttl": "5m"
+            "ttl": "1h"
           }
         }
       ]

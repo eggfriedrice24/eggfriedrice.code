@@ -356,10 +356,11 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
 
     // The first call opens the turn: S and the tail are one-hour entries.
     assert_eq!(markers(edit_call), marks(&[("system", "1h"), ("message 0", "1h")]));
-    // Inside the tool loop: S, the anchor at the prompt, and the tail for five minutes.
+    // Inside the tool loop: S, the anchor at the prompt, and the tail; `auto` puts one
+    // hour on every marker.
     assert_eq!(
         markers(answer_call),
-        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "5m")])
+        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "1h")])
     );
     assert!(starts_with(answer_call, edit_call), "the tool loop appends");
     let replayed = &answer_call["messages"][1]["content"];
@@ -371,14 +372,13 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
     assert_eq!(result["tool_use_id"], "toolu_efr_1");
     assert_ne!(result["is_error"], json!(true), "{result:#}");
 
-    // The summary request reads the whole conversation from the cache and writes no
-    // long entry for its own tail.
+    // The summary request reads the whole conversation from the cache.
     assert!(starts_with(summary_call, answer_call), "the summary request is a cache-safe fork");
     // All four places: S, the anchor, P on the tail of the call before, and the tail on
     // the summary prompt, a message of its own after the next prompt.
     assert_eq!(
         markers(summary_call),
-        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "5m"), ("message 5", "5m")])
+        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "1h"), ("message 5", "1h")])
     );
     let next_prompt = summary_call["messages"][4]["content"].to_string();
     assert!(next_prompt.contains("now the farewell"), "{next_prompt}");
@@ -403,7 +403,7 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
     // to live.
     let lines = cache_lines(&logged());
     let placed: Vec<&str> = lines.iter().map(|(markers, _)| markers.as_str()).collect();
-    assert_eq!(placed, ["S1h,T1h", "S1h,A1h,T5m", "S1h,A1h,P5m,T5m", "S1h,T1h"]);
+    assert_eq!(placed, ["S1h,T1h", "S1h,A1h,T1h", "S1h,A1h,P1h,T1h", "S1h,T1h"]);
     let gaps: Vec<bool> = lines.iter().map(|(_, gap)| *gap).collect();
     assert_eq!(gaps, [false, true, true, true], "{lines:?}");
 

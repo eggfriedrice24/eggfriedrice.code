@@ -187,12 +187,12 @@ again.
 
 | Value | What it does |
 |---|---|
-| `auto` (default) | The system prompt, the tools and the conversation up to the start of the turn stay for one hour. The calls of a tool loop write their part for five minutes. When a tool loop grows by about 20,000 tokens, the next call keeps the conversation up to that point for one hour. So a pause of any length up to one hour loses at most about 20,000 tokens: between two prompts, or while efr waits for your approval. One exception: when you interrupt a turn while a tool runs, your next prompt does not start a new hour. Then a pause of more than five minutes in that next turn can lose the tool loop of the turn before. |
+| `auto` (default) | efr's choice. Today it is the same as `1h`: an entry for one hour cannot build on an entry for five minutes, so one hour for the conversation and five minutes for each tool loop would write each tool loop twice. A pause up to one hour, between two prompts or while efr waits for your approval, loses nothing. |
 | `5m` | Everything for five minutes. This costs less when you send the next prompt within five minutes. A longer pause writes the whole conversation again. |
 | `1h` | Everything for one hour. Each write costs more, and a pause up to one hour loses nothing. |
 
-A summary call of a compaction keeps its part for five minutes, because no later
-request reads it.
+A summary call of a compaction uses the same time as the other calls, so it reads the
+cache of the conversation.
 
 ### What makes the cache miss
 
@@ -213,9 +213,9 @@ each model call:
 - `gap_ms`: the time since the start of the conversation's call before. The first
   call after a start of efrd has none.
 - For Claude, one line with the markers of the request, such as `cache_ttl=auto
-  markers=S1h,A1h,P5m,T5m`: S is the system prompt and the tools, A the newest
-  one-hour point in the conversation, P the end of the call before and T the end of
-  this request. Under `auto`, `T1h` means that the call started a new one-hour point.
+  markers=S1h,A1h,P1h,T1h`: S is the system prompt and the tools, A an earlier point
+  in the conversation (the start of a turn, or about every 20,000 tokens of a tool
+  loop), P the end of the call before and T the end of this request.
 
 The `turn_completed` event of each turn holds its token counts: the cached input
 (`cached_input_tokens`), the cache writes (`cache_write_tokens`) and the writes for

@@ -64,7 +64,7 @@ The Anthropic provider.
 |---|---|---|---|
 | `base_url` | unset | restart | Replaces the Messages API's base URL. Needs a restart. |
 | `models` | unset | live | Models added to the provider's model list, such as a model that the API does not list yet. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens. A table may name a model of the API's list to lower its window or its output limit. |
-| `cache_ttl` | `"auto"` | restart | How long the prompt cache keeps what a request writes: `auto` keeps the system prompt, the tools and the conversation up to the start of the turn (and then about every 20000 tokens of a tool loop) for an hour and the rest for five minutes, `5m` keeps everything for five minutes, `1h` keeps everything for an hour. An hour costs more per write and survives a longer pause. Needs a restart. |
+| `cache_ttl` | `"auto"` | restart | How long the prompt cache keeps what a request writes: `auto` is efr's choice, today everything for an hour, `5m` keeps everything for five minutes, `1h` keeps everything for an hour. An hour costs more per write and survives a longer pause. Needs a restart. |
 | `workspace_id` | unset | restart | The workspace of your API key, sent as the `anthropic-workspace-id` header of every request. A key that is not scoped to one workspace needs it. Needs a restart. |
 
 ## [permissions]

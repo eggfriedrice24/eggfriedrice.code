@@ -82,10 +82,10 @@ fn the_walkthrough_of_two_turns_with_a_tool_loop() {
         // The first call of a turn marks an anchor at its tail.
         (&turn_one, vec![system(H), at(Slot::Tail, 0, H)]),
         // The anchor is also the previous tail: one marker, one hour.
-        (&call_two, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
+        (&call_two, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, H)]),
         (
             &call_three,
-            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 2, M), at(Slot::Tail, 4, M)],
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 2, H), at(Slot::Tail, 4, H)],
         ),
         // A new turn marks a new anchor: every marker is one hour.
         (
@@ -127,9 +127,9 @@ fn the_walkthrough_of_a_steer_a_summary_and_a_compaction() {
         (
             &summary,
             true,
-            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, M), at(Slot::Tail, 7, M)],
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, H), at(Slot::Tail, 7, H)],
         ),
-        (&compacted_in_turn, false, vec![system(H), at(Slot::Anchor, 1, H), at(Slot::Tail, 3, M)]),
+        (&compacted_in_turn, false, vec![system(H), at(Slot::Anchor, 1, H), at(Slot::Tail, 3, H)]),
         (&compacted_at_start, false, vec![system(H), at(Slot::Tail, 2, H)]),
     ];
     for (messages, side_call, expected) in cases {
@@ -158,14 +158,14 @@ fn a_prompt_after_a_turn_that_ended_on_a_user_message_marks_its_anchor() {
     let next = [prompt(1_000), answer(500), results(300), prompt(200), answer(100), results(100)];
     assert_eq!(
         place(&next, false, CacheTtl::Auto),
-        vec![system(H), at(Slot::Anchor, 3, H), at(Slot::Tail, 5, M)]
+        vec![system(H), at(Slot::Anchor, 3, H), at(Slot::Tail, 5, H)]
     );
 }
 
 #[test]
-fn a_pause_inside_a_turn_loses_at_most_the_step() {
-    // Every call of a long tool loop: the five-minute part after the anchor never
-    // holds more than the step and one message.
+fn a_long_tool_loop_moves_its_anchor_forward() {
+    // Every call of a long tool loop: the messages after A never hold more than the
+    // step and the call that crossed it.
     let mut messages = vec![prompt(1_000)];
     for _ in 0..40 {
         messages.push(answer(1_500));
@@ -173,15 +173,14 @@ fn a_pause_inside_a_turn_loses_at_most_the_step() {
         let marks = place(&messages, false, CacheTtl::Auto);
         let anchor = marks
             .iter()
-            .filter(|mark| mark.ttl == H)
-            .filter_map(|mark| match mark.target {
+            .find(|mark| mark.slot == Slot::Anchor)
+            .and_then(|mark| match mark.target {
                 Target::Message(index) => Some(index),
                 _ => None,
             })
-            .max()
             .unwrap();
         let after: u64 = messages[anchor + 1..].iter().map(|shape| shape.tokens).sum();
-        assert!(after <= ANCHOR_STEP_TOKENS, "{after} after the anchor at {anchor}");
+        assert!(after <= ANCHOR_STEP_TOKENS + 3_000, "{after} after the anchor at {anchor}");
     }
 }
 
@@ -207,7 +206,7 @@ fn a_tool_loop_marks_a_new_anchor_once_it_grows_past_the_step() {
     ];
     assert_eq!(
         place(&next, false, CacheTtl::Auto),
-        vec![system(H), at(Slot::Anchor, 4, H), at(Slot::Tail, 6, M)]
+        vec![system(H), at(Slot::Anchor, 4, H), at(Slot::Tail, 6, H)]
     );
 }
 
@@ -217,12 +216,12 @@ fn a_side_call_never_marks_an_anchor() {
     let summary = [prompt(1_000), answer(500), prompt(200)];
     assert_eq!(
         place(&summary, true, CacheTtl::Auto),
-        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]
+        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, H)]
     );
     let big = [prompt(1_000), answer(50_000), results(200)];
     assert_eq!(
         place(&big, true, CacheTtl::Auto),
-        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]
+        vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, H)]
     );
 }
 
@@ -308,7 +307,7 @@ fn a_ttl_is_written_as_the_api_names_it() {
 #[test]
 fn the_log_names_each_place_with_its_time() {
     let call = [prompt(1_000), answer(500), results(300), answer(200), results(300)];
-    assert_eq!(summary(&place(&call, false, CacheTtl::Auto)), "S1h,A1h,P5m,T5m");
+    assert_eq!(summary(&place(&call, false, CacheTtl::Auto)), "S1h,A1h,P1h,T1h");
     assert_eq!(summary(&place(&call[..1], false, CacheTtl::Auto)), "S1h,T1h");
     assert_eq!(summary(&place(&call, false, CacheTtl::FiveMinutes)), "S5m,A5m,P5m,T5m");
     let bare = Layout { system: false, tools: false, messages: &[], side_call: false };

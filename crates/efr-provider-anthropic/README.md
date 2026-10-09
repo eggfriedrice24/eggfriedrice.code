@@ -160,17 +160,15 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
   one keeps these numbers. The placement computes them again from the messages on every
   call, so the state is the history itself, which `efr-conversation` keeps and sends
   whole. The provider keeps nothing between calls.
-- `CacheTtl::Auto`: S and A are one hour. A call that marks an anchor puts one hour on
-  every marker, because the API refuses a one-hour marker after a five-minute one; any
-  other call puts five minutes on P and T. Side calls, such as a compaction's summary
-  request, keep five minutes on P and T. So a pause of any length loses at most the
-  tool loop after the last anchor.
-- `CacheTtl::FiveMinutes` and `CacheTtl::OneHour` put their one time on every marker.
-- When two places are one message, it gets one marker with the longer time.
-- On a call that marks an anchor, P is one hour too, over the entry that the call
-  before wrote for five minutes. Whether the API then keeps a full one-hour entry is a
-  check on a test key before the release; if it fails, `auto` falls back to one hour on
-  every marker.
+- Every setting puts one time on every marker: `CacheTtl::FiveMinutes` five minutes,
+  `CacheTtl::OneHour` and `CacheTtl::Auto` one hour. `auto` was planned as one-hour
+  anchors over five-minute tool loops. A check on the API (2026-10-09) showed that a
+  one-hour entry cannot build on a five-minute one: a request with one-hour markers
+  after a five-minute entry reads nothing and writes its whole prefix again at the
+  one-hour price. A one-hour marker alone over a five-minute entry does read it. So
+  each anchor would write the tool loop before it a second time, and `auto` is one
+  hour on every marker. The anchors still give each request one more place to read.
+- When two places are one message, it gets one marker.
 - A new prompt is always a user message of its own, also after a turn that ended on
   its tool results or on its prompt, so the first call of every turn marks an anchor,
   at the new prompt. A steer after tool results is a message of its own too, so the
@@ -182,9 +180,8 @@ the thinking mode and display, and the effort. A change of the tools invalidates
 level; a change of the effort invalidates the messages. Prices: a five-minute write
 costs 1.25 times the input price, a one-hour write 2 times, a read 0.1 times or less.
 Each request writes one debug line with the setting and its markers in order, the
-letter and the time of each place, such as `cache_ttl=auto markers=S1h,A1h,P5m,T5m`
-(`convert::breakpoints::summary`). Under `auto`, `T1h` means that the call marked a new
-anchor. The line runs inside the conversation's `provider_request` span, whose
+letter and the time of each place, such as `cache_ttl=auto markers=S1h,A1h,P1h,T1h`
+(`convert::breakpoints::summary`). The line runs inside the conversation's `provider_request` span, whose
 `gap_ms` field is the time since the start of the conversation's call before (absent
 for the first call after a start of efrd; see the README of `efr-conversation`). So
 the line, the gap and the call's `usage` measure which time to live pays.

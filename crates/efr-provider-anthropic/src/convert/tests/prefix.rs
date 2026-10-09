@@ -123,37 +123,16 @@ fn the_raw_content_of_each_answer_is_in_every_later_body() {
     }
 }
 
-// Each prompt that opens a turn is an anchor; the call of the tool loop is not. A
-// prompt after a turn that ended on a user message opens a turn too.
+// Under `auto` every marker of every request is one hour: a one-hour entry cannot build
+// on a five-minute one, so a request never mixes the two.
 #[rstest]
-#[case::four_turns(requests(), &[0, 4, 6, 8])]
-#[case::after_failures(requests_after_failures(), &[0, 3, 5, 6])]
-fn a_loop_call_reads_its_anchor_from_an_entry_that_a_call_wrote_for_one_hour(
-    #[case] requests: Vec<Request>,
-    #[case] expected: &[usize],
-) {
-    // Under `auto`, S is one hour on every call. A call that marks an anchor writes
-    // its tail for one hour, with every marker one hour; any other call has a one-hour
-    // marker on a message only where an earlier call wrote its tail for one hour.
+#[case::four_turns(requests())]
+#[case::after_failures(requests_after_failures())]
+fn under_auto_every_marker_is_one_hour(#[case] requests: Vec<Request>) {
     let config = AnthropicConfig::new();
-    let bodies: Vec<_> = requests.iter().map(|request| body_with(request, &config)).collect();
-    let system: Vec<String> =
-        bodies.iter().map(|body| serde_json::to_string(&body.system).unwrap()).collect();
-    assert!(system.windows(2).all(|pair| pair[0] == pair[1]), "{system:?}");
-    let marker = |text: &str, ttl: &str| text.contains(&format!(r#""ttl":"{ttl}""#));
-    let mut anchors = Vec::new();
-    for body in &bodies {
-        let texts: Vec<String> =
-            body.messages.iter().map(|message| serde_json::to_string(message).unwrap()).collect();
-        let tail = texts.len() - 1;
-        if marker(&texts[tail], "1h") {
-            assert!(!texts.iter().any(|text| marker(text, "5m")), "{texts:?}");
-            anchors.push(tail);
-            continue;
-        }
-        for (index, _) in texts.iter().enumerate().filter(|(_, text)| marker(text, "1h")) {
-            assert!(anchors.contains(&index), "message {index}, anchors {anchors:?}");
-        }
+    for request in &requests {
+        let text = serde_json::to_string(&body_with(request, &config)).unwrap();
+        assert!(!text.contains(r#""ttl":"5m""#), "{text}");
+        assert!(text.contains(r#""ttl":"1h""#), "{text}");
     }
-    assert_eq!(anchors, expected);
 }

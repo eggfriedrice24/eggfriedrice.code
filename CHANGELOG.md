@@ -193,13 +193,12 @@ into the GitHub release notes, and it stops when the section is missing.
   unchanged, and sends an effort to each model that takes one: `medium` unless you
   set another. A new `[anthropic]` table has `base_url`, `models`, `cache_ttl` and
   `workspace_id` (for a key that is not scoped to one workspace). `cache_ttl = "auto"`, the default, keeps
-  the system prompt, the tools and the conversation up to the start of each turn in
-  the prompt cache for an hour, and the rest of a tool loop for five minutes; `5m` and
-  `1h` put one time on everything.
+  everything in the prompt cache for an hour, because an entry for one hour cannot
+  build on an entry for five minutes; `5m` keeps everything for five minutes.
 - The debug log of efrd gives each model call the time since the start of the
   conversation's call before, as `gap_ms`. Each request to Claude also writes one line
   with its prompt cache markers and their times, such as `cache_ttl=auto
-  markers=S1h,A1h,P5m,T5m`. With the token counts of the turns, these lines show which
+  markers=S1h,A1h,P1h,T1h`. With the token counts of the turns, these lines show which
   `[anthropic] cache_ttl` costs less.
 - efr has no built-in list of Claude models. The models, their windows, their output
   limits and their efforts come from the API's model list, which efrd fetches at
@@ -419,10 +418,6 @@ into the GitHub release notes, and it stops when the section is missing.
   tool that it offers, in one answer, the next request of the turn keeps the thinking
   of that answer. Before, efr sent that answer without its thinking, and the Messages
   API can refuse such a request, so the turn failed.
-- On Claude, the next call of a tool loop after a call of a tool that the request does
-  not offer writes its cache entries for five minutes, as every call inside a tool
-  loop does. Before, efr read the result of that call, which it shows as text, as a
-  new prompt and wrote every entry for one hour, which costs more.
 - On Claude, a prompt after a turn that ended early now goes as a message of its own,
   as after an interrupt while a tool ran or after a model call that failed, and the
   new turn now gets its one-hour cache entry. Before, efr joined the prompt to the

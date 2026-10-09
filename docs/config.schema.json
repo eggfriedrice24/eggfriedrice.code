@@ -44,7 +44,7 @@
         "cache_ttl": {
           "$ref": "#/$defs/CacheTtlChoice",
           "default": "auto",
-          "description": "How long the prompt cache keeps what a request writes: `auto` keeps the system\nprompt, the tools and the conversation up to the start of the turn (and then\nabout every 20000 tokens of a tool loop) for an hour and the rest for five\nminutes, `5m` keeps everything for five minutes, `1h` keeps everything for an\nhour. An hour costs more per write and survives a longer pause. Needs a restart."
+          "description": "How long the prompt cache keeps what a request writes: `auto` is efr's choice,\ntoday everything for an hour, `5m` keeps everything for five minutes, `1h` keeps\neverything for an hour. An hour costs more per write and survives a longer\npause. Needs a restart."
         },
         "models": {
           "description": "Models added to the provider's model list, such as a model that the API does\nnot list yet. A prompt may then name them; their efforts are not checked. An\nentry is a model id, or a table `{ id, context_window, max_output_tokens }` that\nalso gives the model's limits in tokens. A table may name a model of the API's\nlist to lower its window or its output limit.",
@@ -91,7 +91,7 @@
       "oneOf": [
         {
           "const": "auto",
-          "description": "One hour on the system prompt, the tools and a moving anchor in the\nconversation, five minutes on the rest of a tool loop.",
+          "description": "efr's choice, today one hour on every cache entry: an entry for one hour cannot\nbuild on an entry for five minutes, so a mix writes more than it saves.",
           "type": "string"
         },
         {

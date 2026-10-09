@@ -39,18 +39,18 @@
 //! request; the provider keeps nothing between calls. So the anchors survive a restart
 //! of the daemon, and two requests over the same history agree.
 //!
-//! Times to live under [`CacheTtl::Auto`]: S and A are one hour. A call that marks an
-//! anchor puts one hour on every marker, because the API refuses a one-hour marker
-//! after a five-minute one; any other call puts five minutes on P and T. So a pause of
-//! any length loses at most the tool loop after the last anchor. [`CacheTtl::FiveMinutes`]
-//! and [`CacheTtl::OneHour`] put their one time on every marker. When two places are
-//! the same message, it gets one marker with the longer time. Markers sit only on the
+//! Times to live. Every setting puts one time on every marker: [`CacheTtl::FiveMinutes`]
+//! five minutes, [`CacheTtl::OneHour`] and [`CacheTtl::Auto`] one hour. `auto` was
+//! planned as one-hour anchors over five-minute tool loops, so that a pause loses at
+//! most the loop after the last anchor. The API does not allow it: a one-hour entry
+//! cannot build on a five-minute one, so each anchor would write the loop before it a
+//! second time at the one-hour price. The anchors still give each request one more
+//! place to read from. When two places are the same message, it gets one marker. Markers sit only on the
 //! system block, a tool and the last block of a user message, so never on a `thinking`
 //! block; the conversion drops empty text blocks, so never on an empty text either.
 //!
 //! The log. Each request writes one debug line with its setting and its markers, such
-//! as `cache_ttl=auto markers=S1h,A1h,P5m,T5m` ([`summary`]). Under `auto`, `T1h` says
-//! that the call marked a new anchor. The conversation's span of the call carries
+//! as `cache_ttl=auto markers=S1h,A1h,P1h,T1h` ([`summary`]). The conversation's span of the call carries
 //! `gap_ms`, the time since the start of the conversation's call before, so the line
 //! shows which pause met which markers: the measurement of the time to live.
 
@@ -153,7 +153,7 @@ pub(crate) struct Layout<'a> {
 }
 
 /// `marks` as the debug line of a request shows them: the letter and the time of each
-/// place in order, such as `S1h,A1h,P5m,T5m`, or `none`.
+/// place in order, such as `S1h,A1h,P1h,T1h`, or `none`.
 pub(crate) fn summary(marks: &[Breakpoint]) -> String {
     if marks.is_empty() {
         return "none".to_owned();
@@ -169,7 +169,12 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
     let (long, short) = match ttl {
         CacheTtl::FiveMinutes => (Ttl::FiveMinutes, Ttl::FiveMinutes),
         CacheTtl::OneHour => (Ttl::OneHour, Ttl::OneHour),
-        CacheTtl::Auto => (Ttl::OneHour, Ttl::FiveMinutes),
+        // NOTE: a one-hour entry cannot build on a five-minute one: a request with one-hour
+        // markers after a five-minute entry reads nothing and writes its whole prefix again
+        // at the one-hour price (measured on the API, 2026-10-09). A five-minute tool loop
+        // under one-hour anchors would so write each loop twice, so `auto` is one hour on
+        // every marker.
+        CacheTtl::Auto => (Ttl::OneHour, Ttl::OneHour),
     };
     let mut marks = Vec::with_capacity(4);
     let system = match (layout.system, layout.tools) {
