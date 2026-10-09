@@ -43,6 +43,7 @@ async fn setup(sockets: Vec<Socket>, posts: Vec<String>, mode: WebSocketMode) ->
         http,
         Arc::new(tokens),
         clock.clone(),
+        Arc::new(FixedRng(0)),
     );
     Setup { provider, server, clock }
 }

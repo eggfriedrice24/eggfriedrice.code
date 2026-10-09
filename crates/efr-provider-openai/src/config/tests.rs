@@ -28,6 +28,22 @@ fn the_websocket_follows_the_catalog_unless_the_switch_says_otherwise() {
 }
 
 #[test]
+fn an_organization_or_a_project_must_fit_a_header() {
+    let config = OpenAiConfig::api();
+    assert_eq!(config.organization(), None);
+    assert_eq!(config.project(), None);
+    let named =
+        config.clone().with_organization("org-AbC").unwrap().with_project("proj_1").unwrap();
+    assert_eq!(named.organization(), Some("org-AbC"));
+    assert_eq!(named.project(), Some("proj_1"));
+    assert!(matches!(
+        config.clone().with_organization("org\nAbC"),
+        Err(OpenAiError::InvalidOrganization { .. })
+    ));
+    assert!(matches!(config.with_project("proj\r1"), Err(OpenAiError::InvalidProject { .. })));
+}
+
+#[test]
 fn the_subscription_defaults_follow_codex() {
     let config = OpenAiConfig::subscription();
     assert_eq!(config.backend(), Backend::Subscription);

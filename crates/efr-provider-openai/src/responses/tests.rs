@@ -55,6 +55,7 @@ fn setup_with(
         client(http),
         tokens.clone(),
         clock.clone(),
+        Arc::new(FixedRng(0)),
     );
     Setup { provider, tokens, clock }
 }
@@ -551,6 +552,96 @@ async fn an_exhausted_quota_is_not_a_rate_limit() {
         }
         other => panic!("not an API error: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn an_exhausted_quota_is_never_sent_again() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "1").set_body_json(
+            json!({ "error": { "message": "You exceeded your current quota.", "type": "insufficient_quota" } }),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::Api { status: Some(429), .. }), "{error:?}");
+    assert_eq!(seen(&server).await.len(), 1, "the default policy did not try again");
+    assert!(setup.clock.sleeps().is_empty(), "{:?}", setup.clock.sleeps());
+}
+
+#[tokio::test]
+async fn a_rate_limit_is_sent_again_after_its_wait() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "2").set_body_json(
+            json!({ "error": { "message": "Rate limit reached.", "code": "rate_limit_exceeded" } }),
+        ))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(sse_response("plain_text.sse"))
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+
+    let completion = setup.provider.complete(request("Hi")).await.unwrap();
+
+    assert_eq!(completion.message.text(), "Your shell is zsh 5.9.");
+    assert_eq!(seen(&server).await.len(), 2);
+    assert_eq!(setup.clock.sleeps(), [Duration::from_secs(2)]);
+}
+
+#[tokio::test]
+async fn an_api_request_names_the_organization_and_the_project() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .and(header("authorization", "Bearer sk-test"))
+        .and(header("openai-organization", "org-AbC"))
+        .and(header("openai-project", "proj_AbC"))
+        .respond_with(sse_response("plain_text.sse"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let config =
+        OpenAiConfig::api().with_organization("org-AbC").unwrap().with_project("proj_AbC").unwrap();
+    let setup = setup(&server, config, FakeTokens::new(&["sk-test"]));
+
+    setup.provider.complete(request("Hi")).await.unwrap();
+
+    let seen = seen(&server).await;
+    assert!(seen[0].headers.get("originator").is_none(), "the API takes no originator");
+}
+
+#[tokio::test]
+async fn a_subscription_request_never_names_an_organization() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(sse_response("plain_text.sse"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let config = OpenAiConfig::subscription()
+        .with_organization("org-AbC")
+        .unwrap()
+        .with_project("proj_AbC")
+        .unwrap();
+    let setup = setup(&server, config, subscription_tokens());
+
+    setup.provider.complete(request("Hi")).await.unwrap();
+
+    let seen = seen(&server).await;
+    assert!(seen[0].headers.get("openai-organization").is_none());
+    assert!(seen[0].headers.get("openai-project").is_none());
 }
 
 #[tokio::test]

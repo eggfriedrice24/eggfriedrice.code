@@ -7,14 +7,16 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_http::{
     ByteStream, HeaderMap, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest,
-    HttpResponse, SseStream, StatusCode, WebSocket, header,
+    HttpResponse, Outcome, Retryable, SseStream, StatusCode, WebSocket, header,
 };
 use efr_provider::{
     AccessToken, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
     Request, TokenSource,
 };
+use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 use futures::{StreamExt as _, stream};
+use jiff::Timestamp;
 use serde_json::Value;
 use tracing::Instrument as _;
 
@@ -30,6 +32,13 @@ use crate::websocket::{Attempt, CONNECT_TIMEOUT, ConnectError, Health, Rejection
 /// (goose `chatgpt_codex.rs`, `post_streaming`; Codex sends it as `ChatGPT-Account-ID`,
 /// and header names are case-insensitive).
 const ACCOUNT_HEADER: &str = "chatgpt-account-id";
+
+/// The header that names the organization that an API request bills
+/// (<https://developers.openai.com/api/reference/overview>).
+const ORGANIZATION_HEADER: &str = "openai-organization";
+
+/// The header that names the project that an API request bills.
+const PROJECT_HEADER: &str = "openai-project";
 
 /// The header that names the client to the subscription backend (Codex
 /// `codex-rs/login/src/auth/default_client.rs`, `add_originator_header`).
@@ -55,8 +64,9 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 const MAX_ERROR_MESSAGE: usize = 1000;
 
 /// Error codes of a 429 that mean money or plan, not pace: waiting does not help, so
-/// they are reported as API errors rather than as rate limiting (the list Codex maps
-/// to `QuotaExceeded` and `UsageNotIncluded` in `codex-rs/codex-api/src/api_bridge.rs`).
+/// they are reported as API errors rather than as rate limiting, and such a 429 is
+/// never sent again (the list Codex maps to `QuotaExceeded` and `UsageNotIncluded` in
+/// `codex-rs/codex-api/src/api_bridge.rs`).
 const QUOTA_CODES: &[&str] = &[
     "insufficient_quota",
     "usage_not_included",
@@ -79,7 +89,9 @@ const QUOTA_CODES: &[&str] = &[
 /// the request once more; a second 401 is [`ProviderError::Unauthorized`], and so is
 /// the first one for a token source that cannot refresh, such as an API key. Other
 /// retries follow the config's `efr_http::RetryPolicy`, which sends a `POST` again only
-/// when the server certainly did not act on it, so a model call never runs twice.
+/// when the server certainly did not act on it, so a model call never runs twice. The
+/// body of a 429 is read before the policy decides: a 429 for money or plan, such as
+/// `insufficient_quota`, is never sent again.
 ///
 /// The `Done` event carries the response's output items verbatim as `provider_raw`,
 /// and a later request sends them back unchanged, so encrypted reasoning survives a
@@ -96,24 +108,26 @@ pub struct OpenAiProvider {
     http: HttpClient,
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
+    rng: Arc<dyn Rng>,
     sockets: Sockets,
 }
 
 impl OpenAiProvider {
     /// A provider named `id` that sends requests through `http` with tokens from
-    /// `tokens`. `clock` dates the wait of a rate limit that names the time it resets.
-    /// Its catalog is the table built into efr until [`with_catalog`](Self::with_catalog)
-    /// gives it a shared one.
+    /// `tokens`. `clock` dates the wait of a rate limit that names the time it resets
+    /// and waits between two tries; `rng` spreads those waits. Its catalog is the table
+    /// built into efr until [`with_catalog`](Self::with_catalog) gives it a shared one.
     pub fn new(
         id: ProviderId,
         config: OpenAiConfig,
         http: HttpClient,
         tokens: Arc<dyn TokenSource>,
         clock: Arc<dyn Clock>,
+        rng: Arc<dyn Rng>,
     ) -> Self {
         let catalog = ModelCatalog::new(Catalog::builtin(config.backend()));
         let sockets = Sockets::new(Arc::clone(&clock));
-        OpenAiProvider { id, config, catalog, http, tokens, clock, sockets }
+        OpenAiProvider { id, config, catalog, http, tokens, clock, rng, sockets }
     }
 
     /// The same provider reading its models from `catalog`, which a fetch in the
@@ -197,11 +211,14 @@ impl OpenAiProvider {
         loop {
             let token = self.tokens.access_token().await?;
             let request = sign(unsigned, &self.config, &token).map_err(transport)?;
-            let response = self
-                .http
-                .send_with_retry(&request, self.config.retry())
-                .await
-                .map_err(transport)?;
+            let response = match self.send(&request).await? {
+                Answer::Response(response) => response,
+                Answer::TooManyRequests { headers, body, .. } => {
+                    let header_wait = efr_http::retry_after(&headers, self.clock.now());
+                    let status = StatusCode::TOO_MANY_REQUESTS;
+                    return Err(self.answer_error(status, header_wait, &body, model));
+                }
+            };
             if let Some(id) =
                 response.headers().get(REQUEST_ID_HEADER).and_then(|value| value.to_str().ok())
             {
@@ -221,6 +238,41 @@ impl OpenAiProvider {
             drop(response);
             self.tokens.invalidate().await;
             refreshed = true;
+        }
+    }
+
+    /// Sends `request` while the config's retry policy says so and returns the last
+    /// answer. A 429 is read before the policy decides, so a 429 for money or plan
+    /// ends the tries at once; any other status decides as
+    /// `efr_http::HttpClient::send_with_retry` does.
+    async fn send(&self, request: &HttpRequest) -> Result<Answer, ProviderError> {
+        let idempotent = request.is_idempotent();
+        let sent: Result<Sent, Unanswered> = self
+            .config
+            .retry()
+            .run(&*self.clock, &*self.rng, |_attempt| async move {
+                let response = self
+                    .http
+                    .send(request)
+                    .await
+                    .map_err(|error| Unanswered { error, idempotent })?;
+                if response.status() != StatusCode::TOO_MANY_REQUESTS {
+                    return Ok(Sent { answer: Answer::Response(response), idempotent });
+                }
+                let headers = response.headers().clone();
+                // NOTE: a body that breaks off came after the server took the request,
+                // so it is never a reason to send the request again.
+                let body = response
+                    .text()
+                    .await
+                    .map_err(|error| Unanswered { error, idempotent: false })?;
+                let quota = ErrorDetails::parse(&body).is_quota();
+                Ok(Sent { answer: Answer::TooManyRequests { headers, body, quota }, idempotent })
+            })
+            .await;
+        match sent {
+            Ok(sent) => Ok(sent.answer),
+            Err(unanswered) => Err(transport(unanswered.error)),
         }
     }
 
@@ -270,8 +322,7 @@ impl OpenAiProvider {
     ) -> ProviderError {
         let now = self.clock.now();
         let details = ErrorDetails::parse(body);
-        let quota = details.codes().any(|code| QUOTA_CODES.contains(&code));
-        if status == StatusCode::TOO_MANY_REQUESTS && !quota {
+        if status == StatusCode::TOO_MANY_REQUESTS && !details.is_quota() {
             let reset_wait = details.resets_at.map(|at| {
                 let seconds = at.saturating_sub(now.as_second());
                 Duration::from_secs(u64::try_from(seconds).unwrap_or(0))
@@ -352,6 +403,57 @@ impl Provider for OpenAiProvider {
     }
 }
 
+/// One answer of the server to a model call.
+enum Answer {
+    /// Any status but 429; its body is not read yet.
+    Response(HttpResponse),
+    /// A 429, with its body read to tell a quota from a rate limit.
+    TooManyRequests {
+        headers: HeaderMap,
+        body: String,
+        /// The body names a quota or a plan limit, so another try cannot pass.
+        quota: bool,
+    },
+}
+
+/// An answer, as the retry policy sees it.
+struct Sent {
+    answer: Answer,
+    idempotent: bool,
+}
+
+impl Retryable for Sent {
+    fn outcome(&self, now: Timestamp) -> Outcome {
+        match &self.answer {
+            Answer::Response(response)
+                if efr_http::is_retryable_status(response.status(), self.idempotent) =>
+            {
+                Outcome::Transient { retry_after: efr_http::retry_after(response.headers(), now) }
+            }
+            Answer::Response(_) | Answer::TooManyRequests { quota: true, .. } => Outcome::Final,
+            Answer::TooManyRequests { headers, .. } => {
+                Outcome::Transient { retry_after: efr_http::retry_after(headers, now) }
+            }
+        }
+    }
+}
+
+/// A call that got no answer, or whose 429 body could not be read.
+struct Unanswered {
+    error: HttpError,
+    idempotent: bool,
+}
+
+impl Retryable for Unanswered {
+    fn outcome(&self, _now: Timestamp) -> Outcome {
+        if self.error.is_retryable(self.idempotent) {
+            Outcome::Transient { retry_after: None }
+        } else {
+            Outcome::Final
+        }
+    }
+}
+
 /// The error for a 401 that no refresh can fix, with the message of its body.
 async fn unauthorized(response: HttpResponse) -> ProviderError {
     let message = match response.text().await {
@@ -408,6 +510,11 @@ impl ErrorDetails {
         self.code.as_deref().into_iter().chain(self.kind.as_deref())
     }
 
+    /// True when the error is about money or plan, which waiting does not fix.
+    fn is_quota(&self) -> bool {
+        self.codes().any(|code| QUOTA_CODES.contains(&code))
+    }
+
     /// True when the server says it does not serve the requested model.
     fn names_unknown_model(&self, status: StatusCode) -> bool {
         if self.codes().any(|code| code == "model_not_found") {
@@ -420,6 +527,13 @@ impl ErrorDetails {
     }
 }
 
+/// The code and the message of an error body in the shapes that [`ErrorDetails`]
+/// reads, for an answer that is not a model call's.
+pub(crate) fn server_error(body: &str) -> (Option<String>, Option<String>) {
+    let details = ErrorDetails::parse(body);
+    (details.code.or(details.kind), details.message)
+}
+
 fn clip(message: &str) -> String {
     message.chars().take(MAX_ERROR_MESSAGE).collect()
 }
@@ -429,18 +543,32 @@ fn transport(error: HttpError) -> ProviderError {
 }
 
 /// `unsigned` with the credentials of `token` and, on the subscription path, the
-/// `originator` and account headers. Model requests and catalog fetches send the same.
+/// `originator` and account headers, or on the API path the organization and project
+/// headers that the config names. Model requests, catalog fetches and the key check
+/// send the same.
 pub(crate) fn sign(
     unsigned: &HttpRequest,
     config: &OpenAiConfig,
     token: &AccessToken,
 ) -> Result<HttpRequest, HttpError> {
     let mut request = unsigned.clone().bearer_auth(token.secret())?;
-    if config.backend() == Backend::Subscription {
-        request =
-            request.header_text(HeaderName::from_static(ORIGINATOR_HEADER), config.originator())?;
-        if let Some(account_id) = token.account_id() {
-            request = request.header_text(HeaderName::from_static(ACCOUNT_HEADER), account_id)?;
+    match config.backend() {
+        Backend::Subscription => {
+            request = request
+                .header_text(HeaderName::from_static(ORIGINATOR_HEADER), config.originator())?;
+            if let Some(account_id) = token.account_id() {
+                request =
+                    request.header_text(HeaderName::from_static(ACCOUNT_HEADER), account_id)?;
+            }
+        }
+        Backend::Api => {
+            if let Some(organization) = config.organization() {
+                request = request
+                    .header_text(HeaderName::from_static(ORGANIZATION_HEADER), organization)?;
+            }
+            if let Some(project) = config.project() {
+                request = request.header_text(HeaderName::from_static(PROJECT_HEADER), project)?;
+            }
         }
     }
     Ok(request)

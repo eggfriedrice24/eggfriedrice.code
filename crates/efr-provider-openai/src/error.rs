@@ -33,6 +33,20 @@ pub enum OpenAiError {
         originator: String,
     },
 
+    /// The `organization` value holds bytes that an HTTP header cannot carry.
+    #[error("the organization {organization:?} is not a valid header value")]
+    InvalidOrganization {
+        /// The refused value.
+        organization: String,
+    },
+
+    /// The `project` value holds bytes that an HTTP header cannot carry.
+    #[error("the project {project:?} is not a valid header value")]
+    InvalidProject {
+        /// The refused value.
+        project: String,
+    },
+
     /// The cache file of the model catalog could not be read.
     #[error("the model catalog cache {} could not be read", path.display())]
     CacheRead {

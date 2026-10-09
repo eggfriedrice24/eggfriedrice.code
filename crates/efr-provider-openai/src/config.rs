@@ -82,6 +82,8 @@ pub struct OpenAiConfig {
     backend: Backend,
     base_url: String,
     originator: String,
+    organization: Option<String>,
+    project: Option<String>,
     models: Vec<ModelInfo>,
     retry: RetryPolicy,
     reasoning: ReasoningMode,
@@ -112,6 +114,8 @@ impl OpenAiConfig {
             backend,
             base_url: base_url.to_owned(),
             originator: DEFAULT_ORIGINATOR.to_owned(),
+            organization: None,
+            project: None,
             models: Vec::new(),
             retry: RetryPolicy::default(),
             reasoning: ReasoningMode::ByModel,
@@ -140,6 +144,28 @@ impl OpenAiConfig {
             return Err(OpenAiError::InvalidOriginator { originator: originator.to_owned() });
         }
         originator.clone_into(&mut self.originator);
+        Ok(self)
+    }
+
+    /// The same config billing `organization` on the API path, sent as the
+    /// `OpenAI-Organization` header of every request and fetch with an API key. Fails
+    /// when the value cannot be a header value.
+    pub fn with_organization(mut self, organization: &str) -> Result<Self, OpenAiError> {
+        if HeaderValue::from_str(organization).is_err() {
+            return Err(OpenAiError::InvalidOrganization { organization: organization.to_owned() });
+        }
+        self.organization = Some(organization.to_owned());
+        Ok(self)
+    }
+
+    /// The same config billing `project` on the API path, sent as the `OpenAI-Project`
+    /// header of every request and fetch with an API key. Fails when the value cannot
+    /// be a header value.
+    pub fn with_project(mut self, project: &str) -> Result<Self, OpenAiError> {
+        if HeaderValue::from_str(project).is_err() {
+            return Err(OpenAiError::InvalidProject { project: project.to_owned() });
+        }
+        self.project = Some(project.to_owned());
         Ok(self)
     }
 
@@ -218,6 +244,21 @@ impl OpenAiConfig {
     /// The `originator` header value of the subscription path.
     pub fn originator(&self) -> &str {
         &self.originator
+    }
+
+    /// The organization of the API path, when one is set.
+    pub fn organization(&self) -> Option<&str> {
+        self.organization.as_deref()
+    }
+
+    /// The project of the API path, when one is set.
+    pub fn project(&self) -> Option<&str> {
+        self.project.as_deref()
+    }
+
+    /// The URL of the model list: the subscription's catalog or the API's ids.
+    pub fn models_url(&self) -> String {
+        format!("{}/models", self.base_url)
     }
 
     /// The models that the config lays over the catalog.
