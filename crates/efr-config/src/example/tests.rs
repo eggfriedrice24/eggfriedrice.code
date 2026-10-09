@@ -144,6 +144,8 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "openai.models",
         "openai.subscription_base_url",
         "openai.api_base_url",
+        "openai.organization",
+        "openai.project",
         "anthropic.base_url",
         "anthropic.models",
         "anthropic.workspace_id",

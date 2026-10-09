@@ -76,6 +76,16 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     if let Some(url) = &openai.api_base_url {
         http_url("openai.api_base_url", url)?;
     }
+    if let Some(organization) = &openai.organization {
+        header_word(
+            "openai.organization",
+            organization,
+            "an organization id such as org-AbC, without spaces",
+        )?;
+    }
+    if let Some(project) = &openai.project {
+        header_word("openai.project", project, "a project id such as proj_AbC, without spaces")?;
+    }
 
     if let Some(url) = &anthropic.base_url {
         http_url("anthropic.base_url", url)?;
@@ -83,14 +93,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     for entry in anthropic.models.iter().flatten() {
         check_model_entry("anthropic.models", entry)?;
     }
-    if let Some(workspace) = &anthropic.workspace_id
-        && (workspace.is_empty() || !workspace.chars().all(|c| c.is_ascii_graphic()))
-    {
-        return Err(invalid(
+    if let Some(workspace) = &anthropic.workspace_id {
+        header_word(
             "anthropic.workspace_id",
-            text(workspace),
+            workspace,
             "a workspace id such as wrkspc_01AbC, without spaces",
-        ));
+        )?;
     }
 
     if let Some(path) =
@@ -329,6 +337,14 @@ fn patterns(key: &'static str, list: &[String]) -> Result<(), Invalid> {
 
 fn non_empty(key: &'static str, value: &str, expected: &'static str) -> Result<(), Invalid> {
     if value.trim().is_empty() { Err(invalid(key, text(value), expected)) } else { Ok(()) }
+}
+
+/// A value that goes into an HTTP header as it is: one word of visible ASCII.
+fn header_word(key: &'static str, value: &str, expected: &'static str) -> Result<(), Invalid> {
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_graphic()) {
+        return Err(invalid(key, text(value), expected));
+    }
+    Ok(())
 }
 
 fn http_url(key: &'static str, url: &str) -> Result<(), Invalid> {

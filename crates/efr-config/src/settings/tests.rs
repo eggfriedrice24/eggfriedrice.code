@@ -62,6 +62,8 @@ fn the_file_sets_what_it_names() {
         [openai]
         originator = "efr-dev"
         models = ["gpt-6-sol", "gpt-5.5"]
+        organization = "org-AbC"
+        project = "proj_AbC"
         websocket = "off"
 
         [anthropic]
@@ -102,6 +104,8 @@ fn the_file_sets_what_it_names() {
     assert_eq!(settings.model.max_output_tokens, Some(4096));
     assert_eq!(settings.openai.originator, "efr-dev");
     assert_eq!(settings.openai.websocket, WebSocketChoice::Off);
+    assert_eq!(settings.openai.organization.as_deref(), Some("org-AbC"));
+    assert_eq!(settings.openai.project.as_deref(), Some("proj_AbC"));
     assert_eq!(
         settings.openai.models.as_deref(),
         Some(&["gpt-6-sol".into(), "gpt-5.5".into()][..])
@@ -214,6 +218,8 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
         ("[openai]\nmodels = [\"gpt-5.5\", \" \"]\n", "openai.models"),
         ("[openai]\nsubscription_base_url = \"chatgpt.com\"\n", "openai.subscription_base_url"),
         ("[openai]\napi_base_url = \"ftp://x\"\n", "openai.api_base_url"),
+        ("[openai]\norganization = \"my org\"\n", "openai.organization"),
+        ("[openai]\nproject = \"\"\n", "openai.project"),
         ("[anthropic]\nbase_url = \"api.anthropic.com\"\n", "anthropic.base_url"),
         ("[anthropic]\nmodels = [{ id = \"m\", context_window = 999 }]\n", "anthropic.models"),
         ("[anthropic]\nworkspace_id = \"my workspace\"\n", "anthropic.workspace_id"),

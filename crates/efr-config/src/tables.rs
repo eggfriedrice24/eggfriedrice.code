@@ -173,6 +173,15 @@ pub struct OpenAiSettings {
     /// Replaces the public API's base URL. Needs a restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
+    /// The organization that requests with an API key bill, sent as the
+    /// `OpenAI-Organization` header, such as for a key that belongs to several
+    /// organizations. Unset: the key's default. Needs a restart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization: Option<String>,
+    /// The project that requests with an API key bill, sent as the `OpenAI-Project`
+    /// header. Unset: the key's default. Needs a restart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     /// How model calls reach OpenAI: `auto` uses a WebSocket for each model that the
     /// model catalog marks with `prefer_websockets` and HTTP for the other models, `on`
     /// uses a WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each
@@ -188,6 +197,8 @@ impl Default for OpenAiSettings {
             models: None,
             subscription_base_url: None,
             api_base_url: None,
+            organization: None,
+            project: None,
             websocket: WebSocketChoice::Auto,
         }
     }

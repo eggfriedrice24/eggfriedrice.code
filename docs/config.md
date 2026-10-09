@@ -52,6 +52,8 @@ The OpenAI providers.
 | `models` | unset | live | Models added to the provider's model list, such as a new model before the backend lists it. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens. A table may name a model of the catalog to change its limits: its window up to the largest window that the catalog gives for the model. |
 | `subscription_base_url` | unset | restart | Replaces the subscription backend's base URL. Needs a restart. |
 | `api_base_url` | unset | restart | Replaces the public API's base URL. Needs a restart. |
+| `organization` | unset | restart | The organization that requests with an API key bill, sent as the `OpenAI-Organization` header, such as for a key that belongs to several organizations. Unset: the key's default. Needs a restart. |
+| `project` | unset | restart | The project that requests with an API key bill, sent as the `OpenAI-Project` header. Unset: the key's default. Needs a restart. |
 | `websocket` | `"auto"` | restart | How model calls reach OpenAI: `auto` uses a WebSocket for each model that the model catalog marks with `prefer_websockets` and HTTP for the other models, `on` uses a WebSocket for every model, `off` uses HTTP only. A WebSocket stays open for each conversation, so a call skips the connection setup. A call that the WebSocket cannot serve goes over HTTP. Needs a restart. |
 
 ## [anthropic]

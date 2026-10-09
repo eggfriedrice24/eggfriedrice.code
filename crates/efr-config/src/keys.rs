@@ -30,6 +30,8 @@ pub const RESTART_KEYS: &[&str] = &[
     "openai.originator",
     "openai.subscription_base_url",
     "openai.api_base_url",
+    "openai.organization",
+    "openai.project",
     "openai.websocket",
     "anthropic.base_url",
     "anthropic.cache_ttl",

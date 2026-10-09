@@ -69,6 +69,8 @@ fn every_restart_key_is_kept_when_it_changes() {
         ("openai.originator", "someone-else"),
         ("openai.subscription_base_url", "https://example.com/codex"),
         ("openai.api_base_url", "https://example.com/v1"),
+        ("openai.organization", "org-AbC"),
+        ("openai.project", "proj_AbC"),
         ("openai.websocket", "off"),
         ("anthropic.base_url", "https://example.com/anthropic/v1"),
         ("anthropic.cache_ttl", "1h"),

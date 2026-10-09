@@ -462,10 +462,24 @@
             "null"
           ]
         },
+        "organization": {
+          "description": "The organization that requests with an API key bill, sent as the\n`OpenAI-Organization` header, such as for a key that belongs to several\norganizations. Unset: the key's default. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "originator": {
           "default": "efr",
           "description": "The `originator` of the subscription login and of every subscription request.\nNeeds a restart.",
           "type": "string"
+        },
+        "project": {
+          "description": "The project that requests with an API key bill, sent as the `OpenAI-Project`\nheader. Unset: the key's default. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "subscription_base_url": {
           "description": "Replaces the subscription backend's base URL. Needs a restart.",
