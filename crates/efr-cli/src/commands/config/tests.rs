@@ -270,9 +270,14 @@ async fn check_notes_a_window_above_the_largest_of_its_model() {
 fn only_a_window_above_a_known_largest_one_gets_a_note() {
     let list = crate::testing::models();
     let asked = [("gpt-5.5", 872_000), ("gpt-5.4", 128_001), ("my-model", 9_000_000)];
-    let notes = super::windows_above_the_largest(&asked, &list);
+    let notes = super::windows_above_the_largest("openai.models", &asked, &list);
     assert_eq!(notes.len(), 1, "{notes:?}");
-    assert!(notes[0].contains("128001 of gpt-5.4"), "{notes:?}");
+    assert!(
+        notes[0].starts_with("openai.models: the context_window 128001 of gpt-5.4"),
+        "{notes:?}"
+    );
+    let claude = super::windows_above_the_largest("anthropic.models", &asked[1..2], &list);
+    assert!(claude[0].starts_with("anthropic.models: "), "{claude:?}");
 }
 
 #[tokio::test]

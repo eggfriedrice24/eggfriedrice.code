@@ -297,13 +297,18 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
     }
 }
 
-/// A note for each window of `[openai] models` that is above the largest window that
-/// the model takes, from the running daemon's catalog. efrd uses the largest one, so
-/// the file is still valid. Without a daemon, or without such a window, there is none.
+/// A note for each window of the config's list of models (`[openai] models`, or
+/// `[anthropic] models` when `[model] provider` is `anthropic-api`) that is above the
+/// largest window that the model takes, from the running daemon's catalog. efrd uses
+/// the largest one, so the file is still valid. Without a daemon, or without such a
+/// window, there is none.
 async fn window_notes(ctx: &Context, settings: &efr_config::Settings) -> Vec<String> {
-    let asked: Vec<(&str, u64)> = settings
-        .openai
-        .models
+    let (key, entries) = if settings.model.provider == "anthropic-api" {
+        ("anthropic.models", &settings.anthropic.models)
+    } else {
+        ("openai.models", &settings.openai.models)
+    };
+    let asked: Vec<(&str, u64)> = entries
         .iter()
         .flatten()
         .filter_map(|entry| Some((entry.id(), entry.context_window()?)))
@@ -317,12 +322,13 @@ async fn window_notes(ctx: &Context, settings: &efr_config::Settings) -> Vec<Str
     let Ok(list) = client.call::<ModelsListResult>(Method::ModelsList(ModelsList {})).await else {
         return Vec::new();
     };
-    windows_above_the_largest(&asked, &list)
+    windows_above_the_largest(key, &asked, &list)
 }
 
-/// The notes for the windows of `asked` that are above the largest one of their model
-/// in `list`.
+/// The notes for the windows of `asked`, the entries of the config's `key`, that are
+/// above the largest one of their model in `list`.
 pub(crate) fn windows_above_the_largest(
+    key: &str,
     asked: &[(&str, u64)],
     list: &ModelsListResult,
 ) -> Vec<String> {
@@ -332,8 +338,8 @@ pub(crate) fn windows_above_the_largest(
             let model = list.models.iter().find(|model| model.id == *id)?;
             let max = model.max_context_window.filter(|max| window > max)?;
             Some(format!(
-                "openai.models: the context_window {window} of {} is above the largest window \
-                 that the model takes ({max}), so efrd uses {max}",
+                "{key}: the context_window {window} of {} is above the largest window that \
+                 the model takes ({max}), so efrd uses {max}",
                 format::one_line(id)
             ))
         })
