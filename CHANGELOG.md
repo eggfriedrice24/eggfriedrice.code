@@ -183,10 +183,24 @@ into the GitHub release notes, and it stops when the section is missing.
   `cache_write_1h_tokens` for the part that it keeps for an hour. efr reads OpenAI's
   count of cache writes. Like `cached_input_tokens`, both are parts of
   `input_tokens`.
-- The config accepts the provider `anthropic-api` and a new `[anthropic]` table with
-  `base_url`, `models`, `cache_ttl` (`auto`, `5m` or `1h`) and `workspace_id`. efrd
-  cannot use the provider yet: when `[model] provider` names it, efrd does not start
-  and its log says why.
+- Claude models with an Anthropic API key, provider `anthropic-api`. Log in with
+  `efr login anthropic`, set `[model] provider = "anthropic-api"` and restart efrd.
+  efrd streams Anthropic's Messages API, sends the signed thinking of each answer back
+  unchanged, and always sends an effort: `medium` unless you set another. A new
+  `[anthropic]` table has `base_url`, `models`, `cache_ttl` and `workspace_id` (for a
+  key that is not scoped to one workspace). `cache_ttl = "auto"`, the default, keeps
+  the system prompt, the tools and the conversation up to the start of each turn in
+  the prompt cache for an hour, and the rest of a tool loop for five minutes; `5m` and
+  `1h` put one time on everything.
+- efr has no built-in list of Claude models. The models, their windows, their output
+  limits and their efforts come from the API's model list, which efrd fetches at
+  start, after a login and every hour, and keeps in `anthropic_model_catalog.json` in
+  its state directory. Until efrd has a list, a prompt waits for one fetch. The
+  default model is `claude-opus-5-5`. Without a key, a turn fails and says to log in.
+- `efr models` and `efr status` name the provider of the model list, such as
+  `models: anthropic-api, from the backend, fetched 5m ago`, and say when efrd has no
+  list yet. `efr config check` also notes a window of `[anthropic] models` above the
+  largest window of its model.
 - A new `edit` tool for Claude models. It replaces the exact text `old_string` of one
   file with `new_string`, once, or at every match with `replace_all`. When the text
   occurs more than once without `replace_all`, or does not occur, no file changes and
