@@ -302,6 +302,25 @@ fn status_shows_times_to_the_second() {
 }
 
 #[test]
+fn a_refused_key_says_when_with_or_without_its_hint() {
+    let mut result = status_result();
+    result.providers[1].logged_in = true;
+    result.providers[1].key_refused_at = Some(before(3 * 60));
+    let text = status(&result, Path::new("/s"), now());
+    assert!(
+        text.contains("anthropic: logged in, key refused at 2026-10-04T11:57:00Z (3m 0s ago)\n"),
+        "{text}"
+    );
+
+    result.providers[1].key_hint = Some("sk-ant-...a1b2".to_owned());
+    let text = status(&result, Path::new("/s"), now());
+    assert!(
+        text.contains("key sk-ant-...a1b2 refused at 2026-10-04T11:57:00Z (3m 0s ago)\n"),
+        "{text}"
+    );
+}
+
+#[test]
 fn the_catalog_says_where_it_came_from_and_when() {
     let status =
         |origin, fetched_at| efr_protocol::CatalogStatus { provider: None, origin, fetched_at };

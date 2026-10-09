@@ -12,14 +12,22 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output) -> Result<(), CliError>
     let client = ctx.connect(Origin::Cli, None).await?;
     let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await?;
     out.out(&format::status(&status, &socket, ctx.clock.now()))?;
-    // Every prompt fails until the provider of new conversations has credentials;
-    // stdout stays the daemon's answer alone. An earlier daemon names no active
-    // provider, so then only no login at all is worth the line.
+    // Every prompt fails until the provider of new conversations has credentials
+    // that it takes; stdout stays the daemon's answer alone. An earlier daemon names no
+    // active provider, so then only no login at all is worth the line.
     match status.providers.iter().find(|provider| provider.active) {
         Some(active) if !active.logged_in => {
             let provider = format::one_line(&active.provider);
             out.err(&format!(
                 "efr: {provider} is not logged in; {}\n",
+                login_hint(&active.provider)
+            ));
+        }
+        Some(active) if active.key_refused_at.is_some() => {
+            let provider = format::one_line(&active.provider);
+            out.err(&format!(
+                "efr: the provider refused the key of {provider}; its turns fail until a request \
+                 with the key works or a new login; {}\n",
                 login_hint(&active.provider)
             ));
         }

@@ -953,6 +953,10 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         if let Some(hint) = &provider.key_hint {
             let _ = write!(state, ", key {}", one_line(hint));
         }
+        if let Some(refused) = provider.key_refused_at {
+            let what = if provider.key_hint.is_some() { "" } else { ", key" };
+            let _ = write!(state, "{what} refused at {refused:.0} ({})", ago(refused, now));
+        }
         if provider.active {
             state.push_str(" (active)");
         }

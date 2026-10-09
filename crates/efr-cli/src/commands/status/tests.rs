@@ -324,3 +324,26 @@ async fn a_daemon_that_does_not_answer_times_out() {
         stderr.ends_with("efr: the daemon is not answering; its log: journalctl --user -u efrd\n")
     );
 }
+
+#[tokio::test]
+async fn a_refused_key_shows_when_it_was_refused_and_the_active_one_gets_a_warning() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.providers = three_providers(Some("sk-ant-...a1b2"));
+    status.providers[2].key_refused_at = Some(now() - SignedDuration::from_mins(5));
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let stdout = captured.stdout();
+    let rows: Vec<&str> = stdout.lines().filter(|line| line.starts_with("provider")).collect();
+    insta::assert_snapshot!(format!("{}\n---\n{}", rows.join("\n"), captured.stderr()));
+}
