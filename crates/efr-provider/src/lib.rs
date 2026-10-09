@@ -36,6 +36,7 @@ mod provider;
 mod provider_id;
 mod request;
 mod token_source;
+mod unoffered;
 mod usage;
 
 pub use completion::{Completion, CompletionBuilder};
@@ -49,4 +50,5 @@ pub use request::{
 };
 pub use secrecy::{ExposeSecret, SecretString};
 pub use token_source::{AccessToken, StaticToken, TokenSource};
+pub use unoffered::{unoffered_call_text, unoffered_result_text};
 pub use usage::TokenUsage;

@@ -129,7 +129,9 @@ assistant message's
 unchanged in place of the message's canonical content. An assistant message without
 usable `provider_raw` is rebuilt from its canonical content; its reasoning text is
 dropped, because a reasoning item without its encrypted content is refused when
-`store` is false.
+`store` is false. Raw items with a `function_call` or `custom_tool_call` of a tool
+that the request does not offer are not usable: the canonical content shows that
+call as text (`efr_provider::unoffered_call_text`).
 
 Failures:
 
@@ -341,7 +343,8 @@ for the fake server.
 - The Responses client never knows how a token was obtained, and never sees a refresh
   token.
 - `provider_raw` goes back to the provider exactly as it came: the items are sent
-  verbatim, never edited, truncated or re-ordered.
+  verbatim, never edited, truncated or re-ordered. Raw items with a call of a tool
+  that the request does not offer are not sent at all.
 - No secret reaches a log or a transcript: the token goes in a sensitive
   `Authorization` header, requests are recorded only through `efr_http`'s redacting
   recorder, and error messages come from the server's error body, never from the

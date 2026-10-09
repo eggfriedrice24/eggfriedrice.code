@@ -115,3 +115,12 @@ fn a_freeform_tool_carries_its_grammar_and_the_schema_of_its_function_form() {
     assert_eq!(serde_json::from_value::<ToolDefinition>(wire).unwrap(), tool);
     assert_eq!(serde_json::to_value(GrammarSyntax::Regex).unwrap(), json!("regex"));
 }
+
+#[test]
+fn a_request_offers_only_the_tools_that_it_names() {
+    let mut request = Request::new("gpt-5-codex");
+    assert!(!request.offers("shell"), "no tool");
+    request.tools.push(shell_tool());
+    assert!(request.offers("shell"));
+    assert!(!request.offers("apply_patch"));
+}

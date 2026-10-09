@@ -22,7 +22,9 @@
 //! items this provider produced, in order, and the encrypted reasoning only works when
 //! it comes back unchanged. Without `provider_raw` the message is rebuilt from its
 //! canonical content, and reasoning text is dropped, because a reasoning item without
-//! its encrypted content is refused when `store` is false.
+//! its encrypted content is refused when `store` is false. So is a message whose raw
+//! items hold a call of a tool that the request does not offer: its canonical content
+//! shows that call as text (`efr_provider::unoffered_call_text`).
 
 use std::collections::HashSet;
 
@@ -134,7 +136,7 @@ pub(crate) fn request_body(
         service_tier: options.string("service_tier"),
         previous_response_id: None,
         instructions: request.system.clone().filter(|system| !system.is_empty()),
-        input: input_items(&request.messages, freeform),
+        input: input_items(&request.messages, freeform, |name| request.offers(name)),
         tools: request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect(),
         tool_choice: "auto",
         parallel_tool_calls: options.bool("parallel_tool_calls", config.parallel_tool_calls()),
@@ -278,12 +280,17 @@ pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
 /// read first, from the raw items and from the canonical content. A canonical
 /// freeform call goes to a model that does not take freeform tools in the function
 /// form that the tool has for it, so a conversation that changes the model keeps one
-/// shape for each tool.
-pub(crate) fn input_items(messages: &[Message], takes_freeform: bool) -> Vec<Value> {
-    let freeform = freeform_calls(messages, takes_freeform);
+/// shape for each tool. `offers` says whether the request offers a tool: raw items
+/// with a call of a tool that it does not offer are not sent.
+pub(crate) fn input_items(
+    messages: &[Message],
+    takes_freeform: bool,
+    offers: impl Fn(&str) -> bool,
+) -> Vec<Value> {
+    let freeform = freeform_calls(messages, takes_freeform, &offers);
     let mut items = Vec::new();
     for message in messages {
-        match raw_items(message) {
+        match raw_items(message, &offers) {
             Some(raw) => items.extend(raw.iter().cloned()),
             None => push_canonical(&mut items, message, &freeform, takes_freeform),
         }
@@ -294,10 +301,14 @@ pub(crate) fn input_items(messages: &[Message], takes_freeform: bool) -> Vec<Val
 /// The provider ids of the calls in `messages` that go as `custom_tool_call` items:
 /// those of their raw items, and the canonical freeform calls when `takes_freeform`
 /// is true.
-fn freeform_calls(messages: &[Message], takes_freeform: bool) -> HashSet<&str> {
+fn freeform_calls<'m>(
+    messages: &'m [Message],
+    takes_freeform: bool,
+    offers: &impl Fn(&str) -> bool,
+) -> HashSet<&'m str> {
     let mut calls = HashSet::new();
     for message in messages {
-        if let Some(raw) = raw_items(message) {
+        if let Some(raw) = raw_items(message, offers) {
             calls.extend(
                 raw.iter()
                     .filter(|item| item.get("type").and_then(Value::as_str) == Some(CUSTOM_CALL))
@@ -321,10 +332,12 @@ pub(crate) fn provider_raw(items: Vec<Value>) -> Option<Value> {
     (!items.is_empty()).then_some(Value::Array(items))
 }
 
-/// The items of an assistant message's `provider_raw`, when it holds a list of items.
-/// Anything else falls back to the canonical content, so a damaged or foreign value
-/// costs the encrypted reasoning, not the request.
-fn raw_items(message: &Message) -> Option<&Vec<Value>> {
+/// The items of an assistant message's `provider_raw`, when it holds a list of items
+/// and each call among them is of a tool that the request `offers`. Anything else falls
+/// back to the canonical content, so a damaged or foreign value costs the encrypted
+/// reasoning, not the request, and a call of a tool that the request does not offer
+/// goes as the text of the canonical content.
+fn raw_items<'m>(message: &'m Message, offers: &impl Fn(&str) -> bool) -> Option<&'m Vec<Value>> {
     if message.role != Role::Assistant {
         return None;
     }
@@ -334,6 +347,19 @@ fn raw_items(message: &Message) -> Option<&Vec<Value>> {
             if !items.is_empty()
                 && items.iter().all(|item| item.get("type").is_some_and(Value::is_string)) =>
         {
+            let unoffered = items.iter().any(|item| {
+                let call = matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some("function_call" | CUSTOM_CALL)
+                );
+                call && !item.get("name").and_then(Value::as_str).is_some_and(offers)
+            });
+            if unoffered {
+                tracing::debug!(
+                    "provider_raw holds a call of a tool that the request does not offer; sending the canonical content"
+                );
+                return None;
+            }
             Some(items)
         }
         _ => {

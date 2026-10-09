@@ -52,6 +52,11 @@ Modules:
   window that a setting can raise it to, its output limit), the reasoning efforts it
   takes with the backend's default, whether it takes freeform tools, whether the
   backend prefers a WebSocket transport for it, and its `edit_tool`.
+- `unoffered`: `unoffered_call_text` and `unoffered_result_text`, the text in place of
+  a tool call, and of its result, when the request does not offer the call's tool
+  (`Request::offers`). The conversation puts this text in the canonical messages and
+  keeps `provider_raw`; a provider that sends raw items back sends such a raw call as
+  the same text, or sends the canonical content in place of the raw items.
 - `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
   logs, the config and the event log.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the

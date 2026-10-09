@@ -92,7 +92,11 @@ Modules:
   its content (`provider_raw`, a JSON string, written through
   `serde_json::value::RawValue`), thinking blocks included. The conversation drops
   `provider_raw` when the model changes. An empty `text` block in a `provider_raw` is
-  dropped, and the other blocks then go back one by one, each exact. Any other
+  dropped, and a `tool_use` of a tool that the request does not offer goes as a text
+  block with `efr_provider::unoffered_call_text`, the text that the conversation put
+  in the canonical content; the other blocks then go back one by one, each exact. So
+  the last assistant message of a tool loop keeps its thinking block when the model
+  also called a tool that the request does not offer. Any other
   assistant message, or a `provider_raw` that is not such a text, is built from its
   text and tool calls, and its reasoning is dropped; a tool call input that is not an
   object goes as `{"input": <value>}`.
@@ -337,7 +341,9 @@ snapshots), `rstest`, `pretty_assertions`, `tempfile`, `tokio`, `tracing-subscri
   it and without an empty `text` block. Only a `redacted_thinking` block, or a block
   of a type that efr does not know, holds the API's own text. So every request sends
   the same bytes for an old answer, but whether the thinking binding reads these bytes
-  as the ones that it signed is a check on a test key.
+  as the ones that it signed is a check on a test key. A `tool_use` of a tool that the
+  request does not offer is the one block that goes as other bytes: as text, the same
+  in every request with the same tools.
 - Two following requests of one conversation have the same bytes for `tools`, `system`
   and every earlier message, apart from the cache markers. The conversion never merges
   user messages, so a user message that ended the request before keeps its bytes when

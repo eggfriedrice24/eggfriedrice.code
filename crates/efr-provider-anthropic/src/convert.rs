@@ -23,7 +23,11 @@
 //! 1. An assistant message whose `provider_raw` this provider wrote (a JSON string that
 //!    holds the content array, see `sse_events`) goes back as that exact text, through
 //!    `serde_json::value::RawValue`. The conversation drops `provider_raw` when the
-//!    model changes, so it only comes back to the model that wrote it.
+//!    model changes, so it only comes back to the model that wrote it. A raw `tool_use`
+//!    of a tool that the request does not offer goes as a text block with
+//!    [`unoffered_call_text`], the text that the conversation put in the canonical
+//!    content, and the other blocks, the thinking blocks too, go back one by one, each
+//!    exact. So the last assistant message of a tool loop keeps its thinking.
 //! 2. Any other assistant message is built from its text and tool calls; its reasoning
 //!    is dropped, because another model's thinking cannot go back. A tool call whose
 //!    input is not a JSON object, such as a freeform call's text, goes as
@@ -56,6 +60,7 @@ use std::io;
 
 use efr_provider::{
     ContentBlock, FREEFORM_INPUT, Message, ModelInfo, ProviderError, Request, Role,
+    unoffered_call_text,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -260,7 +265,7 @@ pub(crate) fn request_body(
 
     let mut shapes = Vec::with_capacity(request.messages.len());
     let mut messages = Vec::with_capacity(request.messages.len());
-    for draft in drafts(&request.messages) {
+    for draft in drafts(request) {
         let role = draft.role;
         let opens_turn = role == Role::User && draft.answers.is_empty();
         let message = draft.into_message();
@@ -389,11 +394,14 @@ impl BodyMessage {
 /// assistant messages merged, and every open tool call answered. Adjacent user
 /// messages stay apart: the API joins them, and a user message that ended the request
 /// before keeps its bytes when a new one follows it.
-fn drafts(messages: &[Message]) -> Vec<Draft> {
+fn drafts(request: &Request) -> Vec<Draft> {
+    let messages = &request.messages;
     let mut drafts: Vec<Draft> = Vec::with_capacity(messages.len());
     for message in messages {
         let draft = match message.role {
-            Role::Assistant => raw_draft(message).unwrap_or_else(|| assistant_draft(message)),
+            Role::Assistant => {
+                raw_draft(message, request).unwrap_or_else(|| assistant_draft(message))
+            }
             Role::User => user_draft(message),
             other => {
                 tracing::debug!(role = ?other, "a role the Messages API does not know; sent as user");
@@ -414,14 +422,18 @@ fn drafts(messages: &[Message]) -> Vec<Draft> {
     drafts
 }
 
-/// The start of one raw block: enough to check that it is a block, to read the id of a
-/// `tool_use` and to find an empty `text` block.
+/// The start of one raw block: enough to check that it is a block, to read the id, the
+/// tool and the input of a `tool_use` and to find an empty `text` block.
 #[derive(Debug, Deserialize)]
 struct RawHead {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    input: Option<Value>,
     #[serde(default)]
     text: Option<String>,
 }
@@ -436,8 +448,9 @@ impl RawHead {
 /// The draft of an assistant message from its `provider_raw`, when that holds the
 /// content array that this provider wrote: a JSON string of a non-empty array of
 /// blocks. Anything else, such as another provider's items, falls back to the
-/// canonical content and costs the signed thinking, not the request.
-fn raw_draft(message: &Message) -> Option<Draft> {
+/// canonical content and costs the signed thinking, not the request. A `tool_use` of a
+/// tool that `request` does not offer goes as its text.
+fn raw_draft(message: &Message, request: &Request) -> Option<Draft> {
     let text = match message.provider_raw.as_ref()? {
         Value::String(text) => text,
         _ => {
@@ -453,19 +466,28 @@ fn raw_draft(message: &Message) -> Option<Draft> {
             return None;
         }
         let mut draft = Draft::new(Role::Assistant);
-        let mut dropped = false;
+        let mut changed = false;
         for block in blocks {
             let head: RawHead = serde_json::from_str(block.get()).ok()?;
             if head.is_empty_text() {
-                dropped = true;
+                changed = true;
                 continue;
             }
             if head.kind == "tool_use" {
-                draft.calls.push(head.id?);
+                let id = head.id?;
+                let name = head.name.unwrap_or_default();
+                if !request.offers(&name) {
+                    let input = head.input.unwrap_or(Value::Null);
+                    let text = unoffered_call_text(&id, &name, &input);
+                    draft.rest.push(Part::Block(Block::Text { text, cache_control: None }));
+                    changed = true;
+                    continue;
+                }
+                draft.calls.push(id);
             }
             draft.rest.push(Part::Raw(block));
         }
-        if !dropped {
+        if !changed {
             draft.whole = Some(RawValue::from_string(text.clone()).ok()?);
         }
         Some(draft)

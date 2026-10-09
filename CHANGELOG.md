@@ -402,6 +402,10 @@ into the GitHub release notes, and it stops when the section is missing.
   offer, which a provider can refuse. The text is the same in every request, so the
   prompt cache still reads it. When you change back, the calls go in their own form
   again.
+- On Claude, when the model calls a tool that the request does not offer next to a
+  tool that it offers, in one answer, the next request of the turn keeps the thinking
+  of that answer. Before, efr sent that answer without its thinking, and the Messages
+  API can refuse such a request, so the turn failed.
 - On Claude, a prompt after a turn that ended early now goes as a message of its own,
   as after an interrupt while a tool ran or after a model call that failed. Before,
   efr joined it to the last message of that turn, so the request lost the prompt

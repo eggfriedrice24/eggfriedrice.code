@@ -52,6 +52,13 @@ impl Request {
     pub fn new(model: impl Into<String>) -> Self {
         Request { model: model.into(), ..Request::default() }
     }
+
+    /// True when [`tools`](Self::tools) has a tool named `name`, so a call of it may go
+    /// as a call. A call of a tool that the request does not offer goes as text
+    /// ([`unoffered_call_text`](crate::unoffered_call_text)).
+    pub fn offers(&self, name: &str) -> bool {
+        self.tools.iter().any(|tool| tool.name == name)
+    }
 }
 
 /// A tool as the model sees it.

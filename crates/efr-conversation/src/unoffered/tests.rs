@@ -49,6 +49,7 @@ fn a_call_that_the_request_does_not_offer_and_its_result_become_text() {
 
     let expected = vec![
         Message::user("Fix the notes."),
+        // The provider items stay: the provider sends their call as the same text.
         Message::new(
             Role::Assistant,
             vec![text(
@@ -56,12 +57,12 @@ fn a_call_that_the_request_does_not_offer_and_its_result_become_text() {
                  offer the tool. Its input:\n\
                  {\"new_string\":\"final\",\"old_string\":\"draft\",\"path\":\"/p/a.md\"}",
             )],
-        ),
+        )
+        .with_provider_raw(json!(r#"[{"type":"tool_use","id":"toolu_01"}]"#)),
         Message::new(
             Role::User,
             vec![text("Result of the earlier tool call `edit` (id toolu_01):\nedited /p/a.md")],
         ),
-        // A message without such a call keeps its provider items.
         Message::assistant("Fixed.").with_provider_raw(json!(r#"[{"type":"text"}]"#)),
     ];
     assert_eq!(shown, expected);

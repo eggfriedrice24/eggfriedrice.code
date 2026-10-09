@@ -320,9 +320,13 @@ when the turn builds a request and in each summary request), for every provider:
 
 The text is a pure function of the call and the request's tools, so each request with
 the same tools sends the same bytes for an old call, and the prompt cache reads them.
-A message with such a call loses its `provider_raw`, which holds the call in the
-provider's own form. The saved messages keep the call as it was, so after a switch
-back to a model that has the tool, the call goes in its own form again.
+A message with such a call keeps its `provider_raw`, which holds the call in the
+provider's own form: the provider sends that raw call as the same text
+(`efr_provider::unoffered_call_text`), or sends the canonical content in place of
+the raw items. So a Claude message keeps its thinking blocks, which the Messages API
+needs at the start of the last assistant message of a tool loop. The saved messages
+keep the call as it was, so after a switch back to a model that has the tool, the
+call goes in its own form again.
 
 ### The history only grows
 

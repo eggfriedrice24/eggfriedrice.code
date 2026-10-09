@@ -425,6 +425,46 @@ fn a_rebuilt_answer_keeps_text_and_calls_and_drops_reasoning() {
     );
 }
 
+/// The answer of a tool loop that calls `shell` and `apply_patch`, which the request
+/// does not offer, after a thinking block.
+const THINK_AND_TWO_CALLS: &str = r#"[{"type":"thinking","thinking":"I patch and list.","signature":"c2lnLTI="},{"type":"tool_use","id":"toolu_01","name":"shell","input":{"command":"ls"}},{"type":"tool_use","id":"toolu_02","name":"apply_patch","input":{"input":"*** Begin Patch\n*** End Patch"}}]"#;
+
+#[test]
+fn a_raw_call_that_the_request_does_not_offer_goes_as_text_and_the_thinking_stays() {
+    let patch = json!({"input": "*** Begin Patch\n*** End Patch"});
+    let shown = efr_provider::unoffered_call_text("toolu_02", "apply_patch", &patch);
+    let shown_result =
+        efr_provider::unoffered_result_text("toolu_02", "apply_patch", "patched", false);
+    // The canonical messages as the conversation shows them: the call and its result
+    // that the request does not offer are text, and the raw content stays.
+    let request = request(vec![
+        Message::user("Patch and list."),
+        written(vec![call("toolu_01", "ls"), text(&shown)], THINK_AND_TWO_CALLS),
+        user(vec![result("toolu_01", "src"), text(&shown_result)]),
+    ]);
+
+    let text = serde_json::to_string(&body(&request)).unwrap();
+
+    // The thinking block and the offered call go back exact, each on its own.
+    let thinking = r#"{"type":"thinking","thinking":"I patch and list.","signature":"c2lnLTI="}"#;
+    let shell = r#"{"type":"tool_use","id":"toolu_01","name":"shell","input":{"command":"ls"}}"#;
+    let shown_block = format!(r#"{{"type":"text","text":{}}}"#, json!(shown));
+    let expected =
+        format!(r#"{{"role":"assistant","content":[{thinking},{shell},{shown_block}]}}"#);
+    assert!(text.contains(&expected), "{text}");
+    let body = value(&body(&request));
+    assert_eq!(body["messages"][1]["content"][0]["type"], json!("thinking"));
+    // Only the offered call needs a result; no guard result for the other one.
+    let results = body["messages"][2]["content"].as_array().unwrap();
+    let ids: Vec<&Value> = results
+        .iter()
+        .filter(|block| block["type"] == json!("tool_result"))
+        .map(|block| &block["tool_use_id"])
+        .collect();
+    assert_eq!(ids, [&json!("toolu_01")]);
+    assert_eq!(results[1]["text"], json!(shown_result));
+}
+
 #[test]
 fn tool_results_come_before_text_in_a_user_message() {
     let request = request(vec![
