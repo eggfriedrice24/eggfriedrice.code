@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_provider::{
-    ContentBlock, Provider, ProviderError, ProviderEvent, ProviderId, Request, StopReason,
+    ContentBlock, EditTool, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, Request,
+    StopReason,
 };
 use futures::{FutureExt as _, StreamExt as _};
 use pretty_assertions::assert_eq;
@@ -84,6 +85,14 @@ async fn the_fixture_replays_with_redaction_and_restored_placeholders() {
 
     assert_eq!(completion.stop_reason, StopReason::EndTurn);
     assert_eq!(completion.message.text(), format!("The files in {CWD} are: none."));
+}
+
+#[test]
+fn the_model_list_is_empty_unless_a_test_gives_one() {
+    assert!(echo(&[]).models().is_empty());
+    let model = ModelInfo::new("claude-test").with_edit_tool(EditTool::Replace);
+    let provider = echo(&[]).with_models(vec![model.clone()]);
+    assert_eq!(provider.models(), [model]);
 }
 
 #[tokio::test]

@@ -26,7 +26,9 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_provider::{Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request};
+use efr_provider::{
+    ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
+};
 use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::Value;
@@ -57,6 +59,8 @@ const DEFAULT_ID: &str = "replay";
 /// answer.
 pub struct ReplayProvider {
     id: ProviderId,
+    /// What [`Provider::models`] answers; empty unless a test gives a list.
+    models: Vec<ModelInfo>,
     redactor: Redactor,
     state: Mutex<State>,
     /// The last transcript line the harness has handled, when the provider is paced.
@@ -145,6 +149,7 @@ impl ReplayProvider {
         let state = State { exchanges: exchanges(transcript)?, served: 0, failure: None };
         Ok(ReplayProvider {
             id: replay_id(),
+            models: Vec::new(),
             redactor: Redactor::new(),
             state: Mutex::new(state),
             handled: None,
@@ -155,6 +160,15 @@ impl ReplayProvider {
     #[must_use]
     pub fn with_id(mut self, id: ProviderId) -> Self {
         self.id = id;
+        self
+    }
+
+    /// The same provider, which says that it serves `models`, such as a model that
+    /// changes files with another edit tool. It serves no list by default, as a
+    /// provider that does not say.
+    #[must_use]
+    pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
+        self.models = models;
         self
     }
 
@@ -265,6 +279,10 @@ impl ReplayProvider {
 impl Provider for ReplayProvider {
     fn id(&self) -> &ProviderId {
         &self.id
+    }
+
+    fn models(&self) -> Vec<ModelInfo> {
+        self.models.clone()
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

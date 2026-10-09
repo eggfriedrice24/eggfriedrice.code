@@ -66,7 +66,9 @@ directories, a store and provider traffic from one place and never from the mach
   line, the JSON pointer of the first difference and both bodies, or the exchanges
   that were never requested. `paced()` holds each `provider_sse` record until the
   harness reports through `handled_through(line)` that it has handled the records
-  before it, for an interrupt in the middle of an answer. The transcript is validated
+  before it, for an interrupt in the middle of an answer. `with_models(list)` makes
+  `models()` answer that list, such as a model that changes files with `edit`; the
+  list is empty by default. The transcript is validated
   when the provider is built, so a broken fixture fails before the test runs. A
   provider's own wire format, such as the Responses API, is replayed at the HTTP level
   with wiremock instead.
