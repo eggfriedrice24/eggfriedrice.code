@@ -214,7 +214,9 @@ the full table. In short:
   headers. `Ok` for a 200; a 401 is `Unauthorized { message }`; any other status is
   `Api` with the status and the server's message (such as a 403, or the 400 that asks
   for `anthropic-workspace-id`), else the status's reason; no answer is `Transport`.
-  The check is never recorded, and no error holds the key.
+  The check goes once, with no retry, because a person waits for it (as the OpenAI
+  check does). It is never recorded, and no error holds the key: a server message
+  that quotes the key shows `<the key>`.
 
 ## Token counts
 

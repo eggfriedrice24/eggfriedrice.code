@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_http::{HeaderValue, HttpClient, HttpError, HttpRequest, Url, header};
-use efr_provider::{ProviderError, SecretString, TokenSource};
+use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource};
 use efr_stdx::time::Clock;
 use serde_json::Value;
 
@@ -20,9 +20,15 @@ use crate::failure::{self, transport};
 use crate::messages::sign;
 use crate::{AnthropicConfig, Catalog};
 
-/// How long one page of the fetch, or the key check, may take. The fetch runs in the
-/// background, so this only bounds how long a hung API holds a connection.
+/// How long one page of the fetch may take. The fetch runs in the background, so this
+/// only bounds how long a hung API holds a connection.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the check of a key may take. A person waits for it.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// What a server message shows in place of the key, when it quotes the key.
+const KEY_PLACEHOLDER: &str = "<the key>";
 
 /// The most models that the API sends on one page.
 const PAGE_LIMIT: &str = "1000";
@@ -153,8 +159,10 @@ impl CatalogClient {
 /// headers of `config`, before a login stores the key. `Ok` for a 200; a 401 is
 /// `ProviderError::Unauthorized` and a 403 an `Api` error, each with the server's
 /// message (such as the one that asks for `anthropic-workspace-id`); any other status
-/// is an `Api` error with the status, and no answer is a `Transport` error. The key
-/// never reaches an error, a log line or a recorded request.
+/// is an `Api` error with the status, and no answer is a `Transport` error. The check
+/// goes once, as the OpenAI one does: a person waits for the answer and can ask again.
+/// The key never reaches an error, a log line or a recorded request: a server message
+/// that quotes it shows a placeholder.
 pub async fn check_key(
     http: &HttpClient,
     config: &AnthropicConfig,
@@ -163,16 +171,16 @@ pub async fn check_key(
     let mut url = Url::parse(&config.models_url())
         .map_err(|source| transport(HttpError::InvalidUrl { source }))?;
     url.query_pairs_mut().append_pair("limit", "1");
-    let request = list_request(&url).and_then(|unsigned| sign(&unsigned, config, key));
-    let response = http
-        .send_with_retry(&request.map_err(transport)?, config.retry())
-        .await
-        .map_err(transport)?;
+    let request = list_request(&url)
+        .map(|unsigned| unsigned.timeout(CHECK_TIMEOUT))
+        .and_then(|unsigned| sign(&unsigned, config, key));
+    let response = http.send(&request.map_err(transport)?).await.map_err(transport)?;
     let status = response.status();
     if status.is_success() {
         return Ok(());
     }
     let body = response.text().await.map_err(transport)?;
+    let body = body.replace(key.expose_secret(), KEY_PLACEHOLDER);
     Err(failure::refusal(status, &body))
 }
 

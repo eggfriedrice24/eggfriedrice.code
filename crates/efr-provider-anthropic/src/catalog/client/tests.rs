@@ -264,12 +264,36 @@ async fn a_refused_key_says_why_without_the_key() {
 }
 
 #[tokio::test]
-async fn a_key_check_without_an_answer_fails_in_transit() {
+async fn a_key_check_without_an_answer_fails_in_transit_at_once() {
     let config = AnthropicConfig::new().with_base_url(&closed_base_url()).unwrap();
+    let clock = Arc::new(InstantClock::new());
 
-    let error = check_key(&http(Arc::new(InstantClock::new())), &config, &key()).await.unwrap_err();
+    let error = check_key(&http(clock.clone()), &config, &key()).await.unwrap_err();
 
     assert!(matches!(error, ProviderError::Transport { .. }), "{error:?}");
+    assert!(clock.sleeps().is_empty(), "a person waits, so the check goes once");
     let text = format!("{error} {error:?}");
     assert!(!text.contains(KEY), "{text}");
+}
+
+#[tokio::test]
+async fn a_key_check_goes_once_and_hides_a_key_that_the_answer_quotes() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(refusal(529, "overloaded_error", &format!("Overloaded for {KEY}")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let clock = Arc::new(InstantClock::new());
+
+    let error = check_key(&http(clock.clone()), &config(&server), &key()).await.unwrap_err();
+
+    match &error {
+        ProviderError::Api { status: Some(529), message, .. } => {
+            assert_eq!(message, "Overloaded for <the key>");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(clock.sleeps().is_empty());
 }
