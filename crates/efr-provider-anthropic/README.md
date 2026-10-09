@@ -6,12 +6,12 @@ The Anthropic Messages API client. `AnthropicProvider` implements
 `efr_provider::Provider` over a streaming `POST <base_url>/messages` at
 `https://api.anthropic.com/v1`, with an API key. Its provider id is `anthropic-api`.
 
-Status: this crate is a skeleton. The types, the config, the usage mapping and the
-placement of the cache markers are built; the model call, the stream mapping, the
-catalog fetch, its cache file and the key check are not. Until they are,
-`AnthropicProvider::stream`, `CatalogClient::fetch` and `check_key` fail with an `Api`
-error of code `not_built`, `read_cache` finds no file and `write_cache` writes nothing.
-The daemon does not build this provider yet.
+Status: the pure parts are built: the config, the request body with its cache markers,
+the stream mapping and the usage sums. The HTTP model call, the catalog fetch, its cache
+file and the key check are not. Until they are, `AnthropicProvider::stream`,
+`CatalogClient::fetch` and `check_key` fail with an `Api` error of code `not_built`,
+`read_cache` finds no file and `write_cache` writes nothing. The daemon does not build
+this provider yet.
 
 Modules:
 
@@ -28,10 +28,13 @@ Modules:
   makes a list current unless it offers no model (`Applied::Refused`). `CatalogClient`
   fetches, `read_cache` and `write_cache` keep the list in a file of its own name, and
   `check_key` checks a key.
-- `convert`: the request body and its messages, as pure functions; its
-  `breakpoints` module places the prompt cache markers (see "Prompt cache" below).
-- `sse_events`: a pure state machine from the stream's events to `ProviderEvent`s.
-- `usage`: Anthropic's counts in efr's canonical sense (see "Token counts" below).
+- `convert`: `request_body`, the request body and its messages as a pure function,
+  and `THINKING_BINDING_BETA`, the one beta header; its `breakpoints` module places
+  the prompt cache markers (see "Prompt cache" below).
+- `sse_events`: `EventMapper`, a pure state machine from the stream's events to
+  `ProviderEvent`s (see "The stream" below).
+- `usage`: Anthropic's counts in efr's canonical sense, and `StreamUsage`, which keeps
+  the cumulative counts of one stream (see "Token counts" below).
 - `failure`: what an error answer means and whether to send the request again (see
   "Failures" below).
 - `messages`: `AnthropicProvider`, the HTTP exchange, the retries and the event
@@ -41,7 +44,8 @@ Modules:
 - `error`: `AnthropicError`, for settings refused when the config is built (a base URL
   that is not `http` or `https`, a workspace id that cannot be a header value) and for
   the cache file. A request fails with `efr_provider::ProviderError`.
-- `testing` (tests only): fakes and fixtures.
+- `testing` (tests only): fakes and the loader of the stream fixtures in
+  `fixtures/messages/`.
 
 ## The request
 
@@ -50,23 +54,34 @@ Modules:
   `anthropic-workspace-id` when `[anthropic] workspace_id` is set (a key that is not
   scoped to one workspace needs it); `anthropic-beta:
   thinking-binding-controls-2026-08-01`. No other beta header: an unknown one is a 400.
-- Body: `model`; `max_tokens` (the request's limit, else the model's `max_tokens`);
-  `system` as one text block, left out when empty; `tools` as function tools in the
-  request's order; `tool_choice: {"type": "auto"}`; `thinking: {"type": "adaptive",
-  "display": "summarized", "block_binding": {"prefix_mismatch_behavior":
-  "drop_block"}}`; `output_config: {"effort": ...}`; `messages`; `stream: true`.
-- Effort: `Request::effort`, else `DEFAULT_EFFORT`, always sent, because the API's
-  own default differs by model. A change of the effort inside a conversation costs a
-  rebuild of the messages cache.
+- Body, in this member order: `model`; `stream: true`; `max_tokens`; `system` as one
+  text block, left out when empty; `tools` as function tools in the request's order
+  (a freeform tool in its function form); `tool_choice: {"type": "auto"}`, left out
+  with the tools when there is none; `thinking: {"type": "adaptive", "display":
+  "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}`;
+  `output_config: {"effort": ...}`; `messages`. Never sent: sampling members,
+  `stop_sequences`, `metadata`, `service_tier` and `inference_geo`.
+- `max_tokens`: the request's limit, at most the model's `max_tokens` from the
+  catalog; without a request limit, the model's. When neither is known, the body is
+  not built and the call fails with `UnknownModel`: efr guesses no model fact.
+- Effort: `Request::effort`, else the model's default effort from the catalog, else
+  `DEFAULT_EFFORT`, always sent, because the API's own default differs by model. A
+  change of the effort inside a conversation costs a rebuild of the messages cache.
 - The provider reads no key of `Request::provider_options`: the conversation sends
   OpenAI's `prompt_cache_key` to every provider, and an unknown body member is a 400.
-- An assistant message that this provider wrote for the same model goes back as the
-  exact JSON text of its content (`provider_raw`, written through
-  `serde_json::value::RawValue`), thinking blocks included. Any other assistant
-  message is built from its text and tool calls, and its reasoning is dropped.
-  Adjacent messages of one role merge; `tool_result` blocks come first in a user
-  message; empty text blocks are dropped; a tool id outside `[a-zA-Z0-9_-]` gets `_`
-  for each other character.
+- An assistant message that this provider wrote goes back as the exact JSON text of
+  its content (`provider_raw`, a JSON string, written through
+  `serde_json::value::RawValue`), thinking blocks included. The conversation drops
+  `provider_raw` when the model changes. Any other assistant message, or a
+  `provider_raw` that is not such a text, is built from its text and tool calls, and
+  its reasoning is dropped; a tool call input that is not an object goes as
+  `{"input": <value>}`.
+- Adjacent messages of one role merge, and the blocks of merged raw messages stay
+  exact. `tool_result` blocks come first in a user message, and a result with an empty
+  output has no `content`. Empty text blocks are dropped, and so is a message that
+  becomes empty. A `tool_use` that the next message does not answer gets a failed
+  result with one fixed text. A tool id outside `[a-zA-Z0-9_-]` gets `_` for each
+  other character.
 - Edit tool: every catalog model has `ModelInfo::edit_tool` `EditTool::Replace`, so
   the request offers `edit` (`path`, `old_string`, `new_string`, `replace_all`) and not
   `apply_patch`.
@@ -92,7 +107,9 @@ pub(crate) enum Ttl { FiveMinutes, OneHour }                 // "5m", "1h"
 ```
 
 `opens_turn` is true for a user message that holds no `tool_result`; `tokens` is the
-conversion's estimate of a message, the same for the same bytes. The rules:
+conversion's estimate of a message: its JSON bytes without markers over 4, rounded up,
+so the same for the same bytes. A marker is `"cache_control": {"type": "ephemeral",
+"ttl": "5m"}` (or `"1h"`), always the last member of its block. The rules:
 
 - At most four markers, in the order of the prefix: S (the system block, else the last
   tool), A (the last anchor before the tail), P (the previous tail: the last user
@@ -104,6 +121,10 @@ conversion's estimate of a message, the same for the same bytes. The rules:
   one included, hold more than `ANCHOR_STEP_TOKENS` (20,000). A side call never marks
   one. Because the history is append-only, every later request finds the same anchors,
   also after a restart.
+- State: the placement needs the place of the last anchor and the tokens after it. No
+  one keeps these numbers. The placement computes them again from the messages on every
+  call, so the state is the history itself, which `efr-conversation` keeps and sends
+  whole. The provider keeps nothing between calls.
 - `CacheTtl::Auto`: S and A are one hour. A call that marks an anchor puts one hour on
   every marker, because the API refuses a one-hour marker after a five-minute one; any
   other call puts five minutes on P and T. Side calls, such as a compaction's summary
@@ -111,6 +132,10 @@ conversion's estimate of a message, the same for the same bytes. The rules:
   tool loop after the last anchor.
 - `CacheTtl::FiveMinutes` and `CacheTtl::OneHour` put their one time on every marker.
 - When two places are one message, it gets one marker with the longer time.
+- On a call that marks an anchor, P is one hour too, over the entry that the call
+  before wrote for five minutes. Whether the API then keeps a full one-hour entry is a
+  check on a test key before the release; if it fails, `auto` falls back to one hour on
+  every marker.
 - Known gap: a new prompt after an interrupted call merges into the user message of
   the call's results, so it does not open a turn; it marks an anchor only by size.
 
@@ -120,6 +145,31 @@ level; a change of the effort invalidates the messages. Prices: a five-minute wr
 costs 1.25 times the input price, a one-hour write 2 times, a read 0.1 times or less.
 Before each call, efrd logs the time since the conversation's last call at debug level,
 to measure which time to live pays.
+
+## The stream
+
+`sse_events::EventMapper` reads the events of one answer in order; its module doc has
+the full table. In short:
+
+- Text deltas are `TextDelta`, thinking deltas are `ReasoningDelta` (a blank line
+  between two thinking blocks), a `tool_use` is `ToolCallStart`, a `ToolCallDelta` for
+  each non-empty `partial_json` fragment and `ToolCallEnd` at its `content_block_stop`.
+  An input that is not a JSON object at that point fails the stream with
+  `InvalidStream`, so a call that the output limit cut off never runs.
+- `message_stop` gives one `Usage` and `Done`. `provider_raw` is a JSON string that
+  holds the content array: `text`, `thinking` (with its signature) and `tool_use`
+  blocks built from the stream with the API's member order and the input text that the
+  model wrote, and `redacted_thinking` or unknown blocks as the API sent them. Empty
+  blocks stay. An answer without blocks has no `provider_raw`.
+- Stop reasons: `end_turn` and `stop_sequence` are `EndTurn`, `tool_use` is `ToolUse`,
+  `max_tokens` and `model_context_window_exceeded` are `MaxTokens`, `refusal` is
+  `ContentFilter`, `pause_turn` is `EndTurn`; an unknown or missing one is `ToolUse`
+  with a tool call, else `EndTurn`.
+- `ping` is ignored, `citations_delta` too. Any other unknown event, block or delta is
+  `Raw`, never a failure.
+- An `error` event fails the stream with the class of its `error.type` (see
+  "Failures"); `message.input_transformations` entries of `message_start` are logged at
+  `warn`.
 
 ## Catalog
 
@@ -201,9 +251,10 @@ It must never depend on `efr-oauth-openai`: the key arrives through
 `efr_provider::TokenSource`, which says that it cannot refresh. That edge is
 forbidden in `xtask/src/deps.rs`.
 
-Third-party crates: `async-trait`, `jiff` (the time of a fetched catalog),
-`serde_json` (with `raw_value`, for the exact replay of assistant content) and
-`thiserror`.
+Third-party crates: `async-trait`, `jiff` (the time of a fetched catalog), `serde`
+(the typed body and the blocks of `provider_raw`), `serde_json` (with `raw_value`, for
+the exact replay of assistant content), `thiserror` and `tracing`. Tests also use
+`insta` (the body snapshots), `rstest` and `pretty_assertions`.
 
 ## Invariant
 
@@ -226,10 +277,22 @@ cargo nextest run -p efr-provider-anthropic
 ```
 
 `config` tests pin the defaults, the URLs and the refused settings. `usage` tests check
-the three-part input sum, the one-hour writes and the thinking count. `catalog` tests
-check the default model and what `apply` does with a list. `convert::breakpoints` tests
-are table tests of the placement: the walkthrough of two turns with a tool loop, the
-anchor of a grown tool loop, a side call, each time to live, the fallbacks of S, and
-every short history under every setting against the rules of the API (at most four
-markers, in order, no one-hour marker after a five-minute one). The tests make no
-network call, sleep on no real time and need no Zig.
+the three-part input sum, the one-hour writes, the thinking count and the cumulative
+stream counts. `catalog` tests check the default model and what `apply` does with a
+list. `convert::breakpoints` tests are table tests of the placement: the walkthrough of
+two turns with a tool loop, a steer, a summary request and the calls after a
+compaction, the anchor of a grown tool loop, a side call, each time to live, the
+fallbacks of S, and every short history under every setting against the rules of the
+API (at most four markers, in order, no one-hour marker after a five-minute one).
+
+`convert` tests pin the body with insta snapshots (`src/convert/snapshots/`: the
+first call, a tool loop, a steer, the head after a compaction, a summary request, no
+system prompt) and check each rule of "The request" in table tests, the raw replay
+byte for byte among them. `convert::tests::prefix` builds the requests of four turns
+from the stream fixtures and checks that each body, without its markers, is a byte
+prefix of the next. `sse_events` tests read the hand-written streams in
+`fixtures/messages/` (text, a tool call, thinking, omitted thinking, redacted
+thinking, an error after the start, `max_tokens`, `refusal`) and cover each stop
+reason, each error type, unknown events and broken tool calls.
+
+The tests make no network call, sleep on no real time and need no Zig.
