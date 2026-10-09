@@ -167,7 +167,7 @@ async fn login_with(
         params
     };
     let line = command(args);
-    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    let (exit, params) = tokio::join!(Box::pin(run::run(&line, &ctx, &mut out)), script);
     (exit, params, captured.stdout(), captured.stderr())
 }
 

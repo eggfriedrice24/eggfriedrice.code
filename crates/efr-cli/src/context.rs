@@ -8,6 +8,7 @@
 
 use std::fmt;
 use std::io::{self, Read as _};
+use std::os::unix::ffi::OsStringExt as _;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
@@ -199,7 +200,9 @@ impl KeyInput for ProcessKeyInput {
         // NOTE: OPENAI_API_KEY and ANTHROPIC_API_KEY are the providers' conventions, not
         // efr settings, so they are read here and not through efr_stdx::env::Var, and
         // only when `--from-env` asks for one.
-        std::env::var(name).ok().map(Zeroizing::new)
+        let bytes = Zeroizing::new(std::env::var_os(name)?.into_vec());
+        let text = std::str::from_utf8(&bytes).ok()?;
+        Some(Zeroizing::new(text.to_owned()))
     }
 
     fn stdin(&self, limit: usize) -> io::Result<Zeroizing<Vec<u8>>> {

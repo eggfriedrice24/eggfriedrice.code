@@ -76,7 +76,8 @@ pub(crate) fn message(error: &CliError) -> String {
     message_for(error, efr_config::DEFAULT_PROVIDER)
 }
 
-/// [`message`] with the login of `provider` in a login hint.
+/// `efr: ` and the error with its sources on one line, then the hint on a line of its
+/// own when there is one; a login hint names the login of `provider`.
 pub(crate) fn message_for(error: &CliError, provider: &str) -> String {
     let text = efr_stdx::with_causes(error);
     let mut out = format!("efr: {}\n", format::one_line(&text));
