@@ -389,7 +389,8 @@ stream counts. `catalog` tests check an entry as a model, the `lifecycle` filter
 efforts, the default model, what `apply` does with a list and the models of the config
 over the catalog; its `cache` tests the round trip of the file, its form, its 0600 mode
 and the files that are not used; its `client` tests, on `wiremock`, the pages, the
-headers, the refused key, the broken lists and every result of `check_key`. `failure`
+headers, the refused key, a 529 that is sent again and a spend cap that is not, a key
+that the answer quotes, the broken lists and every result of `check_key`. `failure`
 tests are table tests of each answer's class and of each `error` event.
 `convert::breakpoints` tests are table tests of the placement: the walkthrough of two
 turns with a tool loop, a steer, a summary request and the calls after a compaction,
@@ -411,6 +412,6 @@ reason, each error type, unknown events and broken tool calls.
 headers of a model call, that no `provider_options` key reaches the body, the retries
 of a 429, a 5xx and a 529 with their waits, the classes that are sent once, an `error`
 event after the stream started, a cut stream, a refused connection, and that no
-recorded request, error or log line holds the key.
+recorded request, error or log line holds the key, also when the answer quotes it.
 
 The tests make no network call, sleep on no real time and need no Zig.
