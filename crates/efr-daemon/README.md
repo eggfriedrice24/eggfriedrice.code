@@ -518,7 +518,7 @@ conventions that `efr_stdx::env::Var` does not name.
   event, a receipt or a log field.
 - Shutdown releases the lock last, after the database is closed.
 - A turn, a prompt and `models.list` never wait for a fetch of the model catalog.
-- efrd names itself to the backend as efr, with efr's own version.
+- efrd names itself to the backend as efr and never sends another client's version.
 - A daemon with an injected provider never fetches the model catalog.
 
 ## Tests

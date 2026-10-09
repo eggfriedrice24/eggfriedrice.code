@@ -15,7 +15,7 @@ use efr_test_support::{TestClock, TestRng, Wait};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{header, method, path, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
@@ -279,7 +279,7 @@ async fn a_fetched_list_applies_and_goes_to_the_cache_and_a_304_keeps_it() {
         .await;
     Mock::given(method("GET"))
         .and(path(MODELS_PATH))
-        .and(query_param("client_version", CLIENT_VERSION))
+        .and(query_param_is_missing("client_version"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("etag", "\"v1\"")

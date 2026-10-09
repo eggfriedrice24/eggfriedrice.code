@@ -4,12 +4,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
 use efr_provider::{AccessToken, ProviderError, SecretString, TokenSource};
 use pretty_assertions::assert_eq;
-use wiremock::matchers::{header, method, path, query_param};
+use wiremock::matchers::{header, method, path, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{CatalogClient, Fetched};
 use crate::OpenAiConfig;
-use crate::catalog::{CLIENT_VERSION, Catalog, CatalogOrigin};
+use crate::catalog::{Catalog, CatalogOrigin};
 use crate::config::Backend;
 use crate::testing::{FakeTokens, FixedRng, InstantClock, catalog_fixture, start};
 
@@ -45,11 +45,11 @@ fn catalog_answer(etag: &str) -> ResponseTemplate {
 }
 
 #[tokio::test]
-async fn the_fetch_names_efr_and_its_own_version() {
+async fn the_fetch_names_efr_and_sends_no_client_version() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path(MODELS_PATH))
-        .and(query_param("client_version", CLIENT_VERSION))
+        .and(query_param_is_missing("client_version"))
         .and(header("authorization", "Bearer eyJ.access.one"))
         .and(header("originator", "efr"))
         .and(header("chatgpt-account-id", "acct_7d1f"))
@@ -179,10 +179,7 @@ fn the_url_keeps_the_base_path() {
         HttpClient::new(&HttpConfig::default(), clock.clone(), Arc::new(FixedRng(0))).unwrap();
     let config = OpenAiConfig::subscription();
     let client = CatalogClient::new(config, http, Arc::new(tokens()), clock);
-    assert_eq!(
-        client.url().unwrap().as_str(),
-        format!("https://chatgpt.com/backend-api/codex/models?client_version={CLIENT_VERSION}")
-    );
+    assert_eq!(client.url().unwrap().as_str(), "https://chatgpt.com/backend-api/codex/models");
     assert_eq!(client.base_url(), "https://chatgpt.com/backend-api/codex");
 }
 

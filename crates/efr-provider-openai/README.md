@@ -23,8 +23,10 @@ Modules:
   `reasoning_summary`, `parallel_tool_calls`, `prompt_cache_key`, `service_tier` and
   `text_verbosity`; other keys are ignored.
 - `catalog`: the model catalog. The backend lists its models at
-  `GET <base_url>/models?client_version=<efr's version>`, as Codex asks for a ChatGPT
-  login, with the same token, `originator` and account headers as a model request.
+  `GET <base_url>/models`, as Codex asks for a ChatGPT login, with the same token,
+  `originator` and account headers as a model request. Codex adds its own version as
+  `client_version`, and the backend keeps back each model that needs a newer Codex.
+  efr sends no `client_version`. An entry that efr cannot read gives a warning.
   `CatalogClient::fetch` sends it, with `If-None-Match` and the tag of the list that
   efr has when the same backend sent that list to the same version of efr. A 304 is
   `Fetched::NotModified`; a 401 makes the token source forget its token, and the
@@ -323,9 +325,9 @@ for the fake server.
   an `error` event before an answer.
 - `previous_response_id` goes only on the WebSocket connection that holds that answer,
   and only when the rest of the request is unchanged.
-- efr names itself honestly: a fetch of the catalog sends efr's own version as
-  `client_version` and the configured `originator` (`efr` by default), never the
-  values of another client.
+- efr names itself honestly: a fetch of the catalog sends the configured
+  `originator` (`efr` by default) and no `client_version`, never the values of
+  another client.
 - A request never waits for a fetch of the catalog: it reads the current catalog from
   memory.
 

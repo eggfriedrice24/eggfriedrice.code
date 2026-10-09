@@ -78,7 +78,7 @@ async fn the_backend_list_applies_and_survives_a_restart_while_the_backend_is_do
     assert_eq!(list.models[0].max_context_window, Some(900_000));
     assert!(list.models[0].prefer_websockets);
     let request = server.models_requests()[0].clone();
-    assert_eq!(request.client_version.as_deref(), Some(efr_provider_openai::CLIENT_VERSION));
+    assert_eq!(request.client_version, None, "efr has no Codex version to send");
     assert_eq!(request.originator.as_deref(), Some("efr"), "efr names itself");
     assert_eq!(request.if_none_match, None);
     let cache = daemon.dirs().dirs().state().join("model_catalog.json");
