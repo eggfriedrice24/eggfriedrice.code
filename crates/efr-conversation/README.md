@@ -289,6 +289,51 @@ events reads back. So the next request sends the call and its result in the form
 model wrote them (for the Responses API, `custom_tool_call` and
 `custom_tool_call_output`).
 
+### The history only grows
+
+A provider's prompt cache, and Claude's thinking blocks, need one rule: each request
+starts with the messages of the request before it, plus its answer. Only these events
+may edit earlier messages: a compaction (a pruning or a summary), another model or
+provider, and a change of the system prompt, the tools or the effort.
+
+The efr-daemon test `cache_prefix` measures this on the OpenAI path: the real
+`openai-api` provider against a local Responses server, 55 turns and a restart. Before
+this design, every request edited the prompt of the turn before it, because the
+preamble left that prompt. From the 52nd request on, each request also edited the
+oldest turn: the actor and the store kept the exact messages of 50 turns only, so the
+oldest turn came back from its events, without its provider items.
+
+The design:
+
+1. The saved prompt is the prompt as the model read it: the `<live_state>` preamble,
+   then the user's text, in one user message. Every later request sends it again
+   word for word, so an old preamble stays as a record of that moment. The system
+   prompt says that only the newest live-state block is current. The preamble shows
+   the user's last command with its secrets redacted when it is rendered (the value of
+   an assignment to a name that `efr_sandbox::secret_like` matches, and key forms such
+   as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`), so the bytes that the store keeps are
+   the bytes that went to the model. The events keep only the prompt's text; a turn
+   rebuilt from its events has no preamble.
+2. The list of earlier turns comes from the conversation's turns
+   (`efr_store::conversations::turns`) and the saved messages, never from the
+   4096-event page. A turn counts when it started and finished and the newest summary
+   does not cover it. Its messages come from the actor's cache, else from
+   `turn_messages`, else from its events in the page. Only a turn with no saved
+   messages (one from an efr before the table) needs the page.
+3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
+   summary covers it, and the actor keeps in memory the turns that the newest request
+   carried.
+4. The byte limit (`HistoryLimits::max_bytes`, at least twice the window) stays as
+   the safety net. When the window would leave out a turn (past the bytes, or a turn
+   without saved messages whose start fell out of the page), the guard compacts before
+   the model call, and that compaction always writes a summary. Only a turn that
+   cannot compact (auto off, or the breaker open) sends the history without that turn,
+   with the note `N earlier turns are omitted.`
+5. The fresh context block of a compaction is part of its record
+   (`Compaction::fresh`). The turn and the manual compaction send that stored text, so
+   a restart sends the same bytes. Only a compaction from an efr before this field
+   reads the block from disk again, once, and the actor keeps it in memory.
+
 ## Context
 
 This section is the contract of context management: the accounting, the guards, the
