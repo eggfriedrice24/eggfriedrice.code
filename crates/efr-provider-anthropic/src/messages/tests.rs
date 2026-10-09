@@ -217,6 +217,23 @@ async fn a_401_fails_at_once_with_the_servers_message() {
 }
 
 #[tokio::test]
+async fn an_answer_that_quotes_the_key_never_puts_it_in_the_error() {
+    let server = MockServer::start().await;
+    let quoted = format!("Authorization: Bearer {KEY} is not valid here");
+    for (status, kind) in [(401, "authentication_error"), (400, "invalid_request_error")] {
+        server.reset().await;
+        mount(&server, error_answer(status, kind, &quoted)).await;
+        let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+
+        let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+        let shown = format!("{error} {error:?}");
+        assert!(!shown.contains(KEY), "{shown}");
+        assert!(shown.contains("Bearer <the key> is not valid here"), "{shown}");
+    }
+}
+
+#[tokio::test]
 async fn a_401_for_a_source_that_can_refresh_refreshes_once() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

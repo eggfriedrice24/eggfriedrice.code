@@ -25,7 +25,7 @@ fn config(server: &MockServer) -> AnthropicConfig {
 
 fn client(config: AnthropicConfig, tokens: FakeTokens) -> CatalogClient {
     let clock = Arc::new(InstantClock::new());
-    CatalogClient::new(config, http(clock.clone()), Arc::new(tokens), clock)
+    CatalogClient::new(config, http(clock.clone()), Arc::new(tokens), clock, Arc::new(FixedRng(0)))
 }
 
 fn refusal(status: u16, kind: &str, message: &str) -> ResponseTemplate {
@@ -176,6 +176,90 @@ async fn a_server_error_fails_the_fetch_with_its_status() {
     let error = client.fetch().await.unwrap_err();
 
     assert!(matches!(error, ProviderError::Api { status: Some(503), .. }), "{error:?}");
+}
+
+#[tokio::test]
+async fn an_overloaded_api_is_asked_again_for_the_list() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(refusal(529, "overloaded_error", "Overloaded"))
+        .up_to_n_times(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(models_page(&[model_entry(DEFAULT_MODEL)], false)),
+        )
+        .mount(&server)
+        .await;
+    let clock = Arc::new(InstantClock::new());
+    let client = CatalogClient::new(
+        config(&server),
+        http(clock.clone()),
+        Arc::new(FakeTokens::key()),
+        clock.clone(),
+        Arc::new(FixedRng(0)),
+    );
+
+    let catalog = client.fetch().await.unwrap();
+
+    assert_eq!(catalog.default_model().as_deref(), Some(DEFAULT_MODEL));
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert_eq!(clock.sleeps().len(), 2, "a backoff before each new try");
+}
+
+#[tokio::test]
+async fn a_spend_cap_fails_the_fetch_after_one_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "type": "error",
+            "error": {
+                "type": "rate_limit_error",
+                "message": "This request would exceed your organization's spend limit.",
+                "details": {"error_code": "enforced_spend_limit_reached"},
+            },
+        })))
+        .mount(&server)
+        .await;
+    let clock = Arc::new(InstantClock::new());
+    let client = CatalogClient::new(
+        config(&server),
+        http(clock.clone()),
+        Arc::new(FakeTokens::key()),
+        clock.clone(),
+        Arc::new(FixedRng(0)),
+    );
+
+    let error = client.fetch().await.unwrap_err();
+
+    assert!(matches!(error, ProviderError::Api { status: Some(429), .. }), "{error:?}");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert!(clock.sleeps().is_empty());
+}
+
+#[tokio::test]
+async fn a_list_answer_that_quotes_the_key_never_puts_it_in_the_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(refusal(401, "authentication_error", &format!("Bearer {KEY} is not valid")))
+        .mount(&server)
+        .await;
+    let client = client(config(&server), FakeTokens::key());
+
+    let error = client.fetch().await.unwrap_err();
+
+    assert!(
+        matches!(&error, ProviderError::Unauthorized { message: Some(text) } if text == "Bearer <the key> is not valid"),
+        "{error:?}"
+    );
+    let shown = format!("{error} {error:?}");
+    assert!(!shown.contains(KEY), "{shown}");
 }
 
 #[tokio::test]

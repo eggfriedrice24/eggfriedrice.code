@@ -609,7 +609,13 @@ fn anthropic_fetching(server: &MockServer) -> AnthropicFetching {
         .with_base_url(&format!("{}/v1", server.uri()))
         .unwrap()
         .with_retry(RetryPolicy::none());
-    let client = efr_provider_anthropic::CatalogClient::new(config, http, token(), clock.shared());
+    let client = efr_provider_anthropic::CatalogClient::new(
+        config,
+        http,
+        token(),
+        clock.shared(),
+        Arc::new(TestRng::new(1)),
+    );
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_path(&anthropic_settings(), &dir.path().join("state"));
     let fetcher = Fetcher::Anthropic(efr_provider_anthropic::ModelCatalog::new(), client);

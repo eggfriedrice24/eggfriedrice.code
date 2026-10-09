@@ -1,6 +1,7 @@
 //! What an error answer of the API means, and whether to send the request again.
 //!
-//! The provider sends a request through `efr_http::RetryPolicy::run`. For a status
+//! The provider sends a model call, and the catalog client each page of the model
+//! list, through `efr_http::RetryPolicy::run`. For a status
 //! that is not a success, one attempt reads the small error body, `{"type": "error",
 //! "error": {"type", "message", "details"?}, "request_id"}`, and classifies it with
 //! [`answer`] before the policy decides, so a spend cap is never sent four times.
@@ -24,20 +25,26 @@
 //! | an `error` event after a 200 | the same class by its `error.type` ([`event`]) | never: the stream has started |
 //!
 //! A 5xx may come after the server ran the request, but a Messages call keeps no state
-//! on the server and its stream has not started, so a second copy is safe. A failure
-//! to send is tried again only when no connection was made, because the server never
-//! saw the request. Error messages come only from the server's error body, never from
-//! the request, so they never hold the key.
+//! on the server and its stream has not started, so a second copy is safe. A model call
+//! that failed to send is tried again only when no connection was made, because the
+//! server never saw the request; a `GET` of the model list is also tried again after a
+//! timeout or a broken connection. Error messages come only from the server's error body, never from
+//! the request. A body that quotes the key, as a proxy can when it echoes the
+//! `Authorization` header, goes through [`without_key`] first, so no error holds it.
 
+use std::borrow::Cow;
 use std::time::Duration;
 
-use efr_http::{HttpError, Outcome, Retryable, StatusCode};
-use efr_provider::ProviderError;
+use efr_http::{HttpError, HttpResponse, Outcome, Retryable, StatusCode};
+use efr_provider::{ExposeSecret as _, ProviderError, SecretString};
 use jiff::Timestamp;
 use serde_json::Value;
 
 /// The longest error message kept from a response body, in characters.
 const MAX_ERROR_MESSAGE: usize = 1000;
+
+/// What an error body shows in place of the key, when it quotes the key.
+const KEY_PLACEHOLDER: &str = "<the key>";
 
 /// The `error.details.error_code` of a 429 for a spend cap of the account's tier: it
 /// fails again until the cap resets, so waiting does not help.
@@ -76,6 +83,23 @@ impl Failure {
         let again = if error.is_transient() { Again::After(None) } else { Again::Never };
         Failure { error: transport(error), again }
     }
+
+    /// The failure of a `GET` that got no answer: also tried again after a timeout or
+    /// a broken connection, because a second copy changes nothing on the server.
+    pub(crate) fn idempotent_transport(error: HttpError) -> Failure {
+        let again = if error.is_retryable(true) { Again::After(None) } else { Again::Never };
+        Failure { error: transport(error), again }
+    }
+}
+
+/// An answer with a success status, whose body has not been read: it ends the
+/// attempts.
+pub(crate) struct Answered(pub(crate) HttpResponse);
+
+impl Retryable for Answered {
+    fn outcome(&self, _now: Timestamp) -> Outcome {
+        Outcome::Final
+    }
 }
 
 impl Retryable for Failure {
@@ -90,6 +114,17 @@ impl Retryable for Failure {
 /// The error of an HTTP failure.
 pub(crate) fn transport(error: HttpError) -> ProviderError {
     ProviderError::Transport { source: Box::new(error) }
+}
+
+/// `body` with each copy of `key` replaced by a placeholder. Every error body goes
+/// through it before [`answer`] or [`refusal`] reads it, so no error message, log line
+/// or event holds the key.
+pub(crate) fn without_key<'a>(body: &'a str, key: &SecretString) -> Cow<'a, str> {
+    let key = key.expose_secret();
+    if key.is_empty() || !body.contains(key) {
+        return Cow::Borrowed(body);
+    }
+    Cow::Owned(body.replace(key, KEY_PLACEHOLDER))
 }
 
 /// The failure of an error answer with `status` and `body`. `retry_after` is the wait

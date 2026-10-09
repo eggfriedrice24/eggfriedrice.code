@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use efr_http::{
-    ByteStream, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest, HttpResponse, Outcome,
-    Retryable, SseStream, header,
+    ByteStream, HeaderName, HeaderValue, HttpClient, HttpError, HttpRequest, HttpResponse,
+    SseStream, header,
 };
 use efr_provider::{
     ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
@@ -27,12 +27,11 @@ use efr_provider::{
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 use futures::{StreamExt as _, stream};
-use jiff::Timestamp;
 use tracing::Instrument as _;
 
 use crate::catalog::with_extra;
 use crate::convert::{MessagesBody, request_body};
-use crate::failure::{self, Failure, transport};
+use crate::failure::{self, Answered, Failure, transport, without_key};
 use crate::sse_events::EventMapper;
 use crate::timing::Timing;
 use crate::{ANTHROPIC_VERSION, AnthropicConfig, ModelCatalog};
@@ -74,15 +73,6 @@ pub struct AnthropicProvider {
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
-}
-
-/// An answer with a success status, whose stream has not been read.
-struct Answered(HttpResponse);
-
-impl Retryable for Answered {
-    fn outcome(&self, _now: Timestamp) -> Outcome {
-        Outcome::Final
-    }
 }
 
 impl AnthropicProvider {
@@ -142,7 +132,9 @@ impl AnthropicProvider {
             let result = self
                 .config
                 .retry()
-                .run(&*self.clock, &*self.rng, |attempt| self.attempt(&request, model, attempt))
+                .run(&*self.clock, &*self.rng, |attempt| {
+                    self.attempt(&request, token.secret(), model, attempt)
+                })
                 .await;
             match result {
                 Ok(Answered(response)) => return Ok(response),
@@ -159,10 +151,11 @@ impl AnthropicProvider {
     }
 
     /// One attempt: the response when its status is a success, else what its error
-    /// body means.
+    /// body, without `key`, means.
     async fn attempt(
         &self,
         request: &HttpRequest,
+        key: &SecretString,
         model: &str,
         attempt: u32,
     ) -> Result<Answered, Failure> {
@@ -181,7 +174,7 @@ impl AnthropicProvider {
         }
         let retry_after = efr_http::retry_after(response.headers(), self.clock.now());
         let body = response.text().await.map_err(Failure::transport)?;
-        let failure = failure::answer(status, retry_after, &body, Some(model));
+        let failure = failure::answer(status, retry_after, &without_key(&body, key), Some(model));
         tracing::debug!(
             attempt,
             status = status.as_u16(),

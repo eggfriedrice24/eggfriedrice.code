@@ -165,6 +165,7 @@ impl Providers {
                     http.clone(),
                     stored_key(&store, ANTHROPIC)?,
                     Arc::clone(&clock),
+                    Arc::clone(&rng),
                 );
                 Some(Fetcher::Anthropic(shared.clone(), client))
             }

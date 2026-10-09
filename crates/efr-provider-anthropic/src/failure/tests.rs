@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use efr_http::{Outcome, Retryable as _, StatusCode};
-use efr_provider::ProviderError;
+use efr_provider::{ProviderError, SecretString};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{Again, Failure, answer, event};
+use super::{Again, Failure, answer, event, without_key};
 use crate::testing::start;
 
 const MODEL: &str = "claude-opus-5-5";
@@ -249,4 +249,16 @@ fn an_error_event_without_an_error_is_an_api_error() {
         }
         other => panic!("not an API error: {other:?}"),
     }
+}
+
+#[rstest]
+#[case::a_quoted_key(
+    "bad key sk-ant-1 here, sk-ant-1",
+    "sk-ant-1",
+    "bad key <the key> here, <the key>"
+)]
+#[case::no_key_in_the_body("bad key", "sk-ant-1", "bad key")]
+#[case::an_empty_key("bad key", "", "bad key")]
+fn a_body_never_shows_the_key(#[case] body: &str, #[case] key: &str, #[case] shown: &str) {
+    assert_eq!(without_key(body, &SecretString::from(key)), shown);
 }

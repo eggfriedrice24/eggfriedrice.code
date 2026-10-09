@@ -217,8 +217,10 @@ the full table. In short:
   entry of the same id sets the window and the output limit, each up to the catalog's
   limit, and any other entry comes after the catalog's models.
 - A 401 fails the fetch with `Unauthorized { message }` at once; a token source that
-  can refresh gets one refresh first. The fetch's other errors follow the classes of
-  "Failures" below; the request itself is sent again by `efr_http`'s rules for a `GET`.
+  can refresh gets one refresh first. Each page goes through the retry policy with the
+  classes of "Failures" below, as a model call does: a 529 is sent again, a spend cap
+  is not. Because the request is a `GET`, a timeout or a broken connection is sent
+  again too.
 - `Catalog::default_model` is `DEFAULT_MODEL` when it is on offer, else the first model
   on offer. The compaction stays at efr's `auto_at` (76%) of the window.
 - No table of models and no guessed window: without a list the provider offers no
@@ -272,15 +274,19 @@ at `message_stop`.
 | any other status | `Api` with the server's message | no |
 | an `error` event after a 200 | the same class by `error.type` | never |
 
-The attempts go through `efr_http::RetryPolicy::run` on the injected clock: one
-attempt reads the error body and classifies it before the policy decides, so a spend
-cap is never sent four times. `efr_http::is_retryable_status` does not decide here.
-A `retry-after` header sets the wait; a wait above the policy's longest ends the
-attempts at once. A request that could not connect is sent again, because the server
-never saw it; a request that timed out or broke after it was sent is not. A message
-comes from the error body's `error.message`, else from the body as text, else from the
-status, clipped to 1000 characters. Each failed attempt writes one debug line with
-the status and the `request-id`, which is also a field of the request's span.
+The attempts of a model call and of each page of the model list go through
+`efr_http::RetryPolicy::run` on the injected clock and random source: one attempt
+reads the error body and classifies it before the policy decides, so a spend cap is
+never sent four times. `efr_http::is_retryable_status` does not decide here. A
+`retry-after` header sets the wait; a wait above the policy's longest ends the
+attempts at once. A model call that could not connect is sent again, because the
+server never saw it; a model call that timed out or broke after it was sent is not (a
+`GET` of the list is). A message comes from the error body's `error.message`, else
+from the body as text, else from the status, clipped to 1000 characters. A body that
+quotes the key, as a proxy at `[anthropic] base_url` can, shows `<the key>` in place
+of it, for a model call, a fetch of the list and a key check alike. Each failed
+attempt writes one debug line with the status (and, for a model call, the
+`request-id`, which is also a field of the request's span).
 The conversation fails a turn with `unauthorized` for `Unauthorized`, `busy` for
 `RateLimited` and `Overloaded`, and `invalid` for `UnknownModel`.
 
@@ -311,7 +317,7 @@ snapshots), `rstest`, `pretty_assertions`, `tempfile`, `tokio`, `tracing-subscri
 - The client never sees how a key was stored or entered, and the key never reaches a
   log, an error text, a `Debug` string or a recorded request: it goes in a sensitive
   `Authorization` header, and error messages come from the server's error body, never
-  from the request.
+  from the request, with each copy of the key in that body replaced.
 - `provider_raw` goes back to the API exactly as it came, byte for byte.
 - Two following requests of one conversation have the same bytes for `tools`, `system`
   and every earlier message, apart from the cache markers.

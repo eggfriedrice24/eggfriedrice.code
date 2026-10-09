@@ -6,17 +6,23 @@
 //! while `has_more` is true; the check asks for `limit=1`. A 401 is
 //! `ProviderError::Unauthorized` with the server's message at once, because a key
 //! cannot refresh.
+//!
+//! Each page of the fetch goes through the config's `efr_http::RetryPolicy` with the
+//! classes of `failure`, as a model call does: a 429 that is not a spend cap, a 5xx
+//! and a 529 are sent again, a spend cap and a refusal are not. Because the request is
+//! a `GET`, a timeout or a broken connection is sent again too. The check goes once.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use efr_http::{HeaderValue, HttpClient, HttpError, HttpRequest, Url, header};
-use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource};
+use efr_provider::{ProviderError, SecretString, TokenSource};
+use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 use serde_json::Value;
 
 use super::entries_of;
-use crate::failure::{self, transport};
+use crate::failure::{self, Answered, Failure, transport, without_key};
 use crate::messages::sign;
 use crate::{AnthropicConfig, Catalog};
 
@@ -26,9 +32,6 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long the check of a key may take. A person waits for it.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
-
-/// What a server message shows in place of the key, when it quotes the key.
-const KEY_PLACEHOLDER: &str = "<the key>";
 
 /// The most models that the API sends on one page.
 const PAGE_LIMIT: &str = "1000";
@@ -44,6 +47,7 @@ pub struct CatalogClient {
     http: HttpClient,
     tokens: Arc<dyn TokenSource>,
     clock: Arc<dyn Clock>,
+    rng: Arc<dyn Rng>,
 }
 
 /// One page of the model list.
@@ -67,14 +71,15 @@ impl Page {
 
 impl CatalogClient {
     /// A client for the API of `config`, sending through `http` with the key from
-    /// `tokens`. `clock` dates each list.
+    /// `tokens`. `clock` dates each list, and `clock` and `rng` time the retries.
     pub fn new(
         config: AnthropicConfig,
         http: HttpClient,
         tokens: Arc<dyn TokenSource>,
         clock: Arc<dyn Clock>,
+        rng: Arc<dyn Rng>,
     ) -> Self {
-        CatalogClient { config, http, tokens, clock }
+        CatalogClient { config, http, tokens, clock, rng }
     }
 
     /// The base URL of the API, which the cache file records.
@@ -126,32 +131,57 @@ impl CatalogClient {
         loop {
             let token = self.tokens.access_token().await?;
             let request = sign(&unsigned, &self.config, token.secret()).map_err(transport)?;
-            let response = self
-                .http
-                .send_with_retry(&request, self.config.retry())
-                .await
-                .map_err(transport)?;
-            let status = response.status();
-            if status.is_success() {
-                let body = response.bytes().await.map_err(transport)?;
-                let body = serde_json::from_slice(&body)
-                    .map_err(|source| ProviderError::Decode { source })?;
-                return Ok(Page { body });
+            let result = self
+                .config
+                .retry()
+                .run(&*self.clock, &*self.rng, |attempt| {
+                    self.attempt(&request, token.secret(), attempt)
+                })
+                .await;
+            match result {
+                Ok(Answered(response)) => {
+                    let body = response.bytes().await.map_err(transport)?;
+                    let body = serde_json::from_slice(&body)
+                        .map_err(|source| ProviderError::Decode { source })?;
+                    return Ok(Page { body });
+                }
+                Err(Failure { error: ProviderError::Unauthorized { .. }, .. })
+                    if self.tokens.refreshable() && !refreshed =>
+                {
+                    tracing::warn!(
+                        "the API refused the token for the model list; refreshing it once"
+                    );
+                    self.tokens.invalidate().await;
+                    refreshed = true;
+                }
+                Err(failure) => return Err(failure.error),
             }
-            let retry_after = efr_http::retry_after(response.headers(), self.clock.now());
-            let text = response.text().await.map_err(transport)?;
-            let error = failure::answer(status, retry_after, &text, None).error;
-            if matches!(error, ProviderError::Unauthorized { .. })
-                && self.tokens.refreshable()
-                && !refreshed
-            {
-                tracing::warn!("the API refused the token for the model list; refreshing it once");
-                self.tokens.invalidate().await;
-                refreshed = true;
-                continue;
-            }
-            return Err(error);
         }
+    }
+
+    /// One attempt of a page: the response when its status is a success, else what its
+    /// error body, without `key`, means.
+    async fn attempt(
+        &self,
+        request: &HttpRequest,
+        key: &SecretString,
+        attempt: u32,
+    ) -> Result<Answered, Failure> {
+        let response = self.http.send(request).await.map_err(Failure::idempotent_transport)?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(Answered(response));
+        }
+        let retry_after = efr_http::retry_after(response.headers(), self.clock.now());
+        let body = response.text().await.map_err(Failure::idempotent_transport)?;
+        let failure = failure::answer(status, retry_after, &without_key(&body, key), None);
+        tracing::debug!(
+            attempt,
+            status = status.as_u16(),
+            again = ?failure.again,
+            "the API refused the fetch of the model list"
+        );
+        Err(failure)
     }
 }
 
@@ -180,8 +210,7 @@ pub async fn check_key(
         return Ok(());
     }
     let body = response.text().await.map_err(transport)?;
-    let body = body.replace(key.expose_secret(), KEY_PLACEHOLDER);
-    Err(failure::refusal(status, &body))
+    Err(failure::refusal(status, &without_key(&body, key)))
 }
 
 /// A `GET` of the model list at `url`, before its credentials.
