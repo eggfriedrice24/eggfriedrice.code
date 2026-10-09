@@ -1737,13 +1737,21 @@ async fn an_unknown_tool_is_refused_with_the_toolbox_s_words() {
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "go");
     let first = setup.prompt(&state, "go");
+    // NOTE: the request does not offer `nope`, so the next request shows the call and
+    // its result as text, as for a call of a tool that an earlier model had.
     let records = vec![
         expect_request(request(vec![first.clone()])),
         answer(&tool_answer("call_1", "nope", &json!({}))),
         expect_request(request(vec![
             first,
-            tool_message("call_1", "nope", &json!({})),
-            result_message("call_1", "no tool is named \"nope\"", true),
+            Message::assistant(
+                "Earlier tool call `nope` (id call_1), shown as text: this request does not \
+                 offer the tool. Its input:\n{}",
+            ),
+            Message::user(
+                "Result of the earlier tool call `nope` (id call_1), which failed:\nno tool is \
+                 named \"nope\"",
+            ),
         ])),
         answer(&text_answer("That tool does not exist.")),
     ];

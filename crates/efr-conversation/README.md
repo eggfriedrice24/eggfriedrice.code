@@ -301,6 +301,28 @@ events reads back. So the next request sends the call and its result in the form
 model wrote them (for the Responses API, `custom_tool_call` and
 `custom_tool_call_output`).
 
+### Calls of tools that the request does not offer
+
+The history can hold a call of a tool that the next request does not offer: an `edit`
+call of a Claude model when an OpenAI model goes on with `apply_patch`, an
+`apply_patch` call the other way round, a call of a tool that efr no longer has, or a
+call that the model made of a tool that the request never had. A provider can refuse
+such a call, and a model can take it as a tool that it may call. So every request
+shows each such call and its result as text, in their places (`unoffered.rs`, applied
+when the turn builds a request and in each summary request), for every provider:
+
+- the call: ``Earlier tool call `edit` (id call_1), shown as text: this request does
+  not offer the tool. Its input:`` and, on the next line, the input: a freeform call's
+  text as it is, any other input as compact JSON;
+- its result: ``Result of the earlier tool call `edit` (id call_1):`` (with `, which
+  failed` before the colon for an error) and, on the next line, the output.
+
+The text is a pure function of the call and the request's tools, so each request with
+the same tools sends the same bytes for an old call, and the prompt cache reads them.
+A message with such a call loses its `provider_raw`, which holds the call in the
+provider's own form. The saved messages keep the call as it was, so after a switch
+back to a model that has the tool, the call goes in its own form again.
+
 ### The history only grows
 
 A provider's prompt cache, and Claude's thinking blocks, need one rule: each request
@@ -806,7 +828,11 @@ network, write and privilege exit with their launches, a denied exit, the one-co
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,
 expired, refused for a phone, interrupted). `exit/tests.rs` checks `grant`, the question
-facts and the record against the real engine. The preamble is covered by insta
+facts and the record against the real engine. The calls of tools that a request does
+not offer are covered by table tests (`unoffered/tests.rs`) and by turns that move an
+`edit` call from a Claude model to an OpenAI model and an `apply_patch` call the other
+way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The
+preamble is covered by insta
 snapshots, and the redaction of the last command by table tests
 (`preamble/secrets/tests.rs`). The append-only test (`turn/tests/append_only.rs`) runs
 64 turns against a model that keeps every request (`testing::Recorder`), with tool

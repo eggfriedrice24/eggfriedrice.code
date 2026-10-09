@@ -24,6 +24,7 @@ use crate::context::{
 };
 use crate::gap::{self, CallGap};
 use crate::interrupt::Interrupt;
+use crate::unoffered;
 
 /// The summary prompt: the one text that every compaction sends, and the format of the
 /// handoff record of milestone 4.
@@ -312,14 +313,15 @@ pub(crate) fn summary_prompt(focus: Option<&str>, left_out: LeftOut) -> String {
 /// summary prompt as the last message, and the summary's output limit plus room for
 /// the model's reasoning, which the Responses API counts in the same limit. It is a side
 /// call: its prompt and its answer never join the history. The prompt names what
-/// `messages` leave out of the history (`left_out`).
+/// `messages` leave out of the history (`left_out`). A call of a tool that the turn does
+/// not offer shows as text, as in the turn's own requests ([`unoffered::as_offered`]).
 pub(crate) fn summary_request(
     base: &Request,
     messages: Vec<Message>,
     focus: Option<&str>,
     left_out: LeftOut,
 ) -> Request {
-    let mut messages = messages;
+    let mut messages = unoffered::as_offered(messages, &base.tools);
     messages.push(Message::user(summary_prompt(focus, left_out)));
     Request {
         model: base.model.clone(),
@@ -347,9 +349,10 @@ fn summary_of(job: &Job<'_>, messages: &[Message], dropped: usize) -> Request {
     summary_request(job.base, sent, job.focus, left_out)
 }
 
-/// `base` with the messages of `window`.
+/// `base` with the messages of `window`, each call of a tool that `base` does not offer
+/// shown as text ([`unoffered::as_offered`]).
 pub(crate) fn with_window(base: &Request, window: &Window) -> Request {
-    Request { messages: window.messages(), ..base.clone() }
+    Request { messages: unoffered::as_offered(window.messages(), &base.tools), ..base.clone() }
 }
 
 /// One compaction to run.

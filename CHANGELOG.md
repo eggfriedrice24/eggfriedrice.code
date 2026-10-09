@@ -371,6 +371,13 @@ into the GitHub release notes, and it stops when the section is missing.
   the summary request leaves out the oldest messages until it fits the new window. The
   summary says that it left them out. Before, efr sent the whole history in the
   summary request, and the provider refused it once as too large.
+- When you change to a model with another edit tool, such as from a Claude model with
+  `edit` to an OpenAI model with `apply_patch`, the new model reads the earlier calls of
+  the other tool, and their results, as text. A call of a tool that efr no longer has
+  shows as text too. Before, efr sent them as calls of a tool that the request did not
+  offer, which a provider can refuse. The text is the same in every request, so the
+  prompt cache still reads it. When you change back, the calls go in their own form
+  again.
 
 ### Security
 

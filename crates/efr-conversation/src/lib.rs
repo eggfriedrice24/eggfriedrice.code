@@ -12,7 +12,8 @@
 //!   live-state preamble regenerated from the prompt's shell context, the tool
 //!   definitions), streams the provider, and records every step as an event through the
 //!   store's writer. Each request starts with the request before it. Provider items in
-//!   `provider_raw` go back unchanged to the provider and model that made them.
+//!   `provider_raw` go back unchanged to the provider and model that made them. A call
+//!   of a tool that the request does not offer goes as text (`unoffered.rs`).
 //! - Every tool call passes `turn.rs`'s `authorize_tool_call`, the single permission
 //!   check point, where `efr_permissions::Engine::decide` answers Allow, Contain, Ask or
 //!   Deny.
@@ -66,6 +67,7 @@ mod steer;
 mod testing;
 mod toolbox;
 mod turn;
+mod unoffered;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
