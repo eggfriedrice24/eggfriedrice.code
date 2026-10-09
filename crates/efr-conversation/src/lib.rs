@@ -53,6 +53,7 @@ mod drafts;
 mod error;
 mod exit;
 mod fresh;
+mod gap;
 mod history;
 mod interrupt;
 mod judge;

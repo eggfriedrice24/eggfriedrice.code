@@ -10,7 +10,7 @@ use tracing::Instrument as _;
 
 use super::Turn;
 use super::coalesce::{Coalescer, sleep_or_pending};
-use crate::ConversationError;
+use crate::{ConversationError, gap};
 
 /// How one model call ended.
 #[derive(Debug)]
@@ -43,10 +43,12 @@ impl Turn {
         let provider = Arc::clone(&self.shared.deps.provider);
         let clock = Arc::clone(&self.shared.deps.clock);
         let interrupt = self.control.interrupt.clone();
+        let gap = self.shared.gap.start(clock.now());
         let span = tracing::debug_span!(
             "provider_request",
             provider = %provider.id(),
             model = %request.model,
+            gap_ms = gap.map(gap::millis),
         );
         // NOTE: the `phase` lines say where a call's time goes (docs/sandbox.md): here
         // the model's part, from the request to its first event, to the first tool

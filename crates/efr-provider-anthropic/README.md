@@ -157,8 +157,13 @@ Kept stable for a whole conversation: the tool list and its order, the system pr
 the thinking mode and display, and the effort. A change of the tools invalidates every
 level; a change of the effort invalidates the messages. Prices: a five-minute write
 costs 1.25 times the input price, a one-hour write 2 times, a read 0.1 times or less.
-Before each call, efrd logs the time since the conversation's last call at debug level,
-to measure which time to live pays.
+Each request writes one debug line with the setting and its markers in order, the
+letter and the time of each place, such as `cache_ttl=auto markers=S1h,A1h,P5m,T5m`
+(`convert::breakpoints::summary`). Under `auto`, `T1h` means that the call marked a new
+anchor. The line runs inside the conversation's `provider_request` span, whose
+`gap_ms` field is the time since the start of the conversation's call before (absent
+for the first call after a start of efrd; see the README of `efr-conversation`). So
+the line, the gap and the call's `usage` measure which time to live pays.
 
 ## The stream
 

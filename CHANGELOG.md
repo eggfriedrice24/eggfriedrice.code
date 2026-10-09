@@ -196,6 +196,11 @@ into the GitHub release notes, and it stops when the section is missing.
   the system prompt, the tools and the conversation up to the start of each turn in
   the prompt cache for an hour, and the rest of a tool loop for five minutes; `5m` and
   `1h` put one time on everything.
+- The debug log of efrd gives each model call the time since the start of the
+  conversation's call before, as `gap_ms`. Each request to Claude also writes one line
+  with its prompt cache markers and their times, such as `cache_ttl=auto
+  markers=S1h,A1h,P5m,T5m`. With the token counts of the turns, these lines show which
+  `[anthropic] cache_ttl` costs less.
 - efr has no built-in list of Claude models. The models, their windows, their output
   limits and their efforts come from the API's model list, which efrd fetches at
   start, after a login and every hour, and keeps in `anthropic_model_catalog.json` in

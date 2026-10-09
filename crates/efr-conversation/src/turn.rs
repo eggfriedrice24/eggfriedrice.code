@@ -69,6 +69,7 @@ use crate::context::{self, Meter};
 use crate::drafts::LiveStatus;
 use crate::exit::{self, TurnExits};
 use crate::fresh::Fresh;
+use crate::gap::CallGap;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
@@ -121,6 +122,8 @@ pub(crate) struct Shared {
     /// The context and compacting drafts of the running turn, for a client that
     /// attaches while it runs.
     pub(crate) status: Arc<LiveStatus>,
+    /// When the newest model call started, for the gap before the next one in the log.
+    pub(crate) gap: CallGap,
 }
 
 /// A prompt that waits for its turn, or runs as one.

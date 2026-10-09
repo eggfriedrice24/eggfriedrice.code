@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
-use self::breakpoints::{Layout, Shape, Target, Ttl, place_breakpoints};
+use self::breakpoints::{Layout, Shape, Target, Ttl, place_breakpoints, summary};
 use crate::{AnthropicConfig, DEFAULT_EFFORT};
 
 /// The beta that turns on `thinking.block_binding`. Every request sends it in the
@@ -269,7 +269,11 @@ pub(crate) fn request_body(
         messages: &shapes,
         side_call: request.side_call,
     };
-    for mark in place_breakpoints(&layout, config.cache_ttl()) {
+    let marks = place_breakpoints(&layout, config.cache_ttl());
+    let ttl = config.cache_ttl().as_str();
+    let placed = summary(&marks);
+    tracing::debug!(cache_ttl = ttl, markers = %placed, "cache_ttl={ttl} markers={placed}");
+    for mark in marks {
         let control = Some(CacheControl::new(mark.ttl));
         let placed = match mark.target {
             Target::System => system.last_mut().map(|block| block.cache_control = control),

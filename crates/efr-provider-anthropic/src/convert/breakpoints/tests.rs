@@ -1,7 +1,9 @@
 use efr_provider::Role;
 use pretty_assertions::assert_eq;
 
-use super::{ANCHOR_STEP_TOKENS, Breakpoint, Layout, Shape, Slot, Target, Ttl, place_breakpoints};
+use super::{
+    ANCHOR_STEP_TOKENS, Breakpoint, Layout, Shape, Slot, Target, Ttl, place_breakpoints, summary,
+};
 use crate::CacheTtl;
 
 const H: Ttl = Ttl::OneHour;
@@ -256,4 +258,14 @@ fn every_placement_keeps_the_rules_of_the_api() {
 fn a_ttl_is_written_as_the_api_names_it() {
     assert_eq!(Ttl::FiveMinutes.as_str(), "5m");
     assert_eq!(Ttl::OneHour.as_str(), "1h");
+}
+
+#[test]
+fn the_log_names_each_place_with_its_time() {
+    let call = [prompt(1_000), answer(500), results(300), answer(200), results(300)];
+    assert_eq!(summary(&place(&call, false, CacheTtl::Auto)), "S1h,A1h,P5m,T5m");
+    assert_eq!(summary(&place(&call[..1], false, CacheTtl::Auto)), "S1h,T1h");
+    assert_eq!(summary(&place(&call, false, CacheTtl::FiveMinutes)), "S5m,A5m,P5m,T5m");
+    let bare = Layout { system: false, tools: false, messages: &[], side_call: false };
+    assert_eq!(summary(&place_breakpoints(&bare, CacheTtl::Auto)), "none");
 }

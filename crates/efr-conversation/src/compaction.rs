@@ -14,6 +14,7 @@ use efr_provider::{
     CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, StopReason,
     TokenUsage,
 };
+use efr_stdx::time::Clock;
 use futures::StreamExt as _;
 use tracing::Instrument as _;
 
@@ -21,6 +22,7 @@ use crate::context::{
     ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
     SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens,
 };
+use crate::gap::{self, CallGap};
 use crate::interrupt::Interrupt;
 
 /// The summary prompt: the one text that every compaction sends, and the format of the
@@ -334,6 +336,10 @@ pub(crate) struct Job<'a> {
     pub(crate) focus: Option<&'a str>,
     /// Stops the summary call when it is raised; a manual compaction has none.
     pub(crate) interrupt: Option<&'a Interrupt>,
+    /// The start of the conversation's newest model call, which the summary call
+    /// moves, and the clock that reads its start.
+    pub(crate) gap: &'a CallGap,
+    pub(crate) clock: &'a dyn Clock,
 }
 
 /// What [`run`] did.
@@ -414,14 +420,14 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
         }
     }
     let mut request = summary_of(&job, &messages, dropped);
-    let mut answer = summarize(job.provider, request.clone(), job.interrupt).await;
+    let mut answer = summarize(&job, request.clone()).await;
     if matches!(&answer, Answer::Failed(error) if error.is_context_overflow()) {
         // NOTE: the summary request itself did not fit: the oldest messages go, never
         // the head with an earlier summary, and the rest is summarized.
         if let Some(fewer) = shrink(&job, &messages, dropped, request_tokens(&request)) {
             dropped = fewer;
             request = summary_of(&job, &messages, dropped);
-            answer = summarize(job.provider, request, job.interrupt).await;
+            answer = summarize(&job, request).await;
         }
     }
     // NOTE: the messages after the tail's start stay word for word; only those before
@@ -484,18 +490,16 @@ enum Answer {
 /// Sends the summary request and keeps the text of the answer. Nothing is recorded: the
 /// summary reaches the log only in `conversation_compacted`. Tool calls in the answer
 /// are ignored.
-async fn summarize(
-    provider: &dyn Provider,
-    request: Request,
-    interrupt: Option<&Interrupt>,
-) -> Answer {
+async fn summarize(job: &Job<'_>, request: Request) -> Answer {
+    let gap = job.gap.start(job.clock.now());
     let span = tracing::debug_span!(
         "provider_request",
-        provider = %provider.id(),
+        provider = %job.provider.id(),
         model = %request.model,
         purpose = "summary",
+        gap_ms = gap.map(gap::millis),
     );
-    stream_summary(provider, request, interrupt).instrument(span).await
+    stream_summary(job.provider, request, job.interrupt).instrument(span).await
 }
 
 async fn stream_summary(

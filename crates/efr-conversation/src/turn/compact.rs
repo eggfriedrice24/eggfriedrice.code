@@ -221,6 +221,8 @@ impl Turn {
             trigger,
             focus: None,
             interrupt: Some(&interrupt),
+            gap: &self.shared.gap,
+            clock: &*self.shared.deps.clock,
         };
         let compaction_id =
             CompactionId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));

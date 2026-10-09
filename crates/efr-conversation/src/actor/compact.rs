@@ -109,6 +109,8 @@ async fn compact(
         trigger: CompactionTrigger::Manual,
         focus: params.focus.as_deref(),
         interrupt: None,
+        gap: &shared.gap,
+        clock: &*shared.deps.clock,
     };
     let compaction_id = CompactionId::from_uuid(uuid_v7(&*shared.deps.clock, &*shared.deps.rng));
     let (summary, usage, tail, pruned, omitted) = match compaction::run(job).await {

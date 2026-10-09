@@ -56,6 +56,7 @@ use tracing::Instrument as _;
 use crate::approvals::Approvals;
 use crate::drafts::{ConversationDraft, LiveStatus};
 use crate::fresh::Fresh;
+use crate::gap::CallGap;
 use crate::history::CachedTurn;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
@@ -284,6 +285,7 @@ impl ConversationActor {
             questions: Questions::default(),
             misses: AtomicU32::new(0),
             status: Arc::default(),
+            gap: CallGap::default(),
         });
         let status = Arc::clone(&shared.status);
         let actor = ConversationActor {

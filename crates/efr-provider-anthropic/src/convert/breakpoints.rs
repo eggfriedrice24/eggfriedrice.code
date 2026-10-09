@@ -37,6 +37,12 @@
 //! system block, a tool and the last block of a user message, so never on a `thinking`
 //! block; the conversion drops empty text blocks, so never on an empty text either.
 //!
+//! The log. Each request writes one debug line with its setting and its markers, such
+//! as `cache_ttl=auto markers=S1h,A1h,P5m,T5m` ([`summary`]). Under `auto`, `T1h` says
+//! that the call marked a new anchor. The conversation's span of the call carries
+//! `gap_ms`, the time since the start of the conversation's call before, so the line
+//! shows which pause met which markers: the measurement of the time to live.
+//!
 //! A known gap: a new prompt after an interrupted call merges into the user message of
 //! the call's results, so that call does not open a turn here; it marks an anchor only
 //! by size.
@@ -81,6 +87,18 @@ pub(crate) enum Slot {
     Tail,
 }
 
+impl Slot {
+    /// The letter of the place: `S`, `A`, `P` or `T`.
+    const fn letter(self) -> char {
+        match self {
+            Slot::System => 'S',
+            Slot::Anchor => 'A',
+            Slot::Previous => 'P',
+            Slot::Tail => 'T',
+        }
+    }
+}
+
 /// The block that a marker goes on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -122,6 +140,17 @@ pub(crate) struct Layout<'a> {
     pub(crate) messages: &'a [Shape],
     /// `Request::side_call`.
     pub(crate) side_call: bool,
+}
+
+/// `marks` as the debug line of a request shows them: the letter and the time of each
+/// place in order, such as `S1h,A1h,P5m,T5m`, or `none`.
+pub(crate) fn summary(marks: &[Breakpoint]) -> String {
+    if marks.is_empty() {
+        return "none".to_owned();
+    }
+    let texts: Vec<String> =
+        marks.iter().map(|mark| format!("{}{}", mark.slot.letter(), mark.ttl.as_str())).collect();
+    texts.join(",")
 }
 
 /// The markers of the request that `layout` describes under `ttl`, at most four, in

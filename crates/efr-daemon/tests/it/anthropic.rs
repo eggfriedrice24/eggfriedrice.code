@@ -240,6 +240,18 @@ fn starts_with(after: &Value, before: &Value) -> bool {
     after.len() >= before.len() && after[..before.len()] == before[..]
 }
 
+/// The markers of each request's debug line in `logs`, in order, and whether the line
+/// carries the gap since the call before.
+fn cache_lines(logs: &str) -> Vec<(String, bool)> {
+    logs.lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once("cache_ttl=auto markers=")?;
+            let markers = rest.split_whitespace().next().unwrap_or_default().to_owned();
+            Some((markers, line.contains("gap_ms=")))
+        })
+        .collect()
+}
+
 fn usage_of(events: &[EventEnvelope]) -> Usage {
     events
         .iter()
@@ -369,6 +381,15 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
     assert!(head.contains("SUMMARY: src/lib.rs calls new()."), "{head}");
     assert!(head.contains("now the farewell"), "{head}");
     assert_eq!(markers(after_call), marks(&[("system", "1h"), ("message 0", "1h")]));
+
+    // Each request logs its markers at debug level, and each call after the first one
+    // carries the gap since the start of the call before: the measurement of the time
+    // to live.
+    let lines = cache_lines(&logged());
+    let placed: Vec<&str> = lines.iter().map(|(markers, _)| markers.as_str()).collect();
+    assert_eq!(placed, ["S1h,T1h", "S1h,A1h,T5m", "S1h,A1h,P5m,T5m", "S1h,T1h"]);
+    let gaps: Vec<bool> = lines.iter().map(|(_, gap)| *gap).collect();
+    assert_eq!(gaps, [false, true, true, true], "{lines:?}");
 
     let usage = usage_of(&first);
     assert_eq!(usage.input_tokens, 7_000 + 155_010, "the three parts of the input");

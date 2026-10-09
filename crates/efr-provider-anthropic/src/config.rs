@@ -35,6 +35,17 @@ pub enum CacheTtl {
     OneHour,
 }
 
+impl CacheTtl {
+    /// The setting's value in the config: `auto`, `5m` or `1h`.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            CacheTtl::Auto => "auto",
+            CacheTtl::FiveMinutes => "5m",
+            CacheTtl::OneHour => "1h",
+        }
+    }
+}
+
 /// The settings of one [`AnthropicProvider`](crate::AnthropicProvider), built by the
 /// daemon from its config file.
 ///

@@ -395,6 +395,14 @@ parts `context` and `compacting`, `conversation.compact`).
    sends the requests of one conversation to the same cache. On the subscription
    backend, `efr-provider-openai` also sends the key as the `session-id` header, as
    Codex does.
+5. Each model call of the conversation runs in a `provider_request` span with the
+   field `gap_ms`: the time from the start of the conversation's call before to the
+   start of this one (`gap.rs`). The turn's calls and the summary calls of both
+   compactions count, because they read and write the same prompt cache. The first
+   call after a start of efrd has no `gap_ms`, because the time of the call before is
+   not stored. A provider's cache entry lives for a time that counts from the start of
+   the request that wrote or last read it, so the field, the provider's debug line
+   about its cache markers and the call's usage show which time to live pays.
 
 ### The estimate
 
