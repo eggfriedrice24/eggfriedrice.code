@@ -69,7 +69,7 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
     state.effort = Some("high".to_owned());
     let mut expected = request(vec![setup.prompt(&state, "hello")]);
     expected.model = "gpt-5.4".to_owned();
-    expected.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
+    expected.effort = Some("high".to_owned());
     let records = vec![expect_request(expected), answer(&text_answer("Hi there."))];
     let mut h = setup.start(records).await;
     let cwd = h.cwd.clone();

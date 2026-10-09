@@ -87,15 +87,14 @@ async fn compact(
     let key = ModelKey::new(shared.deps.provider.id().clone(), model.clone());
     let history = config.history.for_window(limits.window);
     let window = snapshot.window(None, cache, &key, history, head.as_deref());
-    let provider_options =
-        crate::turn::provider_options(&config, effort.as_deref(), shared.conversation_id);
     let base = Request {
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
         tools: shared.deps.toolbox.definitions(),
         max_output_tokens: config.max_output_tokens,
-        provider_options,
+        effort,
+        provider_options: crate::turn::provider_options(&config, shared.conversation_id),
     };
     let tokens_before = request_tokens(&with_window(&base, &window));
     let job = Job {

@@ -29,7 +29,8 @@ turns.
   resolves them again against the settings of that moment, fails with `invalid` and
   the choices when they no longer fit, and records them on `turn_started`. A turn
   from a remote origin runs with at most `cautious`. The turn sends its model, its
-  effort as `provider_options["reasoning_effort"]`, and its mode in the permission
+  effort as the request's `effort` (in the manual compaction's summary request too),
+  and its mode in the permission
   engine's `DecisionInput` and as a line of the preamble.
 - `steer` records `turn_steered`. Before its next model call the turn records
   `steering_delivered` with the seqs of the steers it takes, then sends their texts to

@@ -170,10 +170,22 @@ fn the_config_sets_the_default_effort_and_summary() {
 }
 
 #[test]
+fn the_request_effort_overrides_the_config() {
+    let config = OpenAiConfig::subscription().with_reasoning_effort(Some("high".to_owned()));
+    let mut request = Request::new("gpt-5.5");
+    request.effort = Some("low".to_owned());
+    assert_eq!(body(&request, &config)["reasoning"], json!({"effort": "low", "summary": "auto"}));
+    // NOTE: the effort is a typed field now; the old option key is an unknown key.
+    let mut old = Request::new("gpt-5.5");
+    old.provider_options.insert("reasoning_effort".to_owned(), json!("low"));
+    assert_eq!(body(&old, &config)["reasoning"], json!({"effort": "high", "summary": "auto"}));
+}
+
+#[test]
 fn provider_options_override_the_config() {
     let mut request = Request::new("gpt-5.5");
+    request.effort = Some("low".to_owned());
     request.provider_options = serde_json::from_value(json!({
-        "reasoning_effort": "low",
         "reasoning_summary": null,
         "parallel_tool_calls": false,
         "prompt_cache_key": "conversation-0192",
@@ -196,7 +208,6 @@ fn provider_options_override_the_config() {
 fn provider_options_of_the_wrong_type_are_ignored() {
     let mut request = Request::new("gpt-5.5");
     request.provider_options = serde_json::from_value(json!({
-        "reasoning_effort": 3,
         "reasoning_summary": ["auto"],
         "parallel_tool_calls": "no",
         "prompt_cache_key": 7,
@@ -370,7 +381,7 @@ fn a_body_after_a_model_switch_holds_no_reasoning_or_item_id_of_the_other_model(
     ];
     let mut request = Request::new("gpt-6-sol");
     request.messages = switched.to_vec();
-    request.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
+    request.effort = Some("high".to_owned());
 
     let body = body(&request, &OpenAiConfig::subscription());
 

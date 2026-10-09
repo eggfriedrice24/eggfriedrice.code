@@ -16,8 +16,15 @@ Modules:
   (`turn_messages`, not the event log) and sent back unchanged on the next request to
   the same provider and model. Only that provider reads it; when the
   conversation switches providers the history assembler drops it.
-- `request`: `Request { model, system, messages, tools, max_output_tokens,
-  provider_options }` and `ToolDefinition`, the tool as the model sees it.
+- `request`: `Request { model, system, messages, tools, max_output_tokens, effort,
+  provider_options }` and `ToolDefinition`, the tool as the model sees it. `effort`
+  is the reasoning effort of the call (`low`, `medium`, `high` and so on, one of
+  `ModelInfo::efforts`), absent for the provider's default for the model. Every
+  provider reads it and maps it to its own field: OpenAI's `reasoning.effort`,
+  Anthropic's `output_config.effort`. `provider_options` holds options that only one
+  provider reads, such as OpenAI's `prompt_cache_key`; the conversation sends them to
+  every provider, so a provider ignores the keys it does not know and never puts them
+  into its request body.
   `efr-tools` has its own `ToolSpec`; the conversation converts between the two,
   because neither crate depends on the other. A tool is a function tool
   (`ToolDefinition::function`: a JSON Schema of its input object) or a freeform tool

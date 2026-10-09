@@ -53,7 +53,8 @@ fn a_full_request_round_trips_with_raw_items_intact() {
     ];
     request.tools = vec![shell_tool()];
     request.max_output_tokens = Some(4096);
-    request.provider_options.insert("reasoning".to_owned(), json!({"effort": "medium"}));
+    request.effort = Some("medium".to_owned());
+    request.provider_options.insert("prompt_cache_key".to_owned(), json!("conversation-1"));
 
     let wire = json!({
         "model": "gpt-5-codex",
@@ -77,7 +78,8 @@ fn a_full_request_round_trips_with_raw_items_intact() {
             },
         }],
         "max_output_tokens": 4096,
-        "provider_options": {"reasoning": {"effort": "medium"}},
+        "effort": "medium",
+        "provider_options": {"prompt_cache_key": "conversation-1"},
     });
     assert_eq!(serde_json::to_value(&request).unwrap(), wire);
     assert_eq!(serde_json::from_value::<Request>(wire).unwrap(), request);

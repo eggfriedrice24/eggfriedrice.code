@@ -236,8 +236,8 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   of `catalog.rs`, both from memory): a model outside the list, or an effort the model does not take,
   is `invalid` with the setting, the value and the choices as data, and nothing is
   recorded. The result carries the effective settings; the turn resolves them again
-  when it starts, records them on `turn_started` and sends the effort in the request's
-  `provider_options`. A turn from a remote origin runs with at most `cautious`.
+  when it starts, records them on `turn_started` and sends the effort as the request's
+  `effort`. A turn from a remote origin runs with at most `cautious`.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue. With `drafts`,

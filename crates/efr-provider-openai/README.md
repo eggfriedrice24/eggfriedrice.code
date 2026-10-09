@@ -19,7 +19,8 @@ Modules:
 - `config`: `OpenAiConfig` (backend, base URL, originator, the models that the config
   lays over the catalog, retry policy, reasoning mode, default reasoning effort and
   summary, parallel tool calls, the WebSocket switch) and the `Backend`,
-  `ReasoningMode` and `WebSocketMode` enums. A request's `provider_options` override the defaults: `reasoning_effort`,
+  `ReasoningMode` and `WebSocketMode` enums. A request's `effort` overrides the
+  default reasoning effort, and its `provider_options` override the other defaults:
   `reasoning_summary`, `parallel_tool_calls`, `prompt_cache_key`, `service_tier` and
   `text_verbosity`; other keys are ignored.
 - `catalog`: the model catalog. The backend lists its models at

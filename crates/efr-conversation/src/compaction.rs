@@ -281,8 +281,8 @@ pub(crate) fn summary_prompt(focus: Option<&str>) -> String {
     }
 }
 
-/// The summary request: `base` (the model, the system prompt, the tools and the
-/// options of the turn, so the request hits the prompt cache) with `messages` and the
+/// The summary request: `base` (the model, the system prompt, the tools, the effort
+/// and the options of the turn, so the request hits the prompt cache) with `messages` and the
 /// summary prompt as the last message, and the summary's output limit plus room for
 /// the model's reasoning, which the Responses API counts in the same limit.
 pub(crate) fn summary_request(
@@ -298,6 +298,7 @@ pub(crate) fn summary_request(
         messages,
         tools: base.tools.clone(),
         max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS + SUMMARY_REASONING_TOKENS),
+        effort: base.effort.clone(),
         provider_options: base.provider_options.clone(),
     }
 }

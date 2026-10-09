@@ -86,11 +86,9 @@ const TAIL_MAX: usize = 4096;
 /// command changes it at most once a second, and the turn records each at once.
 const INPUT_CAPACITY: usize = 64;
 
-/// The `provider_options` key of the reasoning effort, which the OpenAI provider reads.
-const REASONING_EFFORT: &str = "reasoning_effort";
-
-/// The `provider_options` key of the prompt cache key, which the OpenAI provider reads.
-/// The turn sends the conversation id there unless the config names a key.
+/// The `provider_options` key of the prompt cache key. Only the OpenAI provider reads
+/// it; another provider ignores it. The turn sends the conversation id there unless
+/// the config names a key.
 pub(crate) const PROMPT_CACHE_KEY: &str = "prompt_cache_key";
 
 /// What the model reads for a call that did not run because the user interrupted the
@@ -467,15 +465,14 @@ impl Turn {
         // previous turn; only the new prompt comes after it.
         self.meter.add(&prompt);
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
-        let provider_options =
-            provider_options(&config, settings.effort.as_deref(), shared.conversation_id);
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
             messages: Vec::new(),
             tools: shared.deps.toolbox.definitions(),
             max_output_tokens: config.max_output_tokens,
-            provider_options,
+            effort: settings.effort.clone(),
+            provider_options: provider_options(&config, shared.conversation_id),
         };
 
         for _ in 0..config.max_model_calls {
@@ -1349,18 +1346,15 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
 }
 
 /// The `provider_options` of a request of the conversation `conversation_id`: those of
-/// the config, the reasoning `effort`, and the conversation id as the prompt cache key
-/// unless the config names one. The key sends every request of the conversation, the
-/// summary requests too, to the same prompt cache, as Codex does with its session id.
+/// the config, and the conversation id as the prompt cache key unless the config names
+/// one. The key sends every request of the conversation, the summary requests too, to
+/// the same prompt cache, as Codex does with its session id. The effort is not here: it
+/// is the request's own `effort`.
 pub(crate) fn provider_options(
     config: &ConversationConfig,
-    effort: Option<&str>,
     conversation_id: ConversationId,
 ) -> serde_json::Map<String, Value> {
     let mut options = config.provider_options.clone();
-    if let Some(effort) = effort {
-        options.insert(REASONING_EFFORT.to_owned(), Value::String(effort.to_owned()));
-    }
     options.entry(PROMPT_CACHE_KEY).or_insert_with(|| Value::String(conversation_id.to_string()));
     options
 }

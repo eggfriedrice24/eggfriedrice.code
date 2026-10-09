@@ -216,7 +216,7 @@ async fn a_changed_setting_sends_the_whole_input() {
     let first = setup.provider.complete(request.clone()).await.unwrap();
     request.messages.push(first.message);
     request.messages.push(Message::user("think harder"));
-    request.provider_options.insert("reasoning_effort".to_owned(), json!("high"));
+    request.effort = Some("high".to_owned());
     setup.provider.complete(request).await.unwrap();
 
     let next = &setup.server.sockets()[0].messages[1];

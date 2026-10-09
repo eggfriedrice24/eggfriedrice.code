@@ -875,6 +875,7 @@ pub(crate) fn request(messages: Vec<Message>) -> Request {
         messages,
         tools: FakeToolbox::tools(),
         max_output_tokens: None,
+        effort: None,
         provider_options,
     }
 }

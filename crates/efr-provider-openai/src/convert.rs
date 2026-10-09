@@ -95,8 +95,10 @@ struct TextParam {
 /// lists, which then gets the function form of each freeform tool and the request's
 /// output limit.
 ///
+/// The request's `effort` is the reasoning effort, else the config's default, else the
+/// backend's default for the model.
+///
 /// `provider_options` keys this provider reads, each overriding the config:
-/// `reasoning_effort` (a string, or `null` for the backend's default),
 /// `reasoning_summary` (a string, or `null` for no summary), `parallel_tool_calls`
 /// (a boolean), `prompt_cache_key`, `service_tier` and `text_verbosity` (strings).
 /// Other keys, and known keys with a value of the wrong type, are ignored.
@@ -112,7 +114,7 @@ pub(crate) fn request_body(
         ReasoningMode::ByModel => is_reasoning_model(&request.model),
     };
     let reasoning = reasons.then(|| ReasoningParam {
-        effort: options.nullable_string("reasoning_effort", config.reasoning_effort()),
+        effort: request.effort.clone().or_else(|| config.reasoning_effort().map(str::to_owned)),
         summary: options.nullable_string("reasoning_summary", config.reasoning_summary()),
     });
     // NOTE: the subscription backend refuses `max_output_tokens`; Codex never sends it

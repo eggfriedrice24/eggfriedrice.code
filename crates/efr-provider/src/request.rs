@@ -14,7 +14,8 @@ use crate::Message;
 pub struct Request {
     /// The provider's model id, such as `gpt-5-codex`.
     pub model: String,
-    /// The system prompt, which the Responses API calls `instructions`.
+    /// The system prompt, the static rules of every call. Each provider puts it where
+    /// its API takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
     /// The conversation so far, oldest first.
@@ -27,8 +28,15 @@ pub struct Request {
     /// default when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
-    /// Options only one provider understands, such as a reasoning effort, passed
-    /// through as they are. A provider ignores keys it does not know.
+    /// How hard the model reasons, such as `low`, `medium` or `high`: one of the
+    /// [`ModelInfo::efforts`](crate::ModelInfo::efforts) of the model. The provider's
+    /// default for the model when absent. Every provider reads it and maps it to its
+    /// own field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Options only one provider understands, such as OpenAI's `prompt_cache_key`,
+    /// passed through as they are. A provider ignores keys it does not know, and never
+    /// sends a key it does not know to its API.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub provider_options: Map<String, Value>,
 }

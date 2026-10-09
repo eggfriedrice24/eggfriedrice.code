@@ -259,8 +259,8 @@ impl ProviderFactory for CredentialProviders {
 /// transport of `[openai] websocket` and the models of `[openai] models`, laid over the
 /// catalog with the limits that an entry gives.
 ///
-/// The reasoning effort is not set here: each turn sends its own in the request's
-/// `provider_options`, so a change of `[model] effort` reaches the next turn without a
+/// The reasoning effort is not set here: each turn sends its own as the request's
+/// `effort`, so a change of `[model] effort` reaches the next turn without a
 /// restart, and a turn without one leaves it to the backend.
 pub(crate) fn openai_config(
     config: OpenAiConfig,
