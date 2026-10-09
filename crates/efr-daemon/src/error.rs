@@ -8,8 +8,9 @@
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use efr_config::ConfigError;
+use efr_config::{ConfigError, ForeignModel, ModelCompany};
 use efr_conversation::ConversationError;
 use efr_credentials::CredentialsError;
 use efr_http::HttpError;
@@ -268,6 +269,43 @@ pub enum DaemonError {
         /// What is wrong with the key.
         problem: KeyProblem,
     },
+    /// `[model] name` is a model of another company than `[model] provider`, and a
+    /// prompt that names no model of its own would send it to the provider.
+    #[error("{}; {}", foreign(.name, *.company, .provider), foreign(.name, *.company, .provider).fix())]
+    ForeignModel {
+        /// The value of `[model] name`.
+        name: String,
+        /// The company of that model.
+        company: ModelCompany,
+        /// The value of `[model] provider`.
+        provider: String,
+    },
+    /// A prompt needs the model list of the provider, which efrd does not have because
+    /// no key is stored.
+    #[error("{provider} has no model list yet, because no key is stored; log in with {login}")]
+    NoModelListWithoutKey {
+        /// The provider.
+        provider: String,
+        /// The command that stores a key.
+        login: &'static str,
+    },
+    /// A prompt needs the model list of the provider, and its fetch failed.
+    #[error("efr could not fetch {list}")]
+    ModelListFetch {
+        /// The list, as a person names it, such as `Claude's model list`.
+        list: &'static str,
+        /// The fetch's error, with the server's message.
+        #[source]
+        source: Arc<ProviderError>,
+    },
+    /// A prompt needs the model list of the provider, and no fetch gave one.
+    #[error("efr could not fetch {list}: {reason}")]
+    NoModelList {
+        /// The list, as a person names it, such as `Claude's model list`.
+        list: &'static str,
+        /// Why no list came, in a few words.
+        reason: &'static str,
+    },
     /// The provider refused an API key, or the check of the key got no answer.
     #[error("the check of the key for {provider} failed")]
     KeyCheck {
@@ -507,6 +545,7 @@ impl DaemonError {
                 ErrorCode::Conflict
             }
             DaemonError::InvalidParams { .. }
+            | DaemonError::ForeignModel { .. }
             | DaemonError::NoSuchProvider { .. }
             | DaemonError::NoApiKeyLogin { .. }
             | DaemonError::InvalidApiKey { .. }
@@ -530,6 +569,8 @@ impl DaemonError {
             DaemonError::Shell { source } => shell_code(source),
             DaemonError::Login { source } => login_code(source),
             DaemonError::KeyCheck { source, .. } => key_check_code(source),
+            DaemonError::NoModelListWithoutKey { .. } => ErrorCode::Unauthorized,
+            DaemonError::ModelListFetch { source, .. } => summary_code(source),
             DaemonError::Respond { source: TransportError::Overflow { .. } } => ErrorCode::Overflow,
             DaemonError::Paths { .. }
             | DaemonError::Env { .. }
@@ -561,6 +602,7 @@ impl DaemonError {
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }
             | DaemonError::Snapshot { .. }
+            | DaemonError::NoModelList { .. }
             | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }
@@ -591,6 +633,11 @@ impl DaemonError {
                     DaemonError::KeyCheck { source, .. } => {
                         format!("{error}: {}", efr_stdx::with_causes(source))
                     }
+                    // NOTE: the fetch's error says why the list did not come (no answer,
+                    // a refused key with the server's message) and never holds the key.
+                    DaemonError::ModelListFetch { source, .. } => {
+                        format!("{error}: {}", efr_stdx::with_causes(source))
+                    }
                     // NOTE: the registry holds paths and names, no secret, and the
                     // parser's message says what to fix in the file.
                     DaemonError::Registry {
@@ -618,11 +665,23 @@ impl DaemonError {
                         Some(data) => body.with_data(data),
                         None => body,
                     },
+                    DaemonError::ForeignModel { name, provider, .. } => {
+                        body.with_data(serde_json::json!({
+                            "setting": "model",
+                            "value": name,
+                            "provider": provider,
+                        }))
+                    }
                     _ => body,
                 }
             }
         }
     }
+}
+
+/// The foreign model `name` of `company` under the provider `provider`, for its text.
+fn foreign<'a>(name: &'a str, company: ModelCompany, provider: &'a str) -> ForeignModel<'a> {
+    ForeignModel { name, company, provider }
 }
 
 /// The wire code of a failed change of the project registry: a broken file or project

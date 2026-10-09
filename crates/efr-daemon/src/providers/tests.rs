@@ -14,7 +14,8 @@ use pretty_assertions::assert_eq;
 use crate::catalog::ProviderCatalog;
 use crate::providers::{
     ANTHROPIC, API, KeyLogin, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
-    StoredApiKey, anthropic_config, openai_config, provider_status,
+    StoredApiKey, anthropic_config, login_command, openai_config, provider_status,
+    warn_foreign_model,
 };
 use crate::testing::OneAnswerFactory;
 use crate::{DaemonError, KeyProblem};
@@ -330,4 +331,22 @@ fn a_daemon_with_its_own_provider_never_fetches_the_catalog() {
 
     assert!(!providers.models().fetches());
     assert_eq!(providers.models().default_model(&config), "gpt-6.1-sol");
+}
+
+#[test]
+fn a_model_name_of_another_company_is_warned_about_and_one_of_its_own_is_not() {
+    let mut config = Settings::default();
+    config.model.name = Some("claude-opus-5-5".to_owned());
+    assert!(warn_foreign_model(&config));
+
+    config.model.provider = ANTHROPIC.to_owned();
+    assert!(!warn_foreign_model(&config));
+    assert!(!warn_foreign_model(&Settings::default()), "no name, nothing to warn about");
+}
+
+#[test]
+fn each_provider_names_its_login() {
+    assert_eq!(login_command(ANTHROPIC), "efr login anthropic");
+    assert_eq!(login_command(API), "efr login openai-api");
+    assert_eq!(login_command(SUBSCRIPTION), "efr login openai");
 }

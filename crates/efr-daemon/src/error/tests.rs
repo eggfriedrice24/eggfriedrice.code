@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use efr_config::ModelCompany;
 use efr_conversation::ConversationError;
 use efr_oauth_openai::OAuthError;
 use efr_protocol::{
@@ -248,6 +250,74 @@ fn key_login_errors_map_to_their_codes_and_say_what_the_provider_said() {
     assert_eq!(
         body.message,
         "the key for anthropic-api was refused: an admin key cannot call models; use a project key"
+    );
+}
+
+#[test]
+fn a_missing_model_list_says_why_and_what_to_do() {
+    let list = "Claude's model list";
+    let no_key = frame(DaemonError::NoModelListWithoutKey {
+        provider: "anthropic-api".into(),
+        login: "efr login anthropic",
+    })
+    .error;
+    assert_eq!(no_key.code, ErrorCode::Unauthorized);
+    assert_eq!(
+        no_key.message,
+        "anthropic-api has no model list yet, because no key is stored; log in with efr login anthropic"
+    );
+
+    let fetch = |source| DaemonError::ModelListFetch { list, source: Arc::new(source) };
+    let refused =
+        frame(fetch(ProviderError::Unauthorized { message: Some("invalid x-api-key".into()) }))
+            .error;
+    assert_eq!(refused.code, ErrorCode::Unauthorized);
+    assert_eq!(
+        refused.message,
+        "efr could not fetch Claude's model list: the provider rejected the credentials: invalid x-api-key"
+    );
+    let offline = frame(fetch(ProviderError::Transport {
+        source: Box::new(std::io::Error::other("connection refused")),
+    }))
+    .error;
+    assert_eq!(offline.code, ErrorCode::Internal);
+    assert_eq!(
+        offline.message,
+        "efr could not fetch Claude's model list: the request to the provider failed in transit: connection refused"
+    );
+    let limited = fetch(ProviderError::RateLimited { retry_after: None });
+    assert_eq!(code(limited), ErrorCode::Busy);
+
+    let slow = frame(DaemonError::NoModelList { list, reason: "the fetch did not end in time" });
+    assert_eq!(slow.error.code, ErrorCode::Internal);
+    assert_eq!(
+        slow.error.message,
+        "efr could not fetch Claude's model list: the fetch did not end in time"
+    );
+}
+
+#[test]
+fn a_model_name_of_another_company_is_invalid_with_the_cause_the_fix_and_the_setting() {
+    let body = frame(DaemonError::ForeignModel {
+        name: "claude-opus-5-5".into(),
+        company: ModelCompany::Anthropic,
+        provider: "openai-subscription".into(),
+    })
+    .error;
+
+    assert_eq!(body.code, ErrorCode::Invalid);
+    assert_eq!(
+        body.message,
+        "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
+         openai-subscription; set [model] name to a model of openai-subscription, or remove it"
+    );
+    assert_eq!(
+        body.data,
+        Some(json!({
+            "setting": "model",
+            "value": "claude-opus-5-5",
+            "provider": "openai-subscription",
+        }))
     );
 }
 

@@ -44,7 +44,7 @@ use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
-use crate::catalog::{Fetcher, Models, ProviderCatalog, backend};
+use crate::catalog::{Fetcher, Models, NoList, ProviderCatalog, backend};
 
 mod api_key;
 
@@ -207,6 +207,46 @@ impl Providers {
         Arc::clone(&self.models)
     }
 
+    /// Refuses a prompt whose turn cannot run because the catalog still has no list
+    /// after [`Models::ready`], with the cause: no key is stored, or the fetch failed
+    /// or gave no list. A turn on a model whose output limit the config gives (in the
+    /// config's list of models or as `[model] max_output_tokens`) runs without a list,
+    /// unless no key is stored. `asked` is the prompt's own model.
+    pub(crate) fn check_list(
+        &self,
+        settings: &Settings,
+        asked: Option<&str>,
+    ) -> Result<(), DaemonError> {
+        let Some(missing) = self.models.missing() else {
+            return Ok(());
+        };
+        if !matches!(missing, NoList::NotLoggedIn) {
+            let model = asked.map_or_else(|| self.models.default_model(settings), str::to_owned);
+            let limited = self
+                .active
+                .models()
+                .iter()
+                .any(|info| info.id == model && info.max_output_tokens.is_some());
+            if limited || settings.model.max_output_tokens.is_some() {
+                return Ok(());
+            }
+        }
+        let list = self.models.list().vendor().list_name();
+        Err(match missing {
+            NoList::NotLoggedIn => DaemonError::NoModelListWithoutKey {
+                provider: self.configured.clone(),
+                login: login_command(&self.configured),
+            },
+            NoList::Failed(source) => DaemonError::ModelListFetch { list, source },
+            NoList::NoActiveModel => {
+                DaemonError::NoModelList { list, reason: "the list has no active model" }
+            }
+            NoList::NotFetched => {
+                DaemonError::NoModelList { list, reason: "the fetch did not end in time" }
+            }
+        })
+    }
+
     /// Binds the login callback and returns the login to complete.
     pub(crate) async fn start_login(&self) -> Result<PendingLogin, DaemonError> {
         self.login.start().await.map_err(|source| DaemonError::Login { source })
@@ -327,16 +367,45 @@ pub(crate) fn provider_status(
     }
 }
 
-/// Warns when the config's default model is not in the model list, or its default
-/// effort is not one the default model takes: every prompt that leaves them to the
-/// config then fails until the file is fixed.
+/// The command that logs in to `provider`.
+pub(crate) fn login_command(provider: &str) -> &'static str {
+    match provider {
+        ANTHROPIC => "efr login anthropic",
+        API => "efr login openai-api",
+        _ => "efr login openai",
+    }
+}
+
+/// Warns when `[model] name` is a model of another company than `[model] provider`
+/// (`efr_config::ForeignModel`): every turn that does not name its own model then
+/// fails until the file is fixed. efrd calls it at start and after each reload. True
+/// when it warned.
+pub(crate) fn warn_foreign_model(config: &Settings) -> bool {
+    let Some(foreign) = config.foreign_model() else {
+        return false;
+    };
+    tracing::warn!(
+        model = %foreign.name,
+        company = foreign.company.name(),
+        provider = %foreign.provider,
+        fix = %foreign.fix(),
+        "model.name is a model of another company than model.provider, so a turn that does not name its own model fails"
+    );
+    true
+}
+
+/// Warns when the config's default model belongs to another company than the
+/// provider, is not in the model list, or its default effort is not one the default
+/// model takes: every prompt that leaves them to the config then fails until the file
+/// is fixed.
 fn warn_unfit_defaults(config: &Settings, models: &Models) {
+    let foreign = warn_foreign_model(config);
     let list = models.effective(config);
     if list.is_empty() {
         return;
     }
     let known: Vec<&str> = list.iter().map(|model| model.id.as_str()).collect();
-    if let Some(name) = config.unknown_model(&known) {
+    if let Some(name) = config.unknown_model(&known).filter(|_| !foreign) {
         tracing::warn!(model = %name, known = ?known, "model.name is not in the model list, so a turn that does not name its own model fails");
     }
     let default = models.default_model(config);

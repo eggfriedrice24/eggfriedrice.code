@@ -19,6 +19,9 @@
 //! - how new hidden shells start (`shell.program`, `shell.login`);
 //! - the log filter.
 //!
+//! A reloaded `[model] name` of another company than the running `[model] provider`
+//! gets a warning in the log, as at the start.
+//!
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
 //! outcome.
@@ -282,6 +285,8 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // which bwrap and cache mode it uses, so a change of `[sandbox]` or of the projects
     // (the engine's locations) runs it again.
     let probe_again = settings.sandbox != running.sandbox || engine_sent;
+    // NOTE: `[model] provider` needs a restart, so the check is against the running one.
+    crate::providers::warn_foreign_model(&settings);
     if settings != *running {
         state.settings.send_replace(Arc::new(settings));
     }

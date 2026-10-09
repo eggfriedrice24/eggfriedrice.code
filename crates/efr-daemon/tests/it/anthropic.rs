@@ -1,8 +1,10 @@
 //! The `anthropic-api` provider end to end: the real Anthropic provider against the
 //! local Messages API (`MessagesServer`). efrd has no list of Claude models until it
 //! fetches one, so the first prompt waits for the fetch; the list then comes back from
-//! its own cache file after a restart. A turn without a key says to log in, and a
-//! login brings the list of the new key. A restart between two turns edits nothing of
+//! its own cache file after a restart. A prompt without a key and without a list says
+//! to log in, a prompt whose list could not be fetched says why, and a login brings the
+//! list of the new key. A `[model] name` of OpenAI fails a prompt with the cause and the
+//! fix. A restart between two turns edits nothing of
 //! the request before the new turn.
 //!
 //! One conversation runs a Claude turn with a call of the `edit` tool and its approval,
@@ -14,12 +16,13 @@
 
 use efr_protocol::{
     AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, ApprovalDecision,
-    ApprovalRespond, ApprovalRespondResult, CatalogOrigin, CompactionTrigger, ErrorCode, Event,
-    EventEnvelope, Method, ModelsList, ModelsListResult, PromptSendResult, SecretText, Usage,
+    ApprovalRespond, ApprovalRespondResult, CatalogOrigin, CompactionTrigger, ErrorBody, ErrorCode,
+    Event, EventEnvelope, Method, ModelsList, ModelsListResult, PromptSendResult, SecretText,
+    Usage,
 };
 use efr_test_daemon::{
-    ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, MessagesAnswer, MessagesServer, TTY, TestDaemon,
-    command_id, events_until,
+    ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, Client, ClientError, MessagesAnswer, MessagesServer,
+    TTY, TestDaemon, command_id, events_until,
 };
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -455,27 +458,126 @@ async fn the_first_prompt_waits_for_the_model_list_which_comes_back_from_its_cac
     daemon.stop().await.unwrap();
 }
 
+/// The daemon's refusal of `method`.
+async fn refused(client: &Client, method: Method) -> ErrorBody {
+    match client.call::<PromptSendResult>(method).await {
+        Err(ClientError::Server { body }) => body,
+        other => panic!("expected the daemon's refusal, got {other:?}"),
+    }
+}
+
 #[tokio::test]
-async fn without_a_key_a_claude_turn_fails_as_unauthorized_and_calls_no_model() {
+async fn without_a_key_a_claude_prompt_fails_as_unauthorized_with_the_login_and_calls_no_model() {
     let server = MessagesServer::start().await;
     server.refuse_models(MessagesAnswer::error(401, "authentication_error", "invalid x-api-key"));
     let daemon = TestDaemon::builder().messages(&server).start().await.unwrap();
-    let client = daemon.client().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
     let logout = Method::AdminLogout(AdminLogout { provider: "anthropic-api".to_owned() });
     let _: AdminLogoutResult = client.call(logout).await.unwrap();
 
     let list = models(&daemon).await;
     assert_eq!(list.catalog.map(|catalog| catalog.origin), Some(CatalogOrigin::Missing));
     assert_eq!(list.models, [], "no list and no guess");
-    let events = run_turn(&daemon, 1, "hello").await;
+    let error = refused(&client, daemon.prompt(1, "hello", TTY)).await;
 
-    let Event::TurnFailed { error, .. } = &events.last().unwrap().event else {
-        panic!("{events:#?}")
-    };
     assert_eq!(error.code, ErrorCode::Unauthorized, "{error:?}");
+    assert_eq!(
+        error.message,
+        "anthropic-api has no model list yet, because no key is stored; log in with efr login anthropic"
+    );
     assert!(server.received().is_empty(), "no model call without a key");
     drop(client);
     daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_fetch_that_fails_for_another_reason_names_the_servers_answer() {
+    let server = MessagesServer::start().await;
+    server.refuse_models(MessagesAnswer::error(
+        400,
+        "invalid_request_error",
+        "anthropic-workspace-id is required when authenticating with an identity-linked API key",
+    ));
+    let daemon = TestDaemon::builder().messages(&server).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    let error = refused(&client, daemon.prompt(1, "hello", TTY)).await;
+
+    assert_eq!(error.code, ErrorCode::Internal, "{error:?}");
+    assert!(
+        error.message.starts_with("efr could not fetch Claude's model list: "),
+        "{}",
+        error.message
+    );
+    assert!(error.message.contains("anthropic-workspace-id is required"), "{}", error.message);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_model_with_its_output_limit_in_the_config_runs_without_a_list() {
+    let server = MessagesServer::start().await;
+    server.refuse_models(MessagesAnswer::error(403, "permission_error", "no models for you"));
+    server.push(MessagesAnswer::text("Hello."));
+    let daemon = TestDaemon::builder()
+        .messages(&server)
+        .config(|config| config.model.max_output_tokens = Some(8_000))
+        .start()
+        .await
+        .unwrap();
+
+    let events = run_turn(&daemon, 1, "hello").await;
+
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    assert_eq!(server.received()[0].body["max_tokens"], 8_000);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_model_name_of_another_company_fails_the_prompt_with_the_cause_and_the_fix() {
+    let logs = logs();
+    let server = MessagesServer::start().await;
+    server.set_models(vec![model()]);
+    server.push(MessagesAnswer::text("Hello."));
+    let daemon = TestDaemon::builder()
+        .messages(&server)
+        .config(|config| config.model.name = Some("gpt-5.5".to_owned()))
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    let error = refused(&client, daemon.prompt(1, "hello", TTY)).await;
+
+    assert_eq!(error.code, ErrorCode::Invalid, "{error:?}");
+    assert_eq!(
+        error.message,
+        "[model] name gpt-5.5 is a model of OpenAI, but [model] provider is anthropic-api; \
+         set [model] name to a model of anthropic-api, or remove it"
+    );
+    assert_eq!(
+        error.data,
+        Some(json!({"setting": "model", "value": "gpt-5.5", "provider": "anthropic-api"}))
+    );
+    assert!(server.received().is_empty(), "the model never reached the provider");
+    assert!(
+        logged().contains("model.name is a model of another company than model.provider"),
+        "efrd warns at start"
+    );
+
+    let Method::PromptSend(mut own) = daemon.prompt(2, "hello", TTY) else { unreachable!() };
+    own.settings.model = Some(MODEL.to_owned());
+    let sent: PromptSendResult = client.call(Method::PromptSend(own)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let events = events_until(&mut follow, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "a prompt's own model runs");
+    drop((follow, client));
+    daemon.stop().await.unwrap();
+    drop(logs);
 }
 
 #[tokio::test]

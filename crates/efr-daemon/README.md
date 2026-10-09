@@ -171,9 +171,14 @@ the list came from and when.
   the output limit and the efforts that the API gives. efr has no table of Claude
   models, so while there is no list a prompt and `conversation.compact` first wait for
   one fetch (`Models::ready`, at most 60 s): a turn without a list cannot know the
-  output limit of its model, and efr never guesses it. A fetch that fails, or no
-  login, leaves the turn to fail with the provider's error (`unauthorized` without a
-  key).
+  output limit of its model, and efr never guesses it. When the fetch gives no list
+  either, the prompt fails with the cause (`Providers::check_list`): without a stored
+  key, `unauthorized` with the login command (`anthropic-api has no model list yet,
+  because no key is stored; log in with efr login anthropic`); after a failed fetch,
+  `efr could not fetch Claude's model list:` and the fetch's error, such as the
+  server's message for a refused key (`unauthorized`), with the code of that error. A
+  prompt on a model whose output limit the config gives (`[anthropic] models` or
+  `[model] max_output_tokens`) runs without a list, unless no key is stored.
 - A daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
   reaches the network by accident.
 - The effective list (`effective_models`) is the catalog's models on offer (OpenAI's
@@ -319,6 +324,11 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 - `admin.status` lists every provider (`openai-subscription`, `openai-api`,
   `anthropic-api`) with its login (`subscription` or `api_key`), the expiry of a
   subscription token, the hint of a key and which one is active.
+- `prompt.send` refuses a prompt that names no model of its own while `[model] name`
+  is a model of another company than `[model] provider` (`efr_config::ForeignModel`):
+  `invalid`, with the cause and the fix (set `[model] name` to a model of the provider,
+  or remove it) and the setting, the value and the provider as data. efrd also warns
+  about such a name at start and after each reload.
 - `models.list` answers the effective model list of the latest settings over the
   current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
   (`catalog`: the provider, and `backend`, `cache`, `builtin` or `missing`, with the
@@ -654,7 +664,7 @@ The `login` module also runs `admin.login_api_key` and `admin.logout` against th
 local server's `/v1/models`: a key that is checked with its organization and project
 headers and stored, a refused key with the server's message, a check without an
 answer and a store without a check, keys and providers refused before a check, an
-Anthropic key whose check fails, a logout and the status of every provider, and a new
+Anthropic key whose check fails, a logout and the status of every provider, a new
 key for the running provider that brings the model list of that key. With every log
 line of the process captured, no key shows in a log line, an error, the status or
 any file of the daemon's tree but its credential.
@@ -671,7 +681,10 @@ before it as its prefix outside the compaction, carries the cache markers S, A, 
 T with their times to live, the `drop_block` beta, the effort `medium` and no member of
 another provider, and the turn's usage carries the cache writes; the first prompt that
 waits for the model list, which a restart reads back from its own cache file while the
-API is down; a turn without a key that fails as `unauthorized` and calls no model;
+API is down; a prompt without a key or a list that fails as `unauthorized` with the
+login and calls no model; a failed fetch with the server's answer; a model with its
+output limit in the config that runs without a list; a `[model] name` of OpenAI that fails a prompt with the cause and the fix, and a
+warning at start, while a prompt's own model runs;
 a login to the running provider that fetches the list with the new key; and a restart
 between two turns, after which the next request still starts with the one before it,
 the signed thinking of the stored answer unchanged.

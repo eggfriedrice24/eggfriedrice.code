@@ -23,7 +23,10 @@
 //! waits. efr has no table of Claude models, so without a cache file there is no list
 //! until a fetch works. Then a prompt waits for one fetch before it goes to its
 //! conversation ([`Models::ready`]): a turn without a list cannot know the output limit
-//! of its model, and efr never guesses it.
+//! of its model, and efr never guesses it. A fetch that ends without a list keeps why
+//! ([`NoList`]): no key is stored, the fetch failed, or the list has no active model, so
+//! the prompt that needs the list fails with the cause (`prompt_send.rs`).
+
 //!
 //! A daemon whose provider a test injects never fetches.
 //!
@@ -104,6 +107,21 @@ pub(crate) struct Models {
     ended: watch::Sender<u64>,
     /// The clamps already warned about, so each costs one warning.
     warned: Mutex<HashSet<Clamp>>,
+    /// Why the last fetch ended without a list, for a catalog that has none.
+    no_list: Mutex<NoList>,
+}
+
+/// Why a catalog that efrd fetches has no list.
+#[derive(Debug, Clone)]
+pub(crate) enum NoList {
+    /// No fetch has ended yet, or none ended in time for the prompt.
+    NotFetched,
+    /// No key is stored, so no fetch could run.
+    NotLoggedIn,
+    /// The last fetch failed.
+    Failed(Arc<ProviderError>),
+    /// The last fetch got a list without an active model.
+    NoActiveModel,
 }
 
 /// What a fetch asks, and the shared catalog that its answer goes to.
@@ -145,6 +163,7 @@ impl Models {
             fetching: AtomicBool::new(false),
             ended: watch::Sender::new(0),
             warned: Mutex::default(),
+            no_list: Mutex::new(NoList::NotFetched),
         }
     }
 
@@ -169,6 +188,15 @@ impl Models {
     /// The current list.
     pub(crate) fn list(&self) -> ModelList {
         self.catalog.list()
+    }
+
+    /// Why there is no list, for a catalog that efrd fetches and that has none; `None`
+    /// when there is a list or efrd does not fetch.
+    pub(crate) fn missing(&self) -> Option<NoList> {
+        if self.refresh.is_none() || self.catalog.has_list() {
+            return None;
+        }
+        Some(self.no_list.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
     /// Where the current list came from, for `models.list` and `admin.status`.
@@ -260,23 +288,26 @@ impl Models {
             Fetcher::OpenAi(catalog, client) => fetch_openai(catalog, client, refresh).await,
             Fetcher::Anthropic(catalog, client) => fetch_anthropic(catalog, client, refresh).await,
         };
-        let wait = match fetched {
+        let (wait, no_list) = match fetched {
             Ok(()) => {
                 refresh.failures.store(0, Ordering::Relaxed);
-                REFRESH_INTERVAL
+                (REFRESH_INTERVAL, NoList::NoActiveModel)
             }
             Err(ProviderError::NotLoggedIn) => {
                 tracing::debug!(provider = %self.provider, "no login yet, so the model catalog is not fetched");
                 refresh.failures.store(0, Ordering::Relaxed);
-                REFRESH_INTERVAL
+                (REFRESH_INTERVAL, NoList::NotLoggedIn)
             }
             Err(error) => {
                 let failures = refresh.failures.fetch_add(1, Ordering::Relaxed).saturating_add(1);
                 let wait = retry_wait(failures);
                 tracing::warn!(error = %efr_stdx::with_causes(&error), provider = %self.provider, origin = ?self.list().origin(), failures, retry_in_s = wait.as_secs(), "the model catalog could not be fetched; the current list stays");
-                wait
+                (wait, NoList::Failed(Arc::new(error)))
             }
         };
+        // NOTE: kept before the end is announced, so a prompt that waits for this fetch
+        // reads why it gave no list.
+        *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = no_list;
         self.ended.send_modify(|ended| *ended = ended.wrapping_add(1));
         wait
     }

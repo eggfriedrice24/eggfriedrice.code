@@ -11,7 +11,7 @@ use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
 
 use super::{Outcome, notice};
-use crate::testing::{RawClient, Running, deps, serve_with};
+use crate::testing::{RawClient, Running, deps, logged, serve_with};
 use crate::{ScreenChoice, Settings};
 
 const TTY: &str = "/dev/pts/9";
@@ -75,6 +75,29 @@ fn new_keys_that_wait_for_a_restart_are_told_once() {
         Some("efr: restart efrd to apply: screen, model.provider")
     );
     assert_eq!(notice(&both, &none), None);
+}
+
+#[tokio::test]
+async fn a_reloaded_model_name_of_another_company_is_warned_about() {
+    let warning = "model.name is a model of another company than model.provider";
+    assert!(!logged().contains(warning));
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+
+    std::fs::write(config_file(&dirs), "[model]\nname = \"gpt-5.4\"\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    assert!(!logged().contains(warning), "gpt-5.4 is a model of the running provider");
+
+    std::fs::write(config_file(&dirs), "[model]\nname = \"claude-opus-5-5\"\n").unwrap();
+    let result = reload(&daemon.socket).await;
+
+    assert!(result.applied, "the file is valid; only its turns fail");
+    let log = logged();
+    let line = log.lines().find(|line| line.contains(warning)).unwrap_or_else(|| panic!("{log}"));
+    assert!(line.contains("model=claude-opus-5-5"), "{line}");
+    assert!(line.contains("provider=openai-subscription"), "{line}");
+    assert!(line.contains("set [model] name to a model of openai-subscription"), "{line}");
 }
 
 #[tokio::test]

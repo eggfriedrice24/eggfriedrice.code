@@ -44,6 +44,14 @@ impl Vendor {
         }
     }
 
+    /// The model list, as an error names it to a person.
+    pub(crate) fn list_name(self) -> &'static str {
+        match self {
+            Vendor::OpenAi => "the OpenAI model list",
+            Vendor::Anthropic => "Claude's model list",
+        }
+    }
+
     /// The cache file of the catalog, in the state root.
     pub(crate) fn cache_file(self) -> &'static str {
         match self {

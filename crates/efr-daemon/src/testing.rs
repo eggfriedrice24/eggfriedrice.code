@@ -246,6 +246,40 @@ impl PtyHolder for NoHolder {
     }
 }
 
+/// What every span and event of this process logs from the first call on, at every
+/// level, as text. The subscriber is the process's global one, so the lines of tasks
+/// that the daemon spawns are here too.
+pub(crate) fn logged() -> String {
+    static LOGS: std::sync::OnceLock<Arc<Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
+    let logs = LOGS.get_or_init(|| {
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&logs);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(move || LogWriter(Arc::clone(&sink)))
+            .finish();
+        // NOTE: nextest runs each test in a process of its own; under cargo test a
+        // second test finds a subscriber already set, and its lines go there.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        logs
+    });
+    String::from_utf8_lossy(&logs.lock().unwrap_or_else(PoisonError::into_inner)).into_owned()
+}
+
+struct LogWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// The models of the subscription's built-in table, never fetched.
 pub(crate) fn builtin_models() -> Arc<crate::catalog::Models> {
     let catalog = efr_provider_openai::Catalog::builtin(efr_provider_openai::Backend::Subscription);

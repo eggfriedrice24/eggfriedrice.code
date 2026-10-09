@@ -15,7 +15,13 @@
 //!
 //! While the model catalog has no list yet (the Anthropic catalog before its first
 //! fetch), the prompt first waits for one fetch (`catalog.rs`, `Models::ready`), so its
-//! turn knows the limits of its model.
+//! turn knows the limits of its model. When the fetch gives no list either, the prompt
+//! fails with the cause (`Providers::check_list`): no key is stored, so it says how to
+//! log in, or the fetch failed, so it says why.
+//!
+//! A prompt that names no model of its own fails before anything waits when
+//! `[model] name` is a model of another company than `[model] provider`
+//! (`efr_config::ForeignModel`): the error names the cause and the fix.
 //!
 //! The connection counts as one that may still show the conversation from the moment
 //! the request arrives until it closes (`connections.rs`): `efr` subscribes to the turn
@@ -155,8 +161,11 @@ async fn send(
     params: PromptSend,
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
+    refuse_foreign_model(state, &params.settings)?;
     reprobe_for_auto(state, &params.settings).await;
     state.providers.models().ready().await;
+    let settings = std::sync::Arc::clone(&state.settings.borrow());
+    state.providers.check_list(&settings, params.settings.model.as_deref())?;
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.
     let mut prompting = state.connections.prompting(context.conn_id());
@@ -200,6 +209,23 @@ async fn send(
         }
         Err(ConversationError::DuplicateCommand { receipt }) => receipts::replay(METHOD, *receipt),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Refuses a prompt that names no model of its own while `[model] name` is a model of
+/// another company than `[model] provider`.
+pub(crate) fn refuse_foreign_model(state: &State, asked: &TurnSettings) -> Result<(), DaemonError> {
+    if asked.model.is_some() {
+        return Ok(());
+    }
+    let settings = std::sync::Arc::clone(&state.settings.borrow());
+    match settings.foreign_model() {
+        Some(foreign) => Err(DaemonError::ForeignModel {
+            name: foreign.name.to_owned(),
+            company: foreign.company,
+            provider: foreign.provider.to_owned(),
+        }),
+        None => Ok(()),
     }
 }
 
