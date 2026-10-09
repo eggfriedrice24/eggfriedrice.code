@@ -325,7 +325,7 @@ pub(crate) fn models() -> ModelsListResult {
             },
         ],
         catalog: Some(CatalogStatus {
-            provider: None,
+            provider: Some("openai-subscription".to_owned()),
             origin: CatalogOrigin::Backend,
             fetched_at: Some(now() - jiff::SignedDuration::from_mins(5)),
         }),

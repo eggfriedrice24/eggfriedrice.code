@@ -309,6 +309,27 @@ fn the_catalog_says_where_it_came_from_and_when() {
     assert_eq!(catalog(&cache, now()), "from the cache, fetched 1d 2h ago");
     let builtin = status(efr_protocol::CatalogOrigin::Builtin, None);
     assert_eq!(catalog(&builtin, now()), "built into efr");
+    let missing = status(efr_protocol::CatalogOrigin::Missing, None);
+    assert_eq!(catalog(&missing, now()), "no list yet; efrd fetches it before the next prompt");
+}
+
+#[test]
+fn the_catalog_names_its_provider() {
+    let status = efr_protocol::CatalogStatus {
+        provider: Some("anthropic-api".to_owned()),
+        origin: efr_protocol::CatalogOrigin::Backend,
+        fetched_at: Some(before(5 * 60)),
+    };
+    assert_eq!(catalog(&status, now()), "anthropic-api, from the backend, fetched 5m 0s ago");
+    let missing = efr_protocol::CatalogStatus {
+        origin: efr_protocol::CatalogOrigin::Missing,
+        fetched_at: None,
+        ..status
+    };
+    assert_eq!(
+        catalog(&missing, now()),
+        "anthropic-api, no list yet; efrd fetches it before the next prompt"
+    );
 }
 
 #[test]

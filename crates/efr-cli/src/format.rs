@@ -964,19 +964,25 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
     out
 }
 
-/// Where the model catalog came from, at `now`: `from the backend, fetched 5m ago`,
-/// `from the cache, fetched 2h 5m ago` (the backend did not answer yet) or `built into
-/// efr`.
+/// Which provider's model catalog the daemon has and where it came from, at `now`:
+/// `anthropic-api, from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m
+/// ago` (the backend did not answer yet), `built into efr`, or `no list yet; efrd
+/// fetches it before the next prompt`. An older daemon names no provider.
 pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
     let fetched = |place: &str| match catalog.fetched_at {
         Some(at) => format!("from {place}, fetched {}", ago(at, now)),
         None => format!("from {place}"),
     };
-    match catalog.origin {
+    let origin = match catalog.origin {
         CatalogOrigin::Backend => fetched("the backend"),
         CatalogOrigin::Cache => fetched("the cache"),
         CatalogOrigin::Builtin => "built into efr".to_owned(),
+        CatalogOrigin::Missing => "no list yet; efrd fetches it before the next prompt".to_owned(),
         _ => "from elsewhere".to_owned(),
+    };
+    match &catalog.provider {
+        Some(provider) => format!("{}, {origin}", one_line(provider)),
+        None => origin,
     }
 }
 

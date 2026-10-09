@@ -5,4 +5,4 @@ expression: "listing(&models(), now())"
 * gpt-5.5   272k (up to 872k)  efforts: low, medium, high, xhigh; default medium
   gpt-5.4   128k               efforts: low, medium, high
   my-model  window unknown     efforts unknown; from [openai] models
-models: from the backend, fetched 5m 0s ago
+models: openai-subscription, from the backend, fetched 5m 0s ago

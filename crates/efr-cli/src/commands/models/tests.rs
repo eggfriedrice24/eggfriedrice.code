@@ -39,6 +39,31 @@ fn the_listing_says_where_an_older_list_came_from() {
     assert!(!listing(&list, now()).contains("models:"), "an older daemon does not say");
 }
 
+#[test]
+fn a_claude_list_names_its_provider_and_the_anthropic_table_of_the_config() {
+    let mut list = models();
+    list.models.retain(|model| model.id == "my-model");
+    list.models[0].id = "claude-next".to_owned();
+    list.catalog = Some(efr_protocol::CatalogStatus {
+        provider: Some("anthropic-api".to_owned()),
+        origin: efr_protocol::CatalogOrigin::Missing,
+        fetched_at: None,
+    });
+
+    let text = listing(&list, now());
+
+    assert!(
+        text.contains("claude-next  window unknown  efforts unknown; from [anthropic] models\n"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(
+            "models: anthropic-api, no list yet; efrd fetches it before the next prompt\n"
+        ),
+        "{text}"
+    );
+}
+
 #[tokio::test]
 async fn efr_models_prints_the_daemons_list() {
     let env = TestEnv::new();

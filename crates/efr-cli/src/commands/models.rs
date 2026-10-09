@@ -16,6 +16,9 @@ use crate::format;
 use crate::format::context::count;
 use crate::output::Output;
 
+/// The provider whose models `[anthropic] models` adds.
+const ANTHROPIC: &str = "anthropic-api";
+
 pub(crate) async fn run(
     ctx: &Context,
     out: &mut Output,
@@ -32,10 +35,11 @@ pub(crate) fn names(list: &ModelsListResult) -> String {
 }
 
 /// A line per model: `*` before the default, the id, the window (and the largest one
-/// that `[openai] models` can set), the efforts with the model's default effort, and
-/// where a model that is not in the catalog comes from. A last line says where the
-/// catalog came from, at `now`.
+/// that the config's list of models can set), the efforts with the model's default
+/// effort, and where a model that is not in the catalog comes from. A last line says
+/// whose catalog it is and where it came from, at `now`.
 pub(crate) fn listing(list: &ModelsListResult, now: Timestamp) -> String {
+    let provider = list.catalog.as_ref().and_then(|catalog| catalog.provider.as_deref());
     let ids: Vec<String> = list.models.iter().map(|model| format::one_line(&model.id)).collect();
     let windows: Vec<String> = list.models.iter().map(window).collect();
     let id_width = ids.iter().map(|id| id.width()).max().unwrap_or(0);
@@ -56,7 +60,9 @@ pub(crate) fn listing(list: &ModelsListResult, now: Timestamp) -> String {
         }
         match model.source {
             ModelSource::Builtin => {}
-            ModelSource::Config => line.push_str("; from [openai] models"),
+            ModelSource::Config => {
+                let _ = write!(line, "; from {}", config_table(provider));
+            }
             _ => line.push_str("; from elsewhere"),
         }
         let _ = writeln!(out, "{}", line.trim_end());
@@ -65,6 +71,15 @@ pub(crate) fn listing(list: &ModelsListResult, now: Timestamp) -> String {
         let _ = writeln!(out, "models: {}", format::catalog(catalog, now));
     }
     out
+}
+
+/// The config's list of models of `provider`, which adds the models that its catalog
+/// does not hold. An older daemon names no provider; it runs only OpenAI.
+fn config_table(provider: Option<&str>) -> &'static str {
+    match provider {
+        Some(ANTHROPIC) => "[anthropic] models",
+        _ => "[openai] models",
+    }
 }
 
 /// The window of `model`, such as `272k (up to 872k)`, or `window unknown`.
