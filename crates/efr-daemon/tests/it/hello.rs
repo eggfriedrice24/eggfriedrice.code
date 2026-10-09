@@ -58,7 +58,10 @@ async fn admin_status_reports_the_test_daemon() {
         .iter()
         .map(|provider| (provider.provider.as_str(), provider.logged_in))
         .collect();
-    assert_eq!(providers, [("openai-subscription", false), ("openai-api", false)]);
+    assert_eq!(
+        providers,
+        [("openai-subscription", false), ("openai-api", false), ("anthropic-api", false)]
+    );
 
     drop(client);
     daemon.stop().await.unwrap();

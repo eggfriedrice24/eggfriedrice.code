@@ -7,13 +7,14 @@ use efr_protocol::{
     CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, Seq,
     TurnId,
 };
+use efr_provider::ProviderError;
 use efr_shell::ShellError;
 use efr_store::StoreError;
 use efr_transport::TransportError;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::DaemonError;
+use crate::{DaemonError, KeyProblem};
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -210,6 +211,44 @@ fn shell_and_login_errors_map_to_their_codes() {
         ErrorCode::Cancelled
     );
     assert_eq!(code(login(OAuthError::MissingCode)), ErrorCode::Internal);
+}
+
+#[test]
+fn key_login_errors_map_to_their_codes_and_say_what_the_provider_said() {
+    let provider = || "anthropic-api".to_owned();
+    let check = |source| DaemonError::KeyCheck { provider: provider(), source };
+    let refused = check(ProviderError::Unauthorized { message: Some("invalid x-api-key".into()) });
+    let forbidden = check(ProviderError::Api {
+        status: Some(403),
+        code: None,
+        message: "This key cannot reach the API.".into(),
+    });
+    let busy = check(ProviderError::Overloaded { status: Some(529), message: "Overloaded".into() });
+    let failed = check(ProviderError::Api { status: Some(500), code: None, message: "x".into() });
+
+    let body = frame(refused).error;
+    assert_eq!(body.code, ErrorCode::Unauthorized);
+    assert_eq!(
+        body.message,
+        "the check of the key for anthropic-api failed: the provider rejected the credentials: invalid x-api-key"
+    );
+    assert_eq!(code(forbidden), ErrorCode::Unauthorized);
+    assert_eq!(code(busy), ErrorCode::Busy);
+    assert_eq!(code(failed), ErrorCode::Internal);
+    for invalid in [
+        DaemonError::NoSuchProvider { provider: "gemini".into() },
+        DaemonError::NoApiKeyLogin { provider: "openai-subscription".into() },
+        DaemonError::InvalidApiKey { provider: provider(), problem: KeyProblem::Whitespace },
+    ] {
+        assert_eq!(code(invalid), ErrorCode::Invalid);
+    }
+    let body =
+        frame(DaemonError::InvalidApiKey { provider: provider(), problem: KeyProblem::AdminKey })
+            .error;
+    assert_eq!(
+        body.message,
+        "the key for anthropic-api was refused: an admin key cannot call models; use a project key"
+    );
 }
 
 #[test]

@@ -5,6 +5,7 @@
 //! the client receives through `From<DaemonError> for ErrorFrame`, which is the one
 //! place in the workspace that knows which [`ErrorCode`] each failure is.
 
+use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
@@ -18,6 +19,7 @@ use efr_protocol::{
     CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, TurnId,
 };
 use efr_provider::ProviderError;
+use efr_provider_anthropic::AnthropicError;
 use efr_provider_openai::OpenAiError;
 use efr_scope::{RegistryProblem, ScopeError};
 use efr_screen::ScreenError;
@@ -237,6 +239,44 @@ pub enum DaemonError {
         #[source]
         source: OpenAiError,
     },
+    /// The Anthropic provider config is invalid.
+    #[error("the Anthropic provider settings are invalid")]
+    Anthropic {
+        /// The provider's error.
+        #[source]
+        source: AnthropicError,
+    },
+    /// A login or a logout names a provider that efr does not have.
+    #[error(
+        "efr has no provider {provider:?}; the providers are openai-subscription, openai-api and anthropic-api"
+    )]
+    NoSuchProvider {
+        /// The provider of the request.
+        provider: String,
+    },
+    /// A login with an API key names a provider that takes none.
+    #[error("{provider} takes no API key; log in to it with: efr login openai")]
+    NoApiKeyLogin {
+        /// The provider of the request.
+        provider: String,
+    },
+    /// An API key that efrd refuses before any check. The key is not kept.
+    #[error("the key for {provider} was refused: {problem}")]
+    InvalidApiKey {
+        /// The provider of the key.
+        provider: String,
+        /// What is wrong with the key.
+        problem: KeyProblem,
+    },
+    /// The provider refused an API key, or the check of the key got no answer.
+    #[error("the check of the key for {provider} failed")]
+    KeyCheck {
+        /// The provider of the key.
+        provider: String,
+        /// The check's error, with the server's message.
+        #[source]
+        source: ProviderError,
+    },
     /// The subscription login failed.
     #[error("the OpenAI login failed")]
     Login {
@@ -428,6 +468,31 @@ pub enum DaemonError {
     },
 }
 
+/// What is wrong with an API key that efrd refuses before any check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeyProblem {
+    /// Nothing was given.
+    Empty,
+    /// A space, a tab or a line break inside, such as from a paste of two lines.
+    Whitespace,
+    /// A character outside ASCII, which no key holds.
+    NotAscii,
+    /// An OpenAI admin key (`sk-admin-`), which cannot call models.
+    AdminKey,
+}
+
+impl fmt::Display for KeyProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            KeyProblem::Empty => "the key is empty",
+            KeyProblem::Whitespace => "the key holds whitespace",
+            KeyProblem::NotAscii => "the key holds a character outside ASCII",
+            KeyProblem::AdminKey => "an admin key cannot call models; use a project key",
+        })
+    }
+}
+
 impl DaemonError {
     /// The wire code of this error.
     pub fn code(&self) -> ErrorCode {
@@ -442,6 +507,9 @@ impl DaemonError {
                 ErrorCode::Conflict
             }
             DaemonError::InvalidParams { .. }
+            | DaemonError::NoSuchProvider { .. }
+            | DaemonError::NoApiKeyLogin { .. }
+            | DaemonError::InvalidApiKey { .. }
             | DaemonError::InvalidCursor { .. }
             | DaemonError::InvalidAnswer { .. }
             | DaemonError::ProjectRootMissing { .. }
@@ -461,6 +529,7 @@ impl DaemonError {
             DaemonError::Conversation { source } => conversation_code(source),
             DaemonError::Shell { source } => shell_code(source),
             DaemonError::Login { source } => login_code(source),
+            DaemonError::KeyCheck { source, .. } => key_check_code(source),
             DaemonError::Respond { source: TransportError::Overflow { .. } } => ErrorCode::Overflow,
             DaemonError::Paths { .. }
             | DaemonError::Env { .. }
@@ -488,6 +557,7 @@ impl DaemonError {
             | DaemonError::Provider { .. }
             | DaemonError::UnknownProvider { .. }
             | DaemonError::OpenAi { .. }
+            | DaemonError::Anthropic { .. }
             | DaemonError::Credentials { .. }
             | DaemonError::EncodeResult { .. }
             | DaemonError::Snapshot { .. }
@@ -515,6 +585,12 @@ impl DaemonError {
                     // it never carries a secret or a source's text.
                     DaemonError::Conversation { source } => source.to_string(),
                     DaemonError::Login { source } => source.to_string(),
+                    // NOTE: the check's error holds the server's message, which says
+                    // why a key was refused, and never the key: the check hides a key
+                    // that a message quotes.
+                    DaemonError::KeyCheck { source, .. } => {
+                        format!("{error}: {}", efr_stdx::with_causes(source))
+                    }
                     // NOTE: the registry holds paths and names, no secret, and the
                     // parser's message says what to fix in the file.
                     DaemonError::Registry {
@@ -673,6 +749,17 @@ fn shell_code(error: &ShellError) -> ErrorCode {
         ShellError::NoShell { .. } => ErrorCode::NotFound,
         // NOTE: the answer errors (`NoCall`, `NotWaiting`, `InvalidAnswer`) never reach
         // here: `methods/input_respond.rs` turns them into daemon errors that name the call.
+        _ => ErrorCode::Internal,
+    }
+}
+
+/// The wire code of a failed key check: a key that the provider refused is
+/// `unauthorized`, a busy provider `busy`, and a check without an answer `internal`.
+fn key_check_code(error: &ProviderError) -> ErrorCode {
+    match error {
+        ProviderError::Unauthorized { .. }
+        | ProviderError::Api { status: Some(400 | 402 | 403), .. } => ErrorCode::Unauthorized,
+        ProviderError::RateLimited { .. } | ProviderError::Overloaded { .. } => ErrorCode::Busy,
         _ => ErrorCode::Internal,
     }
 }

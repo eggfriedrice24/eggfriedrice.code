@@ -7,8 +7,7 @@
 //! answer reaches a silent command that reported no wait. Every test drives a real zsh
 //! and skips with a message unless `EFR_TEST_ZSH=1`.
 
-use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use efr_protocol::{
@@ -23,7 +22,7 @@ use efr_test_daemon::{
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 
-use crate::support::zsh_enabled;
+use crate::support::{files_holding, logged, logs, zsh_enabled};
 
 /// A program that reads a password as getpass does: echo off, one line, echo on. It
 /// prints how long the line was, never the line.
@@ -36,40 +35,6 @@ const SILENT_READ: &str = r#"sh -c 'printf "ready\n"; IFS= read -r a; printf "go
 
 /// The password the user types: nothing may hold it but the program that reads it.
 const SECRET: &str = "hunter2-efr-secret";
-
-/// Everything every span and event of this process logs, at every level.
-fn logs() -> Arc<Mutex<Vec<u8>>> {
-    static LOGS: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
-    Arc::clone(LOGS.get_or_init(|| {
-        let logs = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&logs);
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .with_writer(move || LogWriter(Arc::clone(&sink)))
-            .finish();
-        // NOTE: nextest runs each test in a process of its own; under cargo test the
-        // second test finds the subscriber already set, which is the same one.
-        let _ = tracing::subscriber::set_global_default(subscriber);
-        logs
-    }))
-}
-
-struct LogWriter(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for LogWriter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).write(bytes)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-fn logged() -> String {
-    String::from_utf8_lossy(&logs().lock().unwrap()).into_owned()
-}
 
 /// A daemon over a real zsh whose model asks for one `shell` call of [`GETPASS`] and
 /// then says `done`.
@@ -294,32 +259,6 @@ async fn prompt_until_shown(
         "{shown:#?}"
     );
     (sent.conversation_id, stream)
-}
-
-/// Every file under `root` that holds `needle`.
-fn files_holding(root: &Path, needle: &[u8]) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut dirs = vec![root.to_path_buf()];
-    while let Some(dir) = dirs.pop() {
-        // A directory or file that went away while the daemon stopped holds nothing.
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_symlink() {
-                continue;
-            }
-            if path.is_dir() {
-                dirs.push(path);
-            } else if let Ok(bytes) = std::fs::read(&path)
-                && bytes.windows(needle.len()).any(|window| window == needle)
-            {
-                found.push(path.display().to_string());
-            }
-        }
-    }
-    found
 }
 
 #[tokio::test]

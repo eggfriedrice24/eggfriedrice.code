@@ -390,7 +390,9 @@ impl TestDaemon {
                 store_login(dirs.dirs().data())?;
             }
         }
-        let daemon = efr_daemon::start(config, deps).await?;
+        // NOTE: on the heap, so the future of every test that starts a daemon stays
+        // small.
+        let daemon = Box::pin(efr_daemon::start(config, deps)).await?;
         let socket = daemon.socket_path().to_path_buf();
         let daemon_id = daemon.daemon_id();
         let shutdown = CancellationToken::new();

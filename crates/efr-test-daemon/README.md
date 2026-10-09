@@ -29,11 +29,13 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   one function call sent whole, `ResponsesAnswer::custom_tool_call` one call of a
   freeform tool whose text streams in two deltas) and keeps every request,
   `Authorization` header included (never shown by `Debug`). It also answers
-  `GET /v1/models`, the model catalog that efrd fetches in the background for the
-  subscription: with the `ModelsAnswer` of `set_models` (a catalog with its `ETag`, a
-  bare status such as 304 or 503, and a delay for a backend that hangs), else with a
-  404. It keeps each fetch as a `ModelsRequest` (`client_version`, `If-None-Match`,
-  `originator`).
+  `GET /v1/models`, the model list that efrd fetches in the background and the check
+  of a key at a login: with the `ModelsAnswer` of `set_models` (a catalog with its
+  `ETag`, a bare status such as 304 or 503, a JSON body with a status such as the API
+  key backend's ids or its refusal of a key, and a delay for a backend that hangs),
+  else with a 404. It keeps each fetch as a `ModelsRequest` (`client_version`,
+  `If-None-Match`, `originator`, `Authorization` (never shown by `Debug`),
+  `OpenAI-Organization` and `OpenAI-Project`).
 - `test_daemon/messages`: `MessagesServer`, a wiremock server in place of Anthropic's
   Messages API. It answers `POST /v1/messages` from a queue of `MessagesAnswer`s (a
   status, a body and an optional `retry-after`; `MessagesAnswer::text` streams one text

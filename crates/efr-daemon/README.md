@@ -154,9 +154,13 @@ a new list applies from the next turn on.
   backend sends an empty list: it lists each model only for a Codex `client_version`
   at or above the model's minimum, and efr sends its own version. So the built-in
   table is the list in use, and a new release of efr updates it.
-- The API key backend keeps the built-in table, because its `/v1/models` says
-  nothing about windows. A daemon with a `ProviderFactory` (an in-process test) never
-  fetches, so a test never reaches the network by accident.
+- The API key backend fetches its `/v1/models` the same way, with the stored key and
+  the `[openai] organization` and `project` headers, at start, after a login and
+  hourly. That list holds ids only, so it cuts the built-in table down to the models
+  that the key lists (`efr_provider_openai::Catalog::from_api`); windows, efforts and
+  tool forms stay those of the table. Without a stored key, efrd waits for a login. A
+  daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
+  reaches the network by accident.
 - The effective list (`effective_models`) is the catalog's models on offer, best
   priority first, then the ids of `[openai] models` that the catalog does not hold. A
   window that an entry of `[openai] models` gives raises or lowers the catalog's
@@ -274,6 +278,29 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
 - `admin.login_openai` streams the authorize URL, waits for the browser, records
   `login_completed`, makes the running provider forget its cached token and asks for a
   fetch of the model catalog of the new account.
+- `admin.login_api_key` (`methods/admin_login_api_key.rs`, `providers/api_key.rs`)
+  takes a key for `openai-api` or `anthropic-api`. It refuses another provider and a
+  key that is empty or holds whitespace or a character outside ASCII (`invalid`), and
+  an OpenAI admin key (`sk-admin-`). Unless `check` is false, it checks the key with
+  one request that runs no model, sent once: `efr_provider_openai::check_key` (the
+  API's `/models` with the organization and project headers) or
+  `efr_provider_anthropic::check_key` (with the base URL and the workspace of
+  `[anthropic]`). A refused key is `unauthorized` with the server's message, a busy
+  provider `busy`, and a check without an answer `internal`. Then it stores the key in
+  the 0600 file store under the provider's id, records `login_completed`, and, when
+  the key belongs to the provider of `[model] provider`, asks for a fetch of the model
+  list. The answer has the key's hint (the known prefix and the last four
+  characters), whether the key was checked and whether the provider is the active
+  one. The provider of new conversations never changes: another provider needs
+  `[model] provider` and a restart. The key reaches no event, no log line and no
+  error text; `StoredApiKey` reads it again at each request, so a new key works
+  without a restart.
+- `admin.logout` (`methods/admin_logout.rs`) deletes the credential of a provider and
+  answers whether one was stored. After a logout of the subscription, the running
+  provider forgets its cached token.
+- `admin.status` lists every provider (`openai-subscription`, `openai-api`,
+  `anthropic-api`) with its login (`subscription` or `api_key`), the expiry of a
+  subscription token, the hint of a key and which one is active.
 - `models.list` answers the effective model list of the latest settings over the
   current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
   (`catalog`: `backend`, `cache` or `builtin`, with the time of the fetch). See "The
@@ -505,8 +532,9 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-provider-anthropic` (allowed, not used yet: the daemon
-does not build the Anthropic provider yet), `efr-oauth-openai`, `efr-config`,
+`efr-provider-openai`, `efr-provider-anthropic` (only the key check of a login so
+far: the daemon does not build the Anthropic provider yet), `efr-oauth-openai`,
+`efr-config`,
 `efr-conversation`,
 `efr-transport`, `efr-sandbox` (the spec of a sandboxed call, the worktree record,
 the probe's report and the plan that `sandbox.explain` reads) and `efr-snapshot` (the
@@ -537,6 +565,8 @@ conventions that `efr_stdx::env::Var` does not name.
 - A retried write never runs twice: receipts answer it.
 - The last command of a prompt reaches the turn in memory only; it never enters an
   event, a receipt or a log field.
+- An API key reaches the credential file only; it never enters an event, a receipt,
+  a log field or the text of an error.
 - Shutdown releases the lock last, after the database is closed.
 - A turn, a prompt and `models.list` never wait for a fetch of the model catalog.
 - efrd names itself to the backend as efr, with efr's own version.
@@ -595,6 +625,15 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `login` module also runs `admin.login_api_key` and `admin.logout` against the
+local server's `/v1/models`: a key that is checked with its organization and project
+headers and stored, a refused key with the server's message, a check without an
+answer and a store without a check, keys and providers refused before a check, an
+Anthropic key whose check fails, a logout and the status of every provider, and a new
+key for the running provider that brings the model list of that key. With every log
+line of the process captured, no key shows in a log line, an error, the status or
+any file of the daemon's tree but its credential.
 
 The `catalog` module runs the real subscription provider against the local server's
 `/models`: the backend's list applies with its default, windows and tool form, a

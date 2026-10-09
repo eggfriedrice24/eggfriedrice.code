@@ -831,6 +831,7 @@ dependencies = [
  "efr-permissions",
  "efr-protocol",
  "efr-provider",
+ "efr-provider-anthropic",
  "efr-provider-openai",
  "efr-pty",
  "efr-sandbox",

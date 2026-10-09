@@ -27,7 +27,9 @@ use crate::sandbox::peers::{self, PeerSide};
 use crate::state::State;
 
 mod admin_config_reload;
+mod admin_login_api_key;
 mod admin_login_openai;
+mod admin_logout;
 mod admin_project_add;
 mod admin_project_remove;
 mod admin_sandbox_check;
@@ -98,6 +100,8 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::AdminStatus(_) => ScopeName::Admin,
         Method::AdminConfigReload(_) => ScopeName::Admin,
         Method::AdminLoginOpenAi(_) => ScopeName::Admin,
+        Method::AdminLoginApiKey(_) => ScopeName::Admin,
+        Method::AdminLogout(_) => ScopeName::Admin,
         Method::SandboxExplain(_) => ScopeName::Read,
         Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
         Method::AdminSandboxCheck(_) => ScopeName::Admin,
@@ -264,6 +268,12 @@ impl Dispatcher for Methods {
                 }
                 Method::AdminLoginOpenAi(params) => {
                     Box::pin(admin_login_openai::handle(state, params, &responder)).await
+                }
+                Method::AdminLoginApiKey(params) => {
+                    admin_login_api_key::handle(state, params, &responder).await
+                }
+                Method::AdminLogout(params) => {
+                    admin_logout::handle(state, params, &responder).await
                 }
                 Method::SandboxExplain(params) => {
                     sandbox_explain::handle(state, params, &responder).await

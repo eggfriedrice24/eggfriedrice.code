@@ -3,18 +3,19 @@ use std::sync::Arc;
 use efr_config::{ModelLimits, Settings, WebSocketChoice};
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
+use efr_protocol::{LoginKind, SecretText};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
 use efr_provider_openai::{Backend, Catalog, OpenAiConfig, WebSocketMode};
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use crate::DaemonError;
 use crate::providers::{
-    API, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION, StoredApiKey, openai_config,
-    provider_status,
+    ANTHROPIC, API, KeyLogin, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
+    StoredApiKey, openai_config, provider_status,
 };
 use crate::testing::OneAnswerFactory;
+use crate::{DaemonError, KeyProblem};
 
 fn store(dir: &std::path::Path) -> Arc<FileStore> {
     Arc::new(FileStore::new(dir.join("secrets")))
@@ -46,18 +47,26 @@ fn status_reports_a_login_and_its_expiry() {
     let mut tokens = OAuthTokens::new(SecretString::from("access"));
     tokens.expires_at = Some(expires_at);
     let oauth = CredentialRecord::OAuth(tokens);
-    let key = CredentialRecord::ApiKey { key: SecretString::from("sk-test") };
+    let key = CredentialRecord::ApiKey { key: SecretString::from("sk-ant-api03-efr-test-a1b2") };
 
-    let subscription = provider_status(SUBSCRIPTION, Some(&oauth));
-    let api = provider_status(API, Some(&key));
-    let missing = provider_status(API, None);
+    let subscription = provider_status(SUBSCRIPTION, Some(&oauth), true);
+    let anthropic = provider_status(ANTHROPIC, Some(&key), false);
+    let missing = provider_status(API, None, false);
 
     assert_eq!(subscription.provider, "openai-subscription");
     assert!(subscription.logged_in);
+    assert!(subscription.active);
+    assert_eq!(subscription.login, Some(LoginKind::Subscription));
     assert_eq!(subscription.expires_at, Some(expires_at));
-    assert!(api.logged_in);
-    assert_eq!(api.expires_at, None);
+    assert_eq!(subscription.key_hint, None);
+    assert!(anthropic.logged_in);
+    assert!(!anthropic.active);
+    assert_eq!(anthropic.login, Some(LoginKind::ApiKey));
+    assert_eq!(anthropic.expires_at, None);
+    assert_eq!(anthropic.key_hint.as_deref(), Some("sk-ant-...a1b2"));
     assert!(!missing.logged_in);
+    assert_eq!(missing.login, None);
+    assert_eq!(missing.key_hint, None);
 }
 
 #[test]
@@ -137,12 +146,85 @@ async fn the_configured_provider_is_built_without_touching_the_network() {
         Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None)).unwrap();
 
     assert_eq!(providers.active().id().as_str(), "openai-api");
-    assert!(!providers.models().fetches(), "the API key backend never fetches");
+    assert!(providers.models().fetches(), "the API key backend fetches the ids of its key");
     let status = providers.status().await;
     assert_eq!(
-        status.iter().map(|s| (s.provider.as_str(), s.logged_in)).collect::<Vec<_>>(),
-        [("openai-subscription", false), ("openai-api", false)]
+        status.iter().map(|s| (s.provider.as_str(), s.logged_in, s.active)).collect::<Vec<_>>(),
+        [
+            ("openai-subscription", false, false),
+            ("openai-api", false, true),
+            ("anthropic-api", false, false)
+        ]
     );
+}
+
+#[tokio::test]
+async fn a_key_login_stores_the_key_and_a_logout_deletes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let mut config = Settings::default();
+    config.model.provider = API.to_owned();
+    let store = store(dir.path());
+    let providers =
+        Providers::build(&config, store.clone(), parts(&clock, dir.path(), None)).unwrap();
+    let key = SecretText::new("sk-ant-api03-efr-test-a1b2");
+
+    let login = providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
+
+    assert_eq!(login, KeyLogin { hint: "sk-ant-...a1b2".to_owned(), active: false });
+    let id = CredentialId::new(ANTHROPIC).unwrap();
+    let Some(CredentialRecord::ApiKey { key: stored }) = store.load(&id).unwrap() else {
+        panic!("no key stored")
+    };
+    assert_eq!(stored.expose_secret(), "sk-ant-api03-efr-test-a1b2");
+    let status = providers.status().await;
+    assert_eq!(status[2].key_hint.as_deref(), Some("sk-ant-...a1b2"));
+
+    assert!(providers.logout(ANTHROPIC).await.unwrap());
+    assert!(store.load(&id).unwrap().is_none());
+    assert!(!providers.logout(ANTHROPIC).await.unwrap(), "nothing left to delete");
+}
+
+#[tokio::test]
+async fn a_key_login_refuses_other_providers_and_bad_keys_before_it_stores_anything() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let store = store(dir.path());
+    let providers =
+        Providers::build(&Settings::default(), store.clone(), parts(&clock, dir.path(), None))
+            .unwrap();
+    let key = SecretText::new("sk-proj-efr-test-key-9f3c");
+
+    let subscription = providers.login_api_key(SUBSCRIPTION, &key, false).await.unwrap_err();
+    let unknown = providers.login_api_key("gemini", &key, false).await.unwrap_err();
+    let admin = providers
+        .login_api_key(API, &SecretText::new("sk-admin-efr-test-key"), false)
+        .await
+        .unwrap_err();
+    let logout = providers.logout("gemini").await.unwrap_err();
+
+    assert!(matches!(subscription, DaemonError::NoApiKeyLogin { .. }), "{subscription:?}");
+    assert!(matches!(unknown, DaemonError::NoSuchProvider { .. }), "{unknown:?}");
+    assert!(
+        matches!(admin, DaemonError::InvalidApiKey { problem: KeyProblem::AdminKey, .. }),
+        "{admin:?}"
+    );
+    assert!(matches!(logout, DaemonError::NoSuchProvider { .. }), "{logout:?}");
+    for id in [SUBSCRIPTION, API, ANTHROPIC] {
+        assert!(store.load(&CredentialId::new(id).unwrap()).unwrap().is_none(), "{id}");
+    }
+}
+
+#[test]
+fn the_organization_and_the_project_reach_the_provider_config() {
+    let mut settings = Settings::default().openai;
+    settings.organization = Some("org-AbC".to_owned());
+    settings.project = Some("proj_AbC".to_owned());
+
+    let config = openai_config(OpenAiConfig::api(), &settings, None).unwrap();
+
+    assert_eq!(config.organization(), Some("org-AbC"));
+    assert_eq!(config.project(), Some("proj_AbC"));
 }
 
 #[test]

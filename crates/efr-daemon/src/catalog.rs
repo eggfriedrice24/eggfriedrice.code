@@ -9,8 +9,10 @@
 //! has and tries again sooner: after 15 s, 30 s, 1 min and 2 min, then every 5 min
 //! ([`retry_wait`]), so a start before the network is up gets a list soon. Each new
 //! list goes to the cache file.
-//! The API key backend keeps the built-in table, because its `/v1/models` says nothing
-//! about windows. A daemon whose provider a test injects never fetches.
+//! The API key backend fetches its `/v1/models` with the stored key the same way: its
+//! ids cut the built-in table down to the models that the key can use, because the
+//! list says nothing about windows or tools. A daemon whose provider a test injects
+//! never fetches.
 //!
 //! Every reader takes the current list from memory ([`Models::current`]): a prompt,
 //! `models.list` and the settings tool never wait for a fetch, and a new list applies
@@ -245,15 +247,12 @@ pub(crate) fn backend(settings: &Settings) -> Backend {
 }
 
 /// The catalog that efrd starts with: the cache file at `path` when it holds a list of
-/// the configured subscription backend that offers a model, else the built-in table.
+/// the configured backend that offers a model, else the built-in table.
 pub(crate) async fn load(settings: &Settings, path: &Path) -> Catalog {
     let backend = backend(settings);
-    if backend == Backend::Api {
-        return Catalog::builtin(backend);
-    }
-    let base_url = subscription_config(settings)
+    let base_url = backend_config(settings, backend)
         .map(|config| config.base_url().to_owned())
-        .unwrap_or_else(|| efr_provider_openai::SUBSCRIPTION_BASE_URL.to_owned());
+        .unwrap_or_default();
     let owned = path.to_path_buf();
     let read = tokio::task::spawn_blocking(move || {
         efr_provider_openai::read_cache(&owned, backend, &base_url)
@@ -280,11 +279,14 @@ pub(crate) async fn load(settings: &Settings, path: &Path) -> Catalog {
     }
 }
 
-/// The subscription's config with the base URL of `settings`, or `None` when that URL
-/// is not one (the config's checks refuse such a file before this runs).
-fn subscription_config(settings: &Settings) -> Option<OpenAiConfig> {
-    let config = OpenAiConfig::subscription();
-    match settings.openai.subscription_base_url.as_deref() {
+/// The config of `backend` with the base URL of `settings`, or `None` when that URL is
+/// not one (the config's checks refuse such a file before this runs).
+fn backend_config(settings: &Settings, backend: Backend) -> Option<OpenAiConfig> {
+    let (config, url) = match backend {
+        Backend::Api => (OpenAiConfig::api(), settings.openai.api_base_url.as_deref()),
+        _ => (OpenAiConfig::subscription(), settings.openai.subscription_base_url.as_deref()),
+    };
+    match url {
         Some(url) => config.with_base_url(url).ok(),
         None => Some(config),
     }

@@ -6,8 +6,8 @@
 //! the `openai-subscription` provider, whose base URL the test daemon points here.
 //! Every `POST /oauth/token` gets the next queued token answer; the subscription
 //! provider's token source refreshes there, with the server as its issuer. Every
-//! `GET /v1/models`, the subscription's model catalog that efrd fetches in the
-//! background, gets the answer of [`ResponsesServer::set_models`], else a 404.
+//! `GET /v1/models`, the model list that efrd fetches in the background or the check of
+//! a key at a login, gets the answer of [`ResponsesServer::set_models`], else a 404.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -272,6 +272,12 @@ impl ModelsAnswer {
         ModelsAnswer { status, body: None, etag: None, delay: Duration::ZERO }
     }
 
+    /// An answer with `status` and the JSON `body`, such as the API key backend's list
+    /// of ids or its error for a refused key.
+    pub fn json(status: u16, body: &Value) -> Self {
+        ModelsAnswer { status, body: Some(body.to_string()), etag: None, delay: Duration::ZERO }
+    }
+
     /// The same answer after `delay`, such as a backend that hangs.
     #[must_use]
     pub fn after(mut self, delay: Duration) -> Self {
@@ -280,8 +286,9 @@ impl ModelsAnswer {
     }
 }
 
-/// A fetch of the model catalog that the server got.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A fetch of the model list that the server got: the subscription's catalog, the API
+/// key backend's ids, or the check of a key. `Debug` leaves out the authorization.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ModelsRequest {
     /// The `client_version` query parameter.
     pub client_version: Option<String>,
@@ -289,6 +296,26 @@ pub struct ModelsRequest {
     pub if_none_match: Option<String>,
     /// The `originator` header.
     pub originator: Option<String>,
+    /// The `Authorization` header, which carries a token or a key.
+    pub authorization: Option<String>,
+    /// The `OpenAI-Organization` header.
+    pub organization: Option<String>,
+    /// The `OpenAI-Project` header.
+    pub project: Option<String>,
+}
+
+impl fmt::Debug for ModelsRequest {
+    // The authorization header carries a key, even if only a test's.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelsRequest")
+            .field("client_version", &self.client_version)
+            .field("if_none_match", &self.if_none_match)
+            .field("originator", &self.originator)
+            .field("authorization", &self.authorization.as_ref().map(|_| "<redacted>"))
+            .field("organization", &self.organization)
+            .field("project", &self.project)
+            .finish()
+    }
 }
 
 /// A request the token endpoint got: its form parameters. `Debug` leaves out the
@@ -453,6 +480,9 @@ impl Respond for ModelsAnswers {
             client_version,
             if_none_match: header("if-none-match"),
             originator: header("originator"),
+            authorization: header("authorization"),
+            organization: header("openai-organization"),
+            project: header("openai-project"),
         });
         let Some(answer) = queue.models.clone() else {
             return ResponseTemplate::new(404).set_body_string("no catalog here");

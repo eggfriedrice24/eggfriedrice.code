@@ -211,7 +211,11 @@ async fn an_offline_start_reads_the_cache_then_falls_back_to_the_builtin_table()
 
     let mut api = Settings::default();
     api.model.provider = API.to_owned();
-    assert_eq!(load(&api, &path).await.origin(), CatalogOrigin::Builtin, "the API keeps it");
+    assert_eq!(
+        load(&api, &path).await.origin(),
+        CatalogOrigin::Builtin,
+        "the cache of the subscription is not the API's"
+    );
 
     std::fs::write(&path, "{ broken").unwrap();
     assert_eq!(load(&settings, &path).await.origin(), CatalogOrigin::Builtin, "a broken file");
