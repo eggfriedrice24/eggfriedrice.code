@@ -110,7 +110,7 @@ fn a_loop_call_reads_its_anchor_from_an_entry_that_a_call_wrote_for_one_hour() {
             anchors.push(tail);
             continue;
         }
-        for (index, text) in texts.iter().enumerate().filter(|(_, text)| marker(text, "1h")) {
+        for (index, _) in texts.iter().enumerate().filter(|(_, text)| marker(text, "1h")) {
             assert!(anchors.contains(&index), "message {index}, anchors {anchors:?}");
         }
     }
