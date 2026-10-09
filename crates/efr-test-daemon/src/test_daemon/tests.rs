@@ -7,8 +7,8 @@ use efr_test_support::TestDirs;
 use pretty_assertions::assert_eq;
 
 use super::{
-    API_KEY, HOME_PLACEHOLDER, TTY, TestDaemon, command_id, events_until, store_api_key,
-    working_dir,
+    ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, API_KEY, HOME_PLACEHOLDER, TTY, TestDaemon,
+    command_id, events_until, store_anthropic_key, store_api_key, working_dir,
 };
 
 #[test]
@@ -51,6 +51,24 @@ fn the_api_key_is_stored_as_the_file_store_keeps_secrets() {
     let mode = |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode();
     assert_eq!(mode(&file) & 0o777, 0o600);
     assert_eq!(mode(&data.join("secrets")) & 0o777, 0o700);
+}
+
+#[test]
+fn the_anthropic_key_is_stored_under_its_own_provider() {
+    let dirs = TestDirs::new().unwrap();
+    let data = dirs.dirs().data();
+
+    store_anthropic_key(data).unwrap();
+
+    let file = data.join(ANTHROPIC_CREDENTIAL);
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        record,
+        serde_json::json!({ "version": 1, "kind": "api_key", "key": ANTHROPIC_API_KEY })
+    );
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    assert!(!data.join("secrets/openai-api.json").exists());
 }
 
 #[tokio::test]

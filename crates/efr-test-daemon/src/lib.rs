@@ -39,9 +39,10 @@ pub use replay::{
     ScenarioSpec,
 };
 pub use test_daemon::{
-    API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME, MessagesAnswer, MessagesRequest,
-    MessagesServer, ModelsAnswer, ModelsPageRequest, ModelsRequest, OS, ReceivedRequest,
-    ResponsesAnswer, ResponsesServer, SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT,
-    SUBSCRIPTION_CREDENTIAL, SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY, TestDaemon,
-    TestDaemonBuilder, TokenRequest, command_id, events_until,
+    ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME,
+    MessagesAnswer, MessagesRequest, MessagesServer, ModelsAnswer, ModelsPageRequest,
+    ModelsRequest, OS, ReceivedRequest, ResponsesAnswer, ResponsesServer,
+    SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL,
+    SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY, TestDaemon, TestDaemonBuilder, TokenRequest,
+    command_id, events_until,
 };

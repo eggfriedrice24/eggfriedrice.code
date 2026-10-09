@@ -60,6 +60,10 @@ pub const OS: &str = "TestOS";
 /// a [`ResponsesServer`].
 pub const API_KEY: &str = "sk-efr-test-key";
 
+/// The API key the test daemon stores for the `anthropic-api` provider when it talks
+/// to a [`MessagesServer`].
+pub const ANTHROPIC_API_KEY: &str = "sk-ant-efr-test-key";
+
 /// The access token of the subscription login the test daemon stores for the
 /// `openai-subscription` provider when it talks to a [`ResponsesServer`].
 pub const SUBSCRIPTION_ACCESS_TOKEN: &str = "efr-test-access-1";
@@ -97,6 +101,9 @@ const ZSH_STARTUP_FILES: &[&str] = &[".zshenv", ".zprofile", ".zshrc", ".zlogin"
 /// The provider credential the `openai-api` provider reads.
 const API_CREDENTIAL: &str = "secrets/openai-api.json";
 
+/// The provider credential the `anthropic-api` provider reads.
+pub const ANTHROPIC_CREDENTIAL: &str = "secrets/anthropic-api.json";
+
 /// The provider credential the `openai-subscription` provider reads and refreshes.
 pub const SUBSCRIPTION_CREDENTIAL: &str = "secrets/openai-subscription.json";
 
@@ -116,6 +123,8 @@ enum ProviderChoice {
     Custom(Arc<dyn Provider>),
     /// The real `openai-api` provider with this base URL.
     Responses(String),
+    /// The real `anthropic-api` provider with this base URL.
+    Messages(String),
     /// The real `openai-subscription` provider with this base URL, refreshing its
     /// login at this issuer.
     Subscription {
@@ -247,6 +256,15 @@ impl TestDaemonBuilder {
     #[must_use]
     pub fn responses(mut self, server: &ResponsesServer) -> Self {
         self.settings.provider = ProviderChoice::Responses(server.base_url());
+        self
+    }
+
+    /// Runs the real `anthropic-api` provider against `server`, with
+    /// [`ANTHROPIC_API_KEY`] stored as its credential. The daemon fetches the model
+    /// list of `server` (see [`MessagesServer::set_models`]) and has none before.
+    #[must_use]
+    pub fn messages(mut self, server: &MessagesServer) -> Self {
+        self.settings.provider = ProviderChoice::Messages(server.base_url());
         self
     }
 
@@ -383,6 +401,11 @@ impl TestDaemon {
                 config.openai.api_base_url = Some(base_url.clone());
                 store_api_key(dirs.dirs().data())?;
             }
+            ProviderChoice::Messages(base_url) => {
+                config.model.provider = efr_daemon::ANTHROPIC.to_owned();
+                config.anthropic.base_url = Some(base_url.clone());
+                store_anthropic_key(dirs.dirs().data())?;
+            }
             ProviderChoice::Subscription { base_url, issuer } => {
                 config.model.provider = efr_daemon::SUBSCRIPTION.to_owned();
                 config.openai.subscription_base_url = Some(base_url.clone());
@@ -456,6 +479,7 @@ impl TestDaemon {
             ProviderChoice::Replay(provider) => Some(provider),
             ProviderChoice::Custom(_)
             | ProviderChoice::Responses(_)
+            | ProviderChoice::Messages(_)
             | ProviderChoice::Subscription { .. } => None,
         }
     }
@@ -676,6 +700,12 @@ fn default_shell_env(home: &Path) -> BTreeMap<String, String> {
 fn store_api_key(data: &Path) -> Result<(), TestDaemonError> {
     let record = serde_json::json!({ "version": 1, "kind": "api_key", "key": API_KEY });
     store_credential(&data.join(API_CREDENTIAL), &record)
+}
+
+/// Stores [`ANTHROPIC_API_KEY`] as the `anthropic-api` credential.
+fn store_anthropic_key(data: &Path) -> Result<(), TestDaemonError> {
+    let record = serde_json::json!({ "version": 1, "kind": "api_key", "key": ANTHROPIC_API_KEY });
+    store_credential(&data.join(ANTHROPIC_CREDENTIAL), &record)
 }
 
 /// Stores the test login as the `openai-subscription` credential, unless one is there

@@ -12,9 +12,12 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   isolated git, the host `testhost` running `TestOS`, the UTC time zone, a short
   system prompt and no idle shell collector. The hidden shells run on the
   `FakePtyHolder` unless `local_pty()` asks for the build's own holder. The model is a
-  `ReplayProvider`, a provider the test wrote (`custom_provider`), or the real
-  `openai-api` provider against a `ResponsesServer`; without one, every model call
-  fails, so no test reaches the network by accident. The daemon serves in a task of its
+  `ReplayProvider`, a provider the test wrote (`custom_provider`), the real
+  `openai-api` provider against a `ResponsesServer` (`responses`), or the real
+  `anthropic-api` provider against a `MessagesServer` (`messages`, with
+  `ANTHROPIC_API_KEY` stored as its credential; the daemon has no model list until it
+  fetches the one of `set_models`); without one, every model call fails, so no test
+  reaches the network by accident. The daemon serves in a task of its
   own. The test gets `efr_client::Client`s (`client`, `client_for_tty`, `connect`),
   moves time through `clock()`, reads a conversation's log with `events` (paging
   `conversation.history`), and calls `stop` or `restart` (the same tree, clock, holder
