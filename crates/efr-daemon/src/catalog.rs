@@ -58,7 +58,7 @@ use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::list::{ModelList, ProviderCatalog, Vendor, backend};
-use crate::providers::KeyRefusals;
+use crate::providers::{KeyRefusals, KeySource};
 
 /// How often efrd asks the backend again after an answer.
 pub(crate) const REFRESH_INTERVAL: Duration = Duration::from_secs(3600);
@@ -297,7 +297,10 @@ impl Models {
 
     /// One fetch, and the wait until the next one.
     async fn fetch(&self, refresh: &Refresh) -> Duration {
-        let used = self.refusals.as_ref().map(|refusals| refusals.start(&self.provider));
+        let used = self
+            .refusals
+            .as_ref()
+            .map(|refusals| refusals.start(&self.provider, KeySource::ModelList));
         let fetched = match &refresh.fetcher {
             Fetcher::OpenAi(catalog, client) => fetch_openai(catalog, client, refresh).await,
             Fetcher::Anthropic(catalog, client) => fetch_anthropic(catalog, client, refresh).await,

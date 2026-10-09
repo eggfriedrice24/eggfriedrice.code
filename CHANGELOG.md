@@ -239,8 +239,11 @@ into the GitHub release notes, and it stops when the section is missing.
   key. The answer of `admin.logout` has a new `active` member.
 - `efr status` shows when a provider refused its stored API key, such as `key
   sk-ant-...a1b2 refused at 2026-10-09T12:03:00Z (5m 0s ago)`, after a 401 on a model
-  call or on the fetch of the model list. The mark goes away when a request with the
-  key works again, or after a new login or a logout. For the active provider, a line
+  call or on the fetch of the model list. The mark goes away when a request of the
+  same kind with the key works again, or after a new login or a logout. After a model
+  call that worked, a refused fetch of the model list does not show, so a key whose
+  scopes allow one endpoint and not the other does not flip the mark each hour. For
+  the active provider, a line
   on stderr says that its turns fail and how to log in. A provider in the answer of
   `admin.status` has a new `key_refused_at` member.
 - After `efr login openai-api` and after `efr config set model.provider openai-api`,

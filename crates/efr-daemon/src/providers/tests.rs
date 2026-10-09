@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
 
 use crate::catalog::ProviderCatalog;
 use crate::providers::{
-    ANTHROPIC, API, KeyLogin, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
+    ANTHROPIC, API, KeyLogin, KeySource, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
     StoredApiKey, anthropic_config, login_command, openai_config, provider_status,
     warn_foreign_model,
 };
@@ -365,19 +365,28 @@ async fn a_login_or_a_logout_forgets_that_the_old_key_was_refused() {
     providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
     let anthropic = |status: Vec<efr_protocol::ProviderStatus>| status[2].clone();
 
-    providers.refusals.start(ANTHROPIC).failed(&ProviderError::Unauthorized { message: None });
+    providers
+        .refusals
+        .start(ANTHROPIC, KeySource::Call)
+        .failed(&ProviderError::Unauthorized { message: None });
 
     let refused = anthropic(providers.status().await);
     assert_eq!(refused.key_refused_at, Some(clock.shared().now()));
     providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
     assert_eq!(anthropic(providers.status().await).key_refused_at, None, "a new login");
 
-    providers.refusals.start(ANTHROPIC).failed(&ProviderError::Unauthorized { message: None });
+    providers
+        .refusals
+        .start(ANTHROPIC, KeySource::Call)
+        .failed(&ProviderError::Unauthorized { message: None });
     assert!(providers.logout(ANTHROPIC).await.unwrap());
     providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();
     assert_eq!(anthropic(providers.status().await).key_refused_at, None, "a logout forgets it");
 
-    providers.refusals.start(SUBSCRIPTION).failed(&ProviderError::Unauthorized { message: None });
+    providers
+        .refusals
+        .start(SUBSCRIPTION, KeySource::Call)
+        .failed(&ProviderError::Unauthorized { message: None });
     let subscription = providers.status().await[0].clone();
     assert_eq!(subscription.key_refused_at, None, "a provider without a stored key shows none");
 }

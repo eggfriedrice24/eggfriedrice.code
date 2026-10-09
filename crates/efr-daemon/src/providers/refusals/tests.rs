@@ -11,7 +11,7 @@ use efr_test_support::TestClock;
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 
-use super::{KeyRefusals, Watched};
+use super::{KeyRefusals, KeySource, Watched};
 
 const PROVIDER: &str = "anthropic-api";
 
@@ -29,10 +29,10 @@ fn a_refusal_keeps_its_time_until_a_request_with_the_key_works() {
     let refusals = refusals(&clock);
     assert_eq!(refusals.refused_at(PROVIDER), None);
 
-    refusals.start(PROVIDER).failed(&unauthorized());
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
     let first = clock.shared().now();
     clock.advance(Duration::from_secs(60));
-    refusals.start(PROVIDER).failed(&unauthorized());
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
 
     assert_eq!(
         refusals.refused_at(PROVIDER),
@@ -41,11 +41,13 @@ fn a_refusal_keeps_its_time_until_a_request_with_the_key_works() {
     );
     assert_eq!(refusals.refused_at("openai-api"), None, "each provider has its own key");
 
-    refusals.start(PROVIDER).failed(&ProviderError::NotLoggedIn);
-    refusals.start(PROVIDER).failed(&ProviderError::RateLimited { retry_after: None });
+    refusals.start(PROVIDER, KeySource::Call).failed(&ProviderError::NotLoggedIn);
+    refusals
+        .start(PROVIDER, KeySource::Call)
+        .failed(&ProviderError::RateLimited { retry_after: None });
     assert!(refusals.refused_at(PROVIDER).is_some(), "other errors say nothing about the key");
 
-    refusals.start(PROVIDER).worked();
+    refusals.start(PROVIDER, KeySource::Call).worked();
     assert_eq!(refusals.refused_at(PROVIDER), None);
 }
 
@@ -53,16 +55,52 @@ fn a_refusal_keeps_its_time_until_a_request_with_the_key_works() {
 fn a_login_forgets_the_refusal_and_an_answer_to_the_old_key_does_not_mark_the_new_one() {
     let clock = TestClock::new();
     let refusals = refusals(&clock);
-    refusals.start(PROVIDER).failed(&unauthorized());
-    let before_login = refusals.start(PROVIDER);
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
+    let before_login = refusals.start(PROVIDER, KeySource::Call);
 
     refusals.reset(PROVIDER);
 
     assert_eq!(refusals.refused_at(PROVIDER), None);
     before_login.failed(&unauthorized());
     assert_eq!(refusals.refused_at(PROVIDER), None, "the old key's answer came late");
-    refusals.start(PROVIDER).failed(&unauthorized());
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
     assert!(refusals.refused_at(PROVIDER).is_some(), "the new key can be refused too");
+}
+
+#[test]
+fn a_model_list_that_works_does_not_clear_a_refusal_of_the_model_calls() {
+    let clock = TestClock::new();
+    let refusals = refusals(&clock);
+
+    // A key whose scopes allow the model list and not the model calls.
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
+    let refused = refusals.refused_at(PROVIDER);
+    clock.advance(Duration::from_secs(3_600));
+    refusals.start(PROVIDER, KeySource::ModelList).worked();
+
+    assert!(refused.is_some());
+    assert_eq!(refusals.refused_at(PROVIDER), refused, "the model calls still fail");
+    refusals.start(PROVIDER, KeySource::Call).worked();
+    assert_eq!(refusals.refused_at(PROVIDER), None);
+}
+
+#[test]
+fn a_refused_model_list_shows_only_until_a_model_call_works() {
+    let clock = TestClock::new();
+    let refusals = refusals(&clock);
+
+    // A key whose scopes allow the model calls and not the model list.
+    refusals.start(PROVIDER, KeySource::ModelList).failed(&unauthorized());
+    assert!(refusals.refused_at(PROVIDER).is_some(), "nothing else is known yet");
+    refusals.start(PROVIDER, KeySource::Call).worked();
+    assert_eq!(refusals.refused_at(PROVIDER), None, "the turns work");
+    clock.advance(Duration::from_secs(3_600));
+    refusals.start(PROVIDER, KeySource::ModelList).failed(&unauthorized());
+    assert_eq!(refusals.refused_at(PROVIDER), None, "the next fetch does not flip it");
+
+    refusals.reset(PROVIDER);
+    refusals.start(PROVIDER, KeySource::ModelList).failed(&unauthorized());
+    assert!(refusals.refused_at(PROVIDER).is_some(), "a new key starts without a model call");
 }
 
 /// One answer of [`Scripted`]: the stream of a call, or the error before it.

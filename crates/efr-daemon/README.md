@@ -179,8 +179,9 @@ the list came from and when.
   server's message for a refused key (`unauthorized`), with the code of that error. A
   prompt on a model whose output limit the config gives (`[anthropic] models` or
   `[model] max_output_tokens`) runs without a list, unless no key is stored.
-- A fetch with a stored key reports to the key's refusals (`providers/refusals.rs`): a
-  401 marks the key as refused at that time, and a fetch that works clears the mark.
+- A fetch with a stored key reports to the key's refusals (`providers/refusals.rs`) as
+  `KeySource::ModelList`: a 401 marks the key as refused at that time, and a fetch
+  that works clears that mark, never the mark of a model call.
 - A daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
   reaches the network by accident.
 - The effective list (`effective_models`) is the catalog's models on offer (OpenAI's
@@ -332,10 +333,13 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   its provider refused, when (`key_refused_at`). When `[model] provider` uses a key
   (`openai-api`, `anthropic-api`), its model calls go through `Watched`
   (`providers/refusals.rs`), and they and the fetches of its model list report each
-  answer to `KeyRefusals`: a 401 marks the key as refused at that time, and a request
-  that works clears the mark (a stream counts as working from its first event). A
-  login or a logout of the provider clears it too, and an answer to the old key that
-  comes after it changes nothing.
+  answer to `KeyRefusals`, each source into a state of its own (`KeySource`), because
+  a key can work on one endpoint and not on the other: a 401 marks the key as refused
+  at that time, and a request of the same source that works clears that mark (a
+  stream counts as working from its first event). The model calls decide: their mark
+  shows, and once a model call worked, the mark of the model list does not. A login
+  or a logout of the provider clears both, and an answer to the old key that comes
+  after it changes nothing.
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`):
   `invalid`, with the cause and the fix (set `[model] name` to a model of the provider,

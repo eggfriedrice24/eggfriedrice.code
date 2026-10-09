@@ -40,8 +40,9 @@ efr login anthropic --from-env        # read ANTHROPIC_API_KEY of this shell
   its last four characters, such as `sk-ant-...a1b2`. `(active)` marks the provider of
   new conversations. When the provider refused the key (a 401 on a model call or on
   the fetch of the model list), the line says when, such as `key sk-ant-...a1b2 refused
-  at 2026-10-09T12:03:00Z (5m 0s ago)`. The mark goes away when a request with the key
-  works again, or after a new login.
+  at 2026-10-09T12:03:00Z (5m 0s ago)`. The mark goes away when a request of the same
+  kind with the key works again, or after a new login. The model calls decide: after
+  a model call that worked, a refused fetch of the model list does not show.
 - `efr logout anthropic` deletes the key from efrd. The key stays valid at Anthropic:
   revoke it in the Claude Console. When the provider is the one of new conversations,
   efr warns that it stays in `[model] provider`, so its turns fail until you log in

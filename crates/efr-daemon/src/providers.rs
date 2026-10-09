@@ -55,8 +55,8 @@ mod api_key;
 mod refusals;
 
 use self::api_key::{KEY_PROVIDERS, KeyChecks};
-pub(crate) use self::refusals::KeyRefusals;
 use self::refusals::Watched;
+pub(crate) use self::refusals::{KeyRefusals, KeySource};
 
 /// The subscription provider and its credential.
 pub const SUBSCRIPTION: &str = "openai-subscription";
