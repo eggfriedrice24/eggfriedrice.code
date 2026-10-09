@@ -24,6 +24,11 @@ pub struct ModelsListResult {
 /// Where the daemon's model catalog came from, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CatalogStatus {
+    /// The provider whose catalog it is, such as `openai-subscription` or
+    /// `anthropic-api`. Absent when the daemon does not report it, as before a daemon
+    /// could run more than one kind of provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Where the list came from.
     pub origin: CatalogOrigin,
     /// When the backend last sent the list or said that it did not change. Absent for
@@ -45,6 +50,10 @@ pub enum CatalogOrigin {
     /// The list built into efr: no fetch worked yet and no cache is on disk, or the
     /// provider has no catalog with windows (the API key backend).
     Builtin,
+    /// No list yet: no fetch worked and no cache is on disk, and the provider has no
+    /// list built into efr (`anthropic-api`). The daemon fetches the list before the
+    /// next prompt.
+    Missing,
 }
 
 /// One model of the list.

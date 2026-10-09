@@ -29,6 +29,7 @@ fn text_from_the_daemon_cannot_drive_the_terminal() {
 fn the_listing_says_where_an_older_list_came_from() {
     let mut list = models();
     list.catalog = Some(efr_protocol::CatalogStatus {
+        provider: None,
         origin: efr_protocol::CatalogOrigin::Cache,
         fetched_at: Some(now() - jiff::SignedDuration::from_hours(26)),
     });

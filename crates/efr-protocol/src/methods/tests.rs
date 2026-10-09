@@ -3,12 +3,12 @@ use serde_json::json;
 
 use crate::{
     AdminConfigReloadResult, AdminProjectAdd, AdminProjectRemove, AdminStatusResult, Base64Bytes,
-    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
-    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, InputRespond, LateSteer,
-    LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
-    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RootSource, Seq,
-    ShellContext, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
-    WithdrawTarget,
+    CatalogOrigin, CatalogStatus, ConfigFileError, ConfigStatus, ConversationId,
+    ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings,
+    InputRespond, LateSteer, LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult,
+    OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw,
+    ProviderStatus, RootSource, Seq, ShellContext, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -321,6 +321,28 @@ fn a_provider_from_before_logins_by_key_is_inactive_with_no_login_kind() {
     assert!(!status.active);
     assert_eq!(status.login, None);
     assert_eq!(status.key_hint, None);
+    assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+}
+
+#[test]
+fn catalog_origins_are_snake_case_names_on_the_wire() {
+    let names: Vec<_> = [
+        CatalogOrigin::Backend,
+        CatalogOrigin::Cache,
+        CatalogOrigin::Builtin,
+        CatalogOrigin::Missing,
+    ]
+    .iter()
+    .map(|origin| serde_json::to_value(origin).unwrap())
+    .collect();
+    assert_eq!(names, [json!("backend"), json!("cache"), json!("builtin"), json!("missing")]);
+}
+
+#[test]
+fn a_catalog_status_from_before_the_provider_parses_without_it() {
+    let old = json!({ "origin": "builtin" });
+    let status: CatalogStatus = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(status.provider, None);
     assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
 }
 

@@ -299,7 +299,7 @@ pub(crate) fn status(catalog: &Catalog) -> CatalogStatus {
         CatalogOrigin::Cache => WireOrigin::Cache,
         _ => WireOrigin::Builtin,
     };
-    CatalogStatus { origin, fetched_at: catalog.fetched_at() }
+    CatalogStatus { provider: None, origin, fetched_at: catalog.fetched_at() }
 }
 
 /// The model of new conversations: `[model] name`, else the catalog's offered model

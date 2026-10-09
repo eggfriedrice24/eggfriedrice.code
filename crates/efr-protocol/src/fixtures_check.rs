@@ -890,6 +890,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     },
                 ],
                 catalog: Some(CatalogStatus {
+                    provider: Some("anthropic-api".into()),
                     origin: CatalogOrigin::Backend,
                     fetched_at: Some(at("2026-10-03T07:30:00Z")),
                 }),
@@ -1052,6 +1053,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
             },
         ],
         catalog: Some(CatalogStatus {
+            provider: Some("openai-subscription".into()),
             origin: CatalogOrigin::Cache,
             fetched_at: Some(at("2026-10-03T07:00:00Z")),
         }),

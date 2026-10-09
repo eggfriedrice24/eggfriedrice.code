@@ -285,3 +285,9 @@ No protocol version has shipped yet.
   lists `anthropic-api` too. New fixtures `admin_login_api_key_params.json`,
   `admin_login_api_key_result.json`, `admin_logout_params.json` and
   `admin_logout_result.json`; `admin_status_result.json` now sets the new members.
+- Version 1, additive: the catalog of each provider. The `catalog` of the `models.list`
+  and `admin.status` results gains an optional `provider`, the provider whose catalog
+  it is, absent from an earlier daemon. `origin` gains `missing`: no list yet, because
+  no fetch worked, no cache is on disk and the provider has no list built into efr
+  (`anthropic-api`). The fixtures `models_list_result.json` and
+  `admin_status_result.json` now set `provider`.

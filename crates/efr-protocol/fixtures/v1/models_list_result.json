@@ -20,6 +20,7 @@
     }
   ],
   "catalog": {
+    "provider": "openai-subscription",
     "origin": "cache",
     "fetched_at": "2026-10-03T07:00:00Z"
   }

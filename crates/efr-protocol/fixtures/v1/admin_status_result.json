@@ -23,6 +23,7 @@
     }
   ],
   "catalog": {
+    "provider": "anthropic-api",
     "origin": "backend",
     "fetched_at": "2026-10-03T07:30:00Z"
   },

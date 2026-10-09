@@ -32,6 +32,7 @@ fn result() -> AdminStatusResult {
             key_hint: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
+            provider: None,
             origin: efr_protocol::CatalogOrigin::Cache,
             fetched_at: Some(now() - SignedDuration::from_hours(26)),
         }),

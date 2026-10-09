@@ -271,6 +271,7 @@ fn status_result() -> AdminStatusResult {
             },
         ],
         catalog: Some(efr_protocol::CatalogStatus {
+            provider: None,
             origin: efr_protocol::CatalogOrigin::Backend,
             fetched_at: Some(before(5 * 60)),
         }),
@@ -300,7 +301,8 @@ fn status_shows_times_to_the_second() {
 
 #[test]
 fn the_catalog_says_where_it_came_from_and_when() {
-    let status = |origin, fetched_at| efr_protocol::CatalogStatus { origin, fetched_at };
+    let status =
+        |origin, fetched_at| efr_protocol::CatalogStatus { provider: None, origin, fetched_at };
     let backend = status(efr_protocol::CatalogOrigin::Backend, Some(before(5 * 60)));
     assert_eq!(catalog(&backend, now()), "from the backend, fetched 5m 0s ago");
     let cache = status(efr_protocol::CatalogOrigin::Cache, Some(before(26 * 3_600)));

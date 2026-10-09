@@ -325,6 +325,7 @@ pub(crate) fn models() -> ModelsListResult {
             },
         ],
         catalog: Some(CatalogStatus {
+            provider: None,
             origin: CatalogOrigin::Backend,
             fetched_at: Some(now() - jiff::SignedDuration::from_mins(5)),
         }),
