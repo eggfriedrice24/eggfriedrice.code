@@ -94,7 +94,9 @@ pub(crate) enum Read {
     /// A key.
     Key(Key),
     /// The thread threw away the unread input, as [`KeyReader::flush`] asked: every
-    /// key before this one was typed before the flush.
+    /// key before this one goes too. They are the keys typed before the flush, and the
+    /// key that the read which ran at the flush returned, which can be a key typed just
+    /// after it.
     Flushed,
     /// The thread sent every byte that waited in the terminal when
     /// [`KeyReader::mark`] asked: every key before this one was typed before the mark.
@@ -280,6 +282,12 @@ impl KeyReader {
     /// Throws away every key typed so far, also the keys that the thread did not read
     /// yet, and goes on reading in the same mode: the rest of a password typed for a
     /// command must not reach the input row.
+    ///
+    /// The thread does the flush within one read timeout, and the keys until its
+    /// [`Read::Flushed`] go. A read that runs when the flush comes cannot tell whether
+    /// the key it returns was typed before the flush or just after it, so a key typed in
+    /// that tenth of a second goes too. A lost key is safer than a part of a password in
+    /// the row.
     pub(crate) fn flush(&mut self) {
         self.discard_queued();
         if self.confirms {

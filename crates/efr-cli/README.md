@@ -500,7 +500,9 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   would send stays text there. When the keys come back, the row drops an escape
   sequence that the question cut. Before the keys go back to the row after an answer line, a call that
   asked for a password or the keys it kept, the reader throws away what is still
-  unread (`KeyReader::flush`), so the rest of a password never lands in the row.
+  unread (`KeyReader::flush`), so the rest of a password never lands in the row. A
+  key typed in the tenth of a second after the flush can go too: the read that runs
+  then cannot tell it from a key typed before.
 - While the last line of a running call's output looks like a password prompt
   (`efr_protocol::looks_secret`) and the daemon reported no wait yet, the keys do not
   go to the row: they wait in a line that is never shown or sent, and Enter there

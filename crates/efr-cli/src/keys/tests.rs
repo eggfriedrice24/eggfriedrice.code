@@ -253,6 +253,21 @@ async fn an_escape_byte_alone_is_the_esc_key_and_a_sequence_stays_bytes() {
     reader.stop().await;
 }
 
+/// Waits until the thread confirmed the flush of `reader`, and checks that every key
+/// that came before the confirmation was thrown away.
+///
+/// An empty terminal does not tell that the thread flushed: it may have read every
+/// byte before it saw the flush. A key typed then can come back from the read that
+/// was running when the flush came, before [`Read::Flushed`], and the flush throws it
+/// away too. The tests that typed a key once the terminal was empty waited forever for
+/// it under load.
+async fn flushed(reader: &mut KeyReader) {
+    while reader.flushing {
+        let read = reader.keys.recv().await.expect("the thread confirms the flush");
+        assert_eq!(reader.take(read), None, "a key before the confirmation is thrown away");
+    }
+}
+
 #[tokio::test]
 async fn a_flush_throws_away_what_was_typed_and_reads_on() {
     let (master, slave) = pty();
@@ -260,10 +275,8 @@ async fn a_flush_throws_away_what_was_typed_and_reads_on() {
     let mut reader = full_reader(&master, slave, &probe).await;
 
     reader.flush();
-    // The thread throws away what it did not read yet.
-    Wait::new("an empty input queue")
-        .until_blocking(|| rustix::io::ioctl_fionread(&probe).unwrap() == 0)
-        .unwrap();
+    flushed(&mut reader).await;
+    assert_eq!(rustix::io::ioctl_fionread(&probe).unwrap(), 0, "the thread threw away the rest");
     rustix::io::write(&master, b"y").unwrap();
     assert_eq!(reader.next().await, Some(Key::Byte(b'y')), "only the key after the flush");
     assert!(!canonical(&probe) && !echoes(&probe), "the mode stays");
@@ -319,9 +332,7 @@ async fn after_a_flush_no_key_counts_as_typed_before_the_mark() {
 
     reader.flush();
     reader.mark();
-    Wait::new("an empty input queue")
-        .until_blocking(|| rustix::io::ioctl_fionread(&probe).unwrap() == 0)
-        .unwrap();
+    flushed(&mut reader).await;
     rustix::io::write(&master, b"y").unwrap();
     assert_eq!(reader.next().await, Some(Key::Byte(b'y')), "only the key after the flush");
     assert!(!reader.before_mark(), "typed after the mark");
