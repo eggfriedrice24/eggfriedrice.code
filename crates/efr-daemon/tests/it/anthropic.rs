@@ -1,7 +1,8 @@
 //! The `anthropic-api` provider end to end: the real Anthropic provider against the
 //! local Messages API (`MessagesServer`). efrd has no list of Claude models until it
 //! fetches one, so the first prompt waits for the fetch; the list then comes back from
-//! its own cache file after a restart. A turn without a key says to log in.
+//! its own cache file after a restart. A turn without a key says to log in, and a
+//! login brings the list of the new key.
 //!
 //! One conversation runs a Claude turn with a call of the `edit` tool and its approval,
 //! a second turn, and an auto compaction before the second turn's call. Every request
@@ -11,9 +12,9 @@
 //! carries the cache writes.
 
 use efr_protocol::{
-    AdminLogout, AdminLogoutResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
-    CatalogOrigin, CompactionTrigger, ErrorCode, Event, EventEnvelope, Method, ModelsList,
-    ModelsListResult, PromptSendResult, Usage,
+    AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, ApprovalDecision,
+    ApprovalRespond, ApprovalRespondResult, CatalogOrigin, CompactionTrigger, ErrorCode, Event,
+    EventEnvelope, Method, ModelsList, ModelsListResult, PromptSendResult, SecretText, Usage,
 };
 use efr_test_daemon::{
     ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, MessagesAnswer, MessagesServer, TTY, TestDaemon,
@@ -440,6 +441,39 @@ async fn without_a_key_a_claude_turn_fails_as_unauthorized_and_calls_no_model() 
     };
     assert_eq!(error.code, ErrorCode::Unauthorized, "{error:?}");
     assert!(server.received().is_empty(), "no model call without a key");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_login_to_the_running_provider_fetches_the_list_of_the_new_key() {
+    const NEW_KEY: &str = "sk-ant-api03-efr-new-key-0000-c3d4";
+    let server = MessagesServer::start().await;
+    let daemon = TestDaemon::builder().messages(&server).start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    Wait::new("the first fetch, which finds no list")
+        .until(|| !server.models_requests().is_empty())
+        .await
+        .unwrap();
+    server.set_models(vec![model()]);
+
+    let login = Method::AdminLoginApiKey(AdminLoginApiKey {
+        provider: "anthropic-api".to_owned(),
+        key: SecretText::new(NEW_KEY),
+        check: false,
+    });
+    let result: AdminLoginApiKeyResult = client.call(login).await.unwrap();
+
+    assert!(result.active, "the key belongs to the running provider");
+    Wait::new("the fetch after the login")
+        .until_some_async(async || {
+            let catalog = models(&daemon).await.catalog?;
+            (catalog.origin == CatalogOrigin::Backend).then_some(())
+        })
+        .await
+        .unwrap();
+    let last = server.models_requests().pop().unwrap();
+    assert_eq!(last.authorization, Some(format!("Bearer {NEW_KEY}")), "the new key asks");
     drop(client);
     daemon.stop().await.unwrap();
 }

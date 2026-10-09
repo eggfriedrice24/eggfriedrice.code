@@ -671,7 +671,8 @@ before it as its prefix outside the compaction, carries the cache markers S, A, 
 T with their times to live, the `drop_block` beta, the effort `medium` and no member of
 another provider, and the turn's usage carries the cache writes; the first prompt that
 waits for the model list, which a restart reads back from its own cache file while the
-API is down; and a turn without a key that fails as `unauthorized` and calls no model.
+API is down; a turn without a key that fails as `unauthorized` and calls no model;
+and a login to the running provider that fetches the list with the new key.
 No file but the credential and no log line holds the key.
 
 The `turn_input` module holds each turn in a model that waits for the test: a late
