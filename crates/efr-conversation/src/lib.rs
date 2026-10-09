@@ -7,11 +7,12 @@
 //!   its [`ConversationHandle`], the only way in: send a prompt (a second one queues
 //!   behind the running turn), steer the running turn, interrupt it in two phases,
 //!   answer an approval, read its [`ConversationState`].
-//! - A turn assembles the request (the system prompt, bounded history from the event
-//!   log within [`HistoryLimits`], the live-state preamble regenerated from the prompt's
-//!   shell context, the tool definitions), streams the provider, and records every step
-//!   as an event through the store's writer. Provider items in `provider_raw` go back
-//!   unchanged to the provider and model that made them.
+//! - A turn assembles the request (the system prompt, every turn since the newest
+//!   summary as the model read it, within the byte limit of [`HistoryLimits`], the
+//!   live-state preamble regenerated from the prompt's shell context, the tool
+//!   definitions), streams the provider, and records every step as an event through the
+//!   store's writer. Each request starts with the request before it. Provider items in
+//!   `provider_raw` go back unchanged to the provider and model that made them.
 //! - Every tool call passes `turn.rs`'s `authorize_tool_call`, the single permission
 //!   check point, where `efr_permissions::Engine::decide` answers Allow, Contain, Ask or
 //!   Deny.

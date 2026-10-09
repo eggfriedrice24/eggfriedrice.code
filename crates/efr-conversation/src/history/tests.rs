@@ -538,7 +538,8 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
 }
 
 #[tokio::test]
-async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
+async fn a_turn_without_saved_messages_whose_start_fell_out_of_the_page_is_rebuilt_from_its_events()
+{
     let (a, b) = (turn(2), turn(3));
     let store = store_with(vec![
         whole_turn(
@@ -555,24 +556,58 @@ async fn a_turn_whose_start_fell_out_of_the_page_is_left_out() {
         ),
     ])
     .await;
-    let limits = HistoryLimits::new(50, 4, usize::MAX);
+    let limits = HistoryLimits::new(4, usize::MAX);
+    let snapshot = snapshot(&store, limits).await;
 
-    let history = snapshot(&store, limits).await.history(
-        turn(9),
-        &HashMap::new(),
-        &key("replay", "m"),
-        limits,
-    );
+    let history = snapshot.history(turn(9), &HashMap::new(), &key("replay", "m"), limits);
 
+    assert!(snapshot.page.iter().all(|envelope| envelope.event.turn_id() == Some(b)));
+    assert!(snapshot.older.iter().all(|envelope| envelope.event.turn_id() == Some(a)));
     assert_eq!(
         history,
         vec![
-            Message::user("1 earlier turn is omitted."),
+            Message::user("first"),
+            Message::assistant("One."),
             Message::user("second"),
             Message::assistant("Two.")
         ],
-        "the model reads that a turn is left out"
+        "the store reads the events of the first turn by their numbers"
     );
+}
+
+/// The list of turns comes from the turns, not from the page: a turn with exact
+/// messages counts however old its start is, so a long conversation never edits the
+/// start of its requests.
+#[tokio::test]
+async fn a_turn_with_saved_messages_counts_when_its_start_fell_out_of_the_page() {
+    let (a, b) = (turn(2), turn(3));
+    let store = store_with(vec![
+        whole_turn(
+            a,
+            "first",
+            vec![completed(a, 0, "One.")],
+            Event::TurnCompleted { turn_id: a, usage: None, changes: None, context: None },
+        ),
+        whole_turn(
+            b,
+            "second",
+            vec![completed(b, 0, "Two.")],
+            Event::TurnCompleted { turn_id: b, usage: None, changes: None, context: None },
+        ),
+    ])
+    .await;
+    let exact = vec![Message::user("<live_state>first</live_state>"), Message::assistant("One.")];
+    let json = exact.iter().map(|message| serde_json::to_value(message).unwrap()).collect();
+    save(&store, a, "replay", json).await;
+    let limits = HistoryLimits::new(4, usize::MAX);
+    let snapshot = snapshot(&store, limits).await;
+
+    let window = snapshot.window(Some(turn(9)), &HashMap::new(), &key("replay", "m"), limits, None);
+
+    assert_eq!(window.omitted, 0);
+    let mut expected = exact;
+    expected.extend([Message::user("second"), Message::assistant("Two.")]);
+    assert_eq!(window.messages(), expected);
 }
 
 #[tokio::test]
@@ -644,9 +679,7 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
     let none = HashMap::new();
     let replay = key("replay", "m");
 
-    let by_turns =
-        snapshot.history(turn(9), &none, &replay, HistoryLimits::new(2, 4096, usize::MAX));
-    let by_bytes = snapshot.history(turn(9), &none, &replay, HistoryLimits::new(50, 4096, 500));
+    let by_bytes = snapshot.history(turn(9), &none, &replay, HistoryLimits::new(4096, 500));
 
     let last_two = vec![
         Message::user("1 earlier turn is omitted."),
@@ -655,7 +688,6 @@ async fn the_oldest_turns_go_first_when_history_is_too_long() {
         Message::user("third"),
         Message::assistant("Three."),
     ];
-    assert_eq!(by_turns, last_two);
     assert_eq!(by_bytes, last_two);
     let all = snapshot.history(turn(9), &none, &replay, HistoryLimits::default());
     assert_eq!(all.len(), 6, "no note when nothing is left out: {all:?}");
@@ -686,7 +718,7 @@ async fn a_newest_turn_too_large_for_the_bytes_leaves_only_the_note() {
         turn(9),
         &HashMap::new(),
         &key("replay", "m"),
-        HistoryLimits::new(50, 4096, 100),
+        HistoryLimits::new(4096, 100),
     );
 
     assert_eq!(history, vec![Message::user("2 earlier turns are omitted.")]);
@@ -770,14 +802,8 @@ async fn a_shell_that_exited_has_no_directory_until_the_next_one_starts() {
 
 /// Saves `messages` as turn `t`'s, answered by `provider` and `model`.
 async fn save(store: &TestStore, t: TurnId, provider: &str, messages: Vec<serde_json::Value>) {
-    let saved = efr_store::turn_messages::NewTurnMessages::new(
-        conversation(),
-        t,
-        provider,
-        "m",
-        messages,
-        HistoryLimits::default().max_turns,
-    );
+    let saved =
+        efr_store::turn_messages::NewTurnMessages::new(conversation(), t, provider, "m", messages);
     store.writer().append(Batch::new().turn_messages(saved)).await.expect("save");
 }
 
@@ -953,8 +979,7 @@ fn the_safety_net_scales_with_the_window() {
     let limits = HistoryLimits::default().for_window(272_000);
 
     assert_eq!(limits.max_bytes, 272_000 * 8);
-    assert_eq!(limits.max_turns, 4096);
     assert_eq!(limits.max_events, 4096);
-    let small = HistoryLimits::new(50, 4096, 64 * 1024 * 1024).for_window(1_000);
+    let small = HistoryLimits::new(4096, 64 * 1024 * 1024).for_window(1_000);
     assert_eq!(small.max_bytes, 64 * 1024 * 1024, "a larger limit stays");
 }

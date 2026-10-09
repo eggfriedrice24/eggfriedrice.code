@@ -352,12 +352,11 @@ async fn an_overflow_with_auto_compaction_off_fails_the_turn_at_once() {
 
 #[tokio::test]
 async fn the_safety_net_scales_with_the_window_and_never_drops_turns_below_the_trigger() {
-    // The default limits (50 turns, 512 KiB) on a window of 272000 tokens: one prompt
-    // of 600 KB is about 150000 tokens, below the trigger of 206720, and a limit of one
-    // turn is lower than the turns that the window holds.
+    // The default limits (512 KiB) on a window of 272000 tokens: one prompt of 600 KB
+    // is about 150000 tokens, below the trigger of 206720, and above the byte limit.
     let mut setup = Setup::new();
     let limits = with_window(&mut setup, 272_000);
-    setup.config.history = HistoryLimits::new(1, 4096, 512 * 1024);
+    setup.config.history = HistoryLimits::default();
     let big = format!("first\n{}", "x".repeat(600_000));
     let state = setup.live_state(&setup.cwd, &big);
     let records = vec![
@@ -369,10 +368,8 @@ async fn the_safety_net_scales_with_the_window_and_never_drops_turns_below_the_t
             setup.prompt(&state, "second"),
         ])),
         answer(&text_answer("Two.")),
-        // NOTE: the cache and the store keep the exact messages of one turn, so the
-        // first turn comes back from its events, without its preamble.
         expect_request(request(vec![
-            Message::user(big.clone()),
+            setup.prompt(&state, &big),
             Message::assistant("One."),
             setup.prompt(&state, "second"),
             Message::assistant("Two."),
@@ -392,10 +389,11 @@ async fn the_safety_net_scales_with_the_window_and_never_drops_turns_below_the_t
 }
 
 #[tokio::test]
-async fn the_history_tells_the_model_how_many_turns_it_leaves_out() {
-    // A page of 6 events holds the second turn's start but not the first's.
+async fn a_page_of_events_that_misses_a_turn_leaves_out_no_turn() {
+    // A page of 6 events holds the second turn's start but not the first's. The list of
+    // turns comes from the turns, and the first turn's saved messages go as they are.
     let mut setup = Setup::new();
-    setup.config.history = HistoryLimits::new(50, 6, 512 * 1024);
+    setup.config.history = HistoryLimits::new(6, 512 * 1024);
     let state = setup.live_state(&setup.cwd, "first");
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "first")])),
@@ -407,7 +405,8 @@ async fn the_history_tells_the_model_how_many_turns_it_leaves_out() {
         ])),
         answer(&text_answer("Two.")),
         expect_request(request(vec![
-            Message::user("1 earlier turn is omitted."),
+            setup.prompt(&state, "first"),
+            Message::assistant("One."),
             setup.prompt(&state, "second"),
             Message::assistant("Two."),
             setup.prompt(&state, "third"),

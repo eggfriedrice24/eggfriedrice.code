@@ -1,10 +1,12 @@
-//! Bounded history: the earlier turns of a conversation as canonical messages.
+//! The history: the earlier turns of a conversation as canonical messages, each turn
+//! as the model read it, so each request starts with the request before it.
 //!
-//! The event log is the source of truth. A turn reads one snapshot through the store's
-//! readers (the conversation's projection row, its turns, and the newest events) and
-//! rebuilds each earlier turn from its events: the prompt, the assistant's text, each
-//! tool call with its result, and steering. Those messages carry no provider items,
-//! because the events do not hold them.
+//! A turn reads one snapshot through the store's readers (the conversation's projection
+//! row, all of its turns, their saved messages, and a page of the newest events). The
+//! list of turns comes from the turns, never from the page. A turn whose exact messages
+//! are lost is rebuilt from its events in the page: the prompt, the assistant's text,
+//! each tool call with its result, and steering. Those messages carry no provider items
+//! and no preamble, because the events do not hold them.
 //!
 //! The provider's own items (`provider_raw`, such as encrypted reasoning and the ids of
 //! its output items) must go back unchanged to the model that made them, so the actor
@@ -25,7 +27,7 @@
 //! the newest compaction with a query of its own, never from the page). A newer
 //! compaction that only pruned puts the stub in each tool result before its cut.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -50,47 +52,43 @@ pub(crate) const UNFINISHED_CALL: &str = "The call did not finish: the turn ende
                                           its result was recorded; it may or may not have \
                                           run.";
 
-/// How much history a request carries.
+/// How much history a request carries. There is no limit on the turns: every turn
+/// since the newest summary goes, word for word, so each request starts with the one
+/// before it (the README, "The history only grows").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HistoryLimits {
-    /// The most earlier turns.
-    pub max_turns: usize,
-    /// The most events read from the log, not counting the progress of tool output;
-    /// a turn whose start is older is left out.
+    /// The most events read from the log, not counting the progress of tool output:
+    /// the page that the facts of the newest turns come from, and the only source of
+    /// a turn that saved no messages. Such a turn whose start is older is left out;
+    /// a turn with saved messages never is.
     pub max_events: u32,
     /// The most bytes of history, measured as the JSON of its messages; the oldest
-    /// turns are left out first.
+    /// turns are left out first. A turn compacts before it leaves out a turn.
     pub max_bytes: usize,
 }
 
 impl HistoryLimits {
     /// Limits with the given values.
-    pub fn new(max_turns: usize, max_events: u32, max_bytes: usize) -> Self {
-        HistoryLimits { max_turns, max_events, max_bytes }
+    pub fn new(max_events: u32, max_bytes: usize) -> Self {
+        HistoryLimits { max_events, max_bytes }
     }
 
     /// These limits for a model with a window of `window` tokens. Compaction, not the
     /// safety net, must make room, so the net never leaves out turns that the window
     /// can hold: the byte limit is at least twice the window at [`BYTES_PER_TOKEN`]
-    /// (the estimate and the model's count differ), and the turn limit at least the
-    /// event limit, because each turn has at least one event in the page.
+    /// (the estimate and the model's count differ).
     pub fn for_window(self, window: u64) -> Self {
         let bytes = window.saturating_mul(2 * BYTES_PER_TOKEN);
         let bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
-        let turns = usize::try_from(self.max_events).unwrap_or(usize::MAX);
-        HistoryLimits {
-            max_turns: self.max_turns.max(turns),
-            max_events: self.max_events,
-            max_bytes: self.max_bytes.max(bytes),
-        }
+        HistoryLimits { max_events: self.max_events, max_bytes: self.max_bytes.max(bytes) }
     }
 }
 
 impl Default for HistoryLimits {
-    /// 50 turns, 4096 events, 512 KiB.
+    /// 4096 events, 512 KiB.
     fn default() -> Self {
-        HistoryLimits::new(50, 4096, 512 * 1024)
+        HistoryLimits::new(4096, 512 * 1024)
     }
 }
 
@@ -127,6 +125,9 @@ pub(crate) struct Snapshot {
     pub(crate) turns: Vec<Turn>,
     /// The newest events of the conversation, oldest first.
     pub(crate) page: Vec<EventEnvelope>,
+    /// The events before the page of each finished turn that saved no messages and
+    /// started before the page, oldest first, so such a turn is rebuilt whole.
+    pub(crate) older: Vec<EventEnvelope>,
     /// The exact messages that earlier turns saved, by turn.
     pub(crate) saved: HashMap<TurnId, CachedTurn>,
     /// The newest compaction with a summary, and the newest of any kind.
@@ -142,14 +143,25 @@ impl Snapshot {
     ) -> Result<Self, ConversationError> {
         readers
             .with(move |conn| {
-                Ok(Snapshot {
-                    summary: conversations::get(conn, conversation_id)?,
-                    turns: conversations::turns(conn, conversation_id)?,
-                    page: events::read_turn_history(conn, conversation_id, limits.max_events)?,
-                    saved: turn_messages::of_conversation(conn, conversation_id)?
+                let turns = conversations::turns(conn, conversation_id)?;
+                let page = events::read_turn_history(conn, conversation_id, limits.max_events)?;
+                let saved: HashMap<TurnId, CachedTurn> =
+                    turn_messages::of_conversation(conn, conversation_id)?
                         .into_iter()
                         .filter_map(decode)
-                        .collect(),
+                        .collect();
+                let mut older = BTreeMap::new();
+                for (from, through) in older_ranges(&turns, &saved, &page) {
+                    let events = events::read_turn_range(conn, conversation_id, from, through)?;
+                    older.extend(events.into_iter().map(|envelope| (envelope.seq, envelope)));
+                }
+                let older = older.into_values().collect();
+                Ok(Snapshot {
+                    summary: conversations::get(conn, conversation_id)?,
+                    turns,
+                    page,
+                    older,
+                    saved,
                     compactions: compactions::latest(conn, conversation_id)?,
                 })
             })
@@ -214,23 +226,25 @@ impl Snapshot {
 
     /// The model's history before the turn `current`, oldest first, within `limits`.
     ///
-    /// A turn counts when it has finished and its `turn_started` event is in the page,
-    /// so none of its events was cut off. `current` is the turn being assembled, which
-    /// never counts; a manual compaction between turns has none. A cached turn keeps
-    /// its provider items only when `key`, the provider and the model of the current
-    /// turn, answered it.
+    /// The list of turns is the conversation's turns, not the page: a turn counts when
+    /// it started and finished. `current` is the turn being assembled, which never
+    /// counts; a manual compaction between turns has none. A turn's messages are its
+    /// exact messages, from the actor's `cache` or the store, else a rebuild from its
+    /// events (in the page, or in [`older`](Self::older) when it started before the
+    /// page). A turn with exact messages keeps its provider items only when `key`, the
+    /// provider and the model of the current turn, answered it.
     ///
     /// After a compaction with a summary, the window starts with `fresh` (the fresh
     /// context block, when given) and the summary, and holds only the messages after
     /// the compaction's cut. A newer compaction that only pruned puts the stub in each
     /// tool result before its own cut.
     ///
-    /// The limits are a safety net. When they leave out earlier turns that ran and that
-    /// no summary covers (the most turns, the bytes, or a start that fell out of the
-    /// page), the head ends with a user message that says how many
-    /// ([`omitted_note`]), and a `warn` line gives the count, so neither the model nor
-    /// the log loses them without a trace. The summary's own gaps, what it never saw,
-    /// follow it as a note too ([`gap_note`]).
+    /// The byte limit is a safety net. When it leaves out the oldest turns that no
+    /// summary covers, [`Window::omitted`] counts them, so a turn compacts first, and
+    /// the head ends with a user message that says how many ([`omitted_note`]), and a
+    /// `warn` line gives the count, so neither the model nor the log loses them without
+    /// a trace. The summary's own gaps, what it never saw, follow it as a note too
+    /// ([`gap_note`]).
     ///
     /// A tool result whose call is not in the window (a cut whose place no longer
     /// matches a turn rebuilt from its events) is left out, because a provider refuses
@@ -244,9 +258,9 @@ impl Snapshot {
         fresh: Option<&str>,
     ) -> Window {
         let mut by_turn: HashMap<TurnId, Vec<&EventEnvelope>> = HashMap::new();
-        let mut started: HashSet<TurnId> = HashSet::new();
-        let left = left_steers(&self.page);
-        for envelope in &self.page {
+        let mut left = left_steers(&self.older);
+        left.extend(left_steers(&self.page));
+        for envelope in self.older.iter().chain(&self.page) {
             let Some(turn_id) = envelope.event.turn_id() else {
                 continue;
             };
@@ -255,9 +269,6 @@ impl Snapshot {
             // read them.
             if left.contains(&envelope.seq) {
                 continue;
-            }
-            if matches!(envelope.event, Event::TurnStarted { .. }) {
-                started.insert(turn_id);
             }
             by_turn.entry(turn_id).or_default().push(envelope);
         }
@@ -276,47 +287,29 @@ impl Snapshot {
         let ran = |turn: &&Turn| {
             Some(turn.id) != current && turn.status.is_finished() && turn.started_at.is_some()
         };
-        // NOTE: a turn that the summary covers is not omitted, even when its start fell
-        // out of the page.
-        let summarized = |turn: &&Turn| {
-            summary.is_some_and(|(cut, _)| {
-                let first = Placed { turn: turn.id, index: 0, message: Message::user("") };
-                turn.id != cut.through_turn && cut.covers(&first, position)
-                    || turn.id == cut.through_turn && cut.through_message.is_none()
-            })
-        };
-        let out_of_page = self
-            .turns
-            .iter()
-            .filter(ran)
-            .filter(|turn| !started.contains(&turn.id) && !summarized(turn))
-            .count();
-        let eligible = self.turns.iter().filter(ran).filter(|turn| started.contains(&turn.id));
-        let mut turns: Vec<Vec<Placed>> = eligible
-            .map(|turn| {
-                let exact =
-                    cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
-                let messages = match exact {
-                    Some(exact) if exact.key == *key => exact.messages.clone(),
-                    Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
-                    None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
-                };
-                messages
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, message)| Placed {
-                        turn: turn.id,
-                        index: u32::try_from(index).unwrap_or(u32::MAX),
-                        message,
-                    })
-                    .filter(|placed| summary.is_none_or(|(cut, _)| !cut.covers(placed, position)))
-                    .collect::<Vec<Placed>>()
-            })
-            .filter(|turn| !turn.is_empty())
-            .collect();
+        let mut turns: Vec<Vec<Placed>> = Vec::new();
+        for turn in self.turns.iter().filter(ran) {
+            let exact = cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
+            let messages = match exact {
+                Some(exact) if exact.key == *key => exact.messages.clone(),
+                Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
+                None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
+            };
+            let placed: Vec<Placed> = messages
+                .into_iter()
+                .enumerate()
+                .map(|(index, message)| Placed {
+                    turn: turn.id,
+                    index: u32::try_from(index).unwrap_or(u32::MAX),
+                    message,
+                })
+                .filter(|placed| summary.is_none_or(|(cut, _)| !cut.covers(placed, position)))
+                .collect();
+            if !placed.is_empty() {
+                turns.push(placed);
+            }
+        }
 
-        let skip = turns.len().saturating_sub(limits.max_turns);
-        turns.drain(..skip);
         let sizes: Vec<usize> = turns.iter().map(|placed| json_size(placed)).collect();
         let mut total: usize = sizes.iter().sum();
         let mut first = 0;
@@ -325,7 +318,7 @@ impl Snapshot {
             first += 1;
         }
         turns.drain(..first);
-        let omitted = out_of_page + skip + first;
+        let omitted = first;
         let mut placed: Vec<Placed> = turns.into_iter().flatten().collect();
         drop_orphan_results(&mut placed);
 
@@ -356,7 +349,6 @@ impl Snapshot {
         if omitted > 0 {
             tracing::warn!(
                 omitted,
-                max_turns = limits.max_turns,
                 max_events = limits.max_events,
                 max_bytes = limits.max_bytes,
                 "the history leaves out earlier turns"
@@ -365,6 +357,31 @@ impl Snapshot {
         }
         Window { head, placed, omitted: u32::try_from(omitted).unwrap_or(u32::MAX) }
     }
+}
+
+/// The ranges of sequence numbers to read for the turns that the page cannot rebuild:
+/// each finished turn that saved no messages, from its `prompt_queued` up to the first
+/// event of `page` or its own last event. Only a turn from an efr before the saved
+/// messages, or one whose saved messages cannot be read back, has such a range.
+fn older_ranges(
+    turns: &[Turn],
+    saved: &HashMap<TurnId, CachedTurn>,
+    page: &[EventEnvelope],
+) -> Vec<(Seq, Seq)> {
+    let first = page.first().map(|envelope| envelope.seq);
+    turns
+        .iter()
+        .filter(|turn| turn.status.is_finished() && turn.started_at.is_some())
+        .filter(|turn| !saved.contains_key(&turn.id))
+        .filter_map(|turn| {
+            let through = match first {
+                Some(first) if turn.queued_seq >= first => return None,
+                Some(first) => turn.last_seq.min(Seq::new(first.get().saturating_sub(1))),
+                None => turn.last_seq,
+            };
+            Some((turn.queued_seq, through))
+        })
+        .collect()
 }
 
 /// Leaves out each tool result of `placed` whose call is not in `placed`, and a

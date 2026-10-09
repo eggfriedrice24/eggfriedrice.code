@@ -367,13 +367,14 @@ pub(crate) enum Outcome {
 }
 
 /// Runs the steps of one compaction: prune, and summarize when pruning frees too little,
-/// leaves the context at or above the trigger, or the compaction is manual or follows
-/// an overflow.
+/// leaves the context at or above the trigger, the window leaves out earlier turns, or
+/// the compaction is manual or follows an overflow.
 pub(crate) async fn run(job: Job<'_>) -> Outcome {
     let pruning = prune(&job.window.placed);
     // NOTE: after an overflow the estimate has just counted too low, so it cannot show
-    // that pruning alone makes the request fit; only a summary can.
-    if job.trigger == CompactionTrigger::Auto && pruning.worth_it() {
+    // that pruning alone makes the request fit; only a summary can. Only a summary
+    // takes the place of the turns that the window leaves out, too.
+    if job.trigger == CompactionTrigger::Auto && job.window.omitted == 0 && pruning.worth_it() {
         let pruned = Window {
             head: job.window.head.clone(),
             placed: pruning.placed.clone(),

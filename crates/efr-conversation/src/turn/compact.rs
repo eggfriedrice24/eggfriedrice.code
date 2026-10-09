@@ -98,8 +98,9 @@ impl Turn {
         self.limits().auto && self.misses < BREAKER_TRIES
     }
 
-    /// The guard before a model call: compacts at the trigger (or above the hard cap)
-    /// when the turn may, and refuses a request whose estimate is above the hard cap.
+    /// The guard before a model call: compacts at the trigger (or above the hard cap),
+    /// or when the history leaves out earlier turns, when the turn may, and refuses a
+    /// request whose estimate is above the hard cap.
     pub(super) async fn guard(
         &mut self,
         window: &mut Window,
@@ -108,13 +109,17 @@ impl Turn {
         let limits = self.limits();
         let mut estimate = self.estimate(&with_window(base, window));
         let full = estimate >= limits.trigger || estimate > limits.hard_cap;
-        if !full {
+        // NOTE: a history that leaves out a turn would leave out one more at each turn
+        // and change the start of every request; a summary in their place keeps the
+        // start the same from then on.
+        let omits = window.omitted > 0;
+        if !full && !omits {
             // NOTE: the context is below the trigger again, as after a manual
             // compaction or with a model of a larger window: the breaker closes.
             self.misses = 0;
         }
         let mut failure = None;
-        if full && self.may_compact() {
+        if (full || omits) && self.may_compact() {
             match self.compact(CompactionTrigger::Auto, estimate, window, base).await? {
                 Compacted::Done => estimate = self.estimate(&with_window(base, window)),
                 Compacted::NotDone { failure: failed } => failure = failed,
@@ -291,6 +296,7 @@ impl Turn {
         };
         self.record(vec![Event::ConversationCompacted(compaction)]).await?;
         *window = built.window;
+        self.carry(window);
         // NOTE: the real count of the last call held for the old history.
         self.meter.reset();
         if tokens_after >= limits.trigger {

@@ -41,9 +41,10 @@ across a restart:
 - `turn_messages`: the exact messages of finished turns as the provider saw them,
   with its own items (encrypted reasoning, item ids) that no event holds, keyed by
   turn and position with the provider and the model. A batch saves them with the
-  event that ends the turn (`Batch::turn_messages`), keeps the newest turns of the
-  conversation that the history may carry, and `of_conversation` reads them back, so
-  a conversation that goes on after a restart sends the same request. They are not a
+  event that ends the turn (`Batch::turn_messages`), keeps every turn until a summary
+  covers it, because every request sends those turns word for word, and
+  `of_conversation` reads them back, so a conversation that goes on after a restart
+  sends the same request. They are not a
   projection: a rebuild leaves them alone. A `conversation_compacted` with a summary
   drops, in its own batch, the saved turns before its cut, and its `through_turn` too
   when the cut covers that whole turn: the summary takes their place in every later

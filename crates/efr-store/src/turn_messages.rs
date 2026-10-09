@@ -8,10 +8,11 @@
 //! JSON with the provider and the model that answered the turn; which messages go back
 //! to which model is the conversation's decision.
 //!
-//! The table is not a projection: the event log cannot rebuild it. It is bounded per
-//! conversation to the newest turns that the history may carry. A compaction with a
-//! summary also drops the turns before its cut (`forget_compacted`): the summary
-//! takes their place in every later request.
+//! The table is not a projection: the event log cannot rebuild it. It keeps every turn
+//! since the newest summary, because every request sends those turns word for word: a
+//! turn that left the table would come back from its events, different, and change the
+//! start of every later request. A compaction with a summary drops the turns before its
+//! cut (`forget_compacted`): the summary takes their place in every later request.
 
 use efr_protocol::{Compaction, ConversationId, Seq, TurnId};
 use rusqlite::{Connection, OptionalExtension as _, params};
@@ -29,20 +30,16 @@ pub struct NewTurnMessages {
     provider: String,
     model: String,
     messages: Vec<Value>,
-    keep: usize,
 }
 
 impl NewTurnMessages {
-    /// The `messages` of `turn_id`, answered by `model` of `provider`. Saving them
-    /// keeps the newest `keep` turns of the conversation and drops older ones; with a
-    /// `keep` of 0 the conversation keeps none.
+    /// The `messages` of `turn_id`, answered by `model` of `provider`.
     pub fn new(
         conversation_id: ConversationId,
         turn_id: TurnId,
         provider: impl Into<String>,
         model: impl Into<String>,
         messages: Vec<Value>,
-        keep: usize,
     ) -> Self {
         NewTurnMessages {
             conversation_id,
@@ -50,7 +47,6 @@ impl NewTurnMessages {
             provider: provider.into(),
             model: model.into(),
             messages,
-            keep,
         }
     }
 }
@@ -69,9 +65,8 @@ pub struct TurnMessages {
     pub messages: Vec<Value>,
 }
 
-/// Saves `item` as the messages of a turn whose terminal event has `turn_seq`, then
-/// drops the turns of its conversation beyond the newest `keep`. Saving a turn again
-/// replaces it.
+/// Saves `item` as the messages of a turn whose terminal event has `turn_seq`. Saving
+/// a turn again replaces it.
 pub(crate) fn save(
     conn: &Connection,
     item: &NewTurnMessages,
@@ -80,10 +75,6 @@ pub(crate) fn save(
     let conversation_id = item.conversation_id.to_string();
     let turn_id = item.turn_id.to_string();
     conn.execute("DELETE FROM turn_messages WHERE turn_id = ?1", [&turn_id])?;
-    if item.keep == 0 {
-        conn.execute("DELETE FROM turn_messages WHERE conversation_id = ?1", [&conversation_id])?;
-        return Ok(());
-    }
     let mut insert = conn.prepare(
         "INSERT INTO turn_messages (conversation_id, turn_id, position, provider, model, \
          message, turn_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -99,13 +90,6 @@ pub(crate) fn save(
             sql::seq(turn_seq),
         ])?;
     }
-    conn.execute(
-        "DELETE FROM turn_messages WHERE conversation_id = ?1 AND turn_seq < ( \
-           SELECT MIN(turn_seq) FROM ( \
-             SELECT DISTINCT turn_seq FROM turn_messages WHERE conversation_id = ?1 \
-             ORDER BY turn_seq DESC LIMIT ?2))",
-        params![conversation_id, i64::try_from(item.keep).unwrap_or(i64::MAX)],
-    )?;
     Ok(())
 }
 

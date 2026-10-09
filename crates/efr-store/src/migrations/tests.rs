@@ -418,7 +418,6 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
                 "provider_raw": [{ "type": "reasoning", "encrypted_content": "opaque" }],
             }),
         ],
-        50,
     );
     store.writer().append(rest.turn_messages(messages)).await.unwrap();
     // NOTE: a pruning alone, so the saved messages of the turn stay.

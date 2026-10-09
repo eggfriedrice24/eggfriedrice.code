@@ -85,11 +85,12 @@ pub struct ConversationActor {
     start: ConversationStart,
     queue: VecDeque<TurnSpec>,
     running: Option<Running>,
-    /// The exact messages of the newest turns this actor ran, for their provider items.
+    /// The exact messages of the turns this actor ran that the newest request carried,
+    /// for their provider items.
     cache: HashMap<TurnId, Arc<CachedTurn>>,
-    cache_order: VecDeque<TurnId>,
-    /// The fresh context block of the newest compaction, so every request until the
-    /// next compaction sends the same bytes.
+    /// The fresh context block of a compaction from an efrd before the stored block,
+    /// read from disk once, so every request until the next compaction sends the same
+    /// bytes.
     fresh: Option<Fresh>,
     /// The manual compaction that runs, with the caller that waits for it.
     compacting: Option<Compacting>,
@@ -292,7 +293,6 @@ impl ConversationActor {
             queue: VecDeque::new(),
             running: None,
             cache: HashMap::new(),
-            cache_order: VecDeque::new(),
             fresh: None,
             compacting: None,
         };
@@ -980,19 +980,15 @@ impl ConversationActor {
         }
     }
 
-    /// Keeps the messages of a finished turn for the history of the next ones, as many
-    /// turns as the history may carry.
+    /// Keeps the messages of a finished turn for the history of the next ones. Of the
+    /// earlier turns it keeps those that the turn's newest request carried: a turn that
+    /// a summary covers, or that the history left out, is never sent again.
     fn remember(&mut self, end: TurnEnd) {
-        let Some(cached) = end.cached else {
-            return;
-        };
-        self.cache.insert(end.turn_id, Arc::new(cached));
-        self.cache_order.push_back(end.turn_id);
-        let keep = self.shared.config.current().history.max_turns;
-        while self.cache_order.len() > keep {
-            if let Some(oldest) = self.cache_order.pop_front() {
-                self.cache.remove(&oldest);
-            }
+        if let Some(carried) = &end.carried {
+            self.cache.retain(|turn_id, _| carried.contains(turn_id));
+        }
+        if let Some(cached) = end.cached {
+            self.cache.insert(end.turn_id, Arc::new(cached));
         }
     }
 

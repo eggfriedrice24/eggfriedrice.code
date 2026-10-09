@@ -1016,7 +1016,7 @@ pub(crate) fn compacting() -> Setup {
         max_context_window: None,
         prefer_websockets: false,
     }];
-    setup.config.history = HistoryLimits::new(50, 4096, 64 * 1024 * 1024);
+    setup.config.history = HistoryLimits::new(4096, 64 * 1024 * 1024);
     std::fs::write(setup.cwd.join("AGENTS.md"), AGENTS).expect("AGENTS.md");
     setup
 }

@@ -1,7 +1,7 @@
 //! Compaction inside a turn: auto at the trigger, after an overflow, the breaker, a
 //! pruning alone, and the history that later turns send, also after a restart.
 
-use efr_protocol::{Compaction, CompactionTrigger, DraftPart, ErrorCode, Event, TurnId};
+use efr_protocol::{Compaction, CompactionTrigger, DraftPart, ErrorCode, Event, Origin, TurnId};
 use efr_provider::{Message, Request};
 use efr_store::turn_messages;
 use efr_test_support::Record;
@@ -10,12 +10,14 @@ use serde_json::{Value, json};
 
 use crate::compaction::{dropped_note, gap_note, request_tokens, summary_message};
 use crate::context::{PRUNED_OUTPUT_STUB, kilo};
+use crate::history::omitted_note;
+use crate::preamble::LiveState;
 use crate::testing::{
-    HARD_CAP, MODEL, SUMMARY, SUMMARY_2, Setup, TRIGGER, WINDOW, answer, big_file, big_text,
-    compacting, compactions, expect_request, failure, fresh, request, result_message,
+    HARD_CAP, MODEL, SUMMARY, SUMMARY_2, Setup, TRIGGER, WINDOW, answer, big_file, big_prompt,
+    big_text, compacting, compactions, expect_request, failure, fresh, request, result_message,
     run_two_big_turns, summary, text_answer, tool_answer, tool_message, two_big_turns,
 };
-use crate::{CompactionConfig, ContextLimits};
+use crate::{CompactionConfig, ContextLimits, HistoryLimits};
 
 /// `request` as JSON without its tools, with the test's root directory as `<root>` and
 /// each string longer than 200 bytes replaced by its size, so a snapshot shows the order
@@ -517,5 +519,77 @@ async fn after_an_overflow_pruning_alone_is_not_trusted_and_a_summary_follows() 
     assert_eq!(compaction.trigger, CompactionTrigger::Overflow);
     assert_eq!(compaction.summary.as_deref(), Some(SUMMARY));
     assert_eq!(compaction.pruned_outputs, 2);
+    h.finish();
+}
+
+/// A model with a smaller window after two turns on a model with a large one: the
+/// history would leave out the first turn while the context is below the trigger. The
+/// turn compacts instead, with a summary, which records the turn that it never saw, so
+/// the start of the requests stays the same from then on.
+#[tokio::test]
+async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
+    let mut setup = compacting();
+    let wide = "test-model-wide";
+    let mut wide_model = setup.config.models[0].clone();
+    wide_model.id = wide.to_owned();
+    wide_model.default = false;
+    wide_model.context_window = Some(1_000_000);
+    setup.config.models.push(wide_model);
+    // NOTE: the byte limit is twice the small window, 800000 bytes; the first prompt
+    // alone is most of it.
+    setup.config.history = HistoryLimits::default();
+    let state = setup.live_state(&setup.cwd, "one");
+    let wide_state = LiveState { model: wide.to_owned(), ..state.clone() };
+    let on_wide = |messages: Vec<Message>| Request { model: wide.to_owned(), ..request(messages) };
+    let (one, two) = (format!("one\n{}", big_text(700_000)), big_prompt("two"));
+    let first = setup.prompt(&wide_state, &one);
+    let second = setup.prompt(&wide_state, &two);
+    let third = setup.prompt(&state, "three");
+    let visible = vec![
+        Message::user(omitted_note(1)),
+        second.clone(),
+        Message::assistant("ok 2"),
+        third.clone(),
+    ];
+    let after = vec![
+        fresh(&setup),
+        summary_message(SUMMARY),
+        gap_note(1, 0).expect("a note"),
+        Message::assistant("ok 2"),
+        third,
+    ];
+    assert!(request_tokens(&request(visible.clone())) < TRIGGER);
+    let records = vec![
+        expect_request(on_wide(vec![first.clone()])),
+        answer(&text_answer("ok 1")),
+        expect_request(on_wide(vec![first, Message::assistant("ok 1"), second])),
+        answer(&text_answer("ok 2")),
+        expect_request(summary(visible)),
+        answer(&text_answer(SUMMARY)),
+        expect_request(request(after.clone())),
+        answer(&text_answer("ok 3")),
+    ];
+    let mut h = setup.start(records).await;
+    let cwd = h.cwd.clone();
+    for text in [one.as_str(), two.as_str()] {
+        let mut params = h.prompt_params(&cwd, text);
+        params.settings.model = Some(wide.to_owned());
+        let sent = h.handle.send_prompt(params, Origin::Shell).await.expect("prompt accepted");
+        h.wait_end(sent.turn_id).await;
+    }
+
+    let three = h.prompt("three").await.turn_id;
+    let end = h.wait_end(three).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    let compacted = compactions(&h).await;
+    let [compaction] = compacted.as_slice() else {
+        panic!("one compaction: {compacted:?}");
+    };
+    assert_eq!(compaction.trigger, CompactionTrigger::Auto);
+    assert!(compaction.tokens_before < TRIGGER, "{}", compaction.tokens_before);
+    assert_eq!(compaction.omitted_turns, 1, "the summary never saw the first turn");
+    assert_eq!(compaction.through_message, Some(1), "the tail starts at the second answer");
+    assert_eq!(compaction.tokens_after, request_tokens(&request(after)));
     h.finish();
 }

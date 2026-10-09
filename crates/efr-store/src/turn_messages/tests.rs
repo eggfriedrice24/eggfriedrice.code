@@ -17,12 +17,12 @@ fn messages(turn: u64) -> Vec<Value> {
     ]
 }
 
-fn saved(id: ConversationId, turn: u64, keep: usize) -> NewTurnMessages {
-    NewTurnMessages::new(id, testing::turn(turn), "replay", "test-model", messages(turn), keep)
+fn saved(id: ConversationId, turn: u64) -> NewTurnMessages {
+    NewTurnMessages::new(id, testing::turn(turn), "replay", "test-model", messages(turn))
 }
 
 /// Runs turn `turn` of `id` to its end, saving its messages in the same batch.
-async fn finish_turn(writer: &WriterHandle, id: ConversationId, turn: u64, keep: usize) {
+async fn finish_turn(writer: &WriterHandle, id: ConversationId, turn: u64) {
     writer
         .append(
             Batch::new()
@@ -43,7 +43,7 @@ async fn finish_turn(writer: &WriterHandle, id: ConversationId, turn: u64, keep:
                         context: None,
                     },
                 )
-                .turn_messages(saved(id, turn, keep)),
+                .turn_messages(saved(id, turn)),
         )
         .await
         .unwrap();
@@ -59,7 +59,7 @@ async fn a_turns_messages_come_back_exactly_with_its_provider_and_model() {
     let id = testing::conversation(1);
     writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
 
-    finish_turn(&writer, id, 1, 50).await;
+    finish_turn(&writer, id, 1).await;
 
     assert_eq!(
         read(&writer, id).await,
@@ -73,35 +73,25 @@ async fn a_turns_messages_come_back_exactly_with_its_provider_and_model() {
     assert_eq!(read(&writer, testing::conversation(2)).await, []);
 }
 
+/// Every request sends every turn since the newest summary word for word, so no turn
+/// leaves the table before a summary covers it, however many there are.
 #[tokio::test]
-async fn only_the_newest_turns_of_a_conversation_are_kept() {
+async fn every_turn_of_a_conversation_is_kept_until_a_summary_covers_it() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
     let (one, two) = (testing::conversation(1), testing::conversation(2));
     writer
         .append(Batch::new().event(one, testing::created(None)).event(two, testing::created(None)))
         .await
         .unwrap();
-    finish_turn(&writer, two, 9, 2).await;
+    finish_turn(&writer, two, 99).await;
 
-    for turn in 1..=4 {
-        finish_turn(&writer, one, turn, 2).await;
+    for turn in 1..=60 {
+        finish_turn(&writer, one, turn).await;
     }
 
     let kept: Vec<TurnId> = read(&writer, one).await.iter().map(|turn| turn.turn_id).collect();
-    assert_eq!(kept, [testing::turn(3), testing::turn(4)], "the oldest go first");
+    assert_eq!(kept, (1..=60).map(testing::turn).collect::<Vec<_>>(), "oldest first");
     assert_eq!(read(&writer, two).await.len(), 1, "another conversation keeps its own");
-}
-
-#[tokio::test]
-async fn a_history_of_no_turns_keeps_nothing() {
-    let (writer, _thread) = testing::memory_writer(TestClock::new());
-    let id = testing::conversation(1);
-    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
-    finish_turn(&writer, id, 1, 50).await;
-
-    finish_turn(&writer, id, 2, 0).await;
-
-    assert_eq!(read(&writer, id).await, []);
 }
 
 #[tokio::test]
@@ -122,7 +112,7 @@ async fn messages_are_saved_only_when_their_batch_commits() {
                         context: None,
                     },
                 )
-                .turn_messages(saved(id, 1, 50)),
+                .turn_messages(saved(id, 1)),
         )
         .await;
 
@@ -135,7 +125,7 @@ async fn a_projection_rebuild_leaves_the_messages_alone() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
     let id = testing::conversation(1);
     writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
-    finish_turn(&writer, id, 1, 50).await;
+    finish_turn(&writer, id, 1).await;
 
     writer.rebuild_projections().await.unwrap();
 
@@ -153,7 +143,7 @@ async fn a_summary_drops_the_turns_before_its_cut_and_the_whole_turn_it_covers()
     let id = testing::conversation(1);
     writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
     for turn in 1..=3 {
-        finish_turn(&writer, id, turn, 50).await;
+        finish_turn(&writer, id, turn).await;
     }
 
     writer.append(Batch::new().event(id, testing::compacted(1, 2, None, true))).await.unwrap();
@@ -167,7 +157,7 @@ async fn a_cut_inside_a_turn_keeps_that_turn_for_its_tail() {
     let id = testing::conversation(1);
     writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
     for turn in 1..=3 {
-        finish_turn(&writer, id, turn, 50).await;
+        finish_turn(&writer, id, turn).await;
     }
 
     writer.append(Batch::new().event(id, testing::compacted(1, 2, Some(1), true))).await.unwrap();
@@ -181,7 +171,7 @@ async fn a_pruning_alone_drops_no_turn() {
     let id = testing::conversation(1);
     writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
     for turn in 1..=2 {
-        finish_turn(&writer, id, turn, 50).await;
+        finish_turn(&writer, id, turn).await;
     }
 
     writer.append(Batch::new().event(id, testing::compacted(1, 2, None, false))).await.unwrap();
@@ -197,9 +187,9 @@ async fn a_compaction_inside_the_running_turn_drops_every_earlier_turn() {
         .append(Batch::new().event(one, testing::created(None)).event(two, testing::created(None)))
         .await
         .unwrap();
-    finish_turn(&writer, two, 9, 50).await;
+    finish_turn(&writer, two, 9).await;
     for turn in 1..=2 {
-        finish_turn(&writer, one, turn, 50).await;
+        finish_turn(&writer, one, turn).await;
     }
     writer
         .append(

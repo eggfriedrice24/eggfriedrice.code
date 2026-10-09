@@ -183,6 +183,38 @@ async fn the_turn_history_leaves_out_tool_output_updates() {
 }
 
 #[tokio::test]
+async fn a_turn_range_holds_the_events_of_one_conversation_without_tool_output_updates() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let (one, two) = (testing::conversation(1), testing::conversation(2));
+    let output = Event::ToolCallOutputUpdated {
+        turn_id: testing::turn(1),
+        call_id: testing::call(9),
+        tail: "building".to_owned(),
+        bytes: 10,
+    };
+    writer
+        .append(
+            Batch::new()
+                .event(one, testing::created(None))
+                .event(two, testing::created(None))
+                .event(one, prompt(1, "a"))
+                .event(two, prompt(3, "c"))
+                .event(one, output)
+                .event(one, prompt(2, "b")),
+        )
+        .await
+        .unwrap();
+
+    let range =
+        on_writer(&writer, move |conn| read_turn_range(conn, one, Seq::new(2), Seq::new(6)))
+            .await
+            .unwrap();
+
+    let seqs: Vec<u64> = range.iter().map(|envelope| envelope.seq.get()).collect();
+    assert_eq!(seqs, [3, 6], "the other conversation and the output stay out");
+}
+
+#[tokio::test]
 async fn last_seq_is_zero_for_an_empty_log_and_the_newest_seq_after() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());
     assert_eq!(on_writer(&writer, last_seq).await.unwrap(), Seq::ZERO);

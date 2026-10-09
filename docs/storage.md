@@ -88,7 +88,7 @@ conversations or the daemon's socket. The config root stays readable and read-on
   turn_seq)`, keyed by `(turn_id, position)`: the exact messages of a finished turn
   with the provider's own items (`provider_raw`), which no event holds. Saved in the
   batch of the turn's terminal event (`turn_seq` is its sequence number); each
-  conversation keeps its newest `history.max_turns` turns. Not a projection: the log
+  conversation keeps every turn that no summary covers yet. Not a projection: the log
   cannot rebuild it, so a rebuild leaves it alone and it has no foreign key to
   `turns`. A `conversation_compacted` with a summary deletes the rows of the turns
   before its cut in the same batch.

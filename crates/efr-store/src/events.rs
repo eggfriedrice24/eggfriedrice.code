@@ -106,6 +106,25 @@ pub fn read_turn_history(
     Ok(page)
 }
 
+/// The events of one conversation from `from` through `through`, without its
+/// `tool_call_output_updated` events, oldest first: the events of an older turn, for a
+/// turn that saved no messages and whose start is older than the page of
+/// [`read_turn_history`].
+pub fn read_turn_range(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    from: Seq,
+    through: Seq,
+) -> Result<Vec<EventEnvelope>, StoreError> {
+    query(
+        conn,
+        "SELECT seq, conversation_id, created_at, payload FROM events \
+         WHERE conversation_id = ?1 AND seq >= ?2 AND seq <= ?3 \
+         AND kind <> 'tool_call_output_updated' ORDER BY seq",
+        params![conversation_id.to_string(), sql::seq(from), sql::seq(through)],
+    )
+}
+
 /// The sequence number of the newest event, or [`Seq::ZERO`] for an empty log: the
 /// high-water mark a subscriber reads after it subscribes.
 pub fn last_seq(conn: &Connection) -> Result<Seq, StoreError> {

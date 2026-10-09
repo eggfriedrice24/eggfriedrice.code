@@ -34,7 +34,7 @@ mod compact;
 mod drafter;
 mod stream;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -176,6 +176,10 @@ pub(crate) struct TurnEnd {
     /// The fresh context block of the newest compaction, which the actor keeps for the
     /// next turns; `None` when the turn neither read nor made one.
     pub(crate) fresh: Option<Fresh>,
+    /// The earlier turns that the turn's newest request carried, after any compaction
+    /// of the turn: the only ones that the next turn can need from the actor's cache.
+    /// `None` when the turn stopped before it built a request.
+    pub(crate) carried: Option<HashSet<TurnId>>,
 }
 
 /// Runs the turn `spec` to its terminal event.
@@ -286,6 +290,8 @@ struct Turn {
     /// Set when the turn must end after the current call, such as after three
     /// refusals in a row.
     stop: Option<ErrorBody>,
+    /// The earlier turns that the newest request carried; see [`TurnEnd::carried`].
+    carried: Option<HashSet<TurnId>>,
 }
 
 /// What the check point found about one call before the call's start is recorded.
@@ -364,6 +370,7 @@ impl Turn {
             user_messages: Vec::new(),
             exits: TurnExits::default(),
             stop: None,
+            carried: None,
         }
     }
 
@@ -455,6 +462,7 @@ impl Turn {
         let history = config.history.for_window(self.limits().window);
         let mut window =
             snapshot.window(Some(turn_id), cache, &self.model_key(), history, fresh.as_deref());
+        self.carry(&window);
         let prompt = Message::new(
             Role::User,
             vec![
@@ -597,7 +605,7 @@ impl Turn {
         }
         let cached =
             (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
-        TurnEnd { turn_id, cached, record: batch, fresh: self.fresh }
+        TurnEnd { turn_id, cached, record: batch, fresh: self.fresh, carried: self.carried }
     }
 
     /// The turn's messages as the store saves them, or `None` for a turn that never
@@ -622,7 +630,6 @@ impl Turn {
             key.provider.as_str(),
             key.model.as_str(),
             messages,
-            self.config.history.max_turns,
         ))
     }
 
@@ -644,6 +651,15 @@ impl Turn {
         let index = u32::try_from(self.transcript.len()).unwrap_or(u32::MAX);
         window.placed.push(Placed { turn: self.turn_id(), index, message: message.clone() });
         self.transcript.push(message);
+    }
+
+    /// Notes the earlier turns that `window` carries, the only ones that the next turn
+    /// can need from the actor's cache.
+    fn carry(&mut self, window: &Window) {
+        let turn_id = self.turn_id();
+        let earlier =
+            window.placed.iter().map(|placed| placed.turn).filter(|turn| *turn != turn_id);
+        self.carried = Some(earlier.collect());
     }
 
     /// Adds to the window the messages of the transcript that it lacks: the text that

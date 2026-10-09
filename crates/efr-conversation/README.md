@@ -140,9 +140,10 @@ where the user went; without such a move the shell stays where the model left it
 request:
 
 1. the system prompt (the static rules, `ConversationConfig::system_prompt`);
-2. bounded history (`HistoryLimits`: 50 turns, 4096 events, 512 KiB of message JSON,
-   scaled to the model's window, see "Context"), each earlier turn from the actor's
-   cache or the saved turn messages, else rebuilt from its events;
+2. the history: every turn since the newest summary, each from the actor's cache or
+   the saved turn messages, else rebuilt from its events, within the byte limit of
+   `HistoryLimits` (512 KiB of message JSON, scaled to the model's window, see
+   "Context" and "The history only grows");
 3. the newest prompt, whose first block is the live-state preamble regenerated every
    turn: the shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
@@ -271,18 +272,18 @@ else changes.
 ### Provider items survive a restart
 
 `provider_raw` must go back unchanged to the model that made it, but no event in
-`efr-protocol` carries it. The actor keeps the exact messages of the turns it ran (as
-many as the history may carry), each with the provider and the model that answered
-it, and uses them while both are the same; with another provider or another model
-(a prompt that names one, or a new default in the config) they lose `provider_raw`:
-the other model's encrypted reasoning and item ids go, the text, the tool calls and
-their results stay, as opencode does. A turn also saves its exact messages in
-`efr_store::turn_messages`, in the batch that records its end, and the store keeps the
-newest `history.max_turns` turns of each conversation. After a restart the snapshot
-reads them back in place of the empty cache, so the next request is the same as
-without the restart. Only a turn with no saved messages (one from before the table,
-or one whose saved messages cannot be read back) is rebuilt from the events, with the
-daemon's call ids and without provider items.
+`efr-protocol` carries it. The actor keeps the exact messages of the turns it ran that
+the newest request carried, each with the provider and the model that answered it,
+and uses them while both are the same; with another provider or another model (a
+prompt that names one, or a new default in the config) they lose `provider_raw`: the
+other model's encrypted reasoning and item ids go, the text, the tool calls and their
+results stay, as opencode does. A turn also saves its exact messages in
+`efr_store::turn_messages`, in the batch that records its end, and the store keeps
+every turn until a summary covers it. After a restart the snapshot reads them back in
+place of the empty cache, so the next request is the same as without the restart.
+Only a turn with no saved messages (one from before the table, or one whose saved
+messages cannot be read back) is rebuilt from the events, with the daemon's call ids
+and without provider items or its preamble.
 
 A call of a freeform tool (its input is text, such as a patch) keeps that kind on the
 way: `ContentBlock::ToolCall` has `freeform` set in the saved messages, and the turn
@@ -320,17 +321,19 @@ The design:
    (`efr_store::conversations::turns`) and the saved messages, never from the
    4096-event page. A turn counts when it started and finished and the newest summary
    does not cover it. Its messages come from the actor's cache, else from
-   `turn_messages`, else from its events in the page. Only a turn with no saved
-   messages (one from an efr before the table) needs the page.
+   `turn_messages`, else from its events. Only a turn with no saved messages (one from
+   an efr before the table) needs its events; when it started before the page, the
+   store reads its events by their sequence numbers (`events::read_turn_range`).
 3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
    summary covers it, and the actor keeps in memory the turns that the newest request
    carried.
 4. The byte limit (`HistoryLimits::max_bytes`, at least twice the window) stays as
-   the safety net. When the window would leave out a turn (past the bytes, or a turn
-   without saved messages whose start fell out of the page), the guard compacts before
-   the model call, and that compaction always writes a summary. Only a turn that
-   cannot compact (auto off, or the breaker open) sends the history without that turn,
-   with the note `N earlier turns are omitted.`
+   the safety net. When the window would leave out a turn, the guard compacts before
+   the model call, and that compaction always writes a summary. This happens after a
+   switch to a model with a smaller window; otherwise the trigger compacts long
+   before. Only a turn that cannot compact (auto off, the breaker open, or nothing
+   before the verbatim tail) sends the history without that turn, with the note
+   `N earlier turns are omitted.`
 5. The fresh context block of a compaction is part of its record
    (`Compaction::fresh`). The turn and the manual compaction send that stored text, so
    a restart sends the same bytes. Only a compaction from an efr before this field
@@ -432,16 +435,17 @@ rather than late.
    line (see "Display").
 5. The safety net of `HistoryLimits` stays, scaled to the model's window
    (`HistoryLimits::for_window`): the byte limit is at least twice the window at 4
-   bytes a token, and the turn limit at least the event limit. So the net never
-   leaves out turns that the window can hold, and the compaction, not the net, makes
-   room. When it still leaves out earlier turns that ran and that no summary covers
-   (past the most turns or the most bytes, or a turn whose start fell out of the event
-   page), the history gets a user message `N earlier turns are omitted.` (`1 earlier
-   turn is omitted.` for one) after the summary, or first when there is no summary,
-   and the daemon logs one `warn` line with the count. It never leaves out turns
-   without that note. A turn that never started, such as one whose settings failed, is
-   no omitted turn. A summary written while turns were omitted records their count
-   (`omitted_turns`), see "Storage".
+   bytes a token. So the net never leaves out turns that the window can hold, and the
+   compaction, not the net, makes room. When the history would still leave out
+   earlier turns that ran and that no summary covers (past the most bytes), the turn
+   compacts first, with trigger `auto`, also below the trigger, and the compaction
+   always writes a summary. A turn that cannot compact sends a history with a user
+   message `N earlier turns are omitted.` (`1 earlier turn is omitted.` for one) after
+   the summary, or first when there is no summary, and the daemon logs one `warn`
+   line with the count. It never leaves out turns without that note. A turn that
+   never started, such as one whose settings failed, is no omitted turn. A summary
+   written while turns were omitted records their count (`omitted_turns`), see
+   "Storage". While the history leaves out turns, the breaker does not close.
 
 The turn sends the `compacting` draft before each compaction, records
 `conversation_compacted` itself, drops the base of its estimate, counts the misses of
@@ -743,9 +747,9 @@ append (with the prompt of another terminal left queued and a retry that gets th
 sequence numbers), a steer that a model call read, and a refused interrupt that
 changes nothing. The context tests (`turn/tests/context.rs`) cover the sums and the
 last call's count on the end event, the `context` drafts, the estimate of the next turn
-from the end of the last, the cache key, the hard cap with auto off, and the note for
-omitted turns, the safety net that scales with the window, a newest turn that has no
-end, and the breaker that stays open from turn to turn. The compaction tests (`turn/tests/compaction.rs`,
+from the end of the last, the cache key, the hard cap with auto off, a small event
+page that leaves out no turn, the safety net that scales with the window, a newest
+turn that has no end, and the breaker that stays open from turn to turn. The compaction tests (`turn/tests/compaction.rs`,
 `actor/tests/compact.rs`, `compaction/tests.rs`) use a model with a window of 100000
 tokens, big prompts and big reads: an auto compaction at the trigger that goes on with
 the turn, the request of the next turn (an insta snapshot of its shape) and the same
@@ -755,7 +759,9 @@ overflow even when pruning looks enough, a failed summary under and above the ha
 cap (with the provider's sentence), a summary request that leaves out its oldest
 messages and the note that the next turn rebuilds, a summary cut off at the output
 limit, a retry of the running manual compaction, the breaker, a pruning without a summary that the next
-turn rebuilds, a manual compaction with a focus, a prompt that waits for it, and its
+turn rebuilds, a history that would leave out a turn after a switch to a model with a
+smaller window and compacts instead, a manual compaction with a focus, a prompt that
+waits for it, and its
 refusals; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
 rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests
 (`turn/tests/sandbox.rs`) cover a contained call, a
