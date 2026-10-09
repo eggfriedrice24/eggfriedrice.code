@@ -770,6 +770,11 @@ rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fal
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,
 expired, refused for a phone, interrupted). `exit/tests.rs` checks `grant`, the question
 facts and the record against the real engine. The preamble is covered by insta
-snapshots. The scratch and resolver
+snapshots, and the redaction of the last command by table tests
+(`preamble/secrets/tests.rs`). The append-only test (`turn/tests/append_only.rs`) runs
+64 turns against a model that keeps every request (`testing::Recorder`), with tool
+calls, a manual compaction, a restart and more than 4096 events, and checks that each
+request starts with the request before it, except the first one after the
+compaction. The scratch and resolver
 tests use temporary directories; the resolver tests run git, isolated from the user's
 configuration. No test uses the network, a real model, real time or the user's home.

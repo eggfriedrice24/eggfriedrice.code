@@ -21,7 +21,10 @@ use efr_protocol::{
     SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
     TurnInterrupt, TurnSettings, TurnSteer, WithdrawTarget,
 };
-use efr_provider::{Message, ProviderEvent, ProviderId, Request, ToolDefinition, ToolGrammar};
+use efr_provider::{
+    ContentBlock, Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
+    Request, Role, StopReason, ToolDefinition, ToolGrammar,
+};
 use efr_scope::{Derivation, Home};
 use efr_stdx::id::uuid_v7;
 use efr_store::Committed;
@@ -522,6 +525,27 @@ impl Setup {
         start: ConversationStart,
         store: Option<TestStore>,
     ) -> Harness {
+        self.launch(Arc::clone(&provider), provider, start, store).await
+    }
+
+    /// Starts a new conversation whose model calls go to `model`, a provider that the
+    /// test wrote, for requests too many to write out. The harness's replay provider has
+    /// no exchanges.
+    pub(crate) async fn start_model(self, model: Arc<dyn Provider>) -> Harness {
+        let replay = ReplayProvider::new(&Transcript::from_records(Vec::new())).expect("replay");
+        let start = ConversationStart::New { origin: Origin::Shell, tty: None };
+        self.launch(Arc::new(replay), model, start, None).await
+    }
+
+    /// Starts the actor with `model` answering its model calls, and `replay` as the
+    /// harness's provider.
+    async fn launch(
+        self,
+        replay: Arc<ReplayProvider>,
+        model: Arc<dyn Provider>,
+        start: ConversationStart,
+        store: Option<TestStore>,
+    ) -> Harness {
         let store = match store {
             Some(store) => store,
             None => TestStore::open(self.clock.shared()).await.expect("store"),
@@ -536,7 +560,7 @@ impl Setup {
         let engine = watch::channel(Arc::new(Engine::with_defaults(locations))).1;
         let (sandbox, sandbox_receiver) = watch::channel(self.sandbox);
         let deps = ConversationDeps {
-            provider: provider.clone(),
+            provider: model,
             toolbox: toolbox.clone(),
             engine,
             scope: Arc::new(self.scope),
@@ -559,7 +583,7 @@ impl Setup {
             clock: self.clock,
             store,
             toolbox,
-            provider,
+            provider: replay,
             handle,
             events,
             conversation_id: self.conversation_id,
@@ -595,12 +619,25 @@ impl Harness {
     /// store, as the daemon does after a restart, with a provider named `provider_id`
     /// that answers from `records`.
     pub(crate) async fn restart(self, records: Vec<Record>, provider_id: &str) -> Harness {
-        self.handle.shutdown().await.expect("the actor stops");
         let transcript = Transcript::from_records(records);
         let provider = ReplayProvider::new(&transcript)
             .expect("transcript")
             .with_id(ProviderId::new(provider_id).expect("provider id"))
             .paced();
+        let provider = Arc::new(provider);
+        self.restart_on(Arc::clone(&provider), provider).await
+    }
+
+    /// Stops this actor and starts a new one for the same conversation over the same
+    /// store, as the daemon does after a restart, with `model` answering its model
+    /// calls; see [`Setup::start_model`].
+    pub(crate) async fn restart_model(self, model: Arc<dyn Provider>) -> Harness {
+        let replay = ReplayProvider::new(&Transcript::from_records(Vec::new())).expect("replay");
+        self.restart_on(Arc::new(replay), model).await
+    }
+
+    async fn restart_on(self, replay: Arc<ReplayProvider>, model: Arc<dyn Provider>) -> Harness {
+        self.handle.shutdown().await.expect("the actor stops");
         let setup = Setup {
             dirs: self.dirs,
             clock: self.clock,
@@ -613,9 +650,8 @@ impl Harness {
             drafts: draft_channel(),
             rng_seed: 8,
         };
-        let mut harness = setup
-            .start_provider(Arc::new(provider), ConversationStart::Existing, Some(self.store))
-            .await;
+        let mut harness =
+            setup.launch(replay, model, ConversationStart::Existing, Some(self.store)).await;
         harness.next_command = self.next_command;
         harness
     }
@@ -827,7 +863,6 @@ fn is_end(event: &Event, turn_id: TurnId) -> bool {
 
 /// The newest prompt as the request carries it: the preamble, then the text.
 pub(crate) fn user_prompt(state: &LiveState, text: &str) -> Message {
-    use efr_provider::{ContentBlock, Role};
     Message::new(
         Role::User,
         vec![
@@ -904,10 +939,7 @@ pub(crate) fn hold() -> Record {
 
 /// A complete text answer.
 pub(crate) fn text_answer(text: &str) -> Vec<ProviderEvent> {
-    vec![
-        ProviderEvent::TextDelta { text: text.to_owned() },
-        done(efr_provider::StopReason::EndTurn, None),
-    ]
+    vec![ProviderEvent::TextDelta { text: text.to_owned() }, done(StopReason::EndTurn, None)]
 }
 
 /// An answer that calls one tool.
@@ -919,11 +951,11 @@ pub(crate) fn tool_answer(call_id: &str, name: &str, input: &Value) -> Vec<Provi
             freeform: false,
         },
         ProviderEvent::ToolCallEnd { call_id: call_id.to_owned(), arguments: input.to_string() },
-        done(efr_provider::StopReason::ToolUse, None),
+        done(StopReason::ToolUse, None),
     ]
 }
 
-pub(crate) fn done(stop_reason: efr_provider::StopReason, raw: Option<Value>) -> ProviderEvent {
+pub(crate) fn done(stop_reason: StopReason, raw: Option<Value>) -> ProviderEvent {
     ProviderEvent::Done { stop_reason, provider_raw: raw }
 }
 
@@ -936,13 +968,12 @@ pub(crate) fn freeform_answer(call_id: &str, name: &str, text: &str) -> Vec<Prov
             freeform: true,
         },
         ProviderEvent::ToolCallEnd { call_id: call_id.to_owned(), arguments: text.to_owned() },
-        done(efr_provider::StopReason::ToolUse, None),
+        done(StopReason::ToolUse, None),
     ]
 }
 
 /// The assistant message of [`freeform_answer`].
 pub(crate) fn freeform_message(call_id: &str, name: &str, text: &str) -> Message {
-    use efr_provider::{ContentBlock, Role};
     Message::new(
         Role::Assistant,
         vec![ContentBlock::ToolCall {
@@ -956,7 +987,6 @@ pub(crate) fn freeform_message(call_id: &str, name: &str, text: &str) -> Message
 
 /// The assistant message of [`tool_answer`].
 pub(crate) fn tool_message(call_id: &str, name: &str, input: &Value) -> Message {
-    use efr_provider::{ContentBlock, Role};
     Message::new(
         Role::Assistant,
         vec![ContentBlock::ToolCall {
@@ -970,7 +1000,6 @@ pub(crate) fn tool_message(call_id: &str, name: &str, input: &Value) -> Message 
 
 /// The user message that answers one tool call.
 pub(crate) fn result_message(call_id: &str, output: &str, is_error: bool) -> Message {
-    use efr_provider::{ContentBlock, Role};
     Message::new(
         Role::User,
         vec![ContentBlock::ToolResult {
@@ -984,6 +1013,66 @@ pub(crate) fn result_message(call_id: &str, output: &str, is_error: bool) -> Mes
 /// The event of `events` that `wanted` accepts.
 pub(crate) fn find(events: &[Event], wanted: impl Fn(&Event) -> bool) -> Event {
     events.iter().find(|event| wanted(event)).cloned().expect("the event is in the log")
+}
+
+/// A model that answers every request at once and keeps it, for a test whose requests
+/// are too many to write out. A summary request (a side call) gets [`SUMMARY`]. A prompt
+/// whose text starts with `read ` gets one `read_file` call of the rest first. Every
+/// other request gets `words` text deltas, each one event in the log, and a `done` with
+/// provider items that name the answer, so a request that sends them back sends them
+/// as they came.
+#[derive(Debug)]
+pub(crate) struct Recorder {
+    id: ProviderId,
+    words: usize,
+    requests: Mutex<Vec<Request>>,
+}
+
+impl Recorder {
+    pub(crate) fn new(words: usize) -> Arc<Self> {
+        let id = ProviderId::new("replay").expect("provider id");
+        Arc::new(Recorder { id, words, requests: Mutex::new(Vec::new()) })
+    }
+
+    /// Every request so far, in order.
+    pub(crate) fn requests(&self) -> Vec<Request> {
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// The answer to `request`, the `number`th one.
+    fn answer(&self, request: &Request, number: usize) -> Vec<ProviderEvent> {
+        if request.side_call {
+            return text_answer(SUMMARY);
+        }
+        let asked = request.messages.last().and_then(|message| match message.content.last() {
+            Some(ContentBlock::Text { text }) if message.role == Role::User => {
+                text.strip_prefix("read ").map(str::to_owned)
+            }
+            _ => None,
+        });
+        if let Some(path) = asked {
+            return tool_answer(&format!("call_{number}"), "read_file", &json!({ "path": path }));
+        }
+        let mut events: Vec<ProviderEvent> = (0..self.words)
+            .map(|word| ProviderEvent::TextDelta { text: format!("w{word} ") })
+            .collect();
+        events.push(done(StopReason::EndTurn, Some(json!([{ "id": format!("msg_{number}") }]))));
+        events
+    }
+}
+
+#[async_trait]
+impl Provider for Recorder {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        let mut requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        let events = self.answer(&request, requests.len());
+        requests.push(request);
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+    }
 }
 
 // Compaction: a model with a small window, big prompts and big reads.
