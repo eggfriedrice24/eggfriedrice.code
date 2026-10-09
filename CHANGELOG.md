@@ -203,8 +203,7 @@ into the GitHub release notes, and it stops when the section is missing.
   checks the key with one request that runs no model, `--no-check` skips the check,
   and then efrd keeps the key in its `secrets/` directory. A login does not change
   the provider of new conversations: efr says how to set `[model] provider` and that
-  efrd needs a restart. The check of an Anthropic key fails until efrd can reach
-  Anthropic, so use `--no-check` for now.
+  efrd needs a restart.
 - `efr logout <provider>` forgets the login of `openai`, `openai-api` or `anthropic`.
   A key stays valid at its provider; efr says where to revoke it.
 - `efr status` lists every provider (`openai-subscription`, `openai-api` and
