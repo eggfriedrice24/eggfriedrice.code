@@ -28,8 +28,11 @@
 //!    is dropped, because another model's thinking cannot go back. A tool call whose
 //!    input is not a JSON object, such as a freeform call's text, goes as
 //!    `{"input": <value>}`.
-//! 3. Adjacent messages of one role merge into one, so the bytes depend only on the
-//!    canonical history. The elements of a merged raw message stay exact.
+//! 3. Adjacent assistant messages merge into one, so the bytes depend only on the
+//!    canonical history. The elements of a merged raw message stay exact. Adjacent
+//!    user messages stay apart, such as a new prompt after a turn that ended on its
+//!    tool results or on its prompt: the API joins them itself, and the user message
+//!    that ended the request before keeps its bytes.
 //! 4. In a user message, `tool_result` blocks come first, then any text and images. A
 //!    result with an empty output has no `content`.
 //! 5. A `tool_use` without a `tool_result` in the next message gets an `is_error`
@@ -42,8 +45,7 @@
 //! The prompt cache markers come from `breakpoints`, a pure function of the shape of
 //! the request; the conversion puts each marker as the last member of the block that it
 //! names. Two following requests of one conversation give the same bytes for `tools`,
-//! `system` and every earlier message, apart from the markers and a user message that
-//! ended the request before, into which rule 3 merges a new user message.
+//! `system` and every earlier message, apart from the markers.
 //!
 //! The provider calls [`request_body`] once per call and sends the body's
 //! [`betas`](MessagesBody::betas) as the `anthropic-beta` header.
@@ -384,7 +386,9 @@ impl BodyMessage {
 }
 
 /// The body messages of `messages`: each converted, the empty ones left out, adjacent
-/// ones of one role merged, and every open tool call answered.
+/// assistant messages merged, and every open tool call answered. Adjacent user
+/// messages stay apart: the API joins them, and a user message that ended the request
+/// before keeps its bytes when a new one follows it.
 fn drafts(messages: &[Message]) -> Vec<Draft> {
     let mut drafts: Vec<Draft> = Vec::with_capacity(messages.len());
     for message in messages {
@@ -400,7 +404,9 @@ fn drafts(messages: &[Message]) -> Vec<Draft> {
             continue;
         }
         match drafts.last_mut() {
-            Some(last) if last.role == draft.role => last.absorb(draft),
+            Some(last) if last.role == Role::Assistant && draft.role == Role::Assistant => {
+                last.absorb(draft);
+            }
             _ => drafts.push(draft),
         }
     }

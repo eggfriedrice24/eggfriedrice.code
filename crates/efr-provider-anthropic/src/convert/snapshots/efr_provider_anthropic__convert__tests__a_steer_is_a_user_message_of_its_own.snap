@@ -97,13 +97,18 @@ expression: pretty(&body(&request))
           "type": "tool_result",
           "tool_use_id": "toolu_01",
           "content": "Cargo.toml\nsrc"
-        },
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
         {
           "type": "text",
           "text": "Only count them.",
           "cache_control": {
             "type": "ephemeral",
-            "ttl": "5m"
+            "ttl": "1h"
           }
         }
       ]

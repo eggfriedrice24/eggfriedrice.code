@@ -369,18 +369,29 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
     // The summary request reads the whole conversation from the cache and writes no
     // long entry for its own tail.
     assert!(starts_with(summary_call, answer_call), "the summary request is a cache-safe fork");
-    // All four places: S, the anchor, P on the tail of the call before, and the tail,
-    // which holds the next prompt and the summary prompt.
+    // All four places: S, the anchor, P on the tail of the call before, and the tail on
+    // the summary prompt, a message of its own after the next prompt.
     assert_eq!(
         markers(summary_call),
-        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "5m"), ("message 4", "5m")])
+        marks(&[("system", "1h"), ("message 0", "1h"), ("message 2", "5m"), ("message 5", "5m")])
     );
-    // After the compaction, one user message holds the head and the prompt, and it
-    // opens the turn.
-    let head = after_call["messages"][0]["content"].to_string();
-    assert!(head.contains("SUMMARY: src/lib.rs calls new()."), "{head}");
-    assert!(head.contains("now the farewell"), "{head}");
-    assert_eq!(markers(after_call), marks(&[("system", "1h"), ("message 0", "1h")]));
+    let next_prompt = summary_call["messages"][4]["content"].to_string();
+    assert!(next_prompt.contains("now the farewell"), "{next_prompt}");
+    // After the compaction, the head (the fresh block and the summary) and the prompt
+    // are user messages of their own, one run that opens the turn: its last message
+    // carries the tail.
+    let roles: Vec<&str> = after_call["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(roles, ["user", "user", "user"]);
+    let summary = after_call["messages"][1]["content"].to_string();
+    assert!(summary.contains("SUMMARY: src/lib.rs calls new()."), "{summary}");
+    let prompt = after_call["messages"][2]["content"].to_string();
+    assert!(prompt.contains("now the farewell"), "{prompt}");
+    assert_eq!(markers(after_call), marks(&[("system", "1h"), ("message 2", "1h")]));
 
     // Each request logs its markers at debug level, and each call after the first one
     // carries the gap since the start of the call before: the measurement of the time

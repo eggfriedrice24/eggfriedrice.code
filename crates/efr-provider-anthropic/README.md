@@ -96,9 +96,13 @@ Modules:
   assistant message, or a `provider_raw` that is not such a text, is built from its
   text and tool calls, and its reasoning is dropped; a tool call input that is not an
   object goes as `{"input": <value>}`.
-- Adjacent messages of one role merge, and the blocks of merged raw messages stay
-  exact. `tool_result` blocks come first in a user message, and a result with an empty
-  output has no `content`. Empty text blocks are dropped, and so is a message that
+- Adjacent assistant messages merge, and the blocks of merged raw messages stay exact.
+  Adjacent user messages stay apart, such as a new prompt after a turn that ended on
+  its tool results (an interrupt while a tool ran) or on its prompt (a model call that
+  failed before an answer), or a steer after tool results: the API joins adjacent
+  messages of one role itself, and the user message that ended the request before
+  keeps its bytes. `tool_result` blocks come first in a user message, and a result
+  with an empty output has no `content`. Empty text blocks are dropped, and so is a message that
   becomes empty. A `tool_use` that the next message does not answer gets a failed
   result with one fixed text. A tool id outside `[a-zA-Z0-9_-]` gets `_` for each
   other character.
@@ -116,7 +120,7 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
 pub(crate) struct Layout<'a> {
     pub(crate) system: bool,          // the body has a system block
     pub(crate) tools: bool,           // the body has at least one tool
-    pub(crate) messages: &'a [Shape], // the body's messages, after the merge
+    pub(crate) messages: &'a [Shape], // the body's messages
     pub(crate) side_call: bool,       // Request::side_call
 }
 pub(crate) struct Shape { pub(crate) role: Role, pub(crate) opens_turn: bool, pub(crate) tokens: u64 }
@@ -131,16 +135,20 @@ conversion's estimate of a message: its JSON bytes without markers over 4, round
 so the same for the same bytes. A marker is `"cache_control": {"type": "ephemeral",
 "ttl": "5m"}` (or `"1h"`), always the last member of its block. The rules:
 
+- Places: the conversion never merges user messages, and the API joins a run of
+  adjacent user messages into one. Only the last message of a run ever ended the
+  request of a call, so a run is one place, at its last message, and markers sit only
+  there.
 - At most four markers, in the order of the prefix: S (the system block, else the last
-  tool), A (the last anchor before the tail), P (the previous tail: the last user
-  message before the tail, where the call before put its T) and T (the tail, the last
+  tool), A (the last anchor before the tail), P (the previous tail: the last place
+  before the tail, where the call before put its T) and T (the tail, the last
   message). Markers sit only on the system block, a tool or the last block of a user
   message, never on a `thinking` block. No top-level automatic marker.
-- Anchors: every user message ends the request of one call. That call marks an anchor
-  at it when the message opens a turn, or when the messages after the last anchor, that
-  one included, hold more than `ANCHOR_STEP_TOKENS` (20,000). A side call never marks
-  one. Because the history is append-only, every later request finds the same anchors,
-  also after a restart.
+- Anchors: every place ends the request of one call. That call marks an anchor at it
+  when a message of its run opens a turn, or when the messages after the last anchor,
+  the run included, hold more than `ANCHOR_STEP_TOKENS` (20,000). A side call never
+  marks one. Because the history is append-only, every later request finds the same
+  anchors, also after a restart.
 - State: the placement needs the place of the last anchor and the tokens after it. No
   one keeps these numbers. The placement computes them again from the messages on every
   call, so the state is the history itself, which `efr-conversation` keeps and sends
@@ -156,12 +164,11 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
   before wrote for five minutes. Whether the API then keeps a full one-hour entry is a
   check on a test key before the release; if it fails, `auto` falls back to one hour on
   every marker.
-- Known gap: a new prompt after an interrupted call merges into the user message of
-  the call's results, so it does not open a turn; it marks an anchor only by size. The
-  tool loop after the last anchor then has a five-minute entry only, and a pause of
-  more than five minutes in the new turn loses it, which can be more than
-  `ANCHOR_STEP_TOKENS`. A prompt after a turn that failed before an answer merges into
-  that turn's prompt, which opens a turn, so it marks an anchor.
+- A new prompt is always a user message of its own, also after a turn that ended on
+  its tool results or on its prompt, so the first call of every turn marks an anchor,
+  at the new prompt. A steer after tool results is a message of its own too, so the
+  call that sends it marks an anchor: it holds a person's words, and a pause can
+  follow it.
 
 Kept stable for a whole conversation: the tool list and its order, the system prompt,
 the thinking mode and display, and the effort. A change of the tools invalidates every
@@ -332,11 +339,10 @@ snapshots), `rstest`, `pretty_assertions`, `tempfile`, `tokio`, `tracing-subscri
   the same bytes for an old answer, but whether the thinking binding reads these bytes
   as the ones that it signed is a check on a test key.
 - Two following requests of one conversation have the same bytes for `tools`, `system`
-  and every earlier message, apart from the cache markers and one case: a user message
-  that ended the request before gets more blocks at its end when the next request
-  merges a new message of the same role into it. This can occur after a turn that
-  ended on its tool results (an interrupt while a tool ran) or on its prompt (a turn
-  that failed before an answer). The blocks before stay the same.
+  and every earlier message, apart from the cache markers. The conversion never merges
+  user messages, so a user message that ended the request before keeps its bytes when
+  a new prompt follows it, as after a turn that ended on its tool results (an
+  interrupt while a tool ran) or on its prompt (a turn that failed before an answer).
 - A model call is never sent again after its stream has started.
 - No model table and no guessed window: every model fact comes from the API.
 
@@ -394,6 +400,7 @@ that the answer quotes, the broken lists and every result of `check_key`. `failu
 tests are table tests of each answer's class and of each `error` event.
 `convert::breakpoints` tests are table tests of the placement: the walkthrough of two
 turns with a tool loop, a steer, a summary request and the calls after a compaction,
+the anchor of a prompt after a turn that ended on its tool results or on its prompt,
 the anchor of a grown tool loop, a side call, each time to live, the fallbacks of S,
 and every short history under every setting against the rules of the API (at most four
 markers, in order, no one-hour marker after a five-minute one).
@@ -402,8 +409,9 @@ markers, in order, no one-hour marker after a five-minute one).
 first call, a tool loop, a steer, the head after a compaction, a summary request, no
 system prompt) and check each rule of "The request" in table tests, the raw replay
 byte for byte among them. `convert::tests::prefix` builds the requests of four turns
-from the stream fixtures and checks that each body, without its markers, is a byte
-prefix of the next. `sse_events` tests read the hand-written streams in
+from the stream fixtures, and of turns that end on their tool results or on their
+prompt after a failed call, and checks that each body, without its markers, is a byte
+prefix of the next, and that the first call of each turn marks an anchor. `sse_events` tests read the hand-written streams in
 `fixtures/messages/` (text, a tool call, thinking, omitted thinking, redacted
 thinking, an error after the start, `max_tokens`, `refusal`) and cover each stop
 reason, each error type, unknown events and broken tool calls.

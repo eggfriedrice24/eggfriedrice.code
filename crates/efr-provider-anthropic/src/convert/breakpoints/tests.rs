@@ -35,6 +35,14 @@ fn place(messages: &[Shape], side_call: bool, ttl: CacheTtl) -> Vec<Breakpoint> 
     let layout = Layout { system: true, tools: true, messages, side_call };
     let marks = place_breakpoints(&layout, ttl);
     assert_rules(&marks);
+    // A marker sits on a user message that ends its run, which the API joins into one.
+    for mark in &marks {
+        if let Target::Message(index) = mark.target {
+            assert_eq!(messages[index].role, Role::User, "{marks:?}");
+            let next = messages.get(index + 1).map(|shape| shape.role);
+            assert_ne!(next, Some(Role::User), "{marks:?} in {messages:?}");
+        }
+    }
     marks
 }
 
@@ -92,11 +100,13 @@ fn the_walkthrough_of_two_turns_with_a_tool_loop() {
 
 #[test]
 fn the_walkthrough_of_a_steer_a_summary_and_a_compaction() {
-    // A steer merges into the results after them, so the message still holds a
-    // `tool_result` and does not open a turn.
-    let steered = [prompt(1_000), answer(500), results(400)];
-    // The summary request of a compaction inside a turn ends with the summary prompt
-    // merged after the last results.
+    // A steer is a user message of its own after the results, in one run with them:
+    // the run opens a turn, so the call that sends it marks an anchor. The results
+    // never ended a request, so no marker goes on them.
+    let steered = [prompt(1_000), answer(500), results(300), prompt(100)];
+    // The summary request of a compaction inside a turn ends with the summary prompt,
+    // a message of its own after the last results; a side call marks no anchor, and P
+    // reads the results before, where the call before put its T.
     let summary = [
         prompt(1_000),
         answer(500),
@@ -104,26 +114,52 @@ fn the_walkthrough_of_a_steer_a_summary_and_a_compaction() {
         answer(400),
         results(200),
         answer(100),
-        results(900),
+        results(800),
+        prompt(100),
     ];
-    // The first call after a compaction inside a turn: the head (fresh block, summary,
-    // gap note) is one user message that opens a turn, then the kept tail.
-    let compacted_in_turn = [prompt(6_000), answer(300), results(200)];
-    // After a compaction at the start of a turn the head and the new prompt merge.
-    let compacted_at_start = [prompt(7_000)];
+    // The first call after a compaction inside a turn: the head (fresh block, summary)
+    // is a user message for each part, one run that opens a turn, then the kept tail.
+    let compacted_in_turn = [prompt(3_000), prompt(3_000), answer(300), results(200)];
+    // After a compaction at the start of a turn the new prompt ends the run of the head.
+    let compacted_at_start = [prompt(3_000), prompt(3_000), prompt(1_000)];
     let cases: [(&[Shape], bool, Vec<Breakpoint>); 4] = [
-        (&steered, false, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
+        (&steered, false, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 3, H)]),
         (
             &summary,
             true,
-            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, M), at(Slot::Tail, 6, M)],
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Previous, 4, M), at(Slot::Tail, 7, M)],
         ),
-        (&compacted_in_turn, false, vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 2, M)]),
-        (&compacted_at_start, false, vec![system(H), at(Slot::Tail, 0, H)]),
+        (&compacted_in_turn, false, vec![system(H), at(Slot::Anchor, 1, H), at(Slot::Tail, 3, M)]),
+        (&compacted_at_start, false, vec![system(H), at(Slot::Tail, 2, H)]),
     ];
     for (messages, side_call, expected) in cases {
         assert_eq!(place(messages, side_call, CacheTtl::Auto), expected, "{messages:?}");
     }
+}
+
+#[test]
+fn a_prompt_after_a_turn_that_ended_on_a_user_message_marks_its_anchor() {
+    // An interrupt while a tool ran: the turn ended on its results, and the new prompt
+    // follows them as a message of its own.
+    let interrupted = [prompt(1_000), answer(500), results(300), prompt(200)];
+    // A model call that failed before an answer: the turn ended on its prompt.
+    let failed = [prompt(1_000), answer(500), prompt(300), prompt(200)];
+    // Each ends in a run of two user messages that opens a turn: the call marks an
+    // anchor at the new prompt, and the anchor before is the earlier prompt, where the
+    // last call that got an answer put its T.
+    for messages in [&interrupted, &failed] {
+        assert_eq!(
+            place(messages, false, CacheTtl::Auto),
+            vec![system(H), at(Slot::Anchor, 0, H), at(Slot::Tail, 3, H)],
+            "{messages:?}"
+        );
+    }
+    // The next call of the new turn finds the anchor at the new prompt.
+    let next = [prompt(1_000), answer(500), results(300), prompt(200), answer(100), results(100)];
+    assert_eq!(
+        place(&next, false, CacheTtl::Auto),
+        vec![system(H), at(Slot::Anchor, 3, H), at(Slot::Tail, 5, M)]
+    );
 }
 
 #[test]
@@ -229,9 +265,18 @@ fn a_body_without_a_user_tail_marks_only_the_system() {
 
 #[test]
 fn every_placement_keeps_the_rules_of_the_api() {
-    // Every history of up to four calls, each with a small or a large tool loop and
-    // with or without a new prompt, under every time to live and as a side call.
-    let kinds = [results(100), results(25_000), prompt(100), prompt(25_000)];
+    // Every history of up to four calls, each with a small or a large tool loop, with
+    // or without a new prompt, and with a run of two user messages (a steer after the
+    // results, or a prompt after a turn that ended early), under every time to live
+    // and as a side call.
+    let kinds: [&[Shape]; 6] = [
+        &[results(100)],
+        &[results(25_000)],
+        &[prompt(100)],
+        &[prompt(25_000)],
+        &[results(100), prompt(100)],
+        &[prompt(100), prompt(25_000)],
+    ];
     let mut histories: Vec<Vec<Shape>> = vec![vec![prompt(100)]];
     for _ in 0..3 {
         let mut longer = Vec::new();
@@ -239,7 +284,7 @@ fn every_placement_keeps_the_rules_of_the_api() {
             for kind in kinds {
                 let mut next = history.clone();
                 next.push(answer(300));
-                next.push(kind);
+                next.extend_from_slice(kind);
                 longer.push(next);
             }
         }

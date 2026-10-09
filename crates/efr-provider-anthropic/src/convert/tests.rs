@@ -126,7 +126,7 @@ fn a_tool_loop_sends_the_answer_back_as_it_came() {
 }
 
 #[test]
-fn a_steer_merges_into_the_results_after_them() {
+fn a_steer_is_a_user_message_of_its_own() {
     let request = request(vec![
         Message::user("Which files are here?"),
         written(vec![call("toolu_01", "ls")], THINK_AND_CALL),
@@ -137,7 +137,7 @@ fn a_steer_merges_into_the_results_after_them() {
 }
 
 #[test]
-fn the_head_after_a_compaction_is_one_message() {
+fn the_head_after_a_compaction_keeps_a_message_for_each_part() {
     let request = request(vec![
         Message::user("<fresh_context>The user's shell is in /home/u/p/efr.</fresh_context>"),
         Message::user("<summary>The user asked for the files; there are two.</summary>"),
@@ -330,8 +330,8 @@ fn raw_content_of_only_an_empty_text_block_sends_no_message() {
     ]);
     let body = value(&body(&request));
     let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 1, "{messages:?}");
-    assert_eq!(messages[0]["role"], "user");
+    let roles: Vec<&Value> = messages.iter().map(|message| &message["role"]).collect();
+    assert_eq!(roles, ["user", "user"], "{messages:?}");
 }
 
 #[test]
@@ -426,18 +426,21 @@ fn a_rebuilt_answer_keeps_text_and_calls_and_drops_reasoning() {
 }
 
 #[test]
-fn tool_results_come_before_text_in_a_merged_user_message() {
+fn tool_results_come_before_text_in_a_user_message() {
     let request = request(vec![
         Message::user("Go."),
         written(vec![call("toolu_01", "ls")], THINK_AND_CALL),
         user(vec![text("Before."), result("toolu_01", "src")]),
         Message::user("After."),
     ]);
-    let content = value(&body(&request))["messages"][2]["content"].clone();
+    let messages = value(&body(&request))["messages"].clone();
+    let content = messages[2]["content"].clone();
     let kinds: Vec<&str> =
         content.as_array().unwrap().iter().map(|block| block["type"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["tool_result", "text", "text"]);
+    assert_eq!(kinds, ["tool_result", "text"]);
     assert_eq!(content[1]["text"], json!("Before."));
+    // The next user message stays a message of its own.
+    assert_eq!(messages[3]["content"][0]["text"], json!("After."));
 }
 
 #[test]
@@ -474,12 +477,16 @@ fn empty_text_and_empty_messages_are_left_out() {
         user(vec![text(""), text("Two.")]),
     ]);
     let messages = value(&body(&request))["messages"].clone();
+    // The two user messages stay apart, one run that the API joins: only the last one
+    // carries the tail's marker.
     assert_eq!(
         messages,
-        json!([{"role": "user", "content": [
-            {"type": "text", "text": "One."},
-            {"type": "text", "text": "Two.", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
-        ]}])
+        json!([
+            {"role": "user", "content": [{"type": "text", "text": "One."}]},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Two.", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+            ]},
+        ])
     );
 }
 

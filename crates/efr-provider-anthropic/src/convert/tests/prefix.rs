@@ -35,27 +35,44 @@ fn result(call_id: &str, output: &str) -> Message {
     )
 }
 
-/// The requests of four turns, the first with a tool loop, the others answered with
-/// thinking, redacted thinking or text: each request is the one before plus the answer
-/// and the next message.
-fn requests() -> Vec<Request> {
-    let steps = [
-        (None, Message::user("Which files are here?")),
-        (Some("tool_use.sse"), result("toolu_01T1x5fJ9mB7sQe3RkVw8ZpN", "Cargo.toml\nsrc")),
-        (Some("text.sse"), Message::user("Why does the build fail?")),
-        (Some("thinking.sse"), Message::user("Check the path first.")),
-        (Some("redacted_thinking.sse"), Message::user("Thanks.")),
-    ];
+/// The requests of `steps`: each request is the one before plus the answer of a stream
+/// fixture, or no answer when that request failed, and the next message.
+fn requests_of(steps: &[(Option<&str>, Message)]) -> Vec<Request> {
     let mut history = Vec::new();
     let mut requests = Vec::new();
     for (answered, next) in steps {
         if let Some(fixture) = answered {
             history.push(answer(fixture));
         }
-        history.push(next);
+        history.push(next.clone());
         requests.push(request(history.clone()));
     }
     requests
+}
+
+/// The requests of four turns, the first with a tool loop, the others answered with
+/// thinking, redacted thinking or text.
+fn requests() -> Vec<Request> {
+    requests_of(&[
+        (None, Message::user("Which files are here?")),
+        (Some("tool_use.sse"), result("toolu_01T1x5fJ9mB7sQe3RkVw8ZpN", "Cargo.toml\nsrc")),
+        (Some("text.sse"), Message::user("Why does the build fail?")),
+        (Some("thinking.sse"), Message::user("Check the path first.")),
+        (Some("redacted_thinking.sse"), Message::user("Thanks.")),
+    ])
+}
+
+/// The requests of turns that end on a user message: a call whose request ended on its
+/// tool results and failed, then a new prompt; a turn whose request ended on its prompt
+/// and failed before an answer, then a new prompt.
+fn requests_after_failures() -> Vec<Request> {
+    requests_of(&[
+        (None, Message::user("Which files are here?")),
+        (Some("tool_use.sse"), result("toolu_01T1x5fJ9mB7sQe3RkVw8ZpN", "Cargo.toml\nsrc")),
+        (None, Message::user("Try again.")),
+        (Some("text.sse"), Message::user("Why does the build fail?")),
+        (None, Message::user("Answer, please.")),
+    ])
 }
 
 #[rstest]
@@ -63,8 +80,25 @@ fn requests() -> Vec<Request> {
 #[case::five_minutes(CacheTtl::FiveMinutes)]
 #[case::one_hour(CacheTtl::OneHour)]
 fn each_body_is_a_byte_prefix_of_the_next(#[case] ttl: CacheTtl) {
+    assert_each_is_a_prefix_of_the_next(&requests(), ttl);
+}
+
+#[rstest]
+#[case::auto(CacheTtl::Auto)]
+#[case::five_minutes(CacheTtl::FiveMinutes)]
+#[case::one_hour(CacheTtl::OneHour)]
+fn a_prompt_after_a_turn_that_ended_on_a_user_message_keeps_that_message(#[case] ttl: CacheTtl) {
+    // The new prompt is a message of its own: the user message that ended the request
+    // before keeps its bytes. The API joins the two, efr does not.
+    assert_each_is_a_prefix_of_the_next(&requests_after_failures(), ttl);
+    let body = body_with(requests_after_failures().last().unwrap(), &AnthropicConfig::new());
+    let roles: Vec<&str> = body.messages.iter().map(|message| message.role).collect();
+    assert_eq!(roles, ["user", "assistant", "user", "user", "assistant", "user", "user"]);
+}
+
+fn assert_each_is_a_prefix_of_the_next(requests: &[Request], ttl: CacheTtl) {
     let config = AnthropicConfig::new().with_cache_ttl(ttl);
-    let bodies: Vec<_> = requests().iter().map(|request| body_with(request, &config)).collect();
+    let bodies: Vec<_> = requests.iter().map(|request| body_with(request, &config)).collect();
     for pair in bodies.windows(2) {
         let (before, after) = (&pair[0], &pair[1]);
         assert!(serde_json::to_string(before).unwrap().contains("cache_control"));
@@ -89,13 +123,20 @@ fn the_raw_content_of_each_answer_is_in_every_later_body() {
     }
 }
 
-#[test]
-fn a_loop_call_reads_its_anchor_from_an_entry_that_a_call_wrote_for_one_hour() {
+// Each prompt that opens a turn is an anchor; the call of the tool loop is not. A
+// prompt after a turn that ended on a user message opens a turn too.
+#[rstest]
+#[case::four_turns(requests(), &[0, 4, 6, 8])]
+#[case::after_failures(requests_after_failures(), &[0, 3, 5, 6])]
+fn a_loop_call_reads_its_anchor_from_an_entry_that_a_call_wrote_for_one_hour(
+    #[case] requests: Vec<Request>,
+    #[case] expected: &[usize],
+) {
     // Under `auto`, S is one hour on every call. A call that marks an anchor writes
     // its tail for one hour, with every marker one hour; any other call has a one-hour
     // marker on a message only where an earlier call wrote its tail for one hour.
     let config = AnthropicConfig::new();
-    let bodies: Vec<_> = requests().iter().map(|request| body_with(request, &config)).collect();
+    let bodies: Vec<_> = requests.iter().map(|request| body_with(request, &config)).collect();
     let system: Vec<String> =
         bodies.iter().map(|body| serde_json::to_string(&body.system).unwrap()).collect();
     assert!(system.windows(2).all(|pair| pair[0] == pair[1]), "{system:?}");
@@ -114,6 +155,5 @@ fn a_loop_call_reads_its_anchor_from_an_entry_that_a_call_wrote_for_one_hour() {
             assert!(anchors.contains(&index), "message {index}, anchors {anchors:?}");
         }
     }
-    // Each prompt that opens a turn is an anchor; the call of the tool loop is not.
-    assert_eq!(anchors, [0, 4, 6, 8]);
+    assert_eq!(anchors, expected);
 }

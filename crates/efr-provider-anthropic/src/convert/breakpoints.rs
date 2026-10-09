@@ -7,19 +7,27 @@
 //!
 //! - S, the system: the system block, else the last tool. It covers the tools and the
 //!   system prompt, which a pruning or a compaction does not change.
-//! - A, the anchor: the last user message before the tail at which an earlier call
-//!   marked an anchor.
-//! - P, the previous tail: the last user message before the tail, where the call
-//!   before put its T. The call reads that entry directly, so the API's lookback of 20
-//!   blocks never matters.
+//! - A, the anchor: the last place before the tail at which an earlier call marked an
+//!   anchor.
+//! - P, the previous tail: the last place before the tail, where the call before put
+//!   its T. The call reads that entry directly, so the API's lookback of 20 blocks
+//!   never matters.
 //! - T, the tail: the last message, which is a user message.
 //!
-//! Anchors. Every user message ends the request of one call. The call that ends at a
-//! user message marks an anchor there when the message opens a turn (it holds no
-//! `tool_result`), or when the messages after the last anchor, that one included, hold
-//! more than [`ANCHOR_STEP_TOKENS`]. A side call (`Request::side_call`) never marks one.
-//! Each message's tokens are the estimate of the conversion, the same for the same
-//! bytes, so every later request finds the same anchors.
+//! Places. The conversion never merges user messages; the API joins a run of adjacent
+//! user messages into one. Only the last message of a run ever ended the request of a
+//! call, so a run is one place, at its last message: a new prompt after a turn that
+//! ended on its tool results or on its prompt, a steer after tool results, the parts of
+//! the head after a compaction, and a summary prompt after the turn's last message.
+//!
+//! Anchors. Every place ends the request of one call. The call that ends at a place
+//! marks an anchor there when a message of its run opens a turn (it holds no
+//! `tool_result`), or when the messages after the last anchor, the run included, hold
+//! more than [`ANCHOR_STEP_TOKENS`]. A side call (`Request::side_call`) never marks
+//! one. Each message's tokens are the estimate of the conversion, the same for the same
+//! bytes, so every later request finds the same anchors. So the first call of every
+//! turn marks an anchor, also after a turn that ended early, and so does a call that
+//! sends a steer: it holds a person's words, and a pause can follow it.
 //!
 //! State. An anchor needs to know where the last anchor is and how many tokens came
 //! after it. Nothing keeps these numbers: the placement computes them again from
@@ -42,10 +50,6 @@
 //! that the call marked a new anchor. The conversation's span of the call carries
 //! `gap_ms`, the time since the start of the conversation's call before, so the line
 //! shows which pause met which markers: the measurement of the time to live.
-//!
-//! A known gap: a new prompt after an interrupted call merges into the user message of
-//! the call's results, so that call does not open a turn here; it marks an anchor only
-//! by size.
 
 use efr_provider::Role;
 
@@ -118,12 +122,13 @@ pub(crate) struct Breakpoint {
     pub(crate) ttl: Ttl,
 }
 
-/// One message of the body, after the merge, as the placement sees it.
+/// One message of the body, after the merge of adjacent assistant messages, as the
+/// placement sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Shape {
     pub(crate) role: Role,
     /// True for a user message that holds no `tool_result`: the prompt that opens a
-    /// turn, or the head after a compaction.
+    /// turn, a steer, or a part of the head after a compaction.
     pub(crate) opens_turn: bool,
     /// The conversion's estimate of the message's tokens.
     pub(crate) tokens: u64,
@@ -172,9 +177,11 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
     }
 
     let messages = layout.messages;
-    let users: Vec<usize> = (0..messages.len())
-        .filter(|&index| messages.get(index).is_some_and(|shape| shape.role == Role::User))
-        .collect();
+    let is_user = |index: usize| messages.get(index).is_some_and(|shape| shape.role == Role::User);
+    // NOTE: a run of adjacent user messages is one place: only its last message ever
+    // ended a call's request, so only the last one of a run counts.
+    let users: Vec<usize> =
+        (0..messages.len()).filter(|&index| is_user(index) && !is_user(index + 1)).collect();
     let Some((&tail, past)) = users.split_last() else {
         return marks;
     };
@@ -189,7 +196,14 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
             .get(from..=to)
             .map_or(0, |run| run.iter().fold(0u64, |sum, shape| sum.saturating_add(shape.tokens)))
     };
-    let opens = |index: usize| messages.get(index).is_some_and(|shape| shape.opens_turn);
+    // The run that ends at `index` opens a turn when one of its messages does, such as a
+    // prompt after the tool results of an interrupted turn.
+    let opens = |index: usize| {
+        (0..=index)
+            .rev()
+            .take_while(|&at| is_user(at))
+            .any(|at| messages.get(at).is_some_and(|shape| shape.opens_turn))
+    };
     let mut anchor = None;
     let mut since = 0u64;
     let mut from = 0;

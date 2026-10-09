@@ -79,11 +79,21 @@ expression: pretty(&body(&request))
         {
           "type": "text",
           "text": "<fresh_context>The user's shell is in /home/u/p/efr.</fresh_context>"
-        },
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
         {
           "type": "text",
           "text": "<summary>The user asked for the files; there are two.</summary>"
-        },
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
         {
           "type": "text",
           "text": "3 earlier turns are summarised above.",

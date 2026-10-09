@@ -378,6 +378,10 @@ into the GitHub release notes, and it stops when the section is missing.
   offer, which a provider can refuse. The text is the same in every request, so the
   prompt cache still reads it. When you change back, the calls go in their own form
   again.
+- On Claude, a prompt after a turn that ended early now goes as a message of its own,
+  as after an interrupt while a tool ran or after a model call that failed. Before,
+  efr joined it to the last message of that turn, so the request lost the prompt
+  cache of that message and the new turn had no one-hour cache entry.
 
 ### Security
 
