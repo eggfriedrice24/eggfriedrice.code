@@ -94,6 +94,8 @@ fn ends_value(c: char) -> bool {
 }
 
 /// The bytes of `line` that hold the value of each assignment to a secret-like name.
+/// The value of any other assignment is read again, because it can hold one, such as
+/// `--from-literal=password=x` or `--env=API_TOKEN=x`.
 fn assignments(line: &str) -> Vec<Range<usize>> {
     let mut found = Vec::new();
     let mut from = 0;
@@ -104,10 +106,11 @@ fn assignments(line: &str) -> Vec<Range<usize>> {
         let name = before[before.len() - name_len..].trim_start_matches('-').replace('-', "_");
         let start = at + 1;
         let value = value_len(&line[start..]);
+        from = start;
         if value > 0 && !name.is_empty() && secret_like(&name) {
             found.push(start..start + value);
+            from = start + value;
         }
-        from = start + value;
     }
     found
 }

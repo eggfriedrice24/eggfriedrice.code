@@ -26,6 +26,22 @@ use super::redact;
     "A_TOKEN=1 B_SECRET=2 PATH=/bin",
     "A_TOKEN=[redacted] B_SECRET=[redacted] PATH=/bin"
 )]
+#[case::in_an_option_value(
+    "kubectl create secret generic s --from-literal=password=hunter2",
+    "kubectl create secret generic s --from-literal=password=[redacted]"
+)]
+#[case::docker_env(
+    "docker run --env=API_TOKEN=abc123 img",
+    "docker run --env=API_TOKEN=[redacted] img"
+)]
+#[case::docker_build_arg(
+    "docker build --build-arg=NPM_TOKEN=abc123 .",
+    "docker build --build-arg=NPM_TOKEN=[redacted] ."
+)]
+#[case::helm_set(
+    "helm install x --set=auth.password=abc ./chart",
+    "helm install x --set=auth.password=[redacted] ./chart"
+)]
 fn the_value_of_a_secret_assignment_is_redacted(#[case] line: &str, #[case] redacted: &str) {
     assert_eq!(redact(line), redacted);
 }

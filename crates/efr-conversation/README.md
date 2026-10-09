@@ -354,7 +354,8 @@ The design:
    user's last command with its secrets redacted when it is rendered, so the bytes
    that the store keeps are the bytes that went to the model (`preamble/secrets.rs`).
    It redacts the value of an assignment to a name that `efr_sandbox::secret_like`
-   matches; key forms such as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`; the password of
+   matches, also inside the value of another assignment
+   (`--env=API_TOKEN=[redacted]`); key forms such as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`; the password of
    a URL (`https://user:[redacted]@host`); the value of a secret header
    (`Authorization`, `Proxy-Authorization`, `Cookie` and the names that look like
    secrets) after its scheme (`Authorization: Bearer [redacted]`); and the value of an
