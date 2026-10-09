@@ -221,6 +221,12 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-store/src/compactions.rs`; the wire types in
   `crates/efr-protocol/src/compaction.rs`; `[compaction]` in
   `crates/efr-config/src/tables/compaction.rs`.
+- The history that only grows, so each request starts with the request before it: the
+  contract in `crates/efr-conversation/README.md`, section "The history only grows";
+  the list of turns and the byte limit in `crates/efr-conversation/src/history.rs`;
+  the redaction of the last command in the kept preamble in
+  `crates/efr-conversation/src/preamble/secrets.rs`; the measurement on the OpenAI path
+  in `crates/efr-daemon/tests/it/cache_prefix.rs`.
 - The model catalog: the fetch, the cache file and which models are on offer in
   `crates/efr-provider-openai/src/catalog.rs`; the built-in table, the last fallback, in
   `crates/efr-provider-openai/src/models.rs`; when efrd fetches, the effective model
