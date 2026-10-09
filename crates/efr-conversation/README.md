@@ -436,11 +436,12 @@ rather than late.
 2. When the estimate is above the hard cap and the turn cannot compact (auto is off, or
    the breaker stopped it), the turn does not send the request. It fails, see "Failures".
 3. When the provider answers `ProviderError::ContextOverflow` (OpenAI
-   `context_length_exceeded`, HTTP 413, later Anthropic's `prompt is too long`), the
-   turn never retries it as a transient error. With auto on, it compacts once
-   (trigger `overflow`, `tokens_before` is the estimate of the refused request) and
-   sends the call again once. A second overflow of the same call fails the turn.
-   With auto off, the first overflow fails the turn.
+   `context_length_exceeded` or an HTTP 413, Anthropic's 400 `prompt is too long`;
+   an Anthropic 413 is a body above 32 MB and not an overflow), the turn never retries
+   it as a transient error. With auto on, it compacts once (trigger `overflow`,
+   `tokens_before` is the estimate of the refused request) and sends the call again
+   once. A second overflow of the same call fails the turn. With auto off, the first
+   overflow fails the turn.
 4. The breaker: a compaction whose `tokens_after` is at or above the trigger counts as
    a miss, and so does a compaction that frees nothing and records nothing (nothing
    lies before the tail, or the summary request fails). After `BREAKER_TRIES` (2)
