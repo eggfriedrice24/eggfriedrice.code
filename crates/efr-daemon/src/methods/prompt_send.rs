@@ -214,7 +214,7 @@ async fn send(
 
 /// Refuses a prompt that names no model of its own while `[model] name` is a model of
 /// another company than `[model] provider`.
-pub(crate) fn refuse_foreign_model(state: &State, asked: &TurnSettings) -> Result<(), DaemonError> {
+fn refuse_foreign_model(state: &State, asked: &TurnSettings) -> Result<(), DaemonError> {
     if asked.model.is_some() {
         return Ok(());
     }
