@@ -81,3 +81,91 @@ fn a_word_that_only_looks_like_a_key_stays(#[case] line: &str) {
 fn text_outside_ascii_keeps_its_characters() {
     assert_eq!(redact("écho TÖKEN=ü PASSWORD=ü ✓"), "écho TÖKEN=ü PASSWORD=[redacted] ✓");
 }
+
+#[rstest]
+#[case::https(
+    "git clone https://me:hunter2@github.com/o/r",
+    "git clone https://me:[redacted]@github.com/o/r"
+)]
+#[case::token_user(
+    "git remote add o https://x-access-token:abc@github.com/o/r.git",
+    "git remote add o https://x-access-token:[redacted]@github.com/o/r.git"
+)]
+#[case::database(
+    "psql postgres://app:s3cret@db.local:5432/app",
+    "psql postgres://app:[redacted]@db.local:5432/app"
+)]
+#[case::scheme_with_plus(
+    "pip install git+https://u:p@host/r",
+    "pip install git+https://u:[redacted]@host/r"
+)]
+#[case::no_user("curl https://:tok@host/x", "curl https://:[redacted]@host/x")]
+#[case::at_in_the_password("curl 'https://u:p@ss@host'", "curl 'https://u:[redacted]@host'")]
+#[case::in_quotes(
+    r#"export DATABASE_URL="mysql://root:pw@localhost/db""#,
+    r#"export DATABASE_URL="mysql://root:[redacted]@localhost/db""#
+)]
+#[case::outside_ascii("curl https://mé:pä@hôst/", "curl https://mé:[redacted]@hôst/")]
+#[case::two("x http://a:1@h1 http://b:2@h2", "x http://a:[redacted]@h1 http://b:[redacted]@h2")]
+fn the_password_of_a_url_is_redacted(#[case] line: &str, #[case] redacted: &str) {
+    assert_eq!(redact(line), redacted);
+}
+
+#[rstest]
+#[case::port("curl http://localhost:8080/api")]
+#[case::user_only("git clone ssh://git@github.com:22/o/r")]
+#[case::scp_form("git clone git@github.com:o/r.git")]
+#[case::at_in_the_path("curl https://host:8443/u/me@x.org")]
+#[case::at_in_the_query("curl 'https://host:8443/?mail=a@b.org'")]
+#[case::ipv6("curl http://[::1]:8080/")]
+#[case::reference("git clone https://me:$TOKEN@github.com/o/r")]
+#[case::empty_password("curl https://me:@host/")]
+#[case::not_a_scheme("echo :// a:b@c")]
+fn a_url_without_a_password_stays(#[case] line: &str) {
+    assert_eq!(redact(line), line);
+}
+
+const FRAGMENTS: &[&str] = &[
+    "mysql -p",
+    "ü",
+    "'",
+    "\"",
+    "\\",
+    "$'",
+    "$",
+    "`",
+    "://",
+    "h://ü:é@",
+    "@",
+    ":",
+    "=",
+    "TOKEN=",
+    "-H",
+    "Authorization:",
+    " Bearer ",
+    "curl -u ",
+    "é:",
+    "\n",
+    "&>",
+    ">&",
+    "|",
+    "sshpass -p",
+    "--password=",
+    "sk-0123456789abcdefABCDEF",
+    "✓",
+];
+
+/// Every line of three fragments: the redaction never panics, it cuts no character in
+/// two, and a redacted line redacts to itself.
+#[test]
+fn any_line_redacts_without_a_panic_and_redacts_once() {
+    for a in FRAGMENTS {
+        for b in FRAGMENTS {
+            for c in FRAGMENTS {
+                let line = format!("{a}{b}{c}");
+                let redacted = redact(&line);
+                assert_eq!(redact(&redacted), redacted, "{line:?}");
+            }
+        }
+    }
+}

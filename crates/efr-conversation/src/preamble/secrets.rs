@@ -5,7 +5,12 @@
 //! again, so a secret in the last command, such as `export TOKEN=...`, would reach the
 //! disk and every request after it. [`redact`] runs when the preamble is rendered, so
 //! the bytes that the store keeps are the bytes that the model read. It is a pattern
-//! list, not a shell parser: it redacts too much rather than too little.
+//! list, not a shell parser: it redacts too much rather than too little, but it does
+//! not touch words that only look like the patterns (`http://host:8080/`).
+
+mod url;
+
+use std::ops::Range;
 
 use efr_sandbox::secret_like;
 
@@ -25,12 +30,46 @@ const KEY_MIN_CHARS: usize = 16;
 ///
 /// - the value of an assignment `NAME=value` whose name looks like a secret
 ///   ([`secret_like`], with the dashes of an option such as `--api-key=` read as
-///   underscores), unquoted or in quotes; a value that starts with `$` or a backtick
-///   names another value and stays;
+///   underscores), unquoted or in quotes;
 /// - each word that starts with a key prefix ([`KEY_PREFIXES`]) followed by at least
-///   [`KEY_MIN_CHARS`] key characters.
+///   [`KEY_MIN_CHARS`] key characters;
+/// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]).
+///
+/// A value that starts with `$` or a backtick names another value and stays. When two
+/// secrets overlap or touch, one marker replaces both.
 pub(crate) fn redact(line: &str) -> String {
-    redact_keys(&redact_assignments(line))
+    let mut found = assignments(line);
+    found.extend(keys(line));
+    found.extend(url::passwords(line));
+    replace(line, found)
+}
+
+/// `line` with each of the `found` byte ranges replaced by [`REDACTED`]; ranges that
+/// overlap or touch get one marker.
+fn replace(line: &str, mut found: Vec<Range<usize>>) -> String {
+    found.sort_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in found.into_iter().filter(|range| !range.is_empty()) {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut at = 0;
+    for range in merged {
+        out.push_str(&line[at..range.start]);
+        out.push_str(REDACTED);
+        at = range.end;
+    }
+    out.push_str(&line[at..]);
+    out
+}
+
+/// True for a value that names another value: `$NAME`, `$(...)`, `${...}` or a
+/// backtick. `$'...'` is a quoted value, not a name.
+fn names_another_value(value: &str) -> bool {
+    value.starts_with('`') || (value.starts_with('$') && !value.starts_with("$'"))
 }
 
 /// True for a character of a name before `=`.
@@ -43,28 +82,23 @@ fn ends_value(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\'' | '"' | '`' | ';' | '&' | '|' | '(' | ')' | '<' | '>')
 }
 
-/// `line` with the value of each assignment to a secret-like name redacted.
-fn redact_assignments(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(at) = rest.find('=') {
-        let (before, after) = rest.split_at(at);
-        let after = &after[1..];
-        out.push_str(before);
-        out.push('=');
+/// The bytes of `line` that hold the value of each assignment to a secret-like name.
+fn assignments(line: &str) -> Vec<Range<usize>> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = line[from..].find('=').map(|at| from + at) {
+        let before = &line[from..at];
         let name_len: usize =
             before.chars().rev().take_while(|c| is_name_char(*c)).map(char::len_utf8).sum();
         let name = before[before.len() - name_len..].trim_start_matches('-').replace('-', "_");
-        let value = value_len(after);
+        let start = at + 1;
+        let value = value_len(&line[start..]);
         if value > 0 && !name.is_empty() && secret_like(&name) {
-            out.push_str(REDACTED);
-        } else {
-            out.push_str(&after[..value]);
+            found.push(start..start + value);
         }
-        rest = &after[value..];
+        from = start + value;
     }
-    out.push_str(rest);
-    out
+    found
 }
 
 /// The length in bytes of the value at the start of `text`: a quoted value with its
@@ -88,9 +122,9 @@ fn quoted_len(text: &str, quote: char) -> usize {
     text[1..].find(quote).map_or(text.len(), |at| at + 2)
 }
 
-/// `line` with each word in the form of a known key redacted.
-fn redact_keys(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
+/// The bytes of `line` that hold each word in the form of a known key.
+fn keys(line: &str) -> Vec<Range<usize>> {
+    let mut found = Vec::new();
     let mut at = 0;
     while at < line.len() {
         let rest = &line[at..];
@@ -102,17 +136,13 @@ fn redact_keys(line: &str) -> String {
         });
         match key {
             Some(len) if starts_word => {
-                out.push_str(REDACTED);
+                found.push(at..at + len);
                 at += len;
             }
-            _ => {
-                let next = rest.chars().next().map_or(1, char::len_utf8);
-                out.push_str(&rest[..next]);
-                at += next;
-            }
+            _ => at += rest.chars().next().map_or(1, char::len_utf8),
         }
     }
-    out
+    found
 }
 
 #[cfg(test)]
