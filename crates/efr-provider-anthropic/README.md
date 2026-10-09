@@ -8,7 +8,10 @@ The Anthropic Messages API client. `AnthropicProvider` implements
 
 Status: the config, the request body with its cache markers, the stream mapping, the
 usage sums, the HTTP exchange with its retries, the catalog fetch, its cache file and
-the key check are built. The daemon does not build this provider yet.
+the key check are built. efrd builds the provider for `[model] provider =
+"anthropic-api"` (`efr-daemon`, `providers.rs`) and shares one `ModelCatalog` between
+the provider and its fetch of the list (`catalog.rs`, cache file
+`anthropic_model_catalog.json`).
 
 Modules:
 
@@ -208,7 +211,7 @@ the full table. In short:
   on offer. The compaction stays at efr's `auto_at` (76%) of the window.
 - No table of models and no guessed window: without a list the provider offers no
   model. The daemon fetches at start, after a login and every hour; when no list exists
-  at the start of a turn, it fetches first and waits for it. After a failed fetch it
+  when a prompt arrives, it fetches first and waits for it (`Models::ready`). After a failed fetch it
   tries again in 15 s, 30 s, 1 min, 2 min, then every 5 min.
 - The cache file holds `version`, `base_url`, `fetched_at` and the entries in the
   API's form, with mode 0600, under its own name beside the OpenAI catalog's file.
