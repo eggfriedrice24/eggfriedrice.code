@@ -6,14 +6,14 @@
 //! into canonical provider events. An [`AnthropicConfig`] holds the base URL
 //! ([`API_BASE_URL`] by default), the models of the config, the retry policy, the
 //! [`CacheTtl`] and the optional workspace id. Each assistant message keeps its content
-//! as the exact JSON text that the stream built, as `provider_raw`, and the next request
-//! writes that text back unchanged, so signed thinking survives.
+//! as the JSON text that efr built from the stream, as `provider_raw`, and the next
+//! request writes that text back unchanged, so signed thinking survives.
 //!
 //! The models come only from the API: a [`CatalogClient`] fetches `GET /models`,
 //! [`read_cache`] and [`write_cache`] keep the list in a file, and a [`ModelCatalog`]
 //! holds the current [`Catalog`]. efr has no table of Claude models; it knows only
-//! [`DEFAULT_MODEL`], [`DEFAULT_EFFORT`] and [`CACHE_MIN_TOKENS`]. [`check_key`] checks
-//! an API key with one request that runs no model, before a login stores the key.
+//! [`DEFAULT_MODEL`] and [`DEFAULT_EFFORT`]. [`check_key`] checks an API key with one
+//! request that runs no model, before a login stores the key.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-http`, `efr-protocol` and `efr-stdx`.
 //! What does not belong here: how a key is stored or entered (`efr-credentials`,
@@ -41,4 +41,4 @@ pub use catalog::{
 pub use config::{ANTHROPIC_VERSION, API_BASE_URL, AnthropicConfig, CacheTtl};
 pub use error::AnthropicError;
 pub use messages::AnthropicProvider;
-pub use models::{CACHE_MIN_TOKENS, DEFAULT_EFFORT, DEFAULT_MODEL};
+pub use models::{DEFAULT_EFFORT, DEFAULT_MODEL};

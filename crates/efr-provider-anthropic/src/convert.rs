@@ -42,7 +42,8 @@
 //! The prompt cache markers come from `breakpoints`, a pure function of the shape of
 //! the request; the conversion puts each marker as the last member of the block that it
 //! names. Two following requests of one conversation give the same bytes for `tools`,
-//! `system` and every earlier message, apart from the markers.
+//! `system` and every earlier message, apart from the markers and a user message that
+//! ended the request before, into which rule 3 merges a new user message.
 //!
 //! The provider calls [`request_body`] once per call and sends the body's
 //! [`betas`](MessagesBody::betas) as the `anthropic-beta` header.

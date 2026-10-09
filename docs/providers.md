@@ -167,7 +167,7 @@ again.
 
 | Value | What it does |
 |---|---|
-| `auto` (default) | The system prompt, the tools and the conversation up to the start of the turn stay for one hour. The calls of a tool loop write their part for five minutes. When a tool loop grows by about 20,000 tokens, the next call keeps the conversation up to that point for one hour. So a pause of any length up to one hour loses at most about 20,000 tokens: between two prompts, or while efr waits for your approval. |
+| `auto` (default) | The system prompt, the tools and the conversation up to the start of the turn stay for one hour. The calls of a tool loop write their part for five minutes. When a tool loop grows by about 20,000 tokens, the next call keeps the conversation up to that point for one hour. So a pause of any length up to one hour loses at most about 20,000 tokens: between two prompts, or while efr waits for your approval. One exception: when you interrupt a turn while a tool runs, your next prompt does not start a new hour. Then a pause of more than five minutes in that next turn can lose the tool loop of the turn before. |
 | `5m` | Everything for five minutes. This costs less when you send the next prompt within five minutes. A longer pause writes the whole conversation again. |
 | `1h` | Everything for one hour. Each write costs more, and a pause up to one hour loses nothing. |
 

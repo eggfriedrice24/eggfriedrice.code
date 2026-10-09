@@ -59,9 +59,9 @@ const REQUEST_ID_HEADER: &str = "request-id";
 /// config's retry policy, but a model call is never sent again after its stream has
 /// started.
 ///
-/// The `Done` event carries the message's content as its exact JSON text, as
-/// `provider_raw`, and a later request to the same model sends it back byte for byte,
-/// so the signed thinking stays valid. The models, their windows and their efforts come
+/// The `Done` event carries the message's content as the JSON text that efr built from
+/// the stream, as `provider_raw`, and a later request to the same model sends it back
+/// byte for byte, so the signed thinking stays valid. The models, their windows and their efforts come
 /// from the [`ModelCatalog`], read from memory for each request, with the models of the
 /// config laid over it.
 #[derive(Debug)]

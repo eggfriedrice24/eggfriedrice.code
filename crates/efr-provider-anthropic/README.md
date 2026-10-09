@@ -20,8 +20,9 @@ Modules:
   `ANTHROPIC_VERSION` (`2023-06-01`). `CacheTtl` is `Auto` (the default),
   `FiveMinutes` or `OneHour`, from `[anthropic] cache_ttl` (`auto`, `5m`, `1h`).
 - `models`: the only facts that efr knows without the API: `DEFAULT_MODEL`
-  (`claude-opus-5-5`), `DEFAULT_EFFORT` (`medium`) and `CACHE_MIN_TOKENS` (512). There
-  is no table of models.
+  (`claude-opus-5-5`) and `DEFAULT_EFFORT` (`medium`). There is no table of models.
+  The cache minimum of 512 tokens is a fact of its module doc, not a constant, because
+  no code reads it.
 - `catalog`: the model list from `GET <base_url>/models` (see "Catalog" below).
   `Catalog` is one list with its `CatalogOrigin` (`Backend` or `Cache`) and the time
   of the fetch; `ModelCatalog` holds the current one, or none; `ModelCatalog::apply`
@@ -71,8 +72,9 @@ Modules:
   (a freeform tool in its function form); `tool_choice: {"type": "auto"}`, left out
   with the tools when there is none; `thinking: {"type": "adaptive", "display":
   "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}`;
-  `output_config: {"effort": ...}`, left out without an effort; `messages`. Never sent: sampling members,
-  `stop_sequences`, `metadata`, `service_tier` and `inference_geo`.
+  `output_config: {"effort": ...}`, left out without an effort; `messages`. Never
+  sent: sampling members, `stop_sequences`, `metadata`, `service_tier` and
+  `inference_geo`.
 - `max_tokens`: the request's limit, at most the model's `max_tokens` from the
   catalog; without a request limit, the model's. When neither is known, the body is
   not built and the call fails with `UnknownModel`: efr guesses no model fact. A model
@@ -155,7 +157,11 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
   check on a test key before the release; if it fails, `auto` falls back to one hour on
   every marker.
 - Known gap: a new prompt after an interrupted call merges into the user message of
-  the call's results, so it does not open a turn; it marks an anchor only by size.
+  the call's results, so it does not open a turn; it marks an anchor only by size. The
+  tool loop after the last anchor then has a five-minute entry only, and a pause of
+  more than five minutes in the new turn loses it, which can be more than
+  `ANCHOR_STEP_TOKENS`. A prompt after a turn that failed before an answer merges into
+  that turn's prompt, which opens a turn, so it marks an anchor.
 
 Kept stable for a whole conversation: the tool list and its order, the system prompt,
 the thinking mode and display, and the effort. A change of the tools invalidates every
@@ -318,11 +324,56 @@ snapshots), `rstest`, `pretty_assertions`, `tempfile`, `tokio`, `tracing-subscri
   log, an error text, a `Debug` string or a recorded request: it goes in a sensitive
   `Authorization` header, and error messages come from the server's error body, never
   from the request, with each copy of the key in that body replaced.
-- `provider_raw` goes back to the API exactly as it came, byte for byte.
+- `provider_raw` goes back to the API byte for byte as efr wrote it. These are not the
+  bytes that the API sent: efr builds the `text`, `thinking` and `tool_use` blocks
+  from the stream, in the API's member order, with the tool input as the model wrote
+  it and without an empty `text` block. Only a `redacted_thinking` block, or a block
+  of a type that efr does not know, holds the API's own text. So every request sends
+  the same bytes for an old answer, but whether the thinking binding reads these bytes
+  as the ones that it signed is a check on a test key.
 - Two following requests of one conversation have the same bytes for `tools`, `system`
-  and every earlier message, apart from the cache markers.
+  and every earlier message, apart from the cache markers and one case: a user message
+  that ended the request before gets more blocks at its end when the next request
+  merges a new message of the same role into it. This can occur after a turn that
+  ended on its tool results (an interrupt while a tool ran) or on its prompt (a turn
+  that failed before an answer). The blocks before stay the same.
 - A model call is never sent again after its stream has started.
 - No model table and no guessed window: every model fact comes from the API.
+
+## Sources
+
+The request, the stream, the errors and the catalog follow Anthropic's documentation,
+read on 2026-10-09, under `https://platform.claude.com/docs/en/`:
+
+- `api/messages/create` (the body, the roles, the merge of adjacent messages of one
+  role), `api/overview` and `manage-claude/authentication` (`Authorization: Bearer`,
+  `anthropic-version`, `anthropic-workspace-id`), `api/beta-headers` (an unknown beta is
+  a 400), `api/versioning` (new event, block and delta types within a version),
+  `api/errors` (the error body, the types and their statuses, 529),
+  `api/rate-limits` (`retry-after`), `api/models/list` (the pages, `max_input_tokens`,
+  `max_tokens`, `capabilities`).
+- `build-with-claude/streaming` (the events and their order),
+  `build-with-claude/thinking` (adaptive thinking, `display`),
+  `build-with-claude/preserved-thinking` (`block_binding` and
+  `input_transformations`), `build-with-claude/effort`
+  (`output_config.effort`), `build-with-claude/prompt-caching` (the markers, at most
+  four, the order of the times to live, the minimum of a cache entry),
+  `build-with-claude/context-windows`, `build-with-claude/handling-stop-reasons` (the
+  stop reasons, text after tool results), `about-claude/pricing` (the prices of a
+  write and a read).
+- Claude Code, under `https://code.claude.com/docs/en/`: `prompt-caching` (a stable
+  prefix), `tools-reference` (the shape of its `Edit` tool, which every Claude model
+  gets as `edit`), `errors` (what it sends again).
+
+The reference implementations (shallow clones of 2026-10-09):
+
+- openai/codex at `c0c230e`: `codex-rs/model-provider-info/src/lib.rs` (which
+  statuses it sends again; no 429 at the HTTP layer).
+- sst/opencode at `3f393d7`: `packages/opencode/src/provider/transform.ts` (its cache
+  markers on the first two system and the last two other messages, which efr does not
+  copy), `packages/opencode/src/session/retry.ts` (the statuses that it sends again,
+  `retry-after-ms` and `retry-after`), `packages/opencode/src/session/session.ts` (the
+  cache counts, without the one-hour part).
 
 ## Tests
 
