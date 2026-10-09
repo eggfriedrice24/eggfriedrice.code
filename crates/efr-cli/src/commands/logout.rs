@@ -1,14 +1,15 @@
 //! `efr logout <provider>`: the daemon deletes the stored login of a provider.
 //!
 //! An API key stays valid at its provider after a logout; the CLI says where its owner
-//! revokes it.
+//! revokes it. A logout of the provider of new conversations gets a warning on stderr:
+//! the provider stays configured, so its turns fail until a new login.
 
 use efr_protocol::{AdminLogout, AdminLogoutResult, Method, Origin};
 
 use crate::cli::{LogoutArgs, ProviderName};
 use crate::commands::login::KeyProvider;
 use crate::context::Context;
-use crate::error::CliError;
+use crate::error::{CliError, login_hint};
 use crate::format;
 use crate::output::Output;
 
@@ -35,9 +36,17 @@ pub(crate) async fn run(
             "logged out of {provider}. The key stays valid at {}; {}.\n",
             key.company(),
             key.revoke()
-        )),
-        None => out.out(&format!("logged out of {provider}\n")),
+        ))?,
+        None => out.out(&format!("logged out of {provider}\n"))?,
     }
+    if result.active {
+        out.err(&format!(
+            "efr: warning: {provider} stays the provider of new conversations ([model] \
+             provider), so its turns fail until you log in again; {}\n",
+            login_hint(&result.provider)
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

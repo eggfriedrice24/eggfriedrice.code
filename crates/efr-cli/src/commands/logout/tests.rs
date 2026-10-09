@@ -5,9 +5,18 @@ use crate::error::Exit;
 use crate::run;
 use crate::testing::{TestEnv, capture, command};
 
-/// Runs `efr logout <name>` against a daemon that answers `logged_out`, and returns
-/// the provider id that the daemon got and what efr printed.
+/// Runs `efr logout <name>` against a daemon that answers `logged_out` for a provider
+/// that is not the active one, and returns the provider id that the daemon got and
+/// what efr printed.
 async fn logout(name: &str, logged_out: bool) -> (String, String) {
+    let (provider, stdout, stderr) = logout_from(name, logged_out, false).await;
+    assert_eq!(stderr, "");
+    (provider, stdout)
+}
+
+/// Runs `efr logout <name>` against a daemon that answers `logged_out` and `active`, and
+/// returns the provider id that the daemon got, stdout and stderr.
+async fn logout_from(name: &str, logged_out: bool, active: bool) -> (String, String, String) {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = env.context();
@@ -18,7 +27,7 @@ async fn logout(name: &str, logged_out: bool) -> (String, String) {
         let Method::AdminLogout(AdminLogout { provider }) = method else {
             panic!("{}", method.name())
         };
-        let result = AdminLogoutResult { provider: provider.clone(), logged_out, active: false };
+        let result = AdminLogoutResult { provider: provider.clone(), logged_out, active };
         conn.reply(id, &result).await;
         conn.until_closed().await;
         provider
@@ -26,8 +35,7 @@ async fn logout(name: &str, logged_out: bool) -> (String, String) {
     let line = command(&["logout", name]);
     let (exit, provider) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
-    assert_eq!(captured.stderr(), "");
-    (provider, captured.stdout())
+    (provider, captured.stdout(), captured.stderr())
 }
 
 #[tokio::test]
@@ -60,4 +68,21 @@ async fn a_logout_without_a_login_says_so() {
         logout("anthropic-api", false).await,
         ("anthropic-api".to_owned(), "anthropic-api was not logged in\n".to_owned())
     );
+}
+
+#[tokio::test]
+async fn a_logout_of_the_active_provider_warns_that_its_turns_fail_until_a_new_login() {
+    let mut shown = Vec::new();
+    for name in ["anthropic", "openai-api", "openai"] {
+        let (_, stdout, stderr) = logout_from(name, true, true).await;
+        shown.push(format!("$ efr logout {name}\n{stdout}{stderr}"));
+    }
+    insta::assert_snapshot!(shown.join("\n"));
+}
+
+#[tokio::test]
+async fn a_logout_of_the_active_provider_without_a_login_needs_no_warning() {
+    let (_, stdout, stderr) = logout_from("anthropic", false, true).await;
+    assert_eq!(stdout, "anthropic-api was not logged in\n");
+    assert_eq!(stderr, "", "nothing changed");
 }

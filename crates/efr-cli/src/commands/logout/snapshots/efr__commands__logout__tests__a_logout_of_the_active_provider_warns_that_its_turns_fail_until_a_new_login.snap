@@ -1,0 +1,15 @@
+---
+source: crates/efr-cli/src/commands/logout/tests.rs
+expression: "shown.join(\"\\n\")"
+---
+$ efr logout anthropic
+logged out of anthropic-api. The key stays valid at Anthropic; revoke it in the Claude Console.
+efr: warning: anthropic-api stays the provider of new conversations ([model] provider), so its turns fail until you log in again; log in with: efr login anthropic
+
+$ efr logout openai-api
+logged out of openai-api. The key stays valid at OpenAI; revoke it in the dashboard of the OpenAI platform.
+efr: warning: openai-api stays the provider of new conversations ([model] provider), so its turns fail until you log in again; log in with: efr login openai-api
+
+$ efr logout openai
+logged out of openai-subscription
+efr: warning: openai-subscription stays the provider of new conversations ([model] provider), so its turns fail until you log in again; log in with: efr login openai
