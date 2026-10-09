@@ -365,6 +365,12 @@ into the GitHub release notes, and it stops when the section is missing.
   it read the steer during that turn. Before, a turn without saved messages showed a
   steer where you typed it, and also showed steers that the model never read, such as
   a steer of a failed turn or a steer that you took back.
+- A conversation that grew on a model with a large window now goes on with a model of
+  a smaller window, such as a move from a Claude model (1M tokens) to an OpenAI model
+  (272k tokens). The first turn on the new model compacts before its first call, and
+  the summary request leaves out the oldest messages until it fits the new window. The
+  summary says that it left them out. Before, efr sent the whole history in the
+  summary request, and the provider refused it once as too large.
 
 ### Security
 

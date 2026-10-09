@@ -501,20 +501,33 @@ manual compaction runs them between turns.
      that the prompt asks for, not a cap that efr can make the provider keep.
 
    Some messages do not fit in the summary request. Then the oldest messages after the
-   fresh block and the earlier summary go (never so that a tool result comes first),
-   and one user message in their place says `N earlier messages are omitted: they did
-   not fit in this request.` The provider counts more tokens than the estimate, so
-   the target is the trigger scaled by what a refusal shows: below the estimate of
-   the refused request times the trigger over the window. This happens:
+   fresh block and the earlier summary go (never so that a tool result comes first, so
+   a tool call never loses its result), and one user message in their place says `N
+   earlier messages are omitted: they did not fit in this request.` The summary prompt
+   also says it: `This request leaves out N earlier messages of the conversation: they
+   did not fit in the model's context. Say so under the first heading.` (with the
+   earlier turns that the history left out too, when there are any). The target is the
+   trigger, which leaves room for the answer. The provider counts more tokens than the
+   estimate, so after a refusal the target is the trigger scaled by what the refusal
+   shows: below the estimate of the refused request times the trigger over the window.
+   This happens:
 
+   - before the first try, when the summary request is above the hard cap, because efr
+     never sends such a request. A history that grew on a model with a larger window
+     (a conversation that moves from a Claude model with a window of 1M tokens to an
+     OpenAI model with 272k) compacts this way at the first turn on the new model: the
+     guard compacts before the first call, and the summary request fits the new
+     window, so the provider refuses nothing;
    - after an overflow, before the first try, when the summary request is not smaller
      than the request that the provider refused (pruning freed nothing), because the
      provider would refuse it too;
    - when the provider refuses the summary request itself as too large; then the
      request goes once more.
 
-   The messages before the cut that the summary never saw are counted in
-   `omitted_messages`, and the daemon logs one `warn` line with the count.
+   When nothing fits short of all the messages after the head, they all go, and the
+   summary carries the earlier summary forward. The messages before the cut that the
+   summary never saw are counted in `omitted_messages`, and the daemon logs one `warn`
+   line with the count.
 
    The answer's text is the summary. Tool calls in the answer are ignored. An answer
    without text fails the compaction, and so does an answer that the provider cut
@@ -782,7 +795,11 @@ limit, a retry of the running manual compaction, the breaker, a pruning without 
 turn rebuilds, a history that would leave out a turn after a switch to a model with a
 smaller window and compacts instead, a manual compaction with a focus, a prompt that
 waits for it, and its
-refusals; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
+refusals. `turn/tests/switch.rs` grows a history of about 500k tokens on a model with
+a window of 1M, then goes on with another provider's model of 272k against a fake that
+refuses every request above its model's window: the turn compacts before its first
+call, the summary request leaves out the oldest prompts and says so in its prompt, and
+no request is refused; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
 rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests
 (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command

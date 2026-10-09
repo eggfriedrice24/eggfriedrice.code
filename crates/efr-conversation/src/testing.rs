@@ -35,7 +35,7 @@ use jiff::civil::date;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
-use crate::compaction::summary_request;
+use crate::compaction::{LeftOut, summary_request};
 use crate::fresh::FreshFacts;
 use crate::preamble::LiveState;
 use crate::resolver::machine;
@@ -1156,7 +1156,13 @@ pub(crate) fn big_file(setup: &Setup, bytes: usize) -> Value {
 
 /// The summary request after `messages`, as the turn sends it.
 pub(crate) fn summary(messages: Vec<Message>) -> Request {
-    summary_request(&request(Vec::new()), messages, None)
+    summary_request(&request(Vec::new()), messages, None, LeftOut::default())
+}
+
+/// The summary request after `messages`, which leave out `dropped` of the oldest
+/// messages and `turns` earlier turns of the history, as the turn sends it.
+pub(crate) fn summary_without(messages: Vec<Message>, turns: u32, dropped: u32) -> Request {
+    summary_request(&request(Vec::new()), messages, None, LeftOut { turns, messages: dropped })
 }
 
 /// The two big turns that every test starts with, and the messages that later

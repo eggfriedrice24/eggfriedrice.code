@@ -247,6 +247,16 @@ pub(crate) fn summary_message(summary: &str) -> Message {
 /// earlier turns that the history had left out, and `messages` of the oldest messages
 /// that did not fit in the summary request. `None` when it saw everything.
 pub(crate) fn gap_note(turns: u32, messages: u32) -> Option<Message> {
+    earlier(turns, messages).map(|earlier| {
+        Message::user(format!(
+            "The summary leaves out {earlier}: they did not fit in the model's context."
+        ))
+    })
+}
+
+/// `turns` earlier turns and `messages` earlier messages in words, such as `2 earlier
+/// turns and 1 earlier message`; `None` when both are 0.
+fn earlier(turns: u32, messages: u32) -> Option<String> {
     let count = |n: u32, what: &str| match n {
         0 => None,
         1 => Some(format!("1 earlier {what}")),
@@ -254,12 +264,16 @@ pub(crate) fn gap_note(turns: u32, messages: u32) -> Option<Message> {
     };
     let parts: Vec<String> =
         [count(turns, "turn"), count(messages, "message")].into_iter().flatten().collect();
-    (!parts.is_empty()).then(|| {
-        Message::user(format!(
-            "The summary leaves out {}: they did not fit in the model's context.",
-            parts.join(" and ")
-        ))
-    })
+    (!parts.is_empty()).then(|| parts.join(" and "))
+}
+
+/// What a summary request leaves out of the model's history: the earlier turns that
+/// the history left out (the safety net of the history limits), and the oldest
+/// messages that did not fit in the request.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct LeftOut {
+    pub(crate) turns: u32,
+    pub(crate) messages: u32,
 }
 
 /// What the summary request holds in place of the `dropped` oldest messages that did
@@ -274,27 +288,39 @@ pub(crate) fn dropped_note(dropped: usize) -> Message {
     }
 }
 
-/// The text of the summary request's last message: the prompt, and the user's focus
-/// when a manual compaction names one.
-pub(crate) fn summary_prompt(focus: Option<&str>) -> String {
-    match focus.map(str::trim).filter(|focus| !focus.is_empty()) {
-        Some(focus) => format!("{}\n\n{FOCUS}{focus}", SUMMARY_PROMPT.trim_end()),
-        None => SUMMARY_PROMPT.trim_end().to_owned(),
+/// The text of the summary request's last message: the prompt, the sentence that says
+/// what the request leaves out when it leaves out anything, and the user's focus when a
+/// manual compaction names one.
+pub(crate) fn summary_prompt(focus: Option<&str>, left_out: LeftOut) -> String {
+    let mut text = SUMMARY_PROMPT.trim_end().to_owned();
+    if let Some(earlier) = earlier(left_out.turns, left_out.messages) {
+        let they =
+            if left_out.turns.saturating_add(left_out.messages) == 1 { "it" } else { "they" };
+        text.push_str(&format!(
+            "\n\nThis request leaves out {earlier} of the conversation: {they} did not fit in \
+             the model's context. Say so under the first heading."
+        ));
     }
+    if let Some(focus) = focus.map(str::trim).filter(|focus| !focus.is_empty()) {
+        text.push_str(&format!("\n\n{FOCUS}{focus}"));
+    }
+    text
 }
 
 /// The summary request: `base` (the model, the system prompt, the tools, the effort
 /// and the options of the turn, so the request hits the prompt cache) with `messages` and the
 /// summary prompt as the last message, and the summary's output limit plus room for
 /// the model's reasoning, which the Responses API counts in the same limit. It is a side
-/// call: its prompt and its answer never join the history.
+/// call: its prompt and its answer never join the history. The prompt names what
+/// `messages` leave out of the history (`left_out`).
 pub(crate) fn summary_request(
     base: &Request,
     messages: Vec<Message>,
     focus: Option<&str>,
+    left_out: LeftOut,
 ) -> Request {
     let mut messages = messages;
-    messages.push(Message::user(summary_prompt(focus)));
+    messages.push(Message::user(summary_prompt(focus, left_out)));
     Request {
         model: base.model.clone(),
         system: base.system.clone(),
@@ -316,7 +342,9 @@ fn summary_of(job: &Job<'_>, messages: &[Message], dropped: usize) -> Request {
         sent.push(dropped_note(dropped));
     }
     sent.extend(messages[head.saturating_add(dropped).min(messages.len())..].iter().cloned());
-    summary_request(job.base, sent, job.focus)
+    let left_out =
+        LeftOut { turns: job.window.omitted, messages: u32::try_from(dropped).unwrap_or(u32::MAX) };
+    summary_request(job.base, sent, job.focus, left_out)
 }
 
 /// `base` with the messages of `window`.
@@ -410,21 +438,24 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
         messages = pruned.messages();
         used = Some(pruning.clone());
     }
+    // NOTE: efr never sends a request above the hard cap, and a summary request at
+    // least as large as the request that the provider refused is refused too, so the
+    // oldest messages go before the first try. A history that grew on a model with a
+    // larger window fits the window of the turn's model this way.
+    let refused = overflow.then(|| request_tokens(&with_window(job.base, job.window)));
+    let whole = request_tokens(&summary_of(&job, &messages, 0));
     let mut dropped = 0;
-    if overflow {
-        // NOTE: a summary request at least as large as the request that the provider
-        // refused is refused too, so its oldest messages go before the first try.
-        let refused = request_tokens(&with_window(job.base, job.window));
-        if request_tokens(&summary_of(&job, &messages, 0)) >= refused {
-            dropped = shrink(&job, &messages, 0, refused).unwrap_or(0);
-        }
+    if whole > job.limits.hard_cap || refused.is_some_and(|refused| whole >= refused) {
+        let target = fit_target(job.limits, refused.unwrap_or(job.limits.window));
+        dropped = shrink(&job, &messages, 0, target).unwrap_or(0);
     }
     let mut request = summary_of(&job, &messages, dropped);
     let mut answer = summarize(&job, request.clone()).await;
     if matches!(&answer, Answer::Failed(error) if error.is_context_overflow()) {
         // NOTE: the summary request itself did not fit: the oldest messages go, never
         // the head with an earlier summary, and the rest is summarized.
-        if let Some(fewer) = shrink(&job, &messages, dropped, request_tokens(&request)) {
+        let target = fit_target(job.limits, request_tokens(&request));
+        if let Some(fewer) = shrink(&job, &messages, dropped, target) {
             dropped = fewer;
             request = summary_of(&job, &messages, dropped);
             answer = summarize(&job, request).await;
@@ -458,15 +489,20 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     }
 }
 
+/// The estimate that a summary request must stay below after the provider refused a
+/// request estimated at `refused` tokens. The provider counts more tokens than the
+/// estimate, so the target is the trigger scaled by what the refusal shows: below
+/// `refused` times the trigger over the window. Before any refusal, `refused` is the
+/// window, so the target is the trigger, which leaves room for the answer.
+fn fit_target(limits: ContextLimits, refused: u64) -> u64 {
+    limits.trigger.min(refused.saturating_mul(limits.trigger) / limits.window.max(1))
+}
+
 /// How many of the oldest messages after the head of `messages` the summary request
-/// must leave out, more than `dropped`, to fit after the provider refused a request
-/// estimated at `refused` tokens. The provider counts more tokens than the estimate,
-/// so the target is the trigger scaled by what the refusal shows: below `refused`
-/// times the trigger over the window. The messages after the note never start with tool
-/// results. `None` when nothing more can go.
-fn shrink(job: &Job<'_>, messages: &[Message], dropped: usize, refused: u64) -> Option<usize> {
-    let limits = job.limits;
-    let target = limits.trigger.min(refused.saturating_mul(limits.trigger) / limits.window.max(1));
+/// must leave out, more than `dropped`, to be estimated below `target` tokens
+/// ([`fit_target`]). The messages after the note never start with tool results, so a
+/// tool call never loses its result. `None` when nothing more can go.
+fn shrink(job: &Job<'_>, messages: &[Message], dropped: usize, target: u64) -> Option<usize> {
     let head = job.window.head.len().min(messages.len());
     let movable = messages.len() - head;
     for drop in dropped.saturating_add(1)..=movable {

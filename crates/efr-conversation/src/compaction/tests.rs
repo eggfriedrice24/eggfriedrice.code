@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Cut, Placed, SUMMARY_CLOSE, SUMMARY_OPEN, SUMMARY_PROMPT, cut_before, message_tokens,
+    Cut, LeftOut, Placed, SUMMARY_CLOSE, SUMMARY_OPEN, SUMMARY_PROMPT, cut_before, message_tokens,
     minimal_tail, prune, summary_message, summary_prompt, tail_start,
 };
 use crate::context::{PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB, TAIL_TOKENS};
@@ -85,12 +85,40 @@ fn the_summary_prompt_asks_for_every_section_in_order() {
 
 #[test]
 fn a_focus_ends_the_summary_prompt_and_a_blank_one_counts_as_none() {
-    assert_eq!(summary_prompt(None), SUMMARY_PROMPT.trim_end());
-    assert_eq!(summary_prompt(Some("  ")), SUMMARY_PROMPT.trim_end());
+    let none = LeftOut::default();
+    assert_eq!(summary_prompt(None, none), SUMMARY_PROMPT.trim_end());
+    assert_eq!(summary_prompt(Some("  "), none), SUMMARY_PROMPT.trim_end());
     assert_eq!(
-        summary_prompt(Some(" the failing test ")),
+        summary_prompt(Some(" the failing test "), none),
         format!("{}\n\nKeep in the summary: the failing test", SUMMARY_PROMPT.trim_end())
     );
+}
+
+#[test]
+fn the_summary_prompt_names_what_its_request_leaves_out() {
+    let prompt = SUMMARY_PROMPT.trim_end();
+    let cases = [
+        (LeftOut { turns: 0, messages: 1 }, "1 earlier message of the conversation: it did"),
+        (LeftOut { turns: 0, messages: 12 }, "12 earlier messages of the conversation: they did"),
+        (LeftOut { turns: 1, messages: 0 }, "1 earlier turn of the conversation: it did"),
+        (
+            LeftOut { turns: 2, messages: 1 },
+            "2 earlier turns and 1 earlier message of the conversation: they did",
+        ),
+    ];
+    for (left_out, what) in cases {
+        assert_eq!(
+            summary_prompt(None, left_out),
+            format!(
+                "{prompt}\n\nThis request leaves out {what} not fit in the model's context. \
+                 Say so under the first heading."
+            ),
+            "{left_out:?}"
+        );
+    }
+    // The focus comes last.
+    let focused = summary_prompt(Some("the test"), LeftOut { turns: 0, messages: 3 });
+    assert!(focused.ends_with("Say so under the first heading.\n\nKeep in the summary: the test"));
 }
 
 #[test]

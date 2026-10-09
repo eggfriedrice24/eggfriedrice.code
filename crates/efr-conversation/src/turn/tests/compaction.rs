@@ -15,7 +15,8 @@ use crate::preamble::LiveState;
 use crate::testing::{
     HARD_CAP, MODEL, SUMMARY, SUMMARY_2, Setup, TRIGGER, WINDOW, answer, big_file, big_prompt,
     big_text, compacting, compactions, expect_request, failure, fresh, request, result_message,
-    run_two_big_turns, summary, text_answer, tool_answer, tool_message, two_big_turns,
+    run_two_big_turns, summary, summary_without, text_answer, tool_answer, tool_message,
+    two_big_turns,
 };
 use crate::{CompactionConfig, ContextLimits, HistoryLimits};
 
@@ -224,7 +225,7 @@ fn overflow_records(setup: &Setup) -> (Vec<Record>, Request, Vec<Message>) {
     records.extend([
         expect_request(request(first.clone())),
         failure(serde_json::from_str(OVERFLOW).expect("json")),
-        expect_request(summary(fitting)),
+        expect_request(summary_without(fitting, 0, 1)),
         answer(&text_answer(SUMMARY)),
         expect_request(request(after.clone())),
     ]);
@@ -445,15 +446,19 @@ async fn a_failed_summary_above_the_hard_cap_names_the_failure_and_its_cause() {
         vec![setup.prompt(&state, "hello"), Message::assistant("hi"), setup.prompt(&state, "go")];
     let mut refused = first.clone();
     refused.extend([call, result]);
+    // NOTE: a summary request above the hard cap never goes out. The newest result
+    // alone passes the trigger, so every message goes, and the note takes their place.
+    let fitting = vec![dropped_note(5)];
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "hello")])),
         answer(&text_answer("hi")),
         expect_request(request(first)),
         answer(&tool_answer("call_1", "read_file", &input)),
-        expect_request(summary(refused.clone())),
+        expect_request(summary_without(fitting, 0, 5)),
         failure(json!({ "kind": "rate_limited", "retry_after_ms": 11_000 })),
     ];
     assert!(request_tokens(&request(refused.clone())) > HARD_CAP);
+    assert!(request_tokens(&summary(refused.clone())) > HARD_CAP);
     let mut h = setup.start(records).await;
     let hello = h.prompt("hello").await.turn_id;
     h.wait_end(hello).await;
@@ -564,7 +569,7 @@ async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
         answer(&text_answer("ok 1")),
         expect_request(on_wide(vec![first, Message::assistant("ok 1"), second])),
         answer(&text_answer("ok 2")),
-        expect_request(summary(visible)),
+        expect_request(summary_without(visible, 1, 0)),
         answer(&text_answer(SUMMARY)),
         expect_request(request(after.clone())),
         answer(&text_answer("ok 3")),

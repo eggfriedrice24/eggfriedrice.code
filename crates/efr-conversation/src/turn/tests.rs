@@ -31,6 +31,7 @@ mod compaction;
 mod context;
 mod drafts;
 mod sandbox;
+mod switch;
 mod tools;
 
 fn kinds(names: &[&str]) -> Vec<String> {

@@ -8,7 +8,9 @@ use efr_test_support::{Record, TestRng};
 use pretty_assertions::assert_eq;
 
 use crate::ConversationError;
-use crate::compaction::{dropped_note, gap_note, request_tokens, summary_message, summary_request};
+use crate::compaction::{
+    LeftOut, dropped_note, gap_note, request_tokens, summary_message, summary_request,
+};
 use crate::testing::{
     Harness, MODEL, SUMMARY, Setup, TRIGGER, WINDOW, answer, compacting, compactions, done,
     expect_request, failure, fresh, hold, request, run_two_big_turns, text_answer, two_big_turns,
@@ -34,6 +36,7 @@ fn manual_records(setup: &Setup) -> (Vec<Record>, Request, Vec<Message>) {
         &request(Vec::new()),
         history.clone(),
         Some(FOCUS),
+        LeftOut::default(),
     )));
     let after =
         vec![fresh(setup), summary_message(SUMMARY), history[2].clone(), history[3].clone()];
@@ -249,9 +252,10 @@ async fn a_summary_request_that_does_not_fit_leaves_out_the_oldest_messages_and_
     let mut next = after.clone();
     next.push(setup.prompt(&state, "three"));
     records.extend([
-        expect_request(summary_request(&base, history.clone(), None)),
+        expect_request(summary_request(&base, history.clone(), None, LeftOut::default())),
         failure(serde_json::from_str(OVERFLOW).expect("json")),
-        expect_request(summary_request(&base, fitting, None)),
+        // The prompt names the message that the request leaves out.
+        expect_request(summary_request(&base, fitting, None, LeftOut { turns: 0, messages: 1 })),
         answer(&text_answer(SUMMARY)),
         expect_request(request(next)),
         answer(&text_answer("ok 3")),
