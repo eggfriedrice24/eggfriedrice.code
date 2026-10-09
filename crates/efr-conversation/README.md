@@ -205,10 +205,10 @@ The directory is made again, under the same name, when it goes missing.
 
 ### The tools reach this crate through `Toolbox`
 
-The structure document gives this crate the edge `efr-conversation -> efr-tools`, and
-the allowlist in `xtask/src/deps.rs` permits it. But `efr-tools` depends on
+The structure document gives this crate the edge `efr-conversation -> efr-tools`, but
+the allowlist in `xtask/src/deps.rs` does not name it: `efr-tools` depends on
 `efr-shell`, and the same file forbids `efr-conversation -> efr-shell` through any
-chain, so `cargo xtask deps` refuses the edge
+chain, so `cargo xtask deps` would refuse the edge
 (`efr-conversation -> efr-tools -> efr-shell`). The crate therefore defines `Toolbox`,
 the registry's shape in its own terms, and the daemon implements it over its
 `efr_tools::ToolRegistry` in `efr-daemon/src/tools.rs`. The adapter is a copy, field
@@ -359,9 +359,10 @@ parts `context` and `compacting`, `conversation.compact`).
 
 - The window: the context window of the turn's model, in tokens. It is the
   `context_window` of the model in `ConversationConfig::models` (the provider's model
-  catalog, from the backend, its cache or efr's built-in list, or the model's entry in
-  `[openai] models`, which the daemon cuts down to the model's largest window). When
-  it is not known, efr counts with `DEFAULT_CONTEXT_WINDOW` (128000).
+  catalog, from the backend, its cache or, for OpenAI only, efr's built-in list; or the
+  model's entry in `[openai] models` or `[anthropic] models`, which the daemon cuts
+  down to the model's largest window). When it is not known, efr counts with
+  `DEFAULT_CONTEXT_WINDOW` (128000).
 - The context: the tokens of one request plus its answer.
 - The trigger: `auto_at` percent of the window, rounded down (`[compaction] auto_at`,
   default 76; 206720 tokens on a window of 272000). An auto compaction runs at the
@@ -704,8 +705,8 @@ engine at the check point), `efr-scope` (scope derivation, `Home`), `efr-store` 
 writer and the readers), `efr-sandbox` (`secret_like`, the names that look like
 secrets, which the sandbox's environment filter uses too; the preamble redacts the
 values of such names in the last command), `efr-protocol` (events, ids, method params
-and results) and `efr-stdx` (the clock, the generator, ids, `claim_dir`). The allowlist also names
-`efr-tools`; see above for why it is not used. `xtask/src/deps.rs` forbids
+and results) and `efr-stdx` (the clock, the generator, ids, `claim_dir`). The allowlist
+does not name `efr-tools`; see above for why. `xtask/src/deps.rs` forbids
 `efr-conversation -> efr-shell` and `efr-conversation -> efr-transport`.
 
 Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blocking`),
