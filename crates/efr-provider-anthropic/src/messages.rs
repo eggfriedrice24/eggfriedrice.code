@@ -21,8 +21,8 @@ use efr_http::{
     SseStream, header,
 };
 use efr_provider::{
-    ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
-    SecretString, TokenSource,
+    EditTool, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
+    Request, SecretString, TokenSource,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -195,6 +195,10 @@ impl Provider for AnthropicProvider {
     fn models(&self) -> Vec<ModelInfo> {
         let catalog = self.catalog.current().map(|catalog| catalog.models()).unwrap_or_default();
         with_extra(catalog, self.config.models())
+    }
+
+    fn default_edit_tool(&self) -> EditTool {
+        EditTool::Replace
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

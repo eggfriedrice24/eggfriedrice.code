@@ -3,8 +3,11 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use efr_protocol::Origin;
-use efr_provider::{EditTool, ModelInfo, Request};
+use efr_provider::{
+    EditTool, ModelInfo, Provider, ProviderError, ProviderId, ProviderStream, Request,
+};
 use efr_test_support::{Record, ReplayProvider, Transcript};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -109,4 +112,29 @@ fn a_model_that_the_list_does_not_name_gets_the_tool_of_the_listed_models() {
     let shared = provider(vec![claude("claude-a"), claude("claude-b")]);
     assert_eq!(edit_tool(&shared, "claude-new"), EditTool::Replace);
     assert_eq!(edit_tool(&provider(Vec::new()), "any"), EditTool::ApplyPatch);
+}
+
+/// A provider of Claude models whose list has not come yet.
+#[derive(Debug)]
+struct NoListYet(ProviderId);
+
+#[async_trait]
+impl Provider for NoListYet {
+    fn id(&self) -> &ProviderId {
+        &self.0
+    }
+
+    fn default_edit_tool(&self) -> EditTool {
+        EditTool::Replace
+    }
+
+    async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+        Err(ProviderError::NotLoggedIn)
+    }
+}
+
+#[test]
+fn without_a_list_the_model_gets_the_providers_own_edit_tool() {
+    let provider = NoListYet(ProviderId::new("anthropic-api").expect("id"));
+    assert_eq!(edit_tool(&provider, "claude-opus-5-5"), EditTool::Replace);
 }

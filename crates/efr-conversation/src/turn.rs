@@ -1396,7 +1396,8 @@ pub(crate) fn provider_options(
 
 /// The tool with which `model` changes files: the one that the provider's model list
 /// names for it. A model that the list does not name gets the tool that every listed
-/// model shares, as all models of one provider do today, else `apply_patch`.
+/// model shares, as all models of one provider do today, else the provider's own
+/// default, so a Claude model gets `edit` also while the list is empty.
 pub(crate) fn edit_tool(provider: &dyn Provider, model: &str) -> EditTool {
     let models = provider.models();
     if let Some(info) = models.iter().find(|info| info.id == model) {
@@ -1406,7 +1407,7 @@ pub(crate) fn edit_tool(provider: &dyn Provider, model: &str) -> EditTool {
         Some((first, rest)) if rest.iter().all(|info| info.edit_tool == first.edit_tool) => {
             first.edit_tool
         }
-        _ => EditTool::default(),
+        _ => provider.default_edit_tool(),
     }
 }
 

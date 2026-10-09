@@ -41,6 +41,14 @@ pub trait Provider: Send + Sync + fmt::Debug {
         Vec::new()
     }
 
+    /// The tool with which a model that [`models`](Provider::models) does not list
+    /// changes files, such as the model of a turn that starts before the provider has
+    /// its list: the form that the provider's models are trained on.
+    /// [`EditTool::ApplyPatch`] unless the provider says otherwise.
+    fn default_edit_tool(&self) -> EditTool {
+        EditTool::default()
+    }
+
     /// Sends `request` and returns the answer as it streams. An error here means the
     /// request failed before any event; later failures arrive as error items.
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError>;

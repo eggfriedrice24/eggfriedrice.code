@@ -219,7 +219,9 @@ by field:
   that `edit` names (`efr_provider::EditTool`), `apply_patch` or `edit`. The turn, and
   the manual compaction for its summary request, pass the edit tool of the request's
   model: the one that `Provider::models` names for it, else the one that every listed
-  model shares, else `apply_patch` (`turn::edit_tool`). The turn reads it once when it
+  model shares, else the provider's own default (`turn::edit_tool`,
+  `Provider::default_edit_tool`): `edit` for the Anthropic provider, also before it
+  has its list, and `apply_patch` for the others. The turn reads it once when it
   starts, so the tool list stays the same for each call of the turn. Each call carries
   it in `CallContext::edit_tool`, so the toolbox refuses a call of the other edit tool,
   which the request did not offer;

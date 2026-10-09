@@ -124,7 +124,10 @@ Codex format, the default of `ModelInfo::new`) for OpenAI's models, and
 `efr_patch::replace`) for Anthropic's models. The code that builds a request's tool
 list offers the model only the tool that `edit_tool` names, beside `write_file` and
 `read_file`. The tool list then stays the same while the model stays, so it does not
-break the prompt cache.
+break the prompt cache. `Provider::default_edit_tool` names the tool of a model that
+`Provider::models` does not list, such as before a provider has its list:
+`EditTool::ApplyPatch` unless the provider says otherwise (the Anthropic provider says
+`EditTool::Replace`).
 
 Serde forms: names are snake_case, internally tagged enums use the member `kind`,
 optional members are left out when empty and unknown members are ignored, as on the

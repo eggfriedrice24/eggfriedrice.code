@@ -213,7 +213,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
 - The `edit` tool of Claude models: `crates/efr-tools/src/edit.rs` on
   `efr_patch::replace`. Which model gets `apply_patch` and which `edit`:
-  `ModelInfo::edit_tool` in `crates/efr-provider/src/provider.rs`, read by
+  `ModelInfo::edit_tool` in `crates/efr-provider/src/provider.rs` (and
+  `Provider::default_edit_tool` for a model that the list does not name), read by
   `turn::edit_tool` in `crates/efr-conversation/src/turn.rs`; the list that offers one
   of the two and the refusal of the other in `crates/efr-daemon/src/tools.rs`.
 - The model's context window and its compaction: the contract in

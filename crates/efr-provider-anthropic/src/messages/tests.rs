@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_http::{HeaderMap, HttpClient, HttpConfig, Record, Recorder, RetryPolicy};
-use efr_provider::{Message, ModelInfo, Provider, ProviderError, ProviderId, Request, StopReason};
+use efr_provider::{
+    EditTool, Message, ModelInfo, Provider, ProviderError, ProviderId, Request, StopReason,
+};
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -563,6 +565,7 @@ async fn the_provider_names_itself_and_has_no_model_without_a_list() {
 
     assert_eq!(provider.id().as_str(), "anthropic-test");
     assert!(provider.models().is_empty());
+    assert_eq!(provider.default_edit_tool(), EditTool::Replace, "a Claude model edits with edit");
     assert!(provider.config().base_url().ends_with("/v1"));
     let debug = format!("{provider:?}");
     assert!(debug.contains("AnthropicProvider"), "{debug}");
