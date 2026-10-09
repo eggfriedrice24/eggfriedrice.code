@@ -1,9 +1,8 @@
 //! The fetch of the model catalog from the backend.
 //!
-//! `GET <base_url>/models` with the same credentials and headers as a model request
-//! (Codex `codex-rs/codex-api/src/endpoint/models.rs`, `ModelsClient`). Codex adds its
-//! own version as `client_version`, and the backend keeps back each model that needs a
-//! newer Codex. efr sends no `client_version`, because it has no Codex version. A list that efr already has goes with its tag in `If-None-Match`,
+//! `GET <base_url>/models?client_version=<efr's version>` with the same credentials and
+//! headers as a model request (Codex `codex-rs/codex-api/src/endpoint/models.rs`,
+//! `ModelsClient`). A list that efr already has goes with its tag in `If-None-Match`,
 //! and a 304 answer confirms it without a body.
 
 use std::sync::Arc;
@@ -15,7 +14,7 @@ use efr_provider::{ExposeSecret as _, ProviderError, TokenSource};
 use efr_stdx::time::Clock;
 use serde_json::Value;
 
-use super::{Catalog, entries_of};
+use super::{CLIENT_VERSION, Catalog, entries_of};
 use crate::OpenAiConfig;
 use crate::responses::sign;
 
@@ -69,10 +68,12 @@ impl CatalogClient {
         self.config.base_url()
     }
 
-    /// The URL of the catalog, without a `client_version`.
+    /// The URL of the catalog, with efr's own version as `client_version`.
     pub fn url(&self) -> Result<Url, HttpError> {
-        Url::parse(&format!("{}/models", self.config.base_url()))
-            .map_err(|source| HttpError::InvalidUrl { source })
+        let mut url = Url::parse(&format!("{}/models", self.config.base_url()))
+            .map_err(|source| HttpError::InvalidUrl { source })?;
+        url.query_pairs_mut().append_pair("client_version", CLIENT_VERSION);
+        Ok(url)
     }
 
     /// Asks the backend for its catalog. `current` is the list that efr has: when the
@@ -154,7 +155,7 @@ impl CatalogClient {
             };
             self.refuses_fresh.store(false, Ordering::Relaxed);
             if broken > 0 {
-                tracing::warn!(broken, "the model catalog has entries that efr cannot read");
+                tracing::debug!(broken, "the model catalog has entries that efr cannot read");
             }
             return Ok(Fetched::Changed(Catalog::from_backend(
                 self.config.backend(),

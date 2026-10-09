@@ -162,7 +162,7 @@ into the GitHub release notes, and it stops when the section is missing.
   it. A retry of the same command waits for the compaction that runs. The plugin
   hands the focus to `efr` in its environment, as it does a prompt.
 - The model list comes from the ChatGPT backend. efrd asks for it in the background
-  at start, after `efr login openai` and then every hour. An
+  at start, after `efr login openai` and then every hour, with efr's own version. An
   unchanged list costs a short answer. A prompt never waits for this request: a new
   list applies from the next turn on. efrd keeps the last list in its state directory
   (`~/.local/state/efr/model_catalog.json` by default), so a start without network
