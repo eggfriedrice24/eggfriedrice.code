@@ -124,3 +124,47 @@ async fn each_request_starts_with_the_request_before_it() {
     assert!(last.messages.iter().any(|message| message.provider_raw.is_some()));
     h.finish();
 }
+
+/// The rule of the live state, as each block starts with it.
+const CURRENT: &str = "<live_state>\nThis block shows the state when the user sent this \
+                       prompt. Only the newest live_state block is current; an older one \
+                       shows the state at its own prompt.\n";
+
+#[tokio::test]
+async fn a_custom_system_prompt_keeps_the_rule_of_the_live_state_and_old_blocks_keep_their_bytes() {
+    let mut setup = Setup::new();
+    setup.config.system_prompt = Some("You are a terse helper.".to_owned());
+    let model = Recorder::new(3);
+    let mut h = setup.start_model(model.clone()).await;
+    let other = h.dirs.create_dir("home/other").expect("another directory");
+
+    for (n, cwd) in [(1, h.cwd.clone()), (2, other.clone())] {
+        let sent = h.prompt_in(&cwd, &format!("prompt {n}")).await;
+        let end = h.wait_end(sent.turn_id).await;
+        assert!(matches!(end, Event::TurnCompleted { .. }), "turn {n}: {end:?}");
+    }
+    h = h.restart_model(model.clone()).await;
+    let sent = h.prompt_in(&other, "prompt 3").await;
+    h.wait_end(sent.turn_id).await;
+
+    let requests = model.requests();
+    let [one, two, three] = requests.as_slice() else {
+        panic!("three requests: {}", requests.len());
+    };
+    for request in &requests {
+        let system = request.system.as_deref().unwrap_or_default();
+        assert!(!system.contains("live_state"), "the custom prompt says nothing of it");
+        let newest = request.messages.last().expect("a prompt");
+        assert!(first_text(newest).starts_with(CURRENT), "{:?}", first_text(newest));
+    }
+    // The block of the first prompt names its own directory, and every later request,
+    // also after the restart, sends it with the same bytes.
+    let first = serde_json::to_string(&one.messages[0]).expect("json");
+    assert!(first_text(&one.messages[0]).contains(&h.cwd.display().to_string()));
+    for later in [two, three] {
+        assert_eq!(serde_json::to_string(&later.messages[0]).expect("json"), first);
+    }
+    assert_eq!(check(2, one, two), None);
+    assert_eq!(check(3, two, three), None);
+    h.finish();
+}

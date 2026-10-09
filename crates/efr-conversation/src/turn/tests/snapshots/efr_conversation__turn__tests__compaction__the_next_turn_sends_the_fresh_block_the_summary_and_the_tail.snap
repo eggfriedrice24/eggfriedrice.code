@@ -58,7 +58,7 @@ expression: "shape(&next, &root)"
       "content": [
         {
           "kind": "text",
-          "text": "<2824 bytes, starts \"<live_state>\\nThe user's \">"
+          "text": "<2976 bytes, starts \"<live_state>\\nThis block \">"
         },
         {
           "kind": "text",

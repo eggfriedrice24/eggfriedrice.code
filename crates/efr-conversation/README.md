@@ -145,7 +145,8 @@ request:
    `HistoryLimits` (512 KiB of message JSON, scaled to the model's window, see
    "Context" and "The history only grows");
 3. the newest prompt, whose first block is the live-state preamble regenerated every
-   turn: the shell's directory and previous directory, the last command and its exit
+   turn: first the rule that only the newest live-state block is current, then the
+   shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
    shell's own directory when it differs, one line when the user moved since the
    previous prompt (where from, and whether the hidden shell moved too or where it
@@ -341,8 +342,11 @@ The design:
 
 1. The saved prompt is the prompt as the model read it: the `<live_state>` preamble,
    then the user's text, in one user message. Every later request sends it again
-   word for word, so an old preamble stays as a record of that moment. The system
-   prompt says that only the newest live-state block is current. The preamble shows
+   word for word, so an old preamble stays as a record of that moment. The first line
+   of each block says that only the newest live-state block is current, so a system
+   prompt replaced in `config.toml` cannot lose the rule (the default system prompt
+   says it too). A block keeps the bytes it was sent with, so a newer efr whose
+   preamble says more changes only the blocks of new prompts. The preamble shows
    the user's last command with its secrets redacted when it is rendered (the value of
    an assignment to a name that `efr_sandbox::secret_like` matches, and key forms such
    as `sk-ant-`, `sk-proj-`, `sk-` and `ghp_`), so the bytes that the store keeps are
@@ -838,6 +842,8 @@ snapshots, and the redaction of the last command by table tests
 64 turns against a model that keeps every request (`testing::Recorder`), with tool
 calls, a manual compaction, a restart and more than 4096 events, and checks that each
 request starts with the request before it, except the first one after the
-compaction. The scratch and resolver
+compaction. A second one runs under a custom system prompt that says nothing of the
+live state: each newest block starts with the rule, and the block of the first prompt
+keeps its bytes in every later request, also after a restart. The scratch and resolver
 tests use temporary directories; the resolver tests run git, isolated from the user's
 configuration. No test uses the network, a real model, real time or the user's home.

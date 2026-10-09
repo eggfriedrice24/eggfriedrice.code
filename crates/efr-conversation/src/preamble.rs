@@ -5,8 +5,9 @@
 //! machine facts, and it rides as the first block of the turn's prompt. The prompt is
 //! saved with the preamble, and every later request sends it again word for word, so
 //! each request starts with the request before it (the README, "The history only
-//! grows"). An old preamble is a record of its moment: the system prompt tells the
-//! model that only the newest one is current. The last command is shown with its
+//! grows"). An old preamble is a record of its moment: the first line of every block
+//! tells the model that only the newest one is current ([`CURRENT_RULE`]), also under a
+//! system prompt that the user replaced. The last command is shown with its
 //! secrets redacted ([`secrets::redact`]), because the store keeps what the model read.
 //! The static rules live apart from it, in the system prompt, except the rules about
 //! the turn's settings: they ride here next to the mode, the model and the effort they
@@ -94,6 +95,7 @@ impl LiveState {
     /// can tell it from the user's words.
     pub(crate) fn render(&self) -> String {
         let mut text = String::from("<live_state>\n");
+        text.push_str(CURRENT_RULE);
         // NOTE: writing to a String cannot fail, so the results are ignored.
         let _ = write!(text, "The user's shell is in {}", self.cwd.display());
         match &self.oldpwd {
@@ -198,6 +200,15 @@ impl LiveState {
         text
     }
 }
+
+/// The first line of every block: which block is current. Each request sends the
+/// preambles of the earlier prompts again, word for word, so the model must not read an
+/// old directory or mode as the current one. The line rides in the block, so a system
+/// prompt that the user replaced in `config.toml` cannot lose it.
+const CURRENT_RULE: &str = "\
+This block shows the state when the user sent this prompt. Only the newest live_state \
+block is current; an older one shows the state at its own prompt.
+";
 
 /// Who changes the turn's settings, after the list of the real permission modes. A
 /// model that is not told invents modes and claims to switch them when a prompt only

@@ -3,6 +3,7 @@ source: crates/efr-conversation/src/preamble/tests.rs
 expression: minimal().render()
 ---
 <live_state>
+This block shows the state when the user sent this prompt. Only the newest live_state block is current; an older one shows the state at its own prompt.
 The user's shell is in /home/u.
 Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
 Home: /home/u

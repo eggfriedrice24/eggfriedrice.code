@@ -382,6 +382,10 @@ into the GitHub release notes, and it stops when the section is missing.
   as after an interrupt while a tool ran or after a model call that failed. Before,
   efr joined it to the last message of that turn, so the request lost the prompt
   cache of that message and the new turn had no one-hour cache entry.
+- Each `<live_state>` block now starts with the rule that only the newest block is
+  current. Before, only the default system prompt said so, and a `[model]
+  system_prompt` of your own lost the rule, so the model could read an old directory
+  as the current one. Blocks that efr sent before keep their bytes.
 
 ### Security
 
