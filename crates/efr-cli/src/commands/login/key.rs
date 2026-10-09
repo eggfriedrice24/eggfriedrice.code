@@ -70,6 +70,18 @@ impl KeyProvider {
         }
     }
 
+    /// The line that says how the provider bills the key, for a provider whose key a
+    /// user may take for the subscription: OpenAI bills its API key per token, apart
+    /// from a ChatGPT plan.
+    pub(crate) fn billing(self) -> Option<&'static str> {
+        match self {
+            KeyProvider::OpenAi => {
+                Some("note: OpenAI bills the API key per token; a ChatGPT plan does not cover it\n")
+            }
+            KeyProvider::Anthropic => None,
+        }
+    }
+
     /// Where the owner revokes a key.
     pub(crate) fn revoke(self) -> &'static str {
         match self {

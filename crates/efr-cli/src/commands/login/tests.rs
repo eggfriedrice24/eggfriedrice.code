@@ -190,6 +190,7 @@ async fn a_key_on_stdin_is_trimmed_checked_and_shown_only_by_its_hint() {
     assert_eq!(
         stdout,
         "logged in to openai-api with key sk-proj-...9f3c\n\
+         note: OpenAI bills the API key per token; a ChatGPT plan does not cover it\n\
          New conversations keep their provider. To use openai-api, set provider = \"openai-api\" \
          under [model] in config.toml (efr config set model.provider openai-api), then restart \
          efrd: systemctl --user restart efrd\n"
@@ -354,4 +355,22 @@ async fn an_invalid_open_browser_flag_is_reported() {
         "{}",
         captured.stderr()
     );
+}
+
+#[tokio::test]
+async fn a_login_to_openai_api_says_that_openai_bills_the_key_per_token() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let input = FixedKeyInput { stdin: KEY, ..Default::default() };
+    let settings = Settings::parse(
+        std::path::Path::new("/c/config.toml"),
+        "[model]\nprovider = \"openai-api\"\n",
+    );
+    let ctx = Context { key_input: Arc::new(input), settings, ..env.context() };
+
+    let answer = Ok(stored("openai-api", "sk-proj-...9f3c", true, true));
+    let (exit, _, stdout, _) = login_with(ctx, &["login", "openai-api"], answer, daemon).await;
+
+    assert_eq!(exit, Exit::Success);
+    insta::assert_snapshot!(stdout);
 }

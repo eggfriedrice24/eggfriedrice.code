@@ -268,7 +268,11 @@ fn a_key_piped_to_stdin_reaches_the_daemon_and_not_the_output() {
     assert_eq!(params.provider, "openai-api");
     assert_eq!(params.key.expose_secret(), KEY);
     assert!(params.check);
-    assert_eq!(stdout_of(&output), "logged in to openai-api with key sk-...9f3c\n");
+    assert_eq!(
+        stdout_of(&output),
+        "logged in to openai-api with key sk-...9f3c\n\
+         note: OpenAI bills the API key per token; a ChatGPT plan does not cover it\n"
+    );
     assert_eq!(stderr_of(&output), "checking the key...\n");
 }
 

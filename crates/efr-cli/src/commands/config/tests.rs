@@ -575,3 +575,24 @@ async fn check_warns_about_a_model_name_of_another_company_with_the_fix() {
         assert_eq!((exit, stdout), (Exit::Success, format!("{shown}: ok\n")), "{fits}");
     }
 }
+
+#[tokio::test]
+async fn a_switch_to_openai_api_says_that_openai_bills_the_key_per_token() {
+    let env = TestEnv::new();
+    let ctx = env.context();
+    let path = env.dirs.config().join("config.toml");
+    std::fs::write(&path, "[model]\n").unwrap();
+
+    let (exit, stdout, stderr) =
+        efr(&ctx, &["config", "set", "model.provider", "openai-api"]).await;
+
+    assert_eq!((exit, stderr.as_str()), (Exit::Success, ""));
+    insta::assert_snapshot!(stdout.replace(&path.display().to_string(), "<config.toml>"));
+    for other in ["anthropic-api", "openai-subscription"] {
+        let (exit, stdout, _) = efr(&ctx, &["config", "set", "model.provider", other]).await;
+        assert_eq!(exit, Exit::Success);
+        assert!(!stdout.contains("per token"), "{stdout}");
+    }
+    let (_, stdout, _) = efr(&ctx, &["config", "set", "model.name", "openai-api"]).await;
+    assert!(!stdout.contains("per token"), "only model.provider switches: {stdout}");
+}

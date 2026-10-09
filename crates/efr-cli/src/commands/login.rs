@@ -12,7 +12,8 @@
 //! not to, and stores it. The CLI shows only the hint of the key that the daemon
 //! answers. A login never changes the provider of new conversations: when the key is
 //! not for it, the CLI says how to change `[model] provider` and that efrd needs a
-//! restart.
+//! restart. After a login to `openai-api`, one line says that OpenAI bills the key per
+//! token, apart from a ChatGPT plan.
 
 mod key;
 
@@ -81,6 +82,9 @@ async fn api_key(
         format::one_line(&result.provider),
         format::one_line(&result.key_hint)
     ))?;
+    if let Some(billing) = provider.billing() {
+        out.out(billing)?;
+    }
     if !result.active {
         out.out(&switch(provider, ctx.settings.provider()))?;
     }

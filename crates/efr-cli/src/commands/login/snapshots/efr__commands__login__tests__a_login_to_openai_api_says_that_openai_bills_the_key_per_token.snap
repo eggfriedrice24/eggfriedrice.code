@@ -1,0 +1,6 @@
+---
+source: crates/efr-cli/src/commands/login/tests.rs
+expression: stdout
+---
+logged in to openai-api with key sk-proj-...9f3c
+note: OpenAI bills the API key per token; a ChatGPT plan does not cover it

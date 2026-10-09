@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/commands/config/tests.rs
+expression: "stdout.replace(&path.display().to_string(), \"<config.toml>\")"
+---
+<config.toml>: set model.provider = openai-api
+note: OpenAI bills the API key per token; a ChatGPT plan does not cover it
+the daemon is not running; it reads the file when it starts

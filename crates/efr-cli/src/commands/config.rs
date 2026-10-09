@@ -12,6 +12,7 @@
 //!   model in the daemon's catalog gets a note: efrd uses the largest one. A
 //!   `[model] name` of another company than `[model] provider` gets a warning with the
 //!   fix: the file is valid, but every turn that does not name its own model fails.
+//! - `set model.provider openai-api` says that OpenAI bills the API key per token.
 //! - `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `vi`, after it creates a
 //!   missing one from the commented example (never through a link to nothing); when
 //!   `config.toml` is a symbolic link, the editor gets the file behind it, so the link
@@ -36,6 +37,7 @@ use efr_render::{ColourMode, Theme};
 use efr_stdx::env::Var;
 
 use crate::cli::ConfigCommand;
+use crate::commands::login::KeyProvider;
 use crate::context::{Context, DEFAULT_LOG_FILTER};
 use crate::error::CliError;
 use crate::format;
@@ -491,6 +493,12 @@ async fn change(
         (None, false) => format!("{}: {key} was not set\n", target.display()),
     };
     out.out(&line)?;
+    if key == "model.provider"
+        && value == Some(KeyProvider::OpenAi.id())
+        && let Some(billing) = KeyProvider::OpenAi.billing()
+    {
+        out.out(billing)?;
+    }
     reload_after_change(ctx, out).await
 }
 
