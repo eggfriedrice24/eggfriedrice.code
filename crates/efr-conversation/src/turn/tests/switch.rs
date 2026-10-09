@@ -2,6 +2,7 @@
 //! model with a large window and goes on with a model of a smaller one.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -11,9 +12,10 @@ use efr_provider::{
     Role, StopReason, TokenUsage,
 };
 use pretty_assertions::assert_eq;
+use serde_json::json;
 
-use crate::compaction::request_tokens;
-use crate::testing::{Harness, SUMMARY, Setup, big_text, compactions, done};
+use crate::compaction::{is_results, request_tokens};
+use crate::testing::{Harness, SUMMARY, Setup, big_text, compactions, done, tool_answer};
 use crate::{CompactionConfig, ContextLimits, HistoryLimits};
 
 /// The model of the turns before the switch, with a window of one million tokens.
@@ -28,25 +30,39 @@ const SMALL_WINDOW: u64 = 272_000;
 /// A provider that counts each request as the conversation estimates it and refuses
 /// one above the window of its model, as a real API refuses a request that does not
 /// fit. It answers a summary request with [`SUMMARY`], any other request with `ok`, and
-/// reports the estimate as the input of the call.
+/// reports the estimate as the input of the call. With `reads`, it answers a prompt
+/// with a call of `read_file` of that file whose input carries that many more bytes,
+/// so each turn is a tool loop.
 #[derive(Debug)]
 struct Windowed {
     id: ProviderId,
     windows: HashMap<String, u64>,
+    reads: Option<(PathBuf, usize)>,
     requests: Mutex<Vec<Request>>,
     refused: Mutex<Vec<Request>>,
 }
 
 impl Windowed {
     fn new(id: &str) -> Arc<Self> {
+        Arc::new(Windowed::build(id, None))
+    }
+
+    /// A provider whose turns read the file `path` in a tool loop before they answer,
+    /// with a call whose input carries `pad` more bytes.
+    fn reading(id: &str, path: PathBuf, pad: usize) -> Arc<Self> {
+        Arc::new(Windowed::build(id, Some((path, pad))))
+    }
+
+    fn build(id: &str, reads: Option<(PathBuf, usize)>) -> Self {
         let windows =
             HashMap::from([(WIDE.to_owned(), WIDE_WINDOW), (SMALL.to_owned(), SMALL_WINDOW)]);
-        Arc::new(Windowed {
+        Windowed {
             id: ProviderId::new(id).expect("provider id"),
             windows,
+            reads,
             requests: Mutex::new(Vec::new()),
             refused: Mutex::new(Vec::new()),
-        })
+        }
     }
 
     fn requests(&self) -> Vec<Request> {
@@ -76,13 +92,23 @@ impl Provider for Windowed {
             ));
         }
         let text = if request.side_call { SUMMARY } else { "ok" };
-        self.requests.lock().unwrap_or_else(PoisonError::into_inner).push(request);
+        let prompted = request.messages.last().is_some_and(|last| !is_results(last));
+        let reads = self.reads.clone().filter(|_| !request.side_call && prompted);
+        let mut requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        requests.push(request);
+        let call_id = format!("call_{}", requests.len());
+        drop(requests);
         let usage = TokenUsage { input_tokens: tokens, output_tokens: 1, ..TokenUsage::default() };
-        let events = vec![
-            ProviderEvent::TextDelta { text: text.to_owned() },
-            ProviderEvent::Usage(usage),
-            done(StopReason::EndTurn, None),
-        ];
+        let mut events = match reads {
+            Some((path, pad)) => {
+                tool_answer(&call_id, "read_file", &json!({ "path": path, "pad": big_text(pad) }))
+            }
+            None => vec![
+                ProviderEvent::TextDelta { text: text.to_owned() },
+                done(StopReason::EndTurn, None),
+            ],
+        };
+        events.insert(events.len() - 1, ProviderEvent::Usage(usage));
         Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
     }
 }
@@ -122,9 +148,21 @@ async fn turn_on(h: &mut Harness, model: &str, text: &str) -> Event {
 /// Five turns of 100000 estimated tokens each on the wide model of `claude`, then a
 /// restart with `openai` and its small model.
 async fn grown_then_switched(claude: &Arc<Windowed>, openai: &Arc<Windowed>) -> Harness {
-    let mut h = two_models().start_model(claude.clone()).await;
+    grown_with(two_models(), claude, openai, 400_000).await
+}
+
+/// Five turns of `setup` on the wide model of `claude`, each with a prompt of
+/// `prompt_bytes` bytes, to about 500000 estimated tokens, then a restart with `openai`
+/// and its small model.
+async fn grown_with(
+    setup: Setup,
+    claude: &Arc<Windowed>,
+    openai: &Arc<Windowed>,
+    prompt_bytes: usize,
+) -> Harness {
+    let mut h = setup.start_model(claude.clone()).await;
     for turn in 1..=5 {
-        let end = turn_on(&mut h, WIDE, &format!("part {turn}\n{}", big_text(400_000))).await;
+        let end = turn_on(&mut h, WIDE, &format!("part {turn}\n{}", big_text(prompt_bytes))).await;
         assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
     }
     let grown = claude.requests().last().map(request_tokens).unwrap_or(0);
@@ -223,6 +261,53 @@ async fn the_first_call_on_the_new_model_meets_the_hard_cap_of_its_window() {
     );
     assert!(openai.requests().is_empty(), "nothing goes out");
     assert!(openai.refused().is_empty(), "nothing goes out");
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_summary_request_of_tool_loops_never_parts_a_call_from_its_result() {
+    // Each turn is a short prompt and a tool loop whose call is about 100000 tokens and
+    // whose result is short: pruning frees nothing, so a summary runs, and the request
+    // fits first without the oldest calls, where a result would come first.
+    let setup = two_models();
+    let claude = Windowed::reading("anthropic-api", setup.home().join("notes.md"), 400_000);
+    let openai = Windowed::new("openai-api");
+    let mut h = grown_with(setup, &claude, &openai, 100).await;
+
+    let end = turn_on(&mut h, SMALL, "go on").await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    assert!(openai.refused().is_empty(), "no request may pass the window");
+    let requests = openai.requests();
+    let summary = requests.first().expect("a summary request");
+    assert!(summary.side_call);
+    let compaction = compactions(&h).await.pop().expect("a compaction");
+    assert!(compaction.omitted_messages > 0, "the cut falls in the tool loops: {compaction:?}");
+    for request in &requests {
+        // The message after the note holds no result, and every result has its call
+        // earlier in the request, and every call its result.
+        let after_note = request
+            .messages
+            .iter()
+            .position(|message| message.text().contains("earlier messages are omitted"));
+        if let Some(note) = after_note {
+            let next = request.messages.get(note + 1).expect("a message after the note");
+            assert!(!is_results(next), "{next:?}");
+        }
+        let mut calls = Vec::new();
+        let mut results = Vec::new();
+        for block in request.messages.iter().flat_map(|message| &message.content) {
+            match block {
+                ContentBlock::ToolCall { call_id, .. } => calls.push(call_id.clone()),
+                ContentBlock::ToolResult { call_id, .. } => {
+                    assert!(calls.contains(call_id), "a result without its call: {call_id}");
+                    results.push(call_id.clone());
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(calls, results, "every call has its result");
+    }
     h.finish();
 }
 
