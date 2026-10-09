@@ -410,7 +410,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
-    let catalog_cache = dirs.state().join(catalog::CATALOG_FILE);
+    let catalog_cache = catalog::cache_path(&settings, dirs.state());
     let providers = Providers::build(
         &settings,
         secrets,

@@ -225,8 +225,8 @@ pub enum DaemonError {
         #[source]
         source: ProviderError,
     },
-    /// The config names a provider that this efrd cannot build, such as
-    /// `anthropic-api` before efrd can reach Anthropic.
+    /// The config names a provider that this efrd cannot build. The config's checks
+    /// refuse such an id first, so only a daemon of another version gets here.
     #[error("efrd cannot build the provider {id:?}")]
     UnknownProvider {
         /// The provider id of the config.

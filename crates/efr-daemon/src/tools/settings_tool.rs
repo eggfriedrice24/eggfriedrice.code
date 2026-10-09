@@ -45,7 +45,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use crate::catalog::{self, Models};
+use crate::catalog::{self, ModelList, Models};
 use crate::reload::{Outcome, Reloads};
 
 /// The tool's name.
@@ -230,7 +230,7 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
-        let models = self.models.current();
+        let models = self.models.list();
         blocking(move || plan(&path, &input, &engine, &running, &models)).await
     }
 
@@ -239,7 +239,7 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
-        let models = self.models.current();
+        let models = self.models.list();
         blocking(move || {
             let plan = plan(&path, &input, &engine, &running, &models)?;
             if plan.shown != shown {
@@ -326,7 +326,9 @@ impl SettingsTool {
             Ok(file) => file,
             Err(_) => FileState::of(&self.path),
         };
-        read_text(&file, &self.reloads.last(), &running, &self.models.effective(&running))
+        let models = self.models.effective(&running);
+        let key = self.models.list().vendor().models_key();
+        read_text(&file, &self.reloads.last(), &running, &models, key)
     }
 
     fn remember(&self, call_id: CallId, shown: Shown) {
@@ -415,7 +417,7 @@ fn plan(
     input: &SettingsInput,
     engine: &Engine,
     running: &Settings,
-    models: &efr_provider_openai::Catalog,
+    models: &ModelList,
 ) -> Result<Plan, String> {
     let file = ConfigFile::open(path).map_err(|error| describe(&error))?;
     let mut edit = file.edit().map_err(|error| describe(&error))?;
@@ -587,17 +589,18 @@ fn refuse_secrets(engine: &Engine, rule: &Rule) -> Result<(), String> {
 }
 
 /// The default model must be in the model list, and the default effort one it takes.
-fn check_models(settings: &Settings, catalog: &efr_provider_openai::Catalog) -> Result<(), String> {
-    let (models, _) = catalog::effective_models(settings, catalog);
+fn check_models(settings: &Settings, list: &ModelList) -> Result<(), String> {
+    let (models, _) = catalog::effective_models(settings, list);
     if models.is_empty() {
         return Ok(());
     }
-    let model = catalog::default_model(settings, catalog);
+    let model = catalog::default_model(settings, list);
     let Some(info) = models.iter().find(|info| info.id == model) else {
         return Err(format!(
             "The change was not made: {model} is not in the model list ({}). A new model id \
-             goes into openai.models first.",
-            ids(&models)
+             goes into {} first.",
+            ids(&models),
+            list.vendor().models_key()
         ));
     };
     if let Some(effort) = &settings.model.effort
@@ -671,12 +674,14 @@ fn without<'a>(rules: &'a [Rule], other: &[Rule]) -> Vec<&'a Rule> {
     extra
 }
 
-/// The text of `read`.
+/// The text of `read`; `models_key` is the config's list of models of the provider's
+/// company.
 fn read_text(
     file: &FileState,
     last: &Outcome,
     settings: &Settings,
     models: &[ModelInfo],
+    models_key: &str,
 ) -> String {
     let mut text = String::new();
     let place = match (&file.symlink_target, file.exists) {
@@ -743,7 +748,7 @@ fn read_text(
         if let Some(window) = model.context_window {
             let mut fact = format!("window {window} tokens");
             if let Some(max) = model.max_context_window.filter(|max| *max > window) {
-                let _ = write!(fact, ", openai.models can raise it up to {max}");
+                let _ = write!(fact, ", {models_key} can raise it up to {max}");
             }
             facts.push(fact);
         }

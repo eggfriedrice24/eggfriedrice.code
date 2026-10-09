@@ -1,33 +1,35 @@
 //! The model providers: credential rows to token sources to providers, the model
 //! catalog, and the logins.
 //!
-//! Two providers run at milestone 1, both over `efr_provider_openai::OpenAiProvider`
-//! and one shared `efr_http` client:
+//! Three providers run, over one shared `efr_http` client:
 //!
 //! - `openai-subscription`: the ChatGPT plan through `OpenAiTokenSource`, which reads
 //!   the `openai-subscription` credential that `admin.login_openai` saves, refreshes it
 //!   ahead of expiry and returns the access token with its ChatGPT account id;
-//! - `openai-api`: the public API with the `openai-api` credential, an API key, read
-//!   at each request and handed over through `StaticToken`.
+//! - `openai-api`: the public OpenAI API with the `openai-api` credential, an API key,
+//!   read at each request and handed over through `StaticToken`;
+//! - `anthropic-api`: Anthropic's Messages API (`efr_provider_anthropic`) with the
+//!   `anthropic-api` credential, an API key read the same way, and the settings of
+//!   `[anthropic]`.
 //!
-//! Any other id that the config accepts, such as `anthropic-api`, stops the start with
-//! `DaemonError::UnknownProvider` until efrd can build it. Its key can be stored
-//! already: `admin.login_api_key` takes a key for `openai-api` or `anthropic-api`,
-//! checks it with its provider (`api_key.rs`) unless the client says not to, and stores
-//! it under the provider's id. `admin.logout` deletes a provider's credential.
+//! `admin.login_api_key` takes a key for `openai-api` or `anthropic-api`, checks it
+//! with its provider (`api_key.rs`) unless the client says not to, and stores it under
+//! the provider's id. `admin.logout` deletes a provider's credential.
 //!
 //! The config picks the provider of new conversations; a [`ProviderFactory`] given to
 //! the daemon replaces how it is built, which is how an in-process daemon answers from
-//! a replay instead of the network. After a login the token source forgets its cached
-//! token, so the running provider uses the new account at once, and the model catalog
-//! is fetched again (`catalog.rs`). A daemon with a factory never fetches the catalog.
+//! a replay instead of the network. The provider and the fetch of the model catalog
+//! (`catalog.rs`) share one catalog of the provider's company. After a login the token
+//! source forgets its cached token, so the running provider uses the new account at
+//! once, and the model catalog is fetched again. A daemon with a factory never fetches
+//! the catalog.
 
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use efr_config::{AnthropicSettings, OpenAiSettings, Settings, WebSocketChoice};
+use efr_config::{AnthropicSettings, CacheTtlChoice, OpenAiSettings, Settings, WebSocketChoice};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
@@ -36,15 +38,13 @@ use efr_provider::{
     AccessToken, ExposeSecret as _, ModelInfo, Provider, ProviderError, ProviderId, SecretString,
     StaticToken, TokenSource,
 };
-use efr_provider_anthropic::AnthropicConfig;
-use efr_provider_openai::{
-    Catalog, CatalogClient, ModelCatalog, OpenAiConfig, OpenAiProvider, WebSocketMode,
-};
+use efr_provider_anthropic::{AnthropicConfig, AnthropicProvider, CacheTtl};
+use efr_provider_openai::{OpenAiConfig, OpenAiProvider, WebSocketMode};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
-use crate::catalog::Models;
+use crate::catalog::{Fetcher, Models, ProviderCatalog, backend};
 
 mod api_key;
 
@@ -62,7 +62,8 @@ const PROVIDERS: [&str; 3] = [SUBSCRIPTION, API, ANTHROPIC];
 
 /// Builds the provider that new conversations talk to.
 pub trait ProviderFactory: Send + Sync + fmt::Debug {
-    /// The provider named `id` (`openai-subscription` or `openai-api`).
+    /// The provider named `id` (`openai-subscription`, `openai-api` or
+    /// `anthropic-api`).
     fn provider(&self, id: &str) -> Result<Arc<dyn Provider>, DaemonError>;
 }
 
@@ -99,8 +100,9 @@ pub(crate) struct ProviderParts {
     pub(crate) factory: Option<Arc<dyn ProviderFactory>>,
     /// Replaces the authorization server.
     pub(crate) issuer: Option<String>,
-    /// The catalog to start with, from the cache or built in.
-    pub(crate) catalog: Catalog,
+    /// The catalog of `[model] provider` to start with: from the cache, built in, or
+    /// without a list.
+    pub(crate) catalog: ProviderCatalog,
     /// The cache file of the catalog.
     pub(crate) catalog_cache: PathBuf,
 }
@@ -135,32 +137,48 @@ impl Providers {
         );
         let api_base_url = config.openai.api_base_url.as_deref();
         let api = openai_config(OpenAiConfig::api(), &config.openai, api_base_url)?;
-        let checks =
-            KeyChecks::new(http.clone(), api.clone(), anthropic_config(&config.anthropic)?);
-        let catalog = ModelCatalog::new(catalog);
-        // NOTE: `anthropic-api` gets no fetch here; `factory.provider` stops the start
-        // for it below.
-        let source = match config.model.provider.as_str() {
+        let anthropic = anthropic_config(&config.anthropic)?;
+        let checks = KeyChecks::new(http.clone(), api.clone(), anthropic.clone());
+        let provider = config.model.provider.as_str();
+        let fetcher = match (provider, &catalog) {
             _ if factory.is_some() => None,
-            SUBSCRIPTION => {
-                let base_url = config.openai.subscription_base_url.as_deref();
-                let openai = openai_config(OpenAiConfig::subscription(), &config.openai, base_url)?;
-                Some((openai, Arc::clone(&subscription) as Arc<dyn TokenSource>))
+            (SUBSCRIPTION | API, ProviderCatalog::OpenAi(shared)) => {
+                let (openai, tokens) = if provider == API {
+                    (api, stored_key(&store, API)?)
+                } else {
+                    let base_url = config.openai.subscription_base_url.as_deref();
+                    let openai =
+                        openai_config(OpenAiConfig::subscription(), &config.openai, base_url)?;
+                    (openai, Arc::clone(&subscription) as Arc<dyn TokenSource>)
+                };
+                let client = efr_provider_openai::CatalogClient::new(
+                    openai,
+                    http.clone(),
+                    tokens,
+                    Arc::clone(&clock),
+                );
+                Some(Fetcher::OpenAi(shared.clone(), client))
             }
-            API => Some((api, stored_key(&store, API)?)),
+            (ANTHROPIC, ProviderCatalog::Anthropic(shared)) => {
+                let client = efr_provider_anthropic::CatalogClient::new(
+                    anthropic.clone(),
+                    http.clone(),
+                    stored_key(&store, ANTHROPIC)?,
+                    Arc::clone(&clock),
+                );
+                Some(Fetcher::Anthropic(shared.clone(), client))
+            }
             _ => None,
         };
-        let models = match source {
-            Some((openai, tokens)) => {
-                let client = CatalogClient::new(openai, http.clone(), tokens, Arc::clone(&clock));
-                Models::fetched(catalog.clone(), client, catalog_cache, Arc::clone(&clock))
-            }
-            None => Models::fixed(catalog.clone()),
+        let models = match fetcher {
+            Some(fetcher) => Models::fetched(provider, fetcher, catalog_cache, Arc::clone(&clock)),
+            None => Models::fixed(provider, catalog.clone()),
         };
         let factory: Arc<dyn ProviderFactory> = match factory {
             Some(factory) => factory,
             None => Arc::new(CredentialProviders {
                 openai: config.openai.clone(),
+                anthropic,
                 http,
                 subscription: Arc::clone(&subscription),
                 store: Arc::clone(&store),
@@ -338,17 +356,18 @@ fn stored_key(store: &Arc<dyn SecretStore>, id: &str) -> Result<Arc<dyn TokenSou
     Ok(Arc::new(StoredApiKey { store: Arc::clone(store), id: credential(id)? }))
 }
 
-/// The production factory: OpenAI providers over the stored credentials, reading their
+/// The production factory: the providers over the stored credentials, reading their
 /// models from the shared catalog.
 #[derive(Debug)]
 struct CredentialProviders {
     openai: OpenAiSettings,
+    anthropic: AnthropicConfig,
     http: HttpClient,
     subscription: Arc<OpenAiTokenSource>,
     store: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
-    catalog: ModelCatalog,
+    catalog: ProviderCatalog,
 }
 
 impl ProviderFactory for CredentialProviders {
@@ -365,9 +384,20 @@ impl ProviderFactory for CredentialProviders {
                 let base_url = self.openai.subscription_base_url.as_deref();
                 (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
             }
-            // NOTE: a provider id that the config accepts but efrd cannot build yet,
-            // such as `anthropic-api`, stops the start; an OpenAI provider under its
-            // name would send the user's prompts to the wrong company.
+            ANTHROPIC => {
+                let provider = AnthropicProvider::new(
+                    provider_id,
+                    self.anthropic.clone(),
+                    self.http.clone(),
+                    stored_key(&self.store, ANTHROPIC)?,
+                    Arc::clone(&self.clock),
+                    Arc::clone(&self.rng),
+                )
+                .with_catalog(self.catalog.anthropic());
+                return Ok(Arc::new(provider));
+            }
+            // NOTE: the config's checks refuse any other id; an OpenAI provider under
+            // an unknown name would send the user's prompts to the wrong company.
             _ => return Err(DaemonError::UnknownProvider { id: id.to_owned() }),
         };
         let provider = OpenAiProvider::new(
@@ -378,7 +408,7 @@ impl ProviderFactory for CredentialProviders {
             Arc::clone(&self.clock),
             Arc::clone(&self.rng),
         )
-        .with_catalog(self.catalog.clone());
+        .with_catalog(self.catalog.openai(backend(id)));
         Ok(Arc::new(provider))
     }
 }
@@ -425,18 +455,45 @@ pub(crate) fn openai_config(
     Ok(config)
 }
 
-/// The Anthropic config of `[anthropic]` that a key check needs: the base URL and the
-/// workspace.
-fn anthropic_config(settings: &AnthropicSettings) -> Result<AnthropicConfig, DaemonError> {
+/// The Anthropic config of `[anthropic]`: the base URL, the workspace, the time to
+/// live of the prompt cache and the models of `[anthropic] models` with the limits
+/// that an entry gives. The key check uses the same config.
+///
+/// The effort is not set here, as for OpenAI: each turn sends its own as the request's
+/// `effort`, and the provider sends its default for a turn without one.
+pub(crate) fn anthropic_config(
+    settings: &AnthropicSettings,
+) -> Result<AnthropicConfig, DaemonError> {
     let invalid = |source| DaemonError::Anthropic { source };
-    let mut config = AnthropicConfig::new();
+    let mut config = AnthropicConfig::new().with_cache_ttl(cache_ttl(settings.cache_ttl));
     if let Some(base_url) = &settings.base_url {
         config = config.with_base_url(base_url).map_err(invalid)?;
     }
     if let Some(workspace) = &settings.workspace_id {
         config = config.with_workspace_id(workspace).map_err(invalid)?;
     }
+    if let Some(extra) = &settings.models {
+        let models = extra
+            .iter()
+            .map(|entry| {
+                let mut model = ModelInfo::new(entry.id());
+                model.context_window = entry.context_window();
+                model.max_output_tokens = entry.max_output_tokens();
+                model
+            })
+            .collect();
+        config = config.with_models(models);
+    }
     Ok(config)
+}
+
+/// The provider's prompt cache times for the choice of `[anthropic] cache_ttl`.
+fn cache_ttl(choice: CacheTtlChoice) -> CacheTtl {
+    match choice {
+        CacheTtlChoice::FiveMinutes => CacheTtl::FiveMinutes,
+        CacheTtlChoice::OneHour => CacheTtl::OneHour,
+        _ => CacheTtl::Auto,
+    }
 }
 
 /// The provider's transport for the choice of `[openai] websocket`.
@@ -448,7 +505,7 @@ fn websocket_mode(choice: WebSocketChoice) -> WebSocketMode {
     }
 }
 
-/// The API key of the `openai-api` credential, read at each request so a key saved
+/// The API key of a credential (`openai-api` or `anthropic-api`), read at each request so a key saved
 /// while the daemon runs is used without a restart. A key cannot refresh, so a provider
 /// fails at its first 401 and does not send the same key again.
 #[derive(Debug)]

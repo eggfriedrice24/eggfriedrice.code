@@ -1,18 +1,20 @@
 use std::sync::Arc;
 
-use efr_config::{ModelLimits, Settings, WebSocketChoice};
+use efr_config::{CacheTtlChoice, ModelLimits, Settings, WebSocketChoice};
 use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, SecretStore as _};
 use efr_http::{HttpClient, HttpConfig};
-use efr_protocol::{LoginKind, SecretText};
+use efr_protocol::{CatalogOrigin, LoginKind, SecretText};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
-use efr_provider_openai::{Backend, Catalog, OpenAiConfig, WebSocketMode};
+use efr_provider_anthropic::CacheTtl;
+use efr_provider_openai::{Backend, Catalog, ModelCatalog, OpenAiConfig, WebSocketMode};
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
+use crate::catalog::ProviderCatalog;
 use crate::providers::{
     ANTHROPIC, API, KeyLogin, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
-    StoredApiKey, openai_config, provider_status,
+    StoredApiKey, anthropic_config, openai_config, provider_status,
 };
 use crate::testing::OneAnswerFactory;
 use crate::{DaemonError, KeyProblem};
@@ -36,7 +38,9 @@ fn parts(
         rng: Arc::new(TestRng::new(2)),
         factory,
         issuer: None,
-        catalog: Catalog::builtin(Backend::Subscription),
+        catalog: ProviderCatalog::OpenAi(ModelCatalog::new(Catalog::builtin(
+            Backend::Subscription,
+        ))),
         catalog_cache: dir.join("state").join("model_catalog.json"),
     }
 }
@@ -228,18 +232,70 @@ fn the_organization_and_the_project_reach_the_provider_config() {
 }
 
 #[test]
-fn a_provider_that_efrd_cannot_build_stops_the_start() {
+fn the_anthropic_settings_reach_the_provider_config() {
+    let mut settings = Settings::default().anthropic;
+    let mut lower = ModelLimits::new("claude-opus-5-5");
+    lower.context_window = Some(272_000);
+    settings.models = Some(vec![lower.into(), "claude-next".into()]);
+    settings.base_url = Some("http://127.0.0.1:9/v1/".to_owned());
+    settings.workspace_id = Some("wrkspc_efr".to_owned());
+
+    let config = anthropic_config(&settings).unwrap();
+
+    assert_eq!(config.base_url(), "http://127.0.0.1:9/v1");
+    assert_eq!(config.workspace_id(), Some("wrkspc_efr"));
+    assert_eq!(config.cache_ttl(), CacheTtl::Auto, "auto is the default");
+    let ids: Vec<&str> = config.models().iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["claude-opus-5-5", "claude-next"],
+        "the configured models lie over the catalog"
+    );
+    assert_eq!(config.models()[0].context_window, Some(272_000));
+
+    for (choice, ttl) in [
+        (CacheTtlChoice::FiveMinutes, CacheTtl::FiveMinutes),
+        (CacheTtlChoice::OneHour, CacheTtl::OneHour),
+    ] {
+        settings.cache_ttl = choice;
+        assert_eq!(anthropic_config(&settings).unwrap().cache_ttl(), ttl);
+    }
+}
+
+#[test]
+fn the_anthropic_provider_is_built_and_fetches_its_catalog_without_a_list_yet() {
     let dir = tempfile::tempdir().unwrap();
     let clock = TestClock::new();
     let mut config = Settings::default();
-    config.model.provider = "anthropic-api".to_owned();
+    config.model.provider = ANTHROPIC.to_owned();
+    let mut parts = parts(&clock, dir.path(), None);
+    parts.catalog = ProviderCatalog::Anthropic(efr_provider_anthropic::ModelCatalog::new());
+
+    let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
+
+    assert_eq!(providers.active().id().as_str(), "anthropic-api");
+    assert!(providers.active().models().is_empty(), "no list until a fetch");
+    let models = providers.models();
+    assert!(models.fetches(), "efrd fetches the list of the Anthropic API");
+    let status = models.status();
+    assert_eq!(status.provider.as_deref(), Some("anthropic-api"));
+    assert_eq!(status.origin, CatalogOrigin::Missing);
+    assert_eq!(models.default_model(&config), efr_provider_anthropic::DEFAULT_MODEL);
+}
+
+#[test]
+fn a_provider_that_efrd_does_not_know_stops_the_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let mut config = Settings::default();
+    config.model.provider = "gemini-api".to_owned();
 
     let error = Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None))
         .map(|_| ())
         .unwrap_err();
 
     assert!(
-        matches!(&error, DaemonError::UnknownProvider { id } if id == "anthropic-api"),
+        matches!(&error, DaemonError::UnknownProvider { id } if id == "gemini-api"),
         "{error:?}"
     );
 }

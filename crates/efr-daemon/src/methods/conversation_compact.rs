@@ -6,7 +6,8 @@
 //! receipt, and answers when it is done. It never starts a turn. While a turn or another
 //! compaction runs, and when nothing lies before the tail, it is refused with
 //! `conflict`; a conversation that does not exist is `not_found`. A prompt that arrives
-//! meanwhile queues behind it. A retried command id answers from its receipt. The
+//! meanwhile queues behind it. A retried command id answers from its receipt. While the
+//! model catalog has no list yet, it first waits for one fetch, as a prompt does. The
 //! contract is in the README of efr-conversation, section "Context".
 
 use efr_conversation::ConversationError;
@@ -45,6 +46,8 @@ async fn compact(
 ) -> Result<serde_json::Value, DaemonError> {
     let conversation_id = params.conversation_id;
     tracing::info!(%conversation_id, focus = params.focus.is_some(), "manual compaction");
+    // NOTE: the summary is a model call, which needs the model's limits like a turn.
+    state.providers.models().ready().await;
     // NOTE: a conversation without a live actor has no running turn; its actor starts
     // here and reads the history from the log.
     let handle = match state.conversations.live(conversation_id) {

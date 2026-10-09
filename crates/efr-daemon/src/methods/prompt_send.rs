@@ -13,6 +13,10 @@
 //! must not continue its days-old conversation. Another shell while the first still
 //! runs (a nested `zsh`, a `sudo -s`) continues it.
 //!
+//! While the model catalog has no list yet (the Anthropic catalog before its first
+//! fetch), the prompt first waits for one fetch (`catalog.rs`, `Models::ready`), so its
+//! turn knows the limits of its model.
+//!
 //! The connection counts as one that may still show the conversation from the moment
 //! the request arrives until it closes (`connections.rs`): `efr` subscribes to the turn
 //! right after the answer, and a turn that ended before that must not leave a notice
@@ -152,6 +156,7 @@ async fn send(
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
     reprobe_for_auto(state, &params.settings).await;
+    state.providers.models().ready().await;
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.
     let mut prompting = state.connections.prompting(context.conn_id());

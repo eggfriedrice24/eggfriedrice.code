@@ -44,11 +44,11 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    prompt: after a reboot the terminal name may belong to another terminal by now.
    Running shells recorded as exited, process-bound outbox items
    cancelled. A prompt never runs by surprise after a restart.
-5. The PTY table, the recording sink, the shells, the model catalog (`catalog.rs`: the
-   cache file in the state root, else the built-in table), the providers
-   (`providers.rs`; a `model.provider` that efrd cannot build yet, such as
-   `anthropic-api`, stops the start with `UnknownProvider`), the tool registry and the settings tool (`tools.rs`), the permission engine and the
-   conversation registry.
+5. The PTY table, the recording sink, the shells, the model catalog of
+   `model.provider` (`catalog.rs`: its cache file in the state root, else the built-in
+   table of OpenAI, or no list for Anthropic), the providers (`providers.rs`:
+   `openai-subscription`, `openai-api` or `anthropic-api`), the tool registry and the
+   settings tool (`tools.rs`), the permission engine and the conversation registry.
    The engine is built in one place, `engine.rs`, from the settings, the project
    registry and the config directory. It holds one machine policy for each permission
    mode, `Policy::base(mode)` followed by the user's rules, so a user rule wins where
@@ -134,13 +134,18 @@ Everything that can fail runs before the first send, so a refused file changes n
 
 `catalog.rs` keeps the model catalog of the active provider (`Models`), and every
 reader takes it from memory: a turn when it starts, a prompt when it arrives,
-`models.list`, `admin.status` and the settings tool. No reader ever waits for a fetch;
-a new list applies from the next turn on.
+`models.list`, `admin.status` and the settings tool. A new list applies from the next
+turn on. The catalog has the form of the provider's company (`ProviderCatalog`, an
+OpenAI or an Anthropic catalog), and the provider reads the same shared catalog for
+each request. Each reader sees it as one `ModelList`: the models, the default, where
+the list came from and when.
 
-- At start, efrd reads `model_catalog.json` in its state root: the last list that the
-  configured subscription backend sent. A file of another backend, a broken file or a
-  list that offers no model is not used, and the table built into efr stands in. So a
-  start while offline offers the last list.
+- At start, efrd reads the cache file of the configured provider in its state root:
+  `model_catalog.json` for OpenAI, `anthropic_model_catalog.json` for Anthropic, the
+  last list that the configured backend sent. A file of another backend, a broken file
+  or a list that offers no model is not used. Then the table built into efr stands in
+  for OpenAI, and Anthropic has no list. So a start while offline offers the last
+  list.
 - In the background (a task of `run.rs`), efrd fetches the subscription's catalog
   with the login's token (`efr_provider_openai::CatalogClient`): at start, after a
   login, then every hour (`REFRESH_INTERVAL`). The list that efrd has goes with its
@@ -158,17 +163,30 @@ a new list applies from the next turn on.
   the `[openai] organization` and `project` headers, at start, after a login and
   hourly. That list holds ids only, so it cuts the built-in table down to the models
   that the key lists (`efr_provider_openai::Catalog::from_api`); windows, efforts and
-  tool forms stay those of the table. Without a stored key, efrd waits for a login. A
-  daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
+  tool forms stay those of the table. Without a stored key, efrd waits for a login.
+- The Anthropic catalog comes from the API's `GET /v1/models`, page by page, with the
+  stored `anthropic-api` key, the `anthropic-version` header and the workspace of
+  `[anthropic]` (`efr_provider_anthropic::CatalogClient`), at the same times and with
+  the same waits after a failure. Only `active` models are on offer, with the window,
+  the output limit and the efforts that the API gives. efr has no table of Claude
+  models, so while there is no list a prompt and `conversation.compact` first wait for
+  one fetch (`Models::ready`, at most 60 s): a turn without a list cannot know the
+  output limit of its model, and efr never guesses it. A fetch that fails, or no
+  login, leaves the turn to fail with the provider's error (`unauthorized` without a
+  key).
+- A daemon with a `ProviderFactory` (an in-process test) never fetches, so a test never
   reaches the network by accident.
-- The effective list (`effective_models`) is the catalog's models on offer, best
-  priority first, then the ids of `[openai] models` that the catalog does not hold. A
-  window that an entry of `[openai] models` gives raises or lowers the catalog's
-  window up to the model's `max_context_window`; above it, efrd uses the largest one
-  and warns once per entry (`efr config check` notes it too). The provider gets the
-  entry's window and output limit as well (`openai_config`).
-- The default model (`default_model`) is `[model] name`, else the catalog's model with
-  the best priority, else the first id of `[openai] models`.
+- The effective list (`effective_models`) is the catalog's models on offer (OpenAI's
+  best priority first, Anthropic's in the API's order), then the ids of the config's
+  list of the company (`[openai] models` or `[anthropic] models`) that the catalog does
+  not hold. A window that an entry gives raises or lowers the catalog's window up to
+  the model's `max_context_window`; above it, efrd uses the largest one and warns once
+  per entry (`efr config check` notes it too). The provider gets the entry's window
+  and output limit as well (`openai_config`, `anthropic_config`).
+- The default model (`default_model`) is `[model] name`, else the catalog's default
+  (OpenAI's best priority; Anthropic's `claude-opus-5-5` when listed, else its first
+  model), else the first id of the config's list, else `claude-opus-5-5` for
+  Anthropic before its first list.
 
 ### The edit tool of a model
 
@@ -303,8 +321,9 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   subscription token, the hint of a key and which one is active.
 - `models.list` answers the effective model list of the latest settings over the
   current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
-  (`catalog`: `backend`, `cache` or `builtin`, with the time of the fetch). See "The
-  model catalog" below. `admin.status` says where the catalog came from too.
+  (`catalog`: the provider, and `backend`, `cache`, `builtin` or `missing`, with the
+  time of the fetch). See "The model catalog" above. `admin.status` says where the
+  catalog came from too.
 - `conversation.compact` (`methods/conversation_compact.rs`) answers a retried command
   id from its receipt, else starts the conversation's actor when none runs and asks it
   to compact: the actor writes the summary, records `conversation_compacted` with the
@@ -532,8 +551,8 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen`, `efr-provider`, `efr-screen-vt100`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-provider-anthropic` (only the key check of a login so
-far: the daemon does not build the Anthropic provider yet), `efr-oauth-openai`,
+`efr-provider-openai`, `efr-provider-anthropic` (the provider of `anthropic-api`, its
+catalog and the key check of a login), `efr-oauth-openai`,
 `efr-config`,
 `efr-conversation`,
 `efr-transport`, `efr-sandbox` (the spec of a sandboxed call, the worktree record,
@@ -568,7 +587,9 @@ conventions that `efr_stdx::env::Var` does not name.
 - An API key reaches the credential file only; it never enters an event, a receipt,
   a log field or the text of an error.
 - Shutdown releases the lock last, after the database is closed.
-- A turn, a prompt and `models.list` never wait for a fetch of the model catalog.
+- A turn, a prompt and `models.list` never wait for a fetch of the model catalog,
+  with one exception: while the Anthropic catalog has no list at all, a prompt and a
+  manual compaction wait for one fetch.
 - efrd names itself to the backend as efr, with efr's own version.
 - A daemon with an injected provider never fetches the model catalog.
 
@@ -594,8 +615,11 @@ providers, the model catalog (the default, the effective list, the windows that
 `[openai] models` raises, lowers or clamps with one warning, the cache read at an
 offline start and the fallback to the built-in table, a fetch against `wiremock` with
 its tag and a 304, a failed fetch, a list that offers nothing, the task that fetches at
-start, after a login and hourly, and a fetch that hangs while a reader goes on), the
-tool adapter and its answer to who can answer hidden input. The tests
+start, after a login and hourly, and a fetch that hangs while a reader goes on; for
+Anthropic, the cache file of its own name, no list at a start without one, the default
+before a list, a fetch against `wiremock` that goes to the cache, a failed fetch, and a
+prompt that waits for one fetch while there is no list and never with one), the
+providers that efrd builds for each id with their settings, the tool adapter and its answer to who can answer hidden input. The tests
 in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
