@@ -145,7 +145,6 @@ pub(crate) fn builtin_entries() -> Vec<CatalogEntry> {
             default_reasoning_level: Some(builtin.default_effort.to_owned()),
             apply_patch_tool_type: Some(crate::catalog::FREEFORM.to_owned()),
             prefer_websockets: true,
-            minimal_client_version: None,
             supported_in_api: true,
         })
         .collect()

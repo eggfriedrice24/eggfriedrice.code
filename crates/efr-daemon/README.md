@@ -146,8 +146,8 @@ a new list applies from the next turn on.
   tag in `If-None-Match`, so an unchanged list costs a 304, which confirms it. A new
   list or a confirmed one goes to the cache file in one step. Without a login, efrd
   waits for one. After a failed fetch it keeps the list that it has and tries again
-  after five minutes (`RETRY_INTERVAL`). A list that offers no model to this version
-  of efr is refused with a warning, and the current list stays.
+  after five minutes (`RETRY_INTERVAL`). A list that offers no model that efr can use
+  is refused with a warning, and the current list stays.
 - The API key backend keeps the built-in table, because its `/v1/models` says
   nothing about windows. A daemon with a `ProviderFactory` (an in-process test) never
   fetches, so a test never reaches the network by accident.

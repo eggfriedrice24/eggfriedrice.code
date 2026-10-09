@@ -51,12 +51,21 @@
       "context_window": 272000
     },
     {
-      "slug": "gpt-7-too-new",
+      "slug": "gpt-7-codex-version",
+      "supported_reasoning_levels": [{"effort": "low"}],
+      "visibility": "list",
+      "priority": 5,
+      "context_window": 272000,
+      "apply_patch_tool_type": "function",
+      "minimal_client_version": "99.0.0"
+    },
+    {
+      "slug": "gpt-7-odd-tool",
       "supported_reasoning_levels": [{"effort": "low"}],
       "visibility": "list",
       "priority": 0,
       "context_window": 272000,
-      "minimal_client_version": "99.0.0"
+      "apply_patch_tool_type": "grammar"
     },
     {
       "slug": "gpt-7-odd-window",

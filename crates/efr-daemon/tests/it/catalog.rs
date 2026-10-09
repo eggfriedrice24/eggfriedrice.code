@@ -17,7 +17,8 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 /// A catalog with a better model than the built-in table knows, one with a larger
-/// window, and a model that is too new for any efr.
+/// window, a model whose tool form efr does not know, and a model that asks for a
+/// newer Codex.
 fn catalog() -> Value {
     json!({"models": [
         {
@@ -33,7 +34,11 @@ fn catalog() -> Value {
             "supported_reasoning_levels": [{"effort": "low"}],
         },
         {
-            "slug": "gpt-test-future", "visibility": "list", "priority": 0,
+            "slug": "gpt-test-odd-tool", "visibility": "list", "priority": 0,
+            "apply_patch_tool_type": "grammar", "supported_reasoning_levels": [],
+        },
+        {
+            "slug": "gpt-test-codex", "visibility": "list", "priority": 3,
             "minimal_client_version": "999.0.0", "supported_reasoning_levels": [],
         },
     ]})
@@ -63,7 +68,11 @@ async fn the_backend_list_applies_and_survives_a_restart_while_the_backend_is_do
         .unwrap();
     let list = models(&daemon).await;
     let ids: Vec<&str> = list.models.iter().map(|model| model.id.as_str()).collect();
-    assert_eq!(ids, ["gpt-test-sol", "gpt-test-luna"], "the model too new is left out");
+    assert_eq!(
+        ids,
+        ["gpt-test-sol", "gpt-test-luna", "gpt-test-codex"],
+        "the unknown tool form is left out, a Codex version is not"
+    );
     assert!(list.models[0].default, "the best priority is the default");
     assert_eq!(list.models[0].context_window, Some(300_000));
     assert_eq!(list.models[0].max_context_window, Some(900_000));

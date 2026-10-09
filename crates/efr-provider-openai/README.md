@@ -37,19 +37,20 @@ Modules:
   has the members of Codex's `ModelInfo` that efr reads: `slug`, `display_name`,
   `description`, `priority`, `visibility`, `context_window`, `max_context_window`,
   `supported_reasoning_levels`, `default_reasoning_level`, `apply_patch_tool_type`,
-  `prefer_websockets`, `minimal_client_version` and `supported_in_api`. Unknown
+  `prefer_websockets` and `supported_in_api`. Unknown
   members are ignored, a broken window or priority counts as unknown, and an entry
   that cannot be read is left out. `Catalog::models` gives the models on offer, best
   (lowest) priority first: `visibility` must be `list` (or absent), the
-  `minimal_client_version` must not be above `CLIENT_VERSION` (efr's own version,
-  never another client's), and the API key backend also needs `supported_in_api`.
+  `apply_patch_tool_type` must be absent, `freeform` or `function`, and the API key
+  backend also needs `supported_in_api`. efr ignores `minimal_client_version`,
+  because it is a version of Codex.
   A missing window takes the largest one, and the largest one is never below the
   window. `apply_patch_tool_type: "freeform"` gives `ModelInfo::freeform_tools`;
   `prefer_websockets` gives `ModelInfo::prefer_websockets`, which picks the WebSocket
   transport under `WebSocketMode::Auto`. `Catalog::default_model` is the first model on offer.
   `ModelCatalog` holds the current catalog for the provider and the daemon: a reader
   takes it from memory, and `ModelCatalog::apply` makes a fetch current, except a list
-  that offers no model to this version of efr (`Applied::Refused`), which keeps the
+  that offers no model that efr can use (`Applied::Refused`), which keeps the
   current one. `read_cache` and `write_cache` keep a fetched list in a file (JSON:
   `version`, `base_url`, `client_version`, `fetched_at`, `etag` and the entries in
   the backend's form), written in one step with mode 0600; a file of another version
@@ -403,9 +404,9 @@ both backends, the reasoning round trip across two requests, the 401 refresh (wi
 `fixtures/responses/unauthorized.json`), retries on the injected clock, the error
 mappings, the redacted transcript record, and a new catalog that changes the tool form
 from the next request. `catalog` tests read `fixtures/catalog/models.json` (a list,
-a hidden model, a model too new for efr, a broken window and two broken entries): the
-models on offer and their order, the windows, the default, the version compare, the
-tag and what `apply` does with each answer. `catalog::cache` tests write and read the
+a hidden model, a model with a Codex version, a tool form that efr does not know, a
+broken window and two broken entries): the models on offer and their order, the
+windows, the default, the tag and what `apply` does with each answer. `catalog::cache` tests write and read the
 cache file in a temporary directory, and `catalog::client` tests fetch from `wiremock`:
 the query and the headers, a 304 for the tag, the 401 refresh (no refresh after a
 second 401 until a fetch works, and none for a token that was refreshed meanwhile) and

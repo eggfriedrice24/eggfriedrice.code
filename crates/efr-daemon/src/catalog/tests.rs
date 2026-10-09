@@ -216,7 +216,7 @@ async fn an_offline_start_reads_the_cache_then_falls_back_to_the_builtin_table()
     std::fs::write(&path, "{ broken").unwrap();
     assert_eq!(load(&settings, &path).await.origin(), CatalogOrigin::Builtin, "a broken file");
 
-    let nothing = json!({"models": [{"slug": "gpt-8", "minimal_client_version": "999.0.0"}]});
+    let nothing = json!({"models": [{"slug": "gpt-8", "apply_patch_tool_type": "grammar"}]});
     write_cache_file(&path, efr_provider_openai::SUBSCRIPTION_BASE_URL, &nothing);
     assert_eq!(
         load(&settings, &path).await.origin(),
@@ -350,14 +350,14 @@ async fn without_a_login_nothing_is_asked_until_the_next_round() {
 }
 
 #[tokio::test]
-async fn a_list_that_offers_nothing_to_this_efr_keeps_the_current_one() {
+async fn a_list_that_offers_nothing_that_efr_can_use_keeps_the_current_one() {
     let server = MockServer::start().await;
-    let too_new = json!({"models": [
-        {"slug": "gpt-8", "visibility": "list", "minimal_client_version": "999.0.0"},
+    let unusable = json!({"models": [
+        {"slug": "gpt-8", "visibility": "list", "apply_patch_tool_type": "grammar"},
     ]});
     Mock::given(method("GET"))
         .and(path(MODELS_PATH))
-        .respond_with(ResponseTemplate::new(200).set_body_json(too_new))
+        .respond_with(ResponseTemplate::new(200).set_body_json(unusable))
         .mount(&server)
         .await;
     let setup = fetching(&server, builtin(), token());

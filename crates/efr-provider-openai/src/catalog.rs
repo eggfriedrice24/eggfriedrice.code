@@ -9,11 +9,13 @@
 //! shared, current catalog that requests read from memory: a fetch never blocks a
 //! request, and its result applies from the next request on.
 //!
-//! A model is offered when its entry says `visibility: "list"`, when its
-//! `minimal_client_version` is not above efr's own version ([`CLIENT_VERSION`]), and,
-//! on the API key backend, when it is `supported_in_api`. The default model is the
-//! offered model with the best (lowest) `priority`. An entry that cannot be read is
-//! left out; the others stay.
+//! A model is offered when its entry says `visibility: "list"`, when efr knows the
+//! form of its tools (`apply_patch_tool_type`), and, on the API key backend, when it is
+//! `supported_in_api`. The default model is the offered model with the best (lowest)
+//! `priority`. An entry that cannot be read is left out; the others stay.
+//!
+//! efr ignores `minimal_client_version`: it is a version of Codex, which efr's own
+//! version cannot be compared with.
 
 mod cache;
 mod client;
@@ -30,12 +32,14 @@ pub use self::client::{CatalogClient, Fetched};
 use crate::config::Backend;
 use crate::models::builtin_entries;
 
-/// The version that efr sends as `client_version` and compares with each model's
-/// `minimal_client_version`: efr's own, never another client's.
+/// The version that efr sends as `client_version`: efr's own, never another client's.
 pub const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The value of `apply_patch_tool_type` for a model that takes freeform tools.
 pub(crate) const FREEFORM: &str = "freeform";
+
+/// The value of `apply_patch_tool_type` for a model that takes function tools only.
+const FUNCTION: &str = "function";
 
 /// Where a [`Catalog`] came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -123,8 +127,8 @@ impl Catalog {
         self.models().into_iter().next().map(|model| model.id)
     }
 
-    /// How many models of the list are not on offer: hidden, too new for efr, or not
-    /// served on this backend.
+    /// How many models of the list are not on offer: hidden, with a tool form that efr
+    /// does not know, or not served on this backend.
     pub fn left_out(&self) -> usize {
         self.entries.iter().filter(|entry| !entry.offered(self.backend)).count()
     }
@@ -167,8 +171,8 @@ pub enum Applied {
     Changed(Arc<Catalog>),
     /// The backend confirmed the current list; its new time belongs in the cache.
     Revalidated(Arc<Catalog>),
-    /// The backend's list offers no model to this version of efr, so the current
-    /// catalog stays. `listed` is how many models the list held.
+    /// The backend's list offers no model that efr can use, so the current catalog
+    /// stays. `listed` is how many models the list held.
     Refused {
         /// How many models the backend listed.
         listed: usize,
@@ -285,8 +289,6 @@ pub(crate) struct CatalogEntry {
     pub(crate) apply_patch_tool_type: Option<String>,
     #[serde(default)]
     pub(crate) prefer_websockets: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) minimal_client_version: Option<String>,
     /// Whether the API key backend serves the model; an entry without it counts as
     /// served.
     #[serde(default = "served")]
@@ -298,7 +300,7 @@ impl CatalogEntry {
     fn offered(&self, backend: Backend) -> bool {
         self.visibility == Visibility::List
             && (backend != Backend::Api || self.supported_in_api)
-            && version_reaches(CLIENT_VERSION, self.minimal_client_version.as_deref())
+            && matches!(self.apply_patch_tool_type.as_deref(), None | Some(FREEFORM | FUNCTION))
     }
 
     /// The model as a provider describes it. A missing window takes the largest one,
@@ -318,29 +320,6 @@ impl CatalogEntry {
         model.max_context_window = max_window;
         model
     }
-}
-
-/// True when `client` is at least `minimal`, both read as `major.minor.patch`. No
-/// minimum, or one that is not such a version, lets every client through.
-pub(crate) fn version_reaches(client: &str, minimal: Option<&str>) -> bool {
-    match (version(client), minimal.and_then(version)) {
-        (Some(client), Some(minimal)) => client >= minimal,
-        _ => true,
-    }
-}
-
-/// `major.minor.patch` as numbers; a suffix after a `-` or `+` is ignored, and a
-/// missing part is 0.
-fn version(text: &str) -> Option<(u64, u64, u64)> {
-    let core = text.trim().split(['-', '+']).next()?;
-    let mut parts = core.split('.').map(|part| part.parse::<u64>().ok());
-    let major = parts.next()??;
-    let minor = parts.next().unwrap_or(Some(0))?;
-    let patch = parts.next().unwrap_or(Some(0))?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((major, minor, patch))
 }
 
 const fn last_priority() -> i64 {

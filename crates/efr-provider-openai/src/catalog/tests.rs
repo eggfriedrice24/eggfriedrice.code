@@ -1,12 +1,10 @@
 use efr_provider::ModelInfo;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
-use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    Applied, CLIENT_VERSION, Catalog, CatalogOrigin, Fetched, ModelCatalog, entries_of,
-    version_reaches, with_extra,
+    Applied, CLIENT_VERSION, Catalog, CatalogOrigin, Fetched, ModelCatalog, entries_of, with_extra,
 };
 use crate::config::Backend;
 use crate::testing::{catalog_fixture, start};
@@ -39,7 +37,8 @@ fn every_entry_that_reads_is_kept_and_the_broken_ones_are_counted() {
             "gpt-7-luna",
             "gpt-7-hidden",
             "gpt-7-unpicked",
-            "gpt-7-too-new",
+            "gpt-7-codex-version",
+            "gpt-7-odd-tool",
             "gpt-7-odd-window"
         ]
     );
@@ -57,23 +56,33 @@ fn a_body_without_a_list_of_models_has_no_entries() {
 fn the_listed_models_are_offered_best_priority_first() {
     let catalog = fixture_catalog(Backend::Subscription, None, start());
     let models = catalog.models();
-    assert_eq!(ids(&models), ["gpt-7-luna", "gpt-7-sol", "gpt-7-odd-window"]);
+    assert_eq!(
+        ids(&models),
+        ["gpt-7-luna", "gpt-7-sol", "gpt-7-codex-version", "gpt-7-odd-window"]
+    );
     assert_eq!(catalog.default_model().as_deref(), Some("gpt-7-luna"));
     assert_eq!(catalog.left_out(), 3);
 }
 
 #[test]
-fn hidden_and_too_new_models_are_left_out() {
+fn hidden_models_and_unknown_tool_forms_are_left_out() {
     let models = fixture_catalog(Backend::Subscription, None, start()).models();
-    for id in ["gpt-7-hidden", "gpt-7-unpicked", "gpt-7-too-new"] {
+    for id in ["gpt-7-hidden", "gpt-7-unpicked", "gpt-7-odd-tool"] {
         assert!(!ids(&models).contains(&id), "{id}");
     }
 }
 
 #[test]
+fn a_minimal_client_version_does_not_leave_a_model_out() {
+    let models = fixture_catalog(Backend::Subscription, None, start()).models();
+    let codex = model(&models, "gpt-7-codex-version");
+    assert!(!codex.freeform_tools, "the function form");
+}
+
+#[test]
 fn the_api_backend_leaves_out_the_models_that_it_does_not_serve() {
     let models = fixture_catalog(Backend::Api, None, start()).models();
-    assert_eq!(ids(&models), ["gpt-7-sol", "gpt-7-odd-window"]);
+    assert_eq!(ids(&models), ["gpt-7-sol", "gpt-7-codex-version", "gpt-7-odd-window"]);
 }
 
 #[test]
@@ -97,26 +106,6 @@ fn each_model_gets_its_window_efforts_and_tool_form() {
     let odd = model(&models, "gpt-7-odd-window");
     assert_eq!(odd.context_window, Some(500_000), "a broken window takes the largest one");
     assert_eq!(odd.max_context_window, Some(500_000));
-}
-
-#[rstest]
-#[case("0.0.2", None, true)]
-#[case("0.0.2", Some("0.0.1"), true)]
-#[case("0.0.2", Some("0.0.2"), true)]
-#[case("0.0.2", Some("0.0.3"), false)]
-#[case("0.0.2", Some("0.153.0"), false)]
-#[case("1.2.0", Some("1.10.0"), false)]
-#[case("1.10.0", Some("1.2.0"), true)]
-#[case("1.2.3-dev", Some("1.2.3"), true)]
-#[case("2", Some("1.9.9"), true)]
-#[case("0.0.2", Some("not a version"), true)]
-#[case("0.0.2", Some("1.2.3.4"), true)]
-fn a_minimal_client_version_is_compared_part_by_part(
-    #[case] client: &str,
-    #[case] minimal: Option<&str>,
-    #[case] reaches: bool,
-) {
-    assert_eq!(version_reaches(client, minimal), reaches, "{client} against {minimal:?}");
 }
 
 #[test]
@@ -171,10 +160,10 @@ fn not_modified_without_a_list_changes_nothing() {
 }
 
 #[test]
-fn a_list_that_offers_no_model_to_this_efr_is_refused() {
+fn a_list_that_offers_no_model_that_efr_can_use_is_refused() {
     let shared = ModelCatalog::new(Catalog::builtin(Backend::Subscription));
     let body = json!({"models": [
-        {"slug": "gpt-8", "visibility": "list", "minimal_client_version": "999.0.0"},
+        {"slug": "gpt-8", "visibility": "list", "apply_patch_tool_type": "grammar"},
         {"slug": "gpt-8-hidden", "visibility": "hide"},
     ]});
     let (entries, _) = entries_of(&body).unwrap();

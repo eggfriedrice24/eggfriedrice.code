@@ -184,8 +184,7 @@ impl Models {
             Applied::Refused { listed } => {
                 tracing::warn!(
                     listed,
-                    client_version = efr_provider_openai::CLIENT_VERSION,
-                    "the backend's model catalog offers no model to this version of efr; the current list stays"
+                    "the backend's model catalog offers no model that efr can use; the current list stays"
                 );
             }
             _ => {

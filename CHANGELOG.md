@@ -168,7 +168,7 @@ into the GitHub release notes, and it stops when the section is missing.
   (`~/.local/state/efr/model_catalog.json` by default), so a start without network
   offers it. The
   list built into efr stands in only when no list came yet, and for an API key. Models
-  that the backend hides, or that need a newer client, are not offered.
+  that the backend hides, or whose tools efr cannot send, are not offered.
 - `efr models` shows the context window of each model and the largest window that
   `[openai] models` can set, such as `gpt-6.1-sol  272k (up to 872k)`, and a last line
   that says where the list came from: `models: from the backend, fetched 5m ago`,
