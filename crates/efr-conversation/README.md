@@ -184,7 +184,7 @@ completion. The turn ends with
 `turn_completed` (with the summed usage), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
-`retry_after_ms`, an unknown model to `invalid` with the `model`, the rest to
+`retry_after_ms`, an overloaded provider to `busy` without it, an unknown model to `invalid` with the `model`, the rest to
 `internal`) or
 `turn_interrupted`. The turn builds that batch and hands it to the actor. The actor
 clears the running turn first and records the batch after. It answers one request at

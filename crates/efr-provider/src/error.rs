@@ -29,6 +29,18 @@ pub enum ProviderError {
         retry_after: Option<Duration>,
     },
 
+    /// The provider is overloaded and took no new request, after the provider's own
+    /// retries, such as Anthropic's 529 `overloaded_error`. It is not a rate limit of
+    /// the account: waiting a short time helps, and nothing in the request was wrong.
+    #[error("the provider is overloaded; try again later")]
+    Overloaded {
+        /// The HTTP status, when the error came as a response rather than inside a
+        /// stream.
+        status: Option<u16>,
+        /// The provider's message.
+        message: String,
+    },
+
     /// No credentials are stored for the provider, so there is no token to send.
     #[error("no credentials are stored for the provider")]
     NotLoggedIn,

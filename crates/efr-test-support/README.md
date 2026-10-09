@@ -56,7 +56,7 @@ directories, a store and provider traffic from one place and never from the mach
   driver of `efr-test-daemon`. The answer format is canonical: each SSE `data` field
   is an `efr_provider::ProviderEvent` in its serde form, and an event of type `error`
   ends the answer with a `ProviderError` (`unauthorized` with an optional `message`,
-  `rate_limited`, `not_logged_in`, `incomplete` or `api`). An `api` error goes through
+  `rate_limited`, `not_logged_in`, `incomplete`, `overloaded` or `api`). An `api` error goes through
   `ProviderError::api`, as a real provider's does, so the code
   `context_length_exceeded` or the status 413 gives `ContextOverflow`. A request that
   does not match, or that

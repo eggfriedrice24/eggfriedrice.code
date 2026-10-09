@@ -16,6 +16,10 @@ fn messages_name_what_failed_in_one_sentence() {
         ),
         (ProviderError::NotLoggedIn, "no credentials are stored for the provider"),
         (
+            ProviderError::Overloaded { status: Some(529), message: "Overloaded".to_owned() },
+            "the provider is overloaded; try again later",
+        ),
+        (
             ProviderError::UnknownModel { model: "gpt-0".to_owned() },
             r#"the provider does not serve the model "gpt-0""#,
         ),

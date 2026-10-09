@@ -1841,6 +1841,11 @@ fn provider_errors_map_to_codes_a_client_can_act_on() {
         provider_failure(&ProviderError::RateLimited { retry_after: Some(Duration::from_secs(2)) });
     assert_eq!(limited.code, ErrorCode::Busy);
     assert_eq!(limited.data, Some(json!({ "retry_after_ms": 2000 })));
+    let overloaded = ProviderError::Overloaded { status: Some(529), message: "Overloaded".into() };
+    let overloaded = provider_failure(&overloaded);
+    assert_eq!(overloaded.code, ErrorCode::Busy);
+    assert_eq!(overloaded.message, "the provider is overloaded; try again later");
+    assert_eq!(overloaded.data, None);
     let overflow = ProviderError::api(Some(413), None, "Payload Too Large".to_owned());
     let overflow = provider_failure(&overflow);
     assert_eq!(overflow.code, ErrorCode::Internal);

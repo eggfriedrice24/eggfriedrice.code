@@ -188,7 +188,7 @@ type Check = fn(&ProviderError) -> bool;
 
 #[tokio::test]
 async fn error_events_end_the_answer_with_a_provider_error() {
-    let cases: [(&str, Check); 7] = [
+    let cases: [(&str, Check); 8] = [
         (r#"{"kind":"api","code":"context_length_exceeded","message":"too long"}"#, |e| {
             matches!(e, ProviderError::ContextOverflow { status: None, code: Some(code), .. }
                 if code == "context_length_exceeded")
@@ -202,6 +202,9 @@ async fn error_events_end_the_answer_with_a_provider_error() {
         ),
         (r#"{"kind":"not_logged_in"}"#, |e| matches!(e, ProviderError::NotLoggedIn)),
         (r#"{"kind":"incomplete"}"#, |e| matches!(e, ProviderError::Incomplete)),
+        (r#"{"kind":"overloaded","status":529,"message":"Overloaded"}"#, |e| {
+            matches!(e, ProviderError::Overloaded { status: Some(529), .. })
+        }),
         (r#"{"kind":"rate_limited","retry_after_ms":1500}"#, |e| {
             matches!(e, ProviderError::RateLimited { retry_after: Some(d) }
                 if *d == Duration::from_millis(1500))

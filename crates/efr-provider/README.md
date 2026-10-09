@@ -71,7 +71,9 @@ Modules:
   `TokenSource::invalidate` and retry, or at the first 401 from a source that is not
   `refreshable`; `message` is the server's own text when it sent one (an expired key,
   a missing scope), never text from the request. `RateLimited` carries the delay the
-  provider asked for. `ContextOverflow` says that the request does not fit in the model's
+  provider asked for. `Overloaded` says that the provider took no new request because
+  it is overloaded (Anthropic's 529), after the provider's own retries; it is not a
+  limit of the account. The conversation fails a turn with the code `busy` for both. `ContextOverflow` says that the request does not fit in the model's
   context window; it is never transient, and the conversation compacts before it sends
   again. A provider builds an error answer of its API with `ProviderError::api`, which
   picks `ContextOverflow` for the code `context_length_exceeded`, HTTP 413 or a message

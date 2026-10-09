@@ -1375,7 +1375,7 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
         ProviderError::Unauthorized { .. }
         | ProviderError::NotLoggedIn
         | ProviderError::Token { .. } => ErrorCode::Unauthorized,
-        ProviderError::RateLimited { .. } => ErrorCode::Busy,
+        ProviderError::RateLimited { .. } | ProviderError::Overloaded { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     };

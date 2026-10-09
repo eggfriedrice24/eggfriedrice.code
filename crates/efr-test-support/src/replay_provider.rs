@@ -114,6 +114,11 @@ enum ErrorRecord {
     },
     NotLoggedIn {},
     Incomplete {},
+    Overloaded {
+        #[serde(default)]
+        status: Option<u16>,
+        message: String,
+    },
     Api {
         #[serde(default)]
         status: Option<u16>,
@@ -333,6 +338,9 @@ impl ErrorRecord {
             },
             ErrorRecord::NotLoggedIn {} => ProviderError::NotLoggedIn,
             ErrorRecord::Incomplete {} => ProviderError::Incomplete,
+            ErrorRecord::Overloaded { status, message } => {
+                ProviderError::Overloaded { status, message }
+            }
             // NOTE: through the classifier that the real providers use, so a transcript
             // can refuse a request as larger than the model's window.
             ErrorRecord::Api { status, code, message } => ProviderError::api(status, code, message),
