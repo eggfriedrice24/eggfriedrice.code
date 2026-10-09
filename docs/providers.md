@@ -38,9 +38,16 @@ efr login anthropic --from-env        # read ANTHROPIC_API_KEY of this shell
 - `--no-check` keeps the key without the check, for a computer that is offline.
 - `efr status` shows each provider with its login. A key shows only as its start and
   its last four characters, such as `sk-ant-...a1b2`. `(active)` marks the provider of
-  new conversations.
+  new conversations. When the provider refused the key (a 401 on a model call or on
+  the fetch of the model list), the line says when, such as `key sk-ant-...a1b2 refused
+  at 2026-10-09T12:03:00Z (5m 0s ago)`. The mark goes away when a request with the key
+  works again, or after a new login.
 - `efr logout anthropic` deletes the key from efrd. The key stays valid at Anthropic:
-  revoke it in the Claude Console.
+  revoke it in the Claude Console. When the provider is the one of new conversations,
+  efr warns that it stays in `[model] provider`, so its turns fail until you log in
+  again.
+- OpenAI bills an `openai-api` key per token, apart from a ChatGPT plan. efr says so
+  after `efr login openai-api` and after `efr config set model.provider openai-api`.
 - A key can expire, such as a Console key with an expiry date. Then every request
   fails as `unauthorized`. Make a new key and log in again.
 
@@ -69,6 +76,13 @@ from the backend, fetched 5m ago`. A terminal that chose a model with `,model` k
 that choice: choose a model of the new provider, or clear the choice with `,model
 default`.
 
+Also change `[model] name` when it names a model of the other company, such as
+`gpt-5.5` with `anthropic-api`, or remove it. Else every prompt that names no model of
+its own fails with this cause and fix. `efr config check` warns about such a name, and
+efrd logs a warning at start and after a reload. A model id in the list of models of
+the new provider (`[anthropic] models` or `[openai] models`) is not of the other
+company.
+
 ## Claude models
 
 efr has no built-in list of Claude models. The models, their context windows, their
@@ -93,7 +107,12 @@ output limits and their efforts come from the model list of the API (`GET
   reasoning through a tool loop. While the model thinks, the status row shows
   `thinking` and the title of the summary of its thinking.
 - Claude models change files with the `edit` tool. OpenAI models use `apply_patch`.
-- Without a key, a turn fails as `unauthorized` and efr says to log in.
+- Without a key and without a list, a prompt fails as `unauthorized` and says `log in
+  with efr login anthropic`. When the request of the list failed, the prompt fails
+  with `efr could not fetch Claude's model list` and the cause, such as the message of
+  the API for a refused key or a request without an answer. A model whose output limit
+  the config gives (`[anthropic] models` or `[model] max_output_tokens`) runs without a
+  list.
 
 ### The `[anthropic]` keys
 

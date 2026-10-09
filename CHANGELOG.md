@@ -233,6 +233,30 @@ into the GitHub release notes, and it stops when the section is missing.
   `anthropic-api`), shows the start and the last four characters of each stored key,
   such as `sk-ant-...a1b2`, and marks the provider of new conversations with
   `(active)`. Its line about a missing login names the login of that provider.
+- `efr logout` of the provider of new conversations warns on stderr: the provider
+  stays in `[model] provider`, so its turns fail until you log in again. A logout
+  records `logout_completed` in the event log, with the provider and nothing of the
+  key. The answer of `admin.logout` has a new `active` member.
+- `efr status` shows when a provider refused its stored API key, such as `key
+  sk-ant-...a1b2 refused at 2026-10-09T12:03:00Z (5m 0s ago)`, after a 401 on a model
+  call or on the fetch of the model list. The mark goes away when a request with the
+  key works again, or after a new login or a logout. For the active provider, a line
+  on stderr says that its turns fail and how to log in. A provider in the answer of
+  `admin.status` has a new `key_refused_at` member.
+- After `efr login openai-api` and after `efr config set model.provider openai-api`,
+  one line says that OpenAI bills the API key per token, apart from a ChatGPT plan.
+- A `[model] name` of another company than `[model] provider`, such as `gpt-5.5` with
+  `anthropic-api`: `efr config check` warns about it with the fix, efrd logs a
+  warning at start and after each reload, and a prompt that names no model of its own
+  fails at once with the cause and the fix (set `[model] name` to a model of the
+  provider, or remove it). An id in the config's list of models of the provider's
+  company is not of another company.
+- When efrd has no list of Claude models at the start of a turn, the prompt now fails
+  with the cause instead of a turn that says that the provider does not serve the
+  model. Without a stored key, it says `log in with efr login anthropic`. After a
+  failed fetch, it says `efr could not fetch Claude's model list` and why, such as the
+  API's message for a refused key. A model whose output limit the config gives still
+  runs without a list.
 - New keys `[openai] organization` and `[openai] project`, sent as the
   `OpenAI-Organization` and `OpenAI-Project` headers of every request with an API
   key. Both need a restart of efrd.
