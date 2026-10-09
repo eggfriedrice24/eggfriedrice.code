@@ -26,6 +26,8 @@ use super::redact;
     r#"curl -d "user=me&password=[redacted]" x"#
 )]
 #[case::unclosed_quote(r#"TOKEN="abc def"#, "TOKEN=[redacted]")]
+#[case::escaped_blank(r"TOKEN=abc\ def cmd", "TOKEN=[redacted] cmd")]
+#[case::backslash_at_the_end(r"TOKEN=abc\", "TOKEN=[redacted]")]
 #[case::several(
     "A_TOKEN=1 B_SECRET=2 PATH=/bin",
     "A_TOKEN=[redacted] B_SECRET=[redacted] PATH=/bin"
@@ -272,6 +274,10 @@ fn a_header_without_a_secret_stays(#[case] line: &str) {
 #[case::curl_user("curl -u me:abc https://x", "curl -u me:[redacted] https://x")]
 #[case::curl_user_attached("curl -ume:abc https://x", "curl -ume:[redacted] https://x")]
 #[case::curl_user_long("curl --user 'me:a b' https://x", "curl --user 'me:[redacted]' https://x")]
+#[case::curl_bundled("curl -su me:abc https://x", "curl -su me:[redacted] https://x")]
+#[case::curl_bundled_long("curl -fsSLu me:abc https://x", "curl -fsSLu me:[redacted] https://x")]
+#[case::zip_bundled("zip -rP abc out.zip d", "zip -rP [redacted] out.zip d")]
+#[case::ldap_bundled("ldapsearch -xw abc -b dc=x", "ldapsearch -xw [redacted] -b dc=x")]
 #[case::zip("zip -P abc out.zip f", "zip -P [redacted] out.zip f")]
 #[case::seven_zip("7z a -pabc out.7z f", "7z a -p[redacted] out.7z f")]
 #[case::ldap("ldapsearch -D cn=me -w abc", "ldapsearch -D cn=me -w [redacted]")]
@@ -303,6 +309,8 @@ fn the_value_of_a_password_option_is_redacted(#[case] line: &str, #[case] redact
 #[case::mongosh_asks("mongosh -u admin -p --authenticationDatabase admin")]
 #[case::curl_user_asks("curl -u me https://x")]
 #[case::curl_agent("curl --user-agent 'x:y' https://x")]
+#[case::curl_bundle_without_user("curl -fsSL https://x:8080/a")]
+#[case::bundle_of_another_program("ssh -tp 22 host")]
 #[case::openssl_env("openssl rsa -in k.pem -passin env:KEY")]
 #[case::reference(r#"mysql -p"$MYSQL_PWD" app"#)]
 #[case::reference_next("sshpass -p $PASS ssh host")]

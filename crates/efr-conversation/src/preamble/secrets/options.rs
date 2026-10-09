@@ -105,6 +105,11 @@ const LDAP: &[&str] = &[
     "ldapexop",
 ];
 
+/// The programs whose short options can share one word (`curl -su user:secret`,
+/// `zip -rP secret`): a password option that is the last letter of such a word takes
+/// the next word. The LDAP tools do too.
+const BUNDLES: &[&str] = &["curl", "zip", "unzip", "zipcloak", "sshpass"];
+
 /// How many of the first words after a program, options left out, can be its
 /// subcommand.
 const SUBCOMMAND_WORDS: usize = 2;
@@ -262,6 +267,7 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
             })
             .flatten()
             .collect();
+        let bundles = BUNDLES.contains(&program) || LDAP.contains(&program);
         let mut index = 0;
         while index < args.len() {
             let word = &args[index];
@@ -274,7 +280,9 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
                     found.extend(secret(word, at, option.part));
                     break;
                 }
-                if word.text == option.name && option.takes != Takes::Attached {
+                let takes_next =
+                    word.text == option.name || (bundles && ends_bundle(&word.text, option.name));
+                if takes_next && option.takes != Takes::Attached {
                     if let Some(next) = args.get(index + 1)
                         && !next.text.starts_with('-')
                     {
@@ -288,6 +296,17 @@ pub(super) fn values(commands: &[Vec<Word>]) -> Vec<Range<usize>> {
         }
     }
     found
+}
+
+/// True when `word` holds several short options and ends with the short option
+/// `name`, such as `-fsSLu` for `-u`.
+fn ends_bundle(word: &str, name: &str) -> bool {
+    let Some(letter) = name.strip_prefix('-').filter(|letter| letter.len() == 1) else {
+        return false;
+    };
+    word.strip_prefix('-').is_some_and(|flags| {
+        flags.len() > 1 && flags.ends_with(letter) && flags.chars().all(|c| c.is_ascii_alphabetic())
+    })
 }
 
 /// The index in `args` of the word `sub` when it is one of the first

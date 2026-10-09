@@ -142,8 +142,9 @@ fn assignments(line: &str) -> Vec<Range<usize>> {
 
 /// The length in bytes of the value at the start of `text`: a quoted value with its
 /// quotes (also `$'...'`), up to the closing quote or the end, or an unquoted value up
-/// to the first character that ends it. 0 for no value, and for a value that names
-/// another one (`$NAME`, `$(...)`, `${...}` or a backtick).
+/// to the first character that ends it, where a backslash keeps the character after
+/// it (`abc\ def`). 0 for no value, and for a value that names another one (`$NAME`,
+/// `$(...)`, `${...}` or a backtick).
 fn value_len(text: &str) -> usize {
     if let Some(quoted) = text.strip_prefix('$').filter(|rest| rest.starts_with('\'')) {
         return 1 + quoted_len(quoted, '\'');
@@ -151,8 +152,24 @@ fn value_len(text: &str) -> usize {
     match text.chars().next() {
         None | Some('`' | '$') => 0,
         Some(quote @ ('\'' | '"')) => quoted_len(text, quote),
-        Some(_) => text.find(ends_value).unwrap_or(text.len()),
+        Some(_) => unquoted_len(text),
     }
+}
+
+/// The length in bytes of the unquoted value at the start of `text`: up to the first
+/// character that ends it, a backslash with the character after it included.
+fn unquoted_len(text: &str) -> usize {
+    let mut chars = text.char_indices();
+    while let Some((at, c)) = chars.next() {
+        if c == '\\' {
+            if chars.next().is_none() {
+                return text.len();
+            }
+        } else if ends_value(c) {
+            return at;
+        }
+    }
+    text.len()
 }
 
 /// The length in bytes of the value in `quote`s at the start of `text`, with its
