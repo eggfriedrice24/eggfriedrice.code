@@ -314,7 +314,8 @@ No protocol version has shipped yet.
   of a file tool edit of a floor file, at most 8 KiB), a target gains
   `backup_before_write` (false when absent), `facts` gains `denials_in_a_row` and
   `denials_this_turn` (0 when absent), and a target's `class` can be `cache`,
-  `build_output` or `trash`. The `sandbox` of `tool_call_completed` gains
+  `build_output` or `trash`. An exit's `source` can be `cache_delete`: a delete in a
+  real cache that a contained call made. The `sandbox` of `tool_call_completed` gains
   `cache_deletes` and `cache_deletes_more`, absent when none. New fixtures
   `events/exit_review_started.json`, `events/classifier_paused.json`,
   `events/presence_changed.json`, `events/cache_delete_applied.json`,
