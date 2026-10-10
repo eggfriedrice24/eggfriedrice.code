@@ -12,7 +12,8 @@ Modules:
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
-  `SandboxSettings`, `SnapshotSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `SandboxSettings`, `ClassifierSettings`, `SnapshotSettings`, `PresenceSettings`,
+  `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
   `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
@@ -48,8 +49,17 @@ Modules:
 - `tables/sandbox`: `[sandbox]`, the keys of the `auto` sandbox (phase 1): the write
   roots, caches, masks, floors, environment and export lists, synced folders and the
   surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;
-  this crate only reads and checks them. The proxy, classifier, bus and undo keys come
-  with their phases.
+  this crate only reads and checks them. The proxy, bus and undo keys come with their
+  phases.
+- `tables/classifier`: `[classifier]` (`ClassifierSettings`), the reviewer model of
+  phase A, which decides most exits of the `auto` sandbox before the user: `enabled`,
+  `model` (unset: the small model of the turn's provider), `fallback_to_turn_model`,
+  `effort` (one lowercase word, `DEFAULT_CLASSIFIER_EFFORT` `low`) and `timeout_secs`
+  (1 to 300, per step of the chain). Only a turn of the daemon reads them.
+- `tables/presence`: `[presence]` (`PresenceSettings`): `away_after_minutes` (1 to
+  1440; no input for so long counts a person away from a conversation),
+  `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
+  client exists yet).
 - `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:

@@ -245,6 +245,26 @@
 # Directory names whose deletion is not destructive, because builds make them again.
 # rebuildable = ["target", "node_modules", "dist", "build", ".venv"]
 
+[classifier]
+# true lets a reviewer model decide most actions that leave the sandbox in auto, and
+# hand the unsure ones to you. false asks you about every such action. Each review is
+# one more request to your provider.
+# enabled = true
+
+# The model that reviews first. Unset: the small model of the turn's provider, such
+# as gpt-6-luna for OpenAI or claude-haiku-5-5 for Claude.
+# model = "gpt-6-luna"
+
+# true lets the turn's model review when the first model is missing, refuses, times
+# out or gives an answer that does not fit. false then asks you.
+# fallback_to_turn_model = true
+
+# The reasoning effort of each review, for the models that take an effort.
+# effort = "low"
+
+# How long each model of the chain may take, in seconds, from 1 to 300.
+# timeout_secs = 20
+
 [snapshot]
 # efr takes its own snapshot of the turn's registered project, $SCRATCH and, in auto,
 # the registered projects that a line names, before and after each call that can
@@ -273,6 +293,19 @@
 
 # Days without a snapshot after which the store of a project or $SCRATCH is deleted.
 # max_age_days = 30
+
+[presence]
+# The minutes without input in a conversation after which efr counts you away, from 1
+# to 1440. efr away and ,away also count you away; your next input ends it.
+# away_after_minutes = 10
+
+# How long a question waits while you are away, in seconds, from 1 to 86400. Then the
+# call does not run, and the model goes on without it.
+# away_wait_secs = 300
+
+# Send a question that waits while you are away to your paired phones. No phone
+# client exists yet, so it does nothing today.
+# push = true
 
 [render]
 # The colour theme of code blocks and diffs, such as catppuccin-mocha, gruvbox-dark or

@@ -136,6 +136,18 @@ The kernel sandbox of the `auto` mode.
 | `offline_hints` | `true` | live | Tell package managers to work offline while the sandbox has no network (`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`). |
 | `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
 
+## [classifier]
+
+The reviewer model that decides most actions that leave the `auto` sandbox.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `true` lets a reviewer model decide most actions that leave the sandbox in `auto`, and hand the unsure ones to you. `false` asks you about every such action, as before phase A. Each review is one more request to your provider. |
+| `model` | unset | live | The model that reviews first. Unset: the small model of the turn's provider, such as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude. |
+| `fallback_to_turn_model` | `true` | live | `true` lets the turn's model review when the first model is missing, refuses, times out or gives an answer that does not fit. `false` then asks you. |
+| `effort` | `"low"` | live | The reasoning effort of each review, one lowercase word such as `low`, for the models that take an effort. |
+| `timeout_secs` | `20` | live | How long each model of the chain may take, in seconds, from 1 to 300. A slower answer goes to the next step. |
+
 ## [snapshot]
 
 efr's own snapshots, which show what a call and a turn changed in files.
@@ -148,6 +160,16 @@ efr's own snapshots, which show what a call and a turn changed in files.
 | `max_files` | `20000` | live | A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to 1000000; the debug log says so, and efr counts its files again after 10 minutes. |
 | `keep_turns` | `50` | live | The turns of each conversation whose snapshots stay, newest first, from 1 to 10000; older ones are deleted. |
 | `max_age_days` | `30` | live | Days without a snapshot after which the store of a project or `$SCRATCH` is deleted, from 1 to 3650. |
+
+## [presence]
+
+When efr counts you away from a conversation, and how long a question waits then.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `away_after_minutes` | `10` | live | The minutes without input in a conversation after which efr counts you away, from 1 to 1440. Input is a prompt, a steer, an answer or keys for the hidden shell. `efr away` and `,away` also count you away; your next input ends it. |
+| `away_wait_secs` | `300` | live | How long a question waits while you are away, in seconds, from 1 to 86400. Then the call does not run, and the model goes on without it. |
+| `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. No phone client exists yet, so it does nothing today. |
 
 ## [render]
 

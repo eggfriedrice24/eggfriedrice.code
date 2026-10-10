@@ -161,3 +161,63 @@ fn sandbox_cache_limits_have_ranges() {
     settings.sandbox.cache_max_gib = 10_001;
     assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("sandbox.cache_max_gib"));
 }
+
+#[test]
+fn classifier_keys_have_defaults_and_checks() {
+    let defaults = Settings::default().classifier;
+    assert!(defaults.enabled);
+    assert_eq!(defaults.model, None);
+    assert!(defaults.fallback_to_turn_model);
+    assert_eq!(defaults.effort, "low");
+    assert_eq!(defaults.timeout_secs, 20);
+
+    type Change = fn(&mut Settings);
+    let refused: [(Change, &str); 5] = [
+        (|s| s.classifier.model = Some(String::new()), "classifier.model"),
+        (|s| s.classifier.effort = "Low".to_owned(), "classifier.effort"),
+        (|s| s.classifier.effort = String::new(), "classifier.effort"),
+        (|s| s.classifier.timeout_secs = 0, "classifier.timeout_secs"),
+        (|s| s.classifier.timeout_secs = 301, "classifier.timeout_secs"),
+    ];
+    for (change, key) in refused {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let accepted: [Change; 4] = [
+        |s| s.classifier.model = Some("gpt-6-luna".to_owned()),
+        |s| s.classifier.effort = "minimal".to_owned(),
+        |s| s.classifier.timeout_secs = 1,
+        |s| s.classifier.timeout_secs = 300,
+    ];
+    for change in accepted {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings), Ok(()));
+    }
+}
+
+#[test]
+fn presence_keys_have_defaults_and_checks() {
+    let defaults = Settings::default().presence;
+    assert_eq!(defaults.away_after_minutes, 10);
+    assert_eq!(defaults.away_wait_secs, 300);
+    assert!(defaults.push);
+
+    type Change = fn(&mut Settings);
+    let refused: [(Change, &str); 4] = [
+        (|s| s.presence.away_after_minutes = 0, "presence.away_after_minutes"),
+        (|s| s.presence.away_after_minutes = 1_441, "presence.away_after_minutes"),
+        (|s| s.presence.away_wait_secs = 0, "presence.away_wait_secs"),
+        (|s| s.presence.away_wait_secs = 86_401, "presence.away_wait_secs"),
+    ];
+    for (change, key) in refused {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let mut settings = Settings::default();
+    settings.presence.away_after_minutes = 1_440;
+    settings.presence.away_wait_secs = 86_400;
+    assert_eq!(check(&settings), Ok(()));
+}

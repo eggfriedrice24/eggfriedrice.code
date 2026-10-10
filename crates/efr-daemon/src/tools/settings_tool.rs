@@ -620,8 +620,8 @@ fn ids(models: &[ModelInfo]) -> String {
 
 /// True when `next` lets more run without a question than `before`: a new allow rule,
 /// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
-/// path less, or a `[sandbox]` key that opens the sandbox (efr's auto spec, section
-/// 13.1).
+/// path less, a `[sandbox]` key that opens the sandbox, or the classifier turned on, so
+/// a model can allow exits that asked the user (efr's auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -638,6 +638,7 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
             .iter()
             .any(|path| !next.permissions.secret_paths.contains(path))
         || sandbox_loosens(&before.sandbox, &next.sandbox)
+        || (next.classifier.enabled && !before.classifier.enabled)
 }
 
 /// True when `next` opens the sandbox more than `before`: another bwrap, all projects

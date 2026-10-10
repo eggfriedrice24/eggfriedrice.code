@@ -13,7 +13,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
 pub(crate) mod anthropic;
+pub(crate) mod classifier;
 pub(crate) mod compaction;
+pub(crate) mod presence;
 pub(crate) mod render;
 pub(crate) mod sandbox;
 pub(crate) mod snapshot;

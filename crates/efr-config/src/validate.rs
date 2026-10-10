@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
-    CompactionSettings, ModelEntry, PROVIDERS, RenderColors, SandboxSettings, Settings,
-    SnapshotSettings,
+    ClassifierSettings, CompactionSettings, ModelEntry, PROVIDERS, PresenceSettings, RenderColors,
+    SandboxSettings, Settings, SnapshotSettings,
 };
 
 /// A value outside its allowed set or range.
@@ -32,7 +32,9 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         conversation,
         compaction,
         sandbox,
+        classifier,
         snapshot,
+        presence,
         render,
         ..
     } = settings;
@@ -155,7 +157,9 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
 
     check_compaction(compaction)?;
     check_sandbox(sandbox)?;
+    check_classifier(classifier)?;
     check_snapshot(snapshot)?;
+    check_presence(presence)?;
 
     within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
     if let Some(theme) = &render.theme {
@@ -242,6 +246,42 @@ fn check_snapshot(snapshot: &SnapshotSettings) -> Result<(), Invalid> {
         u64::from(snapshot.max_age_days),
         1..=3_650,
         "between 1 and 3650",
+    )
+}
+
+/// The checks of `[classifier]`, in the order of the table.
+fn check_classifier(classifier: &ClassifierSettings) -> Result<(), Invalid> {
+    if let Some(model) = &classifier.model {
+        non_empty("classifier.model", model, "a model id such as gpt-6-luna")?;
+    }
+    if !efr_protocol::is_effort_word(&classifier.effort) {
+        return Err(invalid(
+            "classifier.effort",
+            text(&classifier.effort),
+            "a reasoning effort such as low, medium or high",
+        ));
+    }
+    within(
+        "classifier.timeout_secs",
+        u64::from(classifier.timeout_secs),
+        1..=300,
+        "between 1 and 300",
+    )
+}
+
+/// The checks of `[presence]`, in the order of the table.
+fn check_presence(presence: &PresenceSettings) -> Result<(), Invalid> {
+    within(
+        "presence.away_after_minutes",
+        u64::from(presence.away_after_minutes),
+        1..=1_440,
+        "between 1 and 1440 (a day)",
+    )?;
+    within(
+        "presence.away_wait_secs",
+        u64::from(presence.away_wait_secs),
+        1..=86_400,
+        "between 1 and 86400 (a day)",
     )
 }
 

@@ -159,6 +159,7 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "sandbox.env_deny",
         "sandbox.env_keep",
         "sandbox.export_deny",
+        "classifier.model",
         "render.theme",
         "render.palette",
         "render.colors.text",

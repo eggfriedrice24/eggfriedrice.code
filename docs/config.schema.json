@@ -121,6 +121,43 @@
         }
       ]
     },
+    "ClassifierSettings": {
+      "additionalProperties": false,
+      "description": "`[classifier]`: who reviews an action that leaves the `auto` sandbox. Every key\napplies from the next exit.",
+      "properties": {
+        "effort": {
+          "default": "low",
+          "description": "The reasoning effort of each review, one lowercase word such as `low`, for the\nmodels that take an effort.",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`true` lets a reviewer model decide most actions that leave the sandbox in\n`auto`, and hand the unsure ones to you. `false` asks you about every such\naction, as before phase A. Each review is one more request to your provider.",
+          "type": "boolean"
+        },
+        "fallback_to_turn_model": {
+          "default": true,
+          "description": "`true` lets the turn's model review when the first model is missing, refuses,\ntimes out or gives an answer that does not fit. `false` then asks you.",
+          "type": "boolean"
+        },
+        "model": {
+          "default": null,
+          "description": "The model that reviews first. Unset: the small model of the turn's provider,\nsuch as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout_secs": {
+          "default": 20,
+          "description": "How long each model of the chain may take, in seconds, from 1 to 300. A slower\nanswer goes to the next step.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "CommandPattern": {
       "additionalProperties": false,
       "description": "A command that a rule names: a program, the words that must follow it, the words\nthat must not appear, and how many operands it may have.\n\nA pattern judges one simple command at a time. The engine splits a line on `;`,\n`&&`, `||`, `|` and newlines, reading quotes as zsh does, and allows a line only\nwhen it allows every simple command in it. A line with a command substitution, a\nparameter expansion, a here-document, an output redirection to anything but\n`/dev/null`, a group, a background job, an assignment that could change what runs,\nor a builtin such as `eval` matches no pattern at all, and falls through to the\nrules for every command line. A program that runs commands as another user (`sudo`,\n`doas`, `su`, `pkexec`, `run0`) matches no pattern either, even behind a wrapper\nsuch as `env`.\n\nWords are compared after quotes are removed, so `git 'status'` is `git status`. A\ncommand with a pattern outside quotes, such as `src/*.rs`, matches only a pattern\nthat sets no operand bound, forbids no word without a dash, has no check and no\nwildcard alternative without a dash, because zsh replaces the pattern with the\nnames it matches.",
@@ -557,6 +594,32 @@
         "$ref": "#/$defs/Rule"
       },
       "type": "array"
+    },
+    "PresenceSettings": {
+      "additionalProperties": false,
+      "description": "`[presence]`: whether a person is at a conversation to answer its questions. Every\nkey applies from the next question.",
+      "properties": {
+        "away_after_minutes": {
+          "default": 10,
+          "description": "The minutes without input in a conversation after which efr counts you away,\nfrom 1 to 1440. Input is a prompt, a steer, an answer or keys for the hidden\nshell. `efr away` and `,away` also count you away; your next input ends it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "away_wait_secs": {
+          "default": 300,
+          "description": "How long a question waits while you are away, in seconds, from 1 to 86400.\nThen the call does not run, and the model goes on without it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "push": {
+          "default": true,
+          "description": "`true` sends a question that waits while you are away to your paired phones.\nNo phone client exists yet, so it does nothing today.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "Progress": {
       "description": "When `efr` shows the progress of a turn in the terminal's tab (OSC 9;4).",
@@ -1225,6 +1288,17 @@
       },
       "description": "The Anthropic provider."
     },
+    "classifier": {
+      "$ref": "#/$defs/ClassifierSettings",
+      "default": {
+        "effort": "low",
+        "enabled": true,
+        "fallback_to_turn_model": true,
+        "model": null,
+        "timeout_secs": 20
+      },
+      "description": "The reviewer model that decides most actions that leave the `auto` sandbox."
+    },
     "compaction": {
       "$ref": "#/$defs/CompactionSettings",
       "default": {
@@ -1272,6 +1346,15 @@
         "secret_paths": []
       },
       "description": "The permission mode, extra secrets and the user's rules."
+    },
+    "presence": {
+      "$ref": "#/$defs/PresenceSettings",
+      "default": {
+        "away_after_minutes": 10,
+        "away_wait_secs": 300,
+        "push": true
+      },
+      "description": "When efr counts you away from a conversation, and how long a question waits\nthen."
     },
     "render": {
       "$ref": "#/$defs/RenderSettings",

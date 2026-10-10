@@ -773,3 +773,33 @@ fn each_sandbox_key_that_opens_the_sandbox_loosens() {
         assert!(!super::sandbox_loosens(&base, next), "{row} must not loosen");
     }
 }
+
+#[test]
+fn loosens_classifier_enabled() {
+    let mut off = Settings::default();
+    off.classifier.enabled = false;
+    let on = Settings::default();
+    assert!(super::loosens(&off, &on), "turning the classifier on loosens");
+    assert!(!super::loosens(&on, &off), "turning it off asks more, so it does not loosen");
+
+    let changed = |change: fn(&mut Settings)| {
+        let mut next = Settings::default();
+        change(&mut next);
+        next
+    };
+    let others: Vec<(&str, Settings)> = vec![
+        ("classifier.model", changed(|s| s.classifier.model = Some("gpt-6-luna".to_owned()))),
+        (
+            "classifier.fallback_to_turn_model",
+            changed(|s| s.classifier.fallback_to_turn_model = false),
+        ),
+        ("classifier.effort", changed(|s| s.classifier.effort = "high".to_owned())),
+        ("classifier.timeout_secs", changed(|s| s.classifier.timeout_secs = 60)),
+        ("presence.away_after_minutes", changed(|s| s.presence.away_after_minutes = 30)),
+        ("presence.away_wait_secs", changed(|s| s.presence.away_wait_secs = 60)),
+        ("presence.push", changed(|s| s.presence.push = false)),
+    ];
+    for (row, next) in &others {
+        assert!(!super::loosens(&on, next), "{row} must not loosen");
+    }
+}

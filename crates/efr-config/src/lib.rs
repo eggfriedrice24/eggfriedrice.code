@@ -5,7 +5,8 @@
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
 //!   [`CompactionSettings`],
-//!   [`SandboxSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
+//!   [`SandboxSettings`], [`ClassifierSettings`], [`SnapshotSettings`] with
+//!   [`IgnoredFiles`], [`PresenceSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
@@ -65,7 +66,9 @@ pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
 pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
+pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
+pub use tables::presence::PresenceSettings;
 pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
     RoleColor,
