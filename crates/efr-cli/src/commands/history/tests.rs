@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    ApprovalDecision, BlockReason, Blocked, CommandId, CompactionTrigger,
+    ApprovalDecision, BlockReason, Blocked, ChainStep, CommandId, CompactionTrigger,
     ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
     EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
     ExitSource, JudgeKind, Launch, Method, Mode, ModeFallback, Origin, OverriddenSettings,
-    PageCursor, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings,
-    Verdict,
+    PageCursor, PauseReason, Presence, PresenceSource, QuestionId, ReportedFile, Risk,
+    SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings, Verdict,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
@@ -929,4 +929,104 @@ fn a_compaction_marks_its_place_and_verbose_adds_its_summary() {
         }
     }
     insta::assert_snapshot!(shown.join("\n"));
+}
+
+/// A turn of `auto` in phase A: the reviewer allows a write and refuses an upload,
+/// pauses, a question expires while the user is away, efrd frees space in a cache, and
+/// a floor file edit leaves a backup.
+fn reviewer_events() -> Vec<EventEnvelope> {
+    let second: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000b2".parse().unwrap();
+    let write = efr_protocol::Grant::Write { path: PathBuf::from("/home/user/.zshrc") };
+    let judged = |call_id, judge, verdict, rationale: Option<&str>| Event::ExitJudged {
+        turn_id: turn(),
+        call_id,
+        judge,
+        verdict,
+        model: Some("gpt-6-luna".to_owned()),
+        latency_ms: Some(1_830),
+        risk: Some(Risk::Low),
+        user_authorization: None,
+        category: Some("file edit".to_owned()),
+        rationale: rationale.map(str::to_owned),
+        record_sha256: None,
+        cached: false,
+        chain_step: Some(ChainStep::ClassifierModel),
+        skipped: vec!["claude-haiku-5-5: missing".to_owned()],
+    };
+    let events = vec![
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Persistence],
+            grants: vec![write],
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record(
+                "echo 'alias k=kubectl' >> ~/.zshrc",
+                ExitFacts::default(),
+            )),
+        },
+        Event::ExitReviewStarted {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Persistence],
+        },
+        judged(call(), JudgeKind::Classifier, Verdict::Allow, Some("you named your zshrc")),
+        Event::HomeFileChanged {
+            turn_id: turn(),
+            call_id: call(),
+            path: PathBuf::from("/home/user/.zshrc"),
+            floor: true,
+            covered: false,
+            backup: Some(PathBuf::from("/home/user/.local/share/efr/file-backups/c1/t1/1/.zshrc")),
+        },
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: second,
+            kinds: vec![ExitKind::Upload],
+            grants: Vec::new(),
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record("git push", ExitFacts::default())),
+        },
+        judged(
+            second,
+            JudgeKind::Classifier,
+            Verdict::Deny,
+            Some("no message of yours names a push"),
+        ),
+        Event::ClassifierPaused { turn_id: turn(), reason: PauseReason::InARow, denials: 3 },
+        Event::PresenceChanged {
+            conversation_id: conversation(),
+            presence: Presence::Away,
+            source: PresenceSource::User,
+        },
+        Event::ApprovalExpired { turn_id: turn(), call_id: second, away: true },
+        judged(second, JudgeKind::PresenceExpired, Verdict::Deny, None),
+        Event::CacheDeleteApplied {
+            turn_id: turn(),
+            call_id: call(),
+            paths: vec![PathBuf::from("/home/user/.cache/go-build/ab")],
+            freed_bytes: 52_000_000,
+        },
+    ];
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
+
+#[test]
+fn history_shows_reviewer_and_backup_lines() {
+    let page = ConversationHistoryResult { events: reviewer_events(), next_cursor: None };
+    let options = RenderOptions::new(60).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    // NOTE: the backup line stays whole at 60 columns: it names where the copy is.
+    assert!(
+        plain.contains(
+            "changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc\n"
+        ),
+        "{plain}"
+    );
+    assert!(!plain.contains("gpt-6-luna"), "{plain}");
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }

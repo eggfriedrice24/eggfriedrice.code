@@ -769,6 +769,29 @@ pub(crate) fn cache_freed(paths: &[std::path::PathBuf], freed: u64, home: Option
     format!("freed {} in {place} ({count})", super::size(freed))
 }
 
+/// The name of the file that efrd writes next to a backup copy, and in place of one for
+/// a file that did not exist before the call (the efr-daemon backup store).
+const BACKUP_META: &str = "meta.json";
+
+/// The line at the end of a turn for a file outside the project that runs code later
+/// and that a call changed (`home_file_changed`): `changed ~/.zshrc; backup at <path>`.
+/// A file that did not exist before has no copy, only the record of efrd's backup
+/// store, so the line says so.
+pub(crate) fn home_changed(path: &Path, backup: Option<&Path>, home: Option<&Path>) -> String {
+    let shown = tilde(path, home);
+    let Some(backup) = backup else {
+        return format!("changed {shown}");
+    };
+    let meta = Some(std::ffi::OsStr::new(BACKUP_META));
+    if backup.file_name() == meta && path.file_name() != meta {
+        return format!(
+            "changed {shown}, which did not exist before; record at {}",
+            tilde(backup, home)
+        );
+    }
+    format!("changed {shown}; backup at {}", tilde(backup, home))
+}
+
 /// A change of the user's presence, for `efr history`, such as `away (efr away)`.
 pub(crate) fn presence_changed(presence: Presence, source: PresenceSource) -> String {
     let state = match presence {

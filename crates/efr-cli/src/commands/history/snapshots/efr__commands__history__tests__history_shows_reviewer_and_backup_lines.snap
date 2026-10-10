@@ -1,0 +1,35 @@
+---
+source: crates/efr-cli/src/commands/history/tests.rs
+expression: "format!(\"{plain}---\\n{verbose}\")"
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
+changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
+reviewer refused: git push: no message of yours names a push
+reviewer paused for this turn: it refused 3 actions in a row; efr asks you for the rest
+approval expired: nobody answered while you were away; the call did not run
+freed 52.0 MB in ~/.cache/go-build (1 path)
+away (efr away)
+---
+conversation 019a9b1c-3d00-7a10-8b20-000000000001
+exit requested: persistence (predicted from the line); a yes opens ~/.zshrc writable
+  line: echo 'alias k=kubectl' >> ~/.zshrc
+  cwd: ~/project
+  user messages: 1
+reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
+exit allowed by the reviewer: file edit
+  model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
+changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
+exit requested: upload (predicted from the line)
+  line: git push
+  cwd: ~/project
+  user messages: 1
+reviewer refused: git push: no message of yours names a push
+exit denied by the reviewer: file edit
+  model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
+reviewer paused for this turn: it refused 3 actions in a row; efr asks you for the rest
+approval expired: nobody answered while you were away; the call did not run
+exit denied by nobody, while you were away: file edit
+  model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
+freed 52.0 MB in ~/.cache/go-build (1 path)
+away (efr away)

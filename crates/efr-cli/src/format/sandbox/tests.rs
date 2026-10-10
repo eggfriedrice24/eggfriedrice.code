@@ -12,9 +12,9 @@ use pretty_assertions::assert_eq;
 use super::{
     AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_heading,
     exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
-    judge_details, paused, presence_changed, reviewed, reviewer_row, reviewing, setup_failed,
-    status_line, surface_answered, surface_change, surface_changed, surface_report, survivors,
-    tilde,
+    home_changed, judge_details, paused, presence_changed, reviewed, reviewer_row, reviewing,
+    setup_failed, status_line, surface_answered, surface_change, surface_changed, surface_report,
+    survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -784,4 +784,30 @@ fn the_verbose_record_names_the_cache_deletes_the_backup_the_edit_and_the_review
         exit_record(&[ExitKind::Write], &[], ExitSource::CacheDelete, &record, home()).join("\n");
     insta::assert_snapshot!(lines);
     assert!(!lines.contains("kubectl"), "the payload never shows: {lines}");
+}
+
+#[test]
+fn a_changed_floor_file_names_its_backup_or_says_that_it_is_new() {
+    let zshrc = Path::new("/home/u/.zshrc");
+    assert_eq!(
+        home_changed(
+            zshrc,
+            Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/1/.zshrc")),
+            home()
+        ),
+        "changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c/t/1/.zshrc"
+    );
+    assert_eq!(
+        home_changed(
+            Path::new("/home/u/.config/autostart/sync.desktop"),
+            Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/2/meta.json")),
+            home(),
+        ),
+        "changed ~/.config/autostart/sync.desktop, which did not exist before; record at \
+         ~/.local/share/efr/file-backups/c/t/2/meta.json"
+    );
+    assert_eq!(home_changed(zshrc, None, home()), "changed ~/.zshrc");
+    // A path is shown safely: it cannot move the cursor or turn the line around.
+    let hostile = home_changed(Path::new("/home/u/.zshrc\u{202e}\n"), None, home());
+    assert_eq!(hostile, "changed ~/.zshrc\u{fffd} ");
 }

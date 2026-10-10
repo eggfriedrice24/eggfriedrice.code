@@ -90,7 +90,9 @@
 //! diff, and a call that changed files without a
 //! diff shown gets one muted row of them under its result (`format::changes`). A turn
 //! that changed files ends with one muted line that counts them, right before the line
-//! of its time and tokens.
+//! of its time and tokens. Before both, however the turn ended, comes one muted line for
+//! each file outside the project that runs code later and that the turn changed, such
+//! as `changed ~/.zshrc; backup at <path>`, shown whole.
 //!
 //! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that
 //! says where the sandbox can write; the result of a failed call names no sandbox.
@@ -495,6 +497,9 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
+    /// The lines of the files outside the project that run code later and that the
+    /// turn changed, with their backups, for its end (`home_file_changed`).
+    home_changes: Vec<String>,
     /// The quarantine question waiting for a key.
     surface: Option<QuestionId>,
     /// The quarantine question that this client answered, whose answer needs no second
@@ -571,6 +576,7 @@ impl TurnView {
             reviewed: HashMap::new(),
             commands: HashMap::new(),
             away: false,
+            home_changes: Vec::new(),
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
@@ -1453,6 +1459,11 @@ impl TurnView {
                 }
                 self.answer_came(*call_id);
                 self.expired(*call_id, *away, size)
+            }
+            Event::HomeFileChanged { path, backup, .. } => {
+                let line = sandbox::home_changed(path, backup.as_deref(), self.home.as_deref());
+                self.home_changes.push(line);
+                Step::default()
             }
             Event::ClassifierPaused { reason, denials, .. } => {
                 self.whole_note(&sandbox::paused(*reason, *denials), size)
@@ -2461,6 +2472,13 @@ impl TurnView {
             self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
             self.close()
         };
+        // NOTE: the files outside the project that the turn changed stand before its end
+        // however it ended, also after a failure: the line names the backup of each.
+        for line in std::mem::take(&mut self.home_changes) {
+            let noted = self.whole_note(&line, size);
+            step.out.push_str(&noted.out);
+            step.err.push_str(&noted.err);
+        }
         let mut notes = notes.to_vec();
         // The last turn's failure is the command's error; an earlier one is a note.
         if next.is_some() {
@@ -2513,6 +2531,7 @@ impl TurnView {
         self.draft_boundary = None;
         self.interrupting = false;
         self.resent_note = false;
+        self.home_changes.clear();
         if let Some(input) = &mut self.input {
             input.prompt = Some(next.text);
         }

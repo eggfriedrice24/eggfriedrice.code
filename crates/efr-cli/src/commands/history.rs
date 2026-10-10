@@ -471,6 +471,10 @@ impl<'a> Transcript<'a> {
             Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
                 self.note(&sandbox::cache_freed(paths, *freed_bytes, self.home));
             }
+            Event::HomeFileChanged { path, backup, .. } => {
+                // NOTE: whole, not cut to the screen: the line names where the copy is.
+                self.dim_lines(&[sandbox::home_changed(path, backup.as_deref(), self.home)]);
+            }
             Event::PresenceChanged { presence, source, .. } => {
                 self.note(&sandbox::presence_changed(*presence, *source));
             }

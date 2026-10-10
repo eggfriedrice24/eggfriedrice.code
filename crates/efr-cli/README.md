@@ -359,6 +359,16 @@ Replies:
   it again`. A turn whose `auto` fell back to `cautious`
   (`EffectiveSettings.fallback`) starts with `auto is not available here; this turn
   runs as cautious: <reason>`.
+- Each file outside the project that runs code later and that a call of the turn
+  changed (`home_file_changed`, such as `~/.zshrc` after a floor file edit that the
+  reviewer allowed) gets one muted line at the end of the turn, after the sandbox's
+  line and before the line of the files that the turn changed and the end-of-turn
+  line: `changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`.
+  A file that did not exist before has no copy, only the record of efrd's backup store:
+  `changed <path>, which did not exist before; record at <dir>/meta.json`. The lines
+  come however the turn ended, also after a failure or an interrupt, and they show
+  whole, in rows of the screen, because they name where the copy is. `efr history`
+  shows the same line at its place in the turn.
 - An approval with `exit` (an action that leaves the sandbox) shows the whole line of
   the call from its `exit_requested` record instead of the summary, each line of a
   command of several on its own row. A line that runs outside the sandbox also gets

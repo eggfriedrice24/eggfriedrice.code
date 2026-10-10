@@ -1142,3 +1142,62 @@ fn a_cache_delete_says_what_it_freed() {
         ),
     ]));
 }
+
+/// Call `n` changed `path`, a file that runs code later, and efrd kept `backup`.
+fn home_changed(n: u8, path: &str, backup: &str) -> Event {
+    Event::HomeFileChanged {
+        turn_id: turn(),
+        call_id: id(n),
+        path: PathBuf::from(path),
+        floor: true,
+        covered: false,
+        backup: Some(PathBuf::from(backup)),
+    }
+}
+
+#[test]
+fn floor_edit_turn_end_line_names_backup() {
+    let line = "echo 'alias k=kubectl' >> ~/.zshrc";
+    let info = exit_info(&[ExitKind::Persistence], Launch::Unsandboxed);
+    let backup = "/home/user/.local/share/efr/file-backups/c1/t1/1/.zshrc";
+    let edit = [
+        Sent(0, turn_started()),
+        Sent(10, shell(1, line)),
+        Sent(20, exit_requested(1, line, ExitFacts::default(), &info)),
+        Sent(20, review_started(1, &info.kinds)),
+        Sent(900, reviewed(1, Verdict::Allow, Some(Risk::Low), "you named your zshrc")),
+        Sent(1_000, ended(1, Some(0), None)),
+        Sent(1_010, home_changed(1, "/home/user/.zshrc", backup)),
+        Sent(
+            1_020,
+            home_changed(
+                1,
+                "/home/user/.config/hypr/new.conf",
+                "/home/user/.local/share/efr/file-backups/c1/t1/2/meta.json",
+            ),
+        ),
+    ];
+    let mut completed = edit.to_vec();
+    completed.push(Sent(1_500, message(0, "I added the alias.")));
+    completed.push(Sent(1_500, turn_completed()));
+    let mut failed = edit.to_vec();
+    failed.push(Sent(
+        1_500,
+        Event::TurnFailed {
+            turn_id: turn(),
+            error: efr_protocol::ErrorBody {
+                code: efr_protocol::ErrorCode::Forbidden,
+                message: "auto stopped this turn: the reviewer refused 3 actions in a row and nobody could decide. Read the answers, then send a new prompt."
+                    .to_owned(),
+                data: None,
+            },
+            usage: None,
+            context: None,
+        },
+    ));
+    insta::assert_snapshot!(format!(
+        "### completed\n{}\n### failed\n{}",
+        every_way(&completed),
+        every_way(&failed)
+    ));
+}
