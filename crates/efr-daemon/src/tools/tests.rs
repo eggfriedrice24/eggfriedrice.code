@@ -841,3 +841,59 @@ fn a_call_s_sink_passes_output_and_waits_on_and_asks_the_live_subscriptions() {
     assert_eq!(seen.output, [("pw: ".to_owned(), 4)]);
     assert_eq!(seen.inputs, [(InputWait::Hidden, false), (InputWait::Visible, true)]);
 }
+
+#[tokio::test]
+async fn file_tool_write_has_target_kind_facts() {
+    use efr_permissions::TargetKind;
+
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let home = root.join("home");
+    let app = home.join("p/app");
+    std::fs::create_dir_all(app.join("sub")).unwrap();
+    std::fs::write(app.join("main.rs"), "fn main() {}\n").unwrap();
+    let clock = TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let dirs =
+        efr_stdx::paths::Dirs::new(root.join("c"), root.join("d"), root.join("s"), root.join("r"))
+            .unwrap();
+    let sandbox = crate::sandbox::SandboxService::new(crate::sandbox::ServiceParts {
+        dirs: dirs.clone(),
+        home: Home::new(&home).unwrap(),
+        host: crate::sandbox::HostFacts::default(),
+        source: None,
+        seams: crate::sandbox::Seams::default(),
+        registry: dirs.config().join("projects.toml"),
+        writer: store.writer().clone(),
+        clock: clock.shared(),
+        rng: Arc::new(TestRng::new(3)),
+        git: efr_scope::Git::new(clock.shared()).isolated(),
+    })
+    .await;
+    let engine = Engine::with_defaults(Locations::new(&home).unwrap());
+    let (_engine, engine) = tokio::sync::watch::channel(Arc::new(engine));
+    let toolbox = toolbox(&home).with_sandbox(sandbox, engine);
+    let facts = async |name: &str, input: serde_json::Value, auto: bool| {
+        let mut tool_call = call(name, input, &app);
+        tool_call.context = tool_call.context.with_auto(auto).with_edit_tool(if name == "edit" {
+            EditTool::Replace
+        } else {
+            EditTool::default()
+        });
+        toolbox.requirements(&tool_call).await.unwrap().facts
+    };
+
+    let new_file = facts("write_file", json!({"path": "new.txt", "content": "x"}), true).await;
+    let edited =
+        facts("edit", json!({"path": "main.rs", "old_string": "main", "new_string": "run"}), true)
+            .await;
+    let dir = facts("write_file", json!({"path": "sub", "content": "x"}), true).await;
+    let cautious = facts("write_file", json!({"path": "new.txt", "content": "x"}), false).await;
+
+    let new_file = new_file.unwrap();
+    assert_eq!(new_file.target(&app.join("new.txt")), Some(None), "a new file is missing");
+    assert_eq!(new_file.target(&app), Some(Some(TargetKind::Dir)), "under a directory");
+    assert_eq!(edited.unwrap().target(&app.join("main.rs")), Some(Some(TargetKind::File)));
+    assert_eq!(dir.unwrap().target(&app.join("sub")), Some(Some(TargetKind::Dir)));
+    assert_eq!(cautious, None, "only auto reads the facts");
+}

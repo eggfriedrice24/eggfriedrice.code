@@ -122,6 +122,9 @@ pub(crate) struct DaemonToolbox {
     sandbox: Option<(SandboxService, watch::Receiver<Arc<Engine>>)>,
     /// The snapshots of the calls that can write; `None` takes none.
     snapshots: Option<CallSnapshots>,
+    /// The backup store of floor files, `$XDG_DATA_HOME/efr/file-backups`; `None` keeps
+    /// no backups.
+    backup_dir: Option<PathBuf>,
 }
 
 impl DaemonToolbox {
@@ -145,12 +148,19 @@ impl DaemonToolbox {
             settings,
             sandbox: None,
             snapshots: None,
+            backup_dir: None,
         }
     }
 
     /// Takes snapshots before and after the calls that can write, with `snapshots`.
     pub(crate) fn with_snapshots(mut self, snapshots: CallSnapshots) -> Self {
         self.snapshots = Some(snapshots);
+        self
+    }
+
+    /// Keeps the backups of floor files in `dir`, `$XDG_DATA_HOME/efr/file-backups`.
+    pub(crate) fn with_backup_dir(mut self, dir: PathBuf) -> Self {
+        self.backup_dir = Some(dir);
         self
     }
 
@@ -238,26 +248,44 @@ impl DaemonToolbox {
 }
 
 impl DaemonToolbox {
-    /// The facts about the files and programs of a shell call that the engine reads in
-    /// `auto`; `None` for another tool or without a sandbox.
+    /// The facts that the engine reads in `auto`: about the files and programs of a
+    /// shell call, and about the targets of a `write_file`, `apply_patch` or `edit`
+    /// call; `None` for another tool or without a sandbox.
     async fn facts(
         &self,
         call: &ToolCall,
         declared: &ToolRequirements,
     ) -> Option<efr_permissions::CallFacts> {
         let (sandbox, engine) = self.sandbox.as_ref()?;
-        let command = declared.command.as_deref()?;
-        let engine = Arc::clone(&engine.borrow());
-        let command_dir = declared.command_dir.as_deref();
-        let request =
-            efr_permissions::exits::fact_requests(command, command_dir, engine.locations())
-                .with_needs(declared.needs.as_ref(), command_dir, engine.locations());
         let writes: Vec<PathBuf> = declared
             .paths
             .iter()
             .filter(|access| !matches!(access.mode, AccessMode::Read | AccessMode::ReadTree))
             .map(|access| access.path.clone())
             .collect();
+        let Some(command) = declared.command.as_deref() else {
+            if !FILE_WRITERS.contains(&call.name.as_str()) {
+                return None;
+            }
+            // NOTE: a file tool has no line, only the paths it writes. Their kinds and
+            // those of their parents tell a file and a new file from a directory, so a
+            // floor file edit can go to the classifier and a directory never does.
+            let request = efr_permissions::FactRequest::default();
+            let input = facts::FactInput {
+                request: &request,
+                writes: &writes,
+                command_dir: None,
+                shell_path: "",
+                rebuildable: &[],
+                turn_start: self.clock.now(),
+            };
+            return Some(facts::collect(&input, sandbox.git(), &self.home).await);
+        };
+        let engine = Arc::clone(&engine.borrow());
+        let command_dir = declared.command_dir.as_deref();
+        let request =
+            efr_permissions::exits::fact_requests(command, command_dir, engine.locations())
+                .with_needs(declared.needs.as_ref(), command_dir, engine.locations());
         let rebuildable = self.settings.borrow().sandbox.rebuildable.clone();
         let turn_start = sandbox.turns().started(call.context.turn_id, self.clock.now());
         let shell_path = sandbox.shell_path(call.context.conversation_id);

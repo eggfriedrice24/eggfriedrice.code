@@ -97,6 +97,19 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         Err("this toolbox keeps no quarantine".to_owned())
     }
 
+    /// Deletes `paths` in the user's real tool caches, after the classifier or the user
+    /// allowed it: the paths that the contained call `call` deleted in its private cache
+    /// layer (`SandboxSummary::cache_deletes`). The toolbox checks each path again
+    /// against its own list of caches and pins. `Err` is the text the model reads when
+    /// nothing was deleted. The default keeps no caches, so it deletes nothing.
+    async fn delete_cache_paths(
+        &self,
+        _call: &CallContext,
+        _paths: &[PathBuf],
+    ) -> Result<CacheDeleteOutcome, String> {
+        Err("this toolbox keeps no tool caches, so the deletes stayed private".to_owned())
+    }
+
     /// The files that the turn `turn_id` changed through the sandbox's launcher and
     /// that run code later outside the sandbox, such as `build.rs` or a git setting,
     /// for the report at the end of the turn. The turn records them as
@@ -308,6 +321,10 @@ pub struct ToolOutcome {
     pub changes: Option<FileChanges>,
     /// The unified diff of a file tool's write, for `tool_call_completed`.
     pub diff: Option<String>,
+    /// The floor files that the call changed, each with the copy that the toolbox made
+    /// before the call, for `home_file_changed` and the line at the end of the turn. A
+    /// file that the call did not change has no entry.
+    pub backups: Vec<FileBackup>,
 }
 
 impl ToolOutcome {
@@ -321,6 +338,7 @@ impl ToolOutcome {
             sandbox: None,
             changes: None,
             diff: None,
+            backups: Vec::new(),
         }
     }
 
@@ -363,6 +381,34 @@ impl ToolOutcome {
         self.diff = diff;
         self
     }
+
+    /// Sets the floor files that the call changed, with their backups.
+    #[must_use]
+    pub fn with_backups(mut self, backups: Vec<FileBackup>) -> Self {
+        self.backups = backups;
+        self
+    }
+}
+
+/// A floor file that a call changed, and the copy of it from before the call in efr's
+/// backup store (efr's auto spec, section 10.9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileBackup {
+    /// The file that the call changed, as the call named it, absolute.
+    pub path: PathBuf,
+    /// The copy from before the call, in efr's backup store.
+    pub backup: PathBuf,
+    /// True when the file is a floor.
+    pub floor: bool,
+}
+
+/// What [`Toolbox::delete_cache_paths`] deleted in the real tool caches.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CacheDeleteOutcome {
+    /// The paths that it deleted.
+    pub deleted: Vec<PathBuf>,
+    /// The bytes that the deletes freed.
+    pub freed_bytes: u64,
 }
 
 /// Hears a call's output while it runs; the turn turns it into coalesced

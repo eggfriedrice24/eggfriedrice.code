@@ -25,7 +25,9 @@
 //!   `compaction.rs`, the fresh context block in `fresh.rs`.
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
-//!   `efr_tools::ToolRegistry`.
+//!   `efr_tools::ToolRegistry`. A call reports the floor files that it changed with
+//!   their backups ([`FileBackup`]), and the toolbox deletes allowed paths in the real
+//!   tool caches ([`CacheDeleteOutcome`]).
 //! - Drafts ([`ConversationDraft`], [`draft_channel`]): the text, the reasoning and the
 //!   tool input of a running turn as they arrive from the model, sent at most once per
 //!   [`ConversationConfig::draft_interval`] to the daemon for live clients, never stored.
@@ -85,4 +87,6 @@ pub use history::HistoryLimits;
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
-pub use toolbox::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
+pub use toolbox::{
+    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, ToolCall, ToolOutcome, Toolbox,
+};

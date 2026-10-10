@@ -57,7 +57,7 @@ use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
 use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
-use crate::{DaemonError, catalog, gc, notices, reconcile, screens, signals};
+use crate::{DaemonError, backups, catalog, gc, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
 const RECORDINGS_DIR: &str = "recordings";
@@ -497,7 +497,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings_tool,
     )
     .with_sandbox(sandbox.clone(), engine_receiver.clone())
-    .with_snapshots(call_snapshots);
+    .with_snapshots(call_snapshots)
+    .with_backup_dir(dirs.data().join(backups::FILE_BACKUPS_DIR));
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -705,6 +706,8 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
         };
         let report = state.snapshots.gc(keep_turns, max_age).await;
         tracing::debug!(?report, "collected old snapshots");
+        let backups = state.dirs.data().join(backups::FILE_BACKUPS_DIR);
+        backups::collect(&backups, keep_turns, max_age).await;
     }
 }
 

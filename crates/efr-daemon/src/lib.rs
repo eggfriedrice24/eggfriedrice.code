@@ -18,6 +18,7 @@
 //! (`local-pty`). What does not belong here: logic that a library crate can own, such
 //! as the turn loop, permission decisions, SQL, terminal emulation or the wire format.
 
+mod backups;
 mod catalog;
 mod config;
 mod connections;
@@ -26,6 +27,7 @@ mod discovery;
 mod engine;
 mod error;
 mod gc;
+mod judge;
 mod lock;
 mod methods;
 mod notices;
