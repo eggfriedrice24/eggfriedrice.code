@@ -49,6 +49,10 @@ across a restart:
   drops, in its own batch, the saved turns before its cut, and its `through_turn` too
   when the cut covers that whole turn: the summary takes their place in every later
   request. A compaction that only pruned drops nothing.
+- `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
+  and the events that take one back, from the whole log. The name check of an exit in
+  `auto` reads them, so an early "edit my zshrc" still names the file after the page
+  of newest events has moved past it.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

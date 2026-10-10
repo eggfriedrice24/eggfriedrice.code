@@ -16,7 +16,7 @@
 //! names for `rusqlite::Connection::open` and `open_in_memory`. The modules named after
 //! tables (`events`, the projections, `receipts`, `outbox`, `recording`) are public
 //! too: they hold the read functions that run inside `Readers::with`, and their types;
-//! so is `turn_messages`.
+//! so are `turn_messages` and `user_messages`.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -40,6 +40,7 @@ mod store;
 #[cfg(test)]
 mod testing;
 pub mod turn_messages;
+pub mod user_messages;
 mod writer;
 
 pub use error::StoreError;
