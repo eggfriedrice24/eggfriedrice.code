@@ -1036,9 +1036,10 @@ reads = ["/home/u/p/efr"]
 n = 83
 line = "echo '...' >> ~/.zshrc"
 p1 = "U(persistence)"
-pa = "U(persistence)"
+pa = "N(persistence)"
 exits = ["persistence"]
 writes = ["/home/u/.zshrc"]
+files = ["/home/u/.zshrc"]
 
 [[line]]
 n = 84
@@ -1070,6 +1071,7 @@ pa = "U(persistence)"
 exits = ["persistence"]
 trees = ["/home/u/p/efr/evil.desktop"]
 writes = ["/home/u/.config/autostart"]
+dirs = ["/home/u/.config/autostart"]
 
 [[line]]
 n = 87
@@ -1088,6 +1090,8 @@ pa = "U(persistence)"
 exits = ["persistence"]
 reads = ["/home/u/evil"]
 writes = ["/home/u/.config/systemd/user/default.target.wants/x.service"]
+missing = ["/home/u/.config/systemd/user/default.target.wants/x.service"]
+dirs = ["/home/u/.config/systemd/user/default.target.wants"]
 
 [[line]]
 n = 89
@@ -1101,9 +1105,11 @@ reads = ["/home/u/p/efr/enable-linger"]
 n = 90
 line = "echo '@reboot x' >> ~/.config/autostart/x.desktop"
 p1 = "U(persistence)"
-pa = "U(persistence)"
+pa = "N(persistence)"
 exits = ["persistence"]
 writes = ["/home/u/.config/autostart/x.desktop"]
+missing = ["/home/u/.config/autostart/x.desktop"]
+dirs = ["/home/u/.config/autostart"]
 
 [[line]]
 n = 91

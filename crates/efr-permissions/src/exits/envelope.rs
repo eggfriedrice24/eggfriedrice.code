@@ -5,12 +5,15 @@ use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
 
+use super::names::floor_names;
 use super::programs::is_sandbox_device;
 use super::scan::OPAQUE;
 use super::{Approver, ExitNeed, WriteBind, existing_kind};
 use crate::path_class::normalize;
-use crate::tables::{GIT_SURFACE, PROTECTED_NAMES, is_env_file, persistence_floors, sandbox_masks};
-use crate::{Access, CallFacts, Locations, TargetKind};
+use crate::tables::{
+    GIT_SURFACE, PROTECTED_NAMES, floor_group, is_env_file, persistence_floors, sandbox_masks,
+};
+use crate::{Access, AutoSupport, CallFacts, FloorGroup, Locations, TargetKind};
 
 /// The write roots of one call and the locations that classify the rest.
 #[derive(Debug)]
@@ -25,6 +28,22 @@ pub(crate) struct Envelope<'a> {
     /// The built-in floors and masks under the home directory.
     floors: Vec<PathBuf>,
     masks: Vec<PathBuf>,
+}
+
+/// The floor that a path lies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Floor {
+    /// The group of the floor, or `None` when only the user may change it.
+    pub(crate) group: Option<FloorGroup>,
+}
+
+/// A floor that only its place inside a write root makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InRootFloor {
+    /// An agent or editor config of [`PROTECTED_NAMES`].
+    Protected,
+    /// A git setting or hook of a repository.
+    GitSurface,
 }
 
 /// What a write outside the envelope is.
@@ -141,20 +160,49 @@ impl<'a> Envelope<'a> {
     /// True when `path` runs code later outside the sandbox: a built-in or added floor
     /// at or above it, or a protected name or a git setting inside a write root.
     pub(crate) fn is_floor(&self, path: &Path) -> bool {
-        if self
-            .floors
-            .iter()
-            .chain(self.locations.floor_roots())
-            .any(|floor| path.starts_with(floor))
-        {
-            return true;
+        self.floor_of(path).is_some()
+    }
+
+    /// The floor that `path` lies on, or `None` when it lies on none. Its group is the
+    /// group of the floors at or above `path`, or `None` when one of them has no group
+    /// (`sandbox.protect`, a floor the daemon added without one, the git surface of a
+    /// repository): only the user then approves an edit.
+    pub(crate) fn floor_of(&self, path: &Path) -> Option<Floor> {
+        let mut found = false;
+        let mut group: Option<FloorGroup> = None;
+        let mut in_no_group = false;
+        if let Some(built_in) = floor_group(self.locations.home(), path) {
+            found = true;
+            group = Some(built_in);
         }
-        let Some(root) = self.root_of(path) else {
-            return false;
-        };
-        let Ok(relative) = path.strip_prefix(root) else {
-            return false;
-        };
+        for added in
+            self.locations.added_floors().iter().filter(|added| path.starts_with(&added.root))
+        {
+            found = true;
+            match added.group {
+                Some(added) => group = group.or(Some(added)),
+                None => in_no_group = true,
+            }
+        }
+        match self.in_root_floor(path) {
+            Some(InRootFloor::Protected) => {
+                found = true;
+                group = group.or(Some(FloorGroup::Agent));
+            }
+            Some(InRootFloor::GitSurface) => {
+                found = true;
+                in_no_group = true;
+            }
+            None => {}
+        }
+        found.then_some(Floor { group: if in_no_group { None } else { group } })
+    }
+
+    /// The floor that only its place inside a write root makes of `path`: a protected
+    /// name, or the git surface of a repository.
+    fn in_root_floor(&self, path: &Path) -> Option<InRootFloor> {
+        let root = self.root_of(path)?;
+        let relative = path.strip_prefix(root).ok()?;
         let names: Vec<&str> = relative
             .components()
             .filter_map(|component| match component {
@@ -162,13 +210,54 @@ impl<'a> Envelope<'a> {
                 _ => None,
             })
             .collect();
-        let protected = names.first().is_some_and(|first| {
-            PROTECTED_NAMES.iter().any(|name| name.trim_end_matches('/') == *first)
-        });
         let git_surface =
             names.windows(2).any(|pair| pair[0] == ".git" && GIT_SURFACE.contains(&pair[1]))
                 || names.as_slice() == [".git"];
-        protected || git_surface
+        if git_surface {
+            return Some(InRootFloor::GitSurface);
+        }
+        let protected = names.first().is_some_and(|first| {
+            PROTECTED_NAMES.iter().any(|name| name.trim_end_matches('/') == *first)
+        });
+        protected.then_some(InRootFloor::Protected)
+    }
+
+    /// Who approves a `persistence` write of `path`, with the names and the backup of
+    /// the exit (spec 9.1 and the decision of 2026-10-10 on floor file edits). The
+    /// classifier judges it when a user message names the file, only when all of these
+    /// hold: efrd keeps a backup ([`AutoSupport::floor_backup`]); the floor has a group;
+    /// a fact says that the target is a file, or that it is missing and its parent is a
+    /// directory; the line does not make a symbolic link there; and the target is not in
+    /// a `*.wants` or `*.requires` directory, where a file enables a unit. Else only the
+    /// user approves it. efrd copies the target first whenever it keeps backups and the
+    /// target is no directory, whoever approves it.
+    pub(super) fn floor_edit(
+        &self,
+        need: &mut ExitNeed,
+        facts: Option<&CallFacts>,
+        support: &AutoSupport,
+        linked: bool,
+    ) {
+        let Some(path) = need.target.clone() else { return };
+        let Some(floor) = self.floor_of(&path) else { return };
+        let kind = existing_kind(facts, &path);
+        let file = match kind {
+            Some(Some(TargetKind::File)) => true,
+            Some(None) => path
+                .parent()
+                .is_some_and(|parent| existing_kind(facts, parent) == Some(Some(TargetKind::Dir))),
+            Some(Some(TargetKind::Dir | TargetKind::Other)) | None => false,
+        };
+        let enables = path.ancestors().skip(1).any(|dir| {
+            dir.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".wants") || name.ends_with(".requires"))
+        });
+        let named = support.floor_backup && file && !linked && !enables && floor.group.is_some();
+        need.approver = if named { Approver::ClassifierWhenNamed } else { Approver::User };
+        need.backup_before_write = support.floor_backup
+            && !matches!(kind, Some(Some(TargetKind::Dir | TargetKind::Other)));
+        need.names = floor_names(&path, self.locations.home(), floor.group);
     }
 
     /// The mask that hides `path`: a built-in or added mask at or above it, or the
@@ -259,8 +348,15 @@ impl<'a> Envelope<'a> {
     /// The exit of a `read_file`, `write_file` or edit of `path` in `auto`, which the
     /// daemon runs outside the sandbox: a read of a sandbox mask asks, and so
     /// does a write to a floor inside a write root that the path rules allow. A write
-    /// that they ask about is [`Envelope::tool_write_exit`].
-    pub(crate) fn tool_exit(&self, path: &Path, access: Access) -> Option<ExitNeed> {
+    /// that they ask about is [`Envelope::tool_write_exit`]. `facts` and `support` decide
+    /// who approves a floor file edit ([`Envelope::floor_edit`]).
+    pub(crate) fn tool_exit(
+        &self,
+        path: &Path,
+        access: Access,
+        facts: Option<&CallFacts>,
+        support: &AutoSupport,
+    ) -> Option<ExitNeed> {
         match access {
             Access::Read | Access::ReadTree => self.masked_read(path, ExitSource::Predicted),
             Access::Write => {
@@ -273,6 +369,7 @@ impl<'a> Envelope<'a> {
                     ExitSource::Predicted,
                 );
                 need.target = Some(path.to_path_buf());
+                self.floor_edit(&mut need, facts, support, false);
                 Some(need)
             }
         }
@@ -284,8 +381,14 @@ impl<'a> Envelope<'a> {
     /// `/tmp` and caches. A plain write is a `write` exit for the classifier, a floor a
     /// `persistence` exit, a synced folder a `synced_write` exit; efr's config and a
     /// secret are floors. efrd writes the file itself, so the exit has no grant and no
-    /// bind.
-    pub(crate) fn tool_write_exit(&self, path: &Path) -> ExitNeed {
+    /// bind. `facts` and `support` decide who approves a floor file edit, as for a shell
+    /// line ([`Envelope::floor_edit`]).
+    pub(crate) fn tool_write_exit(
+        &self,
+        path: &Path,
+        facts: Option<&CallFacts>,
+        support: &AutoSupport,
+    ) -> ExitNeed {
         let locations = self.locations;
         let kind = if locations.is_sealed(path) || locations.is_secret(path) {
             ExitKind::Secret
@@ -305,6 +408,7 @@ impl<'a> Envelope<'a> {
         match kind {
             ExitKind::Write => need.approver = Approver::Classifier,
             ExitKind::AboveRoot => need.approver = self.above_root_approver(path),
+            ExitKind::Persistence => self.floor_edit(&mut need, facts, support, false),
             _ => {}
         }
         need

@@ -6,7 +6,7 @@ use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
 use super::programs::is_host_device;
-use super::{ExitNeed, write_need};
+use super::{ExitNeed, WriteFacts, write_need};
 use crate::path_class::normalize;
 use crate::{AutoSupport, CallFacts, Egress};
 
@@ -24,11 +24,13 @@ pub(super) fn exits(
     let source = ExitSource::Needs;
     let locations = envelope.locations();
     let mut found = Vec::new();
+    let cx = WriteFacts { facts, support, linked: &[] };
     for word in needs.write.iter().take(Needs::MAX_WRITE) {
         let Some(path) = resolve(word, dir, locations) else { continue };
         let exit = envelope.write_exit(&path, facts, made);
         found.extend(write_need(
             envelope,
+            &cx,
             exit,
             &path,
             &format!("needs.write {}", path.display()),

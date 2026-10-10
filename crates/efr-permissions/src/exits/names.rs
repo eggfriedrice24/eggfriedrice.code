@@ -9,6 +9,32 @@
 
 use std::path::{Component, Path};
 
+use crate::FloorGroup;
+
+/// The phrases that name the floor files of a group, besides their own path and word
+/// forms: "my zsh config" names `~/.zshrc`, "my sway config" names
+/// `~/.config/sway/config`, whose stem names nothing alone. The dir below `~/.config`
+/// alone is no phrase, because words such as `git` or `fish` are too common. A unit
+/// file is named also by "<unit> unit" and "<unit> service".
+pub const NAME_PHRASES: &[(FloorGroup, &[&str])] = &[
+    (FloorGroup::Zsh, &["zsh config", "zsh startup", "shell config"]),
+    (FloorGroup::Bash, &["bash config", "shell config"]),
+    (FloorGroup::Fish, &["fish config"]),
+    (FloorGroup::Hypr, &["hypr", "hyprland"]),
+    (FloorGroup::Sway, &["sway config"]),
+    (FloorGroup::I3, &["i3 config"]),
+    (FloorGroup::Git, &["git config", "gitconfig"]),
+    (FloorGroup::Cargo, &["cargo config"]),
+    (FloorGroup::Nvim, &["nvim config", "neovim config", "nvim init"]),
+    (FloorGroup::Vim, &["vim config", "vimrc"]),
+    (FloorGroup::Direnv, &["direnv config"]),
+    (FloorGroup::Autostart, &["autostart"]),
+];
+
+/// The suffixes of a systemd unit file.
+const UNIT_SUFFIXES: &[&str] =
+    &[".service", ".timer", ".socket", ".path", ".target", ".mount", ".slice"];
+
 /// File stems that name nothing alone: a file whose stem is one of them, such as
 /// `~/.config/sway/config` or `~/.config/nvim/init.lua`, gets no word form, and only a
 /// path form or a phrase names it. "fix the config" must not name every config file.
@@ -127,6 +153,26 @@ pub(crate) fn word_forms(path: &Path) -> Vec<String> {
         return Vec::new();
     }
     dedup(vec![base.to_owned(), stem.to_owned()])
+}
+
+/// The forms that name the floor file `path` of `group`: its path forms, its word
+/// forms, and the phrases of its group.
+pub(crate) fn floor_names(path: &Path, home: &Path, group: Option<FloorGroup>) -> Vec<String> {
+    let mut forms = path_forms(path, home);
+    forms.extend(word_forms(path));
+    if let Some(group) = group {
+        let phrases = NAME_PHRASES.iter().filter(|(known, _)| *known == group);
+        forms.extend(
+            phrases.flat_map(|(_, phrases)| phrases.iter().map(|phrase| (*phrase).to_owned())),
+        );
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+        let unit = UNIT_SUFFIXES.iter().find_map(|suffix| name.strip_suffix(suffix));
+        if let (FloorGroup::Systemd, Some(unit)) = (group, unit.filter(|unit| !unit.is_empty())) {
+            forms.push(format!("{unit} unit"));
+            forms.push(format!("{unit} service"));
+        }
+    }
+    dedup(forms)
 }
 
 /// `forms` without repeats, in their first order.

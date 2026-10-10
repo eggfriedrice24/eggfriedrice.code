@@ -1294,6 +1294,17 @@ pub(super) fn sed_in_place_targets(words: &[String]) -> Vec<&str> {
     if script_given { operands } else { operands.into_iter().skip(1).collect() }
 }
 
+/// The operands of `ln`, so the engine knows which writes make a link: a link in a
+/// floor is no file edit, and only the user approves it.
+pub(super) fn link_paths(words: &[String]) -> Vec<&str> {
+    match words.split_first() {
+        Some((first, args)) if base_name(first) == "ln" => {
+            args.iter().filter(|arg| !arg.starts_with('-')).map(String::as_str).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// The paths that the command makes as exactly what it names, so efrd may make them
 /// first for a write grant: `tee` and `touch` make files, `mkdir`,
 /// `git worktree add` and `git clone` make directories.

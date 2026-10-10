@@ -16,7 +16,7 @@ use efr_protocol::ProjectId;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::PermissionsError;
+use crate::{FloorGroup, PermissionsError};
 
 /// Where a path lives, which sets how freely a call may use it.
 ///
@@ -161,7 +161,7 @@ pub struct Locations {
     /// Folders that a sync service copies off the machine.
     synced_roots: Vec<PathBuf>,
     /// Paths that run code later outside the sandbox, besides the built-in table.
-    floor_roots: Vec<PathBuf>,
+    floor_roots: Vec<AddedFloor>,
     /// Paths that a contained call reads as empty, besides the built-in table.
     mask_roots: Vec<PathBuf>,
 }
@@ -236,7 +236,7 @@ impl Locations {
             .chain(envelope_roots)
             .chain(private_roots)
             .chain(synced_roots)
-            .chain(floor_roots)
+            .chain(floor_roots.iter_mut().map(|floor| &mut floor.root))
             .chain(mask_roots);
         for root in roots.chain(projects.values_mut()) {
             if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
@@ -351,19 +351,34 @@ impl Locations {
     }
 
     /// Adds a path that runs code later outside the sandbox and stays read-only in a
-    /// contained call (`sandbox.protect`, `$ZDOTDIR`, a `PATH` dir in a write root, the
-    /// target of a dotfile link): in `auto` a write at or below it is a `persistence`
-    /// exit, user only. The built-in ones are
+    /// contained call, in no group (`sandbox.protect`, or a floor whose use the daemon
+    /// does not know): in `auto` a write at or below it is a `persistence` exit that only
+    /// the user approves. The built-in ones are
     /// [`PERSISTENCE_FLOORS`](crate::PERSISTENCE_FLOORS).
     pub fn with_floor_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
         let root = self.absolute_root(root.into())?;
-        self.floor_roots.push(root);
+        self.floor_roots.push(AddedFloor { root, group: None });
+        Ok(self)
+    }
+
+    /// Adds a floor of `group`, such as a zsh startup file in `$ZDOTDIR` or a `PATH`
+    /// dir in a write root: as [`Locations::with_floor_root`], but a file edit there
+    /// may go to the classifier when a user message names it and efrd keeps a backup
+    /// (spec 9.1).
+    pub fn with_floor_group_root(
+        mut self,
+        root: impl Into<PathBuf>,
+        group: FloorGroup,
+    ) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        self.floor_roots.push(AddedFloor { root, group: Some(group) });
         Ok(self)
     }
 
     /// Adds a path that a contained call reads as empty (`sandbox.mask`, `$XAUTHORITY`,
-    /// `$HISTFILE`): in `auto` a `read_file` of it asks, and a write to it is a user-only
-    /// `write` exit. The built-in ones are [`SANDBOX_MASKS`](crate::SANDBOX_MASKS).
+    /// `$HISTFILE`): in `auto` a `read_file` of it asks, and a write to it is a `write`
+    /// exit that runs in the exit child. The built-in ones are
+    /// [`SANDBOX_MASKS`](crate::SANDBOX_MASKS).
     pub fn with_sandbox_mask(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
         let root = self.absolute_root(root.into())?;
         self.mask_roots.push(root);
@@ -433,7 +448,12 @@ impl Locations {
     }
 
     /// The floors that the daemon added.
-    pub(crate) fn floor_roots(&self) -> &[PathBuf] {
+    pub(crate) fn floor_roots(&self) -> impl Iterator<Item = &PathBuf> {
+        self.floor_roots.iter().map(|floor| &floor.root)
+    }
+
+    /// The floors that the daemon added, with their groups.
+    pub(crate) fn added_floors(&self) -> &[AddedFloor] {
         &self.floor_roots
     }
 
@@ -569,6 +589,15 @@ impl Locations {
         below.extend(proc_secret_below(dir));
         below
     }
+}
+
+/// A floor that the daemon added, with what it is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AddedFloor {
+    /// The floor, in normal form under the home directory.
+    pub(crate) root: PathBuf,
+    /// Its group, or `None` when only the user may change it.
+    pub(crate) group: Option<FloorGroup>,
 }
 
 /// The built-in engine secrets for a user whose home directory is `home`: the secret

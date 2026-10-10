@@ -64,6 +64,6 @@ pub use request::{
 };
 pub use support::{AutoSupport, Egress};
 pub use tables::{
-    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, ZSH_STARTUP_FILES, persistence_floors,
-    protected_names, sandbox_masks,
+    FloorGroup, PERSISTENCE_FLOOR_GROUPS, PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS,
+    ZSH_STARTUP_FILES, persistence_floors, protected_names, sandbox_masks,
 };

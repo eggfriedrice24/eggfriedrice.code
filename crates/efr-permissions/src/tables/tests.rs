@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use pretty_assertions::assert_eq;
 
 use super::{
-    PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS, ZSH_STARTUP_FILES, is_env_file,
-    persistence_floors, protected_names, sandbox_masks,
+    FloorGroup, PERSISTENCE_FLOOR_GROUPS, PERSISTENCE_FLOORS, PROTECTED_NAMES, SANDBOX_MASKS,
+    ZSH_STARTUP_FILES, floor_group, is_env_file, persistence_floors, protected_names,
+    sandbox_masks,
 };
 use crate::{Locations, PathClass, secret_paths};
 
@@ -67,6 +68,18 @@ fn the_persistence_floors_cover_startup_files_services_and_tool_config() {
     {
         assert!(floors.contains(&Path::new("/home/u").join(floor)), "{floor}");
     }
+}
+
+#[test]
+fn every_persistence_floor_has_one_group_in_the_same_order() {
+    let grouped: Vec<&str> = PERSISTENCE_FLOOR_GROUPS.iter().map(|(path, _)| *path).collect();
+    assert_eq!(grouped, PERSISTENCE_FLOORS);
+    let home = Path::new("/home/u");
+    assert_eq!(floor_group(home, &home.join(".zshrc")), Some(FloorGroup::Zsh));
+    assert_eq!(floor_group(home, &home.join(".config/hypr/hyprland.conf")), Some(FloorGroup::Hypr));
+    assert_eq!(floor_group(home, &home.join(".cargo/config.toml")), Some(FloorGroup::Cargo));
+    assert_eq!(floor_group(home, &home.join(".cargo/registry/x")), None);
+    assert_eq!(floor_group(home, &home.join(".tmux.conf")), None);
 }
 
 #[test]

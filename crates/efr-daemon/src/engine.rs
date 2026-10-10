@@ -13,7 +13,9 @@
 use std::path::{Path, PathBuf};
 
 use efr_config::{Settings, WriteProjects};
-use efr_permissions::{AutoSupport, Engine, Locations, PermissionsError, ZSH_STARTUP_FILES};
+use efr_permissions::{
+    AutoSupport, Engine, FloorGroup, Locations, PermissionsError, ZSH_STARTUP_FILES,
+};
 use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
@@ -234,21 +236,29 @@ fn with_sandbox(
     for dir in expand(&sandbox.synced_dirs) {
         locations = add(locations, dir, "synced folder", |l, p| l.with_synced_root(p));
     }
+    // NOTE: a floor in a group may take a named file edit through the classifier once
+    // efrd keeps backups; `sandbox.protect` and the floors of no known group stay with
+    // the user.
     let mut floors = expand(&sandbox.protect);
-    if let Some(zdotdir) = &facts.host.zdotdir {
-        floors.extend(ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)));
-    }
-    floors.extend(
-        facts
-            .host
-            .path
-            .split(':')
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute() && roots.iter().any(|root| is_within(dir, root))),
-    );
     floors.extend(facts.link_targets.iter().cloned());
     for floor in floors {
         locations = add(locations, floor, "floor", |l, p| l.with_floor_root(p));
+    }
+    if let Some(zdotdir) = &facts.host.zdotdir {
+        for file in ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)) {
+            locations =
+                add(locations, file, "floor", |l, p| l.with_floor_group_root(p, FloorGroup::Zsh));
+        }
+    }
+    let path_dirs = facts
+        .host
+        .path
+        .split(':')
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute() && roots.iter().any(|root| is_within(dir, root)));
+    for dir in path_dirs {
+        locations =
+            add(locations, dir, "floor", |l, p| l.with_floor_group_root(p, FloorGroup::Programs));
     }
     let mut masks = expand(&sandbox.mask);
     masks.extend(facts.host.xauthority.iter().cloned());

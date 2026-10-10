@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 /// shell histories.
 ///
 /// Only the `auto` mode reads this table. In `auto`, `read_file` of such a path asks
-/// (a `masked_read` exit, user only), and a write to it is a user-only `write` exit,
-/// because a mask never opens for writing. `$XAUTHORITY` and `$HISTFILE` depend on
-/// the environment, so the daemon adds them.
+/// (a `masked_read` exit, user only), and a write to it is a `write` exit that runs in
+/// the exit child, because a mask never opens for writing. `$XAUTHORITY` and
+/// `$HISTFILE` depend on the environment, so the daemon adds them.
 pub const SANDBOX_MASKS: &[&str] = &[
     // More credential stores.
     ".aws",
@@ -71,7 +71,8 @@ pub fn sandbox_masks(home: &Path) -> Vec<PathBuf> {
 /// is a directory.
 ///
 /// In `auto`, a write to one of them inside a write root is a `persistence` exit, for
-/// the shell tool and for `write_file` alike.
+/// the shell tool and for `write_file` alike. A file edit of one may go to the
+/// classifier as a floor file edit (spec 9.1).
 pub const PROTECTED_NAMES: &[&str] = &[
     ".mcp.json",
     ".claude/",
@@ -93,12 +94,14 @@ pub fn protected_names() -> &'static [&'static str] {
 }
 
 /// Paths, relative to the home directory, that run code later outside the sandbox:
-/// shell startup files, autostart and services, and tool config that names programs
-///. They stay read-only in a contained call, and in `auto` a write to one
-/// is a `persistence` exit, user only.
+/// shell startup files, autostart and services, and tool config that names programs.
+/// They stay read-only in a contained call, and in `auto` a write to one is a
+/// `persistence` exit. Only the user approves it, except a file edit that a user
+/// message names while efrd keeps a backup, which the classifier judges (spec 9.1);
+/// [`PERSISTENCE_FLOOR_GROUPS`] gives the group of each entry.
 ///
 /// The daemon adds what depends on the machine: `$ZDOTDIR`, the `PATH` dirs inside a
-/// write root, the targets of dotfile links, efr's own binaries and `sandbox.protect`
+/// write root, the targets of dotfile links and `sandbox.protect`
 /// ([`Locations::with_floor_root`](crate::Locations::with_floor_root)).
 pub const PERSISTENCE_FLOORS: &[&str] = &[
     // Shell startup.
@@ -136,6 +139,91 @@ pub const PERSISTENCE_FLOORS: &[&str] = &[
     ".vimrc",
     ".config/direnv",
 ];
+
+/// What a floor is for: the program or the place that runs its files later. In `auto`,
+/// a file edit of a floor in a group may go to the classifier when a user message names
+/// it and efrd keeps a backup (spec 9.1); a floor in no group, such as
+/// `sandbox.protect`, stays with the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FloorGroup {
+    /// The startup files of zsh, also those in `$ZDOTDIR`.
+    Zsh,
+    /// The startup files of bash and the login shell.
+    Bash,
+    /// The config of fish.
+    Fish,
+    /// The environment and start files of the desktop session.
+    Session,
+    /// The units of the user's systemd.
+    Systemd,
+    /// Autostart entries and desktop entries.
+    Autostart,
+    /// The config of Hyprland.
+    Hypr,
+    /// The config of sway.
+    Sway,
+    /// The config of i3.
+    I3,
+    /// The config of git.
+    Git,
+    /// The config of cargo.
+    Cargo,
+    /// Program files on the `PATH`.
+    Programs,
+    /// The config of Neovim.
+    Nvim,
+    /// The config of Vim.
+    Vim,
+    /// The config of direnv.
+    Direnv,
+    /// Agent and editor configs in a write root ([`PROTECTED_NAMES`]).
+    Agent,
+}
+
+/// The group of each entry of [`PERSISTENCE_FLOORS`], in the same order.
+pub const PERSISTENCE_FLOOR_GROUPS: &[(&str, FloorGroup)] = &[
+    (".zshenv", FloorGroup::Zsh),
+    (".zprofile", FloorGroup::Zsh),
+    (".zshrc", FloorGroup::Zsh),
+    (".zlogin", FloorGroup::Zsh),
+    (".zlogout", FloorGroup::Zsh),
+    (".bashrc", FloorGroup::Bash),
+    (".bash_profile", FloorGroup::Bash),
+    (".bash_login", FloorGroup::Bash),
+    (".bash_logout", FloorGroup::Bash),
+    (".profile", FloorGroup::Bash),
+    (".config/fish", FloorGroup::Fish),
+    (".config/environment.d", FloorGroup::Session),
+    (".pam_environment", FloorGroup::Session),
+    (".xprofile", FloorGroup::Session),
+    (".xinitrc", FloorGroup::Session),
+    (".config/systemd", FloorGroup::Systemd),
+    (".config/autostart", FloorGroup::Autostart),
+    (".local/share/systemd", FloorGroup::Systemd),
+    (".local/share/applications", FloorGroup::Autostart),
+    (".config/hypr", FloorGroup::Hypr),
+    (".config/sway", FloorGroup::Sway),
+    (".config/i3", FloorGroup::I3),
+    (".gitconfig", FloorGroup::Git),
+    (".config/git", FloorGroup::Git),
+    (".cargo/config.toml", FloorGroup::Cargo),
+    (".cargo/config", FloorGroup::Cargo),
+    (".cargo/bin", FloorGroup::Programs),
+    (".local/bin", FloorGroup::Programs),
+    (".config/nvim", FloorGroup::Nvim),
+    (".vimrc", FloorGroup::Vim),
+    (".config/direnv", FloorGroup::Direnv),
+];
+
+/// The group of the built-in floor of [`PERSISTENCE_FLOORS`] that `path`, a path in
+/// normal form, lies at or below in the home directory `home`.
+pub(crate) fn floor_group(home: &Path, path: &Path) -> Option<FloorGroup> {
+    PERSISTENCE_FLOOR_GROUPS
+        .iter()
+        .find(|(relative, _)| path.starts_with(home.join(relative)))
+        .map(|(_, group)| *group)
+}
 
 /// The zsh startup files that `$ZDOTDIR` holds. The daemon makes each a floor in the
 /// hidden shell's `$ZDOTDIR`, as [`PERSISTENCE_FLOORS`] does in the home directory.

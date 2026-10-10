@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use super::{SCRATCH, app, input, locations};
 use crate::command::PRIVILEGED;
-use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, unsandboxed_line_problem};
+use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, names_match, unsandboxed_line_problem};
 use crate::{
     Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
     Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource,
@@ -335,6 +335,286 @@ fn exits_zshrc_is_persistence(#[case] line: &str, #[case] writes: &[&str]) {
     let decision = decide(requirements);
     assert_eq!(kinds(&decision), [ExitKind::Persistence], "{line:?}");
     assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
+}
+
+/// The engine of a machine where efrd keeps a backup of each floor file it writes.
+fn with_backup() -> Engine {
+    engine().with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() })
+}
+
+/// Facts that give each of `targets` its kind, `None` for a missing path.
+fn kinds_of(targets: &[(&str, Option<TargetKind>)]) -> CallFacts {
+    CallFacts {
+        targets: targets.iter().map(|(path, kind)| (PathBuf::from(path), *kind)).collect(),
+        ..CallFacts::default()
+    }
+}
+
+/// The persistence exit of `requirements` on the machine of `engine`.
+fn persistence(engine: &Engine, requirements: Requirements) -> crate::ExitNeed {
+    let decision = engine.decide(&in_auto(requirements));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Persistence);
+    need.unwrap_or_else(|| panic!("no persistence exit: {:?}", kinds(&decision))).clone()
+}
+
+const FILE: Option<TargetKind> = Some(TargetKind::File);
+const DIR: Option<TargetKind> = Some(TargetKind::Dir);
+
+#[test]
+fn floor_file_edit_is_classifier_when_named_with_backup() {
+    let zshrc = "/home/u/.zshrc";
+    let line = shell("echo 'alias ll=ls' >> ~/.zshrc")
+        .with_write(zshrc)
+        .with_facts(kinds_of(&[(zshrc, FILE)]));
+    let need = persistence(&with_backup(), line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert!(need.backup_before_write);
+    assert!(need.runs_unsandboxed());
+    for name in ["/home/u/.zshrc", "~/.zshrc", "zshrc", "zsh config", "shell config"] {
+        assert!(need.names.contains(&name.to_owned()), "{name}: {:?}", need.names);
+    }
+    // A new file in an existing dir is a file edit too.
+    let conf = "/home/u/.config/hypr/hyprland.conf";
+    let facts = kinds_of(&[(conf, None), ("/home/u/.config/hypr", DIR)]);
+    let line = shell("echo 'gaps_in = 4' > ~/.config/hypr/hyprland.conf").with_write(conf);
+    let need = persistence(&with_backup(), line.with_facts(facts));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert!(need.backup_before_write);
+}
+
+#[test]
+fn floor_file_edit_is_user_without_floor_backup() {
+    let zshrc = "/home/u/.zshrc";
+    let line = shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(kinds_of(&[(zshrc, FILE)]));
+    let need = persistence(&engine(), line);
+    assert_eq!(need.approver, Approver::User);
+    assert!(!need.backup_before_write);
+    assert!(need.names.contains(&"zshrc".to_owned()), "the record still names it");
+}
+
+#[rstest]
+#[case::crontab("crontab -e")]
+#[case::crontab_stdin("echo '* * * * * x' | crontab -")]
+#[case::enable("systemctl --user enable --now x.service")]
+#[case::linger("loginctl enable-linger")]
+#[case::user_run("systemd-run --user x")]
+#[case::at("at now + 1 hour")]
+fn floor_program_persistence_is_user(#[case] line: &str) {
+    let need = persistence(&with_backup(), shell(line));
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert!(!need.backup_before_write, "{line:?}");
+}
+
+#[rstest]
+#[case::autostart("/home/u/.config/autostart/x.desktop", "/home/u/.config/autostart", "autostart")]
+#[case::desktop_entry(
+    "/home/u/.local/share/applications/x.desktop",
+    "/home/u/.local/share/applications",
+    "x.desktop"
+)]
+#[case::unit(
+    "/home/u/.config/systemd/user/backup.service",
+    "/home/u/.config/systemd/user",
+    "backup unit"
+)]
+#[case::local_bin("/home/u/.local/bin/deploy", "/home/u/.local/bin", "deploy")]
+#[case::cargo_bin("/home/u/.cargo/bin/tool", "/home/u/.cargo/bin", "tool")]
+#[case::agent_config("/home/u/p/app/.mcp.json", "/home/u/p/app", "mcp.json")]
+fn floor_autostart_unit_and_program_files_are_classifier_when_named(
+    #[case] target: &str,
+    #[case] parent: &str,
+    #[case] name: &str,
+) {
+    let facts = kinds_of(&[(target, None), (parent, DIR)]);
+    let line = shell(&format!("echo x > {target}")).with_write(target).with_facts(facts);
+    let need = persistence(&with_backup(), line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{target}");
+    assert!(need.backup_before_write, "{target}");
+    assert!(need.names.contains(&name.to_owned()), "{target}: {:?}", need.names);
+}
+
+#[test]
+fn floor_wants_link_is_user() {
+    // Corpus 88: a link into a `*.wants` dir enables a unit, which is no file edit.
+    let link = "/home/u/.config/systemd/user/default.target.wants/x.service";
+    let facts =
+        kinds_of(&[(link, None), ("/home/u/.config/systemd/user/default.target.wants", DIR)]);
+    let line = format!("ln -sf ~/evil {link}");
+    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(facts.clone()));
+    assert_eq!(need.approver, Approver::User);
+    // A plain file there enables the unit too.
+    let line = format!("cp x.service {link}");
+    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+    // A link that the line makes elsewhere in a floor is no file edit either.
+    let unit = "/home/u/.config/systemd/user/x.service";
+    let facts = kinds_of(&[(unit, None), ("/home/u/.config/systemd/user", DIR)]);
+    let line = format!("ln -s ~/x.service {unit}");
+    let need = persistence(&with_backup(), shell(&line).with_write(unit).with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+}
+
+#[test]
+fn floor_dir_target_is_user() {
+    // Corpus 86: a copy into the autostart dir makes a file that efr cannot name first.
+    let dir = "/home/u/.config/autostart";
+    let line = shell("cp evil.desktop ~/.config/autostart/").with_write(dir);
+    let need = persistence(&with_backup(), line.with_facts(kinds_of(&[(dir, DIR)])));
+    assert_eq!(need.approver, Approver::User);
+    assert!(!need.backup_before_write);
+}
+
+#[test]
+fn floor_file_edit_with_missing_fact_is_user() {
+    let need =
+        persistence(&with_backup(), shell("echo x >> ~/.zshrc").with_write("/home/u/.zshrc"));
+    assert_eq!(need.approver, Approver::User);
+    // A missing file whose parent no fact describes is no known file edit either.
+    let conf = "/home/u/.config/sway/config";
+    let line = shell("echo x > ~/.config/sway/config").with_write(conf);
+    let need = persistence(&with_backup(), line.with_facts(kinds_of(&[(conf, None)])));
+    assert_eq!(need.approver, Approver::User);
+    // efrd copies what it finds before the write, whoever approves it.
+    assert!(need.backup_before_write);
+}
+
+#[test]
+fn floor_file_edit_through_write_file_and_edit_routes_like_shell() {
+    let zshrc = "/home/u/.zshrc";
+    let facts = kinds_of(&[(zshrc, FILE)]);
+    let shell_need = persistence(
+        &with_backup(),
+        shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(facts.clone()),
+    );
+    let tool = Requirements::none().with_write(zshrc).with_facts(facts);
+    let tool_need = persistence(&with_backup(), tool);
+    assert_eq!(tool_need.approver, shell_need.approver);
+    assert_eq!(tool_need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(tool_need.names, shell_need.names);
+    assert!(tool_need.backup_before_write);
+    assert!(tool_need.grants.is_empty() && tool_need.bind.is_none());
+    // Without facts the file tool asks the user.
+    let need = persistence(&with_backup(), Requirements::none().with_write(zshrc));
+    assert_eq!(need.approver, Approver::User);
+    // An agent config inside the project that the rules allow writing routes the same.
+    let mcp = "/home/u/p/app/.mcp.json";
+    let tool = Requirements::none().with_write(mcp).with_facts(kinds_of(&[(mcp, FILE)]));
+    assert_eq!(persistence(&with_backup(), tool).approver, Approver::ClassifierWhenNamed);
+    // The git surface of a repository is no home file: the user decides.
+    let hook = "/home/u/p/app/.git/hooks/pre-commit";
+    let tool = Requirements::none().with_write(hook).with_facts(kinds_of(&[(hook, FILE)]));
+    assert_eq!(persistence(&with_backup(), tool).approver, Approver::User);
+}
+
+#[test]
+fn a_protected_floor_root_is_user() {
+    // `sandbox.protect` names a floor that only the user may change.
+    let locations = auto_locations().with_floor_root("/home/u/.tmux.conf").unwrap();
+    let engine = Engine::with_defaults(locations)
+        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() });
+    let path = "/home/u/.tmux.conf";
+    let line =
+        shell("echo x >> ~/.tmux.conf").with_write(path).with_facts(kinds_of(&[(path, FILE)]));
+    assert_eq!(persistence(&engine, line).approver, Approver::User);
+    // A floor of a group that the daemon added routes as a built-in one.
+    let locations = auto_locations()
+        .with_floor_group_root("/home/u/.config/zsh/.zshrc", crate::FloorGroup::Zsh)
+        .unwrap();
+    let engine = Engine::with_defaults(locations)
+        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() });
+    let path = "/home/u/.config/zsh/.zshrc";
+    let line = shell("echo x >> ~/.config/zsh/.zshrc")
+        .with_write(path)
+        .with_facts(kinds_of(&[(path, FILE)]));
+    let need = persistence(&engine, line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert!(need.names.contains(&"zsh config".to_owned()));
+}
+
+#[test]
+fn backup_before_write_marks_every_floor_file_edit() {
+    let zshrc = "/home/u/.zshrc";
+    let facts = kinds_of(&[(zshrc, FILE)]);
+    for requirements in [
+        shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(facts.clone()),
+        shell("sed -i s/a/b/ ~/.zshrc").with_facts(facts.clone()),
+        shell("x")
+            .with_needs(Needs { write: vec!["~/.zshrc".to_owned()], ..Needs::default() })
+            .with_facts(facts.clone()),
+        Requirements::none().with_write(zshrc).with_facts(facts.clone()),
+    ] {
+        let need = persistence(&with_backup(), requirements.clone());
+        assert!(need.backup_before_write, "{requirements:?}");
+    }
+    // Never for a plain write, nor without the backup store.
+    let decision = with_backup()
+        .decide(&in_auto(shell("echo x > ~/notes.txt").with_write("/home/u/notes.txt")));
+    assert!(decision.exits().all(|need| !need.backup_before_write));
+    let need =
+        persistence(&engine(), shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(facts));
+    assert!(!need.backup_before_write);
+}
+
+#[rstest]
+#[case::zshrc("/home/u/.zshrc", "add an alias to my zshrc", true)]
+#[case::zshrc_case("/home/u/.zshrc", "fix My ZSHRC", true)]
+#[case::zshrc_longer("/home/u/.zshrc", "look at zshrcx", false)]
+#[case::hyprland(
+    "/home/u/.config/hypr/hyprland.conf",
+    "change the gap in my hyprland config",
+    true
+)]
+#[case::hypr_word("/home/u/.config/hypr/hyprland.conf", "my hypr setup", true)]
+#[case::tilde_form("/home/u/.config/hypr/hyprland.conf", "edit ~/.config/hypr/hyprland.conf", true)]
+#[case::unrelated("/home/u/.zshrc", "free some disk space", false)]
+fn floor_name_forms_match_words(#[case] path: &str, #[case] message: &str, #[case] named: bool) {
+    let names = crate::exits::floor_names(
+        path.as_ref(),
+        "/home/u".as_ref(),
+        crate::tables::floor_group("/home/u".as_ref(), path.as_ref()),
+    );
+    assert_eq!(names_match(&names, &[message.to_owned()]), named, "{path} {message:?}: {names:?}");
+}
+
+#[test]
+fn generic_stem_names_nothing() {
+    let home = std::path::Path::new("/home/u");
+    let names = |path: &str| {
+        crate::exits::floor_names(
+            path.as_ref(),
+            home,
+            crate::tables::floor_group(home, path.as_ref()),
+        )
+    };
+    let fix = ["fix the config".to_owned()];
+    for path in [
+        "/home/u/.config/sway/config",
+        "/home/u/.config/git/config",
+        "/home/u/.config/nvim/init.lua",
+    ] {
+        assert!(!names_match(&names(path), &fix), "{path}: {:?}", names(path));
+    }
+    assert!(names_match(&names("/home/u/.config/sway/config"), &["my sway config".to_owned()]));
+    assert!(names_match(&names("/home/u/.config/sway/config"), &["sway's config".to_owned()]));
+    assert!(!names_match(&names("/home/u/.config/sway/config"), &["my git config".to_owned()]));
+    assert!(names_match(&names("/home/u/.config/nvim/init.lua"), &["my neovim config".to_owned()]));
+}
+
+#[test]
+fn zsh_config_names_zshrc() {
+    let home = std::path::Path::new("/home/u");
+    let names = |path: &str| {
+        crate::exits::floor_names(
+            path.as_ref(),
+            home,
+            crate::tables::floor_group(home, path.as_ref()),
+        )
+    };
+    assert!(names_match(&names("/home/u/.zshrc"), &["my zsh config".to_owned()]));
+    for path in ["/home/u/.zshrc", "/home/u/.bashrc"] {
+        assert!(names_match(&names(path), &["my shell config".to_owned()]), "{path}");
+    }
+    assert!(!names_match(&names("/home/u/.bashrc"), &["my zsh config".to_owned()]));
 }
 
 #[test]

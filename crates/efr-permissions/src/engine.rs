@@ -435,9 +435,11 @@ impl Judge<'_> {
         access: Access,
         reason: Reason,
     ) -> (Reason, Option<ExitNeed>) {
+        let facts = self.input.requirements.facts.as_ref();
+        let support = &self.engine.support;
         match access {
             Access::Write if reason.effect == Effect::Ask && self.built_in(&reason.cause) => {
-                let need = envelope.tool_write_exit(path);
+                let need = envelope.tool_write_exit(path, facts, support);
                 (
                     Reason { effect: Effect::Contain, cause: Cause::ExitDecides, ..reason },
                     Some(need),
@@ -445,7 +447,7 @@ impl Judge<'_> {
             }
             Access::Write if reason.effect != Effect::Allow => (reason, None),
             Access::Read | Access::ReadTree | Access::Write => {
-                let need = envelope.tool_exit(path, access);
+                let need = envelope.tool_exit(path, access, facts, support);
                 (reason, need)
             }
         }

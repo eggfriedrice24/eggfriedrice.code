@@ -25,7 +25,9 @@ use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
 
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
-pub use self::names::{GENERIC_STEMS, names_match};
+#[cfg(test)]
+pub(crate) use self::names::floor_names;
+pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
 pub use self::programs::DESKTOP_IPC_READ;
 use self::scan::{OPAQUE, Segment};
 use crate::command;
@@ -283,6 +285,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     let mut fetch: Option<Ecosystem> = None;
+    let mut linked: Vec<PathBuf> = Vec::new();
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -333,6 +336,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     made.push((path, dir_kind));
                 }
             }
+            linked.extend(programs::link_paths(command).into_iter().filter_map(at));
             for word in programs::dd_targets(command)
                 .into_iter()
                 .chain(programs::sed_in_place_targets(command))
@@ -370,12 +374,13 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut seen: Vec<PathBuf> = Vec::new();
+    let cx = WriteFacts { facts: input.facts, support: input.support, linked: &linked };
     for (path, part) in writes {
         if seen.contains(&path) {
             continue;
         }
         let exit = envelope.write_exit(&path, input.facts, &made);
-        if let Some(need) = write_need(&envelope, exit, &path, &part, ExitSource::Predicted) {
+        if let Some(need) = write_need(&envelope, &cx, exit, &path, &part, ExitSource::Predicted) {
             found.push(need);
         }
         seen.push(path);
@@ -625,13 +630,24 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
     need
 }
 
+/// What the exit of a write needs beyond its path: the daemon's facts, the machine's
+/// support, and the paths that the line makes as symbolic links.
+pub(super) struct WriteFacts<'a> {
+    pub(super) facts: Option<&'a CallFacts>,
+    pub(super) support: &'a AutoSupport,
+    pub(super) linked: &'a [PathBuf],
+}
+
 /// The `write` exit, or another kind, of a write of `path` that `exit` describes.
 ///
 /// The classifier judges every `write`, also one that runs in the exit child (spec
 /// 9.1); an `above_root` write goes to it only for one path that holds nothing that
-/// only the user may risk ([`Envelope::above_root_approver`]).
+/// only the user may risk ([`Envelope::above_root_approver`]), and a floor file edit
+/// only when a user message names it and efrd keeps a backup
+/// ([`Envelope::floor_edit`]).
 fn write_need(
     envelope: &Envelope<'_>,
+    cx: &WriteFacts<'_>,
     exit: Option<WriteExit>,
     path: &Path,
     part: &str,
@@ -651,6 +667,10 @@ fn write_need(
             need.bind = Some(exit.bind);
         }
         ExitKind::AboveRoot => need.approver = envelope.above_root_approver(path),
+        ExitKind::Persistence => {
+            let linked = cx.linked.iter().any(|link| link == path);
+            envelope.floor_edit(&mut need, cx.facts, cx.support, linked);
+        }
         _ => {}
     }
     Some(need)
