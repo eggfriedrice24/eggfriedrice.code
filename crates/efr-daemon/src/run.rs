@@ -437,6 +437,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         registry: registry_path.clone(),
         config: dirs.config().to_path_buf(),
         host: host_facts.clone(),
+        runtime: dirs.runtime().to_path_buf(),
+        data: dirs.data().to_path_buf(),
+        state: dirs.state().to_path_buf(),
+        launcher: exe.as_deref().and_then(launcher::find_source),
     };
     let engine = Arc::new(engine_parts.engine(&settings).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
