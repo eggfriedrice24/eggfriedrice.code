@@ -251,6 +251,10 @@ pub enum Cause {
     /// The call asks for a nested shell, which the `auto` mode never runs: no shell
     /// outlives a contained call.
     NestedShell,
+    /// A delete in a real tool cache after a contained call names a path that efr does
+    /// not delete there: one outside every cache, a floor such as `~/.cargo/bin`, or a
+    /// mask.
+    NotCacheFile,
 }
 
 /// The policy that a rule belongs to.
@@ -341,6 +345,10 @@ impl fmt::Display for Reason {
             Cause::ExitDecides => {
                 f.write_str(", because efr writes it outside the sandbox and its exit decides")
             }
+            Cause::NotCacheFile => f.write_str(
+                ", because efr deletes only the plain files of a tool cache, never a path \
+                 outside it, a pinned file or a mask",
+            ),
             Cause::NestedShell => f.write_str(
                 ", because nested_shell is not available in auto: no shell outlives a \
                  contained call. For sudo or ssh, call shell without it; the command is an exit",

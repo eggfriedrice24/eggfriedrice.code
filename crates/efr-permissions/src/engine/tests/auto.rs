@@ -1813,6 +1813,44 @@ fn path_facts_mark_cache_build_output_and_trash(
 }
 
 #[test]
+fn cache_delete_decision_denies_secrets() {
+    let scope = Scope::Project(app());
+    let delete = |paths: &[&str]| {
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        engine().decide_cache_delete(&paths, &scope, SCRATCH.as_ref())
+    };
+    // Plain cache files: one write exit each, for the classifier, with no grant.
+    let decision = delete(&["/home/u/.cache/pip/x", "/home/u/.cargo/registry/cache/y"]);
+    assert_eq!(decision.effect(), Effect::Ask);
+    let needs: Vec<_> = decision.exits().collect();
+    assert_eq!(needs.len(), 2);
+    for need in needs {
+        assert_eq!(need.kind, ExitKind::Write);
+        assert_eq!(need.source, ExitSource::CacheDelete);
+        assert_eq!(need.approver, Approver::Classifier);
+        assert!(need.grants.is_empty() && need.bind.is_none() && !need.runs_unsandboxed());
+        assert!(need.target.is_some() && !need.names.is_empty());
+    }
+    // A secret is a floor.
+    let decision = delete(&["/home/u/.cache/pip/x", "/home/u/.cargo/credentials.toml"]);
+    assert_eq!(decision.effect(), Effect::Deny);
+    assert!(kinds(&decision).contains(&ExitKind::Secret));
+    // Pins, masks and paths outside the caches are refused with no exit.
+    for path in [
+        "/home/u/.cargo/bin/cargo",
+        "/home/u/.cargo/config.toml",
+        "/home/u/.cache/mozilla/x",
+        "/home/u/notes.txt",
+        "/home/u/p/app/target/x",
+        "relative/x",
+    ] {
+        let decision = delete(&[path]);
+        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Deny, vec![]), "{path}");
+    }
+    assert_eq!(delete(&[]).effect(), Effect::Deny);
+}
+
+#[test]
 fn rebuildable_name_outside_projects_needs_name() {
     let facts = |path: &str| {
         engine().path_facts(path.as_ref(), &Scope::Machine, SCRATCH.as_ref()).unwrap().rebuild

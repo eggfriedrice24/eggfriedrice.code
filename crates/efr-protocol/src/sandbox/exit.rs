@@ -157,6 +157,9 @@ pub enum ExitSource {
     Predicted,
     /// The model asked for it with the shell tool's `needs`.
     Needs,
+    /// A contained call deleted files in the private overlay of a tool cache, and the
+    /// exit would delete them in the real cache too (phase A).
+    CacheDelete,
 }
 
 /// What the model asks for with the shell tool's optional `needs` input, after a call
@@ -284,3 +287,6 @@ pub struct ExitInfo {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub user_only: bool,
 }
+
+#[cfg(test)]
+mod tests;

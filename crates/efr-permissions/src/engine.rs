@@ -2,11 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{Mode, Origin, Scope};
+use efr_protocol::{ExitKind, ExitSource, Mode, Origin, Scope};
 
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
-use crate::exits::{self, Envelope, ExitInput, ExitNeed, PathFacts};
+use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, PathFacts, Rebuild};
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
 use crate::{
@@ -318,6 +318,89 @@ impl Engine {
             let (effect, cause) =
                 clamp_remote(Effect::Allow, Cause::NoRequirements, None, input.origin);
             reasons.push(Reason { subject: Subject::Nothing, effect, cause });
+        }
+        Decision::from_reasons(reasons)
+    }
+
+    /// The decision about deleting `paths` in the real tool caches, after a contained
+    /// call of a turn of `scope`, whose `$SCRATCH` is `scratch`, deleted them in the
+    /// private overlay of a cache (spec 5.2).
+    ///
+    /// Each path below a cache root is one `write` exit with the source
+    /// [`ExitSource::CacheDelete`](efr_protocol::ExitSource::CacheDelete) that the
+    /// classifier judges, with no grant and no bind: efrd deletes the files itself, and
+    /// a cache needs no user message that names it. An engine secret is a `secret`
+    /// floor, and efr's config or efr's own state a `config` floor. A path outside every
+    /// cache, a floor of a cache such as `~/.cargo/bin` or `~/.cargo/config.toml`, and a
+    /// mask are refused with [`Cause::NotCacheFile`]. efrd checks each path again
+    /// against its own pins before it deletes one.
+    pub fn decide_cache_delete(
+        &self,
+        paths: &[PathBuf],
+        scope: &Scope,
+        scratch: &Path,
+    ) -> Decision {
+        let scratch = self.locations.scratch_root(scratch);
+        let project_root = match scope {
+            Scope::Project(id) => self.locations.widening_project_root(id),
+            _ => None,
+        };
+        let envelope = Envelope::new(&self.locations, project_root, scratch.as_deref());
+        let mut reasons = Vec::new();
+        let mut found = Vec::new();
+        for declared in paths {
+            let Some(path) =
+                normalize(declared).map(|path| self.locations.rehome(&path).into_owned())
+            else {
+                reasons.push(Reason {
+                    subject: Subject::Path {
+                        path: declared.clone(),
+                        access: Access::Write,
+                        class: None,
+                    },
+                    effect: Effect::Deny,
+                    cause: Cause::NotAbsolute,
+                });
+                continue;
+            };
+            let kind = if self.locations.is_sealed(&path) || self.locations.is_secret(&path) {
+                Some(ExitKind::Secret)
+            } else if self.locations.is_write_sealed(&path) || self.locations.is_efr_own(&path) {
+                Some(ExitKind::Config)
+            } else if self.locations.rebuild(&path) == Some(Rebuild::Cache)
+                && !envelope.is_floor(&path)
+                && !envelope.is_masked(&path)
+            {
+                Some(ExitKind::Write)
+            } else {
+                None
+            };
+            match kind {
+                Some(kind) => {
+                    let mut need =
+                        ExitNeed::new(kind, path.display().to_string(), ExitSource::CacheDelete);
+                    need.approver = Approver::Classifier;
+                    need.target = Some(path);
+                    found.push(need);
+                }
+                None => {
+                    let class = self.locations.classify_normal(&path, scratch.as_deref());
+                    reasons.push(Reason {
+                        subject: Subject::Path { path, access: Access::Write, class: Some(class) },
+                        effect: Effect::Deny,
+                        cause: Cause::NotCacheFile,
+                    });
+                }
+            }
+        }
+        let found = exits::named_targets(found, self.locations.home());
+        reasons.extend(found.into_iter().map(exit_reason));
+        if reasons.is_empty() {
+            reasons.push(Reason {
+                subject: Subject::Nothing,
+                effect: Effect::Deny,
+                cause: Cause::NotCacheFile,
+            });
         }
         Decision::from_reasons(reasons)
     }
