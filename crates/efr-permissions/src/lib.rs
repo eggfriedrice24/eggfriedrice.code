@@ -19,6 +19,8 @@
 //! - The `auto` mode: a shell call runs contained in a kernel sandbox, and
 //!   [`exits::predict`] finds what leaves it, each an [`ExitNeed`] that asks, with the
 //!   [`AutoSupport`] of the machine and the [`CallFacts`] that the daemon collected.
+//!   Each exit has an [`Approver`] and the words that name it; [`exits::names_match`]
+//!   decides whether a user message names it.
 //!   [`exits::unsandboxed_line_problem`] is the one-command rule of an exit that runs
 //!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`],
 //!   [`PERSISTENCE_FLOORS`] and [`ZSH_STARTUP_FILES`] are the tables the engine and the
@@ -53,7 +55,7 @@ pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
-pub use exits::{ExitNeed, FactRequest, PathFacts, WriteBind};
+pub use exits::{Approver, ExitNeed, FactRequest, PathFacts, WriteBind};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{

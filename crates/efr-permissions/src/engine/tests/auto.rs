@@ -12,9 +12,9 @@ use super::{SCRATCH, app, input, locations};
 use crate::command::PRIVILEGED;
 use crate::exits::{ONE_COMMAND, unsandboxed_line_problem};
 use crate::{
-    Action, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput, Effect, Egress,
-    Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource, Rule, Subject,
-    TargetKind, WriteBind,
+    Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
+    Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource,
+    Rule, Subject, TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -152,12 +152,47 @@ fn auto_privileged_is_a_user_only_exit() {
     );
     let need = decision.exits().next().unwrap();
     assert_eq!(need.kind, ExitKind::Privilege);
-    assert!(need.user_only);
+    assert!(need.user_only());
     assert!(need.runs_unsandboxed());
     assert_eq!(need.source, ExitSource::Predicted);
     let interactive =
         decision.reasons().iter().find(|reason| reason.subject == Subject::Interactive).unwrap();
     assert_eq!(interactive.effect, Effect::Contain, "a contained call needs nobody");
+}
+
+/// Every way the engine makes an exit keeps the default approver of a user-only kind
+/// unless spec 9.1 names the place: a program, a write, a read of a mask, a file tool,
+/// a socket and the other members of `needs`.
+#[rstest]
+#[case::predicted_privilege(shell("sudo ls"), ExitKind::Privilege)]
+#[case::predicted_persistence(shell("crontab -e"), ExitKind::Persistence)]
+#[case::predicted_desktop(shell("xdotool type x"), ExitKind::DesktopIpc)]
+#[case::write_synced(shell("cp x ~/Dropbox/a").with_write("/home/u/Dropbox/a"), ExitKind::SyncedWrite)]
+#[case::write_above_home(shell("rm -rf ~").with_write("/home/u"), ExitKind::AboveRoot)]
+#[case::masked_read(Requirements::none().with_read("/home/u/.zsh_history"), ExitKind::MaskedRead)]
+#[case::tool_floor(Requirements::none().with_write("/home/u/p/app/.envrc"), ExitKind::Persistence)]
+#[case::socket_engine(
+    shell("x").with_needs(Needs { sockets: vec!["/run/docker.sock".to_owned()], ..Needs::default() }),
+    ExitKind::Privilege
+)]
+#[case::socket_display(
+    shell("x").with_needs(Needs { sockets: vec!["/run/user/1000/wayland-0".to_owned()], ..Needs::default() }),
+    ExitKind::DesktopIpc
+)]
+#[case::needs_unmask(
+    shell("x").with_needs(Needs { unmask: vec!["~/.zsh_history".to_owned()], ..Needs::default() }),
+    ExitKind::MaskedRead
+)]
+fn exits_approver_of_user_only_kinds_is_user(
+    #[case] requirements: Requirements,
+    #[case] kind: ExitKind,
+) {
+    let decision = decide(requirements);
+    assert!(kinds(&decision).contains(&kind), "{kind}: {:?}", kinds(&decision));
+    for need in decision.exits().filter(|need| need.kind.user_only()) {
+        assert_eq!(need.approver, Approver::User, "{need:?}");
+        assert!(need.user_only(), "{need:?}");
+    }
 }
 
 #[rstest]
@@ -196,7 +231,7 @@ fn exits_sudo_behind_env_is_privilege(#[case] line: &str) {
 fn exits_yay_and_docker_are_privilege(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::Privilege], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only && need.runs_unsandboxed()));
+    assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
 }
 
 #[test]
@@ -211,7 +246,8 @@ fn exits_redirect_home_is_write() {
     assert_eq!(needs[0].target.as_ref(), Some(&target));
     assert_eq!(needs[0].bind, Some(WriteBind::MakeFile));
     assert_eq!(needs[0].grants, [Grant::Write { path: target.clone() }]);
-    assert!(!needs[0].user_only);
+    assert!(!needs[0].user_only());
+    assert_eq!(needs[0].names, ["/home/u/notes.txt", "~/notes.txt", "u/notes.txt"]);
     assert_eq!(needs[0].part, "echo x");
     assert_eq!(
         decision.reasons().last().unwrap().to_string(),
@@ -231,7 +267,7 @@ fn exits_rm_dotdot_is_above_root(#[case] line: &str, #[case] written: &str) {
     assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
     let kinds = kinds(&decision);
     assert!(kinds.contains(&ExitKind::AboveRoot), "{line:?}: {kinds:?}");
-    assert!(decision.exits().any(|need| need.kind == ExitKind::AboveRoot && need.user_only));
+    assert!(decision.exits().any(|need| need.kind == ExitKind::AboveRoot && need.user_only()));
 }
 
 #[rstest]
@@ -249,7 +285,7 @@ fn exits_rm_dotdot_is_above_root(#[case] line: &str, #[case] written: &str) {
 fn exits_git_push_is_upload(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::Upload], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only && need.runs_unsandboxed()));
+    assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
 }
 
 #[rstest]
@@ -299,7 +335,7 @@ fn exits_zshrc_is_persistence(#[case] line: &str, #[case] writes: &[&str]) {
     }
     let decision = decide(requirements);
     assert_eq!(kinds(&decision), [ExitKind::Persistence], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only && need.runs_unsandboxed()));
+    assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
 }
 
 #[test]
@@ -308,7 +344,7 @@ fn exits_dropbox_is_synced_write() {
     assert_eq!(kinds(&decision), [ExitKind::SyncedWrite]);
     let decision = decide(shell("cp x ~/Dropbox/a/b").with_write("/home/u/Dropbox/a/b"));
     assert_eq!(kinds(&decision), [ExitKind::SyncedWrite]);
-    assert!(decision.exits().all(|need| need.user_only && need.runs_unsandboxed()));
+    assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
 }
 
 #[rstest]
@@ -330,7 +366,7 @@ fn exits_systemctl_failed_is_bus(#[case] line: &str, #[case] bus: BusKind) {
     assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
     let need = decision.exits().next().unwrap();
     assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
-    assert!(!need.user_only && !need.runs_unsandboxed(), "{line:?}");
+    assert!(!need.user_only() && !need.runs_unsandboxed(), "{line:?}");
 }
 
 #[test]
@@ -374,7 +410,7 @@ fn exits_ss_is_host_view(#[case] line: &str) {
 fn exits_xrandr_is_desktop_ipc(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::DesktopIpc], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only && !need.runs_unsandboxed()));
+    assert!(decision.exits().all(|need| need.user_only() && !need.runs_unsandboxed()));
 }
 
 #[rstest]
@@ -409,7 +445,7 @@ fn exits_git_reset_hard_is_destructive(#[case] line: &str, #[case] destructive: 
     assert_eq!(kinds.contains(&ExitKind::Destructive), destructive, "{line:?}: {kinds:?}");
     if destructive {
         let need = decision.exits().find(|need| need.kind == ExitKind::Destructive).unwrap();
-        assert!(need.grants.is_empty() && !need.user_only && !need.runs_unsandboxed());
+        assert!(need.grants.is_empty() && !need.user_only() && !need.runs_unsandboxed());
     }
 }
 
@@ -464,7 +500,7 @@ fn auto_read_file_of_sandbox_mask_asks() {
         let decision = tool(Requirements::none().with_read(path));
         assert_eq!(decision.effect(), Effect::Ask, "{path}");
         assert_eq!(kinds(&decision), [ExitKind::MaskedRead], "{path}");
-        assert!(decision.exits().all(|need| need.user_only), "{path}");
+        assert!(decision.exits().all(|need| need.user_only()), "{path}");
         // The other modes keep reading them as before.
         let cautious = engine().decide(&DecisionInput {
             mode: Mode::Cautious,
@@ -633,7 +669,7 @@ fn a_sudo_that_forgets_the_password_asks_with_the_sudo_beside_it() {
     assert_eq!(decision.effect(), Effect::Ask);
     let needs: Vec<_> = decision.exits().collect();
     assert!(needs.iter().all(|need| need.kind == ExitKind::Privilege), "{needs:?}");
-    assert!(needs.iter().all(|need| need.user_only && need.runs_unsandboxed()), "{needs:?}");
+    assert!(needs.iter().all(|need| need.user_only() && need.runs_unsandboxed()), "{needs:?}");
 }
 
 #[test]
@@ -657,7 +693,7 @@ fn exits_missing_fact_assumes_strict_case() {
     let decision = decide(shell("mv src ~/x").with_write(&x));
     let need = decision.exits().next().unwrap();
     assert_eq!(
-        (need.kind, need.bind.clone(), need.user_only),
+        (need.kind, need.bind.clone(), need.user_only()),
         (ExitKind::Write, Some(WriteBind::TargetOnly), false)
     );
     // A fact that says it is missing: no contained bind serves `mv`, so only the user
@@ -666,7 +702,7 @@ fn exits_missing_fact_assumes_strict_case() {
     let decision = decide(shell("mv src ~/x").with_write(&x).with_facts(missing));
     let need = decision.exits().next().unwrap();
     assert_eq!(
-        (need.kind, need.bind.clone(), need.user_only),
+        (need.kind, need.bind.clone(), need.user_only()),
         (ExitKind::Write, Some(WriteBind::ExitChild), true)
     );
     assert!(need.grants.is_empty() && need.runs_unsandboxed());

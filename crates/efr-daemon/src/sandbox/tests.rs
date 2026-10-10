@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use efr_config::Settings;
 use efr_conversation::CallContext;
-use efr_permissions::{Engine, ExitNeed, Locations, WriteBind};
+use efr_permissions::{Approver, Engine, ExitNeed, Locations, WriteBind};
 use efr_protocol::{
     CallId, ConversationId, Event, ExitKind, ExitSource, Grant, Launch, ProjectId, Scope, TurnId,
 };
@@ -183,7 +183,10 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
         kind: ExitKind::Write,
         grants: vec![Grant::Write { path: target.clone() }],
         part: "echo hi > ~/notes.txt".to_owned(),
-        user_only: false,
+        approver: Approver::Classifier,
+        names: Vec::new(),
+        backup_before_write: false,
+        package_fetch: None,
         source: ExitSource::Predicted,
         target: Some(target.clone()),
         bind: Some(WriteBind::MakeFile),

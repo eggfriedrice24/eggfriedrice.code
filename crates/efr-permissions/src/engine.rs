@@ -337,13 +337,14 @@ impl Engine {
         scratch: Option<&Path>,
     ) -> Vec<ExitNeed> {
         let envelope = Envelope::new(&self.locations, project_root, scratch);
-        paths
+        let found = paths
             .iter()
             .filter_map(|PathAccess { path, access }| {
                 let path = normalize(path)?;
                 envelope.tool_exit(&self.locations.rehome(&path), *access)
             })
-            .collect()
+            .collect();
+        exits::named_targets(found, self.locations.home())
     }
 }
 

@@ -1,0 +1,144 @@
+//! The words that name an exit in a user message (spec 9.1 and 9.2), and the one check
+//! that decides whether the user's messages name it.
+//!
+//! The engine never reads user text. It gives each exit its forms
+//! ([`ExitNeed::names`](super::ExitNeed::names)), and the turn calls [`names_match`] with
+//! the user's messages, for the route of a
+//! [`Approver::ClassifierWhenNamed`](super::Approver::ClassifierWhenNamed) exit and for
+//! `named_in_user_messages` in the record alike, so the two never disagree.
+
+use std::path::{Component, Path};
+
+/// File stems that name nothing alone: a file whose stem is one of them, such as
+/// `~/.config/sway/config` or `~/.config/nvim/init.lua`, gets no word form, and only a
+/// path form or a phrase names it. "fix the config" must not name every config file.
+pub const GENERIC_STEMS: &[&str] = &[
+    "config", "init", "settings", "env", "profile", "conf", "rc", "main", "default", "user",
+    "local",
+];
+
+/// True when a message of `messages` names one of `names`.
+///
+/// A form with a `/` is a path form (`/home/u/.zshrc`, `~/.zshrc`, `u/.zshrc`) and
+/// matches as text. Any other form is a word or a phrase (`zshrc`, `sway config`,
+/// `github.com`) and matches whole words in the same order, case-insensitive, with only
+/// white space between them; its first word may carry a possessive `'s` ("sway's
+/// config"). A word ends at a character that is not a letter, a digit or `_`, so
+/// `zshrc` does not name `zshrcx`.
+pub fn names_match(names: &[String], messages: &[String]) -> bool {
+    messages.iter().any(|message| {
+        let lower = message.to_lowercase();
+        names.iter().any(|form| {
+            if form.contains('/') {
+                message.contains(form.as_str())
+            } else {
+                phrase_in(&form.to_lowercase(), &lower)
+            }
+        })
+    })
+}
+
+/// True when the words of `phrase`, in lower case, stand in `text`, in lower case, as
+/// [`names_match`] describes.
+fn phrase_in(phrase: &str, text: &str) -> bool {
+    let words: Vec<&str> = phrase.split_whitespace().collect();
+    let Some(first) = words.first() else {
+        return false;
+    };
+    let mut from = 0;
+    while let Some(at) = text[from..].find(first) {
+        let start = from + at;
+        if starts_word(text, start) && rest_follows(text, start + first.len(), &words[1..], true) {
+            return true;
+        }
+        from = start + text[start..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
+/// True when `rest` follows a word of a phrase that ends at `end` in `text`.
+fn rest_follows(text: &str, end: usize, rest: &[&str], first: bool) -> bool {
+    let Some((next, after)) = rest.split_first() else {
+        return ends_word(text, end);
+    };
+    let mut starts = vec![end];
+    if first {
+        for possessive in ["'s", "\u{2019}s"] {
+            if text[end..].starts_with(possessive) {
+                starts.push(end + possessive.len());
+            }
+        }
+    }
+    starts.into_iter().any(|at| {
+        let gap = text[at..].len() - text[at..].trim_start().len();
+        let word = at + gap;
+        gap > 0
+            && text[word..].starts_with(next)
+            && rest_follows(text, word + next.len(), after, false)
+    })
+}
+
+/// True for a letter, a digit or `_`: a character inside a word.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// True when no word character stands right before `at`.
+fn starts_word(text: &str, at: usize) -> bool {
+    !text[..at].chars().next_back().is_some_and(is_word_char)
+}
+
+/// True when no word character stands right at `at`.
+fn ends_word(text: &str, at: usize) -> bool {
+    !text[at..].chars().next().is_some_and(is_word_char)
+}
+
+/// The path forms of `path`, in normal form: its absolute form, its `~` form when it
+/// lies below `home`, and its last two components.
+pub(crate) fn path_forms(path: &Path, home: &Path) -> Vec<String> {
+    let mut forms = vec![path.display().to_string()];
+    if let Ok(below) = path.strip_prefix(home)
+        && !below.as_os_str().is_empty()
+    {
+        forms.push(format!("~/{}", below.display()));
+    }
+    let names: Vec<&str> = path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    if let [.., parent, name] = names.as_slice() {
+        forms.push(format!("{parent}/{name}"));
+    }
+    dedup(forms)
+}
+
+/// The word forms of a file: its name without a leading dot (`zshrc`, `hyprland.conf`)
+/// and its stem (`hyprland`), or none when the stem is one of [`GENERIC_STEMS`].
+pub(crate) fn word_forms(path: &Path) -> Vec<String> {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    let base = name.trim_start_matches('.');
+    let stem = base.split('.').next().unwrap_or_default();
+    if stem.is_empty() || GENERIC_STEMS.contains(&stem.to_lowercase().as_str()) {
+        return Vec::new();
+    }
+    dedup(vec![base.to_owned(), stem.to_owned()])
+}
+
+/// `forms` without repeats, in their first order.
+pub(crate) fn dedup(forms: Vec<String>) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::with_capacity(forms.len());
+    for form in forms {
+        if !form.is_empty() && !kept.contains(&form) {
+            kept.push(form);
+        }
+    }
+    kept
+}
+
+#[cfg(test)]
+mod tests;

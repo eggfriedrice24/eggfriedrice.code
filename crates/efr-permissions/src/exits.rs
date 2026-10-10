@@ -13,6 +13,7 @@
 //! the cached password.
 
 mod envelope;
+mod names;
 mod needs;
 mod programs;
 mod scan;
@@ -24,6 +25,7 @@ use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
 
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
+pub use self::names::{GENERIC_STEMS, names_match};
 use self::scan::{OPAQUE, Segment};
 use crate::command;
 use crate::path_class::normalize;
@@ -38,10 +40,57 @@ use crate::{Access, AutoSupport, CallFacts, Egress, Locations, PathAccess, PathC
 pub const PRIVILEGE_EXITS: &[&str] =
     &["yay", "paru", "pikaur", "aura", "docker", "podman", "machinectl", "nsenter"];
 
+/// A package ecosystem whose manager fetches from its own registries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Ecosystem {
+    /// Cargo and crates.io.
+    Crates,
+    /// npm, pnpm, yarn and bun with the npm registry.
+    Npm,
+    /// pip and uv with PyPI.
+    Pypi,
+    /// The Go module proxy.
+    Go,
+    /// pacman with the mirrors of `/etc/pacman.d/mirrorlist`.
+    Pacman,
+}
+
+/// The registry hosts of each ecosystem, from the network presets of spec 8.3. The
+/// pacman mirrors depend on the machine, so they are not here: the daemon reads them
+/// from the mirror list when it needs them.
+///
+/// The classifier's naming rule lets a `host` exit of a package manager's fetch reach
+/// these hosts without a user message that names them, when a user message asks to
+/// build, install, update or fetch (spec 9.4, a proposal behind this table). An empty
+/// table turns the exception off.
+pub const REGISTRY_HOSTS: &[(Ecosystem, &[&str])] = &[
+    (Ecosystem::Crates, &["crates.io", "index.crates.io", "static.crates.io"]),
+    (Ecosystem::Npm, &["registry.npmjs.org", "registry.yarnpkg.com"]),
+    (Ecosystem::Pypi, &["pypi.org", "files.pythonhosted.org"]),
+    (Ecosystem::Go, &["proxy.golang.org", "sum.golang.org"]),
+];
+
 /// What the model reads, and the user never sees, when a line that would run outside
 /// the sandbox holds more than one command.
 pub const ONE_COMMAND: &str = "an approved command outside the sandbox must run alone; run \
                                the other parts in a separate call";
+
+/// Who may approve an exit in `auto` (spec 9.1).
+///
+/// The engine never reads user text, so it cannot finish the route alone: the turn
+/// resolves [`Approver::ClassifierWhenNamed`] with [`names_match`] and the user's
+/// messages. The enum is deliberately exhaustive: the turn must route every approver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Approver {
+    /// The classifier judges it first, and may hand it to the user.
+    Classifier,
+    /// The classifier judges it only when a user message names one of
+    /// [`ExitNeed::names`]; else only the user may approve it.
+    ClassifierWhenNamed,
+    /// Only the user may approve it, whatever the messages say.
+    User,
+}
 
 /// One exit of a call: what it needs, what a "yes" opens, and who may approve it.
 #[derive(Clone, PartialEq, Eq)]
@@ -49,35 +98,65 @@ pub struct ExitNeed {
     /// The kind.
     pub kind: ExitKind,
     /// Exactly what a "yes" opens for one call. Empty for a kind that runs in the exit
-    /// child, for `destructive` (the same sandbox runs it), for a floor kind and for
-    /// `desktop_ipc`, whose socket the daemon finds.
+    /// child, for `destructive` (the same sandbox runs it), for a floor kind, for
+    /// `desktop_ipc`, whose socket the daemon finds, and for a file tool, which efrd
+    /// runs itself.
     pub grants: Vec<Grant>,
     /// The simple command that needs it, its words joined by spaces, or the whole line
     /// when no one command does.
     pub part: String,
-    /// True when only the user may approve it: a kind that is user only in every phase
-    /// ([`ExitKind::user_only`]), or a `write` that no contained bind serves, which then
-    /// runs in the exit child.
-    pub user_only: bool,
-    /// Whether efr predicted it or the model asked for it.
+    /// Who may approve it. [`ExitNeed`] starts with the default of its kind:
+    /// [`Approver::User`] for a kind that [`ExitKind::user_only`] names,
+    /// [`Approver::Classifier`] for the rest. Only the places that spec 9.1 names
+    /// change it.
+    pub approver: Approver,
+    /// The forms that name this exit in a user message, for [`names_match`]: the path
+    /// forms of a target, the words of a file or a unit, the verb, the remote or the
+    /// host of an upload. A `User` exit may have them too; they then fill the record
+    /// only.
+    pub names: Vec<String>,
+    /// True when efrd copies the target into its backup store before the call runs: a
+    /// `persistence` write of a file, or of a new file, while
+    /// [`AutoSupport::floor_backup`] is true, whoever approves it.
+    pub backup_before_write: bool,
+    /// The package ecosystem whose registry a `host` exit fetches from, when the line
+    /// is a package manager's fetch such as `cargo fetch` or `npm ci`. The classifier's
+    /// naming rule may then pass the hosts of [`REGISTRY_HOSTS`] without a name (spec
+    /// 9.4).
+    pub package_fetch: Option<Ecosystem>,
+    /// Whether efr predicted it, the model asked for it, or a delete in a cache needs
+    /// it.
     pub source: ExitSource,
     /// The path it is about, for a write, a read, a device or a socket.
     pub target: Option<PathBuf>,
-    /// How a contained call writes [`target`](Self::target), for a `write` exit.
+    /// How a contained call writes [`target`](Self::target), for a `write` exit of a
+    /// shell call.
     pub bind: Option<WriteBind>,
 }
 
 impl ExitNeed {
-    fn new(kind: ExitKind, part: impl Into<String>, source: ExitSource) -> Self {
+    /// An exit of `kind` for `part`, with the default approver of its kind and nothing
+    /// else.
+    pub(crate) fn new(kind: ExitKind, part: impl Into<String>, source: ExitSource) -> Self {
         ExitNeed {
             kind,
             grants: Vec::new(),
             part: part.into(),
-            user_only: kind.user_only(),
+            approver: if kind.user_only() { Approver::User } else { Approver::Classifier },
+            names: Vec::new(),
+            backup_before_write: false,
+            package_fetch: None,
             source,
             target: None,
             bind: None,
         }
+    }
+
+    /// True when the classifier may not judge it on its own: the approver is
+    /// [`Approver::User`], or [`Approver::ClassifierWhenNamed`] before the turn finds a
+    /// user message that names it.
+    pub fn user_only(&self) -> bool {
+        self.approver != Approver::Classifier
     }
 
     /// True when the call runs in the exit child after a "yes": a kind that runs
@@ -87,14 +166,18 @@ impl ExitNeed {
     }
 }
 
-/// `part` can hold a token, such as a header of `curl`, so `Debug` shows its length.
+/// `part` can hold a token, such as a header of `curl`, so `Debug` shows its length,
+/// and only the count of the names that come from it.
 impl fmt::Debug for ExitNeed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExitNeed")
             .field("kind", &self.kind)
             .field("grants", &self.grants)
             .field("part", &format_args!("<{} bytes>", self.part.len()))
-            .field("user_only", &self.user_only)
+            .field("approver", &self.approver)
+            .field("names", &format_args!("<{} names>", self.names.len()))
+            .field("backup_before_write", &self.backup_before_write)
+            .field("package_fetch", &self.package_fetch)
             .field("source", &self.source)
             .field("target", &self.target)
             .field("bind", &self.bind)
@@ -302,7 +385,24 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             found.push(need);
         }
     }
-    found.0
+    named_targets(found.0, input.locations.home())
+}
+
+/// `needs` with the forms of each target in [`ExitNeed::names`], where nothing named
+/// it yet: the path forms of every target, and the words of a file that runs code later.
+pub(crate) fn named_targets(mut needs: Vec<ExitNeed>, home: &Path) -> Vec<ExitNeed> {
+    for need in &mut needs {
+        let Some(target) = &need.target else { continue };
+        if !need.names.is_empty() {
+            continue;
+        }
+        let mut forms = names::path_forms(target, home);
+        if need.kind == ExitKind::Persistence {
+            forms.extend(names::word_forms(target));
+        }
+        need.names = names::dedup(forms);
+    }
+    needs
 }
 
 /// What the daemon looks up on disk before [`predict`] reads a line, because the
@@ -458,7 +558,9 @@ fn write_need(
             WriteBind::ExitChild => Vec::new(),
             _ => vec![Grant::Write { path: path.to_path_buf() }],
         };
-        need.user_only = exit.bind == WriteBind::ExitChild;
+        if exit.bind == WriteBind::ExitChild {
+            need.approver = Approver::User;
+        }
         need.bind = Some(exit.bind);
     }
     Some(need)

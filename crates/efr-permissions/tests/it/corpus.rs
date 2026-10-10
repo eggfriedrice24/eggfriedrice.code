@@ -160,7 +160,7 @@ fn verdict(decision: &Decision, expected: &str) -> String {
             "asks (settings floor)".to_owned()
         }
         Effect::Ask => {
-            let letter = if decision.exits().any(|need| need.user_only) { "U" } else { "X" };
+            let letter = if decision.exits().any(|need| need.user_only()) { "U" } else { "X" };
             // NOTE: the kind that Appendix A names must be among the exits; the fixture's
             // `exits` holds the full set.
             let named = expected
