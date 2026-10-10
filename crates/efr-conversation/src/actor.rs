@@ -286,6 +286,7 @@ impl ConversationActor {
             misses: AtomicU32::new(0),
             status: Arc::default(),
             gap: CallGap::default(),
+            denied_cache_deletes: Mutex::default(),
         });
         let status = Arc::clone(&shared.status);
         let actor = ConversationActor {

@@ -29,6 +29,7 @@
 //! a row without a person stop the turn. A call that changed git settings that run
 //! programs asks the user whether to keep them before the next call.
 
+mod cache;
 mod coalesce;
 mod compact;
 mod drafter;
@@ -128,6 +129,9 @@ pub(crate) struct Shared {
     pub(crate) status: Arc<LiveStatus>,
     /// When the newest model call started, for the gap before the next one in the log.
     pub(crate) gap: CallGap,
+    /// The paths whose delete in the real tool caches the classifier or the user refused
+    /// in this conversation: a later call does not raise them again.
+    pub(crate) denied_cache_deletes: Mutex<HashSet<PathBuf>>,
 }
 
 /// A prompt that waits for its turn, or runs as one.
@@ -333,6 +337,8 @@ struct Ruling {
     approver: Option<Approver>,
     /// What a file tool call writes to a floor file, for the record.
     payload: Option<exit::Payload>,
+    /// What the question says, when it is not the summary of the call's decision.
+    summary: Option<String>,
 }
 
 impl Ruling {
@@ -875,6 +881,16 @@ impl Turn {
                 outcome.output = format!("{}\n{note}", outcome.output);
                 interrupted |= stopped;
             }
+            if let Some(summary) = outcome.sandbox.clone()
+                && !summary.cache_deletes.is_empty()
+                && !interrupted
+            {
+                let (note, stopped) = self.cache_deletes(&tool_call, &summary).await?;
+                if let Some(note) = note {
+                    outcome.output = format!("{}\n{note}", outcome.output);
+                }
+                interrupted |= stopped;
+            }
             let result = ContentBlock::ToolResult {
                 call_id: call.provider_call_id,
                 output: outcome.output,
@@ -942,6 +958,7 @@ impl Turn {
             engine,
             approver,
             payload,
+            summary: None,
         }))
     }
 
@@ -1115,7 +1132,8 @@ impl Turn {
             info.judged = judgement;
             Some(info)
         };
-        let summary = approvals::summary(&call.name, decision);
+        let summary =
+            ruling.summary.clone().unwrap_or_else(|| approvals::summary(&call.name, decision));
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
         // NOTE: a privilege exit needs the password at the terminal, so a phone never
         // answers it (efr's auto spec, section 9.5).
