@@ -14,6 +14,12 @@
 use crate::catalog::{CatalogEntry, Visibility};
 use crate::config::Backend;
 
+/// The model that reviews an action of efr's `auto` sandbox first, on both backends:
+/// the small, fast model of the table. It names an id, not a fact about the model; the
+/// catalog decides at run time whether the backend serves it, and efrd falls back to
+/// the turn's model when it does not.
+pub const CLASSIFIER_MODEL: &str = "gpt-6-luna";
+
 /// The input budget Codex gives every listed model
 /// (`codex-rs/models-manager/models.json`, `context_window`).
 const CONTEXT_WINDOW: u64 = 272_000;

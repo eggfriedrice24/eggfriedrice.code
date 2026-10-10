@@ -20,7 +20,10 @@ Modules:
   `ANTHROPIC_VERSION` (`2023-06-01`). `CacheTtl` is `Auto` (the default),
   `FiveMinutes` or `OneHour`, from `[anthropic] cache_ttl` (`auto`, `5m`, `1h`).
 - `models`: the only facts that efr knows without the API: `DEFAULT_MODEL`
-  (`claude-opus-5-5`) and `DEFAULT_EFFORT` (`medium`). There is no table of models.
+  (`claude-opus-5-5`), `DEFAULT_EFFORT` (`medium`) and `CLASSIFIER_MODEL`
+  (`claude-haiku-5-5`), the small model that efrd asks first when it reviews an action
+  of the `auto` sandbox. Each names an id, never a window or a limit; the API's list
+  decides at run time whether the key may use the model. There is no table of models.
   The cache minimum of 512 tokens is a fact of its module doc, not a constant, because
   no code reads it.
 - `catalog`: the model list from `GET <base_url>/models` (see "Catalog" below).

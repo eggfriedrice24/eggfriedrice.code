@@ -74,7 +74,10 @@ Modules:
 - `models`: the table built into efr, the last fallback of the catalog: the listed
   models of Codex's bundled catalog (`codex-rs/models-manager/models.json`, read at
   c0c230e on 2026-10-08), in priority order, with gpt-6.1-sol first and gpt-5.5 as the
-  legacy model. It stands in when no fetch worked yet and no cache is on disk. The API
+  legacy model. `CLASSIFIER_MODEL` (`gpt-6-luna`) names the small model of the table
+  that efrd asks first when it reviews an action of the `auto` sandbox, on both
+  backends; the catalog decides at run time whether the backend serves it. The table
+  stands in when no fetch worked yet and no cache is on disk. The API
   key backend takes its windows, efforts and tool forms from it, because the API's
   `/v1/models` gives only ids. On the API, the efforts are those of the API's model
   pages: the subscription's list without `ultra`, which no page lists, and `medium`

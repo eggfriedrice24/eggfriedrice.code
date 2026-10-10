@@ -14,6 +14,8 @@
 //! table built into efr, which the API key backend cuts down to the ids that its key
 //! lists. A [`ModelCatalog`] holds the current one for the provider. [`check_key`]
 //! checks an API key with one request that runs no model, before a login stores it.
+//! [`CLASSIFIER_MODEL`] names the small model that reviews an action of efr's `auto`
+//! sandbox first.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-http`, `efr-protocol` and `efr-stdx`.
 //! What does not belong here: how a token is obtained or refreshed (`efr-oauth-openai`,
@@ -43,4 +45,5 @@ pub use config::{
     WebSocketMode,
 };
 pub use error::OpenAiError;
+pub use models::CLASSIFIER_MODEL;
 pub use responses::OpenAiProvider;

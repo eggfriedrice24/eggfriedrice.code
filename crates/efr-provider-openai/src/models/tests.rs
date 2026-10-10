@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::is_reasoning_model;
+use super::{CLASSIFIER_MODEL, is_reasoning_model};
 use crate::{Backend, Catalog};
 
 /// A model as the table test compares it: id, efforts, default effort, largest window.
@@ -98,4 +98,15 @@ fn the_api_backend_has_the_same_models_without_ultra_and_with_medium_by_default(
 #[case("", false)]
 fn reasoning_families(#[case] model: &str, #[case] reasons: bool) {
     assert_eq!(is_reasoning_model(model), reasons, "{model}");
+}
+
+#[test]
+fn the_classifier_model_is_a_listed_model_that_takes_low_on_both_backends() {
+    for backend in [Backend::Subscription, Backend::Api] {
+        let models = Catalog::builtin(backend).models();
+        let model = models.iter().find(|model| model.id == CLASSIFIER_MODEL);
+        let model = model.unwrap_or_else(|| panic!("{CLASSIFIER_MODEL} on {backend:?}"));
+        assert!(model.efforts.iter().any(|effort| effort == "low"), "{backend:?}");
+        assert!(is_reasoning_model(&model.id));
+    }
 }
