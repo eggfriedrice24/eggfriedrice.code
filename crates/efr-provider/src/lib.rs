@@ -46,7 +46,8 @@ pub use message::{ContentBlock, Message, Role};
 pub use provider::{EditTool, ModelInfo, Provider, ProviderStream};
 pub use provider_id::ProviderId;
 pub use request::{
-    FREEFORM_INPUT, GrammarSyntax, Request, ToolDefinition, ToolGrammar, freeform_input_schema,
+    FREEFORM_INPUT, GrammarSyntax, OutputSchema, Request, ToolDefinition, ToolGrammar,
+    freeform_input_schema,
 };
 pub use secrecy::{ExposeSecret, SecretString};
 pub use token_source::{AccessToken, StaticToken, TokenSource};

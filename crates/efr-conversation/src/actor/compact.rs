@@ -102,6 +102,8 @@ async fn compact(
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,
+        output: None,
+        one_shot: false,
         provider_options: crate::turn::provider_options(&config, shared.conversation_id),
     };
     let tokens_before = request_tokens(&with_window(&base, &window));

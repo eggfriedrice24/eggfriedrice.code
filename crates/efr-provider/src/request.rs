@@ -40,6 +40,16 @@ pub struct Request {
     /// because no later request reads it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub side_call: bool,
+    /// The form that the answer must take: a JSON object that this schema describes,
+    /// such as the verdict of the classifier. Absent for free text. A provider sends it
+    /// as its own structured output field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<OutputSchema>,
+    /// True for a single request that no other request builds on, such as a review by
+    /// the classifier: no history, and no prompt cache entry for later requests. A
+    /// provider with explicit cache markers puts none on its tail.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub one_shot: bool,
     /// Options only one provider understands, such as OpenAI's `prompt_cache_key`,
     /// passed through as they are. A provider ignores keys it does not know, and never
     /// sends a key it does not know to its API.
@@ -58,6 +68,23 @@ impl Request {
     /// ([`unoffered_call_text`](crate::unoffered_call_text)).
     pub fn offers(&self, name: &str) -> bool {
         self.tools.iter().any(|tool| tool.name == name)
+    }
+}
+
+/// The JSON schema that the answer of a request must fit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputSchema {
+    /// The name of the schema, such as `exit_verdict`: letters, digits, `_` and `-`,
+    /// as the providers take it.
+    pub name: String,
+    /// The JSON schema of the answer object.
+    pub schema: Value,
+}
+
+impl OutputSchema {
+    /// The schema `schema` named `name`.
+    pub fn new(name: impl Into<String>, schema: Value) -> Self {
+        OutputSchema { name: name.into(), schema }
     }
 }
 

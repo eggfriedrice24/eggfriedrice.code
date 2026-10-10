@@ -937,6 +937,8 @@ pub(crate) fn request(messages: Vec<Message>) -> Request {
         max_output_tokens: None,
         effort: None,
         side_call: false,
+        output: None,
+        one_shot: false,
         provider_options,
     }
 }

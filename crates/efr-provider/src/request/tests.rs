@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{FREEFORM_INPUT, GrammarSyntax, Request, ToolDefinition, ToolGrammar};
+use super::{FREEFORM_INPUT, GrammarSyntax, OutputSchema, Request, ToolDefinition, ToolGrammar};
 use crate::{ContentBlock, Message, Role};
 
 fn shell_tool() -> ToolDefinition {
@@ -85,6 +85,32 @@ fn a_full_request_round_trips_with_raw_items_intact() {
     });
     assert_eq!(serde_json::to_value(&request).unwrap(), wire);
     assert_eq!(serde_json::from_value::<Request>(wire).unwrap(), request);
+}
+
+#[test]
+fn request_output_and_one_shot_round_trip() {
+    let schema = json!({
+        "type": "object",
+        "properties": {"verdict": {"type": "string", "enum": ["allow", "deny", "ask_user"]}},
+        "required": ["verdict"],
+        "additionalProperties": false,
+    });
+    let mut request = Request::new("gpt-6-luna");
+    request.output = Some(OutputSchema::new("exit_verdict", schema.clone()));
+    request.one_shot = true;
+
+    let wire = json!({
+        "model": "gpt-6-luna",
+        "messages": [],
+        "output": {"name": "exit_verdict", "schema": schema},
+        "one_shot": true,
+    });
+    assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Request>(wire).unwrap(), request);
+
+    let plain: Request = serde_json::from_value(json!({"model": "m"})).unwrap();
+    assert_eq!(plain.output, None, "a request from before the field asks for free text");
+    assert!(!plain.one_shot);
 }
 
 #[test]

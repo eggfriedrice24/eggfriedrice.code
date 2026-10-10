@@ -331,6 +331,8 @@ pub(crate) fn summary_request(
         max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS + SUMMARY_REASONING_TOKENS),
         effort: base.effort.clone(),
         side_call: true,
+        output: None,
+        one_shot: false,
         provider_options: base.provider_options.clone(),
     }
 }

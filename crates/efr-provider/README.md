@@ -17,7 +17,8 @@ Modules:
   the same provider and model. Only that provider reads it; when the
   conversation switches providers the history assembler drops it.
 - `request`: `Request { model, system, messages, tools, max_output_tokens, effort,
-  provider_options }` and `ToolDefinition`, the tool as the model sees it. `effort`
+  side_call, output, one_shot, provider_options }` and `ToolDefinition`, the tool as
+  the model sees it. `effort`
   is the reasoning effort of the call (`low`, `medium`, `high` and so on, one of
   `ModelInfo::efforts`), absent for the provider's default for the model. Every
   provider reads it and maps it to its own field: OpenAI's `reasoning.effort`,
@@ -26,7 +27,12 @@ Modules:
   every provider, so a provider ignores the keys it does not know and never puts them
   into its request body. `side_call` is true for a call whose last message and answer
   never join the history, such as a compaction's summary request; a provider with
-  explicit cache markers does not make its tail a long-lived cache entry.
+  explicit cache markers does not make its tail a long-lived cache entry. `output`
+  (`OutputSchema`: a name and a JSON schema) asks for an answer that is one JSON object
+  of that schema, such as the classifier's verdict; each provider sends it as its own
+  structured output field. `one_shot` is true for a single request that no other
+  request builds on, such as a review by the classifier: a provider with explicit
+  cache markers puts none on its tail.
   `efr-tools` has its own `ToolSpec`; the conversation converts between the two,
   because neither crate depends on the other. A tool is a function tool
   (`ToolDefinition::function`: a JSON Schema of its input object) or a freeform tool
