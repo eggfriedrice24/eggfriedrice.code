@@ -11,7 +11,9 @@
 //! form, `{"kind": "text_delta", "data": {"text": "..."}}`. An event of type `error`
 //! ends the answer with a [`ProviderError`]; its data is one of
 //! `{"kind": "unauthorized"}`, `{"kind": "rate_limited", "retry_after_ms": 1000}`,
-//! `{"kind": "not_logged_in"}`, `{"kind": "incomplete"}` or
+//! `{"kind": "not_logged_in"}`, `{"kind": "incomplete"}`,
+//! `{"kind": "unknown_model", "model": "gpt-6-luna"}` (a provider that does not serve
+//! the model, as [`ProviderError::UnknownModel`]) or
 //! `{"kind": "api", "status": 500, "code": "server_error", "message": "..."}`
 //! (`status` and `code` optional). An `api` error goes through [`ProviderError::api`],
 //! as a real provider's does, so the code `context_length_exceeded` or the status 413
@@ -129,6 +131,9 @@ enum ErrorRecord {
         #[serde(default)]
         code: Option<String>,
         message: String,
+    },
+    UnknownModel {
+        model: String,
     },
 }
 
@@ -362,6 +367,7 @@ impl ErrorRecord {
             // NOTE: through the classifier that the real providers use, so a transcript
             // can refuse a request as larger than the model's window.
             ErrorRecord::Api { status, code, message } => ProviderError::api(status, code, message),
+            ErrorRecord::UnknownModel { model } => ProviderError::UnknownModel { model },
         }
     }
 }

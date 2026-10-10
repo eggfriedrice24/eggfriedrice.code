@@ -237,6 +237,26 @@ async fn error_events_end_the_answer_with_a_provider_error() {
 }
 
 #[tokio::test]
+async fn replay_unknown_model_error() {
+    let body = "event: error\ndata: {\"kind\":\"unknown_model\",\"model\":\"gpt-6-luna\"}\n\n";
+    let provider =
+        ReplayProvider::new(&Transcript::from_records([ask(request_json("one")), answer(body)]))
+            .unwrap();
+    let items: Vec<_> = provider.stream(request("one")).await.unwrap().collect().await;
+    assert_eq!(items.len(), 1);
+    assert!(
+        matches!(items[0].as_ref(), Err(ProviderError::UnknownModel { model }) if model == "gpt-6-luna"),
+        "{items:?}"
+    );
+    // The model is required, as in the error it stands for.
+    let broken = "event: error\ndata: {\"kind\":\"unknown_model\"}\n\n";
+    assert!(matches!(
+        ReplayProvider::new(&Transcript::from_records([ask(request_json("one")), answer(broken)])),
+        Err(TestSupportError::ProviderRecord { .. })
+    ));
+}
+
+#[tokio::test]
 async fn a_dropped_answer_leaves_the_next_exchange_in_place() {
     let provider = echo(&["one", "two"]);
     let mut stream = provider.stream(request("one")).await.unwrap();
