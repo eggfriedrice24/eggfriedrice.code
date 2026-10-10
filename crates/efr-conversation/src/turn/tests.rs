@@ -29,6 +29,7 @@ use crate::{ConversationError, approvals};
 mod append_only;
 mod compaction;
 mod context;
+mod denials;
 mod drafts;
 mod review;
 mod sandbox;

@@ -351,7 +351,7 @@ fn denial(setup: &Setup, title: &str, line: &str, read: &Path) -> String {
 }
 
 #[tokio::test]
-async fn floor_refusals_stop_turn_at_three() {
+async fn floor_refusals_still_stop_turn_at_three() {
     let (setup, state) = auto("find the key");
     let key = setup.home().join(".ssh/id_ed25519");
     let line = format!("cat {}", key.display());

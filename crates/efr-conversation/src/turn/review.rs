@@ -12,11 +12,19 @@
 //! ([`exit::effective`]) to the verdict: an allow runs the call, a deny gives the model
 //! the reviewer's text and counts toward the pause, and anything else asks the user,
 //! whose question shows the classifier's answer.
+//!
+//! After 3 denials in a row or 10 in the turn, the classifier stops for the rest of
+//! the turn (`classifier_paused`): each later exit that it would judge asks the user,
+//! and stops the turn when the user is away ([`Turn::paused_and_away`]). A classifier
+//! allow or any answer of the user resets the denials in a row; an error, a step of the
+//! chain and an expired question count as none.
 
 use std::task::Poll;
 
 use efr_permissions::{Approver, Cause, Effect};
-use efr_protocol::{Event, ExitRecord, JudgeKind, Judgement, Verdict};
+use efr_protocol::{
+    ErrorBody, ErrorCode, Event, ExitRecord, JudgeKind, Judgement, Presence, Verdict,
+};
 
 use super::{Authorization, Ruling, Turn};
 use crate::exit;
@@ -49,6 +57,30 @@ impl Turn {
         ruling.decision.effect() == Effect::Ask
             && ruling.decision.deciding().all(|reason| matches!(reason.cause, Cause::Exit { .. }))
             && ruling.approver == Some(Approver::Classifier)
+    }
+
+    /// Stops the turn when the classifier stopped for it and would have judged the exits
+    /// of `ruling`, and nobody is there to decide them (efr's auto spec, section 9.5):
+    /// the call does not run, and the turn ends after it. `None` when the user is
+    /// present, or the classifier still judges, or would not have judged them.
+    pub(super) fn paused_and_away(
+        &mut self,
+        call: &ToolCall,
+        ruling: &Ruling,
+    ) -> Option<Authorization> {
+        let (reason, denials) = self.exits.paused?;
+        let judged = call.context.auto
+            && self.shared.deps.judge.is_some()
+            && self.config.classifier_enabled
+            && self.goes_to_classifier(ruling);
+        let away =
+            self.shared.deps.presence.presence(self.shared.conversation_id) == Presence::Away;
+        if !judged || !away {
+            return None;
+        }
+        let message = exit::away_stopped(reason, denials);
+        self.stop = Some(ErrorBody::new(ErrorCode::Forbidden, message.clone()));
+        Some(Authorization::Denied { message, refusal: None })
     }
 
     /// Asks the judge about the exits of `ruling`, whose record is `record`, when

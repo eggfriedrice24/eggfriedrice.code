@@ -1089,6 +1089,9 @@ impl Turn {
                 Reviewed::Decided(authorization) => return Ok(authorization),
                 Reviewed::Ask { recorded, judgement } => (recorded, judgement),
             };
+            if let Some(stopped) = self.paused_and_away(call, ruling) {
+                return Ok(stopped);
+            }
             if !recorded {
                 events.push(Event::ExitRequested {
                     turn_id,
