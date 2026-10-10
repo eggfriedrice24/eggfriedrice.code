@@ -202,6 +202,10 @@ pub enum Cause {
     Sealed,
     /// The call writes efr's configuration, which no tool may write and no rule opens.
     WriteSealed,
+    /// The call writes efr's own programs, or its runtime, data or state outside
+    /// `$SCRATCH` and efr's trash, which no tool may write and no rule opens: they hold
+    /// the hidden shells' startup files, the launcher, the database and the backups.
+    EfrOwn,
     /// No rule matched, so the engine refused.
     NoRule,
     /// The path is relative, so its class is unknown.
@@ -297,6 +301,9 @@ impl fmt::Display for Reason {
             }
             Cause::WriteSealed => f.write_str(
                 ", because efr's configuration is there, and only the user changes it, not a tool",
+            ),
+            Cause::EfrOwn => f.write_str(
+                ", because efr keeps its own programs or state there, and no tool changes them",
             ),
             Cause::NoRule => f.write_str(", because no rule matched"),
             Cause::NotAbsolute => f.write_str(", because the path is not absolute"),

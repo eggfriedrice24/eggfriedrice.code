@@ -997,6 +997,111 @@ fn exits_config_toml_is_config_deny(#[case] line: &str, #[case] written: &str) {
     assert_eq!(config.effect, Effect::Deny);
 }
 
+const RUNTIME: &str = "/run/user/1000/efr";
+const DATA: &str = "/home/u/.local/share/efr";
+
+/// The machine of `auto_locations`, with efr's own programs and roots.
+fn efr_engine() -> Engine {
+    let locations = auto_locations()
+        .with_efr_root(RUNTIME, [])
+        .unwrap()
+        .with_efr_root(
+            DATA,
+            [PathBuf::from(DATA).join("scratch"), PathBuf::from(DATA).join("trash")],
+        )
+        .unwrap()
+        .with_efr_root("/home/u/.local/state/efr", [])
+        .unwrap()
+        .with_efr_binary("/home/u/.local/bin/efrd")
+        .unwrap()
+        .with_efr_binary("/home/u/.local/bin/efr")
+        .unwrap()
+        .with_efr_binary("/home/u/.local/lib/efr/efr-sbx")
+        .unwrap()
+        .with_efr_binary(format!("{RUNTIME}/bin/efr-sbx"))
+        .unwrap();
+    Engine::with_defaults(locations)
+}
+
+/// Each way to write `path`: a shell line, a line that runs in the exit child, a
+/// `needs.write` and `write_file`. Each is refused, the shell lines by a `config` exit,
+/// in every mode.
+fn assert_efr_own_is_refused(path: &str) {
+    let engine = efr_engine();
+    let shell_line = shell(&format!("echo x > {path}")).with_write(path);
+    let exit_child = shell(&format!("mv x {path}")).with_write(path);
+    let needs = shell("x").with_needs(Needs { write: vec![path.to_owned()], ..Needs::default() });
+    for requirements in [shell_line.clone(), exit_child, needs] {
+        let decision = engine.decide(&in_auto(requirements.clone()));
+        assert_eq!(decision.effect(), Effect::Deny, "{path}: {requirements:?}");
+        assert!(kinds(&decision).contains(&ExitKind::Config), "{path}: {:?}", kinds(&decision));
+    }
+    for mode in [Mode::Auto, Mode::Cautious, Mode::Manual] {
+        for requirements in [Requirements::none().with_write(path), shell_line.clone()] {
+            let input = DecisionInput { mode, ..in_auto(requirements) };
+            let decision = engine.decide(&input);
+            assert_eq!(decision.effect(), Effect::Deny, "{path} in {mode:?}");
+            let reason = &decision.reasons()[0];
+            assert_eq!(reason.cause, Cause::EfrOwn, "{path} in {mode:?}");
+        }
+    }
+}
+
+#[test]
+fn write_to_efr_binary_is_config_deny() {
+    for path in
+        ["/home/u/.local/bin/efrd", "/home/u/.local/bin/efr", "/home/u/.local/lib/efr/efr-sbx"]
+    {
+        assert_efr_own_is_refused(path);
+    }
+    // The other programs in the same dir stay a floor of their own.
+    let decision = efr_engine()
+        .decide(&in_auto(shell("cp x ~/.local/bin/ls").with_write("/home/u/.local/bin/ls")));
+    assert_eq!(kinds(&decision), [ExitKind::Persistence]);
+}
+
+#[test]
+fn write_to_hidden_shell_zdotdir_is_config_deny() {
+    assert_efr_own_is_refused(&format!("{RUNTIME}/zsh/.zshrc"));
+}
+
+#[test]
+fn write_to_launcher_copy_is_config_deny() {
+    assert_efr_own_is_refused(&format!("{RUNTIME}/bin/efr-sbx"));
+}
+
+#[test]
+fn write_to_efr_data_root_is_config_deny() {
+    for path in [
+        format!("{DATA}/efr.sqlite"),
+        format!("{DATA}/file-backups/x"),
+        format!("{DATA}/backups/efr.sqlite.3"),
+    ] {
+        assert_efr_own_is_refused(&path);
+    }
+    assert_efr_own_is_refused("/home/u/.local/state/efr/logs/efrd.log");
+    // A delete of a dir above a root of efr's is only the user's to approve.
+    let decision = efr_engine()
+        .decide(&in_auto(shell("rm -rf ~/.local/state").with_write("/home/u/.local/state")));
+    let need = decision.exits().find(|need| need.kind == ExitKind::AboveRoot).unwrap();
+    assert_eq!(need.approver, Approver::User);
+}
+
+#[test]
+fn write_in_scratch_is_not_config() {
+    let engine = efr_engine();
+    let inside = format!("{SCRATCH}/notes.txt");
+    let decision = engine.decide(&in_auto(shell("echo x > notes.txt").with_write(&inside)));
+    assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]));
+    let decision = engine.decide(&in_auto(Requirements::none().with_write(&inside)));
+    assert_eq!(decision.effect(), Effect::Allow);
+    // efr's trash takes a write that the classifier judges.
+    let trash = format!("{DATA}/trash/x");
+    let decision =
+        engine.decide(&in_auto(shell("mv x ~/.local/share/efr/trash/x").with_write(&trash)));
+    assert_eq!(kinds(&decision), [ExitKind::Write]);
+}
+
 #[rstest]
 #[case::eval("eval \"$(cat script)\"", &[])]
 #[case::group("(cd sub && make)", &[])]

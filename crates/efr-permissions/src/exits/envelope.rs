@@ -104,14 +104,16 @@ impl<'a> Envelope<'a> {
         self.roots.iter().map(PathBuf::as_path).find(|root| path.starts_with(root) && path != *root)
     }
 
-    /// True when `path` is a write root, lies above one, or lies above efr's config or
-    /// the home directory: a write there replaces or removes a whole root.
+    /// True when `path` is a write root, lies above one, or lies above efr's config, efr's
+    /// own programs and roots or the home directory: a write there replaces or removes a
+    /// whole root.
     fn at_or_above_root(&self, path: &Path) -> bool {
         self.roots.iter().any(|root| root.starts_with(path))
             || self
                 .locations
                 .write_sealed_roots()
                 .iter()
+                .chain(self.locations.efr_paths())
                 .any(|root| root.starts_with(path) && root != path)
             || self.locations.is_at_or_above_home(path)
     }
@@ -151,7 +153,7 @@ impl<'a> Envelope<'a> {
             || !path.starts_with(locations.home())
             || held.len() >= 2
             || self.floors.iter().chain(locations.floor_roots()).any(below)
-            || locations.write_sealed_roots().iter().any(below)
+            || locations.write_sealed_roots().iter().chain(locations.efr_paths()).any(below)
             || locations.is_secret(path)
             || !locations.secrets_below(path).is_empty();
         if holds { Approver::User } else { Approver::ClassifierWhenNamed }
@@ -299,7 +301,7 @@ impl<'a> Envelope<'a> {
         if locations.is_sealed(path) || locations.is_secret(path) {
             return WriteExit::of(ExitKind::Secret);
         }
-        if locations.is_write_sealed(path) {
+        if locations.is_write_sealed(path) || locations.is_efr_own(path) {
             return WriteExit::of(ExitKind::Config);
         }
         if self.at_or_above_root(path) {
@@ -392,7 +394,7 @@ impl<'a> Envelope<'a> {
         let locations = self.locations;
         let kind = if locations.is_sealed(path) || locations.is_secret(path) {
             ExitKind::Secret
-        } else if locations.is_write_sealed(path) {
+        } else if locations.is_write_sealed(path) || locations.is_efr_own(path) {
             ExitKind::Config
         } else if self.at_or_above_root(path) {
             ExitKind::AboveRoot

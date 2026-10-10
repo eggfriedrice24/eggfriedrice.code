@@ -51,7 +51,8 @@ pub enum ExitKind {
     AboveRoot,
     /// A read or write of an engine secret: denied.
     Secret,
-    /// A write of efr's config: denied.
+    /// A write of efr's config, of efr's own programs, or of efr's runtime, data or
+    /// state outside `$SCRATCH` and efr's trash: denied.
     Config,
 }
 
@@ -106,9 +107,12 @@ impl ExitKind {
         matches!(self, ExitKind::Secret | ExitKind::Config)
     }
 
-    /// True for a kind that only the user may approve, whatever its target: the
-    /// classifier is never asked. A `write` can be user only too, for a system or
-    /// masked target, which [`ExitInfo::user_only`] records per question.
+    /// True for a kind that only the user approves by default. It is the default
+    /// approver of an exit in the engine (`efr_permissions::ExitNeed`), which relaxes it
+    /// only at the places that spec 9.1 names: an `upload`, an `above_root` path and a
+    /// floor file edit that a user message names may go to the classifier, and so may
+    /// the read and reload forms of `desktop_ipc`. [`ExitInfo::user_only`] records the
+    /// approver of each question.
     pub const fn user_only(self) -> bool {
         matches!(
             self,
@@ -123,7 +127,7 @@ impl ExitKind {
     }
 
     /// True for a kind whose approved launch is [`Launch::Unsandboxed`], the exit
-    /// child. A user-only `write` that no contained bind serves runs there too; the
+    /// child. A `write` that no contained bind serves runs there too; the
     /// conversation's `grant()` decides that case.
     pub const fn runs_unsandboxed(self) -> bool {
         matches!(

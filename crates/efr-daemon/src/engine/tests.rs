@@ -18,6 +18,10 @@ fn parts(home: &Home, secrets: PathBuf) -> EngineParts {
         registry: home.path().join(".config/efr/projects.toml"),
         config: home.path().join(".config/efr"),
         host: crate::sandbox::HostFacts::default(),
+        runtime: home.path().join(".run/efr"),
+        data: home.path().join(".local/share/efr"),
+        state: home.path().join(".local/state/efr"),
+        launcher: Some(home.path().join(".local/lib/efr/efr-sbx")),
     }
 }
 
@@ -91,6 +95,37 @@ async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
     assert_eq!(decide(&engine, &home, Mode::Cautious, key), Effect::Allow);
     let token = read(secrets.join("openai-subscription.json"));
     assert_eq!(decide(&engine, &home, Mode::Cautious, token), Effect::Deny);
+}
+
+#[tokio::test]
+async fn no_tool_writes_efrs_own_programs_and_roots_but_scratch_and_trash_stay_open() {
+    let (_root, home) = home();
+    let mut parts = parts(&home, home.path().join(".local/share/efr/secrets"));
+    parts.host.binaries = vec![home.path().join(".local/bin/efrd")];
+    let engine = parts.engine(&Settings::default()).await.unwrap();
+
+    let write = |path: PathBuf| Requirements::none().with_write(path);
+    let data = home.path().join(".local/share/efr");
+    for path in [
+        data.join("efr.sqlite"),
+        data.join("file-backups/x"),
+        home.path().join(".run/efr/zsh/.zshrc"),
+        home.path().join(".run/efr/bin/efr-sbx"),
+        home.path().join(".local/state/efr/logs/x"),
+        home.path().join(".local/lib/efr/efr-sbx"),
+        home.path().join(".local/bin/efrd"),
+    ] {
+        for mode in [Mode::Auto, Mode::Cautious] {
+            assert_eq!(decide(&engine, &home, mode, write(path.clone())), Effect::Deny, "{path:?}");
+        }
+    }
+    for path in [data.join("scratch/x/notes.txt"), data.join("trash/x")] {
+        assert_ne!(
+            decide(&engine, &home, Mode::Auto, write(path.clone())),
+            Effect::Deny,
+            "{path:?}"
+        );
+    }
 }
 
 #[tokio::test]

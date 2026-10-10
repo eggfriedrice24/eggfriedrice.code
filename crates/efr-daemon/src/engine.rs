@@ -20,20 +20,41 @@ use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
 use crate::DaemonError;
-use crate::sandbox::HostFacts;
 use crate::sandbox::links::link_targets;
+use crate::sandbox::{HostFacts, launcher};
+use crate::state::SCRATCH_DIR;
 
 /// The places that every contained call may write besides the projects: the private
 /// `/tmp`, `/var/tmp` and `/dev/shm`.
 const PRIVATE_ROOTS: &[&str] = &["/tmp", "/var/tmp", "/dev/shm"];
 
+/// The name of efr's trash below the data directory: a tool may move files there, and
+/// efr can bring them back.
+pub(crate) const TRASH_DIR: &str = "trash";
+
 /// What the engine needs from the hidden shells and the file system for the `auto`
-/// sandbox: the shells' `PATH`, `$ZDOTDIR`, `$XAUTHORITY` and `$HISTFILE`, and the
-/// dotfile link targets that lie in a write root.
+/// sandbox: the shells' `PATH`, `$ZDOTDIR`, `$XAUTHORITY` and `$HISTFILE`, the
+/// dotfile link targets that lie in a write root, and efr's own roots and programs.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SandboxFacts {
     pub(crate) host: HostFacts,
     pub(crate) link_targets: Vec<PathBuf>,
+    pub(crate) efr: EfrPaths,
+}
+
+/// efr's own roots and programs, which no tool writes in any mode, and which a shell
+/// write in `auto` reaches only as a refused `config` exit. The runtime root holds the
+/// hidden shells' `$ZDOTDIR` and the launcher's copy; the data root holds the database,
+/// whose prompts decide whether a user named an exit, and the backups of floor files.
+/// `$SCRATCH` and efr's trash below the data root stay open.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EfrPaths {
+    pub(crate) runtime: Option<PathBuf>,
+    pub(crate) data: Option<PathBuf>,
+    pub(crate) state: Option<PathBuf>,
+    /// efr's programs besides the ones in [`HostFacts::binaries`]: the launcher's
+    /// source and its copy in the runtime root.
+    pub(crate) binaries: Vec<PathBuf>,
 }
 
 /// What the engine is built from besides the settings. It does not change while the
@@ -50,6 +71,14 @@ pub(crate) struct EngineParts {
     pub(crate) config: PathBuf,
     /// The hidden shells' environment as the sandbox reads it.
     pub(crate) host: HostFacts,
+    /// efr's runtime root.
+    pub(crate) runtime: PathBuf,
+    /// efr's data root.
+    pub(crate) data: PathBuf,
+    /// efr's state root.
+    pub(crate) state: PathBuf,
+    /// The launcher that efrd copies into the runtime root, when it found one.
+    pub(crate) launcher: Option<PathBuf>,
 }
 
 impl EngineParts {
@@ -66,8 +95,20 @@ impl EngineParts {
         let links = tokio::task::spawn_blocking(move || link_targets(&home, &roots))
             .await
             .unwrap_or_default();
-        let facts = SandboxFacts { host: self.host.clone(), link_targets: links };
+        let facts = SandboxFacts { host: self.host.clone(), link_targets: links, efr: self.efr() };
         build(&self.home, &self.secrets, &protected, settings, &projects, &facts)
+    }
+
+    /// efr's own roots and programs.
+    fn efr(&self) -> EfrPaths {
+        let mut binaries: Vec<PathBuf> = self.launcher.iter().cloned().collect();
+        binaries.push(self.runtime.join(launcher::BIN_DIR).join(launcher::LAUNCHER));
+        EfrPaths {
+            runtime: Some(self.runtime.clone()),
+            data: Some(self.data.clone()),
+            state: Some(self.state.clone()),
+            binaries,
+        }
     }
 }
 
@@ -172,11 +213,39 @@ pub(crate) fn build(
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
+    locations = with_efr(locations, sandbox)?;
     // NOTE: no proxy (phase D), no bus proxy (phase E) and no undo (phase B) yet. The
     // backup store of floor files sets `floor_backup` once it works, and the mount view
     // of phase D sets `mount_view`.
     let support = AutoSupport { floor_backup: false, mount_view: false, ..AutoSupport::default() };
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
+}
+
+/// `locations` with efr's own roots and programs (plan PD36): the runtime root, the
+/// data root except `$SCRATCH` and efr's trash, the state root, efrd, `efr` and the
+/// launcher with its copy. A write there is refused in every mode.
+///
+/// NOTE: before phase A the engine sealed only the daemon's `secrets/`, and a write to
+/// the database or the hidden shells' `$ZDOTDIR` was a `write` exit that only the user
+/// approved. The classifier now judges such writes, so without this floor only the
+/// naming rule would stand between the model and efr's own trust anchors.
+fn with_efr(mut locations: Locations, sandbox: &SandboxFacts) -> Result<Locations, DaemonError> {
+    let invalid = |source| DaemonError::Locations { source };
+    let efr = &sandbox.efr;
+    if let Some(runtime) = &efr.runtime {
+        locations = locations.with_efr_root(runtime, []).map_err(invalid)?;
+    }
+    if let Some(data) = &efr.data {
+        let open = [data.join(SCRATCH_DIR), data.join(TRASH_DIR)];
+        locations = locations.with_efr_root(data, open).map_err(invalid)?;
+    }
+    if let Some(state) = &efr.state {
+        locations = locations.with_efr_root(state, []).map_err(invalid)?;
+    }
+    for binary in sandbox.host.binaries.iter().chain(&efr.binaries) {
+        locations = locations.with_efr_binary(binary).map_err(invalid)?;
+    }
+    Ok(locations)
 }
 
 /// The write roots of the `auto` sandbox besides scratch and the private tmp: the

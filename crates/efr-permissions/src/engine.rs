@@ -622,6 +622,9 @@ impl Judge<'_> {
             if *access == Access::Write && self.engine.locations.is_write_sealed(path) {
                 return (Effect::Deny, Cause::WriteSealed);
             }
+            if *access == Access::Write && self.engine.locations.is_efr_own(path) {
+                return (Effect::Deny, Cause::EfrOwn);
+            }
         }
         let secret = class == Some(PathClass::Secrets);
         let machine = match self.decided_by(&self.machine.policy, target, secret, None) {

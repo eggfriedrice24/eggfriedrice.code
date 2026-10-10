@@ -164,6 +164,11 @@ pub struct Locations {
     floor_roots: Vec<AddedFloor>,
     /// Paths that a contained call reads as empty, besides the built-in table.
     mask_roots: Vec<PathBuf>,
+    /// efr's own programs: efrd, efr and the launcher with its copy.
+    efr_binaries: Vec<PathBuf>,
+    /// efr's runtime, data and state roots, each with the places below it that a tool
+    /// may still write.
+    efr_roots: Vec<EfrRoot>,
 }
 
 impl Locations {
@@ -189,6 +194,8 @@ impl Locations {
             synced_roots: Vec::new(),
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
+            efr_binaries: Vec::new(),
+            efr_roots: Vec::new(),
         })
     }
 
@@ -227,7 +234,12 @@ impl Locations {
             synced_roots,
             floor_roots,
             mask_roots,
+            efr_binaries,
+            efr_roots,
         } = &mut self;
+        let efr_roots = efr_roots
+            .iter_mut()
+            .flat_map(|efr| std::iter::once(&mut efr.root).chain(efr.open.iter_mut()));
         let roots = secret_roots
             .iter_mut()
             .chain(sealed_roots)
@@ -237,7 +249,9 @@ impl Locations {
             .chain(private_roots)
             .chain(synced_roots)
             .chain(floor_roots.iter_mut().map(|floor| &mut floor.root))
-            .chain(mask_roots);
+            .chain(mask_roots)
+            .chain(efr_binaries)
+            .chain(efr_roots);
         for root in roots.chain(projects.values_mut()) {
             if let Cow::Owned(rehomed) = rehome(home, home_aliases, root) {
                 *root = rehomed;
@@ -282,6 +296,35 @@ impl Locations {
         if !self.write_sealed_roots.contains(&root) {
             self.write_sealed_roots.push(root);
         }
+        Ok(self)
+    }
+
+    /// Adds one of efr's own programs, such as efrd, efr, the launcher's source or its
+    /// copy in the runtime directory: no tool writes it, in any mode, and in `auto` a
+    /// shell write to it is a `config` exit, which no approval opens.
+    pub fn with_efr_binary(mut self, path: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let path = self.absolute_root(path.into())?;
+        if !self.efr_binaries.contains(&path) {
+            self.efr_binaries.push(path);
+        }
+        Ok(self)
+    }
+
+    /// Adds one of efr's own runtime, data or state roots, with the places below it
+    /// that a tool may still write, such as `$SCRATCH` in the data root. Nothing else
+    /// below the root is written by a tool, in any mode: it holds the hidden shells'
+    /// startup files, the launcher's copy, the database whose prompts decide whether a
+    /// user named an exit, and the backups of floor files. In `auto` a shell write
+    /// there is a `config` exit.
+    pub fn with_efr_root(
+        mut self,
+        root: impl Into<PathBuf>,
+        open: impl IntoIterator<Item = PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        let open =
+            open.into_iter().map(|path| self.absolute_root(path)).collect::<Result<_, _>>()?;
+        self.efr_roots.push(EfrRoot { root, open });
         Ok(self)
     }
 
@@ -557,6 +600,22 @@ impl Locations {
         self.write_sealed_roots.iter().any(|root| path.starts_with(root))
     }
 
+    /// True when `path`, in normal form, is one of efr's own programs, or lies in one of
+    /// efr's roots and in none of the places there that stay open.
+    pub(crate) fn is_efr_own(&self, path: &Path) -> bool {
+        let path = self.rehome(path);
+        let path = path.as_ref();
+        self.efr_binaries.iter().any(|binary| path.starts_with(binary))
+            || self.efr_roots.iter().any(|efr| {
+                path.starts_with(&efr.root) && !efr.open.iter().any(|open| path.starts_with(open))
+            })
+    }
+
+    /// efr's own programs and roots, for a check of what a directory holds.
+    pub(crate) fn efr_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.efr_binaries.iter().chain(self.efr_roots.iter().map(|efr| &efr.root))
+    }
+
     /// The first write-sealed root strictly below `dir`, a path in normal form.
     pub(crate) fn write_sealed_below(&self, dir: &Path) -> Option<&Path> {
         let dir = self.rehome(dir);
@@ -589,6 +648,13 @@ impl Locations {
         below.extend(proc_secret_below(dir));
         below
     }
+}
+
+/// One of efr's own roots, with the places below it that a tool may still write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EfrRoot {
+    root: PathBuf,
+    open: Vec<PathBuf>,
 }
 
 /// A floor that the daemon added, with what it is for.
