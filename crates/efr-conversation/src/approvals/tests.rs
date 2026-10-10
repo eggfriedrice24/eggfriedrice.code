@@ -32,7 +32,7 @@ fn decide(requirements: Requirements) -> Decision {
 #[tokio::test]
 async fn an_answer_reaches_the_parked_call_once() {
     let approvals = Approvals::default();
-    let receiver = approvals.park(turn(1), call(2));
+    let receiver = approvals.park(turn(1), call(2), false);
 
     assert_eq!(approvals.waiting_turn(call(2)), Some(turn(1)));
     assert!(approvals.answer(call(2), ApprovalDecision::Allow));
@@ -44,14 +44,14 @@ async fn an_answer_reaches_the_parked_call_once() {
 #[test]
 fn an_answer_for_a_call_that_stopped_waiting_is_not_delivered() {
     let approvals = Approvals::default();
-    drop(approvals.park(turn(1), call(2)));
+    drop(approvals.park(turn(1), call(2), false));
     assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
 }
 
 #[test]
 fn a_withdrawn_call_takes_no_answer() {
     let approvals = Approvals::default();
-    let _receiver = approvals.park(turn(1), call(2));
+    let _receiver = approvals.park(turn(1), call(2), false);
     assert!(approvals.withdraw(call(2)));
     assert!(!approvals.withdraw(call(2)));
     assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
@@ -60,9 +60,9 @@ fn a_withdrawn_call_takes_no_answer() {
 #[test]
 fn withdrawing_a_turn_takes_out_only_its_calls() {
     let approvals = Approvals::default();
-    let _a = approvals.park(turn(1), call(2));
-    let _b = approvals.park(turn(1), call(3));
-    let _c = approvals.park(turn(4), call(5));
+    let _a = approvals.park(turn(1), call(2), false);
+    let _b = approvals.park(turn(1), call(3), false);
+    let _c = approvals.park(turn(4), call(5), false);
     let mut expected = vec![call(2), call(3)];
     expected.sort_unstable();
 

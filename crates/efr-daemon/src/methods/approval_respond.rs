@@ -1,10 +1,12 @@
 //! `approval.respond`: the user's answer to a tool call that waits for approval.
 //!
 //! The store refuses an answer to a call that is not pending, so of two racing answers
-//! only one commits, and an approval that expired at a restart answers `not_found`.
+//! only one commits, and an approval that expired at a restart answers `not_found`. The
+//! conversation refuses an answer from a remote surface, such as a phone, to a privilege
+//! exit with `forbidden`, and the question stays open for the user's own terminal.
 
 use efr_conversation::ConversationError;
-use efr_protocol::ApprovalRespond;
+use efr_protocol::{ApprovalRespond, ErrorBody, ErrorCode};
 use efr_transport::{ConnectionContext, Responder};
 
 use crate::methods::prompt_send::ensure_exists;
@@ -32,6 +34,13 @@ pub(crate) async fn handle(
                 .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?),
             Err(ConversationError::DuplicateCommand { receipt }) => {
                 receipts::replay(METHOD, *receipt)
+            }
+            // NOTE: the question stays open for the user's own terminal, so no receipt
+            // keeps this refusal.
+            Err(error @ ConversationError::RemotePrivilegeAnswer { .. }) => {
+                Err(DaemonError::Rejected {
+                    body: ErrorBody::new(ErrorCode::Forbidden, error.to_string()),
+                })
             }
             Err(error) => Err(error.into()),
         },

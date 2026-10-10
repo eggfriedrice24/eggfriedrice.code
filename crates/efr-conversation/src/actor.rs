@@ -758,6 +758,13 @@ impl ConversationActor {
         let Some(turn_id) = approvals.waiting_turn(call_id) else {
             return Err(ConversationError::ApprovalNotPending { call_id });
         };
+        // NOTE: a remote surface answers no privilege exit; the question stays open for
+        // the user's own terminal.
+        if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto
+            && approvals.local_only(call_id)
+        {
+            return Err(ConversationError::RemotePrivilegeAnswer { origin, call_id });
+        }
         let event = Event::ApprovalResolved { turn_id, call_id, decision: params.decision, origin };
         let result = ApprovalRespondResult { seq: Seq::ZERO };
         let receipt = receipt(params.command_id, APPROVAL_RESPOND, &result)?;

@@ -1,13 +1,15 @@
-//! A question while the user is away: it waits `presence.away_wait_secs`, then the call
-//! does not run and the model goes on without it.
+//! Who answers a question: while the user is away it waits `presence.away_wait_secs`,
+//! then the call does not run and the model goes on without it; a phone never answers a
+//! privilege exit.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_protocol::{ApprovalDecision, Event, JudgeKind, Verdict};
+use efr_protocol::{ApprovalDecision, ApprovalRespond, Event, JudgeKind, Origin, Verdict};
 use pretty_assertions::assert_eq;
 
 use super::review::{judgements, reviewed, shell};
+use crate::ConversationError;
 use crate::exit::AWAY_EXPIRED;
 use crate::testing::{Harness, Script, Setup};
 
@@ -83,4 +85,51 @@ async fn a_present_user_gets_no_push_and_no_away_wait() {
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(turn_id).await;
     assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+}
+
+/// Answers `call_id` with `decision` from `origin`.
+async fn answer_from(
+    h: &mut Harness,
+    call_id: efr_protocol::CallId,
+    decision: ApprovalDecision,
+    origin: Origin,
+) -> Result<efr_protocol::ApprovalRespondResult, ConversationError> {
+    let params = ApprovalRespond {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        call_id,
+        decision,
+    };
+    h.handle.respond_approval(params, origin).await
+}
+
+#[tokio::test]
+async fn phone_never_answers_privilege() {
+    let setup = reviewed(None);
+    let script = Script::new(vec![shell("sudo pacman -Syu")]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    let sent = h.prompt("update the system").await;
+    let call_id = h.wait_approval().await;
+
+    let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
+    assert!(
+        matches!(
+            refused,
+            Err(ConversationError::RemotePrivilegeAnswer { origin: Origin::Phone, call_id: id })
+                if id == call_id
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(h.handle.state().await.unwrap().pending_approvals, vec![call_id], "still open");
+    answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+    assert_eq!(h.toolbox.invoked().len(), 1);
+}
+
+#[tokio::test]
+async fn a_phone_may_answer_an_exit_that_needs_no_password() {
+    let (mut h, _, turn_id, call_id) = asked(reviewed(None), false).await;
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Phone).await.unwrap();
+    h.wait_end(turn_id).await;
+    assert!(h.toolbox.invoked().is_empty());
 }

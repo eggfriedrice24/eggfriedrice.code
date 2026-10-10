@@ -1117,7 +1117,10 @@ impl Turn {
         };
         let summary = approvals::summary(&call.name, decision);
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
-        let answer = self.shared.approvals.park(turn_id, call_id);
+        // NOTE: a privilege exit needs the password at the terminal, so a phone never
+        // answers it (efr's auto spec, section 9.5).
+        let local_only = kinds.contains(&ExitKind::Privilege);
+        let answer = self.shared.approvals.park(turn_id, call_id, local_only);
         events.push(Event::ApprovalRequested {
             turn_id,
             call_id,

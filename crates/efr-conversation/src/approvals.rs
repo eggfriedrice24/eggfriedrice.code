@@ -25,24 +25,34 @@ pub(crate) struct Approvals {
 #[derive(Debug)]
 struct Parked {
     turn_id: TurnId,
+    /// True when only the user's own machine may answer, as for a privilege exit.
+    local_only: bool,
     answer: oneshot::Sender<ApprovalDecision>,
 }
 
 impl Approvals {
-    /// Parks `call_id` of `turn_id`; the receiver gets the user's decision.
+    /// Parks `call_id` of `turn_id`; the receiver gets the user's decision. With
+    /// `local_only`, only the user's own machine may answer.
     pub(crate) fn park(
         &self,
         turn_id: TurnId,
         call_id: CallId,
+        local_only: bool,
     ) -> oneshot::Receiver<ApprovalDecision> {
         let (answer, receiver) = oneshot::channel();
-        self.lock().insert(call_id, Parked { turn_id, answer });
+        self.lock().insert(call_id, Parked { turn_id, local_only, answer });
         receiver
     }
 
     /// The turn that waits for an answer about `call_id`, if one does.
     pub(crate) fn waiting_turn(&self, call_id: CallId) -> Option<TurnId> {
         self.lock().get(&call_id).map(|parked| parked.turn_id)
+    }
+
+    /// True when `call_id` waits for an answer that only the user's own machine may
+    /// give.
+    pub(crate) fn local_only(&self, call_id: CallId) -> bool {
+        self.lock().get(&call_id).is_some_and(|parked| parked.local_only)
     }
 
     /// Hands `decision` to the turn parked on `call_id`. False when no turn waits, or

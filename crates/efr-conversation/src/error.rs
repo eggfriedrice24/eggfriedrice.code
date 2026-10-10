@@ -117,13 +117,15 @@ pub enum ConversationError {
         origin: Origin,
     },
 
-    /// The judge of an exit (the classifier, from phase 3) could not answer; the user
-    /// is asked instead.
-    #[error("the judge of an exit could not answer")]
-    Judge {
-        /// The judge's error.
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
+    /// A question about a privilege exit takes an answer only from the user's own
+    /// machine, because the password needs the terminal: an answer from a phone leaves
+    /// the question open.
+    #[error("an answer from {origin:?} cannot approve the privilege exit of the call {call_id}")]
+    RemotePrivilegeAnswer {
+        /// The surface that answered.
+        origin: Origin,
+        /// The call.
+        call_id: CallId,
     },
 
     /// The prompt queue is full; the prompt was not recorded.
