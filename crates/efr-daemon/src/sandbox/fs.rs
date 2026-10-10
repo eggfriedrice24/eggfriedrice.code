@@ -3,16 +3,17 @@
 //! a contained call planted is never followed by accident.
 //!
 //! It also makes the target of an approved write grant (`WriteBind::MakeFile` and
-//! `MakeDir`) through the descriptor of its parent, with no link anywhere on the way.
+//! `MakeDir`) through the descriptor of its parent, with no link anywhere on the way,
+//! and deletes an allowed cache delete below the descriptor of its cache.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read as _};
 use std::os::fd::OwnedFd;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use efr_sandbox::{FileKind, FsView};
-use rustix::fs::{CWD, FileType, Mode, OFlags, ResolveFlags};
+use rustix::fs::{AtFlags, CWD, FileType, Mode, OFlags, ResolveFlags};
 
 /// The real file system, seen without following links where it matters.
 #[derive(Debug, Clone, Copy, Default)]
@@ -52,6 +53,81 @@ impl DaemonFs {
             Err(errno) => Err(errno.into()),
         }
     }
+
+    /// Deletes `relative`, a file or a whole directory, below the directory `root`, and
+    /// returns the bytes that it freed on the disk; `None` when nothing is there. The
+    /// root opens with no link anywhere on its path, and every path below it with
+    /// `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, so a link can never lead the delete out
+    /// of `root`. A directory that its owner made read-only, as Go's module cache does,
+    /// is opened up first. It blocks.
+    pub(crate) fn remove_beneath(root: &Path, relative: &Path) -> io::Result<Option<u64>> {
+        let (Some(parent), Some(name)) = (relative.parent(), relative.file_name()) else {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        };
+        if relative.is_absolute()
+            || relative.components().any(|part| !matches!(part, Component::Normal(_)))
+        {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        let root = DaemonFs::open(root, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+        let resolve = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS;
+        let parent = match rustix::fs::openat2(&root, parent, flags, Mode::empty(), resolve) {
+            Ok(parent) => parent,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(errno) => return Err(errno.into()),
+        };
+        remove_entry(&parent, name, 0)
+    }
+}
+
+/// How deep [`DaemonFs::remove_beneath`] goes below the path it deletes: one open
+/// descriptor per level.
+const MAX_REMOVE_DEPTH: usize = 256;
+
+/// Deletes the entry `name` of `dir`, a directory with everything below it, and returns
+/// the bytes that it freed; `None` when it is not there.
+fn remove_entry(dir: &OwnedFd, name: &OsStr, depth: usize) -> io::Result<Option<u64>> {
+    let stat = match rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) => stat,
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(errno) => return Err(errno.into()),
+    };
+    let blocks = u64::try_from(stat.st_blocks).unwrap_or(0).saturating_mul(512);
+    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory {
+        rustix::fs::unlinkat(dir, name, AtFlags::empty())?;
+        // NOTE: a file with another hard link frees nothing yet.
+        return Ok(Some(if stat.st_nlink == 1 { blocks } else { 0 }));
+    }
+    if depth >= MAX_REMOVE_DEPTH {
+        return Err(io::Error::other("the directory is too deep to delete"));
+    }
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+    let sub = match rustix::fs::openat(dir, name, flags, Mode::empty()) {
+        Ok(sub) => sub,
+        Err(rustix::io::Errno::ACCESS) => {
+            rustix::fs::chmodat(dir, name, Mode::from_raw_mode(0o700), AtFlags::empty())?;
+            rustix::fs::openat(dir, name, flags, Mode::empty())?
+        }
+        Err(errno) => return Err(errno.into()),
+    };
+    // NOTE: the entries of a read-only directory cannot go.
+    rustix::fs::fchmod(&sub, Mode::from_raw_mode(0o700))?;
+    let mut names: Vec<OsString> = Vec::new();
+    for entry in rustix::fs::Dir::read_from(&sub)? {
+        let entry = entry?;
+        let child = entry.file_name().to_bytes();
+        if child != b"." && child != b".." {
+            names.push(std::os::unix::ffi::OsStringExt::from_vec(child.to_vec()));
+        }
+    }
+    let mut freed = blocks;
+    for child in names {
+        freed = freed.saturating_add(remove_entry(&sub, &child, depth + 1)?.unwrap_or(0));
+    }
+    rustix::fs::unlinkat(dir, name, AtFlags::REMOVEDIR)?;
+    Ok(Some(freed))
 }
 
 impl FsView for DaemonFs {

@@ -25,7 +25,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
-use efr_conversation::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};
+use efr_conversation::{
+    CacheDeleteOutcome, CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox,
+};
 use efr_permissions::{Engine, Requirements};
 use efr_protocol::{
     ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
@@ -46,6 +48,7 @@ use crate::DaemonError;
 use crate::connections::Connections;
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
 
+mod cache_deletes;
 mod jobs;
 mod settings_tool;
 mod snapshot;
@@ -622,6 +625,30 @@ impl Toolbox for DaemonToolbox {
         tokio::task::spawn_blocking(move || quarantine::restore(&dir, &changes))
             .await
             .unwrap_or_else(|_| Err("moving the changes back panicked".to_owned()))
+    }
+
+    async fn delete_cache_paths(
+        &self,
+        call: &CallContext,
+        paths: &[PathBuf],
+    ) -> Result<CacheDeleteOutcome, String> {
+        let Some((_, engine)) = &self.sandbox else {
+            return Err("this efrd runs no sandbox, so the deletes stayed private".to_owned());
+        };
+        let secrets = engine.borrow().locations().secret_paths();
+        let settings = Arc::clone(&self.settings.borrow());
+        let home = self.home.path();
+        let caches = cache_deletes::caches(home, &settings);
+        let masks = cache_deletes::masks(home, &settings, secrets);
+        let checked = match cache_deletes::check(paths, &caches, &masks) {
+            Ok(checked) => checked,
+            Err(path) => {
+                tracing::warn!(call_id = %call.call_id, path = %path.display(), "a cache delete is not in a tool cache or reaches a pin or a mask; nothing is deleted");
+                return Err(cache_deletes::REFUSED.to_owned());
+            }
+        };
+        let applied = tokio::task::spawn_blocking(move || cache_deletes::apply(&checked)).await;
+        applied.unwrap_or_else(|_| Err("deleting the cache paths panicked".to_owned()))
     }
 
     async fn turn_report(

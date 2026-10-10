@@ -897,3 +897,122 @@ async fn file_tool_write_has_target_kind_facts() {
     assert_eq!(dir.unwrap().target(&app.join("sub")), Some(Some(TargetKind::Dir)));
     assert_eq!(cautious, None, "only auto reads the facts");
 }
+
+/// A toolbox with a sandbox service in `root`, whose home is `root/home`, and the
+/// default engine of that home.
+async fn sandboxed(root: &Path, settings: Settings) -> DaemonToolbox {
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let clock = TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let dirs =
+        efr_stdx::paths::Dirs::new(root.join("c"), root.join("d"), root.join("s"), root.join("r"))
+            .unwrap();
+    let sandbox = crate::sandbox::SandboxService::new(crate::sandbox::ServiceParts {
+        dirs: dirs.clone(),
+        home: Home::new(&home).unwrap(),
+        host: crate::sandbox::HostFacts::default(),
+        source: None,
+        seams: crate::sandbox::Seams::default(),
+        registry: dirs.config().join("projects.toml"),
+        writer: store.writer().clone(),
+        clock: clock.shared(),
+        rng: Arc::new(TestRng::new(3)),
+        git: efr_scope::Git::new(clock.shared()).isolated(),
+    })
+    .await;
+    let engine = Engine::with_defaults(Locations::new(&home).unwrap());
+    let (_engine, engine) = tokio::sync::watch::channel(Arc::new(engine));
+    let (toolbox, _settings) = toolbox_with(&home, settings);
+    toolbox.with_sandbox(sandbox, engine)
+}
+
+/// A temp dir and its path with every link resolved.
+fn canonical_temp() -> (tempfile::TempDir, PathBuf) {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    (temp, root)
+}
+
+#[tokio::test]
+async fn delete_cache_paths_frees_real_space() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (_temp, root) = canonical_temp();
+    let toolbox = sandboxed(&root, Settings::default()).await;
+    let cache = root.join("home/.cache");
+    let build = cache.join("go-build");
+    std::fs::create_dir_all(build.join("aa")).unwrap();
+    std::fs::write(build.join("aa/one"), vec![7_u8; 64 * 1024]).unwrap();
+    std::fs::write(cache.join("pip-wheel"), vec![7_u8; 64 * 1024]).unwrap();
+    // Go's module cache makes its dirs and files read-only.
+    let module = root.join("home/go/pkg/mod/example.com/m@v1");
+    std::fs::create_dir_all(&module).unwrap();
+    std::fs::write(module.join("go.mod"), "module m\n").unwrap();
+    for dir in [module.as_path(), module.parent().unwrap()] {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+    std::fs::write(cache.join("kept"), "x").unwrap();
+    let call = call("shell", json!({"command": "go clean -cache"}), &root);
+    let paths = [
+        build.clone(),
+        cache.join("pip-wheel"),
+        root.join("home/go/pkg/mod/example.com"),
+        cache.join("already-gone"),
+    ];
+
+    let outcome = toolbox.delete_cache_paths(&call.context, &paths).await.unwrap();
+
+    assert_eq!(outcome.deleted, paths[..3]);
+    assert!(outcome.freed_bytes >= 128 * 1024, "{}", outcome.freed_bytes);
+    assert!(!build.exists() && !cache.join("pip-wheel").exists());
+    assert!(!root.join("home/go/pkg/mod/example.com").exists());
+    assert!(cache.join("kept").exists());
+}
+
+#[tokio::test]
+async fn cache_delete_never_below_pins() {
+    let (_temp, root) = canonical_temp();
+    let toolbox = sandboxed(&root, Settings::default()).await;
+    let cargo = root.join("home/.cargo");
+    std::fs::create_dir_all(cargo.join("bin")).unwrap();
+    std::fs::create_dir_all(cargo.join("registry/cache")).unwrap();
+    std::fs::write(cargo.join("bin/x"), "#!/bin/sh\n").unwrap();
+    std::fs::write(cargo.join("registry/cache/a.crate"), "x").unwrap();
+    std::fs::create_dir_all(root.join("home/Documents")).unwrap();
+    std::fs::write(root.join("home/Documents/thesis.tex"), "x").unwrap();
+    let call = call("shell", json!({"command": "cargo cache --autoclean"}), &root);
+
+    for refused in [
+        vec![cargo.join("registry/cache/a.crate"), cargo.join("bin/x")],
+        vec![cargo.join("bin")],
+        vec![root.join("home/Documents/thesis.tex")],
+    ] {
+        let result = toolbox.delete_cache_paths(&call.context, &refused).await;
+        assert!(result.unwrap_err().contains("stayed private"), "{refused:?}");
+    }
+
+    assert!(cargo.join("bin/x").exists());
+    assert!(cargo.join("registry/cache/a.crate").exists(), "one bad path refuses the list");
+    assert!(root.join("home/Documents/thesis.tex").exists());
+}
+
+#[tokio::test]
+async fn a_cache_delete_never_follows_a_link_out_of_its_cache() {
+    let (_temp, root) = canonical_temp();
+    let toolbox = sandboxed(&root, Settings::default()).await;
+    let cache = root.join("home/.cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    let outside = root.join("home/work");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("notes"), "mine").unwrap();
+    std::os::unix::fs::symlink(&outside, cache.join("work")).unwrap();
+    let call = call("shell", json!({"command": "rm -rf ~/.cache/work/notes"}), &root);
+
+    let through = toolbox.delete_cache_paths(&call.context, &[cache.join("work/notes")]).await;
+    let link = toolbox.delete_cache_paths(&call.context, &[cache.join("work")]).await.unwrap();
+
+    assert!(through.is_err(), "{through:?}");
+    assert_eq!(link.deleted, [cache.join("work")], "the link itself goes");
+    assert_eq!(std::fs::read_to_string(outside.join("notes")).unwrap(), "mine");
+}
