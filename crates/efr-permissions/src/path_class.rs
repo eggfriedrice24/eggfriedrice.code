@@ -16,6 +16,7 @@ use efr_protocol::ProjectId;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::exits::Rebuild;
 use crate::{FloorGroup, PermissionsError};
 
 /// Where a path lives, which sets how freely a call may use it.
@@ -158,6 +159,13 @@ pub struct Locations {
     /// The envelope roots whose writes stay private to the conversation: the private
     /// tmp and the cache overlays. Each is in `envelope_roots` too.
     private_roots: Vec<PathBuf>,
+    /// The private roots that are tool caches, which a tool can fill again.
+    cache_roots: Vec<PathBuf>,
+    /// The names of dirs that a build makes again (`sandbox.rebuildable`), which count
+    /// only below a registered project root.
+    rebuildable_names: Vec<String>,
+    /// efr's trash.
+    trash_roots: Vec<PathBuf>,
     /// Folders that a sync service copies off the machine.
     synced_roots: Vec<PathBuf>,
     /// Paths that run code later outside the sandbox, besides the built-in table.
@@ -191,6 +199,9 @@ impl Locations {
             projects: BTreeMap::new(),
             envelope_roots: Vec::new(),
             private_roots: Vec::new(),
+            cache_roots: Vec::new(),
+            rebuildable_names: Vec::new(),
+            trash_roots: Vec::new(),
             synced_roots: Vec::new(),
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
@@ -231,6 +242,9 @@ impl Locations {
             projects,
             envelope_roots,
             private_roots,
+            cache_roots,
+            rebuildable_names: _,
+            trash_roots,
             synced_roots,
             floor_roots,
             mask_roots,
@@ -247,6 +261,8 @@ impl Locations {
             .chain(user_config_roots)
             .chain(envelope_roots)
             .chain(private_roots)
+            .chain(cache_roots)
+            .chain(trash_roots)
             .chain(synced_roots)
             .chain(
                 floor_roots
@@ -387,6 +403,38 @@ impl Locations {
             self.private_roots.push(root.clone());
         }
         self.with_envelope_root(root)
+    }
+
+    /// Adds a tool cache that a contained call writes through a private overlay, such
+    /// as `~/.cache` or `~/.cargo`: a private root ([`Locations::with_private_root`])
+    /// whose files a tool fetches or builds again, so a write there needs no user
+    /// message that names it ([`Rebuild::Cache`](crate::exits::Rebuild::Cache)).
+    pub fn with_cache_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        if !self.cache_roots.contains(&root) {
+            self.cache_roots.push(root.clone());
+        }
+        self.with_private_root(root)
+    }
+
+    /// Sets the names of dirs that a build makes again (`sandbox.rebuildable`, such as
+    /// `target` and `node_modules`). A path below such a dir counts as build output only
+    /// below a registered project root
+    /// ([`Rebuild::BuildOutput`](crate::exits::Rebuild::BuildOutput)): the same name
+    /// elsewhere, such as `~/Documents/build`, is the user's data.
+    #[must_use]
+    pub fn with_rebuildable_names(mut self, names: impl IntoIterator<Item = String>) -> Self {
+        self.rebuildable_names = names.into_iter().filter(|name| !name.is_empty()).collect();
+        self
+    }
+
+    /// Adds efr's trash ([`Rebuild::Trash`](crate::exits::Rebuild::Trash)).
+    pub fn with_trash_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        if !self.trash_roots.contains(&root) {
+            self.trash_roots.push(root);
+        }
+        Ok(self)
     }
 
     /// Adds a folder that a sync service copies off the machine (`sandbox.synced_dirs`):
@@ -620,6 +668,33 @@ impl Locations {
     pub(crate) fn is_write_sealed(&self, path: &Path) -> bool {
         let path = self.rehome(path);
         self.write_sealed_roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// What can make `path`, in normal form, again by its place alone: a cache root, a
+    /// dir with a rebuildable name below a registered project root, or efr's trash.
+    pub(crate) fn rebuild(&self, path: &Path) -> Option<Rebuild> {
+        let path = self.rehome(path);
+        let path = path.as_ref();
+        if self.cache_roots.iter().any(|root| path.starts_with(root)) {
+            return Some(Rebuild::Cache);
+        }
+        if self.trash_roots.iter().any(|root| path.starts_with(root)) {
+            return Some(Rebuild::Trash);
+        }
+        let output = self
+            .projects
+            .values()
+            .filter(|root| !self.is_at_or_above_home(root))
+            .filter_map(|root| path.strip_prefix(root).ok())
+            .any(|below| {
+                below.components().any(|component| match component {
+                    Component::Normal(name) => {
+                        self.rebuildable_names.iter().any(|known| name == known.as_str())
+                    }
+                    _ => false,
+                })
+            });
+        output.then_some(Rebuild::BuildOutput)
     }
 
     /// True when `path`, in normal form, is one of efr's own programs, or lies in one of

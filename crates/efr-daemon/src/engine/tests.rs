@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use efr_config::Settings;
 use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, PathClass, Policy,
-    Requirements, Resource, Rule,
+    Rebuild, Requirements, Resource, Rule,
 };
 use efr_protocol::{Mode, Origin, ProjectId, Scope};
 use efr_scope::{Home, Registry};
@@ -126,6 +126,19 @@ async fn no_tool_writes_efrs_own_programs_and_roots_but_scratch_and_trash_stay_o
             "{path:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn the_engine_marks_caches_and_efrs_trash_as_rebuildable() {
+    let (_root, home) = home();
+    let engine =
+        parts(&home, home.path().join("secrets")).engine(&Settings::default()).await.unwrap();
+    let rebuild = |path: PathBuf| {
+        engine.path_facts(&path, &Scope::Machine, &home.path().join("scratch")).unwrap().rebuild
+    };
+    assert_eq!(rebuild(home.path().join(".cache/pip/x")), Some(Rebuild::Cache));
+    assert_eq!(rebuild(home.path().join(".local/share/efr/trash/x")), Some(Rebuild::Trash));
+    assert_eq!(rebuild(home.path().join("Documents/build/x")), None);
 }
 
 #[tokio::test]

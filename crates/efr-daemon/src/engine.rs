@@ -239,6 +239,7 @@ fn with_efr(mut locations: Locations, sandbox: &SandboxFacts) -> Result<Location
     if let Some(data) = &efr.data {
         let open = [data.join(SCRATCH_DIR), data.join(TRASH_DIR)];
         locations = locations.with_efr_root(data, open).map_err(invalid)?;
+        locations = locations.with_trash_root(data.join(TRASH_DIR)).map_err(invalid)?;
     }
     if let Some(state) = &efr.state {
         locations = locations.with_efr_root(state, []).map_err(invalid)?;
@@ -296,12 +297,15 @@ fn with_sandbox(
         }
     };
     // NOTE: the private tmp and the cache overlays are write roots whose writes never
-    // reach the real files, so a program there was not written in the sandbox.
-    let private: Vec<PathBuf> =
-        PRIVATE_ROOTS.iter().map(PathBuf::from).chain(expand(&sandbox.caches)).collect();
-    for root in private {
+    // reach the real files, so a program there was not written in the sandbox. A tool
+    // fills a cache again, so a delete there needs no user message that names it.
+    for root in PRIVATE_ROOTS.iter().map(PathBuf::from) {
         locations = add(locations, root, "private root", |l, p| l.with_private_root(p));
     }
+    for root in expand(&sandbox.caches) {
+        locations = add(locations, root, "cache", |l, p| l.with_cache_root(p));
+    }
+    locations = locations.with_rebuildable_names(sandbox.rebuildable.iter().cloned());
     for root in roots.iter().cloned() {
         locations = add(locations, root, "envelope root", |l, p| l.with_envelope_root(p));
     }

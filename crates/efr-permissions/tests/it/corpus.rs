@@ -99,7 +99,7 @@ fn engine() -> Engine {
         "/home/u/go/pkg/mod",
         "/home/u/.npm",
     ] {
-        locations = locations.with_private_root(root).unwrap();
+        locations = locations.with_cache_root(root).unwrap();
     }
     for root in ["/home/u/p/app", "/home/u/p/project-x"] {
         locations = locations.with_envelope_root(root).unwrap();

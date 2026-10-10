@@ -221,6 +221,28 @@ pub struct PathFacts {
     pub floor: bool,
     /// True when the path lies in a folder that a sync service copies off the machine.
     pub synced: bool,
+    /// What can make the path again, when something can: a tool cache, the build
+    /// output of a registered project, or efr's trash. The classifier's naming rule
+    /// needs no user message that names such a target (spec 9.4). `None` for a floor, a
+    /// mask and a secret, whatever their place.
+    pub rebuild: Option<Rebuild>,
+}
+
+/// What can make a path again, so that a write there needs no user message that names
+/// it (spec 9.4). efr decides it from its own roots and the settings, never from the
+/// line or the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Rebuild {
+    /// A tool cache that a contained call writes through an overlay, such as
+    /// `~/.cache` or `~/.cargo`: the tool fetches or builds it again.
+    Cache,
+    /// A dir with a `sandbox.rebuildable` name, such as `target` or `node_modules`,
+    /// below a registered project root: the build makes it again. The same name
+    /// elsewhere, such as `~/Documents/build`, is the user's data.
+    BuildOutput,
+    /// efr's trash below its data dir.
+    Trash,
 }
 
 /// How a contained call gets the right to write the target of a `write` exit (spec

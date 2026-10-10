@@ -13,8 +13,8 @@ use crate::command::PRIVILEGED;
 use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, names_match, unsandboxed_line_problem};
 use crate::{
     Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
-    Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource,
-    Rule, Subject, TargetKind, WriteBind,
+    Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Rebuild, Requirements,
+    Resource, Rule, Subject, TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -28,10 +28,19 @@ fn auto_locations() -> Locations {
         .unwrap()
         .with_synced_root("/home/u/Dropbox")
         .unwrap();
-    for root in ["/tmp", "/var/tmp", "/dev/shm", "/home/u/.cargo", "/home/u/.cache"] {
+    for root in ["/tmp", "/var/tmp", "/dev/shm"] {
         locations = locations.with_private_root(root).unwrap();
     }
-    locations.with_envelope_root("/home/u/p/lib").unwrap()
+    for root in ["/home/u/.cargo", "/home/u/.cache"] {
+        locations = locations.with_cache_root(root).unwrap();
+    }
+    let names = ["target", "node_modules", "dist", "build", ".venv"].map(str::to_owned);
+    locations
+        .with_envelope_root("/home/u/p/lib")
+        .unwrap()
+        .with_trash_root("/home/u/.local/share/efr/trash")
+        .unwrap()
+        .with_rebuildable_names(names)
 }
 
 fn engine() -> Engine {
@@ -1779,7 +1788,40 @@ fn path_facts_name_the_write_root_the_floor_and_the_synced_folder(
     #[case] synced: bool,
 ) {
     let facts = engine().path_facts(path.as_ref(), &Scope::Project(app()), SCRATCH.as_ref());
-    assert_eq!(facts, Some(PathFacts { class, in_write_root, floor, synced }));
+    assert_eq!(facts, Some(PathFacts { class, in_write_root, floor, synced, rebuild: None }));
+}
+
+#[rstest]
+#[case::cache("/home/u/.cache/go-build/x", Some(Rebuild::Cache))]
+#[case::cargo_registry("/home/u/.cargo/registry/cache/x.crate", Some(Rebuild::Cache))]
+#[case::cargo_bin("/home/u/.cargo/bin/cargo", None)]
+#[case::cargo_config("/home/u/.cargo/config.toml", None)]
+#[case::browser_cache("/home/u/.cache/mozilla/x", None)]
+#[case::build_output("/home/u/p/app/target/debug/x", Some(Rebuild::BuildOutput))]
+#[case::build_dir_itself("/home/u/p/app/node_modules", Some(Rebuild::BuildOutput))]
+#[case::nested_build("/home/u/p/app/web/dist/main.js", Some(Rebuild::BuildOutput))]
+#[case::other_project_output("/srv/site/build/index.html", Some(Rebuild::BuildOutput))]
+#[case::source("/home/u/p/app/src/main.rs", None)]
+#[case::trash("/home/u/.local/share/efr/trash/x", Some(Rebuild::Trash))]
+#[case::home_file("/home/u/notes.txt", None)]
+fn path_facts_mark_cache_build_output_and_trash(
+    #[case] path: &str,
+    #[case] expected: Option<Rebuild>,
+) {
+    let facts = engine().path_facts(path.as_ref(), &Scope::Project(app()), SCRATCH.as_ref());
+    assert_eq!(facts.map(|facts| facts.rebuild), Some(expected), "{path}");
+}
+
+#[test]
+fn rebuildable_name_outside_projects_needs_name() {
+    let facts = |path: &str| {
+        engine().path_facts(path.as_ref(), &Scope::Machine, SCRATCH.as_ref()).unwrap().rebuild
+    };
+    assert_eq!(facts("/home/u/Documents/build/thesis.tex"), None);
+    assert_eq!(facts("/home/u/target/x"), None);
+    // A project registered at `~` or `/` makes no build output of the whole home.
+    assert_eq!(facts("/home/u/build/x"), None);
+    assert_eq!(facts("/home/u/p/app/target/x"), Some(Rebuild::BuildOutput));
 }
 
 #[test]

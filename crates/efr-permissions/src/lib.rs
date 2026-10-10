@@ -55,7 +55,7 @@ pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
-pub use exits::{Approver, ExitNeed, FactRequest, PathFacts, WriteBind};
+pub use exits::{Approver, ExitNeed, FactRequest, PathFacts, Rebuild, WriteBind};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{

@@ -336,11 +336,15 @@ impl Engine {
             _ => None,
         };
         let envelope = Envelope::new(&self.locations, project_root, scratch.as_deref());
+        let class = self.locations.classify_normal(&path, scratch.as_deref());
+        let floor = envelope.is_floor(&path);
+        let guarded = floor || class == PathClass::Secrets || envelope.is_masked(&path);
         Some(PathFacts {
-            class: self.locations.classify_normal(&path, scratch.as_deref()),
+            class,
             in_write_root: envelope.in_root(&path),
-            floor: envelope.is_floor(&path),
+            floor,
             synced: self.locations.synced_roots().iter().any(|root| path.starts_with(root)),
+            rebuild: if guarded { None } else { self.locations.rebuild(&path) },
         })
     }
 }
