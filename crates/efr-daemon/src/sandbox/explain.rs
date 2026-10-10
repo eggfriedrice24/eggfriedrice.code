@@ -122,7 +122,7 @@ impl SandboxService {
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox.explain" })?
         .map_err(|source| DaemonError::SandboxSpec { source })?;
         let (real, explanation) = explained;
-        let (reason, write_exit) = why(explanation.origin);
+        let (reason, write_exit) = reason(explanation.origin, engine.support().floor_backup);
         Ok(SandboxExplainResult {
             path: real,
             project: turn_project,
@@ -130,10 +130,39 @@ impl SandboxService {
             role: explanation.role,
             read: explanation.read,
             write: explanation.write,
-            reason: reason.to_owned(),
+            reason,
             write_exit,
         })
     }
+}
+
+/// What a floor file edit adds to the reason while efrd keeps backups (the decision of
+/// 2026-10-10 on floor file edits).
+pub(crate) const REVIEWED_FLOOR: &str = "a write goes to the reviewer when a message of \
+     yours names the file, and efr keeps a backup copy; else you decide";
+
+/// [`why`], and for a floor whose file edit the reviewer may judge while efrd keeps
+/// backups (`floor_backup`), who decides.
+pub(crate) fn reason(
+    origin: Option<MountOrigin>,
+    floor_backup: bool,
+) -> (String, Option<ExitKind>) {
+    let (reason, exit) = why(origin);
+    let reviewed = matches!(
+        origin,
+        Some(MountOrigin::Floor(
+            FloorKind::ShellStartup
+                | FloorKind::Autostart
+                | FloorKind::PathDir
+                | FloorKind::ToolConfig
+                | FloorKind::LinkTarget
+                | FloorKind::ProtectedName
+        ))
+    );
+    if floor_backup && reviewed {
+        return (format!("{reason}; {REVIEWED_FLOOR}"), exit);
+    }
+    (reason.to_owned(), exit)
 }
 
 /// The one-sentence reason of a path's role from the mount `origin` that decides it,
@@ -162,6 +191,9 @@ pub(crate) fn why(origin: Option<MountOrigin>) -> (&'static str, Option<ExitKind
         Some(MountOrigin::Pin) => ("the git dir of a project (write root)", None),
         Some(MountOrigin::Floor(FloorKind::Config)) => {
             ("efr's config (floor; no approval writes it)", Some(ExitKind::Config))
+        }
+        Some(MountOrigin::Floor(FloorKind::EfrBinary)) => {
+            ("an efr program (floor; no approval writes it)", Some(ExitKind::Config))
         }
         Some(MountOrigin::Floor(kind)) => floor(floor_reason(kind)),
         Some(MountOrigin::Asset) => ("a file of efr's sandbox (read only)", None),
@@ -195,7 +227,6 @@ fn floor_reason(kind: FloorKind) -> &'static str {
         FloorKind::PathDir => "a directory on the hidden shell's PATH (floor)",
         FloorKind::ToolConfig => "a tool config that runs code (floor)",
         FloorKind::LinkTarget => "the target of a link in your home directory (floor)",
-        FloorKind::EfrBinary => "an efr program (floor)",
         FloorKind::GitConfig | FloorKind::GitHooks | FloorKind::GitFile => {
             "a git setting that runs programs (floor)"
         }
