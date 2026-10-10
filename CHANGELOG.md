@@ -10,6 +10,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- Before efr writes a file that runs code later, such as `~/.zshrc`, a Hyprland
+  config or a unit file, it copies the file to `~/.local/share/efr/file-backups/`. Copy
+  the backup back to undo the change. When efr cannot make the copy, it does not change
+  the file. efr keeps the backups of the last `snapshot.keep_turns` turns and for at
+  most `snapshot.max_age_days` days.
+
 ### Changed
 
 - In `auto`, `write_file` and `edit` outside the project and `$SCRATCH` are an exit
@@ -26,6 +34,7 @@ into the GitHub release notes, and it stops when the section is missing.
 - The shell tool tells the model to try what you asked first, and to call again with
   the narrowest `needs` after an access error. The note after a failed sandboxed
   command no longer lists what the sandbox cannot do.
+- `efr sandbox explain` says that the reviewer decides a named floor file.
 
 ## [0.0.3] - 2026-10-09
 
