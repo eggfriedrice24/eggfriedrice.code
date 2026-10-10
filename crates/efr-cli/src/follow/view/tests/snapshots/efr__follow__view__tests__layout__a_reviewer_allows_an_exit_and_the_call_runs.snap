@@ -1,0 +1,77 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\", json!({ \"command\": line }), Some(Launch::contained()))),\nSent(20, exit_requested(1, line, ExitFacts::default(), &info)),\nSent(20, review_started(1, &info.kinds)), Shot(\"reviewing\"),\nSent(1_300,\nreviewed(1, Verdict::Allow, Some(Risk::Low),\n\"you asked to run the generator\")), Shot(\"allowed\"),\nSent(2_400, ended(1, Some(0), None)),])"
+---
+=== 40 columns, colour
+[reviewing]
+\e[33m•\e[0m \e[2mreviewing: ./scripts/gen.sh\e[0m
+
+[allowed]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[33m•\e[0m \e[36m$ ./scripts/gen.sh\e[0m
+
+[end]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[33m·\e[0m \e[36m$ ./scripts/gen.sh\e[0m
+  \e[32m✓ 1.1s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
+
+=== 40 columns, NO_COLOR
+[reviewing]
+\e[1m•\e[0m \e[2mreviewing: ./scripts/gen.sh\e[0m
+
+[allowed]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[1m•\e[0m $ ./scripts/gen.sh
+
+[end]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[1m·\e[0m $ ./scripts/gen.sh
+  ✓ 1.1s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
+
+=== 80 columns, colour
+[reviewing]
+\e[33m•\e[0m \e[2mreviewing: ./scripts/gen.sh\e[0m
+
+[allowed]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[33m•\e[0m \e[36m$ ./scripts/gen.sh\e[0m
+
+[end]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[33m·\e[0m \e[36m$ ./scripts/gen.sh\e[0m
+  \e[32m✓ 1.1s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
+
+=== 80 columns, NO_COLOR
+[reviewing]
+\e[1m•\e[0m \e[2mreviewing: ./scripts/gen.sh\e[0m
+
+[allowed]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[1m•\e[0m $ ./scripts/gen.sh
+
+[end]
+\e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)\e[0m
+\e[1m·\e[0m $ ./scripts/gen.sh
+  ✓ 1.1s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
+
+=== not a terminal
+[reviewing]
+stdout:
+stderr:
+
+[allowed]
+stdout:
+stderr:
+reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
+· $ ./scripts/gen.sh
+
+[end]
+stdout:
+stderr:
+reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
+· $ ./scripts/gen.sh
+  ✓ 1.1s

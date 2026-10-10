@@ -1902,6 +1902,32 @@ fn twenty_seconds_without_data_says_so() {
 }
 
 #[test]
+fn status_row_shows_reviewing() {
+    let mut view = started_view(Look::default());
+    let wide = Size { cols: 80, rows: 20 };
+    let [record, _] = exit_events(
+        "curl -LO https://example.com/tool.tar.gz\u{202e}",
+        ExitFacts::default(),
+        exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] }),
+    );
+    let review =
+        Event::ExitReviewStarted { turn_id: turn(), call_id: call(), kinds: vec![ExitKind::Host] };
+    for (seq, event) in
+        [turn_started(), contained_started("curl"), record, review].into_iter().enumerate()
+    {
+        view.envelope(&sent(11 + seq as u64, 0, event), wide, true);
+    }
+    // The call waits for the verdict: the status row says what the reviewer reviews in
+    // place of the call's line, and model text cannot turn the row around.
+    let frame = crate::testing::bare(&view.frame(wide, at(10)));
+    assert!(
+        frame.contains("reviewing: curl -LO https://example.com/tool.tar.gz\u{fffd}"),
+        "{frame}"
+    );
+    assert!(!frame.contains("$ curl"), "{frame}");
+}
+
+#[test]
 fn drafts_then_an_overlapping_update_show_no_text_twice() {
     let mut view = started_view(Look::default());
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);

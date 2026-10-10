@@ -11,10 +11,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, CheckOutcome, ExitInfo, ExitKind,
-    ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback, PathClassName,
-    ProgramFact, ReportedFile, SandboxExplainResult, SandboxStatus, SurfaceChange, TargetFact,
-    Verdict,
+    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, ChainStep, CheckOutcome, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback, PathClassName,
+    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange,
+    TargetFact, Verdict,
 };
 
 use super::card::{self, Card, Row};
@@ -234,13 +234,13 @@ fn launch_words(info: &ExitInfo, home: Option<&Path>) -> String {
 
 /// The paths of the grants that `pick` selects, else the targets of the record.
 fn paths(
-    info: &ExitInfo,
+    grants: &[Grant],
     record: Option<&ExitRecord>,
     home: Option<&Path>,
     pick: fn(&Grant) -> Option<&Path>,
 ) -> Vec<String> {
     let granted: Vec<String> =
-        info.grants.iter().filter_map(pick).map(|path| tilde(path, home)).collect();
+        grants.iter().filter_map(pick).map(|path| tilde(path, home)).collect();
     if !granted.is_empty() {
         return granted;
     }
@@ -287,14 +287,15 @@ fn first_program(record: Option<&ExitRecord>) -> Option<String> {
     record.and_then(|record| record.facts.programs.first()).map(|program| one_line(&program.word))
 }
 
-/// One exit kind in words, such as `write ~/.zshrc` or `network`.
+/// One exit kind in words, such as `write ~/.zshrc` or `network`, with what the
+/// grants open.
 fn kind_part(
     kind: ExitKind,
-    info: &ExitInfo,
+    grants: &[Grant],
     record: Option<&ExitRecord>,
     home: Option<&Path>,
 ) -> String {
-    let writes = || paths(info, record, home, write_path);
+    let writes = || paths(grants, record, home, write_path);
     match kind {
         ExitKind::Write | ExitKind::Persistence => {
             with_paths("write", &writes(), &kind_words(kind))
@@ -306,10 +307,10 @@ fn kind_part(
             format!("{} (at or above a project root)", with_paths("write", &writes(), "write"))
         }
         ExitKind::MaskedRead => {
-            with_paths("read", &paths(info, record, home, unmask_path), "a masked read")
+            with_paths("read", &paths(grants, record, home, unmask_path), "a masked read")
         }
         ExitKind::Destructive => {
-            let targets = paths(info, record, home, |_| None);
+            let targets = paths(grants, record, home, |_| None);
             with_paths("destroy or overwrite", &targets, "a destructive change")
         }
         ExitKind::Host => {
@@ -324,11 +325,10 @@ fn kind_part(
         }
         ExitKind::HostView => "a view of the host's network".to_owned(),
         ExitKind::Socket => {
-            with_paths("the socket", &paths(info, record, home, socket_path), "a socket")
+            with_paths("the socket", &paths(grants, record, home, socket_path), "a socket")
         }
         ExitKind::DesktopIpc => "the desktop (it can type and run commands)".to_owned(),
-        ExitKind::Bus => info
-            .grants
+        ExitKind::Bus => grants
             .iter()
             .find_map(|grant| match grant {
                 Grant::Bus { bus } => Some(bus_words(*bus).to_owned()),
@@ -336,7 +336,7 @@ fn kind_part(
             })
             .unwrap_or_else(|| "a message bus".to_owned()),
         ExitKind::Device => {
-            with_paths("the device", &paths(info, record, home, device_path), "a device")
+            with_paths("the device", &paths(grants, record, home, device_path), "a device")
         }
         ExitKind::Outside => first_program(record).unwrap_or_else(|| "the whole line".to_owned()),
         ExitKind::Privilege => format!(
@@ -405,7 +405,7 @@ pub(crate) fn exit_lines(
 ) -> Vec<Vec<(String, Tone)>> {
     let mut parts: Vec<String> = Vec::new();
     for kind in &info.kinds {
-        let part = kind_part(*kind, info, record, home);
+        let part = kind_part(*kind, &info.grants, record, home);
         if !parts.contains(&part) {
             parts.push(part);
         }
@@ -435,6 +435,9 @@ pub(crate) fn exit_lines(
             lines.push(line);
         }
     }
+    if let Some(judged) = &info.judged {
+        lines.push(vec![(reviewer_row(judged.verdict, &judged.rationale), Tone::Dim)]);
+    }
     let mut facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
     if info.user_only {
         facts.push("only you can allow this".to_owned());
@@ -459,6 +462,8 @@ pub(crate) fn exit_lines(
 /// - for a run outside the sandbox, every program word as a plain name, with the path
 ///   it resolves to and the untrusted mark (in the `warning` role) only for a program
 ///   that the sandbox wrote or may have written (muted);
+/// - what the reviewer thought before it handed the question over, from the question
+///   (`judged`), else `reviewed`, the verdict that the view saw (muted);
 /// - efr's own facts after `efr:`, and the model's reason as `the model says: "..."`
 ///   (muted).
 pub(crate) fn exit_card(
@@ -466,6 +471,7 @@ pub(crate) fn exit_card(
     record: Option<&ExitRecord>,
     home: Option<&Path>,
     subject: Vec<Row>,
+    reviewed: Option<(Verdict, &str)>,
 ) -> Card {
     let unsandboxed = matches!(info.launch, Launch::Unsandboxed);
     let title = match &info.launch {
@@ -491,7 +497,7 @@ pub(crate) fn exit_card(
         if *kind == ExitKind::Outside {
             continue;
         }
-        let part = kind_part(*kind, info, record, home);
+        let part = kind_part(*kind, &info.grants, record, home);
         if !parts.contains(&part) {
             parts.push(part);
         }
@@ -508,6 +514,10 @@ pub(crate) fn exit_card(
             pieces.extend(mark.map(|mark| (mark, Tone::Attention)));
         }
         rows.push(Row::Text(pieces));
+    }
+    let judged = info.judged.as_ref().map(|judged| (judged.verdict, judged.rationale.as_str()));
+    if let Some((verdict, rationale)) = judged.or(reviewed) {
+        rows.push(Row::text(reviewer_row(verdict, rationale), Tone::Dim));
     }
     let mut facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
     if info.user_only {
@@ -570,6 +580,158 @@ pub(crate) fn exit_summary(
         .map(|line| line.into_iter().map(|(text, _)| text).collect())
         .collect();
     lines.join("; ")
+}
+
+/// An exit as its `exit_requested` event gives it: the view and the history keep one
+/// per call, for the lines of its question and of the reviewer.
+#[derive(Debug, Clone)]
+pub(crate) struct Requested {
+    pub(crate) kinds: Vec<ExitKind>,
+    pub(crate) grants: Vec<Grant>,
+    pub(crate) source: ExitSource,
+    pub(crate) record: ExitRecord,
+}
+
+impl Requested {
+    /// The exit of an `exit_requested` event.
+    pub(crate) fn new(
+        kinds: &[ExitKind],
+        grants: &[Grant],
+        source: ExitSource,
+        record: &ExitRecord,
+    ) -> Requested {
+        Requested { kinds: kinds.to_vec(), grants: grants.to_vec(), source, record: record.clone() }
+    }
+}
+
+/// What an exit opens, in a few words, for the reviewer's lines: each kind with its
+/// targets, such as `write ~/.local/share/app`; for the deletes of a tool cache, how many
+/// paths and where, because they can be thousands.
+pub(crate) fn exit_what(exit: &Requested, home: Option<&Path>) -> String {
+    let record = Some(&exit.record);
+    if exit.source == ExitSource::CacheDelete {
+        let paths: Vec<&Path> =
+            exit.record.facts.targets.iter().map(|target| target.path.as_path()).collect();
+        let count = plural(paths.len(), "path", "paths");
+        return match common_dir(&paths) {
+            Some(dir) => format!("delete {count} in {}", tilde(&dir, home)),
+            None => format!("delete {count} in a tool cache"),
+        };
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for kind in &exit.kinds {
+        let part = kind_part(*kind, &exit.grants, record, home);
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    if parts.is_empty() { "this call".to_owned() } else { parts.join("; ") }
+}
+
+/// `count` and the noun in the singular or the plural, such as `1 path` or `12 paths`.
+fn plural(count: usize, one: &str, more: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { more })
+}
+
+/// The dir that holds every path of `paths`: the parent of a single path, else the
+/// longest common start of their parents; `None` for no paths or nothing in common.
+fn common_dir(paths: &[&Path]) -> Option<std::path::PathBuf> {
+    let mut parents = paths.iter().map(|path| path.parent().unwrap_or(path));
+    let mut common = parents.next()?.to_path_buf();
+    for parent in parents {
+        while !parent.starts_with(&common) {
+            if !common.pop() {
+                return None;
+            }
+        }
+    }
+    (!common.as_os_str().is_empty()).then_some(common)
+}
+
+/// What the reviewer reviews, for the status row (`reviewing: <subject>`): the line of
+/// the call, else what the exit opens (a file tool has no line).
+pub(crate) fn reviewing(
+    exit: Option<&Requested>,
+    kinds: &[ExitKind],
+    home: Option<&Path>,
+) -> String {
+    let subject = match exit {
+        Some(exit) if !exit.record.action.line.trim().is_empty() => {
+            one_line(exit.record.action.line.trim())
+        }
+        Some(exit) => exit_what(exit, home),
+        None => {
+            let kinds: Vec<String> = kinds.iter().map(|kind| kind_words(*kind)).collect();
+            kinds.join(", ")
+        }
+    };
+    format!("reviewing: {subject}")
+}
+
+/// A risk in words, such as `low risk`.
+fn risk_words(risk: Risk) -> &'static str {
+    match risk {
+        Risk::Low => "low risk",
+        Risk::Medium => "medium risk",
+        Risk::High => "high risk",
+        Risk::Critical => "critical risk",
+        _ => "unknown risk",
+    }
+}
+
+/// The line of the reviewer's verdict on an exit: `reviewer allowed: <what> for this
+/// call (<risk>; <rationale>)` or `reviewer refused: <line>: <rationale>` (efr's auto
+/// spec, 14.3). `None` for an unsure verdict, which the question's card shows. The
+/// rationale is the reviewer model's text, so it passes through [`one_line`].
+pub(crate) fn reviewed(
+    verdict: Verdict,
+    risk: Option<Risk>,
+    rationale: Option<&str>,
+    exit: Option<&Requested>,
+    home: Option<&Path>,
+) -> Option<String> {
+    let rationale = rationale.map(one_line).filter(|text| !text.trim().is_empty());
+    let what = exit.map_or_else(|| "the call".to_owned(), |exit| exit_what(exit, home));
+    match verdict {
+        Verdict::Allow => {
+            let why: Vec<String> =
+                risk.map(|risk| risk_words(risk).to_owned()).into_iter().chain(rationale).collect();
+            let mut line = format!("reviewer allowed: {what} for this call");
+            if !why.is_empty() {
+                let _ = write!(line, " ({})", why.join("; "));
+            }
+            Some(line)
+        }
+        Verdict::Deny => {
+            let subject = match exit {
+                Some(exit) if !exit.record.action.line.trim().is_empty() => {
+                    one_line(exit.record.action.line.trim())
+                }
+                _ => what,
+            };
+            Some(match rationale {
+                Some(rationale) => format!("reviewer refused: {subject}: {rationale}"),
+                None => format!("reviewer refused: {subject}"),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The row of a question's card that says what the reviewer thought before it handed
+/// the question over, such as `reviewer: unsure; no message of yours names this host`.
+pub(crate) fn reviewer_row(verdict: Verdict, rationale: &str) -> String {
+    let opinion = match verdict {
+        Verdict::Allow => "it would allow this, but efr's rules ask you",
+        Verdict::Deny => "it would refuse this",
+        _ => "unsure",
+    };
+    let rationale = one_line(rationale.trim());
+    if rationale.is_empty() {
+        format!("reviewer: {opinion}")
+    } else {
+        format!("reviewer: {opinion}; {rationale}")
+    }
 }
 
 /// Where an exit came from, in words.
@@ -706,6 +868,7 @@ pub(crate) fn exit_judged(judge: JudgeKind, verdict: Verdict, category: Option<&
         JudgeKind::Floor => "a floor",
         JudgeKind::Classifier => "the reviewer",
         JudgeKind::Always => "an always-allow rule",
+        JudgeKind::PresenceExpired => "nobody, while you were away",
         _ => "another judge",
     };
     let mut line = format!("exit {} by {judge}", verdict_words(verdict));
@@ -713,6 +876,42 @@ pub(crate) fn exit_judged(judge: JudgeKind, verdict: Verdict, category: Option<&
         let _ = write!(line, ": {}", one_line(category));
     }
     line
+}
+
+/// How the reviewer came to a verdict, for `efr history --verbose`: the model, the
+/// step of its chain, the time, whether the verdict came from the turn's cache, and
+/// the models that the chain skipped; `None` when the event names none of these.
+pub(crate) fn judge_details(
+    model: Option<&str>,
+    chain_step: Option<ChainStep>,
+    latency_ms: Option<u64>,
+    cached: bool,
+    skipped: &[String],
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(model) = model {
+        parts.push(format!("model {}", one_line(model)));
+    }
+    if let Some(step) = chain_step {
+        let step = match step {
+            ChainStep::ClassifierModel => "the reviewer model",
+            ChainStep::TurnModel => "the turn's model",
+            ChainStep::User => "handed to you",
+            _ => "another step",
+        };
+        parts.push(step.to_owned());
+    }
+    if let Some(latency) = latency_ms {
+        parts.push(format!("{latency} ms"));
+    }
+    if cached {
+        parts.push("from the turn's cache".to_owned());
+    }
+    if !skipped.is_empty() {
+        let skipped: Vec<String> = skipped.iter().map(|text| one_line(text)).collect();
+        parts.push(format!("skipped {}", skipped.join(", ")));
+    }
+    (!parts.is_empty()).then(|| format!("  {}", parts.join("; ")))
 }
 
 /// One change of the quarantine question, such as `  .git/commondir (core.fsmonitor);

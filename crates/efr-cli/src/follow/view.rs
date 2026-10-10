@@ -97,8 +97,10 @@
 //! An approval for an exit shows the whole line of the call, what a "yes" allows and
 //! why, the full-rights warning and every program word of a line that runs outside the
 //! sandbox (with the untrusted mark for a program that the sandbox wrote), efr's own
-//! facts and the model's reason, labelled as the model's. A turn whose mode fell
-//! back says so at its start. When a call changed git settings that run programs, the
+//! facts and the model's reason, labelled as the model's. While the reviewer of `auto`
+//! judges an exit, the status row says `reviewing: <line>`; its allow or refusal is
+//! one muted line before the call's rows, and an unsure verdict is a row of the card
+//! that follows. A turn whose mode fell back says so at its start. When a call changed git settings that run programs, the
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 
@@ -113,8 +115,8 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, ExitRecord, FileChanges, InputWait, Launch, Origin, QuestionId, Scope, Seq,
-    SurfaceChange, TurnId, TurnInterruptResult, looks_secret,
+    ExitInfo, FileChanges, InputWait, JudgeKind, Launch, Origin, QuestionId, Risk, Scope, Seq,
+    SurfaceChange, TurnId, TurnInterruptResult, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -479,8 +481,11 @@ pub(crate) struct TurnView {
     traced: bool,
     /// Calls that run in the sandbox, whose failure says so.
     contained: HashSet<CallId>,
-    /// The record of each call's exit, for the lines of its approval.
-    exits: HashMap<CallId, ExitRecord>,
+    /// The exit of each call, for the lines of its approval and of the reviewer.
+    exits: HashMap<CallId, sandbox::Requested>,
+    /// What the reviewer thought of a call's exit before it handed the question over,
+    /// for the card when the question does not carry it.
+    reviewed: HashMap<CallId, (Verdict, String)>,
     /// The command of each shell call, whose approval shows each of its lines.
     commands: HashMap<CallId, String>,
     /// The quarantine question waiting for a key.
@@ -556,6 +561,7 @@ impl TurnView {
             traced: false,
             contained: HashSet::new(),
             exits: HashMap::new(),
+            reviewed: HashMap::new(),
             commands: HashMap::new(),
             surface: None,
             surface_answered: None,
@@ -1161,6 +1167,8 @@ impl TurnView {
         // on a terminal; anything else of the turn shows the call first.
         let question = match event {
             Event::ExitRequested { call_id, .. }
+            | Event::ExitReviewStarted { call_id, .. }
+            | Event::ExitJudged { call_id, .. }
             | Event::ApprovalRequested { call_id, .. }
             | Event::ApprovalResolved { call_id, .. }
             | Event::ApprovalExpired { call_id, .. } => {
@@ -1354,10 +1362,30 @@ impl TurnView {
                 // The live tail goes either way.
                 Step { settled, ..step }
             }
-            Event::ExitRequested { call_id, record, .. } => {
-                self.exits.insert(*call_id, (**record).clone());
+            Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
+                let exit = sandbox::Requested::new(kinds, grants, *source, record);
+                self.exits.insert(*call_id, exit);
                 Step::default()
             }
+            Event::ExitReviewStarted { call_id, kinds, .. } => {
+                // NOTE: the call waits for the verdict, so the status row shows what
+                // the reviewer reviews in place of the call's line.
+                if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
+                    call.awaiting = true;
+                }
+                let exit = self.exits.get(call_id);
+                let words = sandbox::reviewing(exit, kinds, self.home.as_deref());
+                self.state(State::Reviewing(words));
+                Step::default()
+            }
+            Event::ExitJudged {
+                call_id,
+                judge: JudgeKind::Classifier,
+                verdict,
+                risk,
+                rationale,
+                ..
+            } => self.judged(*call_id, *verdict, *risk, rationale.as_deref(), size),
             Event::ApprovalRequested {
                 call_id, summary, diff_preview, interactive, exit, ..
             } => {
@@ -1484,8 +1512,9 @@ impl TurnView {
                 }
                 Step::default()
             }
-            Event::ExitRequested { call_id, record, .. } => {
-                self.exits.insert(*call_id, (**record).clone());
+            Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
+                let exit = sandbox::Requested::new(kinds, grants, *source, record);
+                self.exits.insert(*call_id, exit);
                 Step::default()
             }
             Event::ApprovalRequested {
@@ -1579,6 +1608,71 @@ impl TurnView {
         let line = format!("{} from {}", format::decision(decision), format::origin(origin));
         let good = decision == ApprovalDecision::Allow;
         Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
+    }
+
+    /// The reviewer judged the exit of call `call_id`. An allow or a refusal is one muted
+    /// line, which the call's rows follow at once, as they follow an answer; an unsure
+    /// verdict shows on the card of the question that comes next.
+    fn judged(
+        &mut self,
+        call_id: CallId,
+        verdict: Verdict,
+        risk: Option<Risk>,
+        rationale: Option<&str>,
+        size: Size,
+    ) -> Step {
+        let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
+        let exit = self.exits.get(&call_id);
+        let Some(line) = sandbox::reviewed(verdict, risk, rationale, exit, self.home.as_deref())
+        else {
+            self.reviewed.insert(call_id, (verdict, rationale.unwrap_or_default().to_owned()));
+            return Step::default();
+        };
+        match verdict {
+            Verdict::Allow if ours => {
+                if let Some(call) = self.call.as_mut() {
+                    call.approved(self.event_at);
+                }
+                let tool = self
+                    .tools
+                    .get(&call_id)
+                    .map_or_else(String::new, |tool| format::one_line(tool));
+                self.state(State::Tool(tool));
+            }
+            Verdict::Deny => {
+                // NOTE: the rows of a call that did not run still show what it was.
+                if let Some(call) = self.call.as_mut().filter(|_| ours) {
+                    call.awaiting = false;
+                }
+                self.refused.insert(call_id);
+                self.state(State::Model);
+            }
+            _ => self.state(State::Model),
+        }
+        self.verdict_line(ours.then_some(call_id), &line, size)
+    }
+
+    /// The muted line of a verdict: right before the rows of call `call`, which follow
+    /// it at once, or a note when it is about no running call, such as the deletes of
+    /// a tool cache after the call.
+    fn verdict_line(&mut self, call: Option<CallId>, line: &str, size: Size) -> Step {
+        let options = self.options_at(size);
+        let mut text = format::paint(line, Tone::Dim, &options);
+        text.push('\n');
+        let block = if call.is_some() { Block::Settled } else { Block::Note };
+        if !self.terminal() {
+            let mut err = self.err_spacing.before(block).to_owned();
+            err.push_str(&text);
+            let mut err = self.raw_err(err);
+            if call.is_some() {
+                err.push_str(&self.due_header(size));
+            }
+            return Step { err, ..Step::default() };
+        }
+        let mut committed = self.spacing.before(block).to_owned();
+        committed.push_str(&text);
+        self.stage(&committed);
+        Step::default()
     }
 
     fn expired(&mut self, call_id: CallId, size: Size) -> Step {
@@ -2253,7 +2347,11 @@ impl TurnView {
         let mut card = card::approval(request.summary, tool, command);
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
         if let Some(exit) = request.exit {
-            let record = self.exits.get(&call_id);
+            let record = self.exits.get(&call_id).map(|exit| &exit.record);
+            let reviewed = self
+                .reviewed
+                .get(&call_id)
+                .map(|(verdict, rationale)| (*verdict, rationale.as_str()));
             // NOTE: the exit's card says why on its own row, so the subject is only what
             // runs: the lines of the command, else the summary's first row.
             let commands: Vec<card::Row> = card
@@ -2267,7 +2365,7 @@ impl TurnView {
             } else {
                 commands
             };
-            card = sandbox::exit_card(exit, record, self.home.as_deref(), subject);
+            card = sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed);
         }
         // NOTE: a patch shows the diff of each of its files after a row that names it,
         // so a delete or a move stands out before the user answers. An edit is a patch

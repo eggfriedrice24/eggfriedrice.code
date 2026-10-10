@@ -63,6 +63,9 @@ pub(crate) enum State {
     Tool(String),
     /// An approval waits for an answer from another client.
     Answer,
+    /// The reviewer judges an exit of a call: the words name it, such as `reviewing:
+    /// ./scripts/gen.sh`, already safe to print.
+    Reviewing(String),
     /// The turn compacts the model's context before its next model call.
     Compacting,
 }
@@ -85,6 +88,7 @@ impl State {
             }
             State::Tool(tool) => format!("running {tool}"),
             State::Answer => "waiting for an answer".to_owned(),
+            State::Reviewing(words) => words.clone(),
             State::Compacting => "compacting context".to_owned(),
         }
     }

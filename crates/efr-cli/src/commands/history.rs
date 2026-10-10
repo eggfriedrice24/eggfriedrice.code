@@ -16,7 +16,7 @@ use std::path::Path;
 use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
-    ConversationsListResult, Event, EventEnvelope, ExitRecord, Launch, Method, Origin, PageCursor,
+    ConversationsListResult, Event, EventEnvelope, JudgeKind, Launch, Method, Origin, PageCursor,
     Seq, TurnId,
 };
 use efr_render::{RenderOptions, render, render_trace};
@@ -265,8 +265,8 @@ struct Transcript<'a> {
     tools: HashMap<CallId, String>,
     /// Calls that ran in the sandbox, whose failure says so.
     contained: HashSet<CallId>,
-    /// The record of each call's exit, for the line of its approval.
-    exits: HashMap<CallId, ExitRecord>,
+    /// The exit of each call, for the line of its approval and of the reviewer.
+    exits: HashMap<CallId, sandbox::Requested>,
     /// The command of each shell call, whose approval shows each of its lines.
     commands: HashMap<CallId, String>,
     /// The newest text of a message that has not completed, which a turn that ended
@@ -374,7 +374,7 @@ impl<'a> Transcript<'a> {
                 }
             }
             Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } => {
-                let record = self.exits.get(call_id);
+                let record = self.exits.get(call_id).map(|exit| &exit.record);
                 let heading = sandbox::exit_heading(record)
                     .unwrap_or_else(|| vec![format::approval_summary(summary).0]);
                 let lines = sandbox::exit_summary(exit, record, self.home);
@@ -391,10 +391,49 @@ impl<'a> Transcript<'a> {
                     let lines = sandbox::exit_record(kinds, grants, *source, record, self.home);
                     self.dim_lines(&lines);
                 }
-                self.exits.insert(*call_id, (**record).clone());
+                let exit = sandbox::Requested::new(kinds, grants, *source, record);
+                self.exits.insert(*call_id, exit);
             }
-            Event::ExitJudged { judge, verdict, category, .. } if self.verbose => {
-                self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
+            Event::ExitJudged {
+                call_id,
+                judge,
+                verdict,
+                category,
+                risk,
+                rationale,
+                model,
+                latency_ms,
+                chain_step,
+                cached,
+                skipped,
+                ..
+            } => {
+                // NOTE: the reviewer's allow or refusal shows as the follow view shows
+                // it; how it came to it only with `--verbose`.
+                if *judge == JudgeKind::Classifier
+                    && let Some(line) = sandbox::reviewed(
+                        *verdict,
+                        *risk,
+                        rationale.as_deref(),
+                        self.exits.get(call_id),
+                        self.home,
+                    )
+                {
+                    self.note(&line);
+                }
+                if self.verbose {
+                    self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
+                    let details = sandbox::judge_details(
+                        model.as_deref(),
+                        *chain_step,
+                        *latency_ms,
+                        *cached,
+                        skipped,
+                    );
+                    if let Some(details) = details {
+                        self.dim_lines(&[details]);
+                    }
+                }
             }
             Event::SandboxSurfaceChanged { changes, .. } => {
                 if let Some(line) = sandbox::surface_changed(changes, self.home) {
