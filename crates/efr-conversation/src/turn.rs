@@ -46,8 +46,8 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
-    TurnId, TurnSettings, Verdict,
+    ExitKind, InputWait, JudgeKind, Launch, Mode, Origin, Presence, QuestionId, Scope,
+    ShellContext, SurfaceChange, TurnId, TurnSettings, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, TokenUsage,
@@ -243,8 +243,9 @@ enum Authorization {
     Refused { message: String, refusal: Option<String> },
     /// The user interrupted the turn while the call waited for approval.
     Interrupted,
-    /// The approval request expired unanswered.
-    Expired,
+    /// The approval request expired unanswered; `away` when nobody answered while the
+    /// user was away, so the model goes on without the call.
+    Expired { away: bool },
 }
 
 /// One running turn.
@@ -831,7 +832,12 @@ impl Turn {
                         (ToolOutcome::error(message), false)
                     }
                     (Authorization::Interrupted, _) => (ToolOutcome::error(NOT_RUN), true),
-                    (Authorization::Expired, _) => (ToolOutcome::error(EXPIRED), false),
+                    (Authorization::Expired { away: false }, _) => {
+                        (ToolOutcome::error(EXPIRED), false)
+                    }
+                    (Authorization::Expired { away: true }, _) => {
+                        (ToolOutcome::error(exit::AWAY_EXPIRED), false)
+                    }
                 },
             };
             let watch = Stopwatch::start();
@@ -1128,8 +1134,17 @@ impl Turn {
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
         // NOTE: read at each call, not at turn start, so a reload reaches the next
-        // approval of a running turn.
-        let timeout = self.shared.config.current().approval_timeout;
+        // approval of a running turn. Presence is read once, when the question parks;
+        // an answer wins during the whole wait.
+        let config = self.shared.config.current();
+        let presence = &self.shared.deps.presence;
+        let away = presence.presence(self.shared.conversation_id) == Presence::Away;
+        let timeout = if away {
+            presence.push(self.shared.conversation_id, call_id);
+            Some(config.away_wait)
+        } else {
+            config.approval_timeout
+        };
         let watch = Stopwatch::start();
         let waited = tokio::select! {
             biased;
@@ -1152,14 +1167,14 @@ impl Turn {
                 message: format!("The user denied the {} call; it did not run.", call.name),
                 refusal: None,
             },
-            Waited::Answer(None) => return Ok(Authorization::Expired),
+            Waited::Answer(None) => return Ok(Authorization::Expired { away: false }),
             Waited::Interrupted => {
-                self.expire(call_id).await?;
+                self.expire(call_id, false, &kinds).await?;
                 return Ok(Authorization::Interrupted);
             }
             Waited::TimedOut => {
-                self.expire(call_id).await?;
-                return Ok(Authorization::Expired);
+                self.expire(call_id, away, &kinds).await?;
+                return Ok(Authorization::Expired { away });
             }
         };
         // NOTE: a person answered, so the refusals without one start again.
@@ -1192,15 +1207,36 @@ impl Turn {
     }
 
     /// Records that the approval of `call_id` can no longer be answered, unless an
-    /// answer took it first.
-    async fn expire(&self, call_id: CallId) -> Result<(), ConversationError> {
+    /// answer took it first. `away` when nobody answered while the user was away: a
+    /// question about exits `kinds` then records that nobody judged them.
+    async fn expire(
+        &self,
+        call_id: CallId,
+        away: bool,
+        kinds: &[ExitKind],
+    ) -> Result<(), ConversationError> {
         if self.shared.approvals.withdraw(call_id) {
-            self.record(vec![Event::ApprovalExpired {
-                turn_id: self.turn_id(),
-                call_id,
-                away: false,
-            }])
-            .await?;
+            let turn_id = self.turn_id();
+            let mut events = vec![Event::ApprovalExpired { turn_id, call_id, away }];
+            if away && !kinds.is_empty() {
+                events.push(Event::ExitJudged {
+                    turn_id,
+                    call_id,
+                    judge: JudgeKind::PresenceExpired,
+                    verdict: Verdict::Deny,
+                    model: None,
+                    latency_ms: None,
+                    risk: None,
+                    user_authorization: None,
+                    category: None,
+                    rationale: None,
+                    record_sha256: None,
+                    cached: false,
+                    chain_step: None,
+                    skipped: Vec::new(),
+                });
+            }
+            self.record(events).await?;
         }
         Ok(())
     }

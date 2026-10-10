@@ -27,6 +27,7 @@ use crate::{CompactionConfig, ContextLimits};
 use crate::{ConversationError, approvals};
 
 mod append_only;
+mod away;
 mod compaction;
 mod context;
 mod denials;
