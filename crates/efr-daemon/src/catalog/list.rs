@@ -78,6 +78,16 @@ impl Vendor {
             Vendor::Anthropic => Some(efr_provider_anthropic::DEFAULT_MODEL),
         }
     }
+
+    /// The model that reviews an exit of the `auto` sandbox first when
+    /// `classifier.model` names none: the small model of this company. Whether the
+    /// provider serves it is decided at run time.
+    pub(crate) fn classifier_model(self) -> &'static str {
+        match self {
+            Vendor::OpenAi => efr_provider_openai::CLASSIFIER_MODEL,
+            Vendor::Anthropic => efr_provider_anthropic::CLASSIFIER_MODEL,
+        }
+    }
 }
 
 /// The shared catalog of the active provider: the provider reads it for each request,
