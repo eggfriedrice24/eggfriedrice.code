@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_conversation::{
-    ConversationDeps, GitScopeResolver, HostInfo, PresenceReader, draft_channel,
+    ConversationDeps, ExitJudge, GitScopeResolver, HostInfo, PresenceReader, draft_channel,
 };
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
@@ -41,10 +41,12 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::catalog::Vendor;
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
 use crate::engine::EngineParts;
+use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
 use crate::presence::PresenceTable;
@@ -510,6 +512,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let presence =
         Arc::new(PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone()));
+    // NOTE: the judge asks the provider of every conversation, whose company names the
+    // small model; `[model] provider` needs a restart, so the company stays.
+    let judge: Arc<dyn ExitJudge> = Arc::new(ClassifierJudge::new(
+        providers.active(),
+        settings_receiver.clone(),
+        Vendor::of(&settings.model.provider),
+        Arc::clone(&clock),
+    ));
     let live_settings = LiveSettings::new(
         settings_receiver,
         dirs.data().join(SCRATCH_DIR),
@@ -529,7 +539,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         rng: Arc::clone(&rng),
         home,
         sandbox: sandbox.status(),
-        judge: None,
+        judge: Some(judge),
         presence: Arc::clone(&presence) as Arc<dyn PresenceReader>,
         drafts: drafts.clone(),
     };

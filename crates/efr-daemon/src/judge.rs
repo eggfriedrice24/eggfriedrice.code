@@ -35,9 +35,9 @@
 //! The judge returns the model's judgement as it is. The turn applies the allow rule and
 //! the naming rule of 9.4 (`efr-conversation`).
 //!
-//! efrd passes no judge to the conversations yet, so the user answers every exit.
-
-#![cfg_attr(not(test), expect(dead_code, reason = "efrd passes no judge yet"))]
+//! efrd builds one judge over the provider of every conversation (`run.rs`) and passes
+//! it as `ConversationDeps::judge`. `classifier.enabled = false` keeps the turn from
+//! asking it.
 
 use std::fmt;
 use std::sync::Arc;
