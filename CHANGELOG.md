@@ -10,6 +10,23 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- In `auto`, `write_file` and `edit` outside the project and `$SCRATCH` are an exit
+  that the reviewer decides, as a shell write there is.
+- In `auto`, `df` and `findmnt` run outside the sandbox after a review, so they show
+  your real disks and mounts.
+- In `auto`, a write that runs outside the sandbox, such as `mv src ~/x`, and an
+  `outside` call go to the reviewer. An `outside` call whose program changed in this
+  turn still asks you.
+- In `auto`, the read and reload forms of `hyprctl`, `swaymsg -t get_*`, `xrandr`,
+  `wlr-randr` and `niri msg` go to the reviewer. Other desktop commands still ask you.
+- A write to efr's own programs, to `$XDG_RUNTIME_DIR/efr`, to `~/.local/state/efr`
+  or to `~/.local/share/efr` (except `$SCRATCH`) is refused in every mode.
+- The shell tool tells the model to try what you asked first, and to call again with
+  the narrowest `needs` after an access error. The note after a failed sandboxed
+  command no longer lists what the sandbox cannot do.
+
 ## [0.0.3] - 2026-10-09
 
 ### Added

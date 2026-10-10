@@ -76,9 +76,14 @@ The tools:
   `command`, `timeout_seconds` (default 30, at most 600), `nested_shell` (sentinel
   mode, for a `sudo -i`, `bash` or `ssh` started inside the hidden shell; the `auto`
   mode refuses it) and `needs` (what a command needs beyond the `auto` sandbox, with
-  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`). After
+  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`). The
+  description has one text for every mode. Its `auto` sentences tell the model to run
+  what the user asked without asking for permission first, to call again with the same
+  line and the narrowest `needs` after an access error, and that efr decides what
+  leaves the sandbox. After
   a run through the sandbox's launcher, the answer names what `result.json` reports:
-  the sandbox note after a contained command that failed, the exports that stay in the
+  the sandbox note after a contained command that failed (where it writes and that
+  secrets read as empty, never a list of what it cannot do), the exports that stay in the
   sandbox or were dropped, the background jobs that stopped, the hosts that the proxy
   refused, the git settings that the launcher moved away, a shell directory that the
   sandbox hides and a state that was not kept. A sandbox that could not start says

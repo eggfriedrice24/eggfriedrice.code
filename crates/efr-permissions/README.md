@@ -32,7 +32,17 @@ Modules:
   `with_sealed_root` adds a secret root that no rule opens, which the daemon uses for
   its own `secrets/`. `with_write_sealed_root` adds a root that no tool may write and
   no rule opens for writing, while reading follows its class: the daemon passes efr's
-  config directory and the real files behind the symbolic links in it. Classification
+  config directory and the real files behind the symbolic links in it.
+  `with_efr_root` and `with_efr_binary` add efr's own runtime, data and state roots
+  (each with the places below it that stay open: `$SCRATCH` and efr's trash) and efr's
+  programs, which no tool writes in any mode. The `auto` sandbox adds more:
+  `with_envelope_root` (a write root of every contained call), `with_private_root` and
+  `with_cache_root` (write roots whose writes stay private: the private tmp and the
+  cache overlays), `with_rebuildable_names` and `with_trash_root` (what a build or efr
+  can make again), `with_floor_root`, `with_floor_group_root` and
+  `with_link_floor_root` (floors with no group, with a `FloorGroup`, or with the group
+  and the names of a dotfile link), `with_synced_root` and `with_sandbox_mask`.
+  Classification
   is lexical: `.` and `..` are resolved by name,
   nothing is read from the disk, and a relative path has no class. Symbolic links may
   be resolved before a path is declared, so when `/home` links to `/var/home` a call
@@ -98,15 +108,28 @@ Modules:
   lists in `deciding` the words of each simple command that got the line's effect, in
   the order of the line, so an approval can name them.
 - `engine`: `Engine::decide` and `effective_mode`; `Engine::with_support` sets what the
-  machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo).
+  machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo, the
+  backup store of floor files, the mount view).
   `Engine::path_facts` tells where a path stands for a call in `auto` (`PathFacts`: its
-  class, and whether it lies in a write root, on a floor or in a synced folder), so the
-  conversation builds the facts of an exit record from the roots that the engine uses.
+  class, whether it lies in a write root, on a floor or in a synced folder, and what
+  can make it again, `Rebuild`: a cache, the build output of a registered project or
+  efr's trash), so the conversation builds the facts of an exit record from the roots
+  that the engine uses. `Engine::decide_cache_delete` decides the deletes that a
+  contained call made in a cache overlay: one `write` exit per real cache file, with
+  the source `cache_delete`, for the classifier.
 - `exits`: `predict`, which finds the exits of a shell call in `auto` from its line
   (read through a lenient split that never fails), its declared paths, its network
   need, the model's `needs` and the daemon's `CallFacts`; each `ExitNeed` has a kind,
-  the grants a "yes" opens, the bind of a write (`WriteBind`) and whether only the
-  user may approve it. `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
+  the grants a "yes" opens, the bind of a write (`WriteBind`), its `Approver` (the
+  classifier, the classifier when a user message names the exit, or only the user),
+  the `names` that name it, whether efrd copies its target first
+  (`backup_before_write`) and the `Ecosystem` of a package manager's fetch
+  (`REGISTRY_HOSTS`). The engine never reads user text: `names_match` is the one
+  check of the user's messages, for the turn's route and the exit record alike. Path
+  forms match as text; word forms and the phrases of `NAME_PHRASES` match whole words,
+  and a stem of `GENERIC_STEMS` names nothing alone. `DESKTOP_IPC_READ` holds the read
+  and reload forms of the desktop programs that the classifier may judge.
+  `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
   directories and program words of a line its `CallFacts` must describe, from the same
@@ -116,7 +139,8 @@ Modules:
   `exec` or `find -exec` only a file runs.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
-  (`secret_paths`, `Locations::secret_paths`).
+  (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
+  floor its `FloorGroup`, which decides the phrases that name its files.
 
 ## Tier
 
@@ -160,9 +184,28 @@ proptest property:
   Each exit asks on a reason of its own (`Cause::Exit`), a secret or efr's config is
   denied, a user's `ask` or `deny` rule keeps `Cause::Rule`, and `nested_shell` is
   denied. A remote turn runs as `cautious`, so it is never contained. `read_file` and
-  `write_file` keep the `cautious` path rules, plus an exit for a sandbox mask and for
-  a floor inside a write root. `tests/it/corpus.rs` runs the 110 lines of the command
-  corpus (`tests/fixtures/auto-corpus.toml`) and checks the phase 1 result of each.
+  `write_file` keep the `cautious` path rules, plus an exit for a sandbox mask, for a
+  floor inside a write root, and for a write that a built-in rule asks about outside
+  the turn's project and `$SCRATCH` (its path reason is then `Contain` with
+  `Cause::ExitDecides`, so a lost exit still asks). `tests/it/corpus.rs` runs the 110
+  lines of the command corpus (`tests/fixtures/auto-corpus.toml`) and checks the phase
+  A result of each (`pa`); the `p1` column keeps the phase 1 result.
+- Every exit starts with the approver of its kind (`ExitKind::user_only`), and only
+  the places of spec 9.1 relax it: every `write` goes to the classifier, also one that
+  runs in the exit child; an `upload`, an `above_root` path that holds no second
+  project, floor, efr path or secret, and a floor file edit go to it only when a user
+  message names them; a floor file edit only while `AutoSupport::floor_backup` holds, a
+  fact says that the target is a file or a new file in an existing dir, and the line
+  makes no link and touches no `*.wants` dir. An `outside` exit asks the user when a
+  fact about a program word is missing, or a program word changed in the turn or lies
+  in a real write root (not the private tmp or a cache). A `destructive` exit goes to
+  the classifier only when efr knows every target and each lies in a real write root.
+  Persistence that is no file edit (`crontab`, `systemctl --user enable`, linger), the
+  git surface, `sandbox.protect`, a privilege, a masked read and a synced write stay
+  with the user (`src/engine/tests/auto.rs`).
+- A write of efr's own programs, or of its runtime, data or state roots outside
+  `$SCRATCH` and efr's trash, is denied in every mode (`Cause::EfrOwn`), and in `auto`
+  a shell write there is a `config` exit.
 - `PRIVILEGED` holds the same six programs in every mode, so a user's `docker` rule
   keeps working in `cautious`; `auto` adds `exits::PRIVILEGE_EXITS`.
 - A write of the project's root itself is not a project write, so it asks.

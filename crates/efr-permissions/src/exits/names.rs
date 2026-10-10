@@ -15,7 +15,7 @@ use crate::FloorGroup;
 /// forms: "my zsh config" names `~/.zshrc`, "my sway config" names
 /// `~/.config/sway/config`, whose stem names nothing alone. The dir below `~/.config`
 /// alone is no phrase, because words such as `git` or `fish` are too common. A unit
-/// file is named also by "<unit> unit" and "<unit> service".
+/// file is named also by "`<unit>` unit" and "`<unit>` service".
 pub const NAME_PHRASES: &[(FloorGroup, &[&str])] = &[
     (FloorGroup::Zsh, &["zsh config", "zsh startup", "shell config"]),
     (FloorGroup::Bash, &["bash config", "shell config"]),
