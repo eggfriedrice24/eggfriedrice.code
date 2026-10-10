@@ -18,6 +18,12 @@
 //! for its timeout. The same subscriptions keep a call that the user approved because it
 //! may wait for input running past the model's timeout, up to
 //! `shell.interactive_timeout_minutes`, while one of them follows the conversation.
+//!
+//! Before any call runs, it copies the targets of the call's approved exits that the
+//! engine marks `backup_before_write` into the backup store (`backups.rs`); a copy that
+//! fails stops the call, and after the call each changed file comes back as a
+//! `FileBackup`. It also applies the cache deletes that the turn allowed
+//! (`tools/cache_deletes.rs`), after its own check of each path.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,7 +36,8 @@ use efr_conversation::{
 };
 use efr_permissions::{Engine, Requirements};
 use efr_protocol::{
-    ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange, TurnId,
+    ConversationId, ExitKind, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange,
+    TurnId,
 };
 use efr_provider::{ToolDefinition, ToolGrammar as ProviderGrammar};
 use efr_scope::Home;
@@ -44,9 +51,9 @@ use efr_tools::{
 use serde_json::Value;
 use tokio::sync::watch;
 
-use crate::DaemonError;
 use crate::connections::Connections;
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
+use crate::{DaemonError, backups};
 
 mod cache_deletes;
 mod jobs;
@@ -447,6 +454,93 @@ impl DaemonToolbox {
     }
 }
 
+impl DaemonToolbox {
+    /// Runs a call of the registry: through the sandbox's launcher, or here.
+    async fn run_call(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
+        // NOTE: a call that must run through the sandbox's launcher never falls back to
+        // the hidden shell.
+        if call.context.launch.uses_launcher() {
+            return self.invoke_sandboxed(call, out).await;
+        }
+        // NOTE: a file write takes the plan lock of its project for its own work, so it
+        // never races the plan of a call that is about to start there.
+        let _writing = self.lock_write(&call).await;
+        let shell = call.name == ShellTool::NAME;
+        let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
+        if FILE_WRITERS.contains(&call.name.as_str()) {
+            self.snapshot_before_write(&call).await;
+        }
+        let context = self.context(&call.context);
+        let call_context = call.context.clone();
+        let mut sink = CallSink {
+            out,
+            connections: &self.connections,
+            conversation_id: call.context.conversation_id,
+        };
+        let mut outcome =
+            match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
+                Ok(result) => {
+                    let written = result.written.clone();
+                    let mut outcome = outcome(result);
+                    if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
+                        let (changes, diff) = snapshots.written(&call_context, &written);
+                        outcome = outcome.with_changes(changes).with_diff(diff);
+                    }
+                    outcome
+                }
+                Err(error) => ToolOutcome::error(for_model(&error)),
+            };
+        if shell {
+            outcome.changes = self.snapshot_after(snapshot).await;
+        }
+        outcome
+    }
+
+    /// Copies the targets of the call's approved exits that efrd backs up
+    /// ([`ExitNeed::backup_before_write`](efr_permissions::ExitNeed::backup_before_write))
+    /// into the backup store; `Err` is the text that the model reads.
+    async fn back_up(&self, call: &CallContext) -> Result<Vec<backups::Taken>, String> {
+        let targets: Vec<backups::Target> = call
+            .exits
+            .iter()
+            .filter(|need| need.backup_before_write)
+            .filter_map(|need| {
+                let floor = need.kind == ExitKind::Persistence;
+                need.target.clone().map(|path| backups::Target { path, floor })
+            })
+            .collect();
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(dir) = self.backup_dir.clone() else {
+            return Err("efr keeps no backup store here, so it did not run a call that \
+                        changes a file that runs code later"
+                .to_owned());
+        };
+        let refused = self.masks();
+        let (conversation, turn) = (call.conversation_id, call.turn_id);
+        let taken = tokio::task::spawn_blocking(move || {
+            backups::take(&dir, conversation, turn, &targets, &refused)
+        })
+        .await;
+        taken.unwrap_or_else(|_| Err("copying the files before the change panicked".to_owned()))
+    }
+
+    /// The secrets and masks that efrd never deletes or copies: the engine's secrets,
+    /// the sandbox-only masks and `sandbox.mask`, from the latest engine and settings.
+    fn masks(&self) -> Vec<PathBuf> {
+        let home = self.home.path();
+        let secrets = match &self.sandbox {
+            Some((_, engine)) => engine.borrow().locations().secret_paths(),
+            None => efr_permissions::Locations::new(home)
+                .map(|locations| locations.secret_paths())
+                .unwrap_or_default(),
+        };
+        let settings = Arc::clone(&self.settings.borrow());
+        cache_deletes::masks(home, &settings, secrets)
+    }
+}
+
 /// What the model reads for a call of the edit tool `name` that its request did not
 /// offer: the call did not run, and which tool changes files.
 fn not_offered(name: &str, edit: efr_provider::EditTool) -> String {
@@ -549,43 +643,19 @@ impl Toolbox for DaemonToolbox {
         if call.name == settings_tool::NAME {
             return self.settings_tool.invoke(call).await;
         }
-        // NOTE: a call that must run through the sandbox's launcher never falls back to
-        // the hidden shell.
-        if call.context.launch.uses_launcher() {
-            return self.invoke_sandboxed(call, out).await;
-        }
-        // NOTE: a file write takes the plan lock of its project for its own work, so it
-        // never races the plan of a call that is about to start there.
-        let _writing = self.lock_write(&call).await;
-        let shell = call.name == ShellTool::NAME;
-        let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
-        if FILE_WRITERS.contains(&call.name.as_str()) {
-            self.snapshot_before_write(&call).await;
-        }
-        let context = self.context(&call.context);
-        let call_context = call.context.clone();
-        let mut sink = CallSink {
-            out,
-            connections: &self.connections,
-            conversation_id: call.context.conversation_id,
+        // NOTE: the one place that copies floor files before an approved edit (plan
+        // PD9), so `write_file`, `edit`, `apply_patch` and a line in the exit child
+        // share it. A copy that fails stops the call.
+        let taken = match self.back_up(&call.context).await {
+            Ok(taken) => taken,
+            Err(reason) => return ToolOutcome::error(reason),
         };
-        let mut outcome =
-            match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
-                Ok(result) => {
-                    let written = result.written.clone();
-                    let mut outcome = outcome(result);
-                    if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
-                        let (changes, diff) = snapshots.written(&call_context, &written);
-                        outcome = outcome.with_changes(changes).with_diff(diff);
-                    }
-                    outcome
-                }
-                Err(error) => ToolOutcome::error(for_model(&error)),
-            };
-        if shell {
-            outcome.changes = self.snapshot_after(snapshot).await;
+        let outcome = self.run_call(call, out).await;
+        if taken.is_empty() {
+            return outcome;
         }
-        outcome
+        let backups = tokio::task::spawn_blocking(move || backups::finish(taken)).await;
+        outcome.with_backups(backups.unwrap_or_default())
     }
 
     async fn shell_cwd(&self, conversation_id: ConversationId) -> Option<PathBuf> {
@@ -632,14 +702,12 @@ impl Toolbox for DaemonToolbox {
         call: &CallContext,
         paths: &[PathBuf],
     ) -> Result<CacheDeleteOutcome, String> {
-        let Some((_, engine)) = &self.sandbox else {
+        if self.sandbox.is_none() {
             return Err("this efrd runs no sandbox, so the deletes stayed private".to_owned());
-        };
-        let secrets = engine.borrow().locations().secret_paths();
+        }
         let settings = Arc::clone(&self.settings.borrow());
-        let home = self.home.path();
-        let caches = cache_deletes::caches(home, &settings);
-        let masks = cache_deletes::masks(home, &settings, secrets);
+        let caches = cache_deletes::caches(self.home.path(), &settings);
+        let masks = self.masks();
         let checked = match cache_deletes::check(paths, &caches, &masks) {
             Ok(checked) => checked,
             Err(path) => {

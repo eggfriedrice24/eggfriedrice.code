@@ -41,7 +41,7 @@ pub(crate) fn caches(home: &Path, settings: &Settings) -> Vec<CacheOverlay> {
         .collect()
 }
 
-/// The masks that a cache delete never reaches: the engine's secrets, the sandbox-only
+/// The masks that efrd never deletes or copies: the engine's secrets, the sandbox-only
 /// masks and `sandbox.mask`.
 pub(crate) fn masks(home: &Path, settings: &Settings, secrets: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut masks = secrets;

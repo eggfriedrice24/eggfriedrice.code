@@ -1016,3 +1016,188 @@ async fn a_cache_delete_never_follows_a_link_out_of_its_cache() {
     assert_eq!(link.deleted, [cache.join("work")], "the link itself goes");
     assert_eq!(std::fs::read_to_string(outside.join("notes")).unwrap(), "mine");
 }
+
+/// An approved `persistence` exit for `target` whose file efrd copies first.
+fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
+    efr_permissions::ExitNeed {
+        kind: efr_protocol::ExitKind::Persistence,
+        grants: Vec::new(),
+        part: format!("write_file {}", target.display()),
+        approver: efr_permissions::Approver::ClassifierWhenNamed,
+        names: Vec::new(),
+        backup_before_write: true,
+        package_fetch: None,
+        source: efr_protocol::ExitSource::Predicted,
+        target: Some(target.to_path_buf()),
+        bind: None,
+    }
+}
+
+/// A toolbox for `root/home` that keeps backups in `root/data/file-backups`.
+fn backing_up(root: &Path) -> (DaemonToolbox, PathBuf, PathBuf) {
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let store = root.join("data/file-backups");
+    std::fs::create_dir_all(store.parent().unwrap()).unwrap();
+    (toolbox(&home).with_backup_dir(store.clone()), home, store)
+}
+
+/// Runs `write_file` of `content` to `path` with the approved exits `exits`.
+async fn write_with(
+    toolbox: &DaemonToolbox,
+    home: &Path,
+    path: &Path,
+    content: &str,
+    exits: Vec<efr_permissions::ExitNeed>,
+) -> efr_conversation::ToolOutcome {
+    let mut write = call("write_file", json!({"path": path, "content": content}), home);
+    write.context = write.context.with_exits(exits);
+    let mut sink = |_: &str, _: u64| {};
+    toolbox.invoke(write, &mut sink).await
+}
+
+/// The one entry of the test's turn in `store`.
+fn only_entry(store: &Path) -> PathBuf {
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let turn = store
+        .join(ConversationId::from_uuid(id(1)).to_string())
+        .join(TurnId::from_uuid(id(2)).to_string());
+    let entries: Vec<_> = std::fs::read_dir(&turn).unwrap().flatten().collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    entries[0].path()
+}
+
+#[tokio::test]
+async fn floor_backup_taken_before_write_file() {
+    let (_temp, root) = canonical_temp();
+    let (toolbox, home, store) = backing_up(&root);
+    let zshrc = home.join(".zshrc");
+    std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
+
+    let outcome =
+        write_with(&toolbox, &home, &zshrc, "alias k=kubectl\n", vec![floor_edit(&zshrc)]).await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias k=kubectl\n");
+    let entry = only_entry(&store);
+    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
+    assert_eq!(
+        outcome.backups,
+        [efr_conversation::FileBackup { path: zshrc, backup: entry.join(".zshrc"), floor: true }]
+    );
+}
+
+#[tokio::test]
+async fn floor_backup_follows_link_target() {
+    let (_temp, root) = canonical_temp();
+    let (toolbox, home, store) = backing_up(&root);
+    let real = home.join("dotfiles/zsh/.zshrc");
+    std::fs::create_dir_all(real.parent().unwrap()).unwrap();
+    std::fs::write(&real, "old\n").unwrap();
+    let zshrc = home.join(".zshrc");
+    std::os::unix::fs::symlink(&real, &zshrc).unwrap();
+
+    // write_file refuses a path through a link, so the model writes the real file.
+    let outcome = write_with(&toolbox, &home, &real, "new\n", vec![floor_edit(&zshrc)]).await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    let entry = only_entry(&store);
+    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "old\n");
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["path"], json!(zshrc));
+    assert_eq!(meta["links"], json!([zshrc]));
+    assert_eq!(meta["real"], json!(real));
+    assert_eq!(outcome.backups.len(), 1);
+    assert!(std::fs::symlink_metadata(&zshrc).unwrap().file_type().is_symlink());
+}
+
+#[tokio::test]
+async fn floor_backup_records_missing_target() {
+    let (_temp, root) = canonical_temp();
+    let (toolbox, home, store) = backing_up(&root);
+    let conf = home.join(".config/hypr/monitors.conf");
+    std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
+
+    let outcome =
+        write_with(&toolbox, &home, &conf, "monitor=,preferred,auto,1\n", vec![floor_edit(&conf)])
+            .await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    let entry = only_entry(&store);
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap();
+    assert_eq!(meta["missing"], json!(true));
+    assert_eq!(meta["mode"], json!(null));
+    assert!(!entry.join("monitors.conf").exists(), "nothing to copy");
+    assert_eq!(outcome.backups.len(), 1);
+    assert_eq!(outcome.backups[0].backup, entry.join("meta.json"));
+}
+
+#[tokio::test]
+async fn floor_backup_failure_stops_the_call() {
+    let (_temp, root) = canonical_temp();
+    let (broken, home, store) = backing_up(&root);
+    // Something that is not a directory stands where the store goes.
+    std::fs::write(&store, "not a dir").unwrap();
+    let zshrc = home.join(".zshrc");
+    std::fs::write(&zshrc, "old\n").unwrap();
+
+    let outcome = write_with(&broken, &home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
+
+    assert!(outcome.is_error, "{outcome:?}");
+    assert!(outcome.output.contains("did not run"), "{}", outcome.output);
+    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "old\n", "the edit did not run");
+
+    let without = toolbox(&home);
+    let outcome = write_with(&without, &home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
+    assert!(outcome.is_error, "no store, no edit: {outcome:?}");
+    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "old\n");
+}
+
+#[tokio::test]
+async fn floor_backup_unchanged_file_leaves_no_entry() {
+    let (_temp, root) = canonical_temp();
+    let (toolbox, home, store) = backing_up(&root);
+    let gitconfig = home.join(".gitconfig");
+    std::fs::write(&gitconfig, "[user]\n\tname = u\n").unwrap();
+
+    let outcome = write_with(
+        &toolbox,
+        &home,
+        &gitconfig,
+        "[user]\n\tname = u\n",
+        vec![floor_edit(&gitconfig)],
+    )
+    .await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    assert_eq!(outcome.backups, []);
+    assert_eq!(std::fs::read_dir(&store).unwrap().count(), 0, "no entry and no empty dirs");
+}
+
+#[tokio::test]
+async fn floor_backup_never_copies_mask_or_secret() {
+    let (_temp, root) = canonical_temp();
+    let (toolbox, home, store) = backing_up(&root);
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::create_dir_all(home.join(".aws")).unwrap();
+    std::fs::write(home.join(".ssh/config"), "Host *\n").unwrap();
+    std::fs::write(home.join(".aws/zshrc"), "export AWS_SECRET=1\n").unwrap();
+    // A floor file whose real file is a masked one.
+    std::os::unix::fs::symlink(home.join(".aws/zshrc"), home.join(".zshrc")).unwrap();
+
+    let secret = home.join(".ssh/config");
+    let outcome = write_with(&toolbox, &home, &secret, "x\n", vec![floor_edit(&secret)]).await;
+    let masked = home.join(".aws/zshrc");
+    let linked =
+        write_with(&toolbox, &home, &masked, "x\n", vec![floor_edit(&home.join(".zshrc"))]).await;
+
+    for outcome in [outcome, linked] {
+        assert!(outcome.is_error, "{outcome:?}");
+        assert!(outcome.output.contains("secret or a masked file"), "{}", outcome.output);
+    }
+    assert_eq!(std::fs::read_to_string(home.join(".ssh/config")).unwrap(), "Host *\n");
+    assert_eq!(std::fs::read_to_string(&masked).unwrap(), "export AWS_SECRET=1\n");
+    assert!(!store.exists() || std::fs::read_dir(&store).unwrap().count() == 0);
+}
