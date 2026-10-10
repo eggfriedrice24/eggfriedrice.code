@@ -112,7 +112,7 @@ pub(crate) fn info(
             .and_then(|needs| needs.reason.clone())
             .filter(|reason| !reason.trim().is_empty()),
         judged: None,
-        user_only: decision.exits().any(|need| need.user_only),
+        user_only: decision.exits().any(|need| need.user_only()),
     }
 }
 
