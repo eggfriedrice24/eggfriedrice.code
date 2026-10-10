@@ -172,9 +172,11 @@ pub(crate) fn build(
         locations = locations.with_project(project.id(), project.root()).map_err(invalid)?;
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
-    // NOTE: phase 1 has no proxy, no bus proxy and no undo; later phases set them here.
-    Ok(Engine::with_rules(locations, settings.permissions.rules.clone())
-        .with_support(AutoSupport::default()))
+    // NOTE: no proxy (phase D), no bus proxy (phase E) and no undo (phase B) yet. The
+    // backup store of floor files sets `floor_backup` once it works, and the mount view
+    // of phase D sets `mount_view`.
+    let support = AutoSupport { floor_backup: false, mount_view: false, ..AutoSupport::default() };
+    Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
 }
 
 /// The write roots of the `auto` sandbox besides scratch and the private tmp: the

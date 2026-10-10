@@ -842,6 +842,28 @@ fn exits_outside_with_changed_or_root_program_is_user(
 }
 
 #[test]
+fn df_is_outside_exit_until_mount_view() {
+    for line in ["df -hT", "df -i", "findmnt", "sudo -k; df"] {
+        let word = if line.contains("findmnt") { "findmnt" } else { "df" };
+        let facts =
+            programs(&[(word, Some("/usr/bin/x"), false), ("sudo", Some("/usr/bin/sudo"), false)]);
+        let decision = decide(shell(line).with_facts(facts.clone()));
+        let need = decision.exits().find(|need| need.kind == ExitKind::Outside);
+        let need = need.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
+        assert_eq!(need.approver, Approver::Classifier, "{line:?}");
+        assert!(need.runs_unsandboxed(), "{line:?}");
+        let view = engine()
+            .with_support(AutoSupport { mount_view: true, ..AutoSupport::default() })
+            .decide(&in_auto(shell(line).with_facts(facts)));
+        assert!(!kinds(&view).contains(&ExitKind::Outside), "{line:?}");
+    }
+    assert_eq!(kinds(&decide(shell("lsblk -o NAME,SIZE"))), []);
+    // A `df` that the sandbox wrote never gets the user's full rights.
+    let facts = programs(&[("./df", Some("/home/u/p/app/df"), false)]);
+    assert_eq!(approver_of(shell("./df").with_facts(facts)), Approver::User);
+}
+
+#[test]
 fn exits_outside_without_facts_is_user() {
     assert_eq!(approver_of(outside("gdb -p 1")), Approver::User);
 }

@@ -150,8 +150,8 @@ reads = ["/home/u/p/efr/NAME,SIZE,MOUNTPOINT"]
 n = 13
 line = "df -hT"
 p1 = "R"
-pa = "R"
-exits = []
+pa = "K(outside)"
+exits = ["outside"]
 
 [[line]]
 n = 13
@@ -635,8 +635,8 @@ exits = []
 n = 41
 line = "df -i"
 p1 = "R"
-pa = "R"
-exits = []
+pa = "K(outside)"
+exits = ["outside"]
 
 [[line]]
 n = 42

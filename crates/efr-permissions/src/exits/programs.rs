@@ -469,6 +469,9 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         }
         program if DESKTOP_IPC.contains(&program) => found.push(Found::desktop(program, args)),
         "niri" if verb(args, &[]) == Some("msg") => found.push(Found::desktop("niri", args)),
+        // NOTE: in the sandbox they show the sandbox's own mounts, so until the mount
+        // view exists (phase D) they run outside it.
+        "df" | "findmnt" if !support.mount_view => found.push(Found::of(ExitKind::Outside)),
         // NOTE: `dd of=/dev/null` overwrites nothing; the sandbox has that node.
         "dd" if dd_targets(words).into_iter().any(|target| {
             !crate::path_class::normalize(Path::new(target))
