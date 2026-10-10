@@ -136,6 +136,7 @@ pub(crate) struct Layout<'a> {
     pub(crate) tools: bool,           // the body has at least one tool
     pub(crate) messages: &'a [Shape], // the body's messages
     pub(crate) side_call: bool,       // Request::side_call
+    pub(crate) one_shot: bool,        // Request::one_shot
 }
 pub(crate) struct Shape { pub(crate) role: Role, pub(crate) opens_turn: bool, pub(crate) tokens: u64 }
 pub(crate) struct Breakpoint { pub(crate) slot: Slot, pub(crate) target: Target, pub(crate) ttl: Ttl }
@@ -177,6 +178,10 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
   each anchor would write the tool loop before it a second time, and `auto` is one
   hour on every marker. The anchors still give each request one more place to read.
 - When two places are one message, it gets one marker.
+- A one-shot request (`Request::one_shot`), such as a review by efrd's classifier, gets
+  only S, for five minutes under every setting, and no A, P or T: no later request
+  reads its messages, and the next review usually comes within minutes. Its debug line
+  says `markers=S5m`.
 - A new prompt is always a user message of its own, also after a turn that ended on
   its tool results or on its prompt, so the first call of every turn marks an anchor,
   at the new prompt. A steer after tool results is a message of its own too, so the

@@ -32,6 +32,13 @@
 //! turn marks an anchor, also after a turn that ended early, and so does a call that
 //! sends a steer: it holds a person's words, and a pause can follow it.
 //!
+//! One-shot requests. A request that no other request builds on (`Request::one_shot`),
+//! such as a review by efrd's classifier, gets only S, for five minutes under every
+//! setting: its messages are new each time, so A, P and T would write entries that no
+//! request reads, and the next review usually comes within minutes. A one-hour write
+//! costs more than a five-minute one, and a pause longer than five minutes loses only
+//! the short system prompt.
+//!
 //! State. An anchor needs to know where the last anchor is and how many tokens came
 //! after it. Nothing keeps these numbers: the placement computes them again from
 //! [`Layout::messages`] on every call. The state is the history itself, which the
@@ -150,6 +157,8 @@ pub(crate) struct Layout<'a> {
     pub(crate) messages: &'a [Shape],
     /// `Request::side_call`.
     pub(crate) side_call: bool,
+    /// `Request::one_shot`.
+    pub(crate) one_shot: bool,
 }
 
 /// `marks` as the debug line of a request shows them: the letter and the time of each
@@ -182,6 +191,14 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
         (false, true) => Some(Target::LastTool),
         (false, false) => None,
     };
+    if layout.one_shot {
+        // NOTE: no later request reads the messages of a one-shot request, so only
+        // the system prompt gets an entry, and the short one.
+        if let Some(target) = system {
+            marks.push(Breakpoint { slot: Slot::System, target, ttl: Ttl::FiveMinutes });
+        }
+        return marks;
+    }
     if let Some(target) = system {
         marks.push(Breakpoint { slot: Slot::System, target, ttl: long });
     }

@@ -32,7 +32,7 @@ fn at(slot: Slot, index: usize, ttl: Ttl) -> Breakpoint {
 }
 
 fn place(messages: &[Shape], side_call: bool, ttl: CacheTtl) -> Vec<Breakpoint> {
-    let layout = Layout { system: true, tools: true, messages, side_call };
+    let layout = Layout { system: true, tools: true, messages, side_call, one_shot: false };
     let marks = place_breakpoints(&layout, ttl);
     assert_rules(&marks);
     // A marker sits on a user message that ends its run, which the API joins into one.
@@ -244,7 +244,13 @@ fn a_fixed_time_to_live_puts_one_time_on_every_marker() {
 #[test]
 fn the_system_marker_falls_back_to_the_last_tool_or_to_nothing() {
     let messages = [prompt(10)];
-    let tools_only = Layout { system: false, tools: true, messages: &messages, side_call: false };
+    let tools_only = Layout {
+        system: false,
+        tools: true,
+        messages: &messages,
+        side_call: false,
+        one_shot: false,
+    };
     assert_eq!(
         place_breakpoints(&tools_only, CacheTtl::Auto),
         vec![
@@ -252,7 +258,13 @@ fn the_system_marker_falls_back_to_the_last_tool_or_to_nothing() {
             at(Slot::Tail, 0, H),
         ]
     );
-    let bare = Layout { system: false, tools: false, messages: &messages, side_call: false };
+    let bare = Layout {
+        system: false,
+        tools: false,
+        messages: &messages,
+        side_call: false,
+        one_shot: false,
+    };
     assert_eq!(place_breakpoints(&bare, CacheTtl::Auto), vec![at(Slot::Tail, 0, H)]);
 }
 
@@ -299,6 +311,37 @@ fn every_placement_keeps_the_rules_of_the_api() {
 }
 
 #[test]
+fn a_one_shot_request_marks_only_its_system_for_five_minutes() {
+    let messages = [prompt(30_000)];
+    for ttl in [CacheTtl::Auto, CacheTtl::FiveMinutes, CacheTtl::OneHour] {
+        for side_call in [false, true] {
+            let layout = Layout {
+                system: true,
+                tools: false,
+                messages: &messages,
+                side_call,
+                one_shot: true,
+            };
+            assert_eq!(place_breakpoints(&layout, ttl), vec![system(M)], "{ttl:?}");
+        }
+    }
+    let tools_only =
+        Layout { system: false, tools: true, messages: &messages, side_call: true, one_shot: true };
+    assert_eq!(
+        place_breakpoints(&tools_only, CacheTtl::Auto),
+        vec![Breakpoint { slot: Slot::System, target: Target::LastTool, ttl: M }]
+    );
+    let bare = Layout {
+        system: false,
+        tools: false,
+        messages: &messages,
+        side_call: true,
+        one_shot: true,
+    };
+    assert_eq!(place_breakpoints(&bare, CacheTtl::Auto), Vec::new());
+}
+
+#[test]
 fn a_ttl_is_written_as_the_api_names_it() {
     assert_eq!(Ttl::FiveMinutes.as_str(), "5m");
     assert_eq!(Ttl::OneHour.as_str(), "1h");
@@ -310,6 +353,7 @@ fn the_log_names_each_place_with_its_time() {
     assert_eq!(summary(&place(&call, false, CacheTtl::Auto)), "S1h,A1h,P1h,T1h");
     assert_eq!(summary(&place(&call[..1], false, CacheTtl::Auto)), "S1h,T1h");
     assert_eq!(summary(&place(&call, false, CacheTtl::FiveMinutes)), "S5m,A5m,P5m,T5m");
-    let bare = Layout { system: false, tools: false, messages: &[], side_call: false };
+    let bare =
+        Layout { system: false, tools: false, messages: &[], side_call: false, one_shot: false };
     assert_eq!(summary(&place_breakpoints(&bare, CacheTtl::Auto)), "none");
 }

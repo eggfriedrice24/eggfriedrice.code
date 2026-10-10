@@ -296,6 +296,7 @@ pub(crate) fn request_body(
         tools: !tools.is_empty(),
         messages: &shapes,
         side_call: request.side_call,
+        one_shot: request.one_shot,
     };
     let marks = place_breakpoints(&layout, config.cache_ttl());
     let ttl = config.cache_ttl().as_str();

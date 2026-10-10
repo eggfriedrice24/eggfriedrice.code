@@ -303,6 +303,30 @@ fn anthropic_body_sends_output_format() {
 }
 
 #[test]
+fn one_shot_claude_request_has_no_tail_marker() {
+    let body = request_body(&verdict_request(), &AnthropicConfig::new(), Some(&haiku())).unwrap();
+    let body = value(&body);
+    assert_eq!(
+        body["system"],
+        json!([{
+            "type": "text",
+            "text": "You judge one action.",
+            "cache_control": {"type": "ephemeral", "ttl": "5m"},
+        }])
+    );
+    assert_eq!(
+        body["messages"],
+        json!([{"role": "user", "content": [{"type": "text", "text": "{\"version\":1}"}]}])
+    );
+    // The same request that another request builds on marks its tail.
+    let mut kept = verdict_request();
+    kept.one_shot = false;
+    let kept = value(&request_body(&kept, &AnthropicConfig::new(), Some(&haiku())).unwrap());
+    assert_eq!(kept["system"][0]["cache_control"]["ttl"], json!("1h"));
+    assert!(kept["messages"][0]["content"][0].get("cache_control").is_some());
+}
+
+#[test]
 fn an_output_format_without_an_effort_sends_only_the_format() {
     let mut request = verdict_request();
     request.effort = None;
