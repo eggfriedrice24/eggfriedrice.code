@@ -258,7 +258,8 @@ impl<'a> Envelope<'a> {
 
     /// The exit of a `read_file`, `write_file` or edit of `path` in `auto`, which the
     /// daemon runs outside the sandbox: a read of a sandbox mask asks, and so
-    /// does a write to a floor inside a write root. The path rules judge the rest.
+    /// does a write to a floor inside a write root that the path rules allow. A write
+    /// that they ask about is [`Envelope::tool_write_exit`].
     pub(crate) fn tool_exit(&self, path: &Path, access: Access) -> Option<ExitNeed> {
         match access {
             Access::Read | Access::ReadTree => self.masked_read(path, ExitSource::Predicted),
@@ -275,6 +276,38 @@ impl<'a> Envelope<'a> {
                 Some(need)
             }
         }
+    }
+
+    /// The exit of a `write_file`, edit or patch of `path` outside the turn's project
+    /// and `$SCRATCH` in `auto` (spec 7.4): the kind that a shell write there would
+    /// have, without the sandbox's envelope roots, because efrd writes the host's real
+    /// `/tmp` and caches. A plain write is a `write` exit for the classifier, a floor a
+    /// `persistence` exit, a synced folder a `synced_write` exit; efr's config and a
+    /// secret are floors. efrd writes the file itself, so the exit has no grant and no
+    /// bind.
+    pub(crate) fn tool_write_exit(&self, path: &Path) -> ExitNeed {
+        let locations = self.locations;
+        let kind = if locations.is_sealed(path) || locations.is_secret(path) {
+            ExitKind::Secret
+        } else if locations.is_write_sealed(path) {
+            ExitKind::Config
+        } else if self.at_or_above_root(path) {
+            ExitKind::AboveRoot
+        } else if self.is_floor(path) {
+            ExitKind::Persistence
+        } else if locations.synced_roots().iter().any(|synced| path.starts_with(synced)) {
+            ExitKind::SyncedWrite
+        } else {
+            ExitKind::Write
+        };
+        let mut need = ExitNeed::new(kind, path.display().to_string(), ExitSource::Predicted);
+        need.target = Some(path.to_path_buf());
+        match kind {
+            ExitKind::Write => need.approver = Approver::Classifier,
+            ExitKind::AboveRoot => need.approver = self.above_root_approver(path),
+            _ => {}
+        }
+        need
     }
 
     /// The `masked_read` exit of a read of `path`, when a mask hides it.

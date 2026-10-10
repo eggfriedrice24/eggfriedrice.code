@@ -826,16 +826,55 @@ fn auto_user_ask_rule_keeps_rule_cause() {
 }
 
 #[test]
-fn auto_write_file_outside_asks_by_rule() {
-    for path in ["/home/u/notes.txt", "/tmp/x", "/home/u/.cache/x", "/etc/hosts"] {
+fn auto_write_file_outside_is_write_exit() {
+    // efrd writes the host's real `/tmp` and caches, so they are no write root here.
+    for path in
+        ["/home/u/notes.txt", "/tmp/x", "/home/u/.cache/x", "/etc/hosts", "/home/u/.aws/config"]
+    {
         let decision = tool(Requirements::none().with_write(path));
         assert_eq!(decision.effect(), Effect::Ask, "{path}");
-        assert!(
-            matches!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, .. }),
-            "{path}"
+        let deciding: Vec<&Cause> = decision.deciding().map(|reason| &reason.cause).collect();
+        assert_eq!(deciding, [&Cause::Exit { kind: ExitKind::Write }], "{path}");
+        let path_reason = &decision.reasons()[0];
+        assert_eq!(
+            (path_reason.effect, &path_reason.cause),
+            (Effect::Contain, &Cause::ExitDecides)
         );
-        assert_eq!(kinds(&decision), [], "{path}");
+        let need = decision.exits().next().unwrap();
+        assert_eq!(need.approver, Approver::Classifier, "{path}");
+        assert_eq!(need.target.as_deref(), Some(path.as_ref()), "{path}");
+        assert!(need.grants.is_empty() && need.bind.is_none(), "efrd writes it: {need:?}");
     }
+    // A floor, a synced folder and the space above a root keep their kinds.
+    for (path, kind, approver) in [
+        ("/home/u/.zshrc", ExitKind::Persistence, Approver::User),
+        ("/home/u/Dropbox/x", ExitKind::SyncedWrite, Approver::User),
+        ("/home/u/p/app", ExitKind::AboveRoot, Approver::ClassifierWhenNamed),
+    ] {
+        let decision = tool(Requirements::none().with_write(path));
+        let found: Vec<(ExitKind, Approver)> =
+            decision.exits().map(|need| (need.kind, need.approver)).collect();
+        assert_eq!(found, [(kind, approver)], "{path}");
+    }
+    // efr's config and a secret stay refused by their rules, with no exit.
+    for path in ["/home/u/.config/efr/config.toml", "/home/u/.ssh/config"] {
+        let decision = tool(Requirements::none().with_write(path));
+        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Deny, vec![]), "{path}");
+    }
+    // A user's rule decides by itself: an allow makes no exit, an ask keeps its cause.
+    for effect in [Effect::Allow, Effect::Ask] {
+        let rule = Rule::new(Action::Write, Resource::Under("~/notes".into()), effect);
+        let engine = Engine::with_rules(auto_locations(), Policy::new(vec![rule]).unwrap());
+        let decision = engine.decide(&in_auto(Requirements::none().with_write("/home/u/notes/x")));
+        assert_eq!(decision.effect(), effect, "{effect}");
+        assert_eq!(kinds(&decision), [], "{effect}");
+        assert!(matches!(decision.reasons()[0].cause, Cause::Rule { .. }), "{effect}");
+    }
+    // `edit` and a patch declare their writes the same way; the check point asks for a
+    // `Contain` that does not use the launcher, so a write never runs unasked.
+    let decision = tool(Requirements::none().with_write("/home/u/notes.txt").with_destructive());
+    assert_eq!(decision.effect(), Effect::Ask);
+    assert!(decision.reasons().iter().any(|reason| reason.cause == Cause::Destructive));
 }
 
 #[test]

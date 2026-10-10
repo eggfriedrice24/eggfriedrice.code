@@ -65,11 +65,13 @@ use crate::{
 /// least [`Effect::Contain`], and a user's rule that allows it cannot lift the sandbox.
 /// A path or network requirement that the built-in rules would ask about is contained
 /// too, because the sandbox holds it, and each exit that [`exits::predict`] finds asks
-/// on its own reason ([`Cause::Exit`]), or is denied for a floor. A user's `ask` or
-/// `deny` rule keeps its own cause. `nested_shell` is denied, because no shell outlives a
-/// contained call. `read_file`, `write_file` and edits run in the daemon, outside the
-/// sandbox, so they keep the `cautious` path rules, plus an exit for a read of a sandbox
-/// mask and for a write to a floor inside a write root.
+/// on its own reason ([`Cause::Exit`]), or is denied for a floor. Each exit names who
+/// may approve it ([`Approver`](crate::Approver)). A user's `ask` or `deny` rule keeps
+/// its own cause. `nested_shell` is denied, because no shell outlives a contained call.
+/// `read_file`, `write_file` and edits run in the daemon, outside the sandbox, so they
+/// keep the `cautious` path rules, plus an exit for a read of a sandbox mask, for a
+/// write to a floor inside a write root, and for a write that a built-in rule asks
+/// about outside the turn's project and `$SCRATCH` ([`Cause::ExitDecides`]).
 #[derive(Debug, Clone)]
 pub struct Engine {
     locations: Locations,
@@ -213,11 +215,25 @@ impl Engine {
         let parts = parts(commands, start.as_deref());
 
         let mut reasons = Vec::new();
+        // NOTE: a file tool in `auto` runs in efrd: its exits come from its paths, and
+        // a write that a built-in rule asks about is an exit that decides it.
+        let tool_envelope = (auto && !shell)
+            .then(|| Envelope::new(&self.locations, project_root, scratch.as_deref()));
+        let mut tool_found: Vec<ExitNeed> = Vec::new();
         for PathAccess { path, access } in &requirements.paths {
             let reason = match normalize(path) {
                 Some(path) => {
                     let class = self.locations.classify_normal(&path, scratch.as_deref());
-                    judge.path(path, *access, class)
+                    let reason = judge.path(path.clone(), *access, class);
+                    match &tool_envelope {
+                        Some(envelope) => {
+                            let path = self.locations.rehome(&path);
+                            let (reason, need) = judge.tool_exit(envelope, &path, *access, reason);
+                            tool_found.extend(need);
+                            reason
+                        }
+                        None => reason,
+                    }
                 }
                 None => Reason {
                     subject: Subject::Path { path: path.clone(), access: *access, class: None },
@@ -294,7 +310,7 @@ impl Engine {
                     scratch: scratch.as_deref(),
                     support: &self.support,
                 }),
-                None => self.tool_exits(&requirements.paths, project_root, scratch.as_deref()),
+                None => exits::named_targets(tool_found, self.locations.home()),
             };
             reasons.extend(found.into_iter().map(exit_reason));
         }
@@ -326,25 +342,6 @@ impl Engine {
             floor: envelope.is_floor(&path),
             synced: self.locations.synced_roots().iter().any(|root| path.starts_with(root)),
         })
-    }
-
-    /// The exits of a `read_file`, `write_file` or edit in `auto`: a read of a sandbox
-    /// mask, and a write to a floor inside a write root.
-    fn tool_exits(
-        &self,
-        paths: &[PathAccess],
-        project_root: Option<&Path>,
-        scratch: Option<&Path>,
-    ) -> Vec<ExitNeed> {
-        let envelope = Envelope::new(&self.locations, project_root, scratch);
-        let found = paths
-            .iter()
-            .filter_map(|PathAccess { path, access }| {
-                let path = normalize(path)?;
-                envelope.tool_exit(&self.locations.rehome(&path), *access)
-            })
-            .collect();
-        exits::named_targets(found, self.locations.home())
     }
 }
 
@@ -422,6 +419,36 @@ impl Judge<'_> {
         let (effect, cause) = self.contained(effect, cause);
         let (effect, cause) = clamp_remote(effect, cause, Some(class), self.input.origin);
         Reason { subject: Subject::Path { path, access, class: Some(class) }, effect, cause }
+    }
+
+    /// For a `read_file`, `write_file`, edit or patch in `auto`, which efrd runs outside
+    /// the sandbox: the reason of one path and its exit. A read of a sandbox mask is a
+    /// `masked_read` exit. A write that a built-in rule asks about is an exit of its own
+    /// kind (spec 7.4), which decides it: the path's reason becomes `Contain` with
+    /// [`Cause::ExitDecides`], so a call whose exit got lost still asks. A user's or a
+    /// conversation's rule keeps its cause and makes no exit. An allowed write to a
+    /// floor inside a write root is a `persistence` exit.
+    fn tool_exit(
+        &self,
+        envelope: &Envelope<'_>,
+        path: &Path,
+        access: Access,
+        reason: Reason,
+    ) -> (Reason, Option<ExitNeed>) {
+        match access {
+            Access::Write if reason.effect == Effect::Ask && self.built_in(&reason.cause) => {
+                let need = envelope.tool_write_exit(path);
+                (
+                    Reason { effect: Effect::Contain, cause: Cause::ExitDecides, ..reason },
+                    Some(need),
+                )
+            }
+            Access::Write if reason.effect != Effect::Allow => (reason, None),
+            Access::Read | Access::ReadTree | Access::Write => {
+                let need = envelope.tool_exit(path, access);
+                (reason, need)
+            }
+        }
     }
 
     /// The first secret below `dir` that the rules do not allow for `access`.

@@ -231,12 +231,19 @@ pub enum Cause {
     /// The `auto` sandbox holds what the requirement does, so the call runs contained
     /// and nobody is asked. A rule that allows a command line cannot lift the sandbox.
     Contained,
-    /// The requirement leaves the `auto` sandbox: the user approves it, or a floor
-    /// refuses it before any question.
+    /// The requirement leaves the `auto` sandbox: the classifier or the user approves
+    /// it, as its [`Approver`](crate::Approver) says, or a floor refuses it before any
+    /// question.
     Exit {
         /// The kind of the exit.
         kind: ExitKind,
     },
+    /// A file tool in `auto` writes a path that a built-in rule asks about, outside the
+    /// turn's project and `$SCRATCH`. efrd writes it outside the sandbox, so the exit of
+    /// the same path decides, by the classifier or the user (spec 7.4). The effect is
+    /// `Contain`, never `Allow`: a file tool does not run in the launcher, and the check
+    /// point asks for every such `Contain`, so a call whose exit got lost still asks.
+    ExitDecides,
     /// The call asks for a nested shell, which the `auto` mode never runs: no shell
     /// outlives a contained call.
     NestedShell,
@@ -324,6 +331,9 @@ impl fmt::Display for Reason {
                 f.write_str(", because it leaves the auto sandbox and no approval opens it")
             }
             Cause::Exit { .. } => f.write_str(", because it leaves the auto sandbox"),
+            Cause::ExitDecides => {
+                f.write_str(", because efr writes it outside the sandbox and its exit decides")
+            }
             Cause::NestedShell => f.write_str(
                 ", because nested_shell is not available in auto: no shell outlives a \
                  contained call. For sudo or ssh, call shell without it; the command is an exit",
