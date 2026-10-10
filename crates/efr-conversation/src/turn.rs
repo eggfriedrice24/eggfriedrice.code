@@ -859,6 +859,18 @@ impl Turn {
                 changes: outcome.changes.take(),
                 diff: outcome.diff.take(),
             }];
+            // NOTE: names only: the copy stays in efr's backup store, and the line at the
+            // end of the turn names it.
+            events.extend(std::mem::take(&mut outcome.backups).into_iter().map(|backup| {
+                Event::HomeFileChanged {
+                    turn_id,
+                    call_id,
+                    path: backup.path,
+                    floor: backup.floor,
+                    covered: false,
+                    backup: Some(backup.backup),
+                }
+            }));
             let mut quarantined = Vec::new();
             if let Some(summary) = &outcome.sandbox {
                 self.exits.ran(summary);

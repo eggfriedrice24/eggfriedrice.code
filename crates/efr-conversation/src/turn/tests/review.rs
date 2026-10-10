@@ -647,3 +647,34 @@ async fn each_exit_of_a_turn_is_judged_on_its_own() {
     );
     assert_eq!(script.results().len(), 2);
 }
+
+#[tokio::test]
+async fn home_file_changed_recorded_after_call() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let zshrc = setup.home().join(".zshrc");
+    let copy = setup.dirs.dirs().data().join("file-backups/c/t/1/.zshrc");
+    let requirements = Requirements::none().with_write(&zshrc).with_facts(a_file(&zshrc));
+    let key = zshrc.to_str().unwrap().to_owned();
+    let backup = crate::FileBackup { path: zshrc.clone(), backup: copy.clone(), floor: true };
+    let outcome = crate::ToolOutcome::ok("written").with_backups(vec![backup]);
+    let script = Script::new(vec![("write_file", json!({ "path": zshrc, "content": "x" }))]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.declared.lock().unwrap().insert(key.clone(), requirements);
+    h.toolbox.outcomes.lock().unwrap().insert(key, outcome);
+    let sent = h.prompt("add an alias to my zshrc").await;
+    h.wait_end(sent.turn_id).await;
+
+    let events = h.events().await;
+    let call_id = h.call_ids().await[0];
+    let changed = Event::HomeFileChanged {
+        turn_id: sent.turn_id,
+        call_id,
+        path: zshrc,
+        floor: true,
+        covered: false,
+        backup: Some(copy),
+    };
+    let at = events.iter().position(|e| *e == changed).expect("the change is recorded");
+    assert!(matches!(events[at - 1], Event::ToolCallCompleted { .. }), "with the call's end");
+}
