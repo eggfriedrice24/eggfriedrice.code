@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use efr_protocol::{
     ApprovalDecision, BlockReason, Blocked, CallId, Draft, DraftPart, EffectiveSettings, ErrorBody,
     ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait,
-    Launch, Mode, ModeFallback, Origin, OverriddenSettings, PathClassName, QuestionId,
-    ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange, TargetFact, TurnId, Usage,
+    Launch, Mode, ModeFallback, Origin, OverriddenSettings, PathClassName, Presence,
+    PresenceSource, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange,
+    TargetFact, TurnId, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::{SignedDuration, Timestamp};
@@ -1925,6 +1926,31 @@ fn status_row_shows_reviewing() {
         "{frame}"
     );
     assert!(!frame.contains("$ curl"), "{frame}");
+}
+
+#[test]
+fn status_row_shows_away() {
+    let presence = |presence, source| Event::PresenceChanged {
+        conversation_id: crate::testing::conversation(),
+        presence,
+        source,
+    };
+    let mut view = started_view(Look::default());
+    view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+    view.frame(SIZE, at(0));
+    let step =
+        view.envelope(&sent(12, 0, presence(Presence::Away, PresenceSource::Timeout)), SIZE, true);
+    assert_eq!(step, Step::default(), "the status row says it; no note");
+    let frame = readable(&view.frame(SIZE, at(2_000)));
+    assert!(frame.contains("\\e[2m2s\\e[0m  \\e[1;33maway\\e[0m"), "{frame}");
+    // A question while away says that it does not wait long.
+    view.envelope(&sent(13, 2_000, approval(None)), SIZE, true);
+    let asked = crate::testing::bare(&view.frame(SIZE, at(2_000)));
+    assert!(asked.contains("efr counts you away"), "{asked}");
+    view.answered(call(), ApprovalDecision::Allow, SIZE);
+    view.envelope(&sent(14, 3_000, presence(Presence::Present, PresenceSource::Input)), SIZE, true);
+    let back = readable(&view.frame(SIZE, at(3_000)));
+    assert!(!back.contains("away"), "{back}");
 }
 
 #[test]

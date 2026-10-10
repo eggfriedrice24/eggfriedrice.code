@@ -1,0 +1,80 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, PresenceSource::User)),\nSent(10, shell(1, \"git push\")),\nSent(20, asked(1, \"shell: run \\\"git push\\\"\", None)), Shot(\"asked\"),\nSent(300_000, Event::ApprovalExpired\n{ turn_id: turn(), call_id: id(1), away: true }),\nSent(300_010, ended(1, None, None)),\nSent(300_020, away(Presence::Present, PresenceSource::Input)),])"
+---
+=== 40 columns, colour
+[asked]
+\e[1;33m? allow this command\e[0m
+\e[2m│ \e[0m\e[36mgit push\e[0m
+\e[2m│ \e[0m\e[2mefr counts you away: this question\e[0m
+\e[2m│ \e[0m  \e[2mwaits only a short time, then the\e[0m
+\e[2m│ \e[0m  \e[2mcall does not run\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[31m✗ approval expired: nobody answered\e[0m
+  \e[31mwhile you were away; the call did not\e[0m
+  \e[31mrun\e[0m
+\e[33m·\e[0m \e[36m$ git push\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[asked]
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mgit push
+\e[2m│ \e[0m\e[2mefr counts you away: this question\e[0m
+\e[2m│ \e[0m  \e[2mwaits only a short time, then the\e[0m
+\e[2m│ \e[0m  \e[2mcall does not run\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1m✗ approval expired: nobody answered\e[0m
+  \e[1mwhile you were away; the call did not\e[0m
+  \e[1mrun\e[0m
+\e[1m·\e[0m $ git push
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[asked]
+\e[1;33m? allow this command\e[0m
+\e[2m│ \e[0m\e[36mgit push\e[0m
+\e[2m│ \e[0m\e[2mefr counts you away: this question waits only a short time, then the call does\e[0m
+\e[2m│ \e[0m  \e[2mnot run\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[31m✗ approval expired: nobody answered while you were away; the call did not run\e[0m
+\e[33m·\e[0m \e[36m$ git push\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[asked]
+\e[1m? allow this command\e[0m
+\e[2m│ \e[0mgit push
+\e[2m│ \e[0m\e[2mefr counts you away: this question waits only a short time, then the call does\e[0m
+\e[2m│ \e[0m  \e[2mnot run\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[1m✗ approval expired: nobody answered while you were away; the call did not run\e[0m
+\e[1m·\e[0m $ git push
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[asked]
+stdout:
+stderr:
+? allow this command
+│ git push
+│ efr counts you away: this question waits only a short time, then the call does not run
+│ y allow · n deny
+
+[end]
+stdout:
+stderr:
+? allow this command
+│ git push
+│ efr counts you away: this question waits only a short time, then the call does not run
+│ y allow · n deny
+✗ approval expired: nobody answered while you were away; the call did not run
+· $ git push

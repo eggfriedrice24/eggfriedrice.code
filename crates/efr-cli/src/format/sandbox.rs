@@ -13,8 +13,8 @@ use std::path::Path;
 use efr_protocol::{
     AdminSandboxCheckResult, BlockReason, Blocked, BusKind, ChainStep, CheckOutcome, ExitInfo,
     ExitKind, ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback, PathClassName,
-    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange,
-    TargetFact, Verdict,
+    PauseReason, Presence, PresenceSource, ProgramFact, ReportedFile, Risk, SandboxExplainResult,
+    SandboxStatus, SurfaceChange, TargetFact, Verdict,
 };
 
 use super::card::{self, Card, Row};
@@ -186,7 +186,9 @@ pub(crate) fn explain(result: &SandboxExplainResult, home: Option<&Path>) -> Str
             let _ = write!(write, "; a write is denied ({})", kind_words(kind));
         } else {
             let _ = write!(write, "; a write is a {} exit", kind_words(kind));
-            if kind.user_only() {
+            // NOTE: `user_only` is only the default approver of the kind; when the
+            // reviewer may judge a named file, the daemon's reason says so.
+            if kind.user_only() && !reason.contains("the reviewer") {
                 write.push_str(", user only");
             }
         }
@@ -691,12 +693,15 @@ pub(crate) fn reviewed(
     home: Option<&Path>,
 ) -> Option<String> {
     let rationale = rationale.map(one_line).filter(|text| !text.trim().is_empty());
-    let what = exit.map_or_else(|| "the call".to_owned(), |exit| exit_what(exit, home));
+    let what = exit.map_or_else(|| "this call".to_owned(), |exit| exit_what(exit, home));
     match verdict {
         Verdict::Allow => {
             let why: Vec<String> =
                 risk.map(|risk| risk_words(risk).to_owned()).into_iter().chain(rationale).collect();
-            let mut line = format!("reviewer allowed: {what} for this call");
+            let mut line = match exit {
+                Some(_) => format!("reviewer allowed: {what} for this call"),
+                None => format!("reviewer allowed: {what}"),
+            };
             if !why.is_empty() {
                 let _ = write!(line, " ({})", why.join("; "));
             }
@@ -734,11 +739,57 @@ pub(crate) fn reviewer_row(verdict: Verdict, rationale: &str) -> String {
     }
 }
 
+/// The note when the reviewer stops for the rest of a turn after `denials` refusals
+/// (efr's auto spec, 9.5 and 14.7): each later exit then asks the user.
+pub(crate) fn paused(reason: PauseReason, denials: u8) -> String {
+    let refused = match reason {
+        PauseReason::InARow => format!("it refused {denials} actions in a row"),
+        _ => format!("it refused {denials} actions"),
+    };
+    format!("reviewer paused for this turn: {refused}; efr asks you for the rest")
+}
+
+/// The answer line of a question that nobody answered while the user was away
+/// (`approval_expired` with `away`). efr does not know how long the daemon waited.
+pub(crate) const AWAY_EXPIRED: &str =
+    "approval expired: nobody answered while you were away; the call did not run";
+
+/// The row of a question's card while efr counts the user away: the question does not
+/// wait long, and an answer counts as input.
+pub(crate) const AWAY_ROW: &str =
+    "efr counts you away: this question waits only a short time, then the call does not run";
+
+/// The note after efrd deleted paths in the real tool caches, such as `freed 1.2 GB in
+/// ~/.cache/go-build (12 paths)`.
+pub(crate) fn cache_freed(paths: &[std::path::PathBuf], freed: u64, home: Option<&Path>) -> String {
+    let paths: Vec<&Path> = paths.iter().map(std::path::PathBuf::as_path).collect();
+    let place =
+        common_dir(&paths).map_or_else(|| "the tool caches".to_owned(), |dir| tilde(&dir, home));
+    let count = plural(paths.len(), "path", "paths");
+    format!("freed {} in {place} ({count})", super::size(freed))
+}
+
+/// A change of the user's presence, for `efr history`, such as `away (efr away)`.
+pub(crate) fn presence_changed(presence: Presence, source: PresenceSource) -> String {
+    let state = match presence {
+        Presence::Away => "away",
+        _ => "back",
+    };
+    let why = match source {
+        PresenceSource::User => "efr away",
+        PresenceSource::Timeout => "no input for a while",
+        PresenceSource::Input => "input",
+        _ => "another reason",
+    };
+    format!("{state} ({why})")
+}
+
 /// Where an exit came from, in words.
 fn source_words(source: ExitSource) -> &'static str {
     match source {
         ExitSource::Predicted => "predicted from the line",
         ExitSource::Needs => "the model asked with needs",
+        ExitSource::CacheDelete => "deletes in a private tool cache",
         _ => "from an unknown source",
     }
 }
@@ -762,6 +813,9 @@ fn target_words(target: &TargetFact, home: Option<&Path>) -> String {
     if target.named_in_user_messages {
         words.push("named by the user");
     }
+    if target.backup_before_write {
+        words.push("efr keeps a backup copy before a write");
+    }
     format!("target {}: {}", tilde(&target.path, home), words.join(", "))
 }
 
@@ -772,6 +826,9 @@ fn class_words(class: PathClassName) -> &'static str {
         PathClassName::UserData => "user data",
         PathClassName::System => "system",
         PathClassName::Secrets => "secrets",
+        PathClassName::Cache => "a tool cache",
+        PathClassName::BuildOutput => "build output",
+        PathClassName::Trash => "efr's trash",
         _ => "another class",
     }
 }
@@ -809,6 +866,10 @@ pub(crate) fn exit_record(
             lines.extend(numbered);
         }
         None => lines.push(format!("  line: {}", command_line(record.action.line.trim()))),
+    }
+    // NOTE: the payload of a file tool's edit is model-written text; its size only.
+    if let Some(edit) = &record.action.edit {
+        lines.push(format!("  edit: {} that the reviewer reads", super::size(edit.len() as u64)));
     }
     lines.push(format!("  cwd: {}", tilde(&record.action.cwd, home)));
     lines.extend(facts.targets.iter().map(|target| format!("  {}", target_words(target, home))));
@@ -856,6 +917,12 @@ pub(crate) fn exit_record(
     }
     if facts.refusals_in_a_row > 0 {
         lines.push(format!("  refusals in a row: {}", facts.refusals_in_a_row));
+    }
+    if facts.denials_in_a_row > 0 || facts.denials_this_turn > 0 {
+        lines.push(format!(
+            "  reviewer refusals: {} in a row, {} in this turn",
+            facts.denials_in_a_row, facts.denials_this_turn
+        ));
     }
     lines.push(format!("  user messages: {}", record.user_messages.len()));
     lines

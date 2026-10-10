@@ -840,12 +840,13 @@ pub(crate) fn tokens(count: u64) -> String {
     }
 }
 
-/// A size in bytes: `512 B`, `3.2 KB`, `1.4 MB`, counted in thousands.
+/// A size in bytes: `512 B`, `3.2 KB`, `1.4 MB`, `2.1 GB`, counted in thousands.
 pub(crate) fn size(bytes: u64) -> String {
     match bytes {
         0..1_000 => format!("{bytes} B"),
         1_000..1_000_000 => format!("{}.{} KB", bytes / 1_000, bytes / 100 % 10),
-        _ => format!("{}.{} MB", bytes / 1_000_000, bytes / 100_000 % 10),
+        1_000_000..1_000_000_000 => format!("{}.{} MB", bytes / 1_000_000, bytes / 100_000 % 10),
+        _ => format!("{}.{} GB", bytes / 1_000_000_000, bytes / 100_000_000 % 10),
     }
 }
 

@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: lines
+---
+exit requested: write (deletes in a private tool cache)
+  line: 
+  edit: 16 B that the reviewer reads
+  cwd: ~/p/app
+  target ~/.zshrc: user config, exists, a floor, efr keeps a backup copy before a write
+  target ~/.cache/x: a tool cache, exists
+  target ~/p/app/target: build output, exists
+  target ~/.local/share/efr/trash/1: efr's trash, exists
+  reviewer refusals: 2 in a row, 4 in this turn
+  user messages: 1

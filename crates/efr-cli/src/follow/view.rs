@@ -115,8 +115,8 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, FileChanges, InputWait, JudgeKind, Launch, Origin, QuestionId, Risk, Scope, Seq,
-    SurfaceChange, TurnId, TurnInterruptResult, Verdict, looks_secret,
+    ExitInfo, FileChanges, InputWait, JudgeKind, Launch, Origin, Presence, QuestionId, Risk, Scope,
+    Seq, SurfaceChange, TurnId, TurnInterruptResult, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -213,6 +213,10 @@ const ANSWER_REFUSED: &str = "the command no longer waits for that input; nothin
 
 /// What the echo of a visible answer starts with.
 const ECHO_PREFIX: &str = "> ";
+
+/// How much further a row of a line of efr's own goes on than its first row, as a row
+/// of a question's card does.
+const GOES_ON: usize = 2;
 
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -488,6 +492,9 @@ pub(crate) struct TurnView {
     reviewed: HashMap<CallId, (Verdict, String)>,
     /// The command of each shell call, whose approval shows each of its lines.
     commands: HashMap<CallId, String>,
+    /// efr counts the user away from the conversation (`presence_changed`): the status
+    /// row says so, and so does the card of a question, which waits only a short time.
+    away: bool,
     /// The quarantine question waiting for a key.
     surface: Option<QuestionId>,
     /// The quarantine question that this client answered, whose answer needs no second
@@ -563,6 +570,7 @@ impl TurnView {
             exits: HashMap::new(),
             reviewed: HashMap::new(),
             commands: HashMap::new(),
+            away: false,
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
@@ -811,6 +819,7 @@ impl TurnView {
             if self.queued {
                 status.set(State::Queued);
             }
+            status.set_away(self.away);
             self.status = Some(status);
             self.dirty = true;
         }
@@ -1157,6 +1166,16 @@ impl TurnView {
     /// whether one-key answers can be read.
     pub(crate) fn event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         self.size = size;
+        // NOTE: the presence of the conversation belongs to no turn, and the view
+        // follows one conversation.
+        if let Event::PresenceChanged { presence, .. } = event {
+            self.away = *presence == Presence::Away;
+            if let Some(status) = &mut self.status {
+                status.set_away(self.away);
+                self.dirty = true;
+            }
+            return Step::default();
+        }
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
         }
@@ -1428,12 +1447,19 @@ impl TurnView {
                 self.answer_came(*call_id);
                 self.resolved(*call_id, *decision, *origin, size)
             }
-            Event::ApprovalExpired { call_id, .. } => {
+            Event::ApprovalExpired { call_id, away, .. } => {
                 if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
                     call.awaiting = false;
                 }
                 self.answer_came(*call_id);
-                self.expired(*call_id, size)
+                self.expired(*call_id, *away, size)
+            }
+            Event::ClassifierPaused { reason, denials, .. } => {
+                self.whole_note(&sandbox::paused(*reason, *denials), size)
+            }
+            Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
+                let line = sandbox::cache_freed(paths, *freed_bytes, self.home.as_deref());
+                self.whole_note(&line, size)
             }
             // A steer of this view shows as unread until a model call reads it.
             Event::TurnSteered { .. }
@@ -1545,8 +1571,8 @@ impl TurnView {
             {
                 self.resolved(*call_id, *decision, *origin, size)
             }
-            Event::ApprovalExpired { call_id, .. } if self.blocking.contains(call_id) => {
-                self.expired(*call_id, size)
+            Event::ApprovalExpired { call_id, away, .. } if self.blocking.contains(call_id) => {
+                self.expired(*call_id, *away, size)
             }
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
@@ -1657,8 +1683,7 @@ impl TurnView {
     /// a tool cache after the call.
     fn verdict_line(&mut self, call: Option<CallId>, line: &str, size: Size) -> Step {
         let options = self.options_at(size);
-        let mut text = format::paint(line, Tone::Dim, &options);
-        text.push('\n');
+        let text = rows(line, Tone::Dim, &options);
         let block = if call.is_some() { Block::Settled } else { Block::Note };
         if !self.terminal() {
             let mut err = self.err_spacing.before(block).to_owned();
@@ -1675,10 +1700,13 @@ impl TurnView {
         Step::default()
     }
 
-    fn expired(&mut self, call_id: CallId, size: Size) -> Step {
+    /// The approval of call `call_id` expired; `away` when nobody answered while the
+    /// user was away.
+    fn expired(&mut self, call_id: CallId, away: bool, size: Size) -> Step {
         self.refused.insert(call_id);
         let settled = self.settle(call_id);
-        let step = self.answer_line(About::Approval(call_id), false, "the approval expired", size);
+        let line = if away { sandbox::AWAY_EXPIRED } else { "the approval expired" };
+        let step = self.answer_line(About::Approval(call_id), false, line, size);
         Step { settled, ..step }
     }
 
@@ -1692,8 +1720,7 @@ impl TurnView {
         }
         let options = self.options_at(size);
         let (mark, tone) = if good { (YES, Tone::Success) } else { (NO, Tone::Failure) };
-        let mut text = format::paint(&format!("{mark}{}", format::one_line(line)), tone, &options);
-        text.push('\n');
+        let text = rows(&format!("{mark}{}", format::one_line(line)), tone, &options);
         let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
         let block = if ours { Block::Settled } else { Block::Answer };
         if !self.terminal() {
@@ -1842,6 +1869,13 @@ impl TurnView {
     /// A dim note line, such as `queued behind the running turn`.
     pub(crate) fn note(&mut self, text: &str, size: Size) -> Step {
         self.note_after(String::new(), text, size)
+    }
+
+    /// A dim note that a terminal shows whole: a row wider than the screen goes on in
+    /// the next one, where a note is cut. For what the user must read to the end, such
+    /// as why the reviewer paused or where a backup is.
+    fn whole_note(&mut self, text: &str, size: Size) -> Step {
+        self.rendered_after(String::new(), |options| rows(text, Tone::Dim, options), size)
     }
 
     /// A note written after `before`, the end of a message.
@@ -2377,6 +2411,9 @@ impl TurnView {
             (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
             (None, _) => {}
         }
+        if self.away {
+            card.rows.push(card::Row::text(sandbox::AWAY_ROW, Tone::Dim));
+        }
         if request.blocking {
             card.title = format!("{BLOCKING}{}", card.title);
         }
@@ -2485,6 +2522,7 @@ impl TurnView {
             let context = self.status.as_ref().and_then(|status| status.context().copied());
             let mut status = Status::new(self.look.motion);
             status.set(State::Queued);
+            status.set_away(self.away);
             if let Some(context) = context {
                 status.set_context(context);
             }
@@ -2665,6 +2703,30 @@ fn echo_edit(shown: &str, text: &str) -> String {
     }
     edit.push_str(added);
     edit
+}
+
+/// `text` painted as `tone`, as rows with their newlines: on a terminal, a row wider
+/// than the screen goes on in the next one, indented [`GOES_ON`] columns more, so a long
+/// line of efr's own never wraps where the terminal chooses.
+fn rows(text: &str, tone: Tone, options: &RenderOptions) -> String {
+    let pieces = [(text.to_owned(), tone)];
+    let rows = match format::columns(options) {
+        Some((width, method)) => {
+            format::wrap_spans(&pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
+        }
+        None => vec![pieces.to_vec()],
+    };
+    let mut out = String::new();
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            out.push_str(&" ".repeat(GOES_ON));
+        }
+        for (text, tone) in row {
+            out.push_str(&format::paint(text, *tone, options));
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// The last line of `tail` with text in it, without the spaces around it; empty when

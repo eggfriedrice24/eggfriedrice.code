@@ -3,17 +3,18 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{
     ActionFacts, AdminSandboxCheckResult, BlockReason, Blocked, CacheMode, ChainStep, CheckOutcome,
     ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCounts, Grant, HostFact, JudgeKind,
-    Judgement, Launch, Mode, ModeFallback, NetworkMode, PathClassName, ProgramFact, ReportedFile,
-    Risk, SandboxCheck, SandboxExplainResult, SandboxPathRole, SandboxStatus, Scope, SurfaceChange,
-    TargetFact, UserAuthorization, Verdict,
+    Judgement, Launch, Mode, ModeFallback, NetworkMode, PathClassName, PauseReason, Presence,
+    PresenceSource, ProgramFact, ReportedFile, Risk, SandboxCheck, SandboxExplainResult,
+    SandboxPathRole, SandboxStatus, Scope, SurfaceChange, TargetFact, UserAuthorization, Verdict,
 };
 use pretty_assertions::assert_eq;
 
 use super::{
-    Requested, background_stopped, blocked, check, exit_heading, exit_judged, exit_lines,
-    exit_record, exit_summary, explain, fallback_note, fallback_warning, judge_details, reviewed,
-    reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
-    surface_changed, surface_report, survivors, tilde,
+    AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_heading,
+    exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
+    judge_details, paused, presence_changed, reviewed, reviewer_row, reviewing, setup_failed,
+    status_line, surface_answered, surface_change, surface_changed, surface_report, survivors,
+    tilde,
 };
 use crate::format::Tone;
 
@@ -692,4 +693,95 @@ fn the_verbose_verdict_names_the_model_the_chain_and_what_it_skipped() {
         exit_judged(JudgeKind::PresenceExpired, Verdict::Deny, None),
         "exit denied by nobody, while you were away"
     );
+}
+
+#[test]
+fn explain_leaves_who_decides_to_the_reason_when_the_reviewer_may_judge_the_file() {
+    let reviewed = explain(
+        &SandboxExplainResult {
+            reason: "a shell startup file (floor); a write goes to the reviewer when a message \
+                     of yours names the file, and efr keeps a backup copy; else you decide"
+                .to_owned(),
+            ..explained(SandboxPathRole::Floor, true, false)
+        },
+        home(),
+    );
+    assert!(reviewed.ends_with("else you decide; a write is a persistence exit\n"), "{reviewed}");
+    let synced = explain(
+        &SandboxExplainResult {
+            reason: "in a synced folder".to_owned(),
+            write_exit: Some(ExitKind::SyncedWrite),
+            ..explained(SandboxPathRole::ReadOnly, true, false)
+        },
+        home(),
+    );
+    assert!(synced.ends_with("a write is a synced write exit, user only\n"), "{synced}");
+}
+
+#[test]
+fn the_paused_reviewer_and_the_away_expiry_say_what_happens_next() {
+    assert_eq!(
+        paused(PauseReason::InARow, 3),
+        "reviewer paused for this turn: it refused 3 actions in a row; efr asks you for the rest"
+    );
+    assert_eq!(
+        paused(PauseReason::PerTurn, 10),
+        "reviewer paused for this turn: it refused 10 actions; efr asks you for the rest"
+    );
+    assert_eq!(
+        AWAY_EXPIRED,
+        "approval expired: nobody answered while you were away; the call did not run"
+    );
+    assert_eq!(presence_changed(Presence::Away, PresenceSource::User), "away (efr away)");
+    assert_eq!(
+        presence_changed(Presence::Away, PresenceSource::Timeout),
+        "away (no input for a while)"
+    );
+    assert_eq!(presence_changed(Presence::Present, PresenceSource::Input), "back (input)");
+}
+
+#[test]
+fn a_cache_delete_says_what_it_freed_and_where() {
+    let paths: Vec<PathBuf> = ["/home/u/.cache/go-build/ab/1", "/home/u/.cache/go-build/cd/2"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    assert_eq!(
+        cache_freed(&paths, 1_234_000_000, home()),
+        "freed 1.2 GB in ~/.cache/go-build (2 paths)"
+    );
+    let spread = [PathBuf::from("/home/u/.cache/x/1"), PathBuf::from("/home/u/.cargo/registry/2")];
+    assert_eq!(cache_freed(&spread, 3_100, home()), "freed 3.1 KB in ~ (2 paths)");
+    assert_eq!(cache_freed(&[], 0, home()), "freed 0 B in the tool caches (0 paths)");
+}
+
+#[test]
+fn the_verbose_record_names_the_cache_deletes_the_backup_the_edit_and_the_reviewer_count() {
+    let mut record = record("");
+    record.action.tool = "write_file".to_owned();
+    record.action.edit = Some("alias k=kubectl\n".to_owned());
+    record.facts.targets = vec![
+        TargetFact { backup_before_write: true, ..target("/home/u/.zshrc") },
+        TargetFact {
+            class: Some(PathClassName::Cache),
+            floor: false,
+            ..target("/home/u/.cache/x")
+        },
+        TargetFact {
+            class: Some(PathClassName::BuildOutput),
+            floor: false,
+            ..target("/home/u/p/app/target")
+        },
+        TargetFact {
+            class: Some(PathClassName::Trash),
+            floor: false,
+            ..target("/home/u/.local/share/efr/trash/1")
+        },
+    ];
+    record.facts.denials_in_a_row = 2;
+    record.facts.denials_this_turn = 4;
+    let lines =
+        exit_record(&[ExitKind::Write], &[], ExitSource::CacheDelete, &record, home()).join("\n");
+    insta::assert_snapshot!(lines);
+    assert!(!lines.contains("kubectl"), "the payload never shows: {lines}");
 }

@@ -492,6 +492,7 @@ fn sizes_count_in_thousands() {
     assert_eq!(size(999), "999 B");
     assert_eq!(size(3_250), "3.2 KB");
     assert_eq!(size(1_450_000), "1.4 MB");
+    assert_eq!(size(2_180_000_000), "2.1 GB");
 }
 
 #[test]

@@ -1,0 +1,57 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -cache\")),\nSent(900, ended(1, Some(0), None)), Sent(905, cache_deletes(1, &deleted)),\nSent(905, review_started(1, &[ExitKind::Write])),\nSent(910,\nreviewed(1, Verdict::Allow, Some(Risk::Low), \"you asked to free disk space\")),\nSent(1_200, Event::CacheDeleteApplied\n{\n    turn_id: turn(), call_id: id(1), paths:\n    deleted.iter().map(PathBuf::from).collect(), freed_bytes: 1_234_000_000,\n}),])"
+---
+=== 40 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ go clean -cache\e[0m
+  \e[32m✓\e[0m
+
+\e[2mreviewer allowed: delete 2 paths in\e[0m
+  \e[2m~/.cache/go-build for this call (low\e[0m
+  \e[2mrisk; you asked to free disk space)\e[0m
+\e[2mfreed 1.2 GB in ~/.cache/go-build (2\e[0m
+  \e[2mpaths)\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ go clean -cache
+  ✓
+
+\e[2mreviewer allowed: delete 2 paths in\e[0m
+  \e[2m~/.cache/go-build for this call (low\e[0m
+  \e[2mrisk; you asked to free disk space)\e[0m
+\e[2mfreed 1.2 GB in ~/.cache/go-build (2\e[0m
+  \e[2mpaths)\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m·\e[0m \e[36m$ go clean -cache\e[0m
+  \e[32m✓\e[0m
+
+\e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
+  \e[2myou asked to free disk space)\e[0m
+\e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m·\e[0m $ go clean -cache
+  ✓
+
+\e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
+  \e[2myou asked to free disk space)\e[0m
+\e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+· $ go clean -cache
+  ✓
+
+reviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk; you asked to free disk space)
+freed 1.2 GB in ~/.cache/go-build (2 paths)

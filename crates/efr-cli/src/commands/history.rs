@@ -463,7 +463,17 @@ impl<'a> Transcript<'a> {
                     format!("{} from {}", format::decision(*decision), format::origin(*origin));
                 self.note(&line);
             }
+            Event::ApprovalExpired { away: true, .. } => self.note(sandbox::AWAY_EXPIRED),
             Event::ApprovalExpired { .. } => self.note("the approval expired"),
+            Event::ClassifierPaused { reason, denials, .. } => {
+                self.note(&sandbox::paused(*reason, *denials));
+            }
+            Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
+                self.note(&sandbox::cache_freed(paths, *freed_bytes, self.home));
+            }
+            Event::PresenceChanged { presence, source, .. } => {
+                self.note(&sandbox::presence_changed(*presence, *source));
+            }
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)));
             }
