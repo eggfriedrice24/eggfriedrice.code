@@ -40,7 +40,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use efr_permissions::{ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements};
+use efr_permissions::{
+    Approver, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements,
+};
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     InputWait, JudgeKind, Launch, Mode, Origin, QuestionId, Scope, ShellContext, SurfaceChange,
@@ -323,6 +325,11 @@ struct Ruling {
     problem: Option<String>,
     /// The engine that decided, for where each path of the record stands.
     engine: Arc<Engine>,
+    /// Who approves the call's exits once the user's messages are known; `None`
+    /// without exits.
+    approver: Option<Approver>,
+    /// What a file tool call writes to a floor file, for the record.
+    payload: Option<exit::Payload>,
 }
 
 impl Ruling {
@@ -422,7 +429,7 @@ impl Turn {
             };
         self.settings = Some(settings.clone());
         self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
-        self.user_messages = exit::user_messages(&snapshot.page, turn_id);
+        self.user_messages = exit::user_messages(&snapshot.user_events, turn_id);
         let mut started = vec![Event::TurnStarted {
             turn_id,
             cwd: self.cwd.clone(),
@@ -910,8 +917,24 @@ impl Turn {
             }
             _ => None,
         };
+        let payload = exit::payload(
+            &call.name,
+            &call.input,
+            &decision,
+            engine.locations().home(),
+            &call.context.cwd,
+        );
+        let approver = exit::route(&decision, &self.user_messages, payload.as_ref());
         tracing::debug!(phase = "exit_prediction", elapsed_ms = %watch, "phase=exit_prediction elapsed_ms={}", watch);
-        Judged::Ruled(Box::new(Ruling { requirements, decision, launch, problem, engine }))
+        Judged::Ruled(Box::new(Ruling {
+            requirements,
+            decision,
+            launch,
+            problem,
+            engine,
+            approver,
+            payload,
+        }))
     }
 
     /// The single permission check point: may `call` run, and how?
@@ -1035,6 +1058,7 @@ impl Turn {
             scope: &call.context.scope,
             scratch: &call.context.scratch,
             engine: &ruling.engine,
+            payload: ruling.payload.as_ref(),
         };
         exit::record(action, &self.user_messages, &self.exits)
     }
@@ -1061,7 +1085,8 @@ impl Turn {
             None
         } else {
             let home = ruling.engine.locations().home();
-            let info = exit::info(decision, &ruling.requirements, &ruling.launch, home);
+            let approver = ruling.approver.unwrap_or(Approver::User);
+            let info = exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
             events.push(Event::ExitRequested {
                 turn_id,
                 call_id,

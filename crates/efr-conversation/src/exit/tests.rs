@@ -1,12 +1,15 @@
+mod review;
+
 use std::path::{Path, PathBuf};
 
 use efr_permissions::{
-    CallFacts, ConversationPolicy, Decision, DecisionInput, Engine, Locations, Requirements,
-    TargetKind,
+    Approver, CallFacts, ConversationPolicy, Decision, DecisionInput, Engine, Locations,
+    Requirements, TargetKind,
 };
 use efr_protocol::{
-    BusKind, Event, EventEnvelope, ExitKind, ExitRecord, ExitSource, Grant, Launch, Mode, Needs,
-    Origin, PathClassName, ProjectId, SandboxSummary, Scope, Seq, SurfaceChange, TurnId, Verdict,
+    BusKind, Event, EventEnvelope, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, Launch, Mode,
+    Needs, Origin, PathClassName, ProjectId, SandboxSummary, Scope, Seq, SurfaceChange, TurnId,
+    Verdict,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Clock;
@@ -15,7 +18,7 @@ use pretty_assertions::assert_eq;
 
 use super::{
     Action, TurnExits, bounded, change_names, floor_kinds, grant, info, kinds, quarantined, record,
-    source, tilde, user_messages,
+    route, source, tilde, user_messages,
 };
 
 const HOME: &str = "/home/u";
@@ -57,6 +60,12 @@ fn decide(engine: &Engine, requirements: Requirements) -> Decision {
 
 fn launch_of(line: &str) -> Launch {
     grant(&decide(&engine(), shell(line)))
+}
+
+/// The question about the exits of `decision`, with no user message that names one.
+fn question(decision: &Decision, requirements: &Requirements, launch: &Launch) -> ExitInfo {
+    let approver = route(decision, &[], None).unwrap_or(Approver::User);
+    info(decision, requirements, launch, Path::new(HOME), approver)
 }
 
 #[test]
@@ -141,7 +150,7 @@ fn the_question_says_what_efr_knows_and_what_the_model_says() {
     let decision = decide(&engine, requirements.clone());
     let launch = grant(&decision);
 
-    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    let info = question(&decision, &requirements, &launch);
 
     assert_eq!(info.kinds, vec![ExitKind::Persistence]);
     assert_eq!(info.launch, Launch::Unsandboxed);
@@ -159,7 +168,7 @@ fn the_question_of_a_network_exit_opens_the_network_by_its_launch() {
     let decision = decide(&engine(), requirements.clone());
     let launch = grant(&decision);
 
-    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    let info = question(&decision, &requirements, &launch);
 
     // The launch says what the grant opens; efr has no fact of its own to add.
     assert_eq!(info.launch, Launch::Contained { grants: vec![Grant::OpenNetwork] });
@@ -288,6 +297,7 @@ fn the_record_holds_the_line_the_facts_and_no_model_reason() {
         scope: &Scope::Project(app()),
         scratch: Path::new(SCRATCH),
         engine: &engine,
+        payload: None,
     };
     let messages = vec!["write the notes to notes/today.txt".to_owned()];
 
@@ -342,6 +352,7 @@ fn an_upload_names_its_pattern_and_a_host_its_naming() {
         scope: &Scope::Project(app()),
         scratch: Path::new(SCRATCH),
         engine: &engine,
+        payload: None,
     };
 
     let record = record(action, &["push it to example.com".to_owned()], &TurnExits::default());
@@ -404,7 +415,7 @@ fn a_write_in_a_shared_directory_says_how_it_binds() {
     let requirements = shell("echo x > ~/new.txt").with_facts(made);
     let decision = decide(&engine, requirements.clone());
     let launch = grant(&decision);
-    let made_first = info(&decision, &requirements, &launch, Path::new(HOME));
+    let made_first = question(&decision, &requirements, &launch);
     assert_eq!(
         made_first.facts,
         vec![
@@ -420,7 +431,7 @@ fn a_write_in_a_shared_directory_says_how_it_binds() {
     let requirements = shell("echo x >> ~/.notes").with_facts(existing);
     let decision = decide(&engine, requirements.clone());
     let launch = grant(&decision);
-    let in_place = info(&decision, &requirements, &launch, Path::new(HOME));
+    let in_place = question(&decision, &requirements, &launch);
     assert_eq!(in_place.facts, vec!["in-place writes only; a rename over ~/.notes fails"]);
 }
 
@@ -435,17 +446,17 @@ fn a_write_grant_of_a_directory_says_that_it_opens_every_file_in_it() {
     let decision = decide(&engine(), requirements.clone());
     let launch = grant(&decision);
     assert_eq!(launch, Launch::Contained { grants: vec![Grant::Write { path: documents }] });
-    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    let info = question(&decision, &requirements, &launch);
     assert_eq!(info.facts, vec!["~/Documents is a directory: the call can write every file in it"]);
 }
 
 /// The question of `line` with `needs.outside`, with `facts` from the daemon.
-fn outside_question(line: &str, facts: CallFacts) -> efr_protocol::ExitInfo {
+fn outside_question(line: &str, facts: CallFacts) -> ExitInfo {
     let needs = Needs { outside: true, ..Needs::default() };
     let requirements = shell(line).with_needs(needs).with_facts(facts);
     let decision = decide(&engine(), requirements.clone());
     let launch = grant(&decision);
-    info(&decision, &requirements, &launch, Path::new(HOME))
+    question(&decision, &requirements, &launch)
 }
 
 #[test]
@@ -524,7 +535,7 @@ fn a_bus_exit_without_outside_gets_no_narrower_fact() {
     let requirements = shell("systemctl --failed");
     let decision = decide(&engine(), requirements.clone());
     let launch = grant(&decision);
-    let info = info(&decision, &requirements, &launch, Path::new(HOME));
+    let info = question(&decision, &requirements, &launch);
     assert_eq!(
         info.launch,
         Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::System }] }

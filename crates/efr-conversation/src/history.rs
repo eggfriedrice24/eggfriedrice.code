@@ -41,6 +41,7 @@ use efr_store::compactions::{self, LatestCompactions};
 use efr_store::conversations::{self, Turn};
 use efr_store::events;
 use efr_store::turn_messages::{self, TurnMessages};
+use efr_store::user_messages;
 
 use crate::ConversationError;
 use crate::compaction::{Cut, Placed, Window, gap_note, summary_message};
@@ -132,6 +133,9 @@ pub(crate) struct Snapshot {
     pub(crate) saved: HashMap<TurnId, CachedTurn>,
     /// The newest compaction with a summary, and the newest of any kind.
     pub(crate) compactions: LatestCompactions,
+    /// Every prompt and steer of the conversation, and the events that take one back,
+    /// from the whole log: the name check of an exit reads them, never the page alone.
+    pub(crate) user_events: Vec<EventEnvelope>,
 }
 
 impl Snapshot {
@@ -163,6 +167,7 @@ impl Snapshot {
                     older,
                     saved,
                     compactions: compactions::latest(conn, conversation_id)?,
+                    user_events: user_messages::of_conversation(conn, conversation_id)?,
                 })
             })
             .await

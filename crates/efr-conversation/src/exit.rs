@@ -1,23 +1,30 @@
 //! Exits at the check point: from the engine's decision about a call of the `auto` mode
-//! to the launch that runs it, the question the user reads, and the record that a judge
-//! would read (phase 3).
+//! to the launch that runs it, who approves it, the question the user reads, and the
+//! record that the classifier reads.
 //!
 //! [`grant`] picks the narrowest launch that covers every exit of a decision. The engine
 //! already chose how each write binds its target, so a launch is the union of the
-//! grants, or the exit child when one exit cannot run in the sandbox. [`record`] holds
-//! only user messages, the action and facts that efr collected itself: never tool
-//! output, file contents or the model's reason.
+//! grants, or the exit child when one exit cannot run in the sandbox. [`route`] finishes
+//! the engine's approver of each exit with the user's messages: an exit that the
+//! classifier may judge only when a message names it goes to the user when none does.
+//! [`record`] holds only user messages, the action and facts that efr collected itself:
+//! never tool output, file contents or the model's reason. The one piece of model text
+//! besides the line is the payload of a file tool's floor edit ([`Payload`]), so the
+//! classifier judges what efr will write.
 
 use std::path::{Component, Path, PathBuf};
 
+use efr_permissions::exits;
 use efr_permissions::{
-    Cause, Decision, Engine, ExitNeed, PathClass, Requirements, TargetKind, WriteBind,
+    Approver, Cause, Decision, Engine, ExitNeed, PathClass, Rebuild, Requirements, TargetKind,
+    WriteBind,
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, Grant, HostFact, Launch, PathClassName, ProgramFact, SandboxSummary, Scope,
-    TargetFact, TurnId, Verdict,
+    ExitSource, Grant, HostFact, Launch, PathClassName, PauseReason, ProgramFact, SandboxSummary,
+    Scope, TargetFact, TurnId, Verdict,
 };
+use serde_json::Value;
 
 /// How many refusals in a row without a person stop a turn. Not configurable: the model
 /// must not get a fourth try by changing a setting.
@@ -83,14 +90,199 @@ pub(crate) fn floor_kinds(decision: &Decision) -> Vec<ExitKind> {
     kinds
 }
 
-/// Where the exits of `decision` came from: the model's `needs` when any of them did,
-/// else efr's prediction.
+/// Where the exits of `decision` came from: a delete in a real cache when any of them
+/// did, else the model's `needs` when any of them did, else efr's prediction.
 pub(crate) fn source(decision: &Decision) -> ExitSource {
-    if decision.exits().any(|need| need.source == ExitSource::Needs) {
+    if decision.exits().any(|need| need.source == ExitSource::CacheDelete) {
+        ExitSource::CacheDelete
+    } else if decision.exits().any(|need| need.source == ExitSource::Needs) {
         ExitSource::Needs
     } else {
         ExitSource::Predicted
     }
+}
+
+/// Who approves `need` once the user's messages of the conversation are known: an exit
+/// that the classifier judges only when a message names it goes to the classifier when
+/// one of `messages` names it, else to the user. `messages` must be the uncut list, so
+/// the route and the record read the same names.
+pub(crate) fn approver(need: &ExitNeed, messages: &[String]) -> Approver {
+    match need.approver {
+        Approver::ClassifierWhenNamed if exits::names_match(&need.names, messages) => {
+            Approver::Classifier
+        }
+        Approver::ClassifierWhenNamed => Approver::User,
+        approver => approver,
+    }
+}
+
+/// Who approves the exits of `decision`: the strictest approver of its exits, after
+/// [`approver`]. A payload of a file tool edit that the classifier cannot judge whole
+/// ([`Payload::judgeable`]) gives the user. `None` for a decision without exits.
+pub(crate) fn route(
+    decision: &Decision,
+    messages: &[String],
+    payload: Option<&Payload>,
+) -> Option<Approver> {
+    let approver = decision.exits().map(|need| approver(need, messages)).max()?;
+    if payload.is_some_and(|payload| !payload.judgeable()) {
+        return Some(Approver::User);
+    }
+    Some(approver)
+}
+
+/// The tools that change files in efrd, outside the sandbox.
+const FILE_TOOLS: [&str; 3] = ["write_file", "edit", "apply_patch"];
+
+/// What a file tool writes to a floor file, for the record (`ActionFacts::edit`): the
+/// new content of `write_file`, the old and the new text of `edit`, the parts of an
+/// `apply_patch` for the floor files. The model wrote it, so it can hold attacker text,
+/// as the line can.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Payload {
+    text: String,
+    /// False when efr could not read the whole payload from the input.
+    whole: bool,
+}
+
+impl Payload {
+    /// What marks a payload that the record holds only in part.
+    const CUT: &'static str = "\n[efr cut the payload here: it is longer than 8 KiB, so the \
+                               user decides]";
+
+    /// True when the classifier may judge it: efr read all of it, and it is at most
+    /// [`ActionFacts::MAX_EDIT_BYTES`]. A longer one goes to the user, so the
+    /// classifier never allows an edit that it saw only in part.
+    pub(crate) fn judgeable(&self) -> bool {
+        self.whole && self.text.len() <= ActionFacts::MAX_EDIT_BYTES
+    }
+
+    /// The text for the record: all of it, or, for one that the user decides, its start
+    /// and a marker, within [`ActionFacts::MAX_EDIT_BYTES`].
+    pub(crate) fn recorded(&self) -> String {
+        if self.text.len() <= ActionFacts::MAX_EDIT_BYTES {
+            return self.text.clone();
+        }
+        let mut end = ActionFacts::MAX_EDIT_BYTES - Self::CUT.len();
+        while !self.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}{}", &self.text[..end], Self::CUT)
+    }
+}
+
+/// The payload of a file tool call that writes a floor file, which efrd copies first
+/// ([`ExitNeed::backup_before_write`]); `None` for any other call. `home` and `cwd`
+/// resolve a path of a patch as the tool does.
+pub(crate) fn payload(
+    tool: &str,
+    input: &Value,
+    decision: &Decision,
+    home: &Path,
+    cwd: &Path,
+) -> Option<Payload> {
+    if !FILE_TOOLS.contains(&tool) {
+        return None;
+    }
+    let targets: Vec<&Path> = decision
+        .exits()
+        .filter(|need| need.backup_before_write)
+        .filter_map(|need| need.target.as_deref())
+        .collect();
+    if targets.is_empty() {
+        return None;
+    }
+    let text = |key: &str| input.get(key).and_then(Value::as_str);
+    let found = match tool {
+        "write_file" => text("content").map(str::to_owned),
+        "edit" => match (text("old_string"), text("new_string")) {
+            (Some(old), Some(new)) => {
+                let all = if input.get("replace_all") == Some(&Value::Bool(true)) {
+                    " (every occurrence)"
+                } else {
+                    ""
+                };
+                Some(format!("old_string{all}:\n{old}\nnew_string:\n{new}"))
+            }
+            _ => None,
+        },
+        _ => patch_text(input).map(|patch| patch_parts(patch, &targets, home, cwd)),
+    };
+    Some(match found {
+        Some(text) => Payload { text, whole: true },
+        None => Payload { text: String::new(), whole: false },
+    })
+}
+
+/// The text of an `apply_patch` call: the input itself in the freeform form, or its one
+/// `input` member in the function form.
+fn patch_text(input: &Value) -> Option<&str> {
+    match input {
+        Value::String(text) => Some(text),
+        Value::Object(members) => members.get("input").and_then(Value::as_str),
+        _ => None,
+    }
+}
+
+/// The parts of `patch` that change one of `targets`, each from its `*** Add File:`,
+/// `*** Update File:` or `*** Delete File:` line to the next such line. When a target
+/// has no part of its own, as the real file behind a link that the patch names by the
+/// link, the whole patch: the classifier then reads more, never less.
+fn patch_parts(patch: &str, targets: &[&Path], home: &Path, cwd: &Path) -> String {
+    const HEADS: [&str; 3] = ["*** Add File: ", "*** Update File: ", "*** Delete File: "];
+    let mut parts: Vec<(PathBuf, String)> = Vec::new();
+    for line in patch.lines() {
+        if let Some(raw) = HEADS.iter().find_map(|head| line.strip_prefix(head)) {
+            parts.push((resolve(raw.trim(), home, cwd), String::new()));
+        } else if line.starts_with("*** End Patch") {
+            continue;
+        }
+        if let Some((_, text)) = parts.last_mut() {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    for target in targets {
+        let mine: Vec<&str> = parts
+            .iter()
+            .filter(|(path, _)| path == target)
+            .map(|(_, text)| text.as_str())
+            .collect();
+        if mine.is_empty() {
+            return patch.to_owned();
+        }
+        for text in mine {
+            if !kept.contains(&text) {
+                kept.push(text);
+            }
+        }
+    }
+    kept.concat()
+}
+
+/// `raw`, a path as a file tool's input writes it, made absolute as the tools do: `~`
+/// is the home directory, and a relative path starts at `cwd`.
+fn resolve(raw: &str, home: &Path, cwd: &Path) -> PathBuf {
+    let path = if raw == "~" {
+        home.to_path_buf()
+    } else if let Some(below) = raw.strip_prefix("~/") {
+        home.join(below)
+    } else {
+        cwd.join(raw)
+    };
+    let mut normal = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::RootDir => normal.push("/"),
+            Component::Normal(name) => normal.push(name),
+            Component::ParentDir => {
+                normal.pop();
+            }
+            Component::CurDir | Component::Prefix(_) => {}
+        }
+    }
+    normal
 }
 
 /// What the approval question shows about the exits of `decision`, which run with
@@ -100,6 +292,7 @@ pub(crate) fn info(
     requirements: &Requirements,
     launch: &Launch,
     home: &Path,
+    approver: Approver,
 ) -> ExitInfo {
     ExitInfo {
         kinds: kinds(decision),
@@ -112,7 +305,7 @@ pub(crate) fn info(
             .and_then(|needs| needs.reason.clone())
             .filter(|reason| !reason.trim().is_empty()),
         judged: None,
-        user_only: decision.exits().any(|need| need.user_only()),
+        user_only: approver != Approver::Classifier,
     }
 }
 
@@ -216,12 +409,20 @@ fn grant_words(grant: &Grant, home: &Path) -> Option<String> {
 }
 
 /// What a turn knows about its own exits and calls, for the record of the next exit and
-/// the refusal limit. It lives in the daemon's turn state, so the model cannot reset it.
+/// the limits on refusals and denials. It lives in the daemon's turn state, so the model
+/// cannot reset it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TurnExits {
-    /// Refusals in a row without a person: floor denials, and classifier denials from
-    /// phase 3. A user's answer sets it to 0.
+    /// Floor refusals in a row without a person's answer. A user's answer sets it to 0;
+    /// a classifier allow does not.
     pub(crate) refusals_in_a_row: u8,
+    /// Classifier denials since its last allow or the user's last answer.
+    pub(crate) denials_in_a_row: u8,
+    /// Classifier denials in the turn.
+    pub(crate) denials_this_turn: u8,
+    /// Why the classifier stopped for the rest of the turn, with the denials that the
+    /// limit counted; `None` while it judges.
+    pub(crate) paused: Option<(PauseReason, u8)>,
     /// Every exit of the turn so far with how it was judged.
     pub(crate) previous: Vec<(ExitKind, Verdict)>,
     /// The names that contained calls of the turn exported, never their values.
@@ -237,15 +438,16 @@ impl TurnExits {
         self.previous.extend(kinds.iter().map(|kind| (*kind, verdict)));
     }
 
-    /// Counts a refusal without a person. True when the turn must stop.
+    /// Counts a floor refusal without a person. True when the turn must stop.
     pub(crate) fn refused(&mut self) -> bool {
         self.refusals_in_a_row = self.refusals_in_a_row.saturating_add(1);
         self.refusals_in_a_row >= REFUSAL_LIMIT
     }
 
-    /// A person answered: the count starts again.
+    /// A person answered: both counts in a row start again.
     pub(crate) fn answered(&mut self) {
         self.refusals_in_a_row = 0;
+        self.denials_in_a_row = 0;
     }
 
     /// Notes what a call through the launcher reported.
@@ -336,20 +538,27 @@ pub(crate) struct Action<'a> {
     pub(crate) scratch: &'a Path,
     /// The engine that decided, for where each path stands.
     pub(crate) engine: &'a Engine,
+    /// What a file tool writes to a floor file, when it writes one.
+    pub(crate) payload: Option<&'a Payload>,
 }
 
 /// The record of the exits of `action`: the user messages, the action, and the facts
 /// that efr collected itself.
+///
+/// `messages` is every user message of the conversation. The record keeps the newest
+/// ones within [`ExitRecord::MAX_USER_MESSAGES_BYTES`] ([`bounded`]), but whether a
+/// message names a target or a host is checked on all of them, with the same check as
+/// the route ([`approver`]), so the two never disagree.
 pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) -> ExitRecord {
-    let messages = bounded(messages);
     let home = action.engine.locations().home();
-    let named = |forms: &[String]| {
-        messages.iter().any(|message| forms.iter().any(|form| message.contains(form.as_str())))
-    };
     let mut targets: Vec<TargetFact> = Vec::new();
     for need in action.decision.exits() {
         let Some(path) = &need.target else { continue };
-        if targets.iter().any(|known| known.path == *path) {
+        let forms = if need.names.is_empty() { path_forms(path, home) } else { need.names.clone() };
+        let named = exits::names_match(&forms, messages);
+        if let Some(known) = targets.iter_mut().find(|known| known.path == *path) {
+            known.named_in_user_messages |= named;
+            known.backup_before_write |= need.backup_before_write;
             continue;
         }
         let place = action.engine.path_facts(path, action.scope, action.scratch);
@@ -361,19 +570,22 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             .is_none_or(|kind| kind.is_some());
         targets.push(TargetFact {
             path: path.clone(),
-            class: place.map(|place| class_name(place.class)),
+            class: place.map(|place| match place.rebuild {
+                Some(rebuild) => rebuild_name(rebuild).unwrap_or_else(|| class_name(place.class)),
+                None => class_name(place.class),
+            }),
             in_write_root: place.is_some_and(|place| place.in_write_root),
             floor: place.is_some_and(|place| place.floor),
             synced: place.is_some_and(|place| place.synced),
             exists,
-            named_in_user_messages: named(&path_forms(path, home)),
-            backup_before_write: false,
+            named_in_user_messages: named,
+            backup_before_write: need.backup_before_write,
         });
     }
     let mut hosts: Vec<HostFact> = Vec::new();
     let mut add_host = |host: String| {
         if !host.is_empty() && !hosts.iter().any(|known| known.host == host) {
-            let named_in_user_messages = named(std::slice::from_ref(&host));
+            let named_in_user_messages = exits::names_match(std::slice::from_ref(&host), messages);
             hosts.push(HostFact {
                 host,
                 on_allow_list: false,
@@ -421,7 +633,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
         .collect();
     ExitRecord {
         version: ExitRecord::VERSION,
-        user_messages: messages.clone(),
+        user_messages: bounded(messages),
         action: ActionFacts {
             tool: action.tool.to_owned(),
             line: action.requirements.command.clone().unwrap_or_default(),
@@ -430,7 +642,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             exits: kinds(action.decision),
             grants: action.launch.grants().to_vec(),
             source: source(action.decision),
-            edit: None,
+            edit: action.payload.map(Payload::recorded),
         },
         facts: ExitFacts {
             targets,
@@ -443,9 +655,21 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             sandbox_export_names: turn.export_names.clone(),
             previous_exits_this_turn: turn.previous.clone(),
             refusals_in_a_row: turn.refusals_in_a_row,
-            denials_in_a_row: 0,
-            denials_this_turn: 0,
+            denials_in_a_row: turn.denials_in_a_row,
+            denials_this_turn: turn.denials_this_turn,
         },
+    }
+}
+
+/// The protocol's class of a path that efr or a tool can make again, for the naming
+/// rule; `None` for a kind that this build does not know, which keeps the engine's
+/// class.
+fn rebuild_name(rebuild: Rebuild) -> Option<PathClassName> {
+    match rebuild {
+        Rebuild::Cache => Some(PathClassName::Cache),
+        Rebuild::BuildOutput => Some(PathClassName::BuildOutput),
+        Rebuild::Trash => Some(PathClassName::Trash),
+        _ => None,
     }
 }
 
