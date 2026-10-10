@@ -88,7 +88,13 @@ Modules:
   items, and output items back to their canonical parts. The body follows Codex:
   `stream: true`, `store: false`, the system prompt as `instructions`,
   `tool_choice: "auto"`, function tools with `strict: false`, and for reasoning models
-  `reasoning: {effort, summary}` with `include: ["reasoning.encrypted_content"]`. The
+  `reasoning: {effort, summary}` with `include: ["reasoning.encrypted_content"]`. A
+  request without tools, such as a review by efrd's classifier, sends neither
+  `tool_choice` nor `parallel_tool_calls`: the API's defaults fit it, and a member
+  that is not sent cannot be refused. `Request::output` becomes `text.format`,
+  `{"type": "json_schema", name, schema, "strict": true}`, beside `verbosity` when
+  the request names one; strict mode needs every property in `required` and
+  `additionalProperties: false`, so the caller's schema gives both. The
   subscription path sends no `max_output_tokens`, which that backend refuses. The API
   path sends the model's own limit from its entry in `[openai] models`, else the
   request's. The provider reads the catalog from memory for each request, with the

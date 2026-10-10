@@ -11,7 +11,7 @@
 //! | `tools` | `{name, description, input_schema}` in the request's order; a freeform tool goes in its function form; left out when there is no tool |
 //! | `tool_choice` | `{"type": "auto"}`, never `any` or `tool`; left out when there is no tool |
 //! | `thinking` | `{"type": "adaptive", "display": "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}` |
-//! | `output_config` | `{"effort": ...}`: `Request::effort`, else the model's default effort (the catalog's [`DEFAULT_EFFORT`](crate::DEFAULT_EFFORT) when the model lists it); left out when neither gives one |
+//! | `output_config` | `{"effort": ..., "format": ...}`: `effort` is `Request::effort`, else the model's default effort (the catalog's [`DEFAULT_EFFORT`](crate::DEFAULT_EFFORT) when the model lists it); `format` is `{"type": "json_schema", "schema": ...}` from `Request::output`; each is left out when nothing gives it, and the member when both are |
 //! | `messages` | the canonical messages, by the rules below |
 //!
 //! Never sent: `temperature`, `top_p`, `top_k`, `stop_sequences`, `metadata`,
@@ -158,7 +158,21 @@ struct BlockBinding {
 
 #[derive(Debug, Clone, Serialize)]
 struct OutputConfig {
-    effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<OutputFormat>,
+}
+
+/// `{"type": "json_schema", "schema": ...}`: the answer is one JSON object that the
+/// schema describes. The API takes no length keywords and needs
+/// `additionalProperties: false` on every object, so the caller's schema must follow
+/// both rules.
+#[derive(Debug, Clone, Serialize)]
+struct OutputFormat {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    schema: Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -302,6 +316,10 @@ pub(crate) fn request_body(
     }
 
     let tool_choice = (!tools.is_empty()).then_some(ToolChoice { kind: "auto" });
+    let format = request
+        .output
+        .as_ref()
+        .map(|output| OutputFormat { kind: "json_schema", schema: output.schema.clone() });
     Ok(MessagesBody {
         model: request.model.clone(),
         stream: true,
@@ -314,7 +332,8 @@ pub(crate) fn request_body(
             display: "summarized",
             block_binding: BlockBinding { prefix_mismatch_behavior: "drop_block" },
         },
-        output_config: effort.map(|effort| OutputConfig { effort }),
+        output_config: (effort.is_some() || format.is_some())
+            .then_some(OutputConfig { effort, format }),
         messages,
     })
 }

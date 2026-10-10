@@ -249,6 +249,82 @@ fn the_effort_is_sent_only_when_the_request_or_the_model_gives_one(
     assert_eq!(value(&body).get("output_config").cloned(), expected);
 }
 
+/// What the catalog says about Haiku 5.5, with the efforts the API lists for it.
+fn haiku() -> ModelInfo {
+    ModelInfo::new("claude-haiku-5-5")
+        .with_context_window(200_000)
+        .with_max_context_window(200_000)
+        .with_max_output_tokens(64_000)
+        .with_efforts(["low", "medium", "high", "xhigh", "max"], Some("medium"))
+        .with_edit_tool(EditTool::Replace)
+}
+
+/// A one-shot request with an output schema and no tools, as the classifier sends it.
+fn verdict_request() -> Request {
+    let mut request = Request::new("claude-haiku-5-5");
+    request.system = Some("You judge one action.".to_owned());
+    request.messages = vec![Message::user("{\"version\":1}")];
+    request.effort = Some("low".to_owned());
+    request.side_call = true;
+    request.one_shot = true;
+    request.output = Some(efr_provider::OutputSchema::new(
+        "exit_verdict",
+        json!({
+            "type": "object",
+            "properties": {"verdict": {"type": "string", "enum": ["allow", "deny"]}},
+            "required": ["verdict"],
+            "additionalProperties": false,
+        }),
+    ));
+    request
+}
+
+#[test]
+fn anthropic_body_sends_output_format() {
+    let body = request_body(&verdict_request(), &AnthropicConfig::new(), Some(&haiku())).unwrap();
+    let body = value(&body);
+    assert_eq!(
+        body["output_config"],
+        json!({
+            "effort": "low",
+            "format": {
+                "type": "json_schema",
+                "schema": {
+                    "type": "object",
+                    "properties": {"verdict": {"type": "string", "enum": ["allow", "deny"]}},
+                    "required": ["verdict"],
+                    "additionalProperties": false,
+                },
+            },
+        })
+    );
+    assert_eq!(body.get("tools"), None);
+    assert_eq!(body.get("tool_choice"), None);
+}
+
+#[test]
+fn an_output_format_without_an_effort_sends_only_the_format() {
+    let mut request = verdict_request();
+    request.effort = None;
+    let model = haiku().with_efforts(Vec::<&str>::new(), None);
+    let body = value(&request_body(&request, &AnthropicConfig::new(), Some(&model)).unwrap());
+    assert_eq!(body["output_config"].get("effort"), None);
+    assert_eq!(body["output_config"]["format"]["type"], json!("json_schema"));
+}
+
+#[test]
+fn a_classifier_request_sends_the_cap_of_its_model_as_max_tokens() {
+    // The classifier sends no limit, and the API needs one: the catalog's cap fills
+    // it, and a model without a cap fails before any network.
+    let request = verdict_request();
+    let body = request_body(&request, &AnthropicConfig::new(), Some(&haiku())).unwrap();
+    assert_eq!(value(&body)["max_tokens"], json!(64_000));
+    assert!(matches!(
+        request_body(&request, &AnthropicConfig::new(), None),
+        Err(ProviderError::UnknownModel { model }) if model == "claude-haiku-5-5"
+    ));
+}
+
 #[test]
 fn a_model_that_only_the_config_names_gets_no_effort() {
     let mut request = request(vec![Message::user("Hello.")]);

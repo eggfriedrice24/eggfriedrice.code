@@ -5,7 +5,11 @@
 //! `ResponsesApiRequest`): `stream: true`, `store: false`, the system prompt as
 //! `instructions`, `tool_choice: "auto"`, function tools with `strict: false`, and
 //! `include: ["reasoning.encrypted_content"]` so that a stateless conversation can send
-//! its reasoning back. The item shapes are Codex's `ResponseItem`
+//! its reasoning back. A request without tools, such as a review by the classifier,
+//! sends neither `tool_choice` nor `parallel_tool_calls`: the API's defaults fit it, and
+//! a member that is not sent cannot be refused. A request with an output schema
+//! (`Request::output`) asks for it as `text.format`, a `json_schema` in strict mode.
+//! The item shapes are Codex's `ResponseItem`
 //! (`codex-rs/protocol/src/models.rs`) and goose's `build_input_items`
 //! (`crates/goose/src/providers/chatgpt_codex.rs`).
 //!
@@ -65,8 +69,10 @@ pub(crate) struct ResponsesBody {
     instructions: Option<String>,
     input: Vec<Value>,
     tools: Vec<Value>,
-    tool_choice: &'static str,
-    parallel_tool_calls: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParam>,
     store: bool,
@@ -87,9 +93,25 @@ struct ReasoningParam {
     summary: Option<String>,
 }
 
+/// The `text` member: how long the answer is, and the form that it must take.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct TextParam {
-    verbosity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verbosity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<TextFormat>,
+}
+
+/// `{"type": "json_schema", name, schema, "strict": true}`: the answer is one JSON
+/// object that the schema describes. Strict mode needs every property in `required`
+/// and `additionalProperties: false`, so the caller's schema must give both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct TextFormat {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    name: String,
+    schema: Value,
+    strict: bool,
 }
 
 /// The body for `request` under `config`. `model` is what the provider knows about the
@@ -129,6 +151,17 @@ pub(crate) fn request_body(
         _ => model.and_then(|model| model.max_output_tokens).or(request.max_output_tokens),
     };
     let freeform = model.is_some_and(|model| model.freeform_tools);
+    let tools: Vec<Value> =
+        request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect();
+    let calls_tools = !tools.is_empty();
+    let format = request.output.as_ref().map(|output| TextFormat {
+        kind: "json_schema",
+        name: output.name.clone(),
+        schema: output.schema.clone(),
+        strict: true,
+    });
+    let verbosity = options.string("text_verbosity");
+    let text = (verbosity.is_some() || format.is_some()).then_some(TextParam { verbosity, format });
     ResponsesBody {
         kind: None,
         model: request.model.clone(),
@@ -137,15 +170,16 @@ pub(crate) fn request_body(
         previous_response_id: None,
         instructions: request.system.clone().filter(|system| !system.is_empty()),
         input: input_items(&request.messages, freeform, |name| request.offers(name)),
-        tools: request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect(),
-        tool_choice: "auto",
-        parallel_tool_calls: options.bool("parallel_tool_calls", config.parallel_tool_calls()),
+        tools,
+        tool_choice: calls_tools.then_some("auto"),
+        parallel_tool_calls: calls_tools
+            .then(|| options.bool("parallel_tool_calls", config.parallel_tool_calls())),
         reasoning,
         store: false,
         include: if reasons { vec![ENCRYPTED_REASONING] } else { Vec::new() },
         max_output_tokens,
         prompt_cache_key: options.string("prompt_cache_key"),
-        text: options.string("text_verbosity").map(|verbosity| TextParam { verbosity }),
+        text,
     }
 }
 

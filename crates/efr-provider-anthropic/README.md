@@ -72,7 +72,8 @@ Modules:
   (a freeform tool in its function form); `tool_choice: {"type": "auto"}`, left out
   with the tools when there is none; `thinking: {"type": "adaptive", "display":
   "summarized", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}`;
-  `output_config: {"effort": ...}`, left out without an effort; `messages`. Never
+  `output_config: {"effort": ..., "format": ...}`, each member left out when nothing
+  gives it and the whole member when neither is there; `messages`. Never
   sent: sampling members, `stop_sequences`, `metadata`, `service_tier` and
   `inference_geo`.
 - `max_tokens`: the request's limit, at most the model's `max_tokens` from the
@@ -86,6 +87,13 @@ Modules:
   is not supported or one that only `[anthropic] models` names, gets no
   `output_config`: the API refuses an effort that the model does not take. A change
   of the effort inside a conversation costs a rebuild of the messages cache.
+- Output schema: `Request::output` becomes `output_config.format`, `{"type":
+  "json_schema", "schema": ...}`, so the answer is one JSON object that the schema
+  describes, such as the verdict of efrd's classifier. The schema's name stays with
+  efr: the API takes none. The API takes no length keywords (`maxLength`) and needs
+  `additionalProperties: false` on every object, so the caller sends a schema that
+  follows these rules and checks lengths itself. A refusal can still give an answer
+  that does not fit the schema.
 - The provider reads no key of `Request::provider_options`: the conversation sends
   OpenAI's `prompt_cache_key` to every provider, and an unknown body member is a 400.
 - An assistant message that this provider wrote goes back as the exact JSON text of

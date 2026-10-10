@@ -164,7 +164,9 @@ fn the_config_sets_the_default_effort_and_summary() {
         .with_reasoning_effort(Some("high".to_owned()))
         .with_reasoning_summary(Some("detailed".to_owned()))
         .with_parallel_tool_calls(false);
-    let body = body(&Request::new("gpt-5.5"), &config);
+    let mut request = Request::new("gpt-5.5");
+    request.tools = vec![shell_tool()];
+    let body = body(&request, &config);
     assert_eq!(body["reasoning"], json!({"effort": "high", "summary": "detailed"}));
     assert_eq!(body["parallel_tool_calls"], json!(false));
 }
@@ -185,6 +187,7 @@ fn the_request_effort_overrides_the_config() {
 fn provider_options_override_the_config() {
     let mut request = Request::new("gpt-5.5");
     request.effort = Some("low".to_owned());
+    request.tools = vec![shell_tool()];
     request.provider_options = serde_json::from_value(json!({
         "reasoning_summary": null,
         "parallel_tool_calls": false,
@@ -207,6 +210,7 @@ fn provider_options_override_the_config() {
 #[test]
 fn provider_options_of_the_wrong_type_are_ignored() {
     let mut request = Request::new("gpt-5.5");
+    request.tools = vec![shell_tool()];
     request.provider_options = serde_json::from_value(json!({
         "reasoning_summary": ["auto"],
         "parallel_tool_calls": "no",
@@ -218,6 +222,80 @@ fn provider_options_of_the_wrong_type_are_ignored() {
     assert_eq!(body["reasoning"], json!({"effort": "high", "summary": "auto"}));
     assert_eq!(body["parallel_tool_calls"], json!(true));
     assert_eq!(body.get("prompt_cache_key"), None);
+}
+
+/// A one-shot request with an output schema and no tools, as the classifier sends it.
+fn verdict_request(model: &str) -> Request {
+    let mut request = Request::new(model);
+    request.system = Some("You judge one action.".to_owned());
+    request.messages = vec![Message::user("{\"version\":1}")];
+    request.side_call = true;
+    request.one_shot = true;
+    request.output = Some(efr_provider::OutputSchema::new(
+        "exit_verdict",
+        json!({
+            "type": "object",
+            "properties": {"verdict": {"type": "string", "enum": ["allow", "deny"]}},
+            "required": ["verdict"],
+            "additionalProperties": false,
+        }),
+    ));
+    request.provider_options.insert("reasoning_summary".to_owned(), Value::Null);
+    request
+}
+
+#[test]
+fn openai_body_sends_json_schema_format() {
+    for config in [OpenAiConfig::subscription(), OpenAiConfig::api()] {
+        let body = body(&verdict_request("gpt-6-luna"), &config);
+        assert_eq!(
+            body["text"],
+            json!({"format": {
+                "type": "json_schema",
+                "name": "exit_verdict",
+                "schema": {
+                    "type": "object",
+                    "properties": {"verdict": {"type": "string", "enum": ["allow", "deny"]}},
+                    "required": ["verdict"],
+                    "additionalProperties": false,
+                },
+                "strict": true,
+            }})
+        );
+        assert_eq!(body["reasoning"], json!({}));
+        assert_eq!(body["store"], json!(false));
+        assert_eq!(body.get("prompt_cache_key"), None);
+    }
+}
+
+#[test]
+fn the_format_and_the_verbosity_share_the_text_member() {
+    let mut request = verdict_request("gpt-6-luna");
+    request.provider_options.insert("text_verbosity".to_owned(), json!("low"));
+    let text = &body(&request, &OpenAiConfig::subscription())["text"];
+    assert_eq!(text["verbosity"], json!("low"));
+    assert_eq!(text["format"]["type"], json!("json_schema"));
+}
+
+#[test]
+fn a_request_without_tools_sends_no_tool_choice() {
+    let body = body(&verdict_request("gpt-6-luna"), &OpenAiConfig::subscription());
+    assert_eq!(body["tools"], json!([]));
+    assert_eq!(body.get("tool_choice"), None);
+    assert_eq!(body.get("parallel_tool_calls"), None);
+}
+
+#[test]
+fn a_request_without_a_limit_sends_only_the_limit_of_its_model() {
+    // The classifier sends no limit: the subscription sends none, and the API sends
+    // the model's own limit when the config gives one, else none.
+    let request = verdict_request("gpt-6-luna");
+    assert_eq!(body(&request, &OpenAiConfig::subscription()).get("max_output_tokens"), None);
+    assert_eq!(body(&request, &OpenAiConfig::api()).get("max_output_tokens"), None);
+    let limited = OpenAiConfig::api().with_models(vec![
+        efr_provider::ModelInfo::new("gpt-6-luna").with_max_output_tokens(32_000),
+    ]);
+    assert_eq!(body(&request, &limited)["max_output_tokens"], json!(32_000));
 }
 
 #[test]
