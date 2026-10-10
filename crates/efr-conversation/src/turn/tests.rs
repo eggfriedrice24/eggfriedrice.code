@@ -30,6 +30,7 @@ mod append_only;
 mod compaction;
 mod context;
 mod drafts;
+mod review;
 mod sandbox;
 mod switch;
 mod tools;

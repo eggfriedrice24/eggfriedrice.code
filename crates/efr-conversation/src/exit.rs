@@ -10,19 +10,20 @@
 //! [`record`] holds only user messages, the action and facts that efr collected itself:
 //! never tool output, file contents or the model's reason. The one piece of model text
 //! besides the line is the payload of a file tool's floor edit ([`Payload`]), so the
-//! classifier judges what efr will write.
+//! classifier judges what efr will write. [`effective`] applies the allow rule and the
+//! naming rule of efr's auto spec (section 9.4) to the classifier's verdict.
 
 use std::path::{Component, Path, PathBuf};
 
-use efr_permissions::exits;
+use efr_permissions::exits::{self, Ecosystem, REGISTRY_HOSTS};
 use efr_permissions::{
     Approver, Cause, Decision, Engine, ExitNeed, PathClass, Rebuild, Requirements, TargetKind,
     WriteBind,
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, Grant, HostFact, Launch, PathClassName, PauseReason, ProgramFact, SandboxSummary,
-    Scope, TargetFact, TurnId, Verdict,
+    ExitSource, Grant, HostFact, Judgement, Launch, PathClassName, PauseReason, ProgramFact, Risk,
+    SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
 };
 use serde_json::Value;
 
@@ -34,8 +35,66 @@ pub(crate) const REFUSAL_LIMIT: u8 = 3;
 pub(crate) const REFUSALS_STOPPED: &str = "auto stopped this turn: 3 actions were refused in a \
                                            row. Read the answers, then send a new prompt.";
 
+/// How many classifier denials in a row stop the classifier for the rest of the turn.
+/// Not configurable, as [`REFUSAL_LIMIT`] is not.
+pub(crate) const DENIALS_IN_A_ROW: u8 = 3;
+
+/// How many classifier denials in one turn stop the classifier for the rest of it.
+pub(crate) const DENIALS_PER_TURN: u8 = 10;
+
 /// What the model reads when the user says no to an exit.
 pub(crate) const EXIT_DENIED: &str = "The user denied the exit; it did not run.";
+
+/// What the model reads when nobody answered a question while the user was away (efr's
+/// auto spec, section 9.5).
+pub(crate) const AWAY_EXPIRED: &str = "Nobody could approve this now; it did not run. Continue \
+                                       without it, and name it in your final answer.";
+
+/// What the model reads when the classifier refused an exit (efr's auto spec, section
+/// 7.6), with the classifier's category and rationale.
+pub(crate) fn reviewer_denied(judgement: &Judgement) -> String {
+    format!(
+        "The auto reviewer refused this action ({}): {}. Do not try to reach the same result \
+         another way. Ask the user, or choose a step that stays in the sandbox.",
+        judgement.category.trim(),
+        judgement.rationale.trim().trim_end_matches('.'),
+    )
+}
+
+/// What a turn fails with when the classifier stopped for the turn and nobody is there
+/// to decide an exit that it would have judged.
+pub(crate) fn away_stopped(reason: PauseReason, denials: u8) -> String {
+    let refused = match reason {
+        PauseReason::PerTurn => format!("refused {denials} actions in this turn"),
+        _ => format!("refused {denials} actions in a row"),
+    };
+    format!(
+        "auto stopped this turn: the reviewer {refused} and nobody could decide. Read the \
+         answers, then send a new prompt."
+    )
+}
+
+/// The registry exception of the naming rule (efr's auto spec, section 9.4): a package
+/// manager's fetch may reach the registries of its ecosystem without a user message that
+/// names them, when a user message asks to build, install, update or fetch. False turns
+/// it off.
+pub(crate) const REGISTRY_EXCEPTION: bool = true;
+
+/// The words of a user message that ask for a package manager's fetch.
+const FETCH_WORDS: &[&str] = &[
+    "build",
+    "builds",
+    "building",
+    "install",
+    "installs",
+    "installing",
+    "update",
+    "updates",
+    "updating",
+    "fetch",
+    "fetches",
+    "fetching",
+];
 
 /// The narrowest launch that covers every exit of `decision`, for a shell call of the
 /// `auto` mode that may run.
@@ -285,6 +344,89 @@ fn resolve(raw: &str, home: &Path, cwd: &Path) -> PathBuf {
     normal
 }
 
+/// What efr does with the classifier's `judgement` about the exits of `record` (efr's
+/// auto spec, section 9.4).
+///
+/// The allow rule: an `allow` stands only at a low or medium risk, or at a high risk
+/// when a user message authorizes it at least at medium; a critical risk never allows.
+/// The naming rule: an exit that writes, edits a file that runs code later or reaches
+/// above a root needs a user message that names each target that efr cannot rebuild
+/// (one outside a cache, build output and efr's trash, and outside the write roots);
+/// a host needs one that names it, except the registries of the package manager's
+/// fetch `fetch` when a user message asks to build, install, update or fetch
+/// ([`REGISTRY_EXCEPTION`]). An `allow` that breaks a rule becomes `ask_user`. The
+/// classes and the names come from efr's facts in the record, never from the line.
+pub(crate) fn effective(
+    record: &ExitRecord,
+    judgement: &Judgement,
+    fetch: Option<Ecosystem>,
+) -> Verdict {
+    match judgement.verdict {
+        Verdict::Allow => {}
+        Verdict::Deny => return Verdict::Deny,
+        _ => return Verdict::AskUser,
+    }
+    let authorized =
+        matches!(judgement.user_authorization, UserAuthorization::Medium | UserAuthorization::High);
+    let risk_fits = match judgement.risk {
+        Risk::Low | Risk::Medium => true,
+        Risk::High => authorized,
+        _ => false,
+    };
+    if !risk_fits || !named(record, fetch) {
+        return Verdict::AskUser;
+    }
+    Verdict::Allow
+}
+
+/// True when the record's user messages name every target and host that the naming
+/// rule of [`effective`] asks a name for.
+fn named(record: &ExitRecord, fetch: Option<Ecosystem>) -> bool {
+    let needs_targets =
+        record.action.exits.iter().any(|kind| {
+            matches!(kind, ExitKind::Write | ExitKind::Persistence | ExitKind::AboveRoot)
+        });
+    let rebuilt = |class: Option<PathClassName>| {
+        matches!(
+            class,
+            Some(PathClassName::Cache | PathClassName::BuildOutput | PathClassName::Trash)
+        )
+    };
+    if needs_targets
+        && record.facts.targets.iter().any(|target| {
+            !target.in_write_root && !rebuilt(target.class) && !target.named_in_user_messages
+        })
+    {
+        return false;
+    }
+    let registries: &[&str] = match fetch {
+        Some(ecosystem) if REGISTRY_EXCEPTION && asks_to_fetch(&record.user_messages) => {
+            REGISTRY_HOSTS
+                .iter()
+                .find(|(known, _)| *known == ecosystem)
+                .map_or(&[], |(_, hosts)| hosts)
+        }
+        _ => &[],
+    };
+    record.facts.hosts.iter().all(|host| {
+        host.on_allow_list
+            || host.named_in_user_messages
+            || registries.contains(&host.host.as_str())
+    })
+}
+
+/// True when a message of `messages` asks to build, install, update or fetch.
+fn asks_to_fetch(messages: &[String]) -> bool {
+    let words: Vec<String> = FETCH_WORDS.iter().map(|word| (*word).to_owned()).collect();
+    exits::names_match(&words, messages)
+}
+
+/// The package ecosystem whose registries a `host` exit of `decision` fetches from, for
+/// the registry exception of [`effective`].
+pub(crate) fn package_fetch(decision: &Decision) -> Option<Ecosystem> {
+    decision.exits().find_map(|need| need.package_fetch)
+}
+
 /// What the approval question shows about the exits of `decision`, which run with
 /// `launch` after a "yes".
 pub(crate) fn info(
@@ -448,6 +590,37 @@ impl TurnExits {
     pub(crate) fn answered(&mut self) {
         self.refusals_in_a_row = 0;
         self.denials_in_a_row = 0;
+    }
+
+    /// The classifier allowed an exit: its denials in a row start again. The floor
+    /// refusals do not: only a person resets them.
+    pub(crate) fn allowed(&mut self) {
+        self.denials_in_a_row = 0;
+    }
+
+    /// Counts a classifier denial. When it reaches a limit, the classifier stops for
+    /// the rest of the turn, and the reason comes back once, with the denials that the
+    /// limit counted.
+    pub(crate) fn denied(&mut self) -> Option<(PauseReason, u8)> {
+        self.denials_in_a_row = self.denials_in_a_row.saturating_add(1);
+        self.denials_this_turn = self.denials_this_turn.saturating_add(1);
+        if self.paused.is_some() {
+            return None;
+        }
+        let paused = if self.denials_in_a_row >= DENIALS_IN_A_ROW {
+            (PauseReason::InARow, self.denials_in_a_row)
+        } else if self.denials_this_turn >= DENIALS_PER_TURN {
+            (PauseReason::PerTurn, self.denials_this_turn)
+        } else {
+            return None;
+        };
+        self.paused = Some(paused);
+        Some(paused)
+    }
+
+    /// True once the classifier stopped for the rest of the turn.
+    pub(crate) fn classifier_off(&self) -> bool {
+        self.paused.is_some()
     }
 
     /// Notes what a call through the launcher reported.

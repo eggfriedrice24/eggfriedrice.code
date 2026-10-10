@@ -32,6 +32,7 @@
 mod coalesce;
 mod compact;
 mod drafter;
+mod review;
 mod stream;
 
 use std::collections::{HashMap, HashSet};
@@ -64,6 +65,7 @@ pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::compact::{Guard, Recovered};
 use self::drafter::Drafter;
+use self::review::Reviewed;
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
 use crate::compaction::{Placed, Window, with_window};
@@ -1077,26 +1079,35 @@ impl Turn {
         let call_id = call.context.call_id;
         let interactive = ruling.requirements.interactive;
         let decision = &ruling.decision;
-        let summary = approvals::summary(&call.name, decision);
-        let diff_preview = self.shared.deps.toolbox.preview(call).await;
         let kinds = exit::kinds(decision);
         let mut events = Vec::with_capacity(2);
         let exit = if kinds.is_empty() {
             None
         } else {
+            let record = self.exit_record(call, ruling);
+            let (recorded, judgement) = match self.review(call, ruling, &record).await? {
+                Reviewed::Decided(authorization) => return Ok(authorization),
+                Reviewed::Ask { recorded, judgement } => (recorded, judgement),
+            };
+            if !recorded {
+                events.push(Event::ExitRequested {
+                    turn_id,
+                    call_id,
+                    kinds: kinds.clone(),
+                    grants: ruling.launch.grants().to_vec(),
+                    source: exit::source(decision),
+                    record: Box::new(record),
+                });
+            }
             let home = ruling.engine.locations().home();
             let approver = ruling.approver.unwrap_or(Approver::User);
-            let info = exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
-            events.push(Event::ExitRequested {
-                turn_id,
-                call_id,
-                kinds: kinds.clone(),
-                grants: ruling.launch.grants().to_vec(),
-                source: exit::source(decision),
-                record: Box::new(self.exit_record(call, ruling)),
-            });
+            let mut info =
+                exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
+            info.judged = judgement;
             Some(info)
         };
+        let summary = approvals::summary(&call.name, decision);
+        let diff_preview = self.shared.deps.toolbox.preview(call).await;
         let answer = self.shared.approvals.park(turn_id, call_id);
         events.push(Event::ApprovalRequested {
             turn_id,

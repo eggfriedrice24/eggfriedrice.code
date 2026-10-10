@@ -4,6 +4,10 @@
 //! a seeded generator, a [`ReplayProvider`] that checks every request, the
 //! [`FakeToolbox`] and the [`FakeScope`]. A test builds its expected requests with the
 //! same types the turn uses, so a request that differs in any message fails the replay.
+//! The review of an exit has its own fakes ([`FakeJudge`], [`FakePresence`]) and a
+//! model that follows a script of calls ([`Script`]).
+
+mod review;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,15 +39,18 @@ use jiff::civil::date;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
+pub(crate) use self::review::{
+    FakeJudge, FakePresence, Script, allows, denies, judged, unanswered,
+};
 use crate::compaction::{LeftOut, summary_request};
 use crate::fresh::FreshFacts;
 use crate::preamble::LiveState;
 use crate::resolver::machine;
 use crate::scratch;
 use crate::{
-    CallContext, ConversationActor, ConversationConfig, ConversationDeps, ConversationDraft,
-    ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink, ScopeResolver,
-    ToolCall, ToolOutcome, Toolbox, draft_channel,
+    CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
+    ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
+    ScopeResolver, ToolCall, ToolOutcome, Toolbox, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -104,6 +111,15 @@ pub(crate) struct FakeToolbox {
     pub(crate) hold_end: AtomicBool,
     pub(crate) end_reached: Notify,
     pub(crate) end_released: Notify,
+    /// What `requirements` answers for a call whose command (a shell call), path (a
+    /// file tool) or text (a freeform call) is a key here, in place of what the input
+    /// declares: the facts that the daemon would collect.
+    pub(crate) declared: Mutex<HashMap<String, Requirements>>,
+    /// What `invoke` answers for a call whose command or path is a key here.
+    pub(crate) outcomes: Mutex<HashMap<String, ToolOutcome>>,
+    /// Every list of paths that `delete_cache_paths` deleted, in order. Each path frees
+    /// 1000 bytes.
+    pub(crate) deleted: Mutex<Vec<Vec<PathBuf>>>,
 }
 
 /// The changes that the command `edit-files` reports: one modified file.
@@ -218,6 +234,18 @@ fn path_list(input: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The key of a call in [`FakeToolbox::declared`] and [`FakeToolbox::outcomes`]: its
+/// command, its path, or the text of a freeform call.
+fn key(input: &Value) -> Option<String> {
+    if let Value::String(text) = input {
+        return Some(text.clone());
+    }
+    ["command", "path"]
+        .iter()
+        .find_map(|key| input.get(key).and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
 fn text_input(input: &Value, key: &str) -> Result<String, String> {
     input
         .get(key)
@@ -234,6 +262,11 @@ impl Toolbox for FakeToolbox {
 
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         self.judged.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
+        if let Some(declared) =
+            key(&call.input).and_then(|key| self.declared.lock().ok()?.get(&key).cloned())
+        {
+            return Ok(declared);
+        }
         match call.name.as_str() {
             "read_file" => Ok(Requirements::none().with_read(text_input(&call.input, "path")?)),
             "write_file" | "edit" => {
@@ -317,6 +350,11 @@ impl Toolbox for FakeToolbox {
             .unwrap_or_else(PoisonError::into_inner)
             .push((call.name.clone(), call.input.clone()));
         self.ran.lock().unwrap_or_else(PoisonError::into_inner).push(call.context.clone());
+        if let Some(outcome) =
+            key(&call.input).and_then(|key| self.outcomes.lock().ok()?.get(&key).cloned())
+        {
+            return outcome;
+        }
         let path = call.input.get("path").and_then(Value::as_str).unwrap_or_default();
         match call.name.as_str() {
             "read_file" => match big_output(path) {
@@ -379,6 +417,16 @@ impl Toolbox for FakeToolbox {
     ) -> Result<(), String> {
         self.restored.lock().unwrap_or_else(PoisonError::into_inner).extend_from_slice(changes);
         Ok(())
+    }
+
+    async fn delete_cache_paths(
+        &self,
+        _call: &CallContext,
+        paths: &[PathBuf],
+    ) -> Result<CacheDeleteOutcome, String> {
+        self.deleted.lock().unwrap_or_else(PoisonError::into_inner).push(paths.to_vec());
+        let freed = u64::try_from(paths.len()).unwrap_or(u64::MAX).saturating_mul(1000);
+        Ok(CacheDeleteOutcome { deleted: paths.to_vec(), freed_bytes: freed })
     }
 
     async fn turn_report(
@@ -456,6 +504,13 @@ pub(crate) struct Setup {
     pub(crate) sandbox: SandboxStatus,
     /// The channel of the turns' drafts; a test subscribes to it to see them.
     pub(crate) drafts: broadcast::Sender<ConversationDraft>,
+    /// The judge of an exit before the user; none unless a test gives one.
+    pub(crate) judge: Option<Arc<FakeJudge>>,
+    /// Whether the user is there; present unless a test says otherwise.
+    pub(crate) presence: Arc<FakePresence>,
+    /// The permission engine, when a test needs another machine than the plain one of
+    /// the home directory and [`project`](Self::project).
+    pub(crate) engine: Option<Engine>,
     /// The seed of the actor's generator. A restarted actor needs another one, or it
     /// would make the ids of the first actor again.
     rng_seed: u64,
@@ -483,6 +538,9 @@ impl Setup {
             project: None,
             sandbox: ready(),
             drafts: draft_channel(),
+            judge: None,
+            presence: Arc::default(),
+            engine: None,
             rng_seed: 7,
         }
     }
@@ -581,7 +639,8 @@ impl Setup {
         if let Some((id, root)) = &self.project {
             locations = locations.with_project(*id, root).expect("project root");
         }
-        let engine = watch::channel(Arc::new(Engine::with_defaults(locations))).1;
+        let engine = self.engine.unwrap_or_else(|| Engine::with_defaults(locations));
+        let engine = watch::channel(Arc::new(engine)).1;
         let (sandbox, sandbox_receiver) = watch::channel(self.sandbox);
         let deps = ConversationDeps {
             provider: model,
@@ -594,8 +653,8 @@ impl Setup {
             rng: Arc::new(TestRng::new(self.rng_seed)),
             home,
             sandbox: sandbox_receiver,
-            judge: None,
-            presence: Arc::new(crate::AlwaysPresent),
+            judge: self.judge.clone().map(|judge| judge as Arc<dyn crate::ExitJudge>),
+            presence: Arc::clone(&self.presence) as Arc<dyn crate::PresenceReader>,
             drafts: self.drafts.clone(),
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
@@ -615,6 +674,8 @@ impl Setup {
             cwd: self.cwd,
             next_command: 100,
             sandbox,
+            judge: self.judge,
+            presence: self.presence,
         }
     }
 }
@@ -637,6 +698,10 @@ pub(crate) struct Harness {
     next_command: u64,
     /// Sends a new probe result, as the daemon does after a probe.
     pub(crate) sandbox: watch::Sender<SandboxStatus>,
+    /// The judge of the setup, if it had one.
+    pub(crate) judge: Option<Arc<FakeJudge>>,
+    /// The presence that the turns read.
+    pub(crate) presence: Arc<FakePresence>,
 }
 
 impl Harness {
@@ -673,6 +738,9 @@ impl Harness {
             project: None,
             sandbox: self.sandbox.borrow().clone(),
             drafts: draft_channel(),
+            judge: self.judge,
+            presence: self.presence,
+            engine: None,
             rng_seed: 8,
         };
         let mut harness =
