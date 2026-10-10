@@ -29,7 +29,7 @@ use crate::launch::{self, Ending, Launch};
 use crate::layer_lock::{self, LAYER_LOCK_WAIT, Locked};
 use crate::real_fs::RealFs;
 use crate::timings::Timings;
-use crate::{exit_child, fds, signals};
+use crate::{deletes, exit_child, fds, signals};
 
 /// The number the records pipe has in every child shell.
 pub(crate) const RECORDS_FD: i32 = efr_sandbox::RECORDS_FD;
@@ -182,12 +182,22 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         }
     };
     timings.lap("layer_lock");
-    let outcome = launch::run(&launch, &mut || {
+    let mut outcome = launch::run(&launch, &mut || {
         stop_if_interrupted()?;
         call.dir.touch(STARTED_FILE)
     })?;
+    timings.append(std::mem::take(&mut outcome.timings));
+    // NOTE: under the layer lock, so in the `overlay` mode no other call of the
+    // conversation changes an upper while the walk reads it.
+    let deletes = match (&outcome.ending, plan.cache_layers()) {
+        (Ending::Ran { .. }, Some(layers)) => {
+            Some(deletes::list(&spec, layers, std::mem::take(&mut outcome.uppers)))
+        }
+        _ => None,
+    };
+    drop(std::mem::take(&mut outcome.uppers));
     drop(layers_lock);
-    timings.append(outcome.timings);
+    timings.lap("cache_deletes");
     let mut result = SandboxResult {
         started: true,
         env_removed: removed,
@@ -199,6 +209,9 @@ fn contained(call: &CallDir) -> Result<SandboxResult, SbxError> {
         ..SandboxResult::default()
     };
     result.summary.confined = true;
+    if let Some(deletes) = deletes {
+        deletes.fill(&mut result.summary);
+    }
     let code = match outcome.ending {
         Ending::SetupFailed { reason, .. } => {
             result.setup_error = Some(reason);

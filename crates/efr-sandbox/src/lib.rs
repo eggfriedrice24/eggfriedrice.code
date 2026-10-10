@@ -1,7 +1,7 @@
 //! The pure logic of the `auto` sandbox: the spec of one call, the mount plan and its
 //! bwrap arguments, Landlock and seccomp as data, the environment and export filters,
-//! the records of a call, the sandbox state, the result file, the surface guard, the
-//! worktree record and the probe's result types.
+//! the records of a call, the sandbox state, the result file, the cache deletes, the
+//! surface guard, the worktree record and the probe's result types.
 //!
 //! efrd builds a [`SandboxSpec`] per call from plain paths; `efr-sbx` checks it, builds
 //! the [`MountPlan`] and launches bwrap with it. Every rule lives here, so efrd's
@@ -9,8 +9,8 @@
 //!
 //! Allowed dependencies: `efr-protocol` (the wire types: grants, the summary, the
 //! status), `serde`, `serde_json` and `thiserror`. What does not belong here: IO
-//! outside [`FsView`], processes, tokio, code outside safe Rust, and the secret
-//! tables (efrd passes their paths).
+//! outside [`FsView`] and [`LayerView`], processes, tokio, code outside safe Rust, and
+//! the secret tables (efrd passes their paths).
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -52,7 +52,10 @@ pub use landlock::{
     ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy, LandlockRule, LandlockScope,
     MIN_LANDLOCK_ABI,
 };
-pub use layers::{CacheLayer, CacheLayers, MAX_LAYERS_BYTES, STAGING_DIR};
+pub use layers::{
+    CacheDeletes, CacheLayer, CacheLayers, DeleteLimits, LayerEntry, LayerView, MAX_DELETE_ENTRIES,
+    MAX_LAYERS_BYTES, STAGING_DIR,
+};
 pub use names::{
     EFR_NAMES, PROXY_NAMES, SECRET_NAMES, SOCKET_NAMES, is_variable_name, matches as name_matches,
     secret_like,

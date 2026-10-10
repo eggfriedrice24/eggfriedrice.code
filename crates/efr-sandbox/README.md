@@ -16,6 +16,7 @@ tested without a kernel.
 | `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules, `explain` for `sandbox.explain` and the start dir of a call |
 | `src/args.rs` | the bwrap argument list, `FdTable` (one descriptor per bind, never reused) and `LaunchFds` |
 | `src/layers.rs` | `CacheLayers`: the cache overlays that `efr-sbx layers` mounts after bwrap's setup, and the mounts inside each cache that move onto it |
+| `src/layers/deletes.rs` | `CacheDeletes`: the paths that a call deleted in its private cache layers (the whiteouts of each upper layer, read through `LayerView`), for `SandboxSummary::cache_deletes`, with the limits that keep `result.json` small |
 | `src/landlock.rs` | `LandlockPolicy` and `FsAccess` as data; no `RESOLVE_UNIX` rule without a socket grant |
 | `src/seccomp.rs` | `SeccompProfile`: the deny list as data |
 | `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount |
@@ -51,8 +52,9 @@ paths, so this crate needs no `efr-permissions` edge.
 Nothing here decides alone what a sandboxed call may do with more rights than the spec
 gives. A mask always wins over a floor, a floor always wins over a widening, the home
 directory is never a write root, a link that a call could change never moves a floor or
-a pin, and the records that a call reports are untrusted data. No IO except through
-`FsView`, no unsafe code, no async.
+a pin, and the records that a call reports are untrusted data. A cache delete counts
+only when the lower entry exists, never at or below a pin, a mask or a moved mount.
+No IO except through `FsView` and `LayerView`, no unsafe code, no async.
 
 ## Tests
 
@@ -62,6 +64,7 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-sandbox
 ```
 
-The tests use `testing::FakeFs`, a file system in memory with links and sockets. No
+The tests use `testing::FakeFs`, a file system in memory with links and sockets, and
+upper layers in memory for the cache deletes. No
 kernel sandbox, no network and no zsh: the real-bwrap tests belong to `efr-sbx` and run
 under `just test-sandbox`.

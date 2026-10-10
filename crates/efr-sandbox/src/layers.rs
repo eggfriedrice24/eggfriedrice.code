@@ -11,12 +11,18 @@
 //! namespaces, mounts each overlay with `userxattr,index=off,xino=off`, moves the
 //! plan's mounts inside the cache (masks, pins, floors) onto the overlay, so they
 //! still win, and unmounts the staging dir. Only then does the inner stage go on.
+//!
+//! After the call, [`CacheDeletes`] lists what the call deleted in its upper layers.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::paths::is_within;
+
+mod deletes;
+
+pub use deletes::{CacheDeletes, DeleteLimits, LayerEntry, LayerView, MAX_DELETE_ENTRIES};
 
 /// The most bytes of the layer plan that the helper reads.
 pub const MAX_LAYERS_BYTES: usize = 1024 * 1024;

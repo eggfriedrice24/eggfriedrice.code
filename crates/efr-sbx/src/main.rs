@@ -16,6 +16,7 @@
 mod bridge;
 mod call;
 mod call_dir;
+mod deletes;
 mod error;
 mod exit_child;
 // NOTE: descriptor numbers that the process does not own yet: `close_range`, `dup3` onto a

@@ -199,6 +199,45 @@ fn tmp_cache_writes_go_away_after_the_call() {
 }
 
 #[test]
+fn cache_upper_lists_whiteouts() {
+    let ready = sandbox_or_skip!();
+    for mode in [CacheMode::Tmp, CacheMode::Overlay] {
+        let mut fixture = Fixture::new(&ready);
+        fixture.spec.cache_mode = mode;
+        let cache = fixture.home.join(".cache");
+        for file in ["gone", "dir/a", "dir/sub/b", "remade/c", "moved/d", "again"] {
+            write(&cache.join(file), "lower\n");
+        }
+        fixture.cache(&cache);
+        // A delete of a lower file and of a lower dir, a dir deleted and made again,
+        // a moved dir, a file deleted and written again, and a new file deleted.
+        let run = fixture.run(&format!(
+            "cd {} && rm gone && rm -rf dir && rm -rf remade && mkdir remade && \
+             mv moved elsewhere && rm again && print new > again && \
+             print tmp > fresh && rm fresh && ls",
+            q(&cache)
+        ));
+        run.expect_status(0);
+        assert_eq!(run.stdout, "again\nelsewhere\nremade\n", "{mode:?}: {run:#?}");
+
+        let summary = &run.result().summary;
+        let mut listed = summary.cache_deletes.clone();
+        listed.sort();
+        assert_eq!(
+            listed,
+            [cache.join("dir"), cache.join("gone"), cache.join("moved")],
+            "{mode:?}: {run:#?}"
+        );
+        assert_eq!(summary.cache_deletes_more, 1, "{mode:?}: the remade dir: {run:#?}");
+        for file in ["gone", "dir/a", "dir/sub/b", "remade/c", "moved/d", "again"] {
+            assert_eq!(fs::read_to_string(cache.join(file)).unwrap(), "lower\n", "{mode:?}");
+        }
+        let lap = run.result().timings.iter().any(|timing| timing.phase == "cache_deletes");
+        assert!(lap, "{mode:?}: the walk has a timing lap: {run:#?}");
+    }
+}
+
+#[test]
 fn a_failed_layer_helper_stops_the_call() {
     let ready = sandbox_or_skip!();
     let mut fixture = Fixture::new(&ready);

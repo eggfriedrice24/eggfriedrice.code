@@ -13,11 +13,13 @@
 //!    work dirs in the staging dir;
 //! 3. moves each opened mount onto the overlay, so it still wins over the cache.
 //!
-//! Then it unmounts the staging dir, so no path inside leads to a layer. It runs
+//! Then it unmounts the staging dir, so no path inside leads to a layer, and sends the
+//! descriptors of the upper dirs to the launcher over its stdout, a Unix socket: after
+//! the call, the launcher lists the cache deletes through them (`deletes.rs`). It runs
 //! before any code of the call, and the call starts only when it exits with 0. Every
 //! failure ends it with the reason on stderr, and the call does not run.
 
-use std::io::{Read, Write};
+use std::io::{IoSlice, Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
@@ -28,6 +30,7 @@ use rustix::fs::{CWD, Mode, OFlags, ResolveFlags};
 use rustix::mount::{
     FsMountFlags, FsOpenFlags, MountAttrFlags, MoveMountFlags, OpenTreeFlags, UnmountFlags,
 };
+use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
 use rustix::thread::LinkNameSpaceType;
 
 use crate::error::SbxError;
@@ -53,11 +56,41 @@ fn run(pid: u32) -> Result<(), SbxError> {
         .map_err(|error| SbxError::os("read the cache layers", error))?;
     let layers = CacheLayers::from_json(&bytes)?;
     enter(pid)?;
+    let mut uppers = Vec::with_capacity(layers.layers.len());
     for layer in &layers.layers {
-        mount(layer, layers.fresh)?;
+        uppers.push(mount(layer, layers.fresh)?);
     }
     rustix::mount::unmount(&layers.staging, UnmountFlags::DETACH)
-        .map_err(|error| SbxError::io("unmount", &layers.staging, error.into()))
+        .map_err(|error| SbxError::io("unmount", &layers.staging, error.into()))?;
+    // NOTE: the uppers only serve the list of cache deletes after the call; when they
+    // cannot go back, the list stays empty and the call runs all the same.
+    let _ = send_uppers(&uppers);
+    Ok(())
+}
+
+/// The most descriptors that one message of [`send_uppers`] carries.
+const UPPERS_PER_MESSAGE: usize = 64;
+
+/// Sends the descriptors of the upper layers, in the order of the plan, over stdout,
+/// which the launcher made one end of a Unix socket pair. Each message carries one byte
+/// per descriptor.
+fn send_uppers(uppers: &[OwnedFd]) -> rustix::io::Result<()> {
+    let stdout = std::io::stdout();
+    for chunk in uppers.chunks(UPPERS_PER_MESSAGE) {
+        let fds: Vec<_> = chunk.iter().map(AsFd::as_fd).collect();
+        let mut space =
+            vec![std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(fds.len()))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        control.push(SendAncillaryMessage::ScmRights(&fds));
+        let bytes = vec![b'u'; fds.len()];
+        rustix::net::sendmsg(
+            stdout.as_fd(),
+            &[IoSlice::new(&bytes)],
+            &mut control,
+            SendFlags::empty(),
+        )?;
+    }
+    Ok(())
 }
 
 /// Enters the user namespace that owns the mounts of `pid`, then its mount namespace,
@@ -86,7 +119,8 @@ fn layer_dir(path: &Path) -> Result<OwnedFd, SbxError> {
         .map_err(|error| SbxError::io("open", path, error.into()))
 }
 
-fn mount(layer: &CacheLayer, fresh: bool) -> Result<(), SbxError> {
+/// Mounts the overlay of `layer`, and returns the descriptor of its upper dir.
+fn mount(layer: &CacheLayer, fresh: bool) -> Result<OwnedFd, SbxError> {
     let moved = layer
         .moved
         .iter()
@@ -131,5 +165,5 @@ fn mount(layer: &CacheLayer, fresh: bool) -> Result<(), SbxError> {
             SbxError::io("move the mount onto the overlay at", path, error.into())
         })?;
     }
-    Ok(())
+    Ok(upper)
 }

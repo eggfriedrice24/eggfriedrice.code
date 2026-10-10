@@ -11,7 +11,8 @@
 //!
 //! When the plan has cache overlays, the inner stage sends its process id once bwrap's
 //! setup is done and waits. The launcher runs `efr-sbx layers` on it, which mounts the
-//! overlays with `index=off` and `xino=off` (bwrap cannot), and then sends `g`. A
+//! overlays with `index=off` and `xino=off` (bwrap cannot), sends the descriptors of
+//! the upper dirs back over a socket pair, and exits; then the launcher sends `g`. A
 //! failed helper fails the launch as a setup failure, and the call does not run.
 
 mod status;
@@ -19,7 +20,7 @@ mod status;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io::{Read, Seek, Write};
+use std::io::{IoSliceMut, Read, Seek, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -32,6 +33,9 @@ use efr_sandbox::{
 };
 use rustix::fs::{MemfdFlags, Mode, OFlags};
 use rustix::io::FdFlags;
+use rustix::net::{
+    AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SocketFlags, SocketType,
+};
 use rustix::pipe::PipeFlags;
 
 pub(crate) use self::status::{BwrapExit, Ending, ending, parse_status};
@@ -75,6 +79,9 @@ pub(crate) struct Outcome {
     pub(crate) records: Option<Vec<u8>>,
     /// How long each step of the launch took.
     pub(crate) timings: Vec<LaunchTiming>,
+    /// The upper dirs of the cache overlays, in the order of the plan, as the layer
+    /// helper sent them; empty without overlays or when they did not come.
+    pub(crate) uppers: Vec<OwnedFd>,
 }
 
 /// Runs the launch. `opened` runs once every bind source is open and before bwrap
@@ -169,14 +176,21 @@ pub(crate) fn run(
     };
     let statuses = reader("efr-sbx-status", status_read, MAX_SIDE_BYTES)?;
     let mut mounts = None;
+    let mut uppers = Vec::new();
     let layers_failed = helper.and_then(|(layers, ready, go)| {
         let pid = read_line(ready);
         timings.lap("bwrap_setup");
         let pid = pid?;
         mounts = mount_namespace(&pid);
-        let failed = mount_layers(launch, layers, &pid, go);
+        let mounted = mount_layers(launch, layers, &pid, go);
         timings.lap("layers");
-        failed
+        match mounted {
+            Ok(sent) => {
+                uppers = sent;
+                None
+            }
+            Err(reason) => Some(reason),
+        }
     });
     let exit = child.wait().map_err(|error| SbxError::os("wait for bwrap", error))?;
     end_orphans();
@@ -204,7 +218,7 @@ pub(crate) fn run(
         },
         None => ending(parse_status(&statuses), &String::from_utf8_lossy(&errors), bwrap),
     };
-    Ok(Outcome { ending, records, timings: timings.into_steps() })
+    Ok(Outcome { ending, records, timings: timings.into_steps(), uppers })
 }
 
 /// Ends what bwrap left behind once it exited. bwrap clones the namespace's init and
@@ -242,21 +256,25 @@ fn mount_namespace(line: &str) -> Option<OwnedFd> {
 
 /// Runs the layer helper on the inner stage, which sent `line` (its process id) when
 /// bwrap's setup was done, and lets the inner stage go on when the helper succeeded.
-/// Returns the reason when the helper failed: then `go` closes unanswered, and the
-/// inner stage stops before the call runs. When bwrap fails first, `ready` ends without
-/// a line, the helper never runs, and bwrap's own message tells why.
+/// Returns the upper dirs that the helper sent back, or the reason when the helper
+/// failed: then `go` closes unanswered, and the inner stage stops before the call runs.
+/// When bwrap fails first, `ready` ends without a line, the helper never runs, and
+/// bwrap's own message tells why.
 fn mount_layers(
     launch: &Launch<'_>,
     layers: &CacheLayers,
     line: &str,
     go: OwnedFd,
-) -> Option<String> {
+) -> Result<Vec<OwnedFd>, String> {
     let Ok(pid) = line.trim().parse::<u32>() else {
-        return Some(format!("the inner stage sent {line:?}, not a process id"));
+        return Err(format!("the inner stage sent {line:?}, not a process id"));
     };
-    let plan = match layers.to_json() {
-        Ok(plan) => plan,
-        Err(error) => return Some(error.to_string()),
+    let plan = layers.to_json().map_err(|error| error.to_string())?;
+    // NOTE: the helper's stdout carries the descriptors of the upper dirs back; a
+    // failed socket pair only loses the list of cache deletes.
+    let (uppers, helper_end) = match upper_socket() {
+        Ok((ours, theirs)) => (Some(ours), Stdio::from(theirs)),
+        Err(_) => (None, Stdio::null()),
     };
     let helper = os::command(&launch.spec.runtime.launcher)
         .arg("layers")
@@ -265,33 +283,61 @@ fn mount_layers(
         .env_clear()
         .current_dir("/")
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(helper_end)
         .stderr(Stdio::piped())
         .spawn();
-    let mut helper = match helper {
-        Ok(helper) => helper,
-        Err(error) => return Some(format!("efr-sbx layers did not start: {error}")),
-    };
+    let mut helper = helper.map_err(|error| format!("efr-sbx layers did not start: {error}"))?;
     let sent = match helper.stdin.take() {
         Some(mut stdin) => stdin.write_all(&plan),
         None => Err(std::io::ErrorKind::BrokenPipe.into()),
     };
-    let output = match helper.wait_with_output() {
-        Ok(output) => output,
-        Err(error) => return Some(format!("efr-sbx layers did not end: {error}")),
-    };
+    let output = helper
+        .wait_with_output()
+        .map_err(|error| format!("efr-sbx layers did not end: {error}"))?;
     if !output.status.success() {
         let text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Some(if text.is_empty() {
+        return Err(if text.is_empty() {
             format!("efr-sbx layers ended with {}", output.status)
         } else {
             text
         });
     }
     if let Err(error) = sent {
-        return Some(format!("efr-sbx layers did not get the plan: {error}"));
+        return Err(format!("efr-sbx layers did not get the plan: {error}"));
     }
-    File::from(go).write_all(b"g").err().map(|error| format!("the inner stage left: {error}"))
+    let uppers = uppers.map(|socket| receive_uppers(&socket)).unwrap_or_default();
+    File::from(go).write_all(b"g").map_err(|error| format!("the inner stage left: {error}"))?;
+    Ok(uppers)
+}
+
+/// The socket pair over which the layer helper sends the upper dirs: the launcher's end
+/// and the helper's stdout.
+fn upper_socket() -> rustix::io::Result<(OwnedFd, OwnedFd)> {
+    rustix::net::socketpair(AddressFamily::UNIX, SocketType::SEQPACKET, SocketFlags::CLOEXEC, None)
+}
+
+/// The descriptors that the layer helper sent on `socket` before it exited, in order,
+/// each close-on-exec. A message that carries something else ends the list.
+fn receive_uppers(socket: &OwnedFd) -> Vec<OwnedFd> {
+    let mut uppers = Vec::new();
+    loop {
+        let mut bytes = [0_u8; 64];
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(64))];
+        let mut control = RecvAncillaryBuffer::new(&mut space);
+        let flags = RecvFlags::DONTWAIT | RecvFlags::CMSG_CLOEXEC;
+        let received =
+            rustix::net::recvmsg(socket, &mut [IoSliceMut::new(&mut bytes)], &mut control, flags);
+        match received {
+            Ok(message) if message.bytes > 0 => {
+                for item in control.drain() {
+                    if let RecvAncillaryMessage::ScmRights(fds) = item {
+                        uppers.extend(fds);
+                    }
+                }
+            }
+            _ => return uppers,
+        }
+    }
 }
 
 /// The first line on `fd` without its newline, at most 64 bytes; `None` when the pipe

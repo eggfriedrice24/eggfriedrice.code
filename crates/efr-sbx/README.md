@@ -9,8 +9,9 @@ efrd wrote, and starts bwrap. bwrap mounts no cache overlay: when bwrap's setup 
 done, the inner stage waits, and `efr-sbx layers` mounts the overlays with `index=off`
 and `xino=off` in the call's namespaces. Then `efr-sbx inner` applies Landlock (ABI 9,
 hard requirement) and the seccomp deny list, and runs the child shell. After the call
-the launcher filters the records, runs the surface guard, and writes `$CALL/apply`, the
-sandbox state and `$CALL/result.json`, in that order. An approved exit runs in the exit
+the launcher lists the cache deletes (the whiteouts in each upper layer, which efrd
+offers to apply to the real cache), filters the records, runs the surface guard, and
+writes `$CALL/apply`, the sandbox state and `$CALL/result.json`, in that order. An approved exit runs in the exit
 child instead: no sandbox, the launcher is a child subreaper, and the exit child's
 process tree ends with the call: SIGTERM, then SIGKILL after 2 s. A process that is
 still there 2 s later (one that runs as another user, such as a root process that
@@ -22,7 +23,7 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 |---|---|
 | `run --call-dir DIR` | one call, contained or in the exit child |
 | `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, then Landlock, seccomp and the child shell |
-| `layers --pid N` (hidden) | enters the namespaces of the inner stage `N` and mounts the cache overlays of the plan on stdin |
+| `layers --pid N` (hidden) | enters the namespaces of the inner stage `N`, mounts the cache overlays of the plan on stdin, and sends the descriptors of their upper dirs back over its stdout, a Unix socket |
 | `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test |
 | `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make |
 | `bridge` (hidden) | the seam of phase 2; it refuses in phase 1 |
@@ -33,7 +34,8 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | `src/call.rs` | `run`: the call dir, the contained launch, apply, state and result |
 | `src/call_dir.rs` | the call dir and shell dir checks; atomic writes |
 | `src/launch.rs`, `src/launch/status.rs` | one bwrap launch: argument and policy memfds, the pipes, the status stream, the handshake with the layer helper |
-| `src/layers.rs` | the layer helper: the cache overlays, and the plan's mounts inside each cache moved onto it |
+| `src/layers.rs` | the layer helper: the cache overlays, the plan's mounts inside each cache moved onto it, and the upper dirs sent back with `SCM_RIGHTS` |
+| `src/deletes.rs` | the cache deletes: `efr_sandbox::CacheDeletes` over the upper dirs that the helper sent, read with `RESOLVE_BENEATH` and `RESOLVE_NO_SYMLINKS`; a whiteout is a character device 0/0, an opaque dir has `user.overlay.opaque` |
 | `src/timings.rs` | the time of each step of a contained launch, for `result.json` and efrd's `phase` debug lines |
 | `src/layer_lock.rs` | in the `overlay` mode, the exclusive `flock` on the conversation's layer dir that each launch holds until its overlays are gone |
 | `src/inner.rs` | the inner stage |
@@ -58,7 +60,7 @@ What the launcher writes, in order:
 | `$CALL/apply` | the filtered `cd`, exports and unsets for `_efr_hs_sbx_apply` |
 | `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
 | `$R/sbx/<conversation>/config-listings.json` | contained calls only, after the surface guard, when its listings changed: git's listing of each config content that the call read. git reads the content on stdin, so a listing depends on the content alone, and the next call runs git only for a new content. A listing of another git (path, inode, size or times) is never used |
-| `$CALL/result.json` | last, by a rename, after every process of the call is gone |
+| `$CALL/result.json` | last, by a rename, after every process of the call is gone; a contained call lists its cache deletes in `summary.cache_deletes` (at most 4096 paths and 256 KiB) and counts the rest in `cache_deletes_more` |
 
 The child shell's contract (efr-shell's `assets/zsh/efr-child.zsh` keeps it):
 `zsh -f efr-child.zsh DIR`, where `DIR` holds `snapshot.zsh`, `state.zsh` (contained
@@ -77,7 +79,8 @@ Tier 2. A binary; nothing depends on it.
 `efr-sandbox` (every rule of the launch) and `efr-protocol` (the wire types in the spec
 and the result). Third-party crates: `landlock` 0.4.7, `seccompiler` 0.5.0 (with its
 json frontend, which maps system call names to numbers), `rustix` (with `mount` for the
-layer helper), `signal-hook`,
+layer helper, and `net` for the socket pair that brings its upper dirs back),
+`signal-hook`,
 `clap`, `libc` (only in `src/fds.rs`), `serde`, `serde_json` and `thiserror`.
 
 No `efr-stdx`: it reaches tokio, and `xtask/src/deps.rs` forbids `efr-sbx -> tokio`.
@@ -111,6 +114,10 @@ async runtime; it reads its own environment, which is the trusted shell's.
   fails, the inner stage stops, and the call does not run. The launcher holds the
   call's mount namespace until bwrap ends, so the kernel tears the overlays down before
   the next call mounts them.
+- The launcher reads an upper layer only after the call, through the descriptor that
+  the helper opened, under the conversation's layer lock. It lists a whiteout only when
+  the lower entry exists, never at or below a pin, a mask or a moved mount, and it never
+  deletes anything itself: efrd decides and deletes.
 - The launcher never runs a program from a place a call can write: git for the surface
   guard comes from a `PATH` dir outside every write root.
 - `unsafe` code exists only in `src/fds.rs` (`xtask/src/tidy.rs` holds the allowlist).
