@@ -354,7 +354,11 @@ async fn sandbox_explain_answers_from_the_plan() {
     std::fs::write(&zshrc, "").unwrap();
     let answer: SandboxExplainResult = client.call(explain(zshrc.clone())).await.unwrap();
     assert_eq!(answer.role, SandboxPathRole::Floor);
-    assert_eq!(answer.reason, "a shell startup file (floor)");
+    assert_eq!(
+        answer.reason,
+        "a shell startup file (floor); a write goes to the reviewer when a message of yours \
+         names the file, and efr keeps a backup copy; else you decide"
+    );
     assert_eq!((answer.read, answer.write), (true, false));
     assert_eq!(answer.write_exit, Some(efr_protocol::ExitKind::Persistence));
     assert_eq!(answer.project.as_deref(), Some(project.as_path()));
@@ -1099,6 +1103,185 @@ async fn shell_a_survivor_of_an_exit_closes_the_hidden_shell() {
     let second_call = kinds.iter().rposition(|kind| *kind == "tool_call_started").unwrap();
     assert_eq!(started.len(), 2, "{kinds:?}");
     assert!(started[0] < exited && exited < second_call && second_call < started[1], "{kinds:?}");
+    daemon.stop().await.unwrap();
+}
+
+/// The entries of efr's backup store of floor files, each a dir with `meta.json`.
+fn backup_entries(dirs: &TestDirs) -> Vec<PathBuf> {
+    let mut entries = Vec::new();
+    let mut todo = vec![dirs.dirs().data().join("file-backups")];
+    while let Some(dir) = todo.pop() {
+        let Ok(read) = std::fs::read_dir(&dir) else { continue };
+        if dir.join("meta.json").is_file() {
+            entries.push(dir.clone());
+        }
+        todo.extend(read.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()));
+    }
+    entries
+}
+
+/// The `meta.json` of a backup entry.
+fn backup_meta(entry: &Path) -> Value {
+    serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn shell_floor_backup_taken_before_exit_child_line() {
+    if !zsh_enabled("shell_floor_backup_taken_before_exit_child_line") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let (launcher, fake) = fake_launcher(&dirs);
+    let zshrc = dirs.home().join(".zshrc");
+    std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
+    let model =
+        ScriptedModel::new(vec![json!({ "command": "echo 'alias k=kubectl' >> ~/.zshrc" })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+
+    let (_, events) =
+        run_turn(&daemon, "add alias k=kubectl to my zshrc", Mode::Auto, ApprovalDecision::Allow)
+            .await;
+
+    let exit = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ApprovalRequested { exit, .. } => exit.clone(),
+        _ => None,
+    });
+    assert_eq!(exit.unwrap().kinds, [efr_protocol::ExitKind::Persistence]);
+    let [spec] = specs(&fake).try_into().unwrap();
+    assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
+    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias ll='ls -l'\nalias k=kubectl\n");
+    let [entry] = backup_entries(&dirs).try_into().unwrap();
+    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
+    assert_eq!(backup_meta(&entry)["path"], json!(zshrc));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_floor_backup_through_linked_config_dir() {
+    if !zsh_enabled("shell_floor_backup_through_linked_config_dir") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let (launcher, fake) = fake_launcher(&dirs);
+    // A stow layout: ~/.config/hypr is a link to a dir in a registered project.
+    let dots = dirs.create_dir("home/p/dots").unwrap();
+    let real = dots.join("hypr/hyprland.conf");
+    std::fs::create_dir_all(real.parent().unwrap()).unwrap();
+    std::fs::write(&real, "gaps_in = 5\n").unwrap();
+    let config = dirs.create_dir("home/.config").unwrap();
+    std::os::unix::fs::symlink(real.parent().unwrap(), config.join("hypr")).unwrap();
+    let line = "sed -i 's/gaps_in = 5/gaps_in = 10/' ~/.config/hypr/hyprland.conf";
+    let model = ScriptedModel::new(vec![json!({ "command": line })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: dots.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+
+    let (_, events) = run_turn(
+        &daemon,
+        "set the gap in my hyprland config to 10",
+        Mode::Auto,
+        ApprovalDecision::Allow,
+    )
+    .await;
+
+    let kinds = kinds(&events);
+    assert!(kinds.contains(&"approval_requested"), "{kinds:?}");
+    let [spec] = specs(&fake).try_into().unwrap();
+    assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
+    assert_eq!(std::fs::read_to_string(&real).unwrap(), "gaps_in = 10\n", "the line ran");
+    let [entry] = backup_entries(&dirs).try_into().unwrap();
+    assert_eq!(std::fs::read_to_string(entry.join("hyprland.conf")).unwrap(), "gaps_in = 5\n");
+    let meta = backup_meta(&entry);
+    assert_eq!(meta["real"], json!(real));
+    assert!(std::fs::symlink_metadata(config.join("hypr")).unwrap().file_type().is_symlink());
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_allowed_floor_edit_keeps_floor_bind_for_contained_code() {
+    let test = "shell_allowed_floor_edit_keeps_floor_bind_for_contained_code";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    // NOTE: below the target dir, not /tmp, which the sandbox replaces with its own.
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    std::fs::write(project.join(".envrc"), "export A=1\n").unwrap();
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+    ]);
+    // The first line edits the project's .envrc, a floor that efr predicts, and runs in
+    // the exit child after the yes. The second hides its write in `sh -c`, so it runs
+    // contained, where the floor stays read only.
+    let model = ScriptedModel::new(vec![
+        json!({ "command": "echo 'export B=2' >> .envrc" }),
+        json!({ "command": "sh -c 'echo C=3 >> .envrc'; echo status=$?; touch ok.txt" }),
+    ]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
+        return;
+    }
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: project.clone(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+
+    let (_, events) =
+        run_turn(&daemon, "add B=2 to my .envrc", Mode::Auto, ApprovalDecision::Allow).await;
+
+    let kinds = kinds(&events);
+    assert_eq!(kinds.iter().filter(|kind| **kind == "approval_requested").count(), 1, "{kinds:?}");
+    let [_, (output, _)] = completed(&events).try_into().unwrap();
+    assert!(output.contains("Read-only file system"), "{output}");
+    assert!(!output.contains("status=0"), "{output}");
+    assert_eq!(
+        std::fs::read_to_string(project.join(".envrc")).unwrap(),
+        "export A=1\nexport B=2\n",
+        "the approved edit ran, the contained one did not"
+    );
+    assert!(project.join("ok.txt").is_file(), "the rest of the project stays writable");
+    let [entry] = backup_entries(&dirs).try_into().unwrap();
+    assert_eq!(std::fs::read_to_string(entry.join(".envrc")).unwrap(), "export A=1\n");
+    drop(client);
     daemon.stop().await.unwrap();
 }
 

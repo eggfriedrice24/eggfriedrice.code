@@ -215,10 +215,10 @@ pub(crate) fn build(
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
     locations = with_efr(locations, sandbox)?;
-    // NOTE: no proxy (phase D), no bus proxy (phase E) and no undo (phase B) yet. The
-    // backup store of floor files sets `floor_backup` once it works, and the mount view
+    // NOTE: no proxy (phase D), no bus proxy (phase E) and no undo (phase B) yet. efrd
+    // copies each floor file before an approved edit (`backups.rs`), and the mount view
     // of phase D sets `mount_view`.
-    let support = AutoSupport { floor_backup: false, mount_view: false, ..AutoSupport::default() };
+    let support = AutoSupport { floor_backup: true, mount_view: false, ..AutoSupport::default() };
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
 }
 
