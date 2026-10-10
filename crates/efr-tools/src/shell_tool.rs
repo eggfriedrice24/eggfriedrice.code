@@ -40,10 +40,11 @@ struct ShellInput {
     /// mode refuses it.
     #[serde(default)]
     nested_shell: bool,
-    /// Only in the auto mode, after a command failed in the sandbox because it needs
-    /// more access. Ask for the narrowest member that fits, with a reason that the user
-    /// sees; the user decides. efr already asks for what it sees in the line itself,
-    /// such as sudo, a push or systemctl, so leave that out. Other modes ignore it.
+    /// Only in the auto mode, after a command failed in the sandbox for access (a
+    /// read-only file system, no network, permission denied). Ask for the narrowest
+    /// member that fits, with a short reason; efr decides. efr already reads what the
+    /// line itself shows, such as sudo, a push or systemctl, so leave that out. Other
+    /// modes ignore it.
     #[serde(default)]
     #[schemars(with = "NeedsInput")]
     needs: Option<Needs>,
@@ -335,14 +336,16 @@ impl Tool for ShellTool {
              and nobody can use a full-screen program in it: no editor works there, and \
              a command that opens one (git commit without -m, crontab -e) fails at once \
              with a message that says so. Give a command its text yourself (git commit \
-             -m) or use write_file. In the auto permission mode each command runs at once \
-             in a sandbox; when one fails there because it needs more access, call shell \
-             again with the narrowest needs that fits and a reason, and the user decides. \
-             needs.outside runs the whole line with the user's full rights, so ask for it \
-             only when no narrower member fits. An approved command that \
-             runs outside the sandbox does not see exports or functions that sandboxed \
-             commands made, and its background processes stop when it ends. In auto, \
-             nested_shell is refused. The \
+             -m) or use write_file. In the auto permission mode the line runs in a \
+             sandbox, and efr decides what leaves it. Run what the user asked; do not ask \
+             the user for permission first. If the command fails for access (read-only \
+             file system, no network, permission denied), call shell again with the same \
+             line and the narrowest needs that fits, and a short reason. needs.outside runs \
+             the whole line with the user's full rights, so ask for it only when no \
+             narrower member fits. A command that runs outside the sandbox does not see \
+             exports or functions that sandboxed commands made, must be alone in its line \
+             apart from read-only helpers such as echo, and its background processes stop \
+             when it ends. In auto, nested_shell is refused. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout keeps running, and the next call waits \
              for it to end. When a command waits for input (a sudo password, a [Y/n] \
@@ -482,17 +485,15 @@ pub fn not_ready_message(fresh: bool, timeout: Duration) -> String {
     }
 }
 
-/// The line after the output of a contained call that failed. efr never
+/// The line after the output of a contained call that failed (spec 4.3). efr never
 /// reads the output for a denial, because the command wrote it: injected text must
-/// not steer the model toward a grant.
-const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox: it can write only in the \
-                            turn's project, registered projects that the command names, \
-                            $SCRATCH, /tmp (private) and the tool caches (private), has no \
-                            network, and cannot use sudo, D-Bus or other sockets; secrets \
-                            read as empty. If it failed for that reason, call shell again \
-                            with the narrowest needs that fits: needs.write for a file or \
-                            directory, needs.bus for D-Bus, needs.hosts for the network; \
-                            needs.outside only when nothing narrower fits.]";
+/// not steer the model toward a grant. The note lists no limits of the sandbox, so the
+/// model does not read it as a refusal.
+const SANDBOX_NOTE: &str = "[efr: this ran in the auto sandbox (writes in the turn's \
+                            project, registered projects that the command names, $SCRATCH, \
+                            /tmp and the tool caches; secrets read as empty). If it failed \
+                            for access, call shell again with the narrowest needs; efr \
+                            decides.]";
 
 /// How a sandboxed run failed, with the launcher's reason.
 enum SandboxFailure {

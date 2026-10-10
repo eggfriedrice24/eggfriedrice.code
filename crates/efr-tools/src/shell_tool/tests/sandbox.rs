@@ -139,13 +139,10 @@ async fn a_failed_contained_call_ends_with_the_sandbox_note() {
     let output = answer(1, json!({ "started": true, "summary": { "confined": true } })).await;
     assert_eq!(
         output,
-        "out\n[exit code 1, cwd /tmp]\n[efr: this ran in the auto sandbox: it can write only \
-         in the turn's project, registered projects that the command names, $SCRATCH, /tmp \
-         (private) and the tool caches (private), has no network, and cannot use sudo, D-Bus \
-         or other sockets; secrets read as empty. If it failed for that reason, call shell \
-         again with the narrowest needs that fits: needs.write for a file or directory, \
-         needs.bus for D-Bus, needs.hosts for the network; needs.outside only when nothing \
-         narrower fits.]"
+        "out\n[exit code 1, cwd /tmp]\n[efr: this ran in the auto sandbox (writes in the \
+         turn's project, registered projects that the command names, $SCRATCH, /tmp and the \
+         tool caches; secrets read as empty). If it failed for access, call shell again with \
+         the narrowest needs; efr decides.]"
     );
     // No note for a call that worked, nor for one that ran in the exit child.
     let worked = answer(0, json!({ "started": true, "summary": { "confined": true } })).await;
@@ -210,28 +207,41 @@ async fn a_run_that_is_still_going_gets_no_sandbox_note() {
 }
 
 #[test]
-fn the_description_names_needs_and_the_rules_of_auto() {
+fn shell_tool_auto_text_says_try_first() {
     let description = tool().spec().description;
-    assert!(
-        description.contains("call shell again with the narrowest needs that fits and a reason"),
-        "{description}"
-    );
-    assert!(
-        description.contains(
-            "needs.outside runs the whole line with the user's full rights, so ask for it only \
-             when no narrower member fits"
-        ),
-        "{description}"
-    );
-    assert!(
-        description.contains(
-            "An approved command that runs outside the sandbox does not see exports or \
-             functions that sandboxed commands made, and its background processes stop when \
-             it ends"
-        ),
-        "{description}"
-    );
-    assert!(description.contains("In auto, nested_shell is refused"), "{description}");
+    for sentence in [
+        "In the auto permission mode the line runs in a sandbox, and efr decides what leaves it",
+        "Run what the user asked; do not ask the user for permission first",
+        "If the command fails for access (read-only file system, no network, permission \
+         denied), call shell again with the same line and the narrowest needs that fits, and \
+         a short reason",
+        "needs.outside runs the whole line with the user's full rights, so ask for it only \
+         when no narrower member fits",
+        "A command that runs outside the sandbox does not see exports or functions that \
+         sandboxed commands made, must be alone in its line apart from read-only helpers such \
+         as echo, and its background processes stop when it ends",
+        "In auto, nested_shell is refused",
+    ] {
+        assert!(description.contains(sentence), "{sentence:?} in {description}");
+    }
+    // The text names no limit that the model could read as a refusal, and the user no
+    // longer decides every step: efr does.
+    for old in ["the user decides", "cannot use", "has no network", "it can write only"] {
+        assert!(!description.contains(old), "{old:?} in {description}");
+    }
+    let schema = tool().spec().input_schema;
+    let needs = schema["properties"]["needs"]["description"].as_str().unwrap();
+    assert!(needs.contains("efr decides") && !needs.contains("the user decides"), "{needs}");
+}
+
+#[test]
+fn sandbox_note_has_no_cannot_list() {
+    let note = super::super::SANDBOX_NOTE;
+    for limit in ["cannot", "no network", "sudo", "D-Bus", "can write only", "needs.bus"] {
+        assert!(!note.contains(limit), "{limit:?} in {note}");
+    }
+    assert!(note.contains("narrowest needs") && note.contains("efr decides"), "{note}");
+    assert!(note.contains("secrets read as empty"), "{note}");
 }
 
 /// The model's answer to `result` of a call with the launch `launch`.
